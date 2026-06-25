@@ -1,6 +1,6 @@
 # TypeScript → Python 核心能力迁移矩阵
 
-该矩阵以行为为迁移单位。原快照缺少构建配置，并存在大量缺失内部模块，因此 `ported` 表示关键行为已在 Python 中重建，而不是逐行翻译。
+该矩阵以行为为迁移单位。原 Claude Code TypeScript 快照现在位于 `references/claude-code/src/`，当前平台实现位于 `platform/backend/src/agent_platform/`。原快照缺少构建配置，并存在大量缺失内部模块，因此 `ported` 表示关键行为已在 Python 中重建，而不是逐行翻译。
 
 | TypeScript 能力 | Python 实现 | 状态 | 说明 |
 |---|---|---|---|

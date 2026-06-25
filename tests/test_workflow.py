@@ -1,18 +1,26 @@
 from __future__ import annotations
 
 import json
+import asyncio
+import shlex
+import shutil
+import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import AsyncIterator
+from typing import Any, AsyncIterator
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
+from pydantic import BaseModel
 
 from agent_platform.api import create_app
+from agent_platform.blocks import build_block_registry
 from agent_platform.config import Settings
 from agent_platform.models import ChatMessage, StreamEvent, ToolDefinition
 from agent_platform.providers.base import ModelProvider, ProviderCapabilities
+from agent_platform.sandbox import CommandResult
+from agent_platform.tools import Tool, ToolContext, ToolResult
 from agent_platform.workflow_runtime import WorkflowRuntime
 from tests.test_runtime import ScriptedProvider
 
@@ -63,6 +71,336 @@ class IncrementalBuilderProvider(ModelProvider):
         yield StreamEvent(type="message_delta", data={"delta": {"stop_reason": "tool_use"}, "usage": {"output_tokens": 1}})
 
 
+class ManualSkippingBuilderProvider(ModelProvider):
+    name = "deepseek"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def capabilities(self, model: str) -> ProviderCapabilities:
+        return ProviderCapabilities(True, True, True, False, False, 100_000, 10_000)
+
+    async def stream(
+        self,
+        *,
+        model: str,
+        system: str,
+        messages: list[ChatMessage],
+        tools: list[ToolDefinition],
+        max_output_tokens: int,
+        thinking_enabled: bool,
+        effort: str,
+        tool_choice: dict[str, str] | None = None,
+        user_id: str | None = None,
+    ) -> AsyncIterator[StreamEvent]:
+        self.calls += 1
+        yield StreamEvent(type="message_start", data={"message": {"usage": {"input_tokens": 1}}})
+        if self.calls == 1:
+            value = {"node": {
+                "id": "turn", "type": "model_turn", "title": "Turn",
+                "config": {"input": "hello", "settings": {"prompt": "hello"}},
+            }}
+            yield StreamEvent(type="content_block_start", data={
+                "index": 0, "content_block": {
+                    "type": "tool_use", "id": "skip-manual", "name": "draft_add_node", "input": {},
+                },
+            })
+            yield StreamEvent(type="content_block_delta", data={
+                "index": 0, "delta": {"type": "input_json_delta", "partial_json": json.dumps(value)},
+            })
+            yield StreamEvent(type="content_block_stop", data={"index": 0})
+            yield StreamEvent(type="message_delta", data={"delta": {"stop_reason": "tool_use"}, "usage": {"output_tokens": 1}})
+        else:
+            yield StreamEvent(type="content_block_start", data={
+                "index": 0, "content_block": {"type": "text", "text": "done"}
+            })
+            yield StreamEvent(type="content_block_delta", data={
+                "index": 0, "delta": {"type": "text_delta", "text": "done"}
+            })
+            yield StreamEvent(type="message_delta", data={"delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 1}})
+
+
+class TemplateExpandBuilderProvider(ModelProvider):
+    name = "deepseek"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def capabilities(self, model: str) -> ProviderCapabilities:
+        return ProviderCapabilities(True, True, True, False, False, 100_000, 10_000)
+
+    async def stream(
+        self,
+        *,
+        model: str,
+        system: str,
+        messages: list[ChatMessage],
+        tools: list[ToolDefinition],
+        max_output_tokens: int,
+        thinking_enabled: bool,
+        effort: str,
+        tool_choice: dict[str, str] | None = None,
+        user_id: str | None = None,
+    ) -> AsyncIterator[StreamEvent]:
+        self.calls += 1
+        yield StreamEvent(type="message_start", data={"message": {"usage": {"input_tokens": 1}}})
+        if self.calls == 1:
+            value = {
+                "name": "claude_like_coding_agent",
+                "prefix": "coding",
+                "position": {"x": 0, "y": 0},
+            }
+            yield StreamEvent(type="content_block_start", data={
+                "index": 0, "content_block": {
+                    "type": "tool_use", "id": "expand-template", "name": "template_expand", "input": {},
+                },
+            })
+            yield StreamEvent(type="content_block_delta", data={
+                "index": 0, "delta": {"type": "input_json_delta", "partial_json": json.dumps(value)},
+            })
+            yield StreamEvent(type="content_block_stop", data={"index": 0})
+            yield StreamEvent(type="message_delta", data={"delta": {"stop_reason": "tool_use"}, "usage": {"output_tokens": 1}})
+        else:
+            yield StreamEvent(type="content_block_start", data={
+                "index": 0, "content_block": {"type": "text", "text": "template expanded"}
+            })
+            yield StreamEvent(type="content_block_delta", data={
+                "index": 0, "delta": {"type": "text_delta", "text": "template expanded"}
+            })
+            yield StreamEvent(type="message_delta", data={"delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 1}})
+
+
+class PromptCaptureProvider(ModelProvider):
+    name = "deepseek"
+
+    def __init__(self) -> None:
+        self.prompts: list[str] = []
+
+    def capabilities(self, model: str) -> ProviderCapabilities:
+        return ProviderCapabilities(True, True, True, False, False, 100_000, 10_000)
+
+    async def stream(
+        self,
+        *,
+        model: str,
+        system: str,
+        messages: list[ChatMessage],
+        tools: list[ToolDefinition],
+        max_output_tokens: int,
+        thinking_enabled: bool,
+        effort: str,
+        tool_choice: dict[str, str] | None = None,
+        user_id: str | None = None,
+    ) -> AsyncIterator[StreamEvent]:
+        prompt = "\n".join(block.text or "" for message in messages for block in message.content)
+        self.prompts.append(prompt)
+        yield StreamEvent(type="message_start", data={"message": {"usage": {"input_tokens": 1}}})
+        yield StreamEvent(type="content_block_start", data={
+            "index": 0, "content_block": {"type": "text", "text": ""}
+        })
+        yield StreamEvent(type="content_block_delta", data={
+            "index": 0, "delta": {"type": "text_delta", "text": "saw tool evidence"}
+        })
+        yield StreamEvent(type="message_delta", data={
+            "delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 1}
+        })
+
+
+class SubagentCaptureProvider(ModelProvider):
+    name = "deepseek"
+
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+
+    def capabilities(self, model: str) -> ProviderCapabilities:
+        return ProviderCapabilities(True, True, True, False, False, 100_000, 10_000)
+
+    async def stream(
+        self,
+        *,
+        model: str,
+        system: str,
+        messages: list[ChatMessage],
+        tools: list[ToolDefinition],
+        max_output_tokens: int,
+        thinking_enabled: bool,
+        effort: str,
+        tool_choice: dict[str, str] | None = None,
+        user_id: str | None = None,
+    ) -> AsyncIterator[StreamEvent]:
+        prompt = "\n".join(block.text or "" for message in messages for block in message.content)
+        self.calls.append({
+            "user_id": user_id,
+            "prompt": prompt,
+            "tools": [tool.name for tool in tools],
+            "max_output_tokens": max_output_tokens,
+        })
+        yield StreamEvent(type="message_start", data={"message": {"usage": {"input_tokens": 3}}})
+        yield StreamEvent(type="content_block_start", data={
+            "index": 0, "content_block": {"type": "text", "text": ""}
+        })
+        yield StreamEvent(type="content_block_delta", data={
+            "index": 0, "delta": {"type": "text_delta", "text": "subagent evidence complete"}
+        })
+        yield StreamEvent(type="message_delta", data={
+            "delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 4}
+        })
+
+
+class EvidenceWebSearchInput(BaseModel):
+    query: str
+    max_results: int = 3
+    language: str = "ja"
+    country: str = "JP"
+
+
+class EvidenceWebSearchTool(Tool):
+    name = "WebSearch"
+    description = "Deterministic test WebSearch evidence provider."
+    input_model = EvidenceWebSearchInput
+
+    async def execute(self, data: dict[str, Any], context: ToolContext) -> ToolResult:
+        args = EvidenceWebSearchInput.model_validate(data)
+        query = args.query
+        slug = query.split()[0].replace("日本", "idol") or "idol"
+        results = [
+            {
+                "title": f"{query} 公式発表 {index}",
+                "url": f"https://news.example.test/{slug}/{index}",
+                "published_at": f"Wed, 24 Jun 2026 0{index}:00:00 GMT",
+                "source": "Example Idol News",
+            }
+            for index in range(1, args.max_results + 1)
+        ]
+        return ToolResult(json.dumps({"query": query, "results": results}, ensure_ascii=False))
+
+
+class LocalToolSandbox:
+    def __init__(self, workspace: Path) -> None:
+        self.workspace = workspace.resolve()
+        self.commands: list[list[str]] = []
+
+    async def run(
+        self,
+        argv: list[str],
+        *,
+        stdin: str | None = None,
+        timeout: float | None = None,
+        max_output: int = 200_000,
+    ) -> CommandResult:
+        self.commands.append(argv)
+        if argv[:2] == ["python", "-c"]:
+            return self._python_tool(argv, stdin=stdin, max_output=max_output)
+        if argv[:2] == ["bash", "-lc"]:
+            return await self._bash(argv[2], stdin=stdin, timeout=timeout, max_output=max_output)
+        return CommandResult(stdout="", stderr=f"unsupported local sandbox command: {argv}", exit_code=127)
+
+    def _path(self, raw: str) -> Path:
+        path = (self.workspace / raw).resolve()
+        if path != self.workspace and self.workspace not in path.parents:
+            raise ValueError("path escapes workspace")
+        return path
+
+    def _python_tool(self, argv: list[str], *, stdin: str | None, max_output: int) -> CommandResult:
+        script = argv[2]
+        path = self._path(argv[3])
+        try:
+            if "splitlines()" in script:
+                offset, limit = int(argv[4]), int(argv[5])
+                lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+                selected = lines[offset: offset + limit]
+                output = "\n".join(
+                    f"{index + 1:6d}\t{line}"
+                    for index, line in enumerate(selected, start=offset)
+                )
+                return CommandResult(stdout=output[:max_output], stderr="", exit_code=0)
+            if "path.write_text(sys.stdin.read()" in script:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(stdin or "", encoding="utf-8")
+                return CommandResult(stdout=f"wrote {path.relative_to(self.workspace)}\n", stderr="", exit_code=0)
+            if "old_string" in script:
+                payload = json.loads(stdin or "{}")
+                text = path.read_text(encoding="utf-8")
+                count = text.count(payload["old_string"])
+                if count == 0:
+                    return CommandResult(stdout="", stderr="old_string not found", exit_code=1)
+                if count > 1 and not payload.get("replace_all"):
+                    return CommandResult(stdout="", stderr=f"old_string has {count} matches", exit_code=1)
+                new = text.replace(
+                    payload["old_string"],
+                    payload["new_string"],
+                    -1 if payload.get("replace_all") else 1,
+                )
+                path.write_text(new, encoding="utf-8")
+                replaced = count if payload.get("replace_all") else 1
+                return CommandResult(stdout=f"replaced {replaced} occurrence(s)\n", stderr="", exit_code=0)
+        except Exception as error:
+            return CommandResult(stdout="", stderr=str(error), exit_code=1)
+        return CommandResult(stdout="", stderr="unsupported python tool script", exit_code=127)
+
+    async def _bash(
+        self,
+        command: str,
+        *,
+        stdin: str | None,
+        timeout: float | None,
+        max_output: int,
+    ) -> CommandResult:
+        process = await asyncio.create_subprocess_exec(
+            "bash",
+            "-lc",
+            command,
+            cwd=self.workspace,
+            stdin=asyncio.subprocess.PIPE if stdin is not None else asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(stdin.encode() if stdin is not None else None),
+                timeout=timeout or 30,
+            )
+        except TimeoutError:
+            process.kill()
+            await process.wait()
+            return CommandResult(stdout="", stderr=f"command timed out: {command}", exit_code=124)
+        return CommandResult(
+            stdout=stdout.decode("utf-8", errors="replace")[:max_output],
+            stderr=stderr.decode("utf-8", errors="replace")[:max_output],
+            exit_code=process.returncode or 0,
+        )
+
+
+class LocalToolSandboxes:
+    def __init__(self, workspace_root: Path) -> None:
+        self.workspace_root = workspace_root.resolve()
+        self.sessions: dict[str, LocalToolSandbox] = {}
+
+    def resolve_workspace(self, requested: str, *, create: bool = False) -> Path:
+        candidate = Path(requested)
+        if not candidate.is_absolute():
+            candidate = self.workspace_root / candidate
+        resolved = candidate.resolve()
+        if resolved != self.workspace_root and self.workspace_root not in resolved.parents:
+            raise ValueError("workspace must stay under test root")
+        if create:
+            resolved.mkdir(parents=True, exist_ok=True)
+        if not resolved.is_dir():
+            raise ValueError(f"workspace does not exist: {resolved}")
+        return resolved
+
+    async def get_or_create(self, session_id: str, workspace_path: str, *_: Any) -> LocalToolSandbox:
+        if session_id not in self.sessions:
+            self.sessions[session_id] = LocalToolSandbox(self.resolve_workspace(workspace_path))
+        return self.sessions[session_id]
+
+    async def remove(self, session_id: str) -> None:
+        self.sessions.pop(session_id, None)
+
+    async def close(self) -> None:
+        self.sessions.clear()
+
+
 def headers() -> dict[str, str]:
     return {"Authorization": "Bearer workflow-test", "Content-Type": "application/json"}
 
@@ -82,6 +420,70 @@ def mutate(client: TestClient, app_id: str, revision: int, op: str, data: dict) 
     return response.json()["revision"]
 
 
+def test_draft_manual_delete_keeps_nodes_and_edges_consistent(tmp_path: Path) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+    )
+    app = create_app(settings, ScriptedProvider())
+    with TestClient(app) as client:
+        app_id = client.post(
+            "/api/v1/applications",
+            headers=headers(),
+            json={"name": "Manual edit", "requirement": "Edit nodes by hand."},
+        ).json()["id"]
+        revision = 0
+        for node in [
+            {"id": "start", "type": "start", "title": "Start", "config": {"inputs": []}},
+            {"id": "join", "type": "variable_aggregator", "title": "Join", "config": {
+                "variables": [{"$ref": {"node_id": "start", "path": ["output"]}}],
+                "mode": "array",
+            }},
+            {"id": "end", "type": "end", "title": "End", "config": {"outputs": {"value": {"$ref": {"node_id": "join", "path": ["output"]}}}}},
+        ]:
+            revision = mutate(client, app_id, revision, "add_node", {"node": node})
+        revision = mutate(client, app_id, revision, "add_edge", {"edge": {
+            "id": "start-join", "source": "start", "target": "join",
+            "source_port": "output", "target_port": "input",
+        }})
+        revision = mutate(client, app_id, revision, "add_edge", {"edge": {
+            "id": "join-end", "source": "join", "target": "end",
+            "source_port": "output", "target_port": "input",
+        }})
+        revision = mutate(client, app_id, revision, "remove_edge", {"edge_id": "start-join"})
+        draft = client.get(f"/api/v1/applications/{app_id}/draft", headers=headers()).json()
+        assert [edge["id"] for edge in draft["snapshot"]["workflow"]["edges"]] == ["join-end"]
+
+        revision = mutate(client, app_id, revision, "remove_node", {"node_id": "join"})
+        draft = client.get(f"/api/v1/applications/{app_id}/draft", headers=headers()).json()
+        assert {node["id"] for node in draft["snapshot"]["workflow"]["nodes"]} == {"start", "end"}
+        assert draft["snapshot"]["workflow"]["edges"] == []
+
+
+def test_application_placeholder_name_is_derived_from_requirement(tmp_path: Path) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+    )
+    app = create_app(settings, ScriptedProvider())
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/applications",
+            headers=headers(),
+            json={
+                "name": "未命名智能体",
+                "requirement": "搭建一个定时 8am 搜索偶像新闻并生成日报的智能体。",
+            },
+        )
+        assert response.status_code == 201, response.text
+        body = response.json()
+        assert body["name"] == "定时 8am 搜索偶像新闻并生成日报的智能体"
+        draft = client.get(f"/api/v1/applications/{body['id']}/draft", headers=headers()).json()
+        assert draft["snapshot"]["name"] == body["name"]
+
+
 def test_citation_gate_requires_every_output_url_to_come_from_tool_evidence() -> None:
     evidence = WorkflowRuntime._extract_urls(
         '{"results":[{"url":"https://news.example/one"},{"url":"https://news.example/two"}]}'
@@ -96,6 +498,178 @@ def test_citation_gate_requires_every_output_url_to_come_from_tool_evidence() ->
     assert valid_output
     assert valid_output <= evidence
     assert corrupted_output - evidence == {"https://news.example/tw0"}
+
+
+def test_validation_enforces_required_visible_blocks_and_tool_nodes(tmp_path: Path) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+    )
+    app = create_app(settings, ScriptedProvider())
+    with TestClient(app) as client:
+        app_id = client.post(
+            "/api/v1/applications",
+            headers=headers(),
+            json={"name": "Visible gate", "requirement": "Require explicit WebSearch bricks."},
+        ).json()["id"]
+        revision = 0
+        for node in [
+            {"id": "start", "type": "start", "title": "Start", "config": {"inputs": []}},
+            {"id": "end", "type": "end", "title": "End", "config": {"outputs": {"ok": True}}},
+        ]:
+            revision = mutate(client, app_id, revision, "add_node", {"node": node})
+        revision = mutate(client, app_id, revision, "add_edge", {"edge": {
+            "id": "a", "source": "start", "target": "end", "source_port": "output", "target_port": "input",
+        }})
+        revision = mutate(client, app_id, revision, "add_test", {"test": {
+            "name": "Needs visible search",
+            "requirement": "The workflow must expose WebSearch as a Tool block.",
+            "inputs": {},
+            "assertions": [{"path": ["ok"], "operator": "equals", "expected": True}],
+            "required_node_types": ["tool"],
+            "required_tool_nodes": ["WebSearch"],
+        }})
+        invalid = client.post(f"/api/v1/applications/{app_id}/draft/validate", headers=headers()).json()
+        assert invalid["valid"] is False
+        assert "missing required node types" in " ".join(invalid["errors"])
+        assert "missing required tool nodes" in " ".join(invalid["errors"])
+
+        revision = mutate(client, app_id, revision, "add_node", {"node": {
+            "id": "search", "type": "tool", "title": "Search", "config": {
+                "tool_name": "WebSearch",
+                "input": {"query": "日本 女性アイドル ニュース", "max_results": 1},
+            },
+        }})
+        revision = mutate(client, app_id, revision, "remove_edge", {"edge_id": "a"})
+        for edge in [
+            {"id": "s-search", "source": "start", "target": "search", "source_port": "output", "target_port": "input"},
+            {"id": "search-end", "source": "search", "target": "end", "source_port": "output", "target_port": "input"},
+        ]:
+            revision = mutate(client, app_id, revision, "add_edge", {"edge": edge})
+        valid = client.post(f"/api/v1/applications/{app_id}/draft/validate", headers=headers()).json()
+        assert valid["valid"] is True, valid
+
+
+def test_validation_warns_when_start_inputs_are_not_connected(tmp_path: Path) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+    )
+    app = create_app(settings, ScriptedProvider())
+    with TestClient(app) as client:
+        app_id = client.post(
+            "/api/v1/applications",
+            headers=headers(),
+            json={"name": "Input wiring", "requirement": "Warn about ignored user inputs."},
+        ).json()["id"]
+        revision = 0
+        for node in [
+            {"id": "start", "type": "start", "title": "Start", "config": {
+                "inputs": [{"name": "topic", "label": "Topic", "type": "string"}],
+            }},
+            {"id": "end", "type": "end", "title": "End", "config": {"outputs": {"ok": True}}},
+        ]:
+            revision = mutate(client, app_id, revision, "add_node", {"node": node})
+        revision = mutate(client, app_id, revision, "add_edge", {"edge": {
+            "id": "start-end", "source": "start", "target": "end",
+            "source_port": "output", "target_port": "input",
+        }})
+        revision = mutate(client, app_id, revision, "add_test", {"test": {
+            "name": "Outputs constant",
+            "requirement": "Workflow returns an output.",
+            "inputs": {"topic": "AI Agent"},
+            "assertions": [{"path": ["ok"], "operator": "equals", "expected": True}],
+        }})
+
+        warning = client.post(f"/api/v1/applications/{app_id}/draft/validate", headers=headers()).json()
+        assert warning["valid"] is True, warning
+        assert "workflow inputs are not connected" in " ".join(warning["warnings"])
+        assert "topic" in " ".join(warning["warnings"])
+
+        revision = mutate(client, app_id, revision, "update_node", {"node_id": "end", "changes": {
+            "config": {"outputs": {"topic": {"$ref": {"node_id": "$inputs", "path": ["topic"]}}}},
+        }, "merge_config": False})
+        connected_raw = client.post(f"/api/v1/applications/{app_id}/draft/validate", headers=headers()).json()
+        assert connected_raw["warnings"] == []
+
+        revision = mutate(client, app_id, revision, "update_node", {"node_id": "end", "changes": {
+            "config": {"outputs": {"payload": {"$ref": {"node_id": "start", "path": ["output"]}}}},
+        }, "merge_config": False})
+        connected_start_output = client.post(
+            f"/api/v1/applications/{app_id}/draft/validate", headers=headers()
+        ).json()
+        assert connected_start_output["warnings"] == []
+
+
+def test_agent_architecture_blocks_execute_as_runtime_steps(tmp_path: Path) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+    )
+    app = create_app(settings, ScriptedProvider())
+    with TestClient(app) as client:
+        app_id = client.post(
+            "/api/v1/applications",
+            headers=headers(),
+            json={"name": "Claude-like blocks", "requirement": "Execute visible agent architecture blocks."},
+        ).json()["id"]
+        revision = 0
+        for node in [
+            {"id": "start", "type": "start", "title": "Start", "config": {
+                "inputs": [{"name": "context", "type": "string"}],
+            }},
+            {"id": "compact", "type": "context_compactor", "title": "Compact", "config": {
+                "input": {"$ref": {"node_id": "start", "path": ["context"]}},
+                "settings": {"max_chars": 32, "preserved_facts": ["tests failed"]},
+            }},
+            {"id": "trace", "type": "event_recorder", "title": "Trace", "config": {
+                "input": {"$ref": {"node_id": "compact", "path": ["output"]}},
+                "settings": {"label": "compaction trace"},
+            }},
+            {"id": "end", "type": "end", "title": "End", "config": {
+                "outputs": {
+                    "summary": {"$ref": {"node_id": "compact", "path": ["output", "summary"]}},
+                    "state": {"$ref": {"node_id": "trace", "path": ["state", "recorded"]}},
+                }
+            }},
+        ]:
+            revision = mutate(client, app_id, revision, "add_node", {"node": node})
+        for edge in [
+            {"id": "a", "source": "start", "target": "compact", "source_port": "output", "target_port": "input"},
+            {"id": "b", "source": "compact", "target": "trace", "source_port": "output", "target_port": "input"},
+            {"id": "c", "source": "trace", "target": "end", "source_port": "output", "target_port": "input"},
+        ]:
+            revision = mutate(client, app_id, revision, "add_edge", {"edge": edge})
+        revision = mutate(client, app_id, revision, "add_test", {"test": {
+            "name": "Visible architecture blocks execute",
+            "requirement": "Context compaction and event recording run as workflow steps.",
+            "inputs": {"context": "tests failed because the calculator subtract function returns the wrong value"},
+            "assertions": [{"path": ["state"], "operator": "equals", "expected": True}],
+            "required_node_types": ["context_compactor", "event_recorder"],
+        }})
+        validation = client.post(f"/api/v1/applications/{app_id}/draft/validate", headers=headers()).json()
+        assert validation["valid"] is True, validation
+        tested = client.post(f"/api/v1/applications/{app_id}/tests/run", headers=headers())
+        assert tested.status_code == 200, tested.text
+        assert tested.json()["passed"] is True, tested.text
+        assert client.post(f"/api/v1/applications/{app_id}/versions", headers=headers()).status_code == 200
+
+        run_id = client.post(
+            f"/api/v1/applications/{app_id}/runs",
+            headers=headers(),
+            json={"inputs": {"context": "tests failed because the calculator subtract function returns the wrong value"}},
+        ).json()["run_id"]
+        for _ in range(100):
+            record = client.get(f"/api/v1/runs/{run_id}", headers=headers()).json()
+            if record["status"] in {"succeeded", "failed"}:
+                break
+            time.sleep(0.01)
+        assert record["status"] == "succeeded", record
+        assert record["outputs"]["state"] is True
+        assert "[compacted]" in record["outputs"]["summary"]
 
 
 def test_incremental_workflow_test_publish_restore(tmp_path: Path) -> None:
@@ -163,6 +737,40 @@ def test_incremental_workflow_test_publish_restore(tmp_path: Path) -> None:
         assert published.json()["version"] == 1
         platform_tools = client.get("/api/v1/tools", headers=headers()).json()
         assert any(item["name"] == f"workflow:{app_id}" for item in platform_tools)
+
+        caller_id = client.post(
+            "/api/v1/applications",
+            headers=headers(),
+            json={"name": "Workflow caller", "requirement": "Call a published workflow as a Tool block."},
+        ).json()["id"]
+        caller_revision = 0
+        for node in [
+            {"id": "start", "type": "start", "title": "Input", "config": {"inputs": [{"name": "name", "type": "string"}]}},
+            {"id": "call", "type": "tool", "title": "Call greeting workflow", "config": {
+                "tool_name": f"workflow:{app_id}",
+                "input": {"name": {"$ref": {"node_id": "start", "path": ["name"]}}},
+            }},
+            {"id": "end", "type": "end", "title": "End", "config": {
+                "outputs": {"nested": {"$ref": {"node_id": "call", "path": ["output"]}}}
+            }},
+        ]:
+            caller_revision = mutate(client, caller_id, caller_revision, "add_node", {"node": node})
+        for edge in [
+            {"id": "caller-a", "source": "start", "target": "call", "source_port": "output", "target_port": "input"},
+            {"id": "caller-b", "source": "call", "target": "end", "source_port": "output", "target_port": "input"},
+        ]:
+            caller_revision = mutate(client, caller_id, caller_revision, "add_edge", {"edge": edge})
+        caller_revision = mutate(client, caller_id, caller_revision, "add_test", {"test": {
+            "name": "Nested workflow tool",
+            "requirement": "A published workflow can be called by another workflow Tool node.",
+            "inputs": {"name": "Lin"},
+            "assertions": [{"path": ["nested", "greeting"], "operator": "equals", "expected": "Hello, Lin!"}],
+            "required_node_types": ["tool"],
+            "required_tool_nodes": [f"workflow:{app_id}"],
+        }})
+        nested_report = client.post(f"/api/v1/applications/{caller_id}/tests/run", headers=headers())
+        assert nested_report.status_code == 200, nested_report.text
+        assert nested_report.json()["passed"] is True, nested_report.text
 
         run = client.post(
             f"/api/v1/applications/{app_id}/runs",
@@ -250,6 +858,551 @@ def test_human_input_pauses_and_resumes(tmp_path: Path) -> None:
         assert record["outputs"] == {"approved": True}
 
 
+def test_permission_gate_and_mailbox_wait_wake_pause_and_resume(tmp_path: Path) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+    )
+    app = create_app(settings, ScriptedProvider())
+    with TestClient(app) as client:
+        app_id = client.post(
+            "/api/v1/applications",
+            headers=headers(),
+            json={"name": "Permission mailbox", "requirement": "Pause for permission, then mailbox wake."},
+        ).json()["id"]
+        revision = 0
+        for node in [
+            {"id": "start", "type": "start", "title": "Start", "config": {"inputs": []}},
+            {"id": "permission", "type": "permission_gate", "title": "Permission", "config": {
+                "input": {"$ref": {"node_id": "start", "path": ["output"]}},
+                "settings": {"reason": "Allow workspace test repair."},
+            }},
+            {"id": "mailbox", "type": "mailbox_wait_wake", "title": "Mailbox", "config": {
+                "input": {"$ref": {"node_id": "permission", "path": ["output"]}},
+                "settings": {},
+            }},
+            {"id": "end", "type": "end", "title": "End", "config": {"outputs": {
+                "approved": {"$ref": {"node_id": "permission", "path": ["state", "approved"]}},
+                "messages": {"$ref": {"node_id": "mailbox", "path": ["state", "messages"]}},
+            }}},
+        ]:
+            revision = mutate(client, app_id, revision, "add_node", {"node": node})
+        for edge in [
+            {"id": "a", "source": "start", "target": "permission", "source_port": "output", "target_port": "input"},
+            {"id": "b", "source": "permission", "target": "mailbox", "source_port": "output", "target_port": "input"},
+            {"id": "c", "source": "mailbox", "target": "end", "source_port": "output", "target_port": "input"},
+        ]:
+            revision = mutate(client, app_id, revision, "add_edge", {"edge": edge})
+        revision = mutate(client, app_id, revision, "add_test", {"test": {
+            "name": "Preset permission and mailbox",
+            "requirement": "Permission and mailbox can be pre-seeded for automated acceptance.",
+            "inputs": {"__permissions__": {"permission": True}, "__mailbox__": {"mailbox": ["wake"]}},
+            "assertions": [
+                {"path": ["approved"], "operator": "equals", "expected": True},
+                {"path": ["messages"], "operator": "equals", "expected": ["wake"]},
+            ],
+            "required_node_types": ["permission_gate", "mailbox_wait_wake"],
+        }})
+        report = client.post(f"/api/v1/applications/{app_id}/tests/run", headers=headers())
+        assert report.status_code == 200, report.text
+        assert report.json()["passed"] is True, report.text
+        assert client.post(f"/api/v1/applications/{app_id}/versions", headers=headers()).status_code == 200
+
+        run_id = client.post(
+            f"/api/v1/applications/{app_id}/runs", headers=headers(), json={"inputs": {}}
+        ).json()["run_id"]
+        for _ in range(100):
+            record = client.get(f"/api/v1/runs/{run_id}", headers=headers()).json()
+            if record["status"] == "paused":
+                break
+            time.sleep(0.01)
+        assert record["status"] == "paused"
+        assert record["state"]["waiting_node_id"] == "permission"
+
+        resumed = client.post(
+            f"/api/v1/runs/{run_id}/resume", headers=headers(), json={"values": {"behavior": "allow"}}
+        )
+        assert resumed.status_code == 200, resumed.text
+        for _ in range(100):
+            record = client.get(f"/api/v1/runs/{run_id}", headers=headers()).json()
+            if record["status"] == "paused" and record["state"]["waiting_node_id"] == "mailbox":
+                break
+            time.sleep(0.01)
+        assert record["status"] == "paused"
+        assert record["state"]["waiting_node_id"] == "mailbox"
+
+        resumed = client.post(
+            f"/api/v1/runs/{run_id}/resume",
+            headers=headers(),
+            json={"values": {"messages": ["triage complete"]}},
+        )
+        assert resumed.status_code == 200, resumed.text
+        for _ in range(100):
+            record = client.get(f"/api/v1/runs/{run_id}", headers=headers()).json()
+            if record["status"] == "succeeded":
+                break
+            time.sleep(0.01)
+        assert record["outputs"] == {"approved": True, "messages": ["triage complete"]}
+        events = client.get(f"/v1/streams/{run_id}", headers=headers()).json()
+        event_types = [event["type"] for event in events]
+        assert "permission.requested" in event_types
+        assert "mailbox.waiting" in event_types
+        assert "mailbox.woke" in event_types
+
+
+def test_tool_result_can_feed_next_model_turn_context(tmp_path: Path) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+    )
+    provider = PromptCaptureProvider()
+    app = create_app(settings, provider)
+    with TestClient(app) as client:
+        app_id = client.post(
+            "/api/v1/applications",
+            headers=headers(),
+            json={"name": "Tool feedback", "requirement": "Feed tool result into the next model turn."},
+        ).json()["id"]
+        revision = 0
+        for node in [
+            {"id": "start", "type": "start", "title": "Start", "config": {"inputs": [
+                {"name": "tool_result", "type": "string"},
+            ]}},
+            {"id": "normalize", "type": "tool_result_normalizer", "title": "Normalize", "config": {
+                "input": {"$ref": {"node_id": "start", "path": ["tool_result"]}},
+                "settings": {},
+            }},
+            {"id": "turn", "type": "model_turn", "title": "Model Turn", "config": {
+                "input": {"$ref": {"node_id": "normalize", "path": ["output"]}},
+                "settings": {
+                    "prompt": {"$ref": {"node_id": "normalize", "path": ["output"]}},
+                    "system": "Use the provided tool evidence.",
+                },
+            }},
+            {"id": "end", "type": "end", "title": "End", "config": {"outputs": {
+                "answer": {"$ref": {"node_id": "turn", "path": ["text"]}},
+            }}},
+        ]:
+            revision = mutate(client, app_id, revision, "add_node", {"node": node})
+        for edge in [
+            {"id": "a", "source": "start", "target": "normalize", "source_port": "output", "target_port": "input"},
+            {"id": "b", "source": "normalize", "target": "turn", "source_port": "output", "target_port": "input"},
+            {"id": "c", "source": "turn", "target": "end", "source_port": "output", "target_port": "input"},
+        ]:
+            revision = mutate(client, app_id, revision, "add_edge", {"edge": edge})
+        revision = mutate(client, app_id, revision, "add_test", {"test": {
+            "name": "Tool evidence reaches model",
+            "requirement": "A normalized tool result enters the next model turn.",
+            "inputs": {"tool_result": "{\"file\":\"calculator.py\",\"failure\":\"subtract returned 5\"}"},
+            "assertions": [{"path": ["answer"], "operator": "equals", "expected": "saw tool evidence"}],
+            "required_node_types": ["tool_result_normalizer", "model_turn"],
+        }})
+        report = client.post(f"/api/v1/applications/{app_id}/tests/run", headers=headers())
+        assert report.status_code == 200, report.text
+        assert report.json()["passed"] is True, report.text
+        assert provider.prompts
+        assert "calculator.py" in provider.prompts[-1]
+        assert "subtract returned 5" in provider.prompts[-1]
+
+
+def test_subagent_spawn_has_independent_context_tools_budget_and_events(tmp_path: Path) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+    )
+    provider = SubagentCaptureProvider()
+    app = create_app(settings, provider)
+    with TestClient(app) as client:
+        local_sandboxes = LocalToolSandboxes(settings.workspace_root)
+        services = app.state.services
+        services.sandboxes = local_sandboxes
+        services.workflow_runtime.sandboxes = local_sandboxes
+        services.runtime.sandboxes = local_sandboxes
+
+        app_id = client.post(
+            "/api/v1/applications",
+            headers=headers(),
+            json={"name": "Subagent runtime", "requirement": "Spawn a bounded subagent with its own context."},
+        ).json()["id"]
+        revision = 0
+        for node in [
+            {"id": "start", "type": "start", "title": "Start", "config": {"inputs": [
+                {"name": "task", "type": "string"},
+            ]}},
+            {"id": "context", "type": "context_assembler", "title": "Context", "config": {
+                "input": {"$ref": {"node_id": "start", "path": ["task"]}},
+                "settings": {"fragments": [{"$ref": {"node_id": "start", "path": ["task"]}}]},
+            }},
+            {"id": "subagent", "type": "subagent_spawn", "title": "Triage Subagent", "config": {
+                "input": {"$ref": {"node_id": "context", "path": ["output"]}},
+                "settings": {
+                    "name": "test-triage-subagent",
+                    "task": "Inspect the supplied failing-test context and return concise evidence.",
+                    "tools": ["Read"],
+                    "budget": {"max_rounds": 2, "max_cost_usd": 0.25},
+                    "workspace_path": ".",
+                },
+            }},
+            {"id": "end", "type": "end", "title": "End", "config": {"outputs": {
+                "result": {"$ref": {"node_id": "subagent", "path": ["output"]}},
+                "session_id": {"$ref": {"node_id": "subagent", "path": ["state", "session_id"]}},
+                "tools": {"$ref": {"node_id": "subagent", "path": ["state", "tools"]}},
+                "max_turns": {"$ref": {"node_id": "subagent", "path": ["state", "max_turns"]}},
+                "max_budget_usd": {"$ref": {"node_id": "subagent", "path": ["state", "max_budget_usd"]}},
+                "usage": {"$ref": {"node_id": "subagent", "path": ["state", "usage"]}},
+            }}},
+        ]:
+            revision = mutate(client, app_id, revision, "add_node", {"node": node})
+        for edge in [
+            {"id": "a", "source": "start", "target": "context", "source_port": "output", "target_port": "input"},
+            {"id": "b", "source": "context", "target": "subagent", "source_port": "output", "target_port": "input"},
+            {"id": "c", "source": "subagent", "target": "end", "source_port": "output", "target_port": "input"},
+        ]:
+            revision = mutate(client, app_id, revision, "add_edge", {"edge": edge})
+        revision = mutate(client, app_id, revision, "add_test", {"test": {
+            "name": "Subagent isolation",
+            "requirement": "Subagent has its own context, tool whitelist, budget, usage, and event stream.",
+            "inputs": {"task": "The failing test says add(7, 5) returned 2."},
+            "assertions": [
+                {"path": ["result"], "operator": "contains", "expected": "subagent evidence complete"},
+                {"path": ["tools"], "operator": "equals", "expected": ["Read"]},
+                {"path": ["max_turns"], "operator": "equals", "expected": 2},
+                {"path": ["max_budget_usd"], "operator": "equals", "expected": 0.25},
+                {"path": ["usage", "input_tokens"], "operator": "equals", "expected": 3},
+                {"path": ["usage", "output_tokens"], "operator": "equals", "expected": 4},
+            ],
+            "required_node_types": ["context_assembler", "subagent_spawn", "end"],
+        }})
+
+        report = client.post(f"/api/v1/applications/{app_id}/tests/run", headers=headers())
+        assert report.status_code == 200, report.text
+        assert report.json()["passed"] is True, report.text
+        run_id = report.json()["tests"][0]["run_id"]
+        run = client.get(f"/api/v1/runs/{run_id}", headers=headers()).json()
+        session_id = run["outputs"]["session_id"]
+        assert session_id != run_id
+        assert provider.calls
+        assert provider.calls[0]["user_id"] == session_id
+        assert provider.calls[0]["tools"] == ["Read"]
+        assert "Inspect the supplied failing-test context" in provider.calls[0]["prompt"]
+
+        workflow_events = client.get(f"/v1/streams/{run_id}", headers=headers()).json()
+        workflow_event_types = [event["type"] for event in workflow_events]
+        assert "subagent.started" in workflow_event_types
+        assert "subagent.event" in workflow_event_types
+        assert "subagent.completed" in workflow_event_types
+        child_events = client.get(f"/v1/streams/{session_id}", headers=headers()).json()
+        child_event_types = [event["type"] for event in child_events]
+        assert "session.started" in child_event_types
+        assert "turn.started" in child_event_types
+        assert "turn.completed" in child_event_types
+
+
+def test_claude_architecture_blocks_fix_python_test_failure_without_legacy_agent(tmp_path: Path) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+    )
+    fixture = Path("examples/broken_python_project").resolve()
+    workspace = settings.workspace_root / "broken-python"
+    shutil.copytree(fixture, workspace)
+
+    python = shlex.quote(sys.executable)
+    pytest_command = f"{python} -m pytest -q"
+    app = create_app(settings, ScriptedProvider())
+    with TestClient(app) as client:
+        local_sandboxes = LocalToolSandboxes(settings.workspace_root)
+        services = app.state.services
+        services.sandboxes = local_sandboxes
+        services.workflow_runtime.sandboxes = local_sandboxes
+        services.runtime.sandboxes = local_sandboxes
+
+        app_id = client.post(
+            "/api/v1/applications",
+            headers=headers(),
+            json={
+                "name": "Python test repair acceptance",
+                "requirement": "Use architecture blocks to read, test, edit, and retest a Python project.",
+            },
+        ).json()["id"]
+        revision = 0
+        nodes = [
+            {"id": "start", "type": "start", "title": "Start", "config": {"inputs": [
+                {"name": "task", "type": "string"},
+            ]}},
+            {"id": "context", "type": "context_assembler", "title": "Context", "config": {
+                "input": {"$ref": {"node_id": "start", "path": ["task"]}},
+                "settings": {"fragments": [{"$ref": {"node_id": "start", "path": ["task"]}}]},
+            }},
+            {"id": "workspace", "type": "workspace_context_injector", "title": "Workspace", "config": {
+                "input": {"$ref": {"node_id": "context", "path": ["output"]}},
+                "settings": {"scope": "fixture", "files": ["calculator.py", "test_calculator.py"]},
+            }},
+            {"id": "compact", "type": "context_compactor", "title": "Compact", "config": {
+                "input": {"$ref": {"node_id": "workspace", "path": ["output"]}},
+                "settings": {"max_chars": 1200, "preserved_facts": ["read files", "pytest evidence"]},
+            }},
+            {"id": "permission", "type": "permission_gate", "title": "Permission", "config": {
+                "input": {"$ref": {"node_id": "compact", "path": ["output"]}},
+                "settings": {"auto_approve": True, "reason": "Allow local test repair."},
+            }},
+            {"id": "sandbox", "type": "sandbox_boundary", "title": "Sandbox", "config": {
+                "input": {"$ref": {"node_id": "permission", "path": ["output"]}},
+                "settings": {"network_policy": "none", "workspace": "broken-python"},
+            }},
+            {"id": "read_source", "type": "tool_executor", "title": "Read calculator.py", "config": {
+                "input": {"$ref": {"node_id": "sandbox", "path": ["output"]}},
+                "settings": {"tool_name": "Read", "workspace_path": "broken-python", "tool_input": {"path": "calculator.py"}},
+            }},
+            {"id": "run_failing_tests", "type": "tool_executor", "title": "Run failing tests", "error_strategy": "continue", "config": {
+                "input": {"$ref": {"node_id": "read_source", "path": ["output"]}},
+                "settings": {"tool_name": "Bash", "workspace_path": "broken-python", "tool_input": {"command": pytest_command, "timeout": 30}},
+            }},
+            {"id": "normalize_failure", "type": "tool_result_normalizer", "title": "Normalize failure", "config": {
+                "input": {"$ref": {"node_id": "run_failing_tests", "path": ["error"]}},
+                "settings": {},
+            }},
+            {"id": "edit_fix", "type": "tool_executor", "title": "Edit fix", "config": {
+                "input": {"$ref": {"node_id": "normalize_failure", "path": ["output"]}},
+                "settings": {"tool_name": "Edit", "workspace_path": "broken-python", "tool_input": {
+                    "path": "calculator.py",
+                    "old_string": "return left - right",
+                    "new_string": "return left + right",
+                }},
+            }},
+            {"id": "run_passing_tests", "type": "tool_executor", "title": "Run passing tests", "config": {
+                "input": {"$ref": {"node_id": "edit_fix", "path": ["output"]}},
+                "settings": {"tool_name": "Bash", "workspace_path": "broken-python", "tool_input": {"command": pytest_command, "timeout": 30}},
+            }},
+            {"id": "trace", "type": "event_recorder", "title": "Trace", "config": {
+                "input": {"$ref": {"node_id": "run_passing_tests", "path": ["output"]}},
+                "settings": {"label": "python_test_repair_acceptance"},
+            }},
+            {"id": "end", "type": "end", "title": "End", "config": {"outputs": {
+                "source_before": {"$ref": {"node_id": "read_source", "path": ["output"]}},
+                "initial_failure": {"$ref": {"node_id": "normalize_failure", "path": ["output", "text"]}},
+                "edit_result": {"$ref": {"node_id": "edit_fix", "path": ["output"]}},
+                "final_test": {"$ref": {"node_id": "run_passing_tests", "path": ["output"]}},
+                "trace": {"$ref": {"node_id": "trace", "path": ["state", "recorded"]}},
+            }}},
+        ]
+        for node in nodes:
+            revision = mutate(client, app_id, revision, "add_node", {"node": node})
+        for edge in [
+            ("start", "context"),
+            ("context", "workspace"),
+            ("workspace", "compact"),
+            ("compact", "permission"),
+            ("permission", "sandbox"),
+            ("sandbox", "read_source"),
+            ("read_source", "run_failing_tests"),
+            ("run_failing_tests", "normalize_failure"),
+            ("normalize_failure", "edit_fix"),
+            ("edit_fix", "run_passing_tests"),
+            ("run_passing_tests", "trace"),
+            ("trace", "end"),
+        ]:
+            revision = mutate(client, app_id, revision, "add_edge", {"edge": {
+                "id": f"{edge[0]}-{edge[1]}",
+                "source": edge[0],
+                "target": edge[1],
+                "source_port": "output",
+                "target_port": "input",
+            }})
+        revision = mutate(client, app_id, revision, "add_test", {"test": {
+            "name": "Repairs Python tests",
+            "requirement": "The workflow reads files, runs failing tests, edits code, and reruns passing tests.",
+            "inputs": {"task": "Fix the failing Python tests."},
+            "assertions": [
+                {"path": ["source_before"], "operator": "contains", "expected": "return left - right"},
+                {"path": ["initial_failure"], "operator": "contains", "expected": "[exit_code=1]"},
+                {"path": ["edit_result"], "operator": "contains", "expected": "replaced 1 occurrence"},
+                {"path": ["final_test"], "operator": "contains", "expected": "[exit_code=0]"},
+                {"path": ["trace"], "operator": "equals", "expected": True},
+            ],
+            "required_node_types": [
+                "context_assembler",
+                "workspace_context_injector",
+                "context_compactor",
+                "permission_gate",
+                "sandbox_boundary",
+                "tool_executor",
+                "tool_result_normalizer",
+                "event_recorder",
+            ],
+            "required_tool_nodes": ["Read", "Bash", "Edit"],
+            "minimum_tool_calls": 4,
+        }})
+
+        draft = client.get(f"/api/v1/applications/{app_id}/draft", headers=headers()).json()
+        assert "claude_agent" not in {node["type"] for node in draft["snapshot"]["workflow"]["nodes"]}
+        validation = client.post(f"/api/v1/applications/{app_id}/draft/validate", headers=headers()).json()
+        assert validation["valid"] is True, validation
+        report = client.post(f"/api/v1/applications/{app_id}/tests/run", headers=headers())
+        assert report.status_code == 200, report.text
+        assert report.json()["passed"] is True, report.text
+        assert "return left + right" in (workspace / "calculator.py").read_text()
+
+
+def test_idol_daily_workflow_uses_search_evidence_without_legacy_agent(tmp_path: Path) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+    )
+    app = create_app(settings, ScriptedProvider())
+    with TestClient(app) as client:
+        services = app.state.services
+        services.tools._tools["WebSearch"] = EvidenceWebSearchTool()  # noqa: SLF001
+
+        app_id = client.post(
+            "/api/v1/applications",
+            headers=headers(),
+            json={
+                "name": "日本女性アイドル Daily",
+                "requirement": "每天 8am 搜索日本女性偶像团体资讯并生成带证据链接的日报。",
+            },
+        ).json()["id"]
+        revision = 0
+        search_specs = [
+            ("search_news", "日本 女性アイドル グループ ニュース 発表"),
+            ("search_events", "日本 女性アイドル ライブ イベント ツアー"),
+            ("search_members", "日本 女性アイドル 新メンバー 卒業 加入"),
+        ]
+        nodes = [
+            {"id": "schedule", "type": "schedule_trigger", "title": "08:00 JST", "config": {
+                "timezone": "Asia/Tokyo",
+                "hour": 8,
+                "minute": 0,
+                "inputs": {"topic": "日本女性偶像团体日报", "language": "zh-CN"},
+            }},
+            {"id": "context", "type": "context_assembler", "title": "Daily Context", "config": {
+                "input": {"$ref": {"node_id": "schedule", "path": ["output"]}},
+                "settings": {"fragments": [{"$ref": {"node_id": "schedule", "path": ["topic"]}}]},
+            }},
+            *[
+                {"id": node_id, "type": "tool_executor", "title": f"WebSearch {node_id}", "config": {
+                    "input": {"$ref": {"node_id": "context", "path": ["output"]}},
+                    "settings": {"tool_name": "WebSearch", "tool_input": {
+                        "query": query,
+                        "max_results": 2,
+                        "language": "ja",
+                        "country": "JP",
+                    }},
+                }}
+                for node_id, query in search_specs
+            ],
+            {"id": "aggregate", "type": "variable_aggregator", "title": "Aggregate Evidence", "config": {
+                "variables": [
+                    {"$ref": {"node_id": node_id, "path": ["output"]}}
+                    for node_id, _ in search_specs
+                ],
+                "mode": "array",
+            }},
+            {"id": "compact", "type": "context_compactor", "title": "Compact Evidence", "config": {
+                "input": {"$ref": {"node_id": "aggregate", "path": ["output"]}},
+                "settings": {
+                    "max_chars": 5000,
+                    "preserved_facts": ["titles", "urls", "published_at", "source"],
+                },
+            }},
+            {"id": "format", "type": "template_transform", "title": "Evidence-only Report", "config": {
+                "template": (
+                    "## 日本女性偶像团体日报\n"
+                    "定时: 08:00 JST\n"
+                    "1. {{ title1 }}\n{{ url1 }}\n"
+                    "2. {{ title2 }}\n{{ url2 }}\n"
+                    "3. {{ title3 }}\n{{ url3 }}\n"
+                    "以上链接均来自本次 WebSearch 证据。"
+                ),
+                "variables": {
+                    "title1": {"$ref": {"node_id": "search_news", "path": ["output", "results", "0", "title"]}},
+                    "url1": {"$ref": {"node_id": "search_news", "path": ["output", "results", "0", "url"]}},
+                    "title2": {"$ref": {"node_id": "search_events", "path": ["output", "results", "0", "title"]}},
+                    "url2": {"$ref": {"node_id": "search_events", "path": ["output", "results", "0", "url"]}},
+                    "title3": {"$ref": {"node_id": "search_members", "path": ["output", "results", "0", "title"]}},
+                    "url3": {"$ref": {"node_id": "search_members", "path": ["output", "results", "0", "url"]}},
+                },
+            }},
+            {"id": "trace", "type": "event_recorder", "title": "Trace", "config": {
+                "input": {"$ref": {"node_id": "format", "path": ["text"]}},
+                "settings": {"label": "idol_daily_evidence_report"},
+            }},
+            {"id": "end", "type": "end", "title": "End", "config": {"outputs": {
+                "report": {"$ref": {"node_id": "format", "path": ["text"]}},
+                "topic": {"$ref": {"node_id": "schedule", "path": ["topic"]}},
+                "trace": {"$ref": {"node_id": "trace", "path": ["state", "recorded"]}},
+            }}},
+        ]
+        for node in nodes:
+            revision = mutate(client, app_id, revision, "add_node", {"node": node})
+        edges = [
+            ("schedule", "context"),
+            ("context", "search_news"),
+            ("context", "search_events"),
+            ("context", "search_members"),
+            ("search_news", "aggregate"),
+            ("search_events", "aggregate"),
+            ("search_members", "aggregate"),
+            ("aggregate", "compact"),
+            ("compact", "format"),
+            ("format", "trace", "text"),
+            ("trace", "end"),
+        ]
+        for edge in edges:
+            revision = mutate(client, app_id, revision, "add_edge", {"edge": {
+                "id": f"{edge[0]}-{edge[1]}",
+                "source": edge[0],
+                "target": edge[1],
+                "source_port": edge[2] if len(edge) > 2 else "output",
+                "target_port": "input",
+            }})
+        revision = mutate(client, app_id, revision, "add_test", {"test": {
+            "name": "Idol daily cites search evidence",
+            "requirement": "The daily report must run WebSearch and cite only URLs returned by WebSearch.",
+            "inputs": {},
+            "assertions": [
+                {"path": ["topic"], "operator": "equals", "expected": "日本女性偶像团体日报"},
+                {"path": ["report"], "operator": "contains", "expected": "08:00 JST"},
+                {"path": ["report"], "operator": "contains", "expected": "https://news.example.test"},
+                {"path": ["trace"], "operator": "equals", "expected": True},
+            ],
+            "required_node_types": [
+                "schedule_trigger",
+                "context_assembler",
+                "tool_executor",
+                "variable_aggregator",
+                "context_compactor",
+                "template_transform",
+                "event_recorder",
+            ],
+            "required_tool_nodes": ["WebSearch"],
+            "required_tools": ["WebSearch"],
+            "minimum_tool_calls": 3,
+            "require_cited_tool_urls": True,
+        }})
+
+        draft = client.get(f"/api/v1/applications/{app_id}/draft", headers=headers()).json()
+        assert "claude_agent" not in {node["type"] for node in draft["snapshot"]["workflow"]["nodes"]}
+        schedule = next(node for node in draft["snapshot"]["workflow"]["nodes"] if node["type"] == "schedule_trigger")
+        assert schedule["config"]["timezone"] == "Asia/Tokyo"
+        assert schedule["config"]["hour"] == 8
+        validation = client.post(f"/api/v1/applications/{app_id}/draft/validate", headers=headers()).json()
+        assert validation["valid"] is True, validation
+        report = client.post(f"/api/v1/applications/{app_id}/tests/run", headers=headers())
+        assert report.status_code == 200, report.text
+        body = report.json()
+        assert body["passed"] is True, report.text
+        evidence = body["tests"][0]["tool_evidence"]
+        assert evidence["citation_passed"] is True
+        assert evidence["unverified_output_urls"] == []
+        assert evidence["minimum_calls_passed"] is True
+
+
 def test_builder_uses_incremental_brick_operations_and_publishes(tmp_path: Path) -> None:
     settings = Settings(
         api_token="workflow-test",
@@ -287,6 +1440,110 @@ def test_builder_uses_incremental_brick_operations_and_publishes(tmp_path: Path)
             ("draft_connect", {}), ("draft_connect", {}), ("test_add", {}),
             ("draft_validate", {}), ("test_run", {}), ("draft_publish", {}),
         ]]
+
+
+def test_builder_must_read_manual_before_agent_architecture_blocks(tmp_path: Path) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+    )
+    app = create_app(settings, ManualSkippingBuilderProvider())
+    with TestClient(app) as client:
+        app_id = client.post(
+            "/api/v1/applications",
+            headers=headers(),
+            json={"name": "Manual gate", "requirement": "Build a Claude-like loop."},
+        ).json()["id"]
+        build_id = client.post(
+            f"/api/v1/applications/{app_id}/builds",
+            headers=headers(),
+            json={"requirement": "Build a Claude-like loop.", "auto_publish": True, "max_turns": 5},
+        ).json()["build_id"]
+        for _ in range(100):
+            build = client.get(f"/api/v1/builds/{build_id}", headers=headers()).json()
+            if build["status"] == "needs_attention":
+                break
+            time.sleep(0.01)
+        assert build["status"] == "needs_attention", build
+        operation_events = client.get(f"/v1/streams/{build_id}", headers=headers()).json()
+        results = [
+            event["data"].get("result", "")
+            for event in operation_events
+            if event["type"] == "build.operation"
+        ]
+        assert any("manual lookup required" in result for result in results)
+
+
+def test_claude_like_coding_agent_template_is_valid_and_covers_architecture() -> None:
+    registry = build_block_registry()
+    template = registry.expand_template("claude_like_coding_agent", prefix="coding")
+    errors = registry.validate_workflow(template)
+    assert errors == []
+    node_types = {node.type for node in template.nodes}
+    nested_loop = next(node for node in template.nodes if node.type == "loop")
+    nested_types = {node["type"] for node in nested_loop.config["workflow"]["nodes"]}
+    required = {
+        "context_assembler",
+        "workspace_context_injector",
+        "conversation_memory",
+        "context_compactor",
+        "model_turn",
+        "tool_call_router",
+        "tool_executor",
+        "tool_result_normalizer",
+        "permission_gate",
+        "sandbox_boundary",
+        "skill_loader",
+        "mcp_gateway",
+        "capability_registry",
+        "subagent_spawn",
+        "task_dispatcher",
+        "mailbox_wait_wake",
+        "dependency_gate",
+        "budget_gate",
+        "round_limit",
+        "cancellation_point",
+        "checkpoint_resume",
+        "event_recorder",
+    }
+    assert required <= (node_types | nested_types)
+    assert nested_loop.config["max_iterations"] > 1
+
+
+def test_builder_can_expand_claude_like_template_into_editable_draft(tmp_path: Path) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+    )
+    app = create_app(settings, TemplateExpandBuilderProvider())
+    with TestClient(app) as client:
+        app_id = client.post(
+            "/api/v1/applications",
+            headers=headers(),
+            json={"name": "Template", "requirement": "Expand a Claude-like coding agent template."},
+        ).json()["id"]
+        build_id = client.post(
+            f"/api/v1/applications/{app_id}/builds",
+            headers=headers(),
+            json={"requirement": "Expand a Claude-like coding agent template.", "auto_publish": False, "max_turns": 5},
+        ).json()["build_id"]
+        for _ in range(100):
+            build = client.get(f"/api/v1/builds/{build_id}", headers=headers()).json()
+            if build["status"] == "needs_attention":
+                break
+            time.sleep(0.01)
+        assert build["status"] == "needs_attention", build
+        draft = client.get(f"/api/v1/applications/{app_id}/draft", headers=headers()).json()
+        node_types = {node["type"] for node in draft["snapshot"]["workflow"]["nodes"]}
+        assert {"context_compactor", "loop", "permission_gate", "subagent_spawn", "mailbox_wait_wake"} <= node_types
+        operation_events = client.get(f"/v1/streams/{build_id}", headers=headers()).json()
+        expand_events = [
+            event for event in operation_events
+            if event["type"] == "build.operation" and event["data"].get("tool") == "template_expand"
+        ]
+        assert expand_events and expand_events[0]["data"]["success"] is True
 
 
 def test_iteration_and_loop_execute_nested_workflows(tmp_path: Path) -> None:

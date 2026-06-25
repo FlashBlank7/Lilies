@@ -4,6 +4,12 @@
 
 当前只安装 DeepSeek Provider，但运行时依赖统一 `ModelProvider` 接口，后续可以添加 Anthropic、OpenAI 或本地模型适配器。
 
+如果你想先理解产品和业务对象，而不是直接启动服务，请看 [业务逻辑与项目说明](docs/BUSINESS_LOGIC.md)。它梳理了 Application、Draft、Workflow、Agent、Build、Test、Version、Run、定时任务和发布规则之间的关系。
+
+如果你想先搞清楚哪些目录是平台实现、哪些目录只是上游参考源码，请看 [项目目录结构](docs/PROJECT_STRUCTURE.md)。
+
+如果你要继续修手动 Workflow Editor，先看 [手动编辑器测试计划](docs/MANUAL_EDITOR_TEST_PLAN.md)。后续重构 Dify/Claude Code 时建议预加载 [PRELOAD_PROMPTS.md](PRELOAD_PROMPTS.md)，里面沉淀了当前目录边界、启动、debug 和编辑器状态同步方法论。
+
 ## 已实现的闭环
 
 1. 输入自然语言需求并创建 Application 草稿。
@@ -17,38 +23,81 @@
 
 要求：Python 3.12、Docker daemon、可用的 DeepSeek API key。
 
+### 推荐：一键本地开发启动
+
 ```bash
 cp .env.example .env
 # 编辑 .env，至少设置 DEEPSEEK_API_KEY 和 API_TOKEN
 
+uv venv --python 3.12 .venv
+uv pip install --python .venv/bin/python -e '.[dev]'
+
+cd platform/frontend
+npm install
+cd ../..
+
 docker build -t agent-platform-sandbox:latest -f Dockerfile.sandbox .
-docker compose up --build api
+
+./scripts/dev_platform.sh --check-env
+./scripts/dev_platform.sh
 ```
 
-服务默认位于 `http://127.0.0.1:8000`：
+`--check-env` 只检查 `.env` 是否能被脚本正确读取，不会启动服务。正常时应输出：
+
+```text
+DEEPSEEK_API_KEY ok
+API_TOKEN ok
+```
+
+`./scripts/dev_platform.sh` 会读取 `.env`、检查 DeepSeek/API token、检查端口冲突，并把前端代理指向同一个后端。本地开发标准端口固定为：
+
+- API：`http://127.0.0.1:8001`
+- Studio：`http://127.0.0.1:3000`
+
+API 服务包含：
 
 - 调试页面：`/debug`
 - OpenAPI：`/docs`
 - 健康检查：`/health`
 
-Studio 默认位于 `http://127.0.0.1:3000`。一条命令启动前后端：
+如果提示端口已占用，先停止旧的 8001/3000 进程，再重新运行脚本。
+
+前端开发模式默认使用 webpack dev server，避免 Next 16/Turbopack 在本地偶发 `Next.js package not found` panic 导致页面反复刷新。如果你想专门测试 Turbopack，可以进入 `platform/frontend` 后运行 `npm run dev:turbo`。
+
+### 备用：手动分两个终端启动
+
+终端 1，启动后端：
 
 ```bash
+set -a; source .env; set +a
+.venv/bin/uvicorn agent_platform.api:app --host 127.0.0.1 --port 8001
+```
+
+终端 2，启动前端。注意第二个终端也必须读取 `.env`，否则 `$API_TOKEN` 会是空值：
+
+```bash
+set -a; source .env; set +a
+cd platform/frontend
+AGENT_PLATFORM_URL=http://127.0.0.1:8001 API_TOKEN="$API_TOKEN" npm run dev -- --hostname 127.0.0.1 --port 3000
+```
+
+Studio 也支持在页面里输入 `.env` 中的 `API_TOKEN`；该 token 只保存在浏览器本地，并通过前端代理转发给后端。
+
+### Docker Compose
+
+Docker Compose 仍可用于容器化运行：
+
+```bash
+docker build -t agent-platform-sandbox:latest -f Dockerfile.sandbox .
 docker compose up --build
 ```
 
-也可在宿主机运行 API，仅将工具执行放入 Docker：
+Compose 默认暴露：
 
-```bash
-uv venv --python 3.12 .venv
-uv pip install --python .venv/bin/python -e '.[dev]'
-set -a; source .env; set +a
-.venv/bin/uvicorn agent_platform.api:app --host 127.0.0.1 --port 8000
+- API：`http://127.0.0.1:8000`
+- Studio：`http://127.0.0.1:3000`
 
-cd web
-npm install
-AGENT_PLATFORM_URL=http://127.0.0.1:8000 API_TOKEN="$API_TOKEN" npm run dev
-```
+如果页面看起来正常但工具缺少 `WebSearch` 或显示 DeepSeek 未配置，通常是连到了旧的 8000 或 8001 进程；停止旧进程后用 `./scripts/dev_platform.sh` 重启。
 
 工作区必须位于 `WORKSPACE_ROOT` 下。相对路径会以该目录为根解析，路径穿越会被拒绝。
 当 API 本身运行在 Docker 中时，`WORKSPACE_HOST_ROOT` 必须是同一目录在宿主机上的绝对路径；`compose.yaml` 已默认使用 `${PWD}/workspaces`。
@@ -58,12 +107,12 @@ AGENT_PLATFORM_URL=http://127.0.0.1:8000 API_TOKEN="$API_TOKEN" npm run dev
 创建 Application 并让团队搭建：
 
 ```bash
-APP_ID=$(curl -sS -X POST http://127.0.0.1:8000/api/v1/applications \
+APP_ID=$(curl -sS -X POST http://127.0.0.1:8001/api/v1/applications \
   -H "Authorization: Bearer $API_TOKEN" -H 'Content-Type: application/json' \
   -d '{"name":"Support Router","requirement":"按问题类型分流到不同 Claude Agent","mode":"workflow"}' \
   | jq -r .id)
 
-curl -X POST "http://127.0.0.1:8000/api/v1/applications/$APP_ID/builds" \
+curl -X POST "http://127.0.0.1:8001/api/v1/applications/$APP_ID/builds" \
   -H "Authorization: Bearer $API_TOKEN" -H 'Content-Type: application/json' \
   -d '{"requirement":"按问题类型分流到不同 Claude Agent，并生成真实验收测试","auto_publish":true}'
 ```
@@ -73,7 +122,7 @@ curl -X POST "http://127.0.0.1:8000/api/v1/applications/$APP_ID/builds" \
 ### 兼容的独立 Agent API
 
 ```bash
-curl -X POST http://127.0.0.1:8000/v1/agent-generations \
+curl -X POST http://127.0.0.1:8001/v1/agent-generations \
   -H "Authorization: Bearer $API_TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{
@@ -86,18 +135,18 @@ curl -X POST http://127.0.0.1:8000/v1/agent-generations \
 使用返回的 `generation_id` 订阅事件：
 
 ```bash
-curl -N "http://127.0.0.1:8000/v1/streams/$GENERATION_ID/events" \
+curl -N "http://127.0.0.1:8001/v1/streams/$GENERATION_ID/events" \
   -H "Authorization: Bearer $API_TOKEN"
 ```
 
 发布后创建会话并发送任务：
 
 ```bash
-curl -X POST http://127.0.0.1:8000/v1/sessions \
+curl -X POST http://127.0.0.1:8001/v1/sessions \
   -H "Authorization: Bearer $API_TOKEN" -H 'Content-Type: application/json' \
   -d "{\"agent_id\":\"$AGENT_ID\",\"workspace_path\":\"demo\"}"
 
-curl -X POST "http://127.0.0.1:8000/v1/sessions/$SESSION_ID/messages" \
+curl -X POST "http://127.0.0.1:8001/v1/sessions/$SESSION_ID/messages" \
   -H "Authorization: Bearer $API_TOKEN" -H 'Content-Type: application/json' \
   -d '{"content":"运行测试，修复失败并重新验证"}'
 ```
@@ -118,8 +167,8 @@ set -a; source .env; set +a
 
 ```bash
 .venv/bin/pytest -q
-.venv/bin/ruff check src/agent_platform tests scripts
-cd web && npm run lint && npm run build && npm audit
+.venv/bin/ruff check platform/backend/src/agent_platform tests scripts
+cd platform/frontend && npm run lint && npm run build && npm audit
 ```
 
 ## 安全边界
@@ -134,7 +183,7 @@ cd web && npm run lint && npm run build && npm audit
 ## 目录
 
 ```text
-src/agent_platform/
+platform/backend/src/agent_platform/
   api.py            FastAPI、SSE、调试页面
   applications.py   增量草稿操作与校验
   blocks.py         16 类积木定义、Schema、端口和图校验
@@ -147,7 +196,9 @@ src/agent_platform/
   tools/            核心工具和 MCP
   sandbox.py        Docker 会话执行器
   storage.py        SQLite WAL 与 JSONL 事件
-web/                Next.js 16 + React Flow 原创 Studio
+platform/frontend/  Next.js 16 + React Flow 原创 Studio
+references/claude-code/src/
+                    原 Claude Code TypeScript 源码，只读迁移参考
 ```
 
-原 TypeScript 目录继续保留，作为行为迁移和差异审查的参考。详见 [迁移矩阵](docs/MIGRATION_MATRIX.md)。
+原 Claude Code TypeScript 源码继续保留在 `references/claude-code/src/`，作为行为迁移和差异审查的参考。详见 [迁移矩阵](docs/MIGRATION_MATRIX.md)。

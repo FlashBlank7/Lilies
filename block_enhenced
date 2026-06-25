@@ -1,0 +1,162 @@
+# 下一阶段计划：从“Claude Agent 节点”转向“Claude 架构可由积木还原”
+
+## 1. 总结
+
+当前方向需要修正：平台不应把 `Claude Agent` 当成一个黑箱积木塞进 Workflow，而应把 Claude Code 的智能体架构拆成可组合的运行时能力，再让智能体团队阅读“积木使用手册”，通过积木搭建出同样智能的智能体。
+
+下一阶段成功标准：不是“能放一个 Claude Agent 节点”，而是“能用积木还原 Claude Code 的核心架构”：多轮 loop、上下文、工具调用、权限、Skill/MCP、子智能体、mailbox、任务依赖、压缩、恢复、预算和可观测性。
+
+Dify 只作为积木系统参考，不复制前端代码或品牌；官方参考源为 [langgenius/dify](https://github.com/langgenius/dify) 和 [Dify docs](https://github.com/langgenius/dify-docs)。Dify 的 Workflow、Workflow as Tool、Graph Engine 等设计会作为分析对象。
+
+## 2. 关键改动
+
+### A. 找回并归档 Dify 参考项目
+
+- 当前 `references/` 里只有 `references/claude-code/`，没有 `references/dify/`。
+- 实施时先检查本地是否已有 Dify 克隆；若没有，克隆官方仓库到：
+  - `references/dify/`
+- 在 `references/dify/README.md` 写清：
+  - 来源 URL、commit、用途。
+  - 许可证和品牌注意事项。
+  - 只做设计参考，不复制代码。
+- 重点分析 Dify 的：
+  - 节点目录与分类。
+  - 节点 schema。
+  - 变量池与端口连接。
+  - Workflow DSL。
+  - Agent/Tool/Workflow as Tool。
+  - Queue-based Graph Engine 方向。
+
+### B. 重定义积木目标：从业务 DAG 升级为 Agent 架构积木
+
+新增一层“Agent 架构积木目录”，覆盖 Claude Code 智能体核心机制：
+
+- Context 相关：
+  - Context Assembler
+  - File/Workspace Context Injector
+  - Conversation Memory
+  - Context Compactor
+- Model loop 相关：
+  - Model Turn
+  - Tool Call Router
+  - Stop/Continue Controller
+  - Retry / Error Classifier
+- Tool 相关：
+  - Tool Executor
+  - Tool Result Normalizer
+  - Permission Gate
+  - Sandbox Boundary
+- Skill/MCP 相关：
+  - Skill Loader
+  - MCP Gateway
+  - Capability Registry
+- 多智能体相关：
+  - Subagent Spawn
+  - Task Dispatcher
+  - Mailbox Wait/Wake
+  - Dependency Gate
+- 运行治理相关：
+  - Budget Gate
+  - Round Limit
+  - Cancellation Point
+  - Checkpoint / Resume
+  - Event Recorder
+
+这些积木不是 UI 装饰，而要能被 WorkflowRuntime 真正执行。
+
+### C. 降级现有 `claude_agent` 节点为兼容层
+
+- 保留现有 `claude_agent` 以兼容旧草稿和旧版本。
+- 默认从新建积木目录中隐藏或标记为 legacy。
+- Builder Team 不再优先使用 `claude_agent` 黑箱节点。
+- 长期目标：`claude_agent` 变成一个“宏 / 模板”，可展开为一组 Agent 架构积木，而不是不可解释节点。
+
+### D. 撰写“积木使用手册”
+
+新增面向智能体团队和人工编辑者的 Block Manual：
+
+- 每个积木说明：
+  - 何时使用。
+  - 输入/输出。
+  - 配置字段。
+  - 常见错误。
+  - 与 Claude 架构哪个机制对应。
+  - 示例连接方式。
+- 手册要同时服务：
+  - Builder Team 自动搭建。
+  - 前端人工微调。
+  - 测试用例生成。
+- Builder Prompt 改为：先查手册，再选积木，再增量搭建，禁止直接生成整图 JSON。
+
+### E. 建立“Claude 架构还原验收”
+
+新增一个标准验收项目：用积木搭建一个 Claude-like coding agent。
+
+必须能表现出：
+
+- 多轮模型调用。
+- 工具调用与工具结果回灌。
+- 权限请求与恢复。
+- 上下文压缩。
+- 子智能体任务分派。
+- mailbox 唤醒。
+- 预算与轮次限制。
+- 事件 Trace。
+- 工作区读写和测试修复。
+
+如果这个验收项目无法通过，说明积木系统还没达到“可还原 Claude 架构”的成功标准。
+
+## 3. 接口与类型调整
+
+- `BlockDefinition` 增加手册与组合元数据：
+  - manual summary
+  - examples
+  - anti-patterns
+  - claude_architecture_mapping
+  - composability constraints
+- `/api/v1/blocks` 继续返回目录，但前端要能区分：
+  - business workflow blocks
+  - agent architecture blocks
+  - legacy compatibility blocks
+- 新增或扩展手册接口：
+  - `/api/v1/blocks/{type}/manual`
+  - `/api/v1/block-manuals`
+- Builder 工具增加：
+  - 搜索手册。
+  - 查看 Claude 架构蓝图。
+  - 从模板展开可编辑积木子图。
+- WorkflowSpec 支持嵌套子图继续保留；Agent 架构可以用嵌套图表达，避免主画布爆炸。
+
+## 4. 测试与验收
+
+### 单元测试
+
+- BlockDefinition 新字段序列化和双语展示。
+- Agent 架构积木 schema 校验。
+- legacy `claude_agent` 不破坏旧工作流。
+- Builder 搜索手册后才能使用新积木。
+
+### 集成测试
+
+- 用积木搭建 Claude-like agent loop。
+- 工具结果能进入下一轮 model context。
+- 权限请求能暂停、批准、恢复。
+- 子智能体拥有独立上下文、工具、预算和事件流。
+- mailbox 能持久化等待并唤醒。
+- context compaction 能触发并保留关键事实。
+
+### 真实验收
+
+- 用新积木搭建一个“修复 Python 测试失败”的智能体。
+- 它必须读取文件、运行测试、编辑代码、再次运行测试并通过。
+- 用新积木搭建“每日 8am 日本女性偶像团体资讯日报”。
+- 它必须真实搜索、聚合证据、生成报告，不允许无证据编造。
+- 用“Claude 架构还原验收”证明平台不依赖黑箱 `claude_agent` 节点也能构造智能体。
+
+## 5. 默认假设
+
+- 新方向下，`Claude Agent` 不再是推荐积木，而是兼容层。
+- 平台的“智能”来自 Claude-like runtime architecture + 可组合积木，而不是单个节点封装。
+- Dify 只提供积木系统和 Workflow 产品参考；不复制代码、不复制品牌。
+- 成功标准是可用积木还原 Claude Code 的核心智能机制。
+- 当前先保持 DeepSeek Provider，但模型层继续供应商无关。

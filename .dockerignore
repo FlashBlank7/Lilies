@@ -3,8 +3,8 @@
 .ruff_cache
 data
 workspaces
-web/node_modules
-web/.next
+platform/frontend/node_modules
+platform/frontend/.next
 **/__pycache__
 *.pyc
 .DS_Store
