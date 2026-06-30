@@ -1,0 +1,10 @@
+.venv
+.pytest_cache
+.ruff_cache
+data
+workspaces
+platform/frontend/node_modules
+platform/frontend/.next
+**/__pycache__
+*.pyc
+.DS_Store

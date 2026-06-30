@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "git-commit-agent"
+version = "0.2.0"
+description = "AI-powered Git commit message generator (powered by DeepSeek)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+dependencies = [
+    "openai>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-mock>=3.12",
+]
+
+[project.scripts]
+commit-agent = "commit_agent.cli:main"
+
+[project.urls]
+Repository = "https://github.com/example/git-commit-agent"
+
+[tool.setuptools.packages.find]
+include = ["commit_agent*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
