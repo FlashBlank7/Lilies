@@ -101,12 +101,38 @@ Lilies:        问题 → [工作流模板] → [LLM as tool] → 答案
 
 ## 快速开始
 
+### 方式 A: Docker Compose（推荐，前置条件最少）
+
+**只需要 Docker。**
+
+```bash
+# 1. 配置 API Key
+cp .env.example .env
+# 编辑 .env，设置 DEEPSEEK_API_KEY（从 https://platform.deepseek.com 获取）
+
+# 2. 一键启动（首次 3-5 分钟构建镜像）
+./scripts/docker-up.sh
+
+# 打开 http://localhost:8000/debug 即可测试
+```
+
+管理命令：
+```bash
+./scripts/docker-up.sh --status   # 查看运行状态
+./scripts/docker-up.sh --logs     # 查看实时日志
+./scripts/docker-up.sh --down     # 停止服务
+```
+
+### 方式 B: 本地开发（热重载）
+
+需要 Python 3.12+、Node.js 20+、Docker。
+
 ```bash
 # 1. 配置
 cp .env.example .env
 # 编辑 .env，设置 DEEPSEEK_API_KEY 和 API_TOKEN
 
-# 2. 构建沙盒（使用宿主机 UID 避免权限问题）
+# 2. 构建沙盒镜像
 docker build --build-arg SANDBOX_UID=$(id -u) --build-arg SANDBOX_GID=$(id -g) \
   -t agent-platform-sandbox:latest -f Dockerfile.sandbox .
 
@@ -114,7 +140,7 @@ docker build --build-arg SANDBOX_UID=$(id -u) --build-arg SANDBOX_GID=$(id -g) \
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 
-# 4. 启动
+# 4. 启动（自动检查 Docker、端口、依赖）
 ./scripts/dev_platform.sh
 
 # API: http://127.0.0.1:8001
