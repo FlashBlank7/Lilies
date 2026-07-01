@@ -1,0 +1,10 @@
+# Language detection for GitHub Linguist
+*.py linguist-language=Python
+*.ts linguist-language=TypeScript
+*.tsx linguist-language=TypeScript
+*.json linguist-detectable=false
+*.md linguist-detectable=false
+
+# Auto-generated
+platform/frontend/package-lock.json linguist-generated=true
+*.lock linguist-generated=true
