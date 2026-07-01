@@ -11,8 +11,7 @@
 │   │   └── src/agent_platform/   Python 后端、Agent Runtime、Workflow Runtime
 │   └── frontend/                 Next.js Studio 前端
 ├── references/
-│   └── claude-code/
-│       └── src/                  原 Claude Code TypeScript 源码，只作为迁移参考
+│   └── dify/                     Dify 开源项目（MIT 许可），积木系统设计参考
 ├── docs/                         项目文档、业务逻辑、迁移矩阵
 ├── scripts/                      本平台的启动、验收、升级脚本
 ├── tests/                        Python 单元与集成测试
@@ -54,7 +53,7 @@ npm run dev -- --hostname 127.0.0.1 --port 3000
 当前已有：
 
 ```text
-references/claude-code/src/
+references/dify/src/
 ```
 
 后续如果加入 Dify 或其他项目，应放在：

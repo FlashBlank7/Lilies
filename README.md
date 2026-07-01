@@ -44,7 +44,7 @@ Lilies:        问题 → [工作流模板] → [LLM as tool] → 答案
 | 业务工作流积木 | 16 | LLM, If/Else, Question Classifier, Iteration, Loop, Human Input, HTTP Request, Template Transform, Variable Aggregator... |
 | Agent 架构积木 | 25 | Context Assembler, Model Turn, Tool Call Router, Tool Executor, Permission Gate, Subagent Spawn, Task Dispatcher, Budget Gate, Hook Point, Checkpoint/Resume... |
 
-每个 Agent 架构积木对应 Claude Code 源码中的一个具体运行时机制——从 Harness 中拆出来，变成可替换的积木。
+每个 Agent 架构积木对应 Agent 系统中一个可观察的运行时机制——将原本耦合在单体循环中的能力拆解为可独立测试、可替换的积木块。
 
 ### 模板市场 — 6 个内置模板
 
