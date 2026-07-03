@@ -63,7 +63,69 @@ if [[ ! -d platform/frontend/node_modules ]]; then
   exit 1
 fi
 
-check_port() {
+# ── Docker checks ─────────────────────────────────────────────
+
+check_docker_cli() {
+  if ! command -v docker &>/dev/null; then
+    echo "Docker is not installed. Install Docker Engine or Docker Desktop first:" >&2
+    echo "  Linux:   https://docs.docker.com/engine/install/" >&2
+    echo "  macOS:   https://docs.docker.com/desktop/setup/install/mac-install/" >&2
+    echo "  Windows: https://docs.docker.com/desktop/setup/install/windows-install/" >&2
+    return 1
+  fi
+}
+
+check_docker_daemon() {
+  if ! docker info &>/dev/null; then
+    echo "Docker daemon is not running. Start it first:" >&2
+    echo "  Linux:   sudo systemctl start docker" >&2
+    echo "  macOS:   open -a Docker" >&2
+    echo "  Windows: Start Docker Desktop" >&2
+    return 1
+  fi
+}
+
+check_docker_permission() {
+  if ! docker ps &>/dev/null; then
+    echo "Cannot access Docker. Add your user to the docker group:" >&2
+    echo "  sudo usermod -aG docker \$USER" >&2
+    echo "Then log out and back in, or run: newgrp docker" >&2
+    return 1
+  fi
+}
+
+check_sandbox_image() {
+  local image="${SANDBOX_IMAGE:-agent-platform-sandbox:latest}"
+  if ! docker image inspect "$image" &>/dev/null; then
+    echo "Sandbox image '$image' not found. Building it now..."
+    local uid="${SANDBOX_UID:-10001}"
+    local gid="${SANDBOX_GID:-10001}"
+    if [[ -f "$ROOT/Dockerfile.sandbox" ]]; then
+      docker build \
+        --build-arg SANDBOX_UID="$uid" \
+        --build-arg SANDBOX_GID="$gid" \
+        -t "$image" \
+        -f "$ROOT/Dockerfile.sandbox" \
+        "$ROOT" || {
+          echo "Failed to build sandbox image. Check Dockerfile.sandbox and try again." >&2
+          return 1
+        }
+      echo "Sandbox image '$image' built successfully."
+    else
+      echo "Dockerfile.sandbox not found at $ROOT/Dockerfile.sandbox" >&2
+      return 1
+    fi
+  fi
+}
+
+echo "Checking Docker..."
+check_docker_cli || exit 1
+check_docker_daemon || exit 1
+check_docker_permission || exit 1
+check_sandbox_image || exit 1
+echo "Docker ready."
+
+# ── Port checks ───────────────────────────────────────────────
   local port="$1"
   local label="$2"
   local pids

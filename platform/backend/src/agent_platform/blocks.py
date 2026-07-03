@@ -49,6 +49,8 @@ class LLMConfig(BaseModel):
     prompt: Any
     model: str | None = None
     structured_output: dict[str, Any] | None = None
+    temperature: float | None = Field(default=None, ge=0, le=2)
+    seed: int | None = Field(default=None, ge=0)
 
 
 class ClaudeAgentConfig(BaseModel):
@@ -222,6 +224,8 @@ _ZH_BLOCKS = {
     "cancellation_point": ("取消点", "提供可观测的取消检查点。"),
     "checkpoint_resume": ("检查点/恢复", "记录可恢复状态。"),
     "event_recorder": ("事件记录器", "向 Trace 写入结构化事件。"),
+    "hook_point": ("钩子点", "在工作流中插入可被外部系统监听的钩子。"),
+    "soft_block": ("软积木", "通过策略选择，一个积木可以充当多种 Agent 架构积木。"),
 }
 
 
@@ -250,6 +254,8 @@ _AGENT_ARCHITECTURE_BLOCKS: list[tuple[str, str, str, str]] = [
     ("cancellation_point", "Cancellation Point", "Record a cancellable execution checkpoint.", "Cancellation handling"),
     ("checkpoint_resume", "Checkpoint / Resume", "Persist resumable state for later recovery.", "Session recovery"),
     ("event_recorder", "Event Recorder", "Write structured trace events for observability.", "Telemetry and trace"),
+    ("hook_point", "Hook Point", "Expose a named hook for external systems to observe or intercept.", "External hook / plugin"),
+    ("soft_block", "Soft Block", "Design-time macro: one block, many strategies. Expands to discrete blocks at publish time. No runtime variability.", "Design-time meta-block"),
 ]
 
 
@@ -590,14 +596,13 @@ def build_block_registry() -> BlockRegistry:
         (_definition("end", "End", "Return named workflow outputs.", "output", EndConfig, inputs=[("input", ValueType.any)], outputs=[]), EndConfig),
         (_definition("answer", "Answer", "Return a chat answer.", "output", AnswerConfig, inputs=[("input", ValueType.any)], outputs=[]), AnswerConfig),
     ]
+    from .soft_block import SoftBlockConfig
     for block_type, title, description, mapping in _AGENT_ARCHITECTURE_BLOCKS:
+        is_soft = (block_type == "soft_block")
+        config_model: type[BaseModel] = SoftBlockConfig if is_soft else AgentArchitectureConfig
         blocks.append((
             _definition(
-                block_type,
-                title,
-                description,
-                "agent",
-                AgentArchitectureConfig,
+                block_type, title, description, "agent", config_model,
                 inputs=[("input", ValueType.any)],
                 outputs=[("output", ValueType.any), ("state", ValueType.object)],
                 retry=block_type in {"model_turn", "tool_executor", "mcp_gateway"},
@@ -605,7 +610,7 @@ def build_block_registry() -> BlockRegistry:
                 block_kind="agent_architecture",
                 manual=_manual(block_type, title, description, mapping),
             ),
-            AgentArchitectureConfig,
+            config_model,
         ))
     for definition, model in blocks:
         registry.register(definition, model)

@@ -27,7 +27,7 @@ class PermissionMode(str, Enum):
 
 class ThinkingConfig(BaseModel):
     enabled: bool = True
-    effort: Literal["high", "max"] = "high"
+    effort: Literal["low", "medium", "high", "xhigh", "max"] = "xhigh"
 
 
 class ProviderProfile(BaseModel):

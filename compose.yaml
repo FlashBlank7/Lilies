@@ -1,4 +1,20 @@
+# =============================================================================
+# Lilies — Docker Compose 全栈部署
+#
+# 前置条件: 只有 Docker（不需要 Python/Node.js 本地安装）
+#
+# 方式 A — 一键启动（首次会自动构建，约 3-5 分钟）:
+#   docker compose up -d
+#
+# 方式 B — 只启动基础设施，前后端本地开发（热重载）:
+#   docker compose -f compose.yaml --profile infra up -d
+#
+# 方式 C — 首次使用，先构建沙盒镜像:
+#   docker compose build sandbox-image
+# =============================================================================
+
 services:
+  # ── 前端 Studio (Next.js) ────────────────────────────────────
   web:
     build: ./platform/frontend
     ports:
@@ -7,9 +23,15 @@ services:
       AGENT_PLATFORM_URL: http://api:8000
       API_TOKEN: ${API_TOKEN:-change-me}
     depends_on:
-      - api
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── 后端 API (FastAPI) ───────────────────────────────────────
   api:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     ports:
       - "127.0.0.1:8000:8000"
     env_file:
@@ -18,17 +40,34 @@ services:
     environment:
       DATA_DIR: /app/data
       WORKSPACE_ROOT: /workspaces
-      WORKSPACE_HOST_ROOT: ${PWD}/workspaces
+      WORKSPACE_HOST_ROOT: ${PWD:-.}/workspaces
       SANDBOX_IMAGE: agent-platform-sandbox:latest
       SANDBOX_UID: ${SANDBOX_UID:-10001}
       SANDBOX_GID: ${SANDBOX_GID:-10001}
+      TEMPLATES_DIR: /app/templates
     volumes:
       - ./data:/app/data
       - ./workspaces:/workspaces
       - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+    depends_on:
+      sandbox-image:
+        condition: service_completed_successfully
+
+  # ── 沙盒镜像（仅构建，不运行）────────────────────────────────
   sandbox-image:
     image: agent-platform-sandbox:latest
     build:
       context: .
       dockerfile: Dockerfile.sandbox
-    profiles: ["build-only"]
+      args:
+        SANDBOX_UID: ${SANDBOX_UID:-10001}
+        SANDBOX_GID: ${SANDBOX_GID:-10001}
+    # 默认启动时自动构建；infra profile 下跳过
+    profiles: []

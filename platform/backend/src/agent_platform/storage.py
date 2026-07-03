@@ -82,6 +82,13 @@ class Storage:
                   created_at TEXT NOT NULL,
                   PRIMARY KEY (stream_id, seq)
                 );
+                CREATE TABLE IF NOT EXISTS checkpoints (
+                  run_id TEXT NOT NULL,
+                  checkpoint_id TEXT NOT NULL,
+                  data_json TEXT NOT NULL,
+                  created_at TEXT NOT NULL,
+                  PRIMARY KEY (run_id, checkpoint_id)
+                );
                 CREATE INDEX IF NOT EXISTS idx_generations_agent ON generations(agent_id);
                 CREATE INDEX IF NOT EXISTS idx_sessions_agent ON sessions(agent_id);
                 """
@@ -223,6 +230,36 @@ class Storage:
         row["messages"] = [ChatMessage.model_validate(item) for item in json.loads(row.pop("messages_json"))]
         row["usage"] = json.loads(row.pop("usage_json"))
         return row
+
+    async def save_checkpoint(
+        self, run_id: str, checkpoint_id: str, data: dict[str, Any]
+    ) -> None:
+        """Persist a workflow checkpoint for crash recovery."""
+        async with self._lock:
+            await asyncio.to_thread(self._save_checkpoint_sync, run_id, checkpoint_id, data)
+
+    def _save_checkpoint_sync(self, run_id: str, checkpoint_id: str, data: dict[str, Any]) -> None:
+        import json as _json
+        now = utc_now()
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO checkpoints VALUES(?,?,?,?)",
+                (run_id, checkpoint_id, _json.dumps(data, ensure_ascii=False), now),
+            )
+
+    async def get_checkpoint(self, run_id: str, checkpoint_id: str) -> dict[str, Any] | None:
+        """Retrieve a persisted checkpoint."""
+        import json as _json
+        async with self._lock:
+            row = await asyncio.to_thread(
+                self._get_one,
+                "SELECT * FROM checkpoints WHERE run_id=? AND checkpoint_id=?",
+                (run_id, checkpoint_id),
+            )
+        if row:
+            row["data"] = _json.loads(row.pop("data_json"))
+            return row
+        return None
 
     async def append_event(self, stream_id: str, event_type: str, data: dict[str, Any]) -> EventRecord:
         async with self._lock:

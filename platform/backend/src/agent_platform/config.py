@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     max_subagent_depth: int = 2
     event_queue_size: int = 1000
     scheduler_poll_seconds: float = 30.0
+    templates_dir: Path | None = None
 
     def prepare(self) -> None:
         self.data_dir.mkdir(parents=True, exist_ok=True)

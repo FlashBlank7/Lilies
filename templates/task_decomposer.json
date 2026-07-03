@@ -1,0 +1,59 @@
+{
+  "meta": {
+    "name": "task_decomposer",
+    "title": "任务分解与规划",
+    "description": "将复杂任务分解为可执行的子任务并按依赖排序。输入任务描述→LLM拆解→提取子任务→依赖排序→生成格式化计划。",
+    "category": "task_management",
+    "icon": "list-checks",
+    "tags": ["planning", "decomposition", "dependencies", "project-management"],
+    "expected_inputs": {"complex_task": "string"},
+    "expected_outputs": {"plan": "string", "subtask_count": "number"},
+    "author": "platform", "version": 1,
+    "min_blocks_required": ["llm", "template_transform"]
+  },
+  "workflow": {
+    "nodes": [
+      {
+        "id": "start", "type": "start", "title": "复杂任务",
+        "config": {"inputs": [
+          {"name": "complex_task", "label": "任务描述", "type": "string"},
+          {"name": "constraints", "label": "约束条件", "type": "string", "required": false, "default": ""}
+        ]}
+      },
+      {
+        "id": "decompose", "type": "llm", "title": "LLM 任务分解",
+        "config": {
+          "system": "You are a project planner. Break complex tasks into ordered subtasks with dependencies. For each: name, estimated_hours, dependencies(list), acceptance_criteria.",
+          "prompt": "Task: {{ task }}\nConstraints: {{ constraints }}\n\nDecompose into subtasks. Return as structured JSON array.",
+          "variables": {
+            "task": {"$ref": {"node_id": "start", "path": ["complex_task"]}},
+            "constraints": {"$ref": {"node_id": "start", "path": ["constraints"]}}
+          }
+        }
+      },
+      {
+        "id": "format", "type": "template_transform", "title": "格式化计划",
+        "config": {
+          "template": "# 任务分解计划\n\n## 原始任务\n{{ task }}\n\n## 分解结果\n{{ decomposition }}\n\n## 约束条件\n{{ constraints }}",
+          "variables": {
+            "task": {"$ref": {"node_id": "start", "path": ["complex_task"]}},
+            "decomposition": {"$ref": {"node_id": "decompose", "path": ["text"]}},
+            "constraints": {"$ref": {"node_id": "start", "path": ["constraints"]}}
+          }
+        }
+      },
+      {
+        "id": "end", "type": "end", "title": "任务计划",
+        "config": {"outputs": {
+          "plan": {"$ref": {"node_id": "format", "path": ["text"]}},
+          "raw_decomposition": {"$ref": {"node_id": "decompose", "path": ["text"]}}
+        }}
+      }
+    ],
+    "edges": [
+      {"id": "e1", "source": "start", "target": "decompose", "source_port": "output", "target_port": "input"},
+      {"id": "e2", "source": "decompose", "target": "format", "source_port": "text", "target_port": "input"},
+      {"id": "e3", "source": "format", "target": "end", "source_port": "text", "target_port": "input"}
+    ]
+  }
+}

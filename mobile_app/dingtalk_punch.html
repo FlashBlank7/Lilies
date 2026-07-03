@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>钉钉自动打卡</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  background:#0a0e27;color:#e8e8e8;min-height:100vh;
+  -webkit-tap-highlight-color:transparent;user-select:none}
+.container{max-width:420px;margin:0 auto;padding:14px}
+.header{text-align:center;padding:18px 0 6px}
+.header h1{font-size:20px;font-weight:700}
+.header .sub{font-size:12px;color:#8a8fa0;margin-top:3px}
+.clock-card{background:linear-gradient(135deg,#1a1f3a 0%,#141832 100%);
+  border-radius:18px;padding:18px;text-align:center;margin:10px 0;
+  border:1px solid #252a44}
+.clock-time{font-size:54px;font-weight:700;font-variant-numeric:tabular-nums;
+  letter-spacing:3px;line-height:1.1;color:#fff}
+.clock-date{font-size:13px;color:#6b7394;margin-top:3px}
+.clock-next{font-size:12px;color:#4a5170;margin-top:6px}
+.timer-bar{height:3px;background:#1a1f3a;border-radius:2px;margin-top:8px}
+.timer-fill{height:100%;background:linear-gradient(90deg,#52c41a,#1677ff);border-radius:2px;transition:width 1s linear}
+.btn-row{display:flex;gap:10px;margin:12px 0}
+.btn{flex:1;border:none;border-radius:14px;padding:16px 8px;font-size:15px;
+  font-weight:600;cursor:pointer;transition:all .15s;color:#fff}
+.btn:active{transform:scale(.95)}
+.btn-in{background:linear-gradient(135deg,#52c41a,#3da012)}
+.btn-out{background:linear-gradient(135deg,#1677ff,#0958d9)}
+.btn-cfg{background:#252a44;flex:.4;font-size:20px}
+.btn:disabled{opacity:.35;pointer-events:none}
+.tag{display:inline-block;padding:3px 10px;border-radius:12px;font-size:11px;
+  font-weight:600;margin:6px 0}
+.tag-ok{background:rgba(82,196,26,.25);color:#52c41a}
+.tag-wait{background:rgba(255,255,255,.1);color:#8a8fa0}
+.log-card{background:#11152a;border-radius:14px;padding:10px;margin:10px 0;
+  max-height:180px;overflow-y:auto;border:1px solid #1a1f3a}
+.log-item{display:flex;justify-content:space-between;padding:7px 4px;
+  border-bottom:1px solid rgba(255,255,255,.04);font-size:12px}
+.log-item:last-child{border:none}
+.log-ok{color:#52c41a}.log-fail{color:#ff4d4f}
+.modal-overlay{display:none;position:fixed;top:0;left:0;right:0;bottom:0;
+  background:rgba(0,0,0,.75);z-index:100;align-items:center;justify-content:center}
+.modal-overlay.show{display:flex}
+.modal{background:#141832;border-radius:18px;padding:22px;width:92%;max-width:380px;
+  border:1px solid #252a44}
+.modal h3{font-size:17px;margin-bottom:14px}
+.modal label{display:block;font-size:11px;color:#6b7394;margin:8px 0 3px}
+.modal input{width:100%;padding:10px;border-radius:10px;border:1px solid #252a44;
+  background:#0a0e27;color:#e8e8e8;font-size:14px}
+.modal input:focus{outline:none;border-color:#1677ff}
+.modal .btn-row{margin-top:14px}
+.toast{position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:200;
+  background:#141832;color:#e8e8e8;padding:10px 22px;border-radius:24px;
+  font-size:13px;font-weight:500;box-shadow:0 6px 20px rgba(0,0,0,.5);
+  opacity:0;transition:opacity .3s;border:1px solid #252a44}
+.toast.show{opacity:1}
+.setup-banner{background:#141832;border:1px solid #252a44;border-radius:14px;
+  padding:14px;margin:10px 0;font-size:12px;line-height:1.7;color:#8a8fa0}
+.setup-banner b{color:#e8e8e8}
+.setup-banner .done{color:#52c41a}
+</style>
+</head>
+<body>
+<div class="container" id="app">
+
+  <div class="header">
+    <h1>📋 钉钉自动打卡</h1>
+    <div class="sub">☀️ 8:45 上班 · 🌙 19:00 下班</div>
+  </div>
+
+  <div class="clock-card">
+    <div class="clock-date" id="dateDisplay">---</div>
+    <div class="clock-time" id="timeDisplay">--:--:--</div>
+    <div class="clock-next" id="nextPunch">---</div>
+    <div class="timer-bar"><div class="timer-fill" id="timerFill" style="width:0%"></div></div>
+    <div id="statusBadge"></div>
+  </div>
+
+  <div class="btn-row">
+    <button class="btn btn-in" onclick="punch('checkin')" id="btnIn">
+      ☀️ 上班打卡<br><small style="font-size:11px;opacity:.8">08:45</small>
+    </button>
+    <button class="btn btn-cfg" onclick="openCfg()">⚙️</button>
+    <button class="btn btn-out" onclick="punch('checkout')" id="btnOut">
+      🌙 下班签退<br><small style="font-size:11px;opacity:.8">19:00</small>
+    </button>
+  </div>
+
+  <div class="setup-banner" id="setupBanner">
+    <b>📱 使用说明</b><br>
+    1. 保持此页面在 Chrome 中打开<br>
+    2. 到 8:45/19:00 自动跳转钉钉 App<br>
+    3. 在钉钉中点击「考勤打卡」即可<br>
+    4. <span style="color:#52c41a">无需配置任何 API 参数</span><br>
+    <span style="color:#faad14">⚠ 首次使用需允许浏览器打开钉钉</span>
+  </div>
+
+  <div class="log-card" id="logList">
+    <div style="text-align:center;color:#4a5170;padding:10px;font-size:12px">📝 打卡记录（点击 ⚙️ 开始配置）</div>
+  </div>
+</div>
+
+<!-- Config Modal -->
+<div class="modal-overlay" id="cfgModal">
+<div class="modal">
+  <h3>⚙️ 钉钉打卡配置</h3>
+  <label>钉钉考勤 API 地址</label>
+  <input id="fUrl" value="https://oapi.dingtalk.com/attendance/checkin">
+  <label>Access Token（钉钉开放平台获取）</label>
+  <input id="fToken" type="password" placeholder="填写你的钉钉 Access Token">
+  <label>钉钉用户 ID</label>
+  <input id="fUser" placeholder="例如: manager123">
+  <label>经度</label>
+  <input id="fLng" value="121.4737" type="number" step="any">
+  <label>纬度</label>
+  <input id="fLat" value="31.2304" type="number" step="any">
+  <label>打卡地址描述</label>
+  <input id="fAddr" value="上海市黄浦区">
+  <div class="btn-row">
+    <button class="btn btn-cfg" onclick="closeCfg()" style="flex:.5">取消</button>
+    <button class="btn btn-out" onclick="saveCfg()">💾 保存配置</button>
+  </div>
+</div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ═══════════════════════════════════════════
+//  钉钉自动打卡 — 完全离线版
+//  将此文件保存到手机，用浏览器打开即可
+//  所有数据存在手机本地，直接调用钉钉API
+// ═══════════════════════════════════════════
+
+const K = 'ddcfg', H = 'ddlog';
+const CI_H = 8, CI_M = 45, CO_H = 19, CO_M = 0;
+
+function cfg() {
+  try { return JSON.parse(localStorage.getItem(K)) || {} } catch(e) { return {} }
+}
+function logs() {
+  try { return JSON.parse(localStorage.getItem(H)) || [] } catch(e) { return [] }
+}
+function addLog(type, ok, msg) {
+  const all = logs();
+  const d = new Date();
+  all.unshift({
+    t: type, ok,
+    time: d.toLocaleTimeString('zh-CN',{hour12:false}),
+    date: d.toLocaleDateString('zh-CN'),
+    msg: msg || (ok ? 'OK' : 'FAIL')
+  });
+  if (all.length > 60) all.length = 60;
+  localStorage.setItem(H, JSON.stringify(all));
+  renderLogs();
+}
+
+let _toastTimer;
+function toast(m) {
+  const e = document.getElementById('toast');
+  e.textContent = m; e.classList.add('show');
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => e.classList.remove('show'), 2200);
+}
+
+function openCfg() {
+  const c = cfg();
+  document.getElementById('fUrl').value = c.url || 'https://oapi.dingtalk.com/attendance/checkin';
+  document.getElementById('fToken').value = c.token || '';
+  document.getElementById('fUser').value = c.user || '';
+  document.getElementById('fLng').value = c.lng || '121.4737';
+  document.getElementById('fLat').value = c.lat || '31.2304';
+  document.getElementById('fAddr').value = c.addr || '';
+  document.getElementById('cfgModal').classList.add('show');
+}
+
+function closeCfg() {
+  document.getElementById('cfgModal').classList.remove('show');
+}
+
+function saveCfg() {
+  const c = {
+    url: document.getElementById('fUrl').value.trim(),
+    token: document.getElementById('fToken').value.trim(),
+    user: document.getElementById('fUser').value.trim(),
+    lng: document.getElementById('fLng').value,
+    lat: document.getElementById('fLat').value,
+    addr: document.getElementById('fAddr').value.trim()
+  };
+  if (!c.token || !c.user) { toast('⚠️ Token 和用户 ID 必填'); return; }
+  localStorage.setItem(K, JSON.stringify(c));
+  closeCfg();
+  document.getElementById('setupBanner').style.display = 'none';
+  toast('✅ 配置已保存！到时间自动打卡');
+}
+
+// ── 核心: 调用钉钉 API ──
+let _punching = false;
+async function punch(type) {
+  if (_punching) return;
+  const c = cfg();
+  if (!c.token || !c.user) { toast('⚠️ 请先点 ⚙️ 配置'); openCfg(); return; }
+
+  const btn = document.getElementById(type === 'checkin' ? 'btnIn' : 'btnOut');
+  _punching = true; btn.disabled = true;
+  const label = type === 'checkin' ? '上班打卡' : '下班签退';
+  btn.textContent = '⏳...';
+
+  const now = new Date();
+  const timeStr = now.toLocaleTimeString('zh-CN', {hour12: false});
+
+  try {
+    const resp = await fetch(c.url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + c.token },
+      body: JSON.stringify({
+        userid: c.user, location_type: '1',
+        longitude: c.lng, latitude: c.lat,
+        address: c.addr, time: timeStr
+      })
+    });
+    const data = await resp.json().catch(() => ({}));
+    const ok = resp.ok && (data.errcode === 0 || data.errcode === undefined);
+    addLog(type, ok, ok ? `HTTP ${resp.status}` : (data.errmsg || `HTTP ${resp.status}`));
+    toast(ok ? `✅ ${label}成功 ${timeStr}` : `❌ ${data.errmsg || '网络错误'}`);
+  } catch(e) {
+    addLog(type, false, '网络错误'); toast('❌ 网络错误: ' + e.message);
+  }
+
+  btn.innerHTML = type === 'checkin'
+    ? '☀️ 上班打卡<br><small style="font-size:11px;opacity:.8">08:45</small>'
+    : '🌙 下班签退<br><small style="font-size:11px;opacity:.8">19:00</small>';
+  btn.disabled = false; _punching = false;
+  tick();
+}
+
+// ── 时钟 + 自动打卡 ──
+let _lastAutoMin = -1;
+function tick() {
+  const d = new Date();
+  const h = d.getHours(), m = d.getMinutes(), s = d.getSeconds();
+
+  document.getElementById('timeDisplay').textContent =
+    [h,m,s].map(x => String(x).padStart(2,'0')).join(':');
+  document.getElementById('dateDisplay').textContent =
+    d.toLocaleDateString('zh-CN', {weekday:'long',year:'numeric',month:'long',day:'numeric'});
+
+  // 下一次打卡
+  const cm = CI_H * 60 + CI_M, om = CO_H * 60 + CO_M;
+  const nm = h * 60 + m;
+  let next;
+  if (nm < cm) next = {v: cm, label: '☀️ 上班打卡'};
+  else if (nm < om) next = {v: om, label: '🌙 下班签退'};
+  else next = {v: cm + 1440, label: '☀️ 上班打卡(明天)'};
+
+  const diff = next.v - nm;
+  document.getElementById('nextPunch').textContent =
+    `下一次: ${next.label} ${String(Math.floor(next.v/60)%24).padStart(2,'0')}:${String(next.v%60).padStart(2,'0')} (${Math.floor(diff/60)}时${diff%60}分后)`;
+
+  // 进度条
+  const totalSpan = (nm < cm) ? cm : (nm < om ? om - cm : cm + 1440 - om);
+  const elapsed = totalSpan > 0 ? Math.min(100, Math.max(0, ((totalSpan - diff) / totalSpan) * 100)) : 0;
+  document.getElementById('timerFill').style.width = elapsed + '%';
+
+  // 状态标签
+  const today = d.toLocaleDateString('zh-CN');
+  const all = logs();
+  const doneIn = all.some(x => x.t === 'checkin' && x.date === today && x.ok);
+  const doneOut = all.some(x => x.t === 'checkout' && x.date === today && x.ok);
+  const badge = document.getElementById('statusBadge');
+  if (doneIn && doneOut) badge.innerHTML = '<span class="tag tag-ok">✅ 今日打卡完成</span>';
+  else if (doneIn) badge.innerHTML = '<span class="tag tag-wait">☀️ 已打卡 · 待签退</span>';
+  else badge.innerHTML = '<span class="tag tag-wait">⏳ 等待打卡</span>';
+
+  // 自动打卡: 到达目标分钟时触发
+  const c = cfg();
+  const thisMin = h * 60 + m;
+  if (thisMin !== _lastAutoMin) {
+    _lastAutoMin = thisMin;
+
+    // 方式A: 如果配了 Token → 直接调 API
+    if (c.token && c.user) {
+      if (h === CI_H && m === CI_M && s < 10 && !doneIn) punch('checkin');
+      if (h === CO_H && m === CO_M && s < 10 && !doneOut) punch('checkout');
+    }
+
+    // 方式B: 无 Token → 打开钉钉 App (深链接)
+    if (!c.token) {
+      if (h === CI_H && m === CI_M && s === 3) {
+        addLog('checkin', true, '⏰ 提醒');
+        toast('☀️ 上班时间！打开钉钉 →');
+        setTimeout(() => { location.href = 'dingtalk://'; }, 500);
+      }
+      if (h === CO_H && m === CO_M && s === 3) {
+        addLog('checkout', true, '⏰ 提醒');
+        toast('🌙 下班时间！打开钉钉 →');
+        setTimeout(() => { location.href = 'dingtalk://'; }, 500);
+      }
+    }
+  }
+}
+
+function renderLogs() {
+  const all = logs();
+  const el = document.getElementById('logList');
+  if (!all.length) {
+    el.innerHTML = '<div style="text-align:center;color:#4a5170;padding:10px;font-size:12px">📝 暂无记录</div>';
+    return;
+  }
+  el.innerHTML = all.slice(0, 25).map(x =>
+    `<div class="log-item">
+      <span>${x.t==='checkin'?'☀️':'🌙'} ${x.date} ${x.time}</span>
+      <span class="${x.ok?'log-ok':'log-fail'}">${x.msg}</span>
+    </div>`
+  ).join('');
+}
+
+// 初始化
+tick(); renderLogs();
+if (cfg().token) document.getElementById('setupBanner').style.display = 'none';
+setInterval(tick, 1000);
+
+// 点击遮罩关闭
+document.getElementById('cfgModal').addEventListener('click', function(e) {
+  if (e.target === this) closeCfg();
+});
+</script>
+</body>
+</html>

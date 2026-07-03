@@ -128,8 +128,19 @@ class WorkflowSpec(BaseModel):
 
 class TestAssertion(BaseModel):
     path: list[str] = Field(default_factory=list)
-    operator: Literal["exists", "equals", "contains", "not_contains", "type"] = "exists"
+    operator: Literal[
+        # Structural (deterministic — independent of LLM output)
+        "exists", "type", "min_length", "max_length",
+        # Content (non-deterministic — depends on LLM output)
+        "equals", "contains", "not_contains",
+    ] = "exists"
     expected: Any = None
+    structural: bool = Field(
+        default=False,
+        description="When True, the assertion only checks structural properties "
+        "(exists, type, length) and ignores content comparisons. "
+        "Useful for testing workflows that include LLM calls."
+    )
 
 
 class WorkflowTestCase(BaseModel):
@@ -141,6 +152,14 @@ class WorkflowTestCase(BaseModel):
     required_node_types: list[str] = Field(default_factory=list)
     required_tool_nodes: list[str] = Field(default_factory=list)
     required_tools: list[str] = Field(default_factory=list)
+    minimum_tool_calls: int = Field(default=0, ge=0, le=100)
+    require_cited_tool_urls: bool = False
+    mandatory: bool = True
+    structural_only: bool = Field(
+        default=False,
+        description="When True, all content assertions are downgraded to structural "
+        "checks. LLM output variability won't cause test failures."
+    )
     minimum_tool_calls: int = Field(default=0, ge=0, le=100)
     require_cited_tool_urls: bool = False
     mandatory: bool = True

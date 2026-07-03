@@ -506,6 +506,8 @@ class WorkflowRuntime:
         if not isinstance(settings, dict):
             raise TypeError("agent architecture block settings must resolve to an object")
 
+        # ── Context group ───────────────────────────────────────────
+
         if node.type == "context_assembler":
             fragments = settings.get("fragments", [])
             if not isinstance(fragments, list):
@@ -538,7 +540,15 @@ class WorkflowRuntime:
             await self._emit(run_id, "context.compaction.started", {"node_id": scoped_id})
             max_chars = int(settings.get("max_chars", 4000))
             text = json.dumps(value, ensure_ascii=False, default=str) if not isinstance(value, str) else value
-            compacted = text if len(text) <= max_chars else text[: max_chars - 80] + "\n...[compacted]"
+            if len(text) > max_chars:
+                preserve = "\n".join(
+                    f"{fact}" for fact in settings.get("preserved_facts", [])
+                )
+                header = f"<compacted>\nPreserved facts:\n{preserve}\n"
+                body_start = max_chars - len(header) - 80
+                compacted = header + text[:max(0, body_start)] + "\n...[compacted]"
+            else:
+                compacted = text
             result = {
                 "summary": compacted,
                 "dropped_chars": max(0, len(text) - len(compacted)),
@@ -547,22 +557,145 @@ class WorkflowRuntime:
             await self._emit(run_id, "context.compaction.completed", {"node_id": scoped_id, **result})
             return {"output": result, "state": {"mechanism": node.type}}
 
+        # ── Model loop group ────────────────────────────────────────
+
         if node.type == "model_turn":
-            prompt = str(settings.get("prompt", value))
-            text, usage = await self._model_text(
-                run_id,
-                str(settings.get("model") or self.runtime_model),
-                str(settings.get("system") or "You are a precise coding agent runtime block."),
-                prompt,
-                scoped_id,
+            prompt = str(settings.get("prompt", json.dumps(value, ensure_ascii=False, default=str) if not isinstance(value, str) else value))
+            tool_names = [str(t) for t in settings.get("tools", [])]
+            system = str(settings.get("system") or "You are a precise coding agent runtime block.")
+            model = str(settings.get("model") or self.runtime_model)
+
+            if tool_names:
+                result = await self._model_turn_with_tools(
+                    run_id, model, system, prompt, scoped_id, tool_names,
+                )
+                return {
+                    "output": result,
+                    "text": result["text"],
+                    "state": {"mechanism": node.type, "tool_count": len(tool_names)},
+                }
+
+            text, usage = await self._model_text(run_id, model, system, prompt, scoped_id)
+            return {
+                "output": {"text": text, "usage": usage.model_dump(mode="json"), "tool_use_blocks": [], "stop_reason": None},
+                "text": text,
+                "state": {"mechanism": node.type},
+            }
+
+        if node.type == "tool_call_router":
+            tool_use_blocks: list[dict[str, Any]] = []
+            if isinstance(value, dict):
+                tool_use_blocks = value.get("tool_use_blocks", [])
+                if not tool_use_blocks:
+                    raw_text = value.get("text", "")
+                    if isinstance(raw_text, str):
+                        parsed = self._parse_tool_use_from_text(raw_text)
+                        if parsed:
+                            tool_use_blocks = parsed
+            elif isinstance(value, str):
+                parsed = self._parse_tool_use_from_text(value)
+                if parsed:
+                    tool_use_blocks = parsed
+            if not tool_use_blocks:
+                return {
+                    "output": {"tool_calls": [], "no_tool_calls": True, "source": value},
+                    "state": {"mechanism": node.type, "routed_count": 0},
+                }
+            routed = []
+            for tb in tool_use_blocks:
+                tool_name = tb.get("name", "")
+                tool_input = tb.get("input", {})
+                routed.append({
+                    "tool_use_id": tb.get("id", ""),
+                    "tool_name": tool_name,
+                    "tool_input": tool_input,
+                    "routed": True,
+                })
+            await self._emit(run_id, "tool_call_router.routed", {
+                "node_id": scoped_id,
+                "count": len(routed),
+                "tools": [r["tool_name"] for r in routed],
+            })
+            return {
+                "output": {"tool_calls": routed, "no_tool_calls": False, "count": len(routed)},
+                "state": {"mechanism": node.type, "routed_count": len(routed)},
+            }
+
+        if node.type == "stop_continue_controller":
+            reason = str(settings.get("stop_reason", ""))
+            if not reason and isinstance(value, dict):
+                reason = str(value.get("stop_reason", ""))
+            has_tool_calls = False
+            if isinstance(value, dict):
+                tool_blocks = value.get("tool_use_blocks", [])
+                has_tool_calls = bool(tool_blocks)
+                if not reason and not tool_blocks:
+                    text = value.get("text", "")
+                    if isinstance(text, str) and len(text.strip()) > 0:
+                        reason = "end_turn"
+            stop_reasons: dict[str, bool] = {
+                "end_turn": reason == "end_turn",
+                "tool_use": reason == "tool_use" or has_tool_calls,
+                "max_tokens": reason == "max_tokens",
+                "stop_sequence": reason == "stop_sequence",
+                "refusal": reason == "refusal",
+            }
+            should_continue = (
+                stop_reasons["tool_use"]
+                or stop_reasons["max_tokens"]
+                or (not reason and not stop_reasons["end_turn"])
             )
-            return {"output": {"text": text, "usage": usage.model_dump(mode="json")}, "text": text, "state": {"mechanism": node.type}}
+            return {
+                "output": {
+                    "input": value,
+                    "stop_reason": reason or ("tool_use" if has_tool_calls else "end_turn"),
+                    "continue": should_continue,
+                    "stop_reasons": stop_reasons,
+                },
+                "state": {
+                    "mechanism": node.type,
+                    "continue": should_continue,
+                    "stop_reason": reason,
+                },
+            }
+
+        if node.type == "retry_error_classifier":
+            error_text = str(settings.get("error") or value or "")
+            if isinstance(value, dict) and value.get("error"):
+                error_text = str(value["error"])
+            elif isinstance(value, str) and not error_text:
+                error_text = value
+            classified = self._classify_error(error_text, settings)
+            retryable = classified["retryable"]
+            if retryable:
+                delay = float(settings.get("retry_delay_seconds", 2 ** (classified.get("attempt", 1) - 1)))
+                classified["retry_delay"] = min(delay, 60)
+            await self._emit(run_id, "error.classified", {
+                "node_id": scoped_id,
+                "class": classified["class"],
+                "retryable": retryable,
+            })
+            return {
+                "output": {"error": error_text, **classified},
+                "state": {"mechanism": node.type, **classified},
+            }
+
+        # ── Tools group ─────────────────────────────────────────────
 
         if node.type == "tool_executor":
             tool_name = settings.get("tool_name")
             if not tool_name:
-                raise ValueError("tool_executor.settings.tool_name is required")
-            tool_input = settings.get("tool_input", value if isinstance(value, dict) else {"input": value})
+                if isinstance(value, dict) and value.get("tool_calls"):
+                    calls = value["tool_calls"]
+                    if calls and isinstance(calls, list) and calls[0].get("tool_name"):
+                        tool_name = str(calls[0]["tool_name"])
+                        tool_input_value = calls[0].get("tool_input", {})
+                    else:
+                        raise ValueError("tool_executor.settings.tool_name is required and no routed tool calls found")
+                else:
+                    raise ValueError("tool_executor.settings.tool_name is required")
+            else:
+                tool_input_value = settings.get("tool_input", value if isinstance(value, dict) else {"input": value})
             effective_workspace = str(
                 settings.get("workspace_path")
                 or (
@@ -572,7 +705,7 @@ class WorkflowRuntime:
                 )
             )
             result = await self._execute_tool(
-                ToolConfig(tool_name=str(tool_name), input=tool_input),
+                ToolConfig(tool_name=str(tool_name), input=tool_input_value),
                 snapshot,
                 context,
                 effective_workspace,
@@ -581,24 +714,6 @@ class WorkflowRuntime:
             )
             return {"output": result["output"], "state": {"mechanism": node.type, "tool_name": tool_name}}
 
-        if node.type == "permission_gate":
-            preset = context["inputs"].get("__permissions__", {}) if isinstance(context["inputs"].get("__permissions__"), dict) else {}
-            approved = bool(settings.get("auto_approve")) or bool(preset.get(node.id))
-            if state and state.waiting_node_id == node.id and state.resumed_values is not None:
-                approved = state.resumed_values.get("behavior") == "allow" or bool(state.resumed_values.get("approved"))
-            if not approved:
-                if not state:
-                    raise RuntimeError("permission_gate requires persisted top-level runs when approval is not preset")
-                state.waiting_node_id = node.id
-                await self._emit(run_id, "permission.requested", {
-                    "node_id": scoped_id,
-                    "reason": settings.get("reason", "Sensitive action requires approval."),
-                    "input": self._redact(value),
-                })
-                raise HumanInputPause()
-            await self._emit(run_id, "permission.resolved", {"node_id": scoped_id, "behavior": "allow"})
-            return {"output": value, "state": {"mechanism": node.type, "approved": True}}
-
         if node.type == "tool_result_normalizer":
             normalized = value
             if isinstance(value, str):
@@ -606,23 +721,191 @@ class WorkflowRuntime:
                     normalized = json.loads(value)
                 except json.JSONDecodeError:
                     normalized = {"text": value}
+            elif isinstance(value, dict):
+                has_tool_output = value.get("output")
+                if has_tool_output is not None:
+                    inner = has_tool_output
+                    if isinstance(inner, str):
+                        try:
+                            inner = json.loads(inner)
+                        except json.JSONDecodeError:
+                            inner = {"text": inner}
+                    normalized = {
+                        "tool_output": inner,
+                        "normalized_at": scoped_id,
+                        "source": value,
+                    }
             return {"output": normalized, "state": {"mechanism": node.type}}
 
-        if node.type == "budget_gate":
-            max_cost = settings.get("max_cost_usd")
-            spent = float(settings.get("spent_cost_usd", 0))
-            allowed = max_cost is None or spent <= float(max_cost)
-            return {"output": value, "state": {"mechanism": node.type, "allowed": allowed, "spent_cost_usd": spent, "max_cost_usd": max_cost}}
+        if node.type == "permission_gate":
+            preset = context["inputs"].get("__permissions__", {}) if isinstance(context["inputs"].get("__permissions__"), dict) else {}
+            mode = str(settings.get("mode", "always_ask"))
+            # Harness-inspired three-level permission system:
+            #   always_ask  — pause and request approval before every sensitive step
+            #   plan_first  — first show what will be done, then ask for approval once
+            #   auto_approve — bypass approval entirely (for trusted workflows)
+            approved = (
+                mode == "auto_approve"
+                or bool(preset.get(node.id))
+                or bool(settings.get("auto_approve"))  # legacy compat
+            )
+            if state and state.waiting_node_id == node.id and state.resumed_values is not None:
+                approved = state.resumed_values.get("behavior") == "allow" or bool(state.resumed_values.get("approved"))
+            limit = int(settings.get("max_auto_per_hour", 0))
+            if approved and limit > 0:
+                # Track auto-approval count from context
+                auto_count = context.get("_auto_approve_count", 0)
+                if auto_count >= limit:
+                    approved = False  # escalate to manual for safety
+            # Emit plan event for plan_first mode regardless of approval
+            if mode == "plan_first":
+                await self._emit(run_id, "permission.plan", {
+                    "node_id": scoped_id,
+                    "reason": settings.get("reason", "Sensitive action requires review."),
+                    "plan": self._redact(value),
+                    "auto_approved": approved,
+                })
+            if not approved:
+                if not state:
+                    raise RuntimeError("permission_gate requires persisted top-level runs when approval is not preset")
+                state.waiting_node_id = node.id
+                await self._emit(run_id, "permission.requested", {
+                    "node_id": scoped_id,
+                    "reason": settings.get("reason", "Sensitive action requires approval."),
+                    "mode": mode,
+                    "input": self._redact(value),
+                })
+                raise HumanInputPause()
+            await self._emit(run_id, "permission.resolved", {"node_id": scoped_id, "mode": mode, "behavior": "allow"})
+            return {"output": value, "state": {"mechanism": node.type, "approved": True, "mode": mode}}
 
-        if node.type == "round_limit":
-            current_round = int(settings.get("current_round", 0))
-            max_rounds = int(settings.get("max_rounds", 30))
-            return {"output": value, "state": {"mechanism": node.type, "allowed": current_round < max_rounds, "current_round": current_round, "max_rounds": max_rounds}}
+        if node.type == "sandbox_boundary":
+            declared_workspace = str(settings.get("workspace", workspace_path))
+            network_policy = str(settings.get("network_policy", "none"))
+            effective_policy = network_policy if network_policy in {"none", "full", "allowlist"} else "none"
+            self.sandboxes.resolve_workspace(declared_workspace)
+            await self._emit(run_id, "sandbox.boundary.declared", {
+                "node_id": scoped_id,
+                "workspace": declared_workspace,
+                "network_policy": effective_policy,
+            })
+            return {
+                "output": {
+                    "input": value,
+                    "workspace": declared_workspace,
+                    "network_policy": effective_policy,
+                },
+                "state": {
+                    "mechanism": node.type,
+                    "workspace": declared_workspace,
+                    "network_policy": effective_policy,
+                },
+            }
 
-        if node.type == "event_recorder":
-            event = {"node_id": scoped_id, "label": settings.get("label", node.title), "payload": self._redact(value)}
-            await self._emit(run_id, "agent_architecture.event", event)
-            return {"output": value, "state": {"mechanism": node.type, "recorded": True}}
+        # ── Skill / MCP group ───────────────────────────────────────
+
+        if node.type == "skill_loader":
+            skill_names = settings.get("skills", [])
+            if isinstance(skill_names, str):
+                skill_names = [s.strip() for s in skill_names.split(",") if s.strip()]
+            loaded: list[dict[str, Any]] = []
+            for name in skill_names:
+                agent_skill = next(
+                    (s for s in (snapshot.agents or {}).values() if s.name == name), None
+                )
+                if agent_skill is None:
+                    loaded.append({"name": name, "status": "not_found", "instructions": ""})
+                    continue
+                skill_def = next(
+                    (s for s in (agent_skill.skills or []) if s.name == name), None
+                )
+                loaded.append({
+                    "name": name,
+                    "status": "loaded",
+                    "instructions": skill_def.instructions if skill_def else agent_skill.system_prompt,
+                    "tools": agent_skill.tools or [],
+                })
+            await self._emit(run_id, "skill.loaded", {
+                "node_id": scoped_id,
+                "skills": [s["name"] for s in loaded],
+            })
+            return {
+                "output": {"skills": loaded, "input": value},
+                "state": {"mechanism": node.type, "loaded_count": len(loaded)},
+            }
+
+        if node.type == "mcp_gateway":
+            servers = settings.get("servers", [])
+            if isinstance(servers, dict):
+                servers = [servers]
+            discovered: list[dict[str, Any]] = []
+            for server in servers:
+                server_name = str(server.get("name", "unnamed"))
+                try:
+                    from .tools.mcp import MCPClient
+                    client = MCPClient(
+                        command=str(server.get("command", "")),
+                        args=[str(a) for a in server.get("args", [])],
+                        env={str(k): str(v) for k, v in server.get("env", {}).items()},
+                    )
+                    async with client:
+                        cap = await client.list_tools()
+                    discovered.append({
+                        "name": server_name,
+                        "status": "connected",
+                        "tools": [t.get("name", "") for t in cap.get("tools", [])],
+                        "raw_capabilities": cap,
+                    })
+                except Exception as exc:
+                    discovered.append({
+                        "name": server_name,
+                        "status": "failed",
+                        "error": str(exc),
+                    })
+            await self._emit(run_id, "mcp.gateway.discovered", {
+                "node_id": scoped_id,
+                "servers": [d["name"] for d in discovered],
+            })
+            return {
+                "output": {"mcp_servers": discovered, "input": value},
+                "state": {"mechanism": node.type, "server_count": len(discovered)},
+            }
+
+        if node.type == "capability_registry":
+            tool_names = [str(t) for t in settings.get("tools", [])]
+            skill_list = settings.get("skills", [])
+            mcp_list = settings.get("mcp_servers", [])
+            if isinstance(value, dict):
+                if value.get("skills"):
+                    for s in value["skills"]:
+                        if isinstance(s, dict):
+                            skill_list.append(s.get("name", ""))
+                            tool_names.extend(s.get("tools", []))
+                if value.get("mcp_servers"):
+                    for s in value["mcp_servers"]:
+                        if isinstance(s, dict) and s.get("status") == "connected":
+                            mcp_list.append(s.get("name", ""))
+                            tool_names.extend(s.get("tools", []))
+            all_tools: list[str] = sorted(set(t for t in tool_names if t))
+            all_skills: list[str] = sorted(set(s for s in skill_list if isinstance(s, str) and s))
+            all_mcp: list[str] = sorted(set(s for s in mcp_list if isinstance(s, str) and s))
+            registry = {
+                "tools": all_tools,
+                "skills": all_skills,
+                "mcp_servers": all_mcp,
+                "total_capabilities": len(all_tools) + len(all_skills),
+            }
+            await self._emit(run_id, "capability.registry.built", {
+                "node_id": scoped_id,
+                "tool_count": len(all_tools),
+                "skill_count": len(all_skills),
+            })
+            return {
+                "output": {"registry": registry, "input": value},
+                "state": {"mechanism": node.type, **registry},
+            }
+
+        # ── Multi-agent group ───────────────────────────────────────
 
         if node.type == "subagent_spawn":
             task = str(settings.get("task") or value or "")
@@ -693,53 +976,386 @@ class WorkflowRuntime:
                 },
             }
 
-        state_payload = {"mechanism": node.type, **settings}
-        if node.type == "retry_error_classifier":
-            error_text = str(settings.get("error") or value or "")
-            retryable = any(token in error_text.casefold() for token in ("timeout", "rate", "temporary", "retry"))
-            state_payload.update({"class": "retryable" if retryable else "fatal", "retryable": retryable})
-        elif node.type == "stop_continue_controller":
-            reason = str(settings.get("stop_reason", ""))
-            state_payload.update({"continue": reason in {"tool_use", "max_tokens", ""}, "stop_reason": reason})
-        elif node.type == "sandbox_boundary":
-            state_payload.update({
-                "workspace": settings.get("workspace", workspace_path),
-                "network_policy": settings.get("network_policy", "full"),
+        if node.type == "task_dispatcher":
+            tasks = settings.get("tasks", [])
+            if isinstance(value, list) and not tasks:
+                tasks_raw = value
+                tasks = []
+                for t in tasks_raw:
+                    if isinstance(t, str):
+                        tasks.append({"name": t, "dependencies": [], "owner": None})
+                    elif isinstance(t, dict):
+                        tasks.append(t)
+            if not tasks:
+                return {
+                    "output": {"dispatch_plan": [], "message": "no tasks to dispatch"},
+                    "state": {"mechanism": node.type, "dispatched": 0},
+                }
+            ordered = self._topological_task_sort(tasks)
+            dispatched = []
+            for idx, task in enumerate(ordered):
+                dispatched.append({
+                    "order": idx,
+                    "name": task.get("name", task.get("subject", f"task-{idx}")),
+                    "dependencies": task.get("dependencies", task.get("blocked_by", [])),
+                    "owner": task.get("owner"),
+                    "status": "ready" if idx == 0 else "waiting",
+                })
+            await self._emit(run_id, "task.dispatched", {
+                "node_id": scoped_id,
+                "total": len(dispatched),
             })
             return {
-                "output": {
-                    "input": value,
-                    "workspace": state_payload["workspace"],
-                    "network_policy": state_payload["network_policy"],
-                },
-                "state": state_payload,
+                "output": {"dispatch_plan": dispatched, "total": len(dispatched)},
+                "state": {"mechanism": node.type, "dispatched": len(dispatched)},
             }
-        elif node.type == "dependency_gate":
-            dependencies = settings.get("dependencies", [])
-            completed = set(settings.get("completed", []))
-            state_payload.update({"open_dependencies": [item for item in dependencies if item not in completed]})
-        elif node.type == "mailbox_wait_wake":
+
+        if node.type == "mailbox_wait_wake":
             preset = context["inputs"].get("__mailbox__", {}) if isinstance(context["inputs"].get("__mailbox__"), dict) else {}
-            messages = settings.get("messages") or preset.get(node.id) or []
+            expected = settings.get("expect_messages", settings.get("messages", []))
+            if isinstance(expected, str):
+                expected = [expected]
+            found = preset.get(node.id) or settings.get("messages") or []
             if state and state.waiting_node_id == node.id and state.resumed_values is not None:
                 resumed_messages = state.resumed_values.get("messages", state.resumed_values)
-                messages = resumed_messages if isinstance(resumed_messages, list) else [resumed_messages]
-            if not messages:
+                found = resumed_messages if isinstance(resumed_messages, list) else [resumed_messages]
+            if not found:
                 if not state:
                     raise RuntimeError("mailbox_wait_wake requires persisted top-level runs when no message is preset")
                 state.waiting_node_id = node.id
                 await self._emit(run_id, "mailbox.waiting", {
                     "node_id": scoped_id,
+                    "expected": expected,
                     "input": self._redact(value),
                 })
                 raise HumanInputPause()
-            await self._emit(run_id, "mailbox.woke", {"node_id": scoped_id, "messages": self._redact(messages)})
-            state_payload.update({"awake": True, "messages": messages})
-        elif node.type == "checkpoint_resume":
-            state_payload.update({"checkpoint": settings.get("checkpoint_id", f"{run_id}:{scoped_id}")})
-        elif node.type == "cancellation_point":
-            state_payload.update({"cancelled": bool(settings.get("cancelled", False))})
-        return {"output": value if value is not None else state_payload, "state": state_payload}
+            matched = [m for m in found if not expected or any(
+                str(e).casefold() in str(m).casefold() for e in expected
+            )]
+            if not matched and expected:
+                if not state:
+                    raise RuntimeError("mailbox_wait_wake: expected messages not matched")
+                state.waiting_node_id = node.id
+                await self._emit(run_id, "mailbox.waiting", {
+                    "node_id": scoped_id,
+                    "expected": expected,
+                    "received": self._redact(found),
+                })
+                raise HumanInputPause()
+            final_messages = matched or found
+            await self._emit(run_id, "mailbox.woke", {
+                "node_id": scoped_id,
+                "matched": len(matched) if matched else len(found),
+            })
+            return {
+                "output": {"messages": final_messages, "awake": True, "input": value},
+                "state": {
+                    "mechanism": node.type,
+                    "awake": True,
+                    "messages": final_messages,
+                    "message_count": len(final_messages),
+                },
+            }
+
+        if node.type == "dependency_gate":
+            dependencies = settings.get("dependencies", [])
+            if isinstance(dependencies, str):
+                dependencies = [dependencies]
+            completed_raw = settings.get("completed", [])
+            if isinstance(settings.get("completed"), str):
+                completed_raw = [completed_raw]
+            completed = set(str(c) for c in completed_raw)
+            if isinstance(value, dict):
+                upstream_completed = value.get("completed", [])
+                if isinstance(upstream_completed, list):
+                    completed.update(str(c) for c in upstream_completed)
+            blocked = [d for d in dependencies if str(d) not in completed]
+            all_satisfied = len(blocked) == 0
+            if not all_satisfied:
+                await self._emit(run_id, "dependency.blocked", {
+                    "node_id": scoped_id,
+                    "blocked_by": blocked,
+                    "completed": sorted(completed),
+                })
+            return {
+                "output": {
+                    "input": value,
+                    "dependencies": dependencies,
+                    "completed": sorted(completed),
+                    "blocked": blocked,
+                    "all_satisfied": all_satisfied,
+                },
+                "state": {
+                    "mechanism": node.type,
+                    "blocked": blocked,
+                    "all_satisfied": all_satisfied,
+                },
+            }
+
+        # ── Governance group ────────────────────────────────────────
+
+        if node.type == "budget_gate":
+            max_cost = settings.get("max_cost_usd")
+            spent = float(settings.get("spent_cost_usd", 0))
+            if isinstance(value, dict) and value.get("usage"):
+                usage = value["usage"]
+                if isinstance(usage, dict):
+                    spent += float(usage.get("cost_usd", 0))
+            allowed = max_cost is None or spent <= float(max_cost)
+            if not allowed:
+                await self._emit(run_id, "budget.exceeded", {
+                    "node_id": scoped_id,
+                    "spent": spent,
+                    "max": max_cost,
+                })
+            return {
+                "output": {"input": value, "allowed": allowed, "spent_cost_usd": spent, "max_cost_usd": max_cost},
+                "state": {"mechanism": node.type, "allowed": allowed, "spent_cost_usd": spent, "max_cost_usd": max_cost},
+            }
+
+        if node.type == "round_limit":
+            current_round = int(settings.get("current_round", 0))
+            max_rounds = int(settings.get("max_rounds", 30))
+            allowed = current_round < max_rounds
+            if not allowed:
+                await self._emit(run_id, "round_limit.reached", {
+                    "node_id": scoped_id,
+                    "current": current_round,
+                    "max": max_rounds,
+                })
+            return {
+                "output": {"input": value, "allowed": allowed, "current_round": current_round, "max_rounds": max_rounds},
+                "state": {"mechanism": node.type, "allowed": allowed, "current_round": current_round, "max_rounds": max_rounds},
+            }
+
+        if node.type == "soft_block":
+            from .soft_block import get_discrete_block_type
+            strategy = str(settings.get("strategy", "context_assemble"))
+            discrete_type = get_discrete_block_type(strategy)
+            if discrete_type is None:
+                raise RuntimeError(f"soft_block: unknown strategy: {strategy}")
+
+            # SoftBlock is a design-time macro: at runtime it delegates directly
+            # to the equivalent discrete block. No runtime strategy selection.
+            return await self._execute_agent_architecture_block(
+                AgentArchitectureConfig(
+                    input=config.input,
+                    settings=settings,
+                ),
+                snapshot,
+                NodeSpec(
+                    id=node.id, type=discrete_type, title=node.title,
+                    config={"input": config.input, "settings": settings},
+                ),
+                context,
+                workspace_path,
+                run_id,
+                scoped_id,
+                state,
+            )
+
+        if node.type == "hook_point":
+            hook_name = str(settings.get("hook_name", node.title))
+            direction = str(settings.get("direction", "before"))
+            timeout_s = float(settings.get("timeout_seconds", 30))
+            default_behavior = str(settings.get("default_behavior", "continue"))
+            await self._emit(run_id, "hook.triggered", {
+                "node_id": scoped_id,
+                "hook_name": hook_name,
+                "direction": direction,
+                "payload": self._redact(value),
+            })
+            # External systems can listen to "hook.triggered" events via SSE
+            # and respond through a resume-like mechanism. For now, hooks are
+            # non-blocking and always continue.
+            return {
+                "output": value,
+                "state": {
+                    "mechanism": node.type,
+                    "hook_name": hook_name,
+                    "direction": direction,
+                    "triggered": True,
+                },
+            }
+
+        if node.type == "event_recorder":
+            event = {"node_id": scoped_id, "label": settings.get("label", node.title), "payload": self._redact(value)}
+            await self._emit(run_id, "agent_architecture.event", event)
+            return {"output": value, "state": {"mechanism": node.type, "recorded": True}}
+
+        if node.type == "checkpoint_resume":
+            checkpoint_id = str(settings.get("checkpoint_id", f"{run_id}:{scoped_id}"))
+            checkpoint_data = {
+                "checkpoint_id": checkpoint_id,
+                "node_id": scoped_id,
+                "run_id": run_id,
+                "workspace_path": workspace_path,
+                "completed_nodes": list(state.completed) if state else [],
+                "outputs_snapshot": {
+                    k: self._redact(v) for k, v in (state.outputs if state else {}).items()
+                } if state else {},
+                "value_snapshot": self._redact(value),
+                "timestamp_utc": str(scoped_id),  # scoped_id carries run prefix
+            }
+            # Persist checkpoint data to storage for crash recovery
+            await self.storage.save_checkpoint(run_id, checkpoint_id, checkpoint_data)
+            await self._emit(run_id, "checkpoint.saved", {
+                "node_id": scoped_id,
+                "checkpoint_id": checkpoint_id,
+                "completed_count": len(checkpoint_data["completed_nodes"]),
+            })
+            return {
+                "output": {"input": value, "checkpoint": checkpoint_data},
+                "state": {"mechanism": node.type, "checkpoint_id": checkpoint_id, "checkpoint_data": checkpoint_data},
+            }
+
+        if node.type == "cancellation_point":
+            is_cancelled = bool(settings.get("cancelled", False))
+            if state and state.run_id in self.active_tasks:
+                task = self.active_tasks.get(state.run_id)
+                if task and task.cancelled():
+                    is_cancelled = True
+            await self._emit(run_id, "cancellation.checked", {
+                "node_id": scoped_id,
+                "cancelled": is_cancelled,
+            })
+            return {
+                "output": {"input": value, "cancelled": is_cancelled},
+                "state": {"mechanism": node.type, "cancelled": is_cancelled},
+            }
+
+        raise RuntimeError(f"unknown agent architecture block: {node.type}")
+
+    @staticmethod
+    def _parse_tool_use_from_text(text: str) -> list[dict[str, Any]]:
+        """Best-effort parse of tool-use intents from free-form model text.
+
+        Detects ``<tool_call>``, ``<function_call>`` XML tags and
+        ``tool_use`` JSON blocks that DeepSeek may embed inline.
+        """
+        results: list[dict[str, Any]] = []
+        if not isinstance(text, str) or not text.strip():
+            return results
+        # XML-style: <tool_call>{"name": "Read", "input": {...}}</tool_call>
+        xml_pattern = re.compile(
+            r"<(?:tool_call|function_call|invoke)>\s*(.*?)\s*</(?:tool_call|function_call|invoke)>",
+            re.DOTALL | re.IGNORECASE,
+        )
+        for match in xml_pattern.finditer(text):
+            try:
+                parsed = json.loads(match.group(1))
+                results.append({
+                    "name": parsed.get("name", parsed.get("tool", "")),
+                    "input": parsed.get("input", parsed.get("arguments", parsed.get("args", {}))),
+                })
+            except json.JSONDecodeError:
+                pass
+        if results:
+            return results
+        # JSON code-fence: ```json {"tool": "Read", ...} ```
+        json_fence = re.compile(r"```(?:json)?\s*\n?\s*(\{.*?\})\s*\n?\s*```", re.DOTALL | re.IGNORECASE)
+        for match in json_fence.finditer(text):
+            try:
+                parsed = json.loads(match.group(1))
+                if isinstance(parsed, dict) and (parsed.get("tool") or parsed.get("name")):
+                    results.append({
+                        "name": parsed.get("name", parsed.get("tool", "")),
+                        "input": parsed.get("input", parsed.get("arguments", {})),
+                    })
+            except json.JSONDecodeError:
+                pass
+        if results:
+            return results
+        # Free JSON object with tool/name field
+        brace_pattern = re.compile(r"\{[^{}]*\"(?:tool|name)\"[^{}]*\}", re.IGNORECASE)
+        for match in brace_pattern.finditer(text):
+            try:
+                parsed = json.loads(match.group(0))
+                results.append({
+                    "name": parsed.get("name", parsed.get("tool", "")),
+                    "input": parsed.get("input", parsed.get("arguments", {})),
+                })
+            except json.JSONDecodeError:
+                pass
+        return results
+
+    @staticmethod
+    def _classify_error(error_text: str, settings: dict[str, Any]) -> dict[str, Any]:
+        """Classify an error string into retryable / fatal categories."""
+        error_lower = error_text.casefold()
+        retryable_tokens = [
+            "timeout", "timed out", "rate limit", "rate limited", "too many requests",
+            "temporary", "transient", "retry", "connection", "network",
+            "503", "502", "504", "429",
+        ]
+        permission_tokens = [
+            "permission denied", "unauthorized", "forbidden", "access denied",
+            "not allowed", "401", "403",
+        ]
+        tool_tokens = [
+            "tool not found", "unknown tool", "tool error", "execution failed",
+            "syntax error", "syntaxerror", "nameerror", "attributeerror", "modulenotfounderror",
+            "command not found", "no such file", "traceback",
+        ]
+        fatal_tokens = [
+            "api key", "authentication", "invalid request", "quota exceeded",
+            "billing", "insufficient", "not available",
+        ]
+        retryable = any(t in error_lower for t in retryable_tokens)
+        is_permission = any(t in error_lower for t in permission_tokens)
+        is_tool = any(t in error_lower for t in tool_tokens)
+        is_fatal = any(t in error_lower for t in fatal_tokens)
+        if is_fatal:
+            error_class = "fatal"
+            retryable = False
+        elif is_permission:
+            error_class = "permission"
+            retryable = False
+        elif is_tool:
+            error_class = "tool"
+        elif retryable:
+            error_class = "retryable"
+        else:
+            error_class = "unknown"
+        return {
+            "class": error_class,
+            "retryable": retryable,
+            "permission_error": is_permission,
+            "tool_error": is_tool,
+            "fatal": is_fatal,
+        }
+
+    @staticmethod
+    def _topological_task_sort(tasks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Sort tasks by dependency order using Kahn's algorithm."""
+        name_to_task: dict[str, dict[str, Any]] = {}
+        for t in tasks:
+            name = t.get("name", t.get("subject", str(id(t))))
+            name_to_task[name] = t
+        indegree: dict[str, int] = {n: 0 for n in name_to_task}
+        outgoing: dict[str, list[str]] = {n: [] for n in name_to_task}
+        for name, task in name_to_task.items():
+            deps = task.get("dependencies", task.get("blocked_by", []))
+            if isinstance(deps, str):
+                deps = [deps]
+            for dep in deps:
+                dep_str = str(dep)
+                if dep_str in name_to_task:
+                    outgoing[dep_str].append(name)
+                    indegree[name] += 1
+        queue: deque[str] = deque(n for n, d in indegree.items() if d == 0)
+        ordered: list[dict[str, Any]] = []
+        while queue:
+            current = queue.popleft()
+            ordered.append(name_to_task[current])
+            for target in outgoing[current]:
+                indegree[target] -= 1
+                if indegree[target] == 0:
+                    queue.append(target)
+        if len(ordered) < len(name_to_task):
+            remaining = [n for n in name_to_task if n not in {t.get("name", t.get("subject", "")) for t in ordered}]
+            ordered.extend(name_to_task[n] for n in remaining)
+        return ordered
 
     @staticmethod
     def _incoming_value(node: NodeSpec, context: dict[str, Any]) -> Any:
@@ -757,7 +1373,7 @@ class WorkflowRuntime:
             tools=[],
             max_output_tokens=8_192,
             thinking_enabled=True,
-            effort="high",
+            effort="xhigh",
             user_id=run_id,
         )
         response = await self.agent_runtime._collect_stream(
@@ -765,6 +1381,67 @@ class WorkflowRuntime:
         )
         text = "".join(block.text or "" for block in response.blocks if block.type == "text")
         return text, response.usage
+
+    async def _model_turn_with_tools(
+        self,
+        run_id: str,
+        model: str,
+        system: str,
+        prompt: str,
+        node_id: str,
+        tool_names: list[str],
+    ) -> dict[str, Any]:
+        """Execute a model turn with optional tool definitions.
+
+        Returns a dict with ``text``, ``tool_use_blocks``, and ``usage`` so
+        downstream agent-architecture blocks can inspect and route tool calls.
+        """
+        from .models import ToolDefinition as TD
+        definitions: list[Any] = []
+        for name in tool_names:
+            try:
+                tool = self.tools.get(name)
+                definitions.append(tool.definition())
+            except KeyError:
+                definitions.append(TD(
+                    name=name,
+                    description=f"Tool: {name}",
+                    input_schema={"type": "object", "properties": {}, "additionalProperties": True},
+                ))
+        stream = self.provider.stream(
+            model=model,
+            system=system,
+            messages=[ChatMessage(role="user", content=[ContentBlock(type="text", text=prompt)])],
+            tools=definitions,
+            max_output_tokens=8_192,
+            thinking_enabled=True,
+            effort="xhigh",
+            tool_choice={"type": "auto"} if definitions else {"type": "none"},
+            user_id=run_id,
+        )
+        response = await self.agent_runtime._collect_stream(
+            run_id, stream, f"node.{node_id}.model", model
+        )
+        text = "".join(block.text or "" for block in response.blocks if block.type == "text")
+        thinking = "".join(
+            block.thinking or "" for block in response.blocks if block.type == "thinking"
+        )
+        tool_use_blocks: list[dict[str, Any]] = []
+        for block in response.blocks:
+            if block.type == "tool_use" and block.name:
+                tool_use_blocks.append({
+                    "id": block.id,
+                    "name": block.name,
+                    "input": block.input or {},
+                })
+        return {
+            "text": text,
+            "thinking": thinking,
+            "tool_use_blocks": tool_use_blocks,
+            "stop_reason": response.stop_reason,
+            "usage": response.usage.model_dump(mode="json"),
+            "raw_blocks": [block.model_dump(mode="json") for block in response.blocks],
+        }
 
     async def _execute_tool(
         self,
@@ -1070,13 +1747,28 @@ class WorkflowRuntime:
         if operator == "equals":
             return actual == expected
         if operator == "contains":
-            return expected in actual
+            return expected in actual if actual is not None else False
         if operator == "not_contains":
-            return expected not in actual
+            return expected not in actual if actual is not None else True
         if operator == "type":
             names = {"string": str, "number": (int, float), "boolean": bool, "object": dict, "array": list}
             return isinstance(actual, names[str(expected)])
+        if operator == "min_length":
+            try:
+                return len(actual) >= int(expected)
+            except (TypeError, ValueError):
+                return False
+        if operator == "max_length":
+            try:
+                return len(actual) <= int(expected)
+            except (TypeError, ValueError):
+                return False
         return False
+
+    @staticmethod
+    def _is_structural_assertion(operator: str) -> bool:
+        """Return True if the operator only checks structure, not content."""
+        return operator in {"exists", "type", "min_length", "max_length"}
 
     @staticmethod
     def _extract_urls(value: Any) -> set[str]:

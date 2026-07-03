@@ -49,11 +49,16 @@ Network policy: {agent.network_policy.value}
 
 
 AGENT_GENERATOR_PROMPT = """You design reliable, platform-native autonomous agents from user
-requirements. Produce one AgentSpec by calling the create_agent_spec tool. The agent must be useful
-immediately, have a precise system prompt, select the smallest sufficient set of registered tools,
-and include focused Skills only when they add procedural knowledge. Do not generate Python plugin
-code. Include a realistic validation prompt and deterministic shell validation commands when the
-requirement involves a code workspace. Never include API keys or secrets. Use provider=deepseek.
+requirements. Produce one AgentSpec by calling the create_agent_spec tool.
+
+CRITICAL RULES:
+- Keep the system_prompt UNDER 2000 characters. Be concise and direct.
+- Select the SMALLEST sufficient set of registered tools (3-6 tools max).
+- Do NOT generate Python plugin code.
+- Include a REALISTIC validation prompt (one sentence).
+- Include deterministic shell validation commands when the requirement involves code.
+- Never include API keys or secrets. Use provider=deepseek.
+- Output VALID JSON only. The AgentSpec must parse correctly.
 """
 
 

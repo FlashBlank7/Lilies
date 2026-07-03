@@ -12,20 +12,7 @@ Dify 只作为积木系统参考，不复制前端代码或品牌；官方参考
 
 ### A. 找回并归档 Dify 参考项目
 
-- 当前 `references/` 里只有 `references/claude-code/`，没有 `references/dify/`。
-- 实施时先检查本地是否已有 Dify 克隆；若没有，克隆官方仓库到：
-  - `references/dify/`
-- 在 `references/dify/README.md` 写清：
-  - 来源 URL、commit、用途。
-  - 许可证和品牌注意事项。
-  - 只做设计参考，不复制代码。
-- 重点分析 Dify 的：
-  - 节点目录与分类。
-  - 节点 schema。
-  - 变量池与端口连接。
-  - Workflow DSL。
-  - Agent/Tool/Workflow as Tool。
-  - Queue-based Graph Engine 方向。
+- Dify 开源项目（MIT 许可）：节点目录与分类、节点 schema、变量池与端口连接、Workflow DSL、Agent/Tool/Workflow as Tool 模式是公开的设计参考。
 
 ### B. 重定义积木目标：从业务 DAG 升级为 Agent 架构积木
 

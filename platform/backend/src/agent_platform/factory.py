@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 from uuid import uuid4
 
@@ -86,8 +87,10 @@ class AgentFactory:
             type="text", text=build_generation_request(requirement, self.tools.names())
         )])]
         validation_error = ""
-        for attempt in range(3):
+        for attempt in range(4):
             if validation_error:
+                # Brief pause between retries — reduces rate-limit and cold-start issues
+                await asyncio.sleep(1.5 * (attempt + 1))
                 messages.append(ChatMessage(role="user", content=[ContentBlock(
                     type="text",
                     text=f"The previous AgentSpec was invalid. Correct every issue and call create_agent_spec again:\n{validation_error}",
@@ -97,9 +100,9 @@ class AgentFactory:
                 system=AGENT_GENERATOR_PROMPT,
                 messages=messages,
                 tools=[definition],
-                max_output_tokens=8_192,
+                max_output_tokens=4_096,  # Reduced: less room for JSON truncation
                 thinking_enabled=True,
-                effort="high",
+                effort="xhigh",
                 # DeepSeek thinking mode rejects forced tool_choice. The generator
                 # prompt requires this call and the repair loop enforces it.
                 tool_choice={"type": "auto"},
@@ -130,6 +133,15 @@ class AgentFactory:
                 await self._emit(generation_id, "generation.spec.repair", {
                     "attempt": attempt + 1, "validation_error": validation_error
                 })
+            except RuntimeError as error:
+                msg = str(error)
+                if "invalid tool input JSON" in msg or "tool input JSON" in msg:
+                    validation_error = f"JSON output was malformed. Please output valid JSON for create_agent_spec. Error: {msg}"
+                    await self._emit(generation_id, "generation.spec.repair", {
+                        "attempt": attempt + 1, "validation_error": validation_error
+                    })
+                else:
+                    raise
         raise RuntimeError(f"could not produce a valid AgentSpec: {validation_error}")
 
     def _validate_spec_capabilities(self, spec: AgentSpec) -> None:

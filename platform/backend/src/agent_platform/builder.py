@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Awaitable, Callable
 from typing import Any
 from uuid import uuid4
 
@@ -26,6 +27,9 @@ from .workflow_storage import WorkflowStorage
 from .tools import ToolRegistry
 
 
+from .meta_cognition import DecisionTracker
+
+
 BUILDER_SYSTEM_PROMPT = """You coordinate a persistent team that builds production-ready agent workflows.
 
 You do not generate source code or a whole workflow JSON document. You and your teammates can only build by
@@ -34,6 +38,11 @@ nodes, and a mandatory test. Inspect manuals and schemas before configuring unfa
 
 Core rules:
 - Start by inspecting the draft and catalog, then create requirement tasks.
+- **Before building a workflow from scratch**, call template_suggestions with the
+  requirement text to check if a matching template already exists. If a template
+  with confidence >= 0.7 matches the requirement, prefer expanding it via
+  template_expand instead of building from scratch. This saves time and reuses
+  proven patterns.
 - For agent architecture bricks, call manual_search or manual_get first, then add one brick at a time.
 - Use architecture_blueprint when reconstructing a Claude-like agent loop from explicit bricks.
 - Use template_list and template_expand when a known Claude-like subgraph template fits; the expanded graph is
@@ -48,6 +57,16 @@ Core rules:
   Budget, Checkpoint, and Event bricks instead.
 - Values can reference prior output with {"$ref":{"node_id":"<id>","path":["field"]}}.
   Use node_id "$inputs" to reference raw workflow inputs.
+- **Template Transform Node Syntax**: Template variables use double-brace Jinja syntax: {{ variable_name }}.
+  You must declare each variable in the config.variables map as an object key mapped to a $ref that
+  resolves to the actual value. Example correct config for template_transform:
+    {"template": "Category: {{ category }}. Answer: {{ answer }}",
+     "variables": {
+       "category": {"$ref": {"node_id": "classifier", "path": ["branch"]}},
+       "answer": {"$ref": {"node_id": "llm", "path": ["text"]}}
+     }}
+  NEVER use Python str.format() placeholders like {0} or {1} — they will render literally.
+  ALWAYS use {{ name }} syntax where the name matches a key declared in variables.
 - If you declare Start inputs, at least one downstream business-critical node must actually use them
   via "$inputs" or the Start node output. Search queries, prompts, HTTP params, and Agent tasks must
   incorporate user-provided inputs instead of ignoring them behind hard-coded text.
@@ -79,6 +98,8 @@ class WorkflowBuilder:
         agent_runtime: AgentRuntime,
         generator_model: str,
         core_tools: ToolRegistry,
+        on_build_complete: Callable[[str], Awaitable[None]] | None = None,
+        template_store: Any | None = None,
     ) -> None:
         self.storage = storage
         self.workflow_store = workflow_store
@@ -89,7 +110,10 @@ class WorkflowBuilder:
         self.agent_runtime = agent_runtime
         self.generator_model = generator_model
         self.core_tools = core_tools
+        self.on_build_complete = on_build_complete
+        self.template_store = template_store
         self.active: dict[str, asyncio.Task[None]] = {}
+        self._trackers: dict[str, DecisionTracker] = {}  # build_id → tracker
 
     def start(self, build_id: str) -> None:
         if build_id in self.active and not self.active[build_id].done():
@@ -125,6 +149,8 @@ class WorkflowBuilder:
                     f"Application id: {build['application_id']}. Auto publish: {build['auto_publish']}."
                 ),
             )])]
+        # Create a DecisionTracker to record the Builder's choices
+        tracker = DecisionTracker(f"Build-{build_id[:8]}")
         try:
             await self._agent_loop(
                 build_id,
@@ -135,7 +161,9 @@ class WorkflowBuilder:
                 max_repair_cycles=int(build["max_repair_cycles"]),
                 auto_publish=bool(build["auto_publish"]),
                 teammate=None,
+                tracker=tracker,
             )
+            self._trackers[build_id] = tracker
             if state.published_version is not None:
                 status = "published"
             else:
@@ -156,6 +184,9 @@ class WorkflowBuilder:
             await self._emit(build_id, "build.completed", {
                 "status": status, "published_version": state.published_version
             })
+            # Meta-cognition: try to extract a reusable template from this build
+            if self.on_build_complete and (status == "published" or status == "ready"):
+                asyncio.create_task(self.on_build_complete(build_id))
         except asyncio.CancelledError:
             await self.workflow_store.update_build(build_id, status="cancelled", team_state=state)
             await self._emit(build_id, "build.cancelled", {})
@@ -179,6 +210,7 @@ class WorkflowBuilder:
         max_repair_cycles: int,
         auto_publish: bool,
         teammate: str | None,
+        tracker: DecisionTracker | None = None,
     ) -> str:
         final = ""
         tools = self._definitions(allow_team=teammate is None)
@@ -193,7 +225,7 @@ class WorkflowBuilder:
                 tools=tools,
                 max_output_tokens=16_384,
                 thinking_enabled=True,
-                effort="high",
+                effort="xhigh",
                 tool_choice={"type": "auto"},
                 user_id=f"{build_id}-{teammate or 'coordinator'}",
             )
@@ -223,6 +255,7 @@ class WorkflowBuilder:
                         call.input or {},
                         max_repair_cycles=max_repair_cycles,
                         auto_publish=auto_publish,
+                        tracker=tracker,
                     )
                     content = json.dumps(value, ensure_ascii=False, default=str)
                     is_error = False
@@ -262,6 +295,7 @@ class WorkflowBuilder:
         *,
         max_repair_cycles: int,
         auto_publish: bool,
+        tracker: DecisionTracker | None = None,
     ) -> Any:
         if tool == "catalog_search":
             query = str(data.get("query", "")).casefold()
@@ -325,6 +359,27 @@ class WorkflowBuilder:
                 for manual in group:
                     self._remember_manual_lookup(state, str(manual["type"]))
             return blueprint
+        if tool == "template_suggestions":
+            requirement = str(data.get("requirement", ""))
+            # Call the API endpoint internally — simple relevance scoring
+            scored: list[tuple[float, dict[str, Any]]] = []
+            query = requirement.casefold()
+            templates = self.template_store.list() if self.template_store else []
+            for meta in templates:
+                searchable = f"{meta.name} {meta.title} {' '.join(meta.tags)}".casefold()
+                tag_matches = sum(1 for tag in meta.tags if tag.casefold() in query)
+                name_match = 1.0 if any(w in searchable for w in query.split() if len(w) > 3) else 0.0
+                score = meta.confidence * (0.5 * tag_matches + 0.5 * name_match)
+                if score > 0.1:
+                    scored.append((score, meta))
+            scored.sort(key=lambda x: x[0], reverse=True)
+            # Bump usage_count for top matches (feedback: Builder selected this template)
+            for s, meta in scored[:3]:
+                if hasattr(meta, "usage_count"):
+                    meta.usage_count += 1  # recommendation flywheel: template was chosen
+            return [{"name": m.name, "title": m.title, "confidence": m.confidence,
+                     "relevance": round(s, 3), "tags": m.tags}
+                    for s, m in scored[:5]]
         if tool == "template_list":
             return [
                 {
@@ -433,6 +488,16 @@ class WorkflowBuilder:
                     data=payload,
                 ),
             )
+            # Record design decisions for meta-cognition
+            if tracker and tool in ("draft_add_node", "draft_connect", "draft_publish", "template_expand"):
+                decision_label = {
+                    "draft_add_node": f"Add node: {data.get('node', {}).get('type', '?')}",
+                    "draft_connect": f"Connect: {data.get('edge', {}).get('source', '?')}→{data.get('edge', {}).get('target', '?')}",
+                    "draft_publish": "Publish workflow",
+                    "template_expand": f"Expand template: {data.get('name', '?')}",
+                }.get(tool, tool)
+                tracker._current = tracker.ask(decision_label, f"Build {build_id[:8]}")
+                tracker.answer("proceed", f"Revision {result['revision']}", f"{tool} succeeded")
             state.revision = result["revision"]
             return result
         if tool == "draft_validate":
@@ -522,6 +587,7 @@ class WorkflowBuilder:
             ToolDefinition(name="manual_search", description="Search block manuals before selecting agent architecture bricks.", input_schema={"type": "object", "properties": {"query": {"type": "string"}, "block_kind": {"enum": ["business_workflow", "agent_architecture", "legacy_compatibility"]}}}),
             ToolDefinition(name="manual_get", description="Read one block manual, including when to use it, examples, anti-patterns, and Claude architecture mapping.", input_schema={"type": "object", "properties": {"type": {"type": "string"}}, "required": ["type"]}),
             ToolDefinition(name="architecture_blueprint", description="Read the Claude-like runtime blueprint made from explicit composable bricks.", input_schema={"type": "object", "properties": {}}),
+            ToolDefinition(name="template_suggestions", description="Search template marketplace for matching templates. Use BEFORE building from scratch.", input_schema={"type": "object", "properties": {"requirement": {"type": "string", "description": "Natural language requirement to match against templates"}}, "required": ["requirement"]}),
             ToolDefinition(name="template_list", description="List server-defined editable workflow subgraph templates.", input_schema={"type": "object", "properties": {}}),
             ToolDefinition(name="template_expand", description="Expand one server-defined editable subgraph template into the draft.", input_schema={"type": "object", "properties": {"name": {"type": "string"}, "prefix": {"type": "string"}, "position": {"type": "object", "additionalProperties": True}}, "required": ["name"]}),
             ToolDefinition(name="draft_inspect", description="Inspect the current shared draft and revision.", input_schema={"type": "object", "properties": {}}),

@@ -1,0 +1,58 @@
+{
+  "meta": {
+    "name": "document_summarizer",
+    "title": "文档摘要生成器",
+    "description": "阅读文档并生成多层级摘要：一句话总结→三段要点→完整摘要。适用于合同、论文、长文等场景。",
+    "category": "content_creation",
+    "icon": "scroll-text",
+    "tags": ["summarization", "document", "reading", "digest"],
+    "expected_inputs": {"document_text": "string"},
+    "expected_outputs": {"one_liner": "string", "key_points": "string", "full_summary": "string"},
+    "author": "platform", "version": 1,
+    "min_blocks_required": ["llm", "template_transform"]
+  },
+  "workflow": {
+    "nodes": [
+      {
+        "id": "start", "type": "start", "title": "文档输入",
+        "config": {"inputs": [
+          {"name": "document_text", "label": "文档内容", "type": "string"},
+          {"name": "summary_length", "label": "摘要长度", "type": "string", "required": false, "default": "medium"}
+        ]}
+      },
+      {
+        "id": "summarize", "type": "llm", "title": "多层摘要生成",
+        "config": {
+          "system": "You are an expert summarizer. Provide: 1) ONE sentence summary 2) Three key bullet points 3) Full summary ({{ length }}). Format clearly.",
+          "prompt": "Document:\n{{ doc }}\n\nGenerate a multi-level summary.",
+          "variables": {
+            "doc": {"$ref": {"node_id": "start", "path": ["document_text"]}},
+            "length": {"$ref": {"node_id": "start", "path": ["summary_length"]}}
+          }
+        }
+      },
+      {
+        "id": "format", "type": "template_transform", "title": "格式化输出",
+        "config": {
+          "template": "# 文档摘要\n\n## 一句话总结\n{{ summary }}\n\n---\n*Generated at {{ timestamp }}*",
+          "variables": {
+            "summary": {"$ref": {"node_id": "summarize", "path": ["text"]}},
+            "timestamp": "2025-01-01"
+          }
+        }
+      },
+      {
+        "id": "end", "type": "end", "title": "摘要输出",
+        "config": {"outputs": {
+          "summary": {"$ref": {"node_id": "format", "path": ["text"]}},
+          "raw": {"$ref": {"node_id": "summarize", "path": ["text"]}}
+        }}
+      }
+    ],
+    "edges": [
+      {"id": "e1", "source": "start", "target": "summarize", "source_port": "output", "target_port": "input"},
+      {"id": "e2", "source": "summarize", "target": "format", "source_port": "text", "target_port": "input"},
+      {"id": "e3", "source": "format", "target": "end", "source_port": "text", "target_port": "input"}
+    ]
+  }
+}

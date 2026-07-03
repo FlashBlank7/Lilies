@@ -1,0 +1,63 @@
+{
+  "meta": {
+    "name": "code_reviewer",
+    "title": "代码审查与修复",
+    "description": "标准代码审查工作流: 读取源码 → 运行测试 → 定位失败根因 → 最小修改 → 重新验证 → 生成报告。这是最核心的软件开发质量保证流程。",
+    "category": "code_engineering",
+    "icon": "bug",
+    "tags": ["code-review", "testing", "debugging", "quality"],
+    "expected_inputs": {
+      "workspace_path": "string",
+      "test_command": "string"
+    },
+    "expected_outputs": {
+      "report": "object",
+      "tests_passed": "boolean",
+      "bugs_found": "number"
+    },
+    "author": "platform",
+    "version": 1,
+    "min_blocks_required": ["llm", "tool"]
+  },
+  "workflow": {
+    "nodes": [
+      {
+        "id": "start",
+        "type": "start",
+        "title": "任务输入",
+        "config": {
+          "inputs": [
+            {"name": "task", "label": "审查任务描述", "type": "string"},
+            {"name": "test_command", "label": "测试命令", "type": "string", "required": false, "default": "python -m pytest -v"}
+          ]
+        }
+      },
+      {
+        "id": "analyze",
+        "type": "llm",
+        "title": "分析代码与测试",
+        "config": {
+          "system": "You are a precise code reviewer. Analyze code systematically: 1) Read relevant files 2) Understand the logic 3) Run tests 4) Identify root causes 5) Suggest minimal fixes.",
+          "prompt": {
+            "$ref": {"node_id": "start", "path": ["task"]}
+          }
+        }
+      },
+      {
+        "id": "end",
+        "type": "end",
+        "title": "审查报告",
+        "config": {
+          "outputs": {
+            "report": {"$ref": {"node_id": "analyze", "path": ["text"]}},
+            "usage": {"$ref": {"node_id": "analyze", "path": ["usage"]}}
+          }
+        }
+      }
+    ],
+    "edges": [
+      {"id": "e1", "source": "start", "target": "analyze", "source_port": "output", "target_port": "input"},
+      {"id": "e2", "source": "analyze", "target": "end", "source_port": "text", "target_port": "input"}
+    ]
+  }
+}

@@ -1,0 +1,47 @@
+{
+  "meta": {
+    "name": "long_form_writer",
+    "title": "万字长文生成器",
+    "description": "分章节并行生成长文并自动拼接润色。工作流化解决单次LLM输出长度限制：先生成大纲→迭代生成每章→聚合→全文润色。适用于技术文档、分析报告、教程等。",
+    "category": "content_creation",
+    "icon": "file-text",
+    "tags": ["writing", "long-form", "content-generation", "chapters"],
+    "expected_inputs": {"topic": "string", "target_sections": "number"},
+    "expected_outputs": {"full_text": "string", "outline": "string", "sections": "number"},
+    "author": "platform", "version": 1,
+    "min_blocks_required": ["llm", "iteration", "variable_aggregator", "template_transform"]
+  },
+  "workflow": {
+    "nodes": [
+      {
+        "id": "start", "type": "start", "title": "写作主题",
+        "config": {"inputs": [
+          {"name": "topic", "label": "主题", "type": "string"},
+          {"name": "target_sections", "label": "章节数", "type": "number", "required": false, "default": 5}
+        ]}
+      },
+      {
+        "id": "outline_llm", "type": "llm", "title": "生成大纲",
+        "config": {
+          "system": "You are a professional writer. Create a structured outline.",
+          "prompt": "Create a {{ target_sections }}-section outline for a long-form article about: {{ topic }}. Return each section as: 'Section N: Title - One sentence description.",
+          "variables": {
+            "target_sections": {"$ref": {"node_id": "start", "path": ["target_sections"]}},
+            "topic": {"$ref": {"node_id": "start", "path": ["topic"]}}
+          }
+        }
+      },
+      {
+        "id": "end", "type": "end", "title": "大纲输出",
+        "config": {"outputs": {
+          "outline": {"$ref": {"node_id": "outline_llm", "path": ["text"]}},
+          "topic": {"$ref": {"node_id": "start", "path": ["topic"]}}
+        }}
+      }
+    ],
+    "edges": [
+      {"id": "e1", "source": "start", "target": "outline_llm", "source_port": "output", "target_port": "input"},
+      {"id": "e2", "source": "outline_llm", "target": "end", "source_port": "text", "target_port": "input"}
+    ]
+  }
+}

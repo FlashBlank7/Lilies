@@ -19,5 +19,6 @@ build/
 platform/frontend/node_modules/
 platform/frontend/.next/
 platform/frontend/.env.local
-references/dify/
-references/dify-docs/
+# 参考源码快照 — 1900+ 文件，仅供设计参考，运行时不需要
+# Windows 用户在下载时排除此目录以避免 EMFILE 错误
+references/

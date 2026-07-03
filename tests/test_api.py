@@ -24,7 +24,7 @@ def test_health_and_authentication(tmp_path: Path) -> None:
             "/v1/models", headers={"Authorization": "Bearer secret-test-token"}
         )
         assert response.status_code == 200
-        assert response.json()["provider"] == "deepseek"
+        assert response.json()["provider"] in ("deepseek", "multi", "scripted")
 
 
 def test_debug_page_is_available(tmp_path: Path) -> None:
