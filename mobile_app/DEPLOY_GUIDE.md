@@ -1,156 +1,193 @@
-# 钉钉全自动打卡 — 手机端部署完整流程
+# 钉钉智能打卡 v4.0 — 完整部署方案
 
-> 全程约 10 分钟，之后完全自动运行，无需任何手动操作。
-
----
-
-## 第一步：安装 Termux（3 分钟）
-
-```
-⚠ 重要: 必须从 F-Droid 下载，Google Play 版本已过时
-
-1. 手机浏览器打开: https://f-droid.org
-2. 下载 F-Droid APK → 安装
-3. 打开 F-Droid → 搜索 "Termux" → 安装
-4. 搜索 "Termux:API" → 安装
-```
-
-安装后桌面上有两个图标：`Termux` 和 `Termux:API`
+> Lilies 智能体工作流平台生成 | 2026-07-06
 
 ---
 
-## 第二步：传文件到手机（1 分钟）
+## 一、你需要准备
 
-把这三个文件传到手机任意目录（推荐 Downloads）：
-
-```
-你需要传到手机的:
-├── dingtalk_fullauto.sh    ← 核心脚本
-└── install.sh              ← 一键安装
-```
-
-**传文件方式**（任选一种）：
-- 微信/QQ 发给自己 → 手机端保存到 Downloads
-- USB 数据线 → 复制到手机 Downloads 文件夹
-- 蓝牙/AirDrop
+| 项目 | 说明 |
+|------|------|
+| Android 手机 | 无需 root |
+| F-Droid | https://f-droid.org 下载 |
+| Termux | F-Droid 内安装 |
+| Termux:API | F-Droid 内安装（可选，用于通知） |
 
 ---
 
-## 第三步：复制文件到 Termux（2 分钟）
+## 二、传到手机的文件
 
-打开 Termux，执行：
+```
+📱 放到手机 Downloads 目录:
+├── dingtalk_smart_punch.sh   ← 核心脚本
+├── install.sh                ← 一键安装
+└── cleanup_old.sh            ← 旧版清理
+```
+
+传文件方式：微信/QQ 发给自己 → 保存到 Downloads。
+
+---
+
+## 三、部署（两种情况）
+
+### 情况 A：首次部署（新手机，没用过旧版）
 
 ```bash
-# 设置存储权限
+# 1. 设置存储权限
 termux-setup-storage
-# 弹出权限请求 → 点"允许"
+# 弹出权限 → 点「允许」
 
-# 复制文件到 Termux 目录
-cp ~/storage/downloads/dingtalk_fullauto.sh ~/
+# 2. 复制文件
+cp ~/storage/downloads/dingtalk_smart_punch.sh ~/
 cp ~/storage/downloads/install.sh ~/
 
-# 如果文件名不对，先看一下实际文件名
-ls ~/storage/downloads/ | grep dingtalk
+# 3. 一键安装
+bash ~/install.sh
 ```
 
----
+安装向导会引导：
+- 校准打卡按钮坐标
+- 设置考勤入口坐标（默认 888, 388）
+- 配置 ADB 模式（Android 12+ 默认启用）
+- 安装 cronie 并配置定时任务
 
-## 第四步：一键安装（1 分钟）
+### 情况 B：从旧版升级
 
 ```bash
-cd ~
-bash install.sh
-```
+# 1. 清理旧残留（预览）
+bash ~/cleanup_old.sh
 
-这会自动：
-- 安装 cronie（定时任务）
-- 配置 crontab（8:45 上班 + 19:00 下班，周一至周五）
-- 启动 cron 服务
+# 2. 确认后执行清理
+bash ~/cleanup_old.sh --exec
 
-安装完成后显示：
-```
-━━━━━━━━━━━━━━━━━━━━━
-  安装完成! ✅
-━━━━━━━━━━━━━━━━━━━━━
+# 3. 覆盖新版脚本
+cp ~/storage/downloads/dingtalk_smart_punch.sh ~/
+
+# 4. 重新校准 + 部署
+bash ~/dingtalk_smart_punch.sh install
 ```
 
 ---
 
-## 第五步：校准坐标（2 分钟）
+## 四、ADB 无线调试配置（Android 12+ 必须）
+
+如果你看到 `SecurityException: INJECT_EVENTS` 错误，需要配置这一步。
+
+### 4.1 开启无线调试
+
+```
+设置 → 开发者选项 → 无线调试 → 开启
+```
+
+> 如果找不到「开发者选项」：设置 → 关于手机 → 连点 7 次「版本号」
+
+### 4.2 配对
+
+```
+无线调试页面 → 点击「使用配对码配对设备」
+→ 弹窗显示：配对码 123456 | IP:Port 192.168.x.x:4xxxx
+
+Termux 中执行:
+$ pkg install android-tools
+$ adb pair 192.168.x.x:4xxxx
+Enter pairing code: 123456
+→ Successfully paired
+```
+
+### 4.3 连接
+
+```
+无线调试主页面查看端口号（如 4yyyy）
+
+Termux:
+$ adb connect 127.0.0.1:4yyyy
+→ connected to 127.0.0.1:4yyyy
+```
+
+> ⚠️ 注意：配对端口和连接端口不是同一个。配对口在弹窗里，连接端口在主页面。
+
+### 4.4 验证
 
 ```bash
-./dingtalk_fullauto.sh calibrate
+adb shell input tap 540 1200
 ```
 
-校准流程：
-
-```
-1. 先打开「开发者选项 → 指针位置」（显示触摸坐标）
-   (设置 → 关于手机 → 连点 7 次"版本号" → 开发者选项 → 指针位置)
-
-2. 手动操作一遍打卡流程：
-   打开钉钉 → 点「工作」→ 点「考勤打卡」→ 记住每个点击位置的坐标
-
-3. 按提示输入坐标值：
-   考勤入口 X 坐标: 540   ← 屏幕中间
-   考勤入口 Y 坐标: 1800  ← 底部 tab 位置
-   上班打卡按钮 X: 540
-   上班打卡按钮 Y: 1200
-   下班打卡按钮 X: 540
-   下班打卡按钮 Y: 1200   ← 通常和上班同一位置
-```
+没报 SecurityException 即成功。
 
 ---
 
-## 第六步：测试
+## 五、验证部署
 
 ```bash
-# 手动触发一次上班打卡测试
-./dingtalk_fullauto.sh checkin
+# 查看整体状态
+bash ~/dingtalk_smart_punch.sh status
+
+# 预期输出:
+#   ✅ 配置文件
+#   ✅ 定时任务已配置 (8:45/19:00)
+#   ✅ cron 服务正在运行
+#   ✅ input tap 权限正常
 ```
 
-你会看到：
-- 屏幕被唤醒
-- 钉钉自动打开
-- 自动点击打卡按钮
-- 通知提示"已完成"
+### 测试打卡
 
-如果坐标不准，重新运行 `calibrate` 调整。
+```bash
+# 上班打卡测试
+bash ~/dingtalk_smart_punch.sh checkin-test
+# 输入 y 确认
+
+# 下班打卡测试
+bash ~/dingtalk_smart_punch.sh checkout-test
+```
 
 ---
 
-## 完成！
-
-```
-✅ 之后每天:
-   08:45 → 自动唤醒屏幕 → 打开钉钉 → 点击上班打卡 → 截图 → 回桌面
-   19:00 → 自动唤醒屏幕 → 打开钉钉 → 点击下班打卡 → 截图 → 回桌面
-```
-
-### 日常维护
+## 六、日常命令速查
 
 | 操作 | 命令 |
 |------|------|
-| 查看打卡截图 | 手机相册 DCIM 目录 |
-| 查看运行日志 | Termux 内执行 `tail ~/dingtalk_punch.log` |
-| 查看定时任务 | `crontab -l` |
-| 暂停打卡 | `crontab -e` → 注释掉两行 |
-| 重新校准坐标 | `./dingtalk_fullauto.sh calibrate` |
+| 查看状态 | `bash ~/dingtalk_smart_punch.sh status` |
+| 查看日志 | `tail -f ~/dingtalk_smart_punch.log` |
+| 重新校准 | `bash ~/dingtalk_smart_punch.sh calibrate` |
+| 重启后重连 ADB | `bash ~/dingtalk_smart_punch.sh adb-reconnect` |
+| 立即上班打卡 | `bash ~/dingtalk_smart_punch.sh checkin` |
+| 立即下班打卡 | `bash ~/dingtalk_smart_punch.sh checkout` |
+| 暂停服务 | `crontab -e` → 注释打卡行 |
+| 恢复服务 | `bash ~/dingtalk_smart_punch.sh install` |
 
-### 常见问题
+---
 
-**Q: 钉钉更新后坐标变了怎么办？**
-A: 重新运行 `./dingtalk_fullauto.sh calibrate`
+## 七、定时任务
 
-**Q: 手机重启后 cron 还在吗？**
-A: 每次重启后需要手动启动: 打开 Termux → `crond` → 关掉 Termux（cron 在后台运行）
-
-**Q: 屏幕锁了能自动打卡吗？**
-A: 脚本会先用 `input keyevent 26` 唤醒屏幕，然后上滑解锁。如果设置了密码/指纹锁，可能需要在 Android 的 Smart Lock 中把"可信地点（家/公司）"设为自动解锁。
-
-**Q: 周末也打卡了怎么办？**
-A: crontab 中 `1-5` 表示周一至周五，周末不会触发。如需周末也打卡，改 crontab 为 `*`：
-```bash
-crontab -e
-# 把 1-5 改成 *
 ```
+周一至周五:
+  08:45 → 上班打卡
+  19:00 → 下班签退
+
+策略（自动降级）:
+  Tier 1: 急速打卡（启动钉钉自动触发）
+  Tier 2: 模拟点击（input tap 坐标点击）
+  Tier 3: 通知提醒（手动完成）
+```
+
+---
+
+## 八、常见问题
+
+**Q: 重启后还能自动打卡吗？**
+A: 脚本每次打卡前会自动尝试重连 ADB。如果自动重连失败，手动跑一次：
+```bash
+bash ~/dingtalk_smart_punch.sh adb-reconnect
+```
+
+**Q: 钉钉更新后坐标变了？**
+A: 重新校准：
+```bash
+bash ~/dingtalk_smart_punch.sh calibrate
+```
+
+**Q: 如何查看打卡是否成功？**
+A: 截图在 `DCIM/dingtalk_punches/`，日志在 `~/dingtalk_smart_punch.log`
+
+**Q: 不需要 ADB 的方案有吗？**
+A: 手机系统 < Android 12 或已 root 的设备不需要 ADB。2019 年之前的旧手机通常直接支持 `input tap`。

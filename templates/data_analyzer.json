@@ -5,69 +5,226 @@
     "description": "标准数据分析工作流：加载数据→统计摘要→异常检测→生成报告。适用于CSV/JSON数据的自动化分析场景。",
     "category": "data_analysis",
     "icon": "bar-chart",
-    "tags": ["data", "statistics", "analysis", "reporting"],
-    "expected_inputs": {"data_description": "string"},
-    "expected_outputs": {"report": "string", "statistics": "object"},
-    "author": "platform", "version": 1,
-    "min_blocks_required": ["llm", "parameter_extractor", "template_transform"]
+    "tags": [
+      "data",
+      "statistics",
+      "analysis",
+      "reporting"
+    ],
+    "expected_inputs": {
+      "data_description": "string"
+    },
+    "expected_outputs": {
+      "report": "string",
+      "statistics": "object"
+    },
+    "author": "platform",
+    "version": 1,
+    "min_blocks_required": [
+      "llm",
+      "parameter_extractor",
+      "template_transform"
+    ],
+    "provenance": [
+      {
+        "source_type": "expert_manual",
+        "identifier": "platform:data_analyzer.json",
+        "created_at": "2026-06-26T00:00:00Z",
+        "user_id": null
+      }
+    ],
+    "confidence": 0.85,
+    "seed_template": true,
+    "usage_count": 0,
+    "rating_sum": 0,
+    "rating_count": 0
   },
   "workflow": {
     "nodes": [
       {
-        "id": "start", "type": "start", "title": "分析需求",
-        "config": {"inputs": [
-          {"name": "data_description", "label": "数据描述", "type": "string"},
-          {"name": "analysis_goal", "label": "分析目标", "type": "string", "required": false, "default": "全面的统计分析和异常检测"}
-        ]}
+        "id": "start",
+        "type": "start",
+        "title": "分析需求",
+        "config": {
+          "inputs": [
+            {
+              "name": "data_description",
+              "label": "数据描述",
+              "type": "string"
+            },
+            {
+              "name": "analysis_goal",
+              "label": "分析目标",
+              "type": "string",
+              "required": false,
+              "default": "全面的统计分析和异常检测"
+            }
+          ]
+        }
       },
       {
-        "id": "analyze", "type": "llm", "title": "执行分析",
+        "id": "analyze",
+        "type": "llm",
+        "title": "执行分析",
         "config": {
           "system": "You are a data analyst. Provide: 1) Statistical summary 2) Key patterns 3) Anomalies 4) Recommendations. Be precise and data-driven.",
           "prompt": "Data: {{ description }}\nGoal: {{ goal }}\nProvide a comprehensive analysis report.",
           "variables": {
-            "description": {"$ref": {"node_id": "start", "path": ["data_description"]}},
-            "goal": {"$ref": {"node_id": "start", "path": ["analysis_goal"]}}
+            "description": {
+              "$ref": {
+                "node_id": "start",
+                "path": [
+                  "data_description"
+                ]
+              }
+            },
+            "goal": {
+              "$ref": {
+                "node_id": "start",
+                "path": [
+                  "analysis_goal"
+                ]
+              }
+            }
           }
         }
       },
       {
-        "id": "extract", "type": "parameter_extractor", "title": "提取结构化指标",
+        "id": "extract",
+        "type": "parameter_extractor",
+        "title": "提取结构化指标",
         "config": {
-          "input": {"$ref": {"node_id": "analyze", "path": ["text"]}},
+          "input": {
+            "$ref": {
+              "node_id": "analyze",
+              "path": [
+                "text"
+              ]
+            }
+          },
           "fields": [
-            {"name": "record_count", "type": "number", "description": "数据记录数", "required": false},
-            {"name": "anomalies_found", "type": "number", "description": "发现的异常数", "required": false},
-            {"name": "key_findings", "type": "string", "description": "关键发现摘要", "required": true}
+            {
+              "name": "record_count",
+              "type": "number",
+              "description": "数据记录数",
+              "required": false
+            },
+            {
+              "name": "anomalies_found",
+              "type": "number",
+              "description": "发现的异常数",
+              "required": false
+            },
+            {
+              "name": "key_findings",
+              "type": "string",
+              "description": "关键发现摘要",
+              "required": true
+            }
           ],
           "instruction": "Extract structured metrics from the analysis report."
         }
       },
       {
-        "id": "format", "type": "template_transform", "title": "格式化报告",
+        "id": "format",
+        "type": "template_transform",
+        "title": "格式化报告",
         "config": {
           "template": "# 数据分析报告\n\n## 摘要\n{{ findings }}\n\n## 统计指标\n- 记录数: {{ count }}\n- 异常数: {{ anomalies }}\n\n## 完整分析\n{{ report }}",
           "variables": {
-            "findings": {"$ref": {"node_id": "extract", "path": ["structured", "key_findings"]}},
-            "count": {"$ref": {"node_id": "extract", "path": ["structured", "record_count"]}},
-            "anomalies": {"$ref": {"node_id": "extract", "path": ["structured", "anomalies_found"]}},
-            "report": {"$ref": {"node_id": "analyze", "path": ["text"]}}
+            "findings": {
+              "$ref": {
+                "node_id": "extract",
+                "path": [
+                  "structured",
+                  "key_findings"
+                ]
+              }
+            },
+            "count": {
+              "$ref": {
+                "node_id": "extract",
+                "path": [
+                  "structured",
+                  "record_count"
+                ]
+              }
+            },
+            "anomalies": {
+              "$ref": {
+                "node_id": "extract",
+                "path": [
+                  "structured",
+                  "anomalies_found"
+                ]
+              }
+            },
+            "report": {
+              "$ref": {
+                "node_id": "analyze",
+                "path": [
+                  "text"
+                ]
+              }
+            }
           }
         }
       },
       {
-        "id": "end", "type": "end", "title": "分析报告",
-        "config": {"outputs": {
-          "report": {"$ref": {"node_id": "format", "path": ["text"]}},
-          "statistics": {"$ref": {"node_id": "extract", "path": ["structured"]}}
-        }}
+        "id": "end",
+        "type": "end",
+        "title": "分析报告",
+        "config": {
+          "outputs": {
+            "report": {
+              "$ref": {
+                "node_id": "format",
+                "path": [
+                  "text"
+                ]
+              }
+            },
+            "statistics": {
+              "$ref": {
+                "node_id": "extract",
+                "path": [
+                  "structured"
+                ]
+              }
+            }
+          }
+        }
       }
     ],
     "edges": [
-      {"id": "e1", "source": "start", "target": "analyze", "source_port": "output", "target_port": "input"},
-      {"id": "e2", "source": "analyze", "target": "extract", "source_port": "text", "target_port": "input"},
-      {"id": "e3", "source": "extract", "target": "format", "source_port": "structured", "target_port": "input"},
-      {"id": "e4", "source": "format", "target": "end", "source_port": "text", "target_port": "input"}
+      {
+        "id": "e1",
+        "source": "start",
+        "target": "analyze",
+        "source_port": "output",
+        "target_port": "input"
+      },
+      {
+        "id": "e2",
+        "source": "analyze",
+        "target": "extract",
+        "source_port": "text",
+        "target_port": "input"
+      },
+      {
+        "id": "e3",
+        "source": "extract",
+        "target": "format",
+        "source_port": "structured",
+        "target_port": "input"
+      },
+      {
+        "id": "e4",
+        "source": "format",
+        "target": "end",
+        "source_port": "text",
+        "target_port": "input"
+      }
     ]
   }
 }

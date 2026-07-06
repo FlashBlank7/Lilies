@@ -107,6 +107,25 @@ _KNOWN_PATTERNS: list[dict] = [
         "templates": [],
         "essential": ["tool", "llm"],
     },
+    {
+        "keywords": [
+            "rule", "cluster", "constraint", "validation", "config", "extract",
+            "table", "dedup", "coverage", "gap", "bom", "ebom",
+            "规则", "聚类", "约束", "校验", "配置", "梳理", "去重", "覆盖",
+        ],
+        "pattern_name": "Rule Table Extraction & Clustering",
+        "description": (
+            "Extract structured rules from K expressions or config tables, "
+            "cluster by family/type/priority, detect duplicates and contradictions, "
+            "analyze coverage gaps, generate clustering report."
+        ),
+        "sequence": [
+            "start", "tool", "llm", "llm",
+            "template_transform", "end",
+        ],
+        "templates": ["rule_table_clustering"],
+        "essential": ["tool", "llm", "template_transform"],
+    },
 ]
 
 

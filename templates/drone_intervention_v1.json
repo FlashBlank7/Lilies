@@ -1,0 +1,135 @@
+{
+  "meta": {
+    "name": "drone_intervention_v1",
+    "title": "无人机蜂群战术干预工作流",
+    "description": "Multi-role tactical intervention pipeline for a swarm of 200 drones. Reads swarm state, runs 4 role agents (explorer/scout/main/detour) coordinated by a coordinator agent, scores candidate interventions, validates coherence, and publishes a bias rectangle to the drone database. Designed by Lilies Agent Factory and Builder Team.",
+    "category": "robotics",
+    "icon": "plane",
+    "tags": ["drone", "swarm", "tactical", "intervention", "obstacle-avoidance"],
+    "author": "Lilies Agent Factory + Builder Team",
+    "version": "1.0.0",
+    "expected_inputs": [
+      {"name": "observation_text", "type": "string", "description": "Summarised swarm snapshot (alive count, centroid, obstacles, leaders)"},
+      {"name": "survival_rate", "type": "float", "description": "Current survival rate (alive/total)"},
+      {"name": "known_obstacles_count", "type": "int", "description": "Number of known obstacle cells"},
+      {"name": "swarm_front_x", "type": "float", "description": "Forward-most drone x-coordinate"}
+    ],
+    "expected_outputs": [
+      {"name": "intervention_rect", "type": "object", "description": "{x_lo, x_hi, y_lo, y_hi, role, bias}"}
+    ],
+    "confidence": 0.80,
+    "usage_count": 0
+  },
+  "workflow": {
+    "nodes": [
+      {
+        "id": "start",
+        "type": "start",
+        "title": "Swarm Snapshot Input",
+        "config": {
+          "inputs": [
+            {"name": "observation_text", "type": "string", "required": true},
+            {"name": "survival_rate", "type": "float", "required": false},
+            {"name": "known_obstacles_count", "type": "int", "required": false},
+            {"name": "swarm_front_x", "type": "float", "required": false}
+          ]
+        },
+        "position": {"x": 0, "y": 0}
+      },
+      {
+        "id": "coordinator",
+        "type": "model_turn",
+        "title": "Coordinator Agent — Select Role",
+        "config": {
+          "system_prompt": "You are a Drone Swarm Coordinator. Analyze the swarm state and decide which role should lead. Output: {recommended_role:0-3, bias_magnitude:1.0-3.0, confidence:0-1, reason:short}.",
+          "temperature": 0.0,
+          "max_tokens": 100
+        },
+        "position": {"x": 200, "y": 0}
+      },
+      {
+        "id": "classify_role",
+        "type": "if_else",
+        "title": "Route to Role Agent",
+        "config": {
+          "condition_field": "recommended_role",
+          "branches": [
+            {"value": 0, "label": "Explorer"},
+            {"value": 1, "label": "Scout"},
+            {"value": 2, "label": "Main Flight"},
+            {"value": 3, "label": "Detour"}
+          ]
+        },
+        "position": {"x": 400, "y": 0}
+      },
+      {
+        "id": "role_prompt",
+        "type": "template_transform",
+        "title": "Build Role-Specific Prompt",
+        "config": {
+          "template": "Tactical intervention needed. Coordinator selected role={{coordinator.recommended_role}} with bias {{coordinator.bias_magnitude}}. Generate intervention rectangle."
+        },
+        "position": {"x": 600, "y": 0}
+      },
+      {
+        "id": "model_intervention",
+        "type": "model_turn",
+        "title": "Generate Intervention Rect",
+        "config": {
+          "system_prompt": "You are a tactical planner. Output ONLY JSON: {x_lo,x_hi,y_lo,y_hi,role,bias}",
+          "temperature": 0.0,
+          "max_tokens": 150
+        },
+        "position": {"x": 800, "y": 0}
+      },
+      {
+        "id": "validate_coherence",
+        "type": "tool",
+        "title": "Validate Temporal Coherence",
+        "config": {
+          "tool_name": "validate_coherence",
+          "parameters": {
+            "rect": "$ref.model_intervention"
+          }
+        },
+        "position": {"x": 1000, "y": 0}
+      },
+      {
+        "id": "publish",
+        "type": "tool",
+        "title": "Publish to Drone DB",
+        "config": {
+          "tool_name": "publish_intervention"
+        },
+        "position": {"x": 1200, "y": 0}
+      },
+      {
+        "id": "event_recorder",
+        "type": "event_recorder",
+        "title": "Record Intervention Event",
+        "config": {
+          "event_type": "intervention.published",
+          "include_context": true
+        },
+        "position": {"x": 1400, "y": 0}
+      },
+      {
+        "id": "end",
+        "type": "end",
+        "title": "Output BiasRect",
+        "config": {},
+        "position": {"x": 1600, "y": 0}
+      }
+    ],
+    "edges": [
+      {"source": "start", "target": "coordinator"},
+      {"source": "coordinator", "target": "classify_role"},
+      {"source": "classify_role", "target": "role_prompt"},
+      {"source": "role_prompt", "target": "model_intervention"},
+      {"source": "model_intervention", "target": "validate_coherence"},
+      {"source": "validate_coherence", "target": "publish"},
+      {"source": "publish", "target": "event_recorder"},
+      {"source": "event_recorder", "target": "end"}
+    ]
+  }
+}

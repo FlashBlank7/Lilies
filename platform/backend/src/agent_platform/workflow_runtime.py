@@ -242,7 +242,31 @@ class WorkflowRuntime:
                 await self._emit(run_id, "node.failed", {"node_id": scoped_id, "error": str(error)})
                 if node.error_strategy == ErrorStrategy.fail:
                     raise NodeExecutionError(scoped_id, error) from error
-                output = {"error": str(error), "branch": "error"}
+                elif node.error_strategy == ErrorStrategy.degraded:
+                    await self._emit(run_id, "node.degraded", {
+                        "node_id": scoped_id, "error": str(error),
+                        "degraded_value": self._redact(node.degraded_value),
+                    })
+                    output = {
+                        "output": node.degraded_value,
+                        "error": str(error),
+                        "degraded": True,
+                        "state": {"degraded": True, "error": str(error)},
+                    }
+                elif node.error_strategy == ErrorStrategy.retry_with_fallback:
+                    output = {
+                        "output": node.fallback_value,
+                        "error": str(error),
+                        "fallback_used": True,
+                        "state": {"fallback": True, "error": str(error)},
+                    }
+                else:
+                    output = {"error": str(error), "branch": "error"}
+
+            # Contract validation (post-execution, non-blocking)
+            if node.contract and node.contract.enforce:
+                await self._validate_contract(node, output, scoped_id, run_id)
+
             outputs[node_id] = output
             completed.add(node_id)
             if top_state and not prefix:
@@ -1660,6 +1684,40 @@ class WorkflowRuntime:
             )
         await self._emit(application_id, "tests.completed", report)
         return report
+
+    async def _validate_contract(
+        self, node: NodeSpec, output: dict[str, Any], scoped_id: str, run_id: str
+    ) -> None:
+        """Validate node output against its declared contract (non-fatal)."""
+        contract = node.contract
+        if not contract or not contract.outputs:
+            return
+        violations: list[str] = []
+        for field, type_str in contract.outputs.items():
+            actual = output.get(field)
+            if actual is None and not contract.lenient:
+                violations.append(f"missing required output: {field}")
+                continue
+            if actual is not None and not self._matches_type(actual, type_str):
+                violations.append(
+                    f"output {field} expected {type_str}, got {type(actual).__name__}"
+                )
+        if violations:
+            level = "error" if not contract.lenient else "warning"
+            await self._emit(run_id, f"contract.{level}", {
+                "node_id": scoped_id,
+                "contract": contract.model_dump(mode="json"),
+                "violations": violations,
+            })
+
+    @staticmethod
+    def _matches_type(value: Any, type_str: str) -> bool:
+        type_map = {
+            "string": str, "number": (int, float), "boolean": bool,
+            "object": dict, "array": list, "any": object,
+        }
+        expected = type_map.get(type_str, object)
+        return isinstance(value, expected)
 
     @staticmethod
     def _edge_active(edge: Any, outputs: dict[str, dict[str, Any]], skipped: set[str]) -> bool:
