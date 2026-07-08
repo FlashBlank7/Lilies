@@ -393,6 +393,43 @@ class Storage:
             total += int(record.get("usage_counts", {}).get(usage_type, 0))
         return total
 
+    async def fail_stale_platform_tasks(self, *, cutoff: str, error: str) -> list[dict[str, Any]]:
+        async with self._lock:
+            return await asyncio.to_thread(self._fail_stale_platform_tasks_sync, cutoff, error)
+
+    def _fail_stale_platform_tasks_sync(self, cutoff: str, error: str) -> list[dict[str, Any]]:
+        now = utc_now()
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT record_json FROM platform_harness_tasks
+                WHERE status IN ('queued', 'running') AND updated_at < ?
+                ORDER BY updated_at
+                """,
+                (cutoff,),
+            ).fetchall()
+            records: list[dict[str, Any]] = []
+            for row in rows:
+                record = json.loads(row["record_json"])
+                record["status"] = "failed"
+                record["error"] = error
+                record["updated_at"] = now
+                record["finished_at"] = now
+                metadata = record.setdefault("metadata", {})
+                metadata["stale_reconciled"] = True
+                metadata["stale_cutoff"] = cutoff
+                encoded = json.dumps(record, ensure_ascii=False, separators=(",", ":"))
+                conn.execute(
+                    """
+                    UPDATE platform_harness_tasks
+                    SET status=?, record_json=?, updated_at=?, finished_at=?
+                    WHERE id=?
+                    """,
+                    ("failed", encoded, now, now, record["id"]),
+                )
+                records.append(record)
+        return records
+
     async def append_event(self, stream_id: str, event_type: str, data: dict[str, Any]) -> EventRecord:
         async with self._lock:
             event = await asyncio.to_thread(self._append_event_sync, stream_id, event_type, data)

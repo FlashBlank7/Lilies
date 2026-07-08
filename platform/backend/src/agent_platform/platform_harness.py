@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -75,6 +76,7 @@ class PlatformHarness:
         max_model_calls_per_owner: int = 0,
         max_tool_calls_per_owner: int = 0,
         max_node_executions_per_owner: int = 0,
+        stale_active_task_seconds: float = 0.0,
     ) -> None:
         self.storage = storage
         self.max_active_tasks = max_active_tasks
@@ -84,6 +86,7 @@ class PlatformHarness:
         self.max_model_calls_per_owner = max_model_calls_per_owner
         self.max_tool_calls_per_owner = max_tool_calls_per_owner
         self.max_node_executions_per_owner = max_node_executions_per_owner
+        self.stale_active_task_seconds = stale_active_task_seconds
         self._tasks: dict[str, PlatformTaskRecord] = {}
         self._lock = asyncio.Lock()
 
@@ -97,6 +100,7 @@ class PlatformHarness:
         parent_task_id: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> PlatformTaskRecord:
+        await self.reconcile_stale_tasks()
         existing = await self._cached_or_persisted_task(task_id)
         if existing:
             should_emit = False
@@ -232,6 +236,24 @@ class PlatformHarness:
                 self._tasks.setdefault(task.id, task)
         tasks.sort(key=lambda item: item.created_at, reverse=True)
         return [item.model_copy(deep=True) for item in tasks[:limit]]
+
+    async def reconcile_stale_tasks(self) -> list[PlatformTaskRecord]:
+        if self.stale_active_task_seconds <= 0:
+            return []
+        cutoff = (
+            datetime.now(timezone.utc) - timedelta(seconds=self.stale_active_task_seconds)
+        ).isoformat()
+        error = f"platform harness active task stale for more than {self.stale_active_task_seconds:g}s"
+        records = [
+            PlatformTaskRecord.model_validate(item)
+            for item in await self.storage.fail_stale_platform_tasks(cutoff=cutoff, error=error)
+        ]
+        async with self._lock:
+            for record in records:
+                self._tasks[record.id] = record
+        for record in records:
+            await self._emit(record, "platform_harness.task.failed", {"reason": "stale_reconciled"})
+        return [record.model_copy(deep=True) for record in records]
 
     def _violation(self, record: PlatformTaskRecord, usage_type: UsageType) -> str:
         counts = record.usage_counts

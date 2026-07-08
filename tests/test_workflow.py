@@ -1159,6 +1159,52 @@ def test_platform_harness_owner_budget_blocks_cross_task_usage(tmp_path: Path) -
     asyncio.run(scenario())
 
 
+def test_platform_harness_reconciles_stale_active_tasks(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        storage = Storage(data_dir)
+        await storage.initialize()
+        harness = PlatformHarness(
+            storage=storage,
+            max_active_tasks=1,
+            stale_active_task_seconds=0.001,
+        )
+
+        await harness.start_task(
+            "stale-active-1",
+            kind="benchmark",
+            owner_id="owner-a",
+            resource_id="case-1",
+        )
+        await asyncio.sleep(0.01)
+        fresh = await harness.start_task(
+            "fresh-active-2",
+            kind="benchmark",
+            owner_id="owner-a",
+            resource_id="case-2",
+        )
+
+        stale = await harness.get_task("stale-active-1")
+        assert stale.status == "failed"
+        assert stale.metadata["stale_reconciled"] is True
+        assert "platform harness active task stale" in stale.error
+        assert fresh.status == "running"
+
+        restarted_storage = Storage(data_dir)
+        await restarted_storage.initialize()
+        restarted = PlatformHarness(
+            storage=restarted_storage,
+            max_active_tasks=1,
+            stale_active_task_seconds=0.001,
+        )
+        persisted = await restarted.get_task("stale-active-1")
+        assert persisted.status == "failed"
+        assert persisted.metadata["stale_reconciled"] is True
+
+    asyncio.run(scenario())
+
+
 def test_builder_benchmark_treats_llm_as_model_turn_equivalent(tmp_path: Path) -> None:
     settings = Settings(
         api_token="workflow-test",

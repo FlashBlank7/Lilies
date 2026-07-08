@@ -31,6 +31,7 @@
 - `stage-reports/v0.2.9_benchmark_node_type_equivalence.md`
 - `stage-reports/v0.2.10_platform_harness_durable_storage.md`
 - `stage-reports/v0.2.11_platform_harness_owner_budget.md`
+- `stage-reports/v0.2.12_platform_harness_stale_task_reconciliation.md`
 
 ## 使用原则
 

@@ -109,6 +109,7 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         max_model_calls_per_owner=settings.platform_harness_max_model_calls_per_owner,
         max_tool_calls_per_owner=settings.platform_harness_max_tool_calls_per_owner,
         max_node_executions_per_owner=settings.platform_harness_max_node_executions_per_owner,
+        stale_active_task_seconds=settings.platform_harness_stale_active_task_seconds,
     )
     applications = ApplicationService(workflow_store, blocks, tools)
     workflow_runtime = WorkflowRuntime(
