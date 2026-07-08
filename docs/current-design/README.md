@@ -8,7 +8,7 @@
 
 | 设计文档 | 状态 | 对应 plan |
 | --- | --- | --- |
-| `design_plan_first_and_modular_builder.md` | 草案 | `docs/workingon/plan_apply_lilies_design_notes_2026_07_08.md` |
+| `design_plan_first_and_modular_builder.md` | 已完成 | `docs/workingon/plan_apply_lilies_design_notes_2026_07_08.md` |
 | `design_structured_tests_and_feedback_repair.md` | 草案 | `docs/workingon/plan_apply_lilies_design_notes_2026_07_08.md` |
 | `design_template_rag_workflow_reuse.md` | 草案 | `docs/workingon/plan_apply_lilies_design_notes_2026_07_08.md` |
 | `design_harness_sidecar_and_task_monitor.md` | 草案 | `docs/workingon/plan_apply_lilies_design_notes_2026_07_08.md` |
