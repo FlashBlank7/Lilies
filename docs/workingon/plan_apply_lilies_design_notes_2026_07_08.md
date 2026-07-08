@@ -145,7 +145,7 @@
 | current-design | 状态 | 下一步 |
 | --- | --- | --- |
 | `design_plan_first_and_modular_builder.md` | 已完成 | 可进入下一阶段实现；后续需做 E01/E02/E06 实验。 |
-| `design_structured_tests_and_feedback_repair.md` | 草案 | 补齐测试对象到 API/存储的数据流、实验切片和风险。 |
+| `design_structured_tests_and_feedback_repair.md` | 已完成 | 可进入下一阶段实现；后续需做 E03/E04/E08/E11 实验。 |
 | `design_template_rag_workflow_reuse.md` | 草案 | 补齐检索/展开/再索引边界、质量分更新策略和失败回退。 |
 | `design_harness_sidecar_and_task_monitor.md` | 草案 | 补齐 sidecar 状态模型、task monitor record 草案和迁移阶段。 |
 | `design_lilies_assistant_memory_surface.md` | 草案 | 补齐权限边界、memory schema、隐私风险和阶段化验收。 |
