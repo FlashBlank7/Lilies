@@ -30,6 +30,14 @@
 - Awaiting user review before archive: yes
 
 ## 7. Archive Conditions
+
+## 8. Automatic Evolution
+
+- Automatic Evolution Mode active: yes/no
+- Current version:
+- Archive automatically after verification: yes/no
+- Next version selection source:
+- Continue after archive: yes/no
 ```
 
 ## Current Design
@@ -136,6 +144,14 @@ Archive readiness:
 - Staged paths verified with `git diff --cached --name-status`: yes/no
 - Commit message:
 - Commit hash:
+
+## 8. Automatic Evolution Handoff
+
+- Automatic Evolution Mode active: yes/no
+- Continue to next version: yes/no
+- Next version:
+- Next task source:
+- First workingon file to create/update:
 ```
 
 ## Historical Design

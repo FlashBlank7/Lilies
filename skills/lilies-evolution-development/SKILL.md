@@ -1,6 +1,6 @@
 ---
 name: lilies-evolution-development
-description: Execute Lilies report-driven development workflows. Use when working in the Lilies repo on complex backend/platform/agent/workflow tasks, project evolution strategy, stage or phase planning, splitting a request into workingon plans and current-design documents, implementing those designs in code one by one, recording experiments or implementation evidence, deciding whether to continue the current design or move to the next design, waiting for user review before archiving, archiving workingon on request, rolling docs only back to an earlier stage baseline, creating stage-reports or phase-reports, or screening intellectual-assets such as BlockFlow, Template, Harness, Platform Harness, and task monitor boundary conclusions.
+description: Execute Lilies report-driven development workflows. Use when working in the Lilies repo on complex backend/platform/agent/workflow tasks, project evolution strategy, stage or phase planning, splitting a request into workingon plans and current-design documents, implementing those designs in code one by one, recording experiments or implementation evidence, deciding whether to continue the current design or move to the next design, waiting for user review before archiving, archiving workingon on request, running automatic evolution mode when the user asks to continue the next version or complete work and archive automatically, rolling docs only back to an earlier stage baseline, creating stage-reports or phase-reports, or screening intellectual-assets such as BlockFlow, Template, Harness, Platform Harness, and task monitor boundary conclusions.
 ---
 
 # Lilies Evolution Development
@@ -28,6 +28,36 @@ Use `rg` / `rg --files` first. Do not move or rename historical documents unless
 Use the full workflow when the task affects architecture, core backend behavior, Builder Team, BlockFlow, WorkflowSpec, Template, Harness, Platform Harness, task monitor boundary, testing gates, project reports, or stage archive.
 
 For a small one-file fix, do the fix directly and record only minimal evidence.
+
+If the user asks to "continue the next version", "complete and auto-archive", "automatic evolution", "自动演进", "继续下一个版本", "完成后自动归档", or the active objective has the same meaning, enter **Automatic Evolution Mode**.
+
+### Automatic Evolution Mode
+
+Automatic Evolution Mode is an execution loop for versioned Lilies development. It does not stop after making a design, finishing one implementation slice, or archiving one stage. It keeps selecting, planning, implementing, verifying, archiving, committing, and advancing to the next version until the user's objective is actually complete, the user explicitly pauses/stops, or a real safety/cost/external blocker prevents meaningful progress.
+
+In this mode:
+
+- start from the latest committed stage report and version marker, then choose the next version such as `v0.2.4`
+- choose the next stage from prior `Next-stage Task Pool`, active `workingon`, current designs, intellectual assets, or explicit user direction
+- create/update `docs/workingon/work_<topic>.md` before implementation
+- create/update `docs/current-design/design_<component-or-flow>.md` for every implementation-worthy design
+- implement the design in code or relevant project files before moving on
+- write implementation evidence in `docs/workingon/implementation_<topic>.md`
+- run focused deterministic verification, and run bounded paid/live model tests when the change depends on model behavior, Builder quality, benchmark validity, workflow generation, or Platform Harness enforcement
+- archive the completed stage without waiting for a separate user "archive" request
+- copy every stage design to `docs/historical-designs/v<version>_design_<topic>.md` after the stage report exists
+- create a git commit automatically after each completed stage
+- after a successful archive commit, immediately inspect the new stage report's next-stage task pool and continue the next version if the objective still calls for ongoing evolution
+
+Automatic Evolution Mode still has hard boundaries:
+
+- do not use `git reset --hard`
+- do not stage unrelated files, generated caches, `.tmp/`, lockfiles such as `uv.lock`, or user changes outside the stage
+- do not invent cosmetic versions just to keep moving; each version must be justified by a concrete task source
+- do not make unbounded paid calls; use explicit budgets and record evidence
+- stop only for explicit user pause/stop, irreversible/destructive action needing consent, missing credentials/services, material unbounded cost, safety/privacy/legal risk, merge conflicts, or the absence of any meaningful next version task
+
+When Automatic Evolution Mode is active, replace the normal "wait for user review before archive" behavior with "archive and commit after verification, then advance".
 
 ### 2. Split Themes into Working Plans
 
@@ -92,6 +122,8 @@ The implementation loop continues until all current-design files in the active p
 When all plans in the active work file are complete, do not auto-archive. Stop after reporting completed code changes, verification, workingon evidence, and remaining risk. Wait for the user to inspect the intermediate files and completion status.
 
 Only archive when the user explicitly says to archive workingon or archive the current stage.
+
+Exception: in Automatic Evolution Mode, do not wait for separate user review. Archive and commit immediately after the stage is implemented and verified, then advance to the next version according to the mode rules.
 
 When archiving is requested, create:
 
