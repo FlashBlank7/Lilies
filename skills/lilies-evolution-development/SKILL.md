@@ -49,6 +49,18 @@ In this mode:
 - create a git commit automatically after each completed stage
 - after a successful archive commit, immediately inspect the new stage report's next-stage task pool and continue the next version if the objective still calls for ongoing evolution
 
+#### Continuation Gate
+
+After every archive commit in Automatic Evolution Mode, run this gate before any final answer:
+
+1. Read the just-committed stage report's `Next-stage Tasks` and `Automatic Evolution Handoff`.
+2. Run `git log --oneline -3` and `git status --short` to confirm the commit and unrelated working tree noise.
+3. If the handoff says continue, or if any next-stage task is concrete and unblocked, do not send a final answer. Select the next version, create/update its `workingon` and `current-design`, and start implementation.
+4. A final answer is allowed only when the user explicitly pauses/stops, no meaningful next task exists, or a real blocker from the hard-boundary list below is present.
+5. If context pressure, long runtime, or fatigue is the only reason to stop, treat that as a process failure. Instead shrink the next stage, commit a small safe slice, and continue. Do not declare the objective complete.
+
+Use this quick test before finalizing: "Could I name the next version and first workingon file from the latest stage report?" If yes, keep going.
+
 Automatic Evolution Mode still has hard boundaries:
 
 - do not use `git reset --hard`
@@ -58,6 +70,17 @@ Automatic Evolution Mode still has hard boundaries:
 - stop only for explicit user pause/stop, irreversible/destructive action needing consent, missing credentials/services, material unbounded cost, safety/privacy/legal risk, merge conflicts, or the absence of any meaningful next version task
 
 When Automatic Evolution Mode is active, replace the normal "wait for user review before archive" behavior with "archive and commit after verification, then advance".
+
+#### Performance Rules
+
+Optimize Automatic Evolution Mode for uninterrupted useful progress:
+
+- prefer narrow stages that each produce code, evidence, archive, and commit over large vague stages
+- after a paid/live experiment exposes a failure, make the next stage the smallest deterministic fix, then rerun or re-evaluate with bounded cost
+- when a result file can be reused for deterministic re-evaluation, add an explicit result-path option instead of overwriting prior evidence
+- keep the next task source in the stage report precise enough to start without asking the user
+- treat a successful commit as a checkpoint, not as a stopping point
+- report progress in commentary while working; reserve final answers for true pause, completion, or blockers
 
 ### 2. Split Themes into Working Plans
 
