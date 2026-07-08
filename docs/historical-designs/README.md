@@ -22,3 +22,4 @@
 - `v0.2.10_*`：来自 `docs/stage-reports/v0.2.10_platform_harness_durable_storage.md`。
 - `v0.2.11_*`：来自 `docs/stage-reports/v0.2.11_platform_harness_owner_budget.md`。
 - `v0.2.12_*`：来自 `docs/stage-reports/v0.2.12_platform_harness_stale_task_reconciliation.md`。
+- `v0.2.13_*`：来自 `docs/stage-reports/v0.2.13_builder_benchmark_history.md`。

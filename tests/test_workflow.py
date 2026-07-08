@@ -1112,6 +1112,60 @@ def test_platform_harness_tasks_persist_across_app_instances(tmp_path: Path) -> 
         assert any(item["id"] == task_id for item in listed.json())
 
 
+def test_builder_benchmark_history_survives_app_recreation(tmp_path: Path) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+    )
+    reference = {
+        "nodes": [
+            {"id": "start", "type": "start", "title": "Start", "config": {"inputs": []}},
+            {"id": "end", "type": "end", "title": "End", "config": {"outputs": {"ok": True}}},
+        ],
+        "edges": [
+            {"id": "a", "source": "start", "target": "end", "source_port": "output", "target_port": "input"},
+        ],
+    }
+    suite = {
+        "name": "history suite",
+        "minimum_score": 0.8,
+        "minimum_pass_rate": 1.0,
+        "cases": [
+            {
+                "name": "history task",
+                "reference": reference,
+                "candidate": reference,
+            }
+        ],
+    }
+
+    app = create_app(settings, ScriptedProvider())
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/builder-benchmark/suites/evaluate",
+            headers=headers(),
+            json=suite,
+        )
+        assert response.status_code == 200, response.text
+        task_id = response.json()["task_id"]
+
+    restarted_app = create_app(settings, ScriptedProvider())
+    with TestClient(restarted_app) as client:
+        response = client.get(
+            "/api/v1/builder-benchmark/history?owner_id=builder-benchmark-suite",
+            headers=headers(),
+        )
+        assert response.status_code == 200, response.text
+        history = response.json()
+        item = next(record for record in history if record["id"] == task_id)
+        assert item["status"] == "succeeded"
+        assert item["resource_id"] == "history suite"
+        assert item["metadata"]["case_count"] == 1
+        assert item["metadata"]["score"] >= 0.8
+        assert item["usage_counts"]["node_execution"] == 1
+
+
 def test_platform_harness_owner_budget_blocks_cross_task_usage(tmp_path: Path) -> None:
     async def scenario() -> None:
         data_dir = tmp_path / "data"

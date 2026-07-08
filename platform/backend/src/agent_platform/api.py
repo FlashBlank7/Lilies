@@ -250,6 +250,34 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
 
+    @app.get("/api/v1/builder-benchmark/history", dependencies=[Depends(require_token)])
+    async def list_builder_benchmark_history(
+        owner_id: str | None = None,
+        status: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        tasks = await services.harness.list_tasks(
+            kind="benchmark",
+            status=status,
+            owner_id=owner_id,
+            limit=max(1, min(limit, 500)),
+        )
+        return [
+            {
+                "id": task.id,
+                "status": task.status,
+                "owner_id": task.owner_id,
+                "resource_id": task.resource_id,
+                "created_at": task.created_at,
+                "updated_at": task.updated_at,
+                "finished_at": task.finished_at,
+                "metadata": task.metadata,
+                "usage_counts": task.usage_counts,
+                "error": task.error,
+            }
+            for task in tasks
+        ]
+
     @app.post("/api/v1/builder-benchmark/evaluate", dependencies=[Depends(require_token)])
     async def evaluate_builder_benchmark(body: BuilderBenchmarkCase) -> dict[str, Any]:
         task_id = str(uuid4())
