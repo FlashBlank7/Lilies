@@ -15,3 +15,9 @@
 v0.2.2 对应的 design 已按版本归档到：
 
 - `docs/historical-designs/v0.2.2_design_archive_manifest.md`
+
+v0.2.3 对应的 design 已按版本归档到：
+
+- `docs/historical-designs/v0.2.3_design_platform_harness_task_monitor_v1.md`
+- `docs/historical-designs/v0.2.3_design_builder_benchmark_v1.md`
+- `docs/historical-designs/v0.2.3_design_natural_language_draft_patch_preview.md`

@@ -12,3 +12,4 @@
 当前已归档：
 
 - `v0.2.2_*`：来自 `docs/stage-reports/v0.2.2_apply_lilies_inspiration_notes.md`。
+- `v0.2.3_*`：来自 `docs/stage-reports/v0.2.3_platform_harness_and_development_roadmap.md`。

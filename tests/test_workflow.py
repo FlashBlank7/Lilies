@@ -71,6 +71,118 @@ class IncrementalBuilderProvider(ModelProvider):
         yield StreamEvent(type="message_delta", data={"delta": {"stop_reason": "tool_use"}, "usage": {"output_tokens": 1}})
 
 
+class NoTestBuilderProvider(ModelProvider):
+    name = "deepseek"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def capabilities(self, model: str) -> ProviderCapabilities:
+        return ProviderCapabilities(True, True, True, False, False, 100_000, 10_000)
+
+    async def stream(
+        self,
+        *,
+        model: str,
+        system: str,
+        messages: list[ChatMessage],
+        tools: list[ToolDefinition],
+        max_output_tokens: int,
+        thinking_enabled: bool,
+        effort: str,
+        tool_choice: dict[str, str] | None = None,
+        user_id: str | None = None,
+    ) -> AsyncIterator[StreamEvent]:
+        operations = [
+            ("draft_add_node", {"node": {"id": "start", "type": "start", "title": "Input", "config": {"inputs": [{"name": "name", "type": "string"}]}}}),
+            ("draft_add_node", {"node": {"id": "template", "type": "template_transform", "title": "Greeting", "config": {"template": "Hello {{ name }}", "variables": {"name": {"$ref": {"node_id": "start", "path": ["name"]}}}}}}),
+            ("draft_add_node", {"node": {"id": "end", "type": "end", "title": "End", "config": {"outputs": {"greeting": {"$ref": {"node_id": "template", "path": ["text"]}}}}}}),
+            ("draft_connect", {"edge": {"id": "a", "source": "start", "target": "template", "source_port": "output", "target_port": "input"}}),
+            ("draft_connect", {"edge": {"id": "b", "source": "template", "target": "end", "source_port": "text", "target_port": "input"}}),
+        ]
+        self.calls += 1
+        yield StreamEvent(type="message_start", data={"message": {"usage": {"input_tokens": 1}}})
+        if self.calls <= len(operations):
+            name, value = operations[self.calls - 1]
+            yield StreamEvent(type="content_block_start", data={
+                "index": 0,
+                "content_block": {"type": "tool_use", "id": f"call-{self.calls}", "name": name, "input": {}},
+            })
+            yield StreamEvent(type="content_block_delta", data={
+                "index": 0, "delta": {"type": "input_json_delta", "partial_json": json.dumps(value)},
+            })
+            yield StreamEvent(type="content_block_stop", data={"index": 0})
+            yield StreamEvent(type="message_delta", data={"delta": {"stop_reason": "tool_use"}, "usage": {"output_tokens": 1}})
+            return
+        yield StreamEvent(type="content_block_start", data={
+            "index": 0, "content_block": {"type": "text", "text": "done"}
+        })
+        yield StreamEvent(type="content_block_delta", data={
+            "index": 0, "delta": {"type": "text_delta", "text": "done"}
+        })
+        yield StreamEvent(type="message_delta", data={"delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 1}})
+
+
+class PlanFirstBuilderProvider(ModelProvider):
+    name = "deepseek"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def capabilities(self, model: str) -> ProviderCapabilities:
+        return ProviderCapabilities(True, True, True, False, False, 100_000, 10_000)
+
+    async def stream(
+        self,
+        *,
+        model: str,
+        system: str,
+        messages: list[ChatMessage],
+        tools: list[ToolDefinition],
+        max_output_tokens: int,
+        thinking_enabled: bool,
+        effort: str,
+        tool_choice: dict[str, str] | None = None,
+        user_id: str | None = None,
+    ) -> AsyncIterator[StreamEvent]:
+        self.calls += 1
+        yield StreamEvent(type="message_start", data={"message": {"usage": {"input_tokens": 1}}})
+        if self.calls == 1:
+            value = {"action": "set", "plan": {
+                "goal": "Build a modular novel generator BlockFlow.",
+                "strategy": "Plan outline, drafting, and review modules before mutating the draft.",
+                "complexity": "complex",
+                "reuse_depth": "shallow",
+                "risks": ["content quality needs human review"],
+                "modules": [
+                    {
+                        "id": "outline",
+                        "title": "Outline and setting",
+                        "purpose": "Create a story outline before drafting.",
+                        "expected_blocks": ["start", "model_turn", "end"],
+                    }
+                ],
+            }}
+            yield StreamEvent(type="content_block_start", data={
+                "index": 0, "content_block": {
+                    "type": "tool_use", "id": "build-plan", "name": "build_plan", "input": {},
+                },
+            })
+            yield StreamEvent(type="content_block_delta", data={
+                "index": 0, "delta": {"type": "input_json_delta", "partial_json": json.dumps(value)},
+            })
+            yield StreamEvent(type="content_block_stop", data={"index": 0})
+            yield StreamEvent(type="message_delta", data={"delta": {"stop_reason": "tool_use"}, "usage": {"output_tokens": 1}})
+        else:
+            yield StreamEvent(type="content_block_start", data={
+                "index": 0, "content_block": {"type": "text", "text": "planned"}
+            })
+            yield StreamEvent(type="content_block_delta", data={
+                "index": 0, "delta": {"type": "text_delta", "text": "planned"}
+            })
+            yield StreamEvent(type="message_delta", data={"delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 1}})
+
+
 class ManualSkippingBuilderProvider(ModelProvider):
     name = "deepseek"
 
@@ -498,6 +610,311 @@ def test_citation_gate_requires_every_output_url_to_come_from_tool_evidence() ->
     assert valid_output
     assert valid_output <= evidence
     assert corrupted_output - evidence == {"https://news.example/tw0"}
+
+
+def test_run_suite_returns_readable_test_frame_report(tmp_path: Path) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+    )
+    app = create_app(settings, ScriptedProvider())
+    with TestClient(app) as client:
+        app_id = client.post(
+            "/api/v1/applications",
+            headers=headers(),
+            json={"name": "Readable tests", "requirement": "Return a readable test report."},
+        ).json()["id"]
+        revision = 0
+        for node in [
+            {"id": "start", "type": "start", "title": "Start", "config": {"inputs": []}},
+            {"id": "end", "type": "end", "title": "End", "config": {"outputs": {"ok": True}}},
+        ]:
+            revision = mutate(client, app_id, revision, "add_node", {"node": node})
+        revision = mutate(client, app_id, revision, "add_edge", {"edge": {
+            "id": "start-end", "source": "start", "target": "end",
+            "source_port": "output", "target_port": "input",
+        }})
+        mutate(client, app_id, revision, "add_test", {"test": {
+            "name": "Framework-visible acceptance",
+            "requirement": "The workflow returns ok.",
+            "frame": {
+                "title": "Basic output contract",
+                "category": "structure",
+                "purpose": "Show that the generated BlockFlow has an inspectable output contract.",
+                "reviewer_guidance": "Check this before reviewing content quality.",
+                "reference": "backend handoff note: readable testing",
+                "failure_target": "end node outputs",
+            },
+            "inputs": {},
+            "assertions": [{"path": ["ok"], "operator": "equals", "expected": True}],
+            "feedback_hints": ["Inspect the end node output mapping if this fails."],
+        }})
+
+        response = client.post(f"/api/v1/applications/{app_id}/tests/run", headers=headers())
+        assert response.status_code == 200, response.text
+        body = response.json()
+
+        assert body["passed"] is True
+        assert body["summary"]["total"] == 1
+        assert body["summary"]["frames"] == [{
+            "test_id": body["tests"][0]["test_id"],
+            "title": "Basic output contract",
+            "category": "structure",
+            "status": "passed",
+        }]
+        result = body["tests"][0]
+        assert result["frame"]["title"] == "Basic output contract"
+        assert result["readable_report"]["purpose"].startswith("Show that")
+        assert result["readable_report"]["status"] == "passed"
+        assert result["readable_report"]["failure_target"] == "end node outputs"
+        assert result["readable_report"]["feedback_hints"] == [
+            "Inspect the end node output mapping if this fails."
+        ]
+
+
+def test_template_suggestions_include_reuse_depth_actions(tmp_path: Path) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+    )
+    app = create_app(settings, ScriptedProvider())
+    with TestClient(app) as client:
+        app_id = client.post(
+            "/api/v1/applications",
+            headers=headers(),
+            json={"name": "Novel Outline", "requirement": "Create a novel outline."},
+        ).json()["id"]
+        revision = 0
+        for node in [
+            {"id": "start", "type": "start", "title": "Start", "config": {"inputs": []}},
+            {"id": "end", "type": "end", "title": "End", "config": {"outputs": {"ok": True}}},
+        ]:
+            revision = mutate(client, app_id, revision, "add_node", {"node": node})
+        mutate(client, app_id, revision, "add_edge", {"edge": {
+            "id": "start-end", "source": "start", "target": "end",
+            "source_port": "output", "target_port": "input",
+        }})
+        created = client.post(
+            f"/api/v1/applications/{app_id}/publish-template",
+            headers=headers(),
+            json={
+                "title": "Novel Outline Template",
+                "description": "Reusable outline workflow for novel generation.",
+                "category": "content_creation",
+                "tags": ["novel", "outline"],
+            },
+        )
+        assert created.status_code == 201, created.text
+
+        deep = client.get(
+            "/api/v1/templates/suggestions?requirement=novel%20outline&reuse_depth=deep",
+            headers=headers(),
+        )
+        assert deep.status_code == 200, deep.text
+        body = deep.json()
+        assert body[0]["reuse_depth"] == "deep"
+        assert body[0]["recommended_action"] == "compose_modules"
+
+        none = client.get(
+            "/api/v1/templates/suggestions?requirement=novel%20outline&reuse_depth=none",
+            headers=headers(),
+        ).json()
+        assert none == []
+
+
+def test_platform_harness_tracks_test_suite_and_workflow_usage(tmp_path: Path) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+    )
+    app = create_app(settings, ScriptedProvider())
+    with TestClient(app) as client:
+        app_id = client.post(
+            "/api/v1/applications",
+            headers=headers(),
+            json={"name": "Harness tracked", "requirement": "Track a test run."},
+        ).json()["id"]
+        revision = 0
+        for node in [
+            {"id": "start", "type": "start", "title": "Start", "config": {"inputs": []}},
+            {"id": "end", "type": "end", "title": "End", "config": {"outputs": {"ok": True}}},
+        ]:
+            revision = mutate(client, app_id, revision, "add_node", {"node": node})
+        revision = mutate(client, app_id, revision, "add_edge", {"edge": {
+            "id": "start-end", "source": "start", "target": "end",
+            "source_port": "output", "target_port": "input",
+        }})
+        mutate(client, app_id, revision, "add_test", {"test": {
+            "name": "Returns ok",
+            "requirement": "Workflow returns ok.",
+            "inputs": {},
+            "assertions": [{"path": ["ok"], "operator": "equals", "expected": True}],
+        }})
+
+        report = client.post(f"/api/v1/applications/{app_id}/tests/run", headers=headers())
+        assert report.status_code == 200, report.text
+        assert report.json()["passed"] is True
+
+        test_tasks = client.get(
+            f"/api/v1/platform/harness/tasks?kind=test_suite&owner_id={app_id}",
+            headers=headers(),
+        ).json()
+        assert len(test_tasks) == 1
+        assert test_tasks[0]["status"] == "succeeded"
+
+        workflow_tasks = client.get(
+            f"/api/v1/platform/harness/tasks?kind=workflow_run&owner_id={app_id}",
+            headers=headers(),
+        ).json()
+        assert len(workflow_tasks) == 1
+        assert workflow_tasks[0]["parent_task_id"] == test_tasks[0]["id"]
+        assert workflow_tasks[0]["usage_counts"]["node_execution"] == 2
+
+        fetched = client.get(
+            f"/api/v1/platform/harness/tasks/{workflow_tasks[0]['id']}",
+            headers=headers(),
+        ).json()
+        assert fetched["id"] == workflow_tasks[0]["id"]
+
+
+def test_platform_harness_node_budget_blocks_run(tmp_path: Path) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+        platform_harness_max_node_executions_per_task=1,
+    )
+    app = create_app(settings, ScriptedProvider())
+    with TestClient(app) as client:
+        app_id = client.post(
+            "/api/v1/applications",
+            headers=headers(),
+            json={"name": "Harness budget", "requirement": "Budget should stop after one node."},
+        ).json()["id"]
+        revision = 0
+        for node in [
+            {"id": "start", "type": "start", "title": "Start", "config": {"inputs": []}},
+            {"id": "end", "type": "end", "title": "End", "config": {"outputs": {"ok": True}}},
+        ]:
+            revision = mutate(client, app_id, revision, "add_node", {"node": node})
+        mutate(client, app_id, revision, "add_edge", {"edge": {
+            "id": "start-end", "source": "start", "target": "end",
+            "source_port": "output", "target_port": "input",
+        }})
+
+        created = client.post(
+            f"/api/v1/applications/{app_id}/runs",
+            headers=headers(),
+            json={"inputs": {}, "use_draft": True},
+        )
+        assert created.status_code == 202, created.text
+        run_id = created.json()["run_id"]
+        for _ in range(100):
+            run = client.get(f"/api/v1/runs/{run_id}", headers=headers()).json()
+            if run["status"] == "failed":
+                break
+            time.sleep(0.01)
+
+        assert run["status"] == "failed", run
+        assert "node execution budget exceeded" in run["error"]
+        task = client.get(f"/api/v1/platform/harness/tasks/{run_id}", headers=headers()).json()
+        assert task["status"] == "failed"
+        assert task["usage_counts"]["node_execution"] == 2
+
+
+def test_builder_benchmark_reports_missing_harness_nodes(tmp_path: Path) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+    )
+    app = create_app(settings, ScriptedProvider())
+    reference = {
+        "nodes": [
+            {"id": "start", "type": "start", "title": "Start", "config": {"inputs": []}},
+            {"id": "permission", "type": "permission_gate", "title": "Permission", "config": {
+                "input": {"$ref": {"node_id": "start", "path": ["output"]}},
+                "settings": {"auto_approve": True},
+            }},
+            {"id": "end", "type": "end", "title": "End", "config": {
+                "outputs": {"ok": {"$ref": {"node_id": "permission", "path": ["output"]}}},
+            }},
+        ],
+        "edges": [
+            {"id": "a", "source": "start", "target": "permission", "source_port": "output", "target_port": "input"},
+            {"id": "b", "source": "permission", "target": "end", "source_port": "output", "target_port": "input"},
+        ],
+    }
+    candidate = {
+        "nodes": [
+            {"id": "start", "type": "start", "title": "Start", "config": {"inputs": []}},
+            {"id": "end", "type": "end", "title": "End", "config": {"outputs": {"ok": True}}},
+        ],
+        "edges": [
+            {"id": "a", "source": "start", "target": "end", "source_port": "output", "target_port": "input"},
+        ],
+    }
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/builder-benchmark/evaluate",
+            headers=headers(),
+            json={
+                "name": "missing harness",
+                "reference": reference,
+                "candidate": candidate,
+                "required_harness_nodes": ["permission_gate"],
+            },
+        )
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["report"]["passed"] is False
+        assert body["report"]["missing"]["harness_nodes"] == ["permission_gate"]
+        task = client.get(
+            f"/api/v1/platform/harness/tasks/{body['task_id']}",
+            headers=headers(),
+        ).json()
+        assert task["kind"] == "benchmark"
+
+
+def test_natural_language_draft_patch_preview_is_non_destructive(tmp_path: Path) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+    )
+    app = create_app(settings, ScriptedProvider())
+    with TestClient(app) as client:
+        app_id = client.post(
+            "/api/v1/applications",
+            headers=headers(),
+            json={"name": "Patch preview", "requirement": "Preview a node rename."},
+        ).json()["id"]
+        revision = 0
+        for node in [
+            {"id": "start", "type": "start", "title": "Start", "config": {"inputs": []}},
+            {"id": "end", "type": "end", "title": "End", "config": {"outputs": {"ok": True}}},
+        ]:
+            revision = mutate(client, app_id, revision, "add_node", {"node": node})
+        before = client.get(f"/api/v1/applications/{app_id}/draft", headers=headers()).json()
+
+        response = client.post(
+            f"/api/v1/applications/{app_id}/draft/preview-patch",
+            headers=headers(),
+            json={"instruction": "rename node end to Final Answer"},
+        )
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["supported"] is True
+        assert body["intent"] == "rename_node"
+        assert body["operations"][0]["op"] == "update_node"
+        assert body["operations"][0]["expected_revision"] == before["revision"]
+
+        after = client.get(f"/api/v1/applications/{app_id}/draft", headers=headers()).json()
+        assert after["revision"] == before["revision"]
+        assert after["content_hash"] == before["content_hash"]
 
 
 def test_validation_enforces_required_visible_blocks_and_tool_nodes(tmp_path: Path) -> None:
@@ -1244,7 +1661,23 @@ def test_claude_architecture_blocks_fix_python_test_failure_without_legacy_agent
         assert validation["valid"] is True, validation
         report = client.post(f"/api/v1/applications/{app_id}/tests/run", headers=headers())
         assert report.status_code == 200, report.text
-        assert report.json()["passed"] is True, report.text
+        body = report.json()
+        assert body["passed"] is True, report.text
+        run_id = body["tests"][0]["run_id"]
+        events = client.get(f"/v1/streams/{run_id}", headers=headers()).json()
+        harness_signals = [
+            event["data"]
+            for event in events
+            if event["type"] == "harness.signal"
+        ]
+        assert {
+            (signal["block_type"], signal["signal_type"], signal["status"])
+            for signal in harness_signals
+        } >= {
+            ("permission_gate", "permission", "allowed"),
+            ("sandbox_boundary", "sandbox", "declared"),
+            ("event_recorder", "event", "recorded"),
+        }
         assert "return left + right" in (workspace / "calculator.py").read_text()
 
 
@@ -1440,6 +1873,78 @@ def test_builder_uses_incremental_brick_operations_and_publishes(tmp_path: Path)
             ("draft_connect", {}), ("draft_connect", {}), ("test_add", {}),
             ("draft_validate", {}), ("test_run", {}), ("draft_publish", {}),
         ]]
+
+
+def test_builder_adds_preflight_smoke_test_when_model_omits_tests(tmp_path: Path) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+    )
+    app = create_app(settings, NoTestBuilderProvider())
+    with TestClient(app) as client:
+        app_id = client.post(
+            "/api/v1/applications",
+            headers=headers(),
+            json={"name": "Generated smoke", "requirement": "Build a greeting workflow."},
+        ).json()["id"]
+        build_id = client.post(
+            f"/api/v1/applications/{app_id}/builds",
+            headers=headers(),
+            json={"requirement": "Build a greeting workflow.", "auto_publish": False, "max_turns": 8},
+        ).json()["build_id"]
+        for _ in range(300):
+            build = client.get(f"/api/v1/builds/{build_id}", headers=headers()).json()
+            if build["status"] in {"ready", "needs_attention"}:
+                break
+            time.sleep(0.01)
+
+        assert build["status"] == "ready", build
+        draft = client.get(f"/api/v1/applications/{app_id}/draft", headers=headers()).json()
+        tests = draft["snapshot"]["tests"]
+        assert [test["id"] for test in tests] == ["auto_smoke_acceptance"]
+        assert tests[0]["mandatory"] is True
+        assert tests[0]["frame"]["category"] == "structure"
+        assert set(tests[0]["required_node_types"]) == {"start", "template_transform", "end"}
+        operation_events = client.get(f"/v1/streams/{build_id}", headers=headers()).json()
+        assert any(event["type"] == "build.preflight_test_added" for event in operation_events)
+
+
+def test_builder_persists_plan_first_build_plan(tmp_path: Path) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+    )
+    app = create_app(settings, PlanFirstBuilderProvider())
+    with TestClient(app) as client:
+        app_id = client.post(
+            "/api/v1/applications",
+            headers=headers(),
+            json={"name": "Plan first", "requirement": "Build a modular novel generator."},
+        ).json()["id"]
+        build_id = client.post(
+            f"/api/v1/applications/{app_id}/builds",
+            headers=headers(),
+            json={"requirement": "Build a modular novel generator.", "auto_publish": False, "max_turns": 5},
+        ).json()["build_id"]
+        for _ in range(100):
+            build = client.get(f"/api/v1/builds/{build_id}", headers=headers()).json()
+            if build["status"] in {"ready", "needs_attention"}:
+                break
+            time.sleep(0.01)
+
+        assert build["status"] == "needs_attention", build
+        plan = build["team_state"]["build_plan"]
+        assert plan["goal"] == "Build a modular novel generator BlockFlow."
+        assert plan["complexity"] == "complex"
+        assert plan["reuse_depth"] == "shallow"
+        assert plan["modules"][0]["id"] == "outline"
+        assert plan["modules"][0]["expected_blocks"] == ["start", "model_turn", "end"]
+
+        operation_events = client.get(f"/v1/streams/{build_id}", headers=headers()).json()
+        tools = [event["data"].get("tool") for event in operation_events if event["type"] == "build.operation"]
+        assert tools[0] == "build_plan"
 
 
 def test_builder_must_read_manual_before_agent_architecture_blocks(tmp_path: Path) -> None:

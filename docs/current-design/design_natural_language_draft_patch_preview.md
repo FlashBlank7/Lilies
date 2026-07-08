@@ -1,0 +1,63 @@
+# design_natural_language_draft_patch_preview
+
+## 1. Goal
+
+实现自然语言修改画布的安全第一步：只生成可审阅 draft patch preview，不直接修改草稿。
+
+## 2. Module Boundary
+
+候选模块：
+
+- `platform/backend/src/agent_platform/draft_patch_preview.py`
+- `platform/backend/src/agent_platform/api.py`
+- `tests/test_workflow.py`
+
+## 3. Control Flow
+
+用户修改指令 -> inspect current draft -> deterministic parser for safe operations -> patch preview -> user later confirms via existing draft mutation API。
+
+## 4. Implementation Plan
+
+1. 只支持低风险确定性意图：
+   - rename node
+   - update node description
+   - suggest removing disconnected node
+2. 返回 proposed `DraftOperation` payload，不直接应用。
+3. 记录 unsupported intent，不调用模型。
+
+## 5. Acceptance Criteria
+
+- Preview endpoint 不改变 revision/content_hash。
+- 支持 rename node preview。
+- 对无法解析的指令返回 unsupported。
+
+## 6. Referenced Assets
+
+- `docs/intellectual-assets/asset_platform_harness_task_monitor_boundary.md`
+- `docs/intellectual-assets/asset_blockflow_language_system.md`
+
+## 7. Implementation Result
+
+Status: implemented.
+
+Implemented modules:
+
+- `platform/backend/src/agent_platform/draft_patch_preview.py`
+- `platform/backend/src/agent_platform/api.py`
+- `tests/test_workflow.py`
+
+Public endpoint:
+
+- `POST /api/v1/applications/{application_id}/draft/preview-patch`
+
+Verification:
+
+- Focused non-destructive preview test passed.
+- Full backend pytest passed: 54 passed.
+- Changed-file ruff passed.
+
+Boundary:
+
+- This v1 parser is deterministic and intentionally narrow.
+- It does not call a model and does not mutate drafts.
+- Model-assisted natural-language editing remains a later design behind permission and preview-confirm gates.

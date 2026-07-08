@@ -36,6 +36,7 @@ from .blocks import (
     VariableAssignerConfig,
 )
 from .models import AgentSpec, ChatMessage, ContentBlock, PermissionMode, Usage
+from .platform_harness import PlatformHarness
 from .providers import ModelProvider
 from .runtime import AgentRuntime
 from .sandbox import SandboxManager
@@ -71,6 +72,7 @@ class WorkflowRuntime:
         *,
         storage: Storage,
         workflow_store: WorkflowStorage,
+        harness: PlatformHarness,
         applications: ApplicationService,
         blocks: BlockRegistry,
         provider: ModelProvider,
@@ -81,6 +83,7 @@ class WorkflowRuntime:
     ) -> None:
         self.storage = storage
         self.workflow_store = workflow_store
+        self.harness = harness
         self.applications = applications
         self.blocks = blocks
         self.provider = provider
@@ -90,7 +93,14 @@ class WorkflowRuntime:
         self.runtime_model = runtime_model
         self.active_tasks: dict[str, asyncio.Task[None]] = {}
 
-    async def create_run(self, application_id: str, request: WorkflowRunRequest) -> dict[str, Any]:
+    async def create_run(
+        self,
+        application_id: str,
+        request: WorkflowRunRequest,
+        *,
+        parent_task_id: str | None = None,
+        origin: str = "api",
+    ) -> dict[str, Any]:
         if request.use_draft:
             draft = await self.workflow_store.get_draft(application_id)
             snapshot, version, draft_revision = draft["snapshot"], None, int(draft["revision"])
@@ -112,6 +122,19 @@ class WorkflowRuntime:
         await self.workflow_store.create_run(
             state, version=version, draft_revision=draft_revision
         )
+        await self.harness.start_task(
+            run_id,
+            kind="workflow_run",
+            owner_id=application_id,
+            resource_id=run_id,
+            parent_task_id=parent_task_id,
+            metadata={
+                "origin": origin,
+                "version": version,
+                "draft_revision": draft_revision,
+                "workspace_path": request.workspace_path,
+            },
+        )
         self._start(state)
         return {"run_id": run_id, "status": "queued", "version": version, "draft_revision": draft_revision}
 
@@ -122,6 +145,13 @@ class WorkflowRuntime:
         state: WorkflowRunState = record["state"]
         state.resumed_values = values
         await self.workflow_store.update_run(run_id, status="queued", state=state)
+        await self.harness.start_task(
+            run_id,
+            kind="workflow_run",
+            owner_id=state.application_id,
+            resource_id=run_id,
+            metadata={"origin": "resume"},
+        )
         await self._emit(run_id, "workflow.resumed", {"node_id": state.waiting_node_id})
         self._start(state)
         return {"run_id": run_id, "status": "queued"}
@@ -161,15 +191,18 @@ class WorkflowRuntime:
                 state.run_id, status="succeeded", state=state, outputs=result
             )
             await self._emit(state.run_id, "workflow.completed", {"outputs": result})
+            await self.harness.finish_task(state.run_id, status="succeeded")
         except HumanInputPause:
             await self._emit(state.run_id, "workflow.paused", {"node_id": state.waiting_node_id})
             # Persist paused as the final awaited action. Observers cannot see a
             # resumable state while this task is still emitting and be raced by
             # process shutdown cancellation.
             await self.workflow_store.update_run(state.run_id, status="paused", state=state)
+            await self.harness.finish_task(state.run_id, status="paused")
         except asyncio.CancelledError:
             await self.workflow_store.update_run(state.run_id, status="cancelled", state=state)
             await self._emit(state.run_id, "workflow.cancelled", {})
+            await self.harness.finish_task(state.run_id, status="cancelled")
             raise
         except Exception as error:
             await self.workflow_store.update_run(
@@ -178,6 +211,7 @@ class WorkflowRuntime:
             await self._emit(state.run_id, "workflow.failed", {
                 "error": str(error), "error_type": type(error).__name__
             })
+            await self.harness.finish_task(state.run_id, status="failed", error=str(error))
 
     async def _run_graph(
         self,
@@ -224,6 +258,12 @@ class WorkflowRuntime:
                     await self.workflow_store.update_run(run_id, status="running", state=top_state)
                 await self._emit(run_id, "node.skipped", {"node_id": scoped_id})
                 continue
+            if top_state and not prefix:
+                await self.harness.record_usage(
+                    run_id,
+                    "node_execution",
+                    metadata={"node_id": scoped_id, "type": node.type, "title": node.title},
+                )
             await self._emit(run_id, "node.started", {"node_id": scoped_id, "type": node.type, "title": node.title})
             try:
                 output = await self._execute_with_retry(
@@ -530,6 +570,17 @@ class WorkflowRuntime:
         if not isinstance(settings, dict):
             raise TypeError("agent architecture block settings must resolve to an object")
 
+        async def emit_harness_signal(
+            signal_type: str, status: str, details: dict[str, Any] | None = None
+        ) -> None:
+            await self._emit(run_id, "harness.signal", {
+                "node_id": scoped_id,
+                "block_type": node.type,
+                "signal_type": signal_type,
+                "status": status,
+                "details": self._redact(details or {}),
+            })
+
         # ── Context group ───────────────────────────────────────────
 
         if node.type == "context_assembler":
@@ -793,6 +844,10 @@ class WorkflowRuntime:
                 if not state:
                     raise RuntimeError("permission_gate requires persisted top-level runs when approval is not preset")
                 state.waiting_node_id = node.id
+                await emit_harness_signal("permission", "waiting", {
+                    "mode": mode,
+                    "reason": settings.get("reason", "Sensitive action requires approval."),
+                })
                 await self._emit(run_id, "permission.requested", {
                     "node_id": scoped_id,
                     "reason": settings.get("reason", "Sensitive action requires approval."),
@@ -801,6 +856,7 @@ class WorkflowRuntime:
                 })
                 raise HumanInputPause()
             await self._emit(run_id, "permission.resolved", {"node_id": scoped_id, "mode": mode, "behavior": "allow"})
+            await emit_harness_signal("permission", "allowed", {"mode": mode})
             return {"output": value, "state": {"mechanism": node.type, "approved": True, "mode": mode}}
 
         if node.type == "sandbox_boundary":
@@ -808,6 +864,10 @@ class WorkflowRuntime:
             network_policy = str(settings.get("network_policy", "none"))
             effective_policy = network_policy if network_policy in {"none", "full", "allowlist"} else "none"
             self.sandboxes.resolve_workspace(declared_workspace)
+            await emit_harness_signal("sandbox", "declared", {
+                "workspace": declared_workspace,
+                "network_policy": effective_policy,
+            })
             await self._emit(run_id, "sandbox.boundary.declared", {
                 "node_id": scoped_id,
                 "workspace": declared_workspace,
@@ -1132,6 +1192,10 @@ class WorkflowRuntime:
                     "spent": spent,
                     "max": max_cost,
                 })
+            await emit_harness_signal("budget", "allowed" if allowed else "blocked", {
+                "spent_cost_usd": spent,
+                "max_cost_usd": max_cost,
+            })
             return {
                 "output": {"input": value, "allowed": allowed, "spent_cost_usd": spent, "max_cost_usd": max_cost},
                 "state": {"mechanism": node.type, "allowed": allowed, "spent_cost_usd": spent, "max_cost_usd": max_cost},
@@ -1147,6 +1211,10 @@ class WorkflowRuntime:
                     "current": current_round,
                     "max": max_rounds,
                 })
+            await emit_harness_signal("round_limit", "allowed" if allowed else "blocked", {
+                "current_round": current_round,
+                "max_rounds": max_rounds,
+            })
             return {
                 "output": {"input": value, "allowed": allowed, "current_round": current_round, "max_rounds": max_rounds},
                 "state": {"mechanism": node.type, "allowed": allowed, "current_round": current_round, "max_rounds": max_rounds},
@@ -1183,6 +1251,12 @@ class WorkflowRuntime:
             direction = str(settings.get("direction", "before"))
             timeout_s = float(settings.get("timeout_seconds", 30))
             default_behavior = str(settings.get("default_behavior", "continue"))
+            await emit_harness_signal("hook", "triggered", {
+                "hook_name": hook_name,
+                "direction": direction,
+                "timeout_seconds": timeout_s,
+                "default_behavior": default_behavior,
+            })
             await self._emit(run_id, "hook.triggered", {
                 "node_id": scoped_id,
                 "hook_name": hook_name,
@@ -1204,6 +1278,7 @@ class WorkflowRuntime:
 
         if node.type == "event_recorder":
             event = {"node_id": scoped_id, "label": settings.get("label", node.title), "payload": self._redact(value)}
+            await emit_harness_signal("event", "recorded", {"label": event["label"]})
             await self._emit(run_id, "agent_architecture.event", event)
             return {"output": value, "state": {"mechanism": node.type, "recorded": True}}
 
@@ -1223,6 +1298,7 @@ class WorkflowRuntime:
             }
             # Persist checkpoint data to storage for crash recovery
             await self.storage.save_checkpoint(run_id, checkpoint_id, checkpoint_data)
+            await emit_harness_signal("checkpoint", "saved", {"checkpoint_id": checkpoint_id})
             await self._emit(run_id, "checkpoint.saved", {
                 "node_id": scoped_id,
                 "checkpoint_id": checkpoint_id,
@@ -1241,6 +1317,9 @@ class WorkflowRuntime:
                     is_cancelled = True
             await self._emit(run_id, "cancellation.checked", {
                 "node_id": scoped_id,
+                "cancelled": is_cancelled,
+            })
+            await emit_harness_signal("cancellation", "cancelled" if is_cancelled else "clear", {
                 "cancelled": is_cancelled,
             })
             return {
@@ -1390,6 +1469,11 @@ class WorkflowRuntime:
     async def _model_text(
         self, run_id: str, model: str, system: str, prompt: str, node_id: str
     ) -> tuple[str, Usage]:
+        await self.harness.record_usage(
+            run_id,
+            "model_call",
+            metadata={"node_id": node_id, "model": model, "mode": "text"},
+        )
         stream = self.provider.stream(
             model=model,
             system=system,
@@ -1421,6 +1505,11 @@ class WorkflowRuntime:
         downstream agent-architecture blocks can inspect and route tool calls.
         """
         from .models import ToolDefinition as TD
+        await self.harness.record_usage(
+            run_id,
+            "model_call",
+            metadata={"node_id": node_id, "model": model, "mode": "tool_turn"},
+        )
         definitions: list[Any] = []
         for name in tool_names:
             try:
@@ -1478,9 +1567,16 @@ class WorkflowRuntime:
     ) -> dict[str, Any]:
         if config.tool_name.startswith("workflow:"):
             application_id = config.tool_name.split(":", 1)[1]
+            await self.harness.record_usage(
+                run_id,
+                "nested_workflow_call",
+                metadata={"node_id": node_id, "application_id": application_id},
+            )
             nested = await self.create_run(
                 application_id,
                 WorkflowRunRequest(inputs=self._resolve(config.input, context), workspace_path=workspace_path),
+                parent_task_id=run_id,
+                origin="nested_workflow_tool",
             )
             await self.active_tasks[nested["run_id"]]
             record = await self.workflow_store.get_run(nested["run_id"])
@@ -1507,6 +1603,11 @@ class WorkflowRuntime:
 
         try:
             resolved_input = self._resolve(config.input, context)
+            await self.harness.record_usage(
+                run_id,
+                "tool_call",
+                metadata={"node_id": node_id, "tool": config.tool_name},
+            )
             await self._emit(run_id, f"node.{node_id}.tool.started", {
                 "tool": config.tool_name, "input": self._redact(resolved_input)
             })
@@ -1570,14 +1671,29 @@ class WorkflowRuntime:
     async def run_test_suite(self, application_id: str) -> dict[str, Any]:
         validation = await self.applications.validate_draft(application_id)
         if not validation["valid"]:
-            return {"passed": False, "validation": validation, "tests": []}
+            return {
+                "passed": False,
+                "validation": validation,
+                "summary": {"total": 0, "passed": 0, "failed": 0, "mandatory_failed": 0, "frames": []},
+                "tests": [],
+            }
         draft = await self.workflow_store.get_draft(application_id)
         snapshot: ApplicationSnapshot = draft["snapshot"]
+        test_task_id = f"test-suite:{uuid4()}"
+        await self.harness.start_task(
+            test_task_id,
+            kind="test_suite",
+            owner_id=application_id,
+            resource_id=application_id,
+            metadata={"draft_revision": draft["revision"], "content_hash": draft["content_hash"]},
+        )
         results: list[dict[str, Any]] = []
         for test in snapshot.tests:
             created = await self.create_run(
                 application_id,
                 WorkflowRunRequest(inputs=test.inputs, use_draft=True, workspace_path="."),
+                parent_task_id=test_task_id,
+                origin="test_suite",
             )
             run_id = created["run_id"]
             task = self.active_tasks[run_id]
@@ -1642,6 +1758,29 @@ class WorkflowRuntime:
                     assertions.append({"passed": passed, "actual": actual, **assertion.model_dump(mode="json")})
                 except Exception as error:
                     assertions.append({"passed": False, "error": str(error), **assertion.model_dump(mode="json")})
+            failed_checks: list[str] = []
+            if record["status"] != "succeeded":
+                failed_checks.append(f"run status is {record['status']}")
+            if not required_node_types_passed:
+                missing = sorted(set(test.required_node_types) - set(node_types))
+                failed_checks.append(f"missing required node types: {missing}")
+            if not required_tool_nodes_passed:
+                missing = sorted(set(test.required_tool_nodes) - set(tool_node_names))
+                failed_checks.append(f"missing required tool nodes: {missing}")
+            if not required_tools_passed:
+                missing = sorted(set(test.required_tools) - set(used_tools))
+                failed_checks.append(f"missing required tool evidence: {missing}")
+            if not minimum_calls_passed:
+                failed_checks.append(
+                    f"tool calls below minimum: {len(tool_events)} < {test.minimum_tool_calls}"
+                )
+            if not citation_passed:
+                failed_checks.append("output URLs are not fully backed by tool evidence")
+            failed_assertions = [
+                assertion for assertion in assertions if not assertion.get("passed")
+            ]
+            if failed_assertions:
+                failed_checks.append(f"failed assertions: {len(failed_assertions)}")
             passed = (
                 record["status"] == "succeeded"
                 and all(item["passed"] for item in assertions)
@@ -1651,12 +1790,40 @@ class WorkflowRuntime:
                 and minimum_calls_passed
                 and citation_passed
             )
+            frame = (
+                test.frame.model_dump(mode="json")
+                if test.frame
+                else {
+                    "id": test.id,
+                    "title": test.name,
+                    "category": "custom",
+                    "purpose": test.requirement,
+                    "reviewer_guidance": "",
+                    "reference": "",
+                    "failure_target": "",
+                }
+            )
+            readable_report = {
+                "title": frame.get("title") or test.name,
+                "category": frame.get("category", "custom"),
+                "purpose": frame.get("purpose") or test.requirement,
+                "status": "passed" if passed else "failed",
+                "mandatory": test.mandatory,
+                "reviewer_guidance": frame.get("reviewer_guidance", ""),
+                "reference": frame.get("reference", ""),
+                "failure_target": frame.get("failure_target", ""),
+                "failed_checks": failed_checks,
+                "failed_assertions": failed_assertions,
+                "feedback_hints": test.feedback_hints,
+            }
             results.append({
                 "test_id": test.id,
                 "name": test.name,
                 "mandatory": test.mandatory,
                 "passed": passed,
                 "run_id": run_id,
+                "frame": frame,
+                "readable_report": readable_report,
                 "assertions": assertions,
                 "tool_evidence": {
                     "used_tools": used_tools,
@@ -1677,11 +1844,29 @@ class WorkflowRuntime:
                 },
             })
         passed = all(item["passed"] for item in results if item["mandatory"])
-        report = {"passed": passed, "validation": validation, "tests": results}
+        summary = {
+            "total": len(results),
+            "passed": sum(1 for item in results if item["passed"]),
+            "failed": sum(1 for item in results if not item["passed"]),
+            "mandatory_failed": sum(
+                1 for item in results if item["mandatory"] and not item["passed"]
+            ),
+            "frames": [
+                {
+                    "test_id": item["test_id"],
+                    "title": item["readable_report"]["title"],
+                    "category": item["readable_report"]["category"],
+                    "status": item["readable_report"]["status"],
+                }
+                for item in results
+            ],
+        }
+        report = {"passed": passed, "validation": validation, "summary": summary, "tests": results}
         if passed:
             await self.workflow_store.mark_tested(
                 application_id, draft["revision"], draft["content_hash"], report
             )
+        await self.harness.finish_task(test_task_id, status="succeeded" if passed else "failed")
         await self._emit(application_id, "tests.completed", report)
         return report
 

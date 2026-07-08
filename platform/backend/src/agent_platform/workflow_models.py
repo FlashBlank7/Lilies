@@ -184,10 +184,36 @@ class TestAssertion(BaseModel):
     )
 
 
+class TestFrameSpec(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    title: str = Field(
+        default="",
+        description="Human-readable test frame title, e.g. Outline and setting adherence.",
+    )
+    category: Literal["structure", "tooling", "content", "safety", "human_review", "custom"] = "custom"
+    purpose: str = Field(
+        default="",
+        description="What this test frame proves in the larger acceptance framework.",
+    )
+    reviewer_guidance: str = Field(
+        default="",
+        description="How a human reviewer should interpret the test result.",
+    )
+    reference: str = Field(
+        default="",
+        description="Requirement, document section, or acceptance source this frame is tied to.",
+    )
+    failure_target: str = Field(
+        default="",
+        description="Likely node, block type, or behavior to inspect when this frame fails.",
+    )
+
+
 class WorkflowTestCase(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid4()))
     name: str
     requirement: str
+    frame: TestFrameSpec | None = None
     inputs: dict[str, Any] = Field(default_factory=dict)
     assertions: list[TestAssertion] = Field(default_factory=list)
     required_node_types: list[str] = Field(default_factory=list)
@@ -201,9 +227,10 @@ class WorkflowTestCase(BaseModel):
         description="When True, all content assertions are downgraded to structural "
         "checks. LLM output variability won't cause test failures."
     )
-    minimum_tool_calls: int = Field(default=0, ge=0, le=100)
-    require_cited_tool_urls: bool = False
-    mandatory: bool = True
+    feedback_hints: list[str] = Field(
+        default_factory=list,
+        description="Human-readable hints for local repair when this test fails.",
+    )
 
 
 class ApplicationSnapshot(BaseModel):
@@ -293,6 +320,27 @@ class BuildTask(BaseModel):
     acceptance: list[str] = Field(default_factory=list)
 
 
+class BuildPlanModule(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid4()))
+    title: str
+    purpose: str = ""
+    status: Literal["planned", "building", "tested", "blocked", "done"] = "planned"
+    depends_on: list[str] = Field(default_factory=list)
+    expected_blocks: list[str] = Field(default_factory=list)
+    draft_node_ids: list[str] = Field(default_factory=list)
+    test_ids: list[str] = Field(default_factory=list)
+    evidence: list[str] = Field(default_factory=list)
+
+
+class BuildPlan(BaseModel):
+    goal: str
+    strategy: str = ""
+    modules: list[BuildPlanModule] = Field(default_factory=list)
+    reuse_depth: Literal["none", "shallow", "deep"] = "none"
+    complexity: Literal["simple", "medium", "complex"] = "medium"
+    risks: list[str] = Field(default_factory=list)
+
+
 class TeammateState(BaseModel):
     name: str
     purpose: str
@@ -303,6 +351,7 @@ class TeammateState(BaseModel):
 
 class BuildTeamState(BaseModel):
     tasks: list[BuildTask] = Field(default_factory=list)
+    build_plan: BuildPlan | None = None
     teammates: dict[str, TeammateState] = Field(default_factory=dict)
     coordinator_messages: list[dict[str, Any]] = Field(default_factory=list)
     manual_lookups: list[str] = Field(default_factory=list)

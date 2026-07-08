@@ -17,7 +17,9 @@ from .config import Settings, get_settings
 from .applications import ApplicationService
 from .blocks import BlockRegistry, build_block_registry
 from .builder import WorkflowBuilder
+from .builder_benchmark import BuilderBenchmark, BuilderBenchmarkCase
 from .factory import AgentFactory
+from .draft_patch_preview import DraftPatchPreviewer, DraftPatchPreviewRequest
 from .models import (
     GenerationRequest,
     MessageRequest,
@@ -25,7 +27,8 @@ from .models import (
     SessionCreateRequest,
 )
 from .permissions import PermissionBroker
-from .providers import DeepSeekProvider, ModelProvider
+from .platform_harness import PlatformHarness
+from .providers import ModelProvider
 from .providers.multi import MultiProvider
 from .runtime import AgentRuntime
 from .sandbox import SandboxManager
@@ -58,11 +61,14 @@ class Services:
     factory: AgentFactory
     blocks: BlockRegistry
     workflow_store: WorkflowStorage
+    harness: PlatformHarness
     applications: ApplicationService
     workflow_runtime: WorkflowRuntime
     builder: WorkflowBuilder
     scheduler: WorkflowScheduler
     templates: TemplateStore
+    benchmark: BuilderBenchmark
+    draft_patcher: DraftPatchPreviewer
     background_tasks: set[asyncio.Task[Any]]
 
 
@@ -94,10 +100,18 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
     )
     blocks = build_block_registry()
     workflow_store = WorkflowStorage(storage)
+    harness = PlatformHarness(
+        storage=storage,
+        max_active_tasks=settings.platform_harness_max_active_tasks,
+        max_model_calls_per_task=settings.platform_harness_max_model_calls_per_task,
+        max_tool_calls_per_task=settings.platform_harness_max_tool_calls_per_task,
+        max_node_executions_per_task=settings.platform_harness_max_node_executions_per_task,
+    )
     applications = ApplicationService(workflow_store, blocks, tools)
     workflow_runtime = WorkflowRuntime(
         storage=storage,
         workflow_store=workflow_store,
+        harness=harness,
         applications=applications,
         blocks=blocks,
         provider=provider,
@@ -107,6 +121,8 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         runtime_model=settings.deepseek_runtime_model,
     )
     templates = TemplateStore()
+    benchmark = BuilderBenchmark()
+    draft_patcher = DraftPatchPreviewer()
     templates_dir = settings.templates_dir
     if templates_dir and templates_dir.is_dir():
         loaded = templates.load_builtins(templates_dir)
@@ -122,6 +138,7 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         agent_runtime=runtime,
         generator_model=settings.deepseek_generator_model,
         core_tools=tools,
+        harness=harness,
         template_store=templates,
     )
     scheduler = WorkflowScheduler(
@@ -129,6 +146,7 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         workflow_store=workflow_store,
         blocks=blocks,
         runtime=workflow_runtime,
+        harness=harness,
         poll_seconds=settings.scheduler_poll_seconds,
     )
     return Services(
@@ -142,11 +160,14 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         factory=factory,
         blocks=blocks,
         workflow_store=workflow_store,
+        harness=harness,
         applications=applications,
         workflow_runtime=workflow_runtime,
         builder=builder,
         scheduler=scheduler,
         templates=templates,
+        benchmark=benchmark,
+        draft_patcher=draft_patcher,
         background_tasks=set(),
     )
 
@@ -201,6 +222,51 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             "runtime_model": settings.deepseek_runtime_model,
             "capabilities": asdict(services.provider.capabilities(settings.deepseek_runtime_model)),
         }
+
+    @app.get("/api/v1/platform/harness/tasks", dependencies=[Depends(require_token)])
+    async def list_platform_harness_tasks(
+        kind: str | None = None,
+        status: str | None = None,
+        owner_id: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        tasks = await services.harness.list_tasks(
+            kind=kind,
+            status=status,
+            owner_id=owner_id,
+            limit=max(1, min(limit, 500)),
+        )
+        return [task.model_dump(mode="json") for task in tasks]
+
+    @app.get("/api/v1/platform/harness/tasks/{task_id}", dependencies=[Depends(require_token)])
+    async def get_platform_harness_task(task_id: str) -> dict[str, Any]:
+        try:
+            task = await services.harness.get_task(task_id)
+            return task.model_dump(mode="json")
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+
+    @app.post("/api/v1/builder-benchmark/evaluate", dependencies=[Depends(require_token)])
+    async def evaluate_builder_benchmark(body: BuilderBenchmarkCase) -> dict[str, Any]:
+        task_id = str(uuid4())
+        await services.harness.start_task(
+            task_id,
+            kind="benchmark",
+            owner_id="builder-benchmark",
+            resource_id=body.name,
+            metadata={"case": body.name},
+        )
+        try:
+            report = services.benchmark.evaluate(body)
+            await services.harness.finish_task(
+                task_id,
+                status="succeeded" if report.passed else "failed",
+                metadata={"score": report.score},
+            )
+            return {"task_id": task_id, "report": report.model_dump(mode="json")}
+        except Exception as error:
+            await services.harness.finish_task(task_id, status="failed", error=str(error))
+            raise
 
     @app.get("/api/v1/blocks", dependencies=[Depends(require_token)])
     async def list_blocks() -> list[dict[str, Any]]:
@@ -267,9 +333,13 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         }
 
     @app.get("/api/v1/templates/suggestions", dependencies=[Depends(require_token)])
-    async def suggest_templates(requirement: str = "") -> list[dict[str, Any]]:
+    async def suggest_templates(requirement: str = "", reuse_depth: str = "shallow") -> list[dict[str, Any]]:
         """Suggest matching templates for a requirement, sorted by relevance."""
         if not requirement:
+            return []
+        if reuse_depth not in {"none", "shallow", "deep"}:
+            raise HTTPException(422, "reuse_depth must be one of: none, shallow, deep")
+        if reuse_depth == "none":
             return []
 
         query = requirement.casefold()
@@ -291,8 +361,14 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                 scored.append((score, meta))
 
         scored.sort(key=lambda x: x[0], reverse=True)
+        recommended_action = "compose_modules" if reuse_depth == "deep" else "expand_template"
         return [
-            {**meta.model_dump(mode="json"), "relevance_score": round(score, 3)}
+            {
+                **meta.model_dump(mode="json"),
+                "relevance_score": round(score, 3),
+                "reuse_depth": reuse_depth,
+                "recommended_action": recommended_action,
+            }
             for score, meta in scored[:5]
         ]
 
@@ -586,7 +662,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
     ) -> dict[str, Any]:
         """List available soft-block strategies, grouped by family."""
         from .soft_block import (
-            FAMILY_MAP, list_strategies, strategy_help, get_discrete_block_type,
+            FAMILY_MAP, strategy_help, get_discrete_block_type,
         )
         if family and family in FAMILY_MAP:
             strategies = {
@@ -668,6 +744,36 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             raise HTTPException(404, str(error)) from error
         except ValueError as error:
             raise HTTPException(422, str(error)) from error
+
+    @app.post(
+        "/api/v1/applications/{application_id}/draft/preview-patch",
+        dependencies=[Depends(require_token)],
+    )
+    async def preview_application_draft_patch(
+        application_id: str, body: DraftPatchPreviewRequest
+    ) -> dict[str, Any]:
+        task_id = str(uuid4())
+        await services.harness.start_task(
+            task_id,
+            kind="draft_patch_preview",
+            owner_id=application_id,
+            resource_id=application_id,
+            metadata={"instruction": body.instruction[:200]},
+        )
+        try:
+            draft = await services.workflow_store.get_draft(application_id)
+            response = services.draft_patcher.preview(
+                draft["snapshot"], int(draft["revision"]), body.instruction
+            )
+            await services.harness.finish_task(
+                task_id,
+                status="succeeded" if response.supported else "failed",
+                metadata={"intent": response.intent},
+            )
+            return {"task_id": task_id, **response.model_dump(mode="json")}
+        except KeyError as error:
+            await services.harness.finish_task(task_id, status="failed", error=str(error))
+            raise HTTPException(404, str(error)) from error
 
     @app.post(
         "/api/v1/applications/{application_id}/draft/validate",
@@ -1013,7 +1119,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
 
             requirement = build.get("requirement", "")
             draft = await services.workflow_store.get_draft(build["application_id"])
-            node_types = [n["type"] for n in draft["snapshot"]["workflow"]["nodes"]]
+            node_types = [node.type for node in draft["snapshot"].workflow.nodes]
 
             gate = ExtractionGate(services.templates)
             should, reason = gate.should_propose(tracker.roots)
@@ -1022,6 +1128,9 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                 return
 
             wf = tracker.extract_workflow()
+            if wf is None:
+                print(f"[auto-extract] Build {build_id[:8]}: no extractable workflow")
+                return
             engine = MergeEngine(services.templates)
             sim = engine.check_similarity(wf)
 

@@ -37,6 +37,10 @@ class Settings(BaseSettings):
     event_queue_size: int = 1000
     scheduler_poll_seconds: float = 30.0
     templates_dir: Path | None = None
+    platform_harness_max_active_tasks: int = 100
+    platform_harness_max_model_calls_per_task: int = 100
+    platform_harness_max_tool_calls_per_task: int = 200
+    platform_harness_max_node_executions_per_task: int = 1000
 
     def prepare(self) -> None:
         self.data_dir.mkdir(parents=True, exist_ok=True)

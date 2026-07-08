@@ -6,6 +6,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from .blocks import BlockRegistry, ScheduleTriggerConfig
+from .platform_harness import PlatformHarness
 from .storage import Storage
 from .workflow_models import WorkflowRunRequest
 from .workflow_runtime import WorkflowRuntime
@@ -22,12 +23,14 @@ class WorkflowScheduler:
         workflow_store: WorkflowStorage,
         blocks: BlockRegistry,
         runtime: WorkflowRuntime,
+        harness: PlatformHarness,
         poll_seconds: float = 30,
     ) -> None:
         self.storage = storage
         self.workflow_store = workflow_store
         self.blocks = blocks
         self.runtime = runtime
+        self.harness = harness
         self.poll_seconds = poll_seconds
         self.task: asyncio.Task[None] | None = None
 
@@ -79,7 +82,25 @@ class WorkflowScheduler:
                 )
                 if not claimed:
                     continue
+                task_id = f"scheduler:{application['id']}:{version}:{node.id}:{local_date}"
                 try:
+                    await self.harness.start_task(
+                        task_id,
+                        kind="scheduler_trigger",
+                        owner_id=application["id"],
+                        resource_id=task_id,
+                        metadata={
+                            "version": version,
+                            "node_id": node.id,
+                            "local_date": local_date,
+                            "timezone": config.timezone,
+                        },
+                    )
+                    await self.harness.record_usage(
+                        task_id,
+                        "scheduler_fire",
+                        metadata={"node_id": node.id, "local_date": local_date},
+                    )
                     created = await self.runtime.create_run(
                         application["id"],
                         WorkflowRunRequest(
@@ -94,6 +115,8 @@ class WorkflowScheduler:
                                 },
                             },
                         ),
+                        parent_task_id=task_id,
+                        origin="scheduler",
                     )
                     await self.workflow_store.complete_schedule_fire(
                         application["id"], version, node.id, local_date, created["run_id"]
@@ -109,8 +132,10 @@ class WorkflowScheduler:
                     await self.storage.append_event(
                         application["id"], "scheduler.triggered", event
                     )
+                    await self.harness.finish_task(task_id, status="succeeded")
                     started.append(event)
                 except Exception:
+                    await self.harness.finish_task(task_id, status="failed")
                     await self.workflow_store.release_schedule_fire(
                         application["id"], version, node.id, local_date
                     )
@@ -129,6 +154,19 @@ class WorkflowScheduler:
             raise ValueError("published application has no schedule_trigger node")
         config = ScheduleTriggerConfig.model_validate(node.config)
         now = datetime.now(timezone.utc)
+        task_id = f"scheduler-manual:{application_id}:{int(published['version'])}:{node.id}:{now.timestamp()}"
+        await self.harness.start_task(
+            task_id,
+            kind="scheduler_manual_trigger",
+            owner_id=application_id,
+            resource_id=task_id,
+            metadata={"version": published["version"], "node_id": node.id},
+        )
+        await self.harness.record_usage(
+            task_id,
+            "scheduler_fire",
+            metadata={"node_id": node.id, "manual": True},
+        )
         created = await self.runtime.create_run(
             application_id,
             WorkflowRunRequest(
@@ -143,6 +181,8 @@ class WorkflowScheduler:
                     },
                 },
             ),
+            parent_task_id=task_id,
+            origin="scheduler_manual",
         )
         await self.storage.append_event(application_id, "scheduler.manual_triggered", {
             "application_id": application_id,
@@ -150,6 +190,7 @@ class WorkflowScheduler:
             "node_id": node.id,
             "run_id": created["run_id"],
         })
+        await self.harness.finish_task(task_id, status="succeeded")
         return created
 
     async def list_schedules(self) -> list[dict[str, Any]]:
@@ -178,4 +219,3 @@ class WorkflowScheduler:
                         "last_fire": (by_application.get(application["id"]) or [None])[0],
                     })
         return result
-

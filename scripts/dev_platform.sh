@@ -126,6 +126,7 @@ check_sandbox_image || exit 1
 echo "Docker ready."
 
 # ── Port checks ───────────────────────────────────────────────
+check_port() {
   local port="$1"
   local label="$2"
   local pids

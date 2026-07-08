@@ -13,12 +13,16 @@ from .providers import ModelProvider
 from .runtime import AgentRuntime
 from .storage import Storage
 from .models import AgentSpec
+from .platform_harness import PlatformHarness
 from .workflow_models import (
+    BuildPlan,
     BuildTask,
     BuildTeamState,
     DraftOperation,
     EdgeSpec,
     NodeSpec,
+    TestAssertion,
+    TestFrameSpec,
     TeammateState,
     WorkflowTestCase,
 )
@@ -38,8 +42,11 @@ nodes, and a mandatory test. Inspect manuals and schemas before configuring unfa
 
 Core rules:
 - Start by inspecting the draft and catalog, then create requirement tasks.
+- For complex or multi-module requirements, call build_plan with action="set" before mutating the draft.
+  The build plan should name modules, expected blocks, reuse_depth, complexity, risks, and how each module
+  will be tested. Keep the plan updated as modules are built and tested.
 - **Before building a workflow from scratch**, call template_suggestions with the
-  requirement text to check if a matching template already exists. If a template
+  requirement text and intended reuse_depth to check if a matching template already exists. If a template
   with confidence >= 0.7 matches the requirement, prefer expanding it via
   template_expand instead of building from scratch. This saves time and reuses
   proven patterns.
@@ -74,6 +81,9 @@ Core rules:
   reference so a skipped branch resolves to null instead of failing.
 - A valid graph has exactly one start, at least one end/answer, no implicit cycles, and no unreachable nodes.
 - Add mandatory tests that demonstrate the user's actual acceptance criteria. Run them with test_run.
+- Each test should include a readable frame with category, purpose, reviewer_guidance, reference, and failure_target.
+  The frame should explain where the test sits in the acceptance framework, for example outline adherence,
+  tool evidence, safety, or human review.
 - Tests for generated workflows must set required_node_types for the visible architecture and required_tool_nodes
   when a concrete Tool brick is required, e.g. WebSearch. This prevents a single opaque Agent node from passing.
 - When a requirement depends on external tools, tests must set required_tools, minimum_tool_calls, and
@@ -98,6 +108,7 @@ class WorkflowBuilder:
         agent_runtime: AgentRuntime,
         generator_model: str,
         core_tools: ToolRegistry,
+        harness: PlatformHarness,
         on_build_complete: Callable[[str], Awaitable[None]] | None = None,
         template_store: Any | None = None,
     ) -> None:
@@ -110,6 +121,7 @@ class WorkflowBuilder:
         self.agent_runtime = agent_runtime
         self.generator_model = generator_model
         self.core_tools = core_tools
+        self.harness = harness
         self.on_build_complete = on_build_complete
         self.template_store = template_store
         self.active: dict[str, asyncio.Task[None]] = {}
@@ -131,6 +143,17 @@ class WorkflowBuilder:
     async def _run(self, build_id: str) -> None:
         build = await self.workflow_store.get_build(build_id)
         state: BuildTeamState = build["team_state"]
+        await self.harness.start_task(
+            build_id,
+            kind="builder_build",
+            owner_id=build["application_id"],
+            resource_id=build_id,
+            metadata={
+                "max_turns": build["max_turns"],
+                "max_repair_cycles": build["max_repair_cycles"],
+                "auto_publish": build["auto_publish"],
+            },
+        )
         await self.workflow_store.update_build(build_id, status="building", team_state=state)
         await self._emit(build_id, "build.started", {
             "application_id": build["application_id"], "requirement": build["requirement"]
@@ -167,6 +190,7 @@ class WorkflowBuilder:
             if state.published_version is not None:
                 status = "published"
             else:
+                await self._ensure_mandatory_smoke_test(build_id, build["application_id"], state)
                 validation = await self.applications.validate_draft(build["application_id"])
                 if not validation["valid"]:
                     raise RuntimeError("builder stopped with invalid draft: " + "; ".join(validation["errors"]))
@@ -181,6 +205,7 @@ class WorkflowBuilder:
                 else:
                     status = "ready"
             await self.workflow_store.update_build(build_id, status=status, team_state=state)
+            await self.harness.finish_task(build_id, status="succeeded")
             await self._emit(build_id, "build.completed", {
                 "status": status, "published_version": state.published_version
             })
@@ -189,15 +214,101 @@ class WorkflowBuilder:
                 asyncio.create_task(self.on_build_complete(build_id))
         except asyncio.CancelledError:
             await self.workflow_store.update_build(build_id, status="cancelled", team_state=state)
+            await self.harness.finish_task(build_id, status="cancelled")
             await self._emit(build_id, "build.cancelled", {})
             raise
         except Exception as error:
             await self.workflow_store.update_build(
                 build_id, status="needs_attention", team_state=state, error=str(error)
             )
+            await self.harness.finish_task(build_id, status="failed", error=str(error))
             await self._emit(build_id, "build.needs_attention", {
                 "error": str(error), "error_type": type(error).__name__
             })
+
+    async def _ensure_mandatory_smoke_test(
+        self, build_id: str, application_id: str, state: BuildTeamState
+    ) -> None:
+        draft = await self.workflow_store.get_draft(application_id)
+        snapshot = draft["snapshot"]
+        if any(test.mandatory for test in snapshot.tests) or not snapshot.workflow.nodes:
+            return
+
+        inputs = self._smoke_inputs(snapshot.workflow.nodes)
+        node_types = sorted({node.type for node in snapshot.workflow.nodes})
+        tool_nodes = sorted({
+            str(node.config.get("tool_name"))
+            for node in snapshot.workflow.nodes
+            if node.type == "tool" and node.config.get("tool_name")
+        } | {
+            str(node.config.get("settings", {}).get("tool_name"))
+            for node in snapshot.workflow.nodes
+            if node.type == "tool_executor" and node.config.get("settings", {}).get("tool_name")
+        })
+        test = WorkflowTestCase(
+            id="auto_smoke_acceptance",
+            name="Auto smoke acceptance",
+            requirement="Builder preflight generated this mandatory smoke test because no mandatory test was provided.",
+            frame=TestFrameSpec(
+                title="Auto smoke acceptance",
+                category="structure",
+                purpose="Verify the generated BlockFlow can execute end to end before it is marked ready.",
+                reviewer_guidance=(
+                    "Replace this generated smoke test with task-specific acceptance tests in the next repair pass "
+                    "if stronger content or tool evidence checks are needed."
+                ),
+                reference="Builder preflight test gate",
+                failure_target="workflow graph, start inputs, or final output blocks",
+            ),
+            inputs=inputs,
+            assertions=[TestAssertion(path=[], operator="exists", structural=True)],
+            required_node_types=node_types,
+            required_tool_nodes=tool_nodes,
+            mandatory=True,
+            structural_only=True,
+            feedback_hints=[
+                "The Builder did not create a task-specific mandatory test.",
+                "Inspect whether the workflow executes end to end before adding stronger assertions.",
+            ],
+        )
+        result = await self.applications.apply_operation(
+            application_id,
+            DraftOperation(
+                expected_revision=int(draft["revision"]),
+                idempotency_key=f"{build_id}:auto_smoke_acceptance",
+                op="add_test",
+                data={"test": test.model_dump(mode="json")},
+            ),
+        )
+        state.revision = result["revision"]
+        await self._emit(build_id, "build.preflight_test_added", {
+            "test_id": test.id,
+            "revision": state.revision,
+            "reason": "missing mandatory acceptance test",
+        })
+
+    @staticmethod
+    def _smoke_inputs(nodes: list[NodeSpec]) -> dict[str, Any]:
+        inputs: dict[str, Any] = {}
+        for node in nodes:
+            if node.type != "start":
+                continue
+            for field in node.config.get("inputs", []):
+                if not isinstance(field, dict) or not field.get("name"):
+                    continue
+                name = str(field["name"])
+                field_type = str(field.get("type", "string"))
+                if field_type in {"integer", "number"}:
+                    inputs[name] = 1
+                elif field_type == "boolean":
+                    inputs[name] = True
+                elif field_type == "array":
+                    inputs[name] = ["test"]
+                elif field_type == "object":
+                    inputs[name] = {"value": "test"}
+                else:
+                    inputs[name] = "test"
+        return inputs
 
     async def _agent_loop(
         self,
@@ -215,6 +326,11 @@ class WorkflowBuilder:
         final = ""
         tools = self._definitions(allow_team=teammate is None)
         for turn in range(1, max_turns + 1):
+            await self.harness.record_usage(
+                build_id,
+                "model_call",
+                metadata={"actor": teammate or "coordinator", "turn": turn, "model": self.generator_model},
+            )
             stream = self.provider.stream(
                 model=self.generator_model,
                 system=BUILDER_SYSTEM_PROMPT + (
@@ -247,6 +363,11 @@ class WorkflowBuilder:
             results: list[ContentBlock] = []
             for call in calls:
                 try:
+                    await self.harness.record_usage(
+                        build_id,
+                        "tool_call",
+                        metadata={"actor": teammate or "coordinator", "tool": call.name or ""},
+                    )
                     value = await self._execute(
                         build_id,
                         application_id,
@@ -361,6 +482,15 @@ class WorkflowBuilder:
             return blueprint
         if tool == "template_suggestions":
             requirement = str(data.get("requirement", ""))
+            reuse_depth = str(data.get("reuse_depth") or (
+                state.build_plan.reuse_depth if state.build_plan else "shallow"
+            ))
+            if reuse_depth == "none":
+                return {
+                    "reuse_depth": reuse_depth,
+                    "recommended_action": "build_from_scratch",
+                    "templates": [],
+                }
             # Call the API endpoint internally — simple relevance scoring
             scored: list[tuple[float, dict[str, Any]]] = []
             query = requirement.casefold()
@@ -377,9 +507,23 @@ class WorkflowBuilder:
             for s, meta in scored[:3]:
                 if hasattr(meta, "usage_count"):
                     meta.usage_count += 1  # recommendation flywheel: template was chosen
-            return [{"name": m.name, "title": m.title, "confidence": m.confidence,
-                     "relevance": round(s, 3), "tags": m.tags}
-                    for s, m in scored[:5]]
+            return {
+                "reuse_depth": reuse_depth,
+                "recommended_action": "compose_modules" if reuse_depth == "deep" else "expand_template",
+                "templates": [
+                    {
+                        "name": m.name,
+                        "title": m.title,
+                        "confidence": m.confidence,
+                        "relevance": round(s, 3),
+                        "tags": m.tags,
+                        "recommended_action": (
+                            "compose_modules" if reuse_depth == "deep" else "expand_template"
+                        ),
+                    }
+                    for s, m in scored[:5]
+                ],
+            }
         if tool == "template_list":
             return [
                 {
@@ -516,6 +660,31 @@ class WorkflowBuilder:
             state.published_version = published["version"]
             await self._emit(build_id, "build.published", published)
             return published
+        if tool == "build_plan":
+            action = str(data["action"])
+            if action == "set":
+                state.build_plan = BuildPlan.model_validate(data["plan"])
+                return state.build_plan.model_dump(mode="json")
+            if action == "get":
+                return state.build_plan.model_dump(mode="json") if state.build_plan else None
+            if action == "update_module":
+                if state.build_plan is None:
+                    raise RuntimeError("build plan has not been set")
+                module_id = str(data["module_id"])
+                module = next(
+                    (item for item in state.build_plan.modules if item.id == module_id),
+                    None,
+                )
+                if module is None:
+                    raise KeyError(f"unknown build plan module: {module_id}")
+                changes = data.get("changes", {})
+                updated = module.model_copy(update=changes)
+                state.build_plan.modules = [
+                    updated if item.id == module_id else item
+                    for item in state.build_plan.modules
+                ]
+                return updated.model_dump(mode="json")
+            raise ValueError(f"unknown build_plan action: {action}")
         if tool == "task":
             action = data["action"]
             if action == "create":
@@ -587,7 +756,7 @@ class WorkflowBuilder:
             ToolDefinition(name="manual_search", description="Search block manuals before selecting agent architecture bricks.", input_schema={"type": "object", "properties": {"query": {"type": "string"}, "block_kind": {"enum": ["business_workflow", "agent_architecture", "legacy_compatibility"]}}}),
             ToolDefinition(name="manual_get", description="Read one block manual, including when to use it, examples, anti-patterns, and Claude architecture mapping.", input_schema={"type": "object", "properties": {"type": {"type": "string"}}, "required": ["type"]}),
             ToolDefinition(name="architecture_blueprint", description="Read the Claude-like runtime blueprint made from explicit composable bricks.", input_schema={"type": "object", "properties": {}}),
-            ToolDefinition(name="template_suggestions", description="Search template marketplace for matching templates. Use BEFORE building from scratch.", input_schema={"type": "object", "properties": {"requirement": {"type": "string", "description": "Natural language requirement to match against templates"}}, "required": ["requirement"]}),
+            ToolDefinition(name="template_suggestions", description="Search template marketplace for matching templates. Use BEFORE building from scratch.", input_schema={"type": "object", "properties": {"requirement": {"type": "string", "description": "Natural language requirement to match against templates"}, "reuse_depth": {"enum": ["none", "shallow", "deep"], "description": "How aggressively to reuse templates."}}, "required": ["requirement"]}),
             ToolDefinition(name="template_list", description="List server-defined editable workflow subgraph templates.", input_schema={"type": "object", "properties": {}}),
             ToolDefinition(name="template_expand", description="Expand one server-defined editable subgraph template into the draft.", input_schema={"type": "object", "properties": {"name": {"type": "string"}, "prefix": {"type": "string"}, "position": {"type": "object", "additionalProperties": True}}, "required": ["name"]}),
             ToolDefinition(name="draft_inspect", description="Inspect the current shared draft and revision.", input_schema={"type": "object", "properties": {}}),
@@ -598,10 +767,11 @@ class WorkflowBuilder:
             ToolDefinition(name="draft_remove_edge", description="Remove one edge.", input_schema={"type": "object", "properties": {"edge_id": {"type": "string"}}, "required": ["edge_id"]}),
             ToolDefinition(name="draft_upsert_agent", description="Create or update one inline Claude Agent definition.", input_schema={"type": "object", "properties": {"agent": AgentSpec.model_json_schema()}, "required": ["agent"]}),
             ToolDefinition(name="draft_validate", description="Run graph, schema, port, agent-binding, and test-presence validation.", input_schema={"type": "object", "properties": {}}),
-            ToolDefinition(name="test_add", description="Add one traceable workflow acceptance test. Include required_node_types and required_tool_nodes for visible architecture gates.", input_schema={"type": "object", "properties": {"test": WorkflowTestCase.model_json_schema()}, "required": ["test"]}),
+            ToolDefinition(name="test_add", description="Add one traceable workflow acceptance test. Include a readable frame plus required_node_types and required_tool_nodes for visible architecture gates.", input_schema={"type": "object", "properties": {"test": WorkflowTestCase.model_json_schema()}, "required": ["test"]}),
             ToolDefinition(name="test_remove", description="Remove an incorrect test, never to hide a real failure.", input_schema={"type": "object", "properties": {"test_id": {"type": "string"}}, "required": ["test_id"]}),
             ToolDefinition(name="test_run", description="Run all mandatory tests against the exact current draft using real providers and tools.", input_schema={"type": "object", "properties": {}}),
             ToolDefinition(name="draft_publish", description="Publish an immutable version; fails unless current hash passed all mandatory tests.", input_schema={"type": "object", "properties": {"explicit": {"type": "boolean"}}}),
+            ToolDefinition(name="build_plan", description="Create, inspect, or update a module-level BuildPlan before building complex BlockFlows.", input_schema={"type": "object", "properties": {"action": {"enum": ["set", "get", "update_module"]}, "plan": BuildPlan.model_json_schema(), "module_id": {"type": "string"}, "changes": object_schema}, "required": ["action"]}),
             ToolDefinition(name="task", description="Create/list/update shared requirement tasks with owners and dependencies.", input_schema={"type": "object", "properties": {"action": {"enum": ["create", "list", "update"]}, "id": {"type": "integer"}, "subject": {"type": "string"}, "description": {"type": "string"}, "status": {"enum": ["pending", "in_progress", "completed", "blocked"]}, "owner": {"type": "string"}, "blocked_by": {"type": "array", "items": {"type": "integer"}}, "acceptance": {"type": "array", "items": {"type": "string"}}}, "required": ["action"]}),
         ]
         if allow_team:
