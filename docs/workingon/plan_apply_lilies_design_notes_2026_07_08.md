@@ -148,8 +148,8 @@
 | `design_structured_tests_and_feedback_repair.md` | 已完成 | 可进入下一阶段实现；后续需做 E03/E04/E08/E11 实验。 |
 | `design_template_rag_workflow_reuse.md` | 已完成 | 可进入下一阶段实现；后续需做 E05/E06/E01 实验。 |
 | `design_harness_sidecar_and_task_monitor.md` | 已完成 | 可进入下一阶段实现；后续需做 E09/E10/E12 实验。 |
-| `design_lilies_assistant_memory_surface.md` | 草案 | 补齐权限边界、memory schema、隐私风险和阶段化验收。 |
+| `design_lilies_assistant_memory_surface.md` | 已完成 | 可进入长期路线实现；后续需做 E11/E12/E13/E07 实验。 |
 
 ### 7.3 归档规则
 
-当前 stage 暂定为 `V1.2_design_notes_to_current_design`。只有当 5 份 `current-design` 都达到“已完成”状态，并且实验 backlog 与问题日志已能支撑下一阶段实现时，才归档新的 stage report。
+当前 stage 暂定为 `V1.2_design_notes_to_current_design`。5 份 `current-design` 已全部达到“已完成”状态，实验 backlog 与问题日志已能支撑下一阶段实现；下一步应归档新的 stage report。
