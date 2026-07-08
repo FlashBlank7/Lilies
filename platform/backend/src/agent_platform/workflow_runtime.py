@@ -1603,6 +1603,7 @@ class WorkflowRuntime:
 
         try:
             resolved_input = self._resolve(config.input, context)
+            self._enforce_tool_network_policy(config.tool_name, resolved_input, agent)
             self.harness.enforce_secret_policy(
                 surface=f"workflow_tool:{config.tool_name}",
                 payload=resolved_input,
@@ -1646,6 +1647,28 @@ class WorkflowRuntime:
         finally:
             if sandbox is not None:
                 await self.sandboxes.remove(session_id)
+
+    def _enforce_tool_network_policy(
+        self, tool_name: str, tool_input: dict[str, Any], agent: AgentSpec
+    ) -> None:
+        if tool_name == "WebSearch":
+            self.harness.enforce_network_egress_policy(
+                surface="workflow_tool:WebSearch",
+                hostname="news.google.com",
+            )
+            return
+        if tool_name != "MCP":
+            return
+        server_name = str(tool_input.get("server", ""))
+        server = next((item for item in agent.mcp_servers if item.name == server_name), None)
+        if not server or server.transport != "http" or not server.url:
+            return
+        parsed = urlparse(server.url)
+        if parsed.hostname:
+            self.harness.enforce_network_egress_policy(
+                surface=f"workflow_tool:MCP:{server.name}",
+                hostname=parsed.hostname,
+            )
 
     async def _http(self, config: HTTPConfig, context: dict[str, Any]) -> dict[str, Any]:
         url = str(self._resolve(config.url, context))

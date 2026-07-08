@@ -26,3 +26,4 @@
 - `v0.2.14_*`：来自 `docs/stage-reports/v0.2.14_platform_harness_asset_update.md`。
 - `v0.2.15_*`：来自 `docs/stage-reports/v0.2.15_platform_harness_secret_policy.md`。
 - `v0.2.16_*`：来自 `docs/stage-reports/v0.2.16_platform_harness_network_egress_policy.md`。
+- `v0.2.17_*`：来自 `docs/stage-reports/v0.2.17_platform_harness_tool_egress_policy.md`。

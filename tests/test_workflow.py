@@ -1360,6 +1360,57 @@ def test_platform_harness_network_egress_policy_blocks_http_requests(tmp_path: P
         assert "network egress policy blocked" in run["error"]
 
 
+def test_platform_harness_tool_egress_policy_blocks_websearch_tool(tmp_path: Path) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+        platform_harness_network_egress_policy="none",
+    )
+    app = create_app(settings, ScriptedProvider())
+    with TestClient(app) as client:
+        app_id = client.post(
+            "/api/v1/applications",
+            headers=headers(),
+            json={"name": "Tool egress policy", "requirement": "Block WebSearch outbound network."},
+        ).json()["id"]
+        revision = 0
+        for node in [
+            {"id": "start", "type": "start", "title": "Start", "config": {"inputs": []}},
+            {"id": "search", "type": "tool", "title": "Search", "config": {
+                "tool_name": "WebSearch",
+                "input": {"query": "tokyo technology news"},
+            }},
+            {"id": "end", "type": "end", "title": "End", "config": {"outputs": {"ok": True}}},
+        ]:
+            revision = mutate(client, app_id, revision, "add_node", {"node": node})
+        revision = mutate(client, app_id, revision, "add_edge", {"edge": {
+            "id": "start-search", "source": "start", "target": "search",
+            "source_port": "output", "target_port": "input",
+        }})
+        mutate(client, app_id, revision, "add_edge", {"edge": {
+            "id": "search-end", "source": "search", "target": "end",
+            "source_port": "output", "target_port": "input",
+        }})
+
+        created = client.post(
+            f"/api/v1/applications/{app_id}/runs",
+            headers=headers(),
+            json={"inputs": {}, "use_draft": True},
+        )
+        assert created.status_code == 202, created.text
+        run_id = created.json()["run_id"]
+        for _ in range(100):
+            run = client.get(f"/api/v1/runs/{run_id}", headers=headers()).json()
+            if run["status"] == "failed":
+                break
+            time.sleep(0.01)
+
+        assert run["status"] == "failed", run
+        assert "network egress policy blocked" in run["error"]
+        assert "WebSearch" in run["error"]
+
+
 def test_builder_benchmark_treats_llm_as_model_turn_equivalent(tmp_path: Path) -> None:
     settings = Settings(
         api_token="workflow-test",

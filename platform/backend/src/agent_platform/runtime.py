@@ -5,6 +5,7 @@ import json
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
+from urllib.parse import urlparse
 from uuid import uuid4
 
 from .config import Settings
@@ -323,6 +324,7 @@ class AgentRuntime:
             allowed = {definition.name for definition in self.tools.definitions_for(session.agent)}
             if tool_name not in allowed:
                 raise PermissionError(f"tool is not enabled: {tool_name}")
+            self._enforce_tool_network_policy(session.agent, tool_name, tool_input)
             self.harness.enforce_secret_policy(
                 surface=f"agent_tool:{tool_name}",
                 payload=tool_input,
@@ -369,6 +371,28 @@ class AgentRuntime:
             })
             return ContentBlock(
                 type="tool_result", tool_use_id=block.id, content=str(error), is_error=True
+            )
+
+    def _enforce_tool_network_policy(
+        self, agent: AgentSpec, tool_name: str, tool_input: dict[str, Any]
+    ) -> None:
+        if tool_name == "WebSearch":
+            self.harness.enforce_network_egress_policy(
+                surface="agent_tool:WebSearch",
+                hostname="news.google.com",
+            )
+            return
+        if tool_name != "MCP":
+            return
+        server_name = str(tool_input.get("server", ""))
+        server = next((item for item in agent.mcp_servers if item.name == server_name), None)
+        if not server or server.transport != "http" or not server.url:
+            return
+        parsed = urlparse(server.url)
+        if parsed.hostname:
+            self.harness.enforce_network_egress_policy(
+                surface=f"agent_tool:MCP:{server.name}",
+                hostname=parsed.hostname,
             )
 
     async def _run_subagent(

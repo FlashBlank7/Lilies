@@ -32,6 +32,8 @@
 - `implementation_platform_harness_secret_policy_2026_07_09.md`
 - `work_platform_harness_network_egress_policy_2026_07_09.md`
 - `implementation_platform_harness_network_egress_policy_2026_07_09.md`
+- `work_platform_harness_tool_egress_policy_2026_07_09.md`
+- `implementation_platform_harness_tool_egress_policy_2026_07_09.md`
 - `experiment_paid_builder_benchmark_result_2026_07_09.json`
 - `experiment_builder_test_self_consistency_rerun_2026_07_09.json`
 - `experiment_benchmark_node_type_equivalence_recheck_2026_07_09.json`
@@ -54,3 +56,4 @@
 - `work_platform_harness_asset_update_2026_07_09.md` 已归档到 `../stage-reports/v0.2.14_platform_harness_asset_update.md`，中间文件按规范保留。
 - `work_platform_harness_secret_policy_2026_07_09.md` 已归档到 `../stage-reports/v0.2.15_platform_harness_secret_policy.md`，中间文件按规范保留。
 - `work_platform_harness_network_egress_policy_2026_07_09.md` 已归档到 `../stage-reports/v0.2.16_platform_harness_network_egress_policy.md`，中间文件按规范保留。
+- `work_platform_harness_tool_egress_policy_2026_07_09.md` 已归档到 `../stage-reports/v0.2.17_platform_harness_tool_egress_policy.md`，中间文件按规范保留。

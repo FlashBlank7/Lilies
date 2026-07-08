@@ -1,0 +1,82 @@
+# design_platform_harness_tool_egress_policy_v1
+
+## 1. Goal
+
+Extend Platform Harness network egress policy from WorkflowRuntime HTTP blocks to network-capable tools, starting with WebSearch and HTTP MCP.
+
+## 2. Module Boundary
+
+In scope:
+
+- `platform/backend/src/agent_platform/runtime.py`
+- `platform/backend/src/agent_platform/workflow_runtime.py`
+- `tests/test_workflow.py`
+
+Out of scope:
+
+- Stdio MCP network behavior.
+- Sandbox firewall.
+- DNS/IP level network controls.
+- UI policy controls.
+
+## 3. Control Flow
+
+```text
+AgentRuntime._execute_tool()
+  -> _enforce_tool_network_policy(agent, tool_name, tool_input)
+  -> secret policy
+  -> permission flow
+  -> tool execution
+
+WorkflowRuntime._execute_tool()
+  -> resolve tool input
+  -> _enforce_tool_network_policy(tool_name, resolved_input, agent)
+  -> secret policy
+  -> tool execution
+```
+
+## 4. Implementation Plan
+
+1. For `WebSearch`, enforce host `news.google.com`.
+2. For `MCP` with HTTP transport, parse configured server URL and enforce its hostname.
+3. Do not attempt stdio MCP egress control in this stage.
+4. Add Tool block WebSearch regression test with platform egress policy `none`.
+
+## 5. Referenced Intellectual Assets
+
+- `docs/intellectual-assets/asset_platform_harness_task_monitor_boundary.md`
+
+## 6. Risks
+
+- WebSearch host is currently hard-coded to the implementation target.
+- HTTP MCP enforcement depends on known MCP server URL.
+- Stdio MCP remains a sandbox/process policy problem.
+
+## 7. Acceptance Criteria
+
+- Tool-level WebSearch is blocked under `none` policy.
+- Full backend regression passes.
+- Stage report records remaining stdio/sandbox limitations.
+
+## 8. Implementation Result
+
+Status: implemented.
+
+Implemented modules:
+
+- `platform/backend/src/agent_platform/runtime.py`
+- `platform/backend/src/agent_platform/workflow_runtime.py`
+- `tests/test_workflow.py`
+
+Verification:
+
+- Focused tool egress tests passed: `2 passed, 1 warning`.
+- Full backend pytest passed: `64 passed, 1 warning`.
+- Changed-file ruff passed.
+- Compile check passed.
+
+Boundary:
+
+- WebSearch and HTTP MCP are now routed through Platform Harness egress policy.
+- Stdio MCP and sandbox/container egress remain future work.
+
