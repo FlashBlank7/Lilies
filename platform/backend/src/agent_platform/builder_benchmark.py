@@ -7,6 +7,11 @@ from pydantic import BaseModel, Field
 from .workflow_models import WorkflowSpec, WorkflowTestCase
 
 
+DEFAULT_NODE_TYPE_EQUIVALENCE: dict[str, list[str]] = {
+    "model_turn": ["llm"],
+}
+
+
 class BuilderBenchmarkCase(BaseModel):
     name: str
     requirement: str = ""
@@ -15,6 +20,7 @@ class BuilderBenchmarkCase(BaseModel):
     required_node_types: list[str] = Field(default_factory=list)
     required_tool_nodes: list[str] = Field(default_factory=list)
     required_harness_nodes: list[str] = Field(default_factory=list)
+    equivalent_node_types: dict[str, list[str]] = Field(default_factory=dict)
     tests: list[WorkflowTestCase] = Field(default_factory=list)
 
 
@@ -82,7 +88,11 @@ class BuilderBenchmark:
         required_node_types = case.required_node_types or sorted({node.type for node in case.reference.nodes})
         required_tool_nodes = case.required_tool_nodes
         required_harness_nodes = case.required_harness_nodes
-        missing_node_types = sorted(set(required_node_types) - set(candidate_types))
+        equivalent_node_types = self._equivalent_node_types(case)
+        missing_node_types = [
+            required for required in sorted(set(required_node_types))
+            if not self._node_type_satisfied(required, candidate_types, equivalent_node_types)
+        ]
         missing_tool_nodes = sorted(set(required_tool_nodes) - set(candidate_tool_nodes))
         missing_harness_nodes = sorted(set(required_harness_nodes) - set(candidate_types))
         reference_edges = {(edge.source, edge.target, edge.branch) for edge in case.reference.edges}
@@ -127,6 +137,7 @@ class BuilderBenchmark:
                 "test_frame_coverage": round(test_frame_coverage, 3),
                 "candidate_node_count": len(case.candidate.nodes),
                 "reference_node_count": len(case.reference.nodes),
+                "node_type_equivalences": equivalent_node_types,
             },
             missing=missing,
         )
@@ -190,3 +201,21 @@ class BuilderBenchmark:
             delta=delta,
             direction=direction,
         )
+
+    def _equivalent_node_types(self, case: BuilderBenchmarkCase) -> dict[str, list[str]]:
+        merged = {key: list(value) for key, value in DEFAULT_NODE_TYPE_EQUIVALENCE.items()}
+        for key, value in case.equivalent_node_types.items():
+            existing = merged.setdefault(key, [])
+            existing.extend(item for item in value if item not in existing)
+        return {key: sorted(set(value)) for key, value in merged.items()}
+
+    @staticmethod
+    def _node_type_satisfied(
+        required: str,
+        candidate_types: list[str],
+        equivalent_node_types: dict[str, list[str]],
+    ) -> bool:
+        candidate_set = set(candidate_types)
+        if required in candidate_set:
+            return True
+        return any(alias in candidate_set for alias in equivalent_node_types.get(required, []))

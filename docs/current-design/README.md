@@ -9,6 +9,7 @@
 - `design_platform_harness_task_monitor_v1.md`
 - `design_builder_benchmark_v1.md`
 - `design_builder_benchmark_suite_v1.md`
+- `design_benchmark_node_type_equivalence_v1.md`
 - `design_builder_test_self_consistency_v1.md`
 - `design_paid_builder_benchmark_experiment_v1.md`
 - `design_paid_builder_benchmark_rerun_v1.md`
@@ -46,3 +47,7 @@ v0.2.7 对应的 design 已按版本归档到：
 v0.2.8 对应的 design 已按版本归档到：
 
 - `docs/historical-designs/v0.2.8_design_paid_builder_benchmark_rerun_v1.md`
+
+v0.2.9 对应的 design 已按版本归档到：
+
+- `docs/historical-designs/v0.2.9_design_benchmark_node_type_equivalence_v1.md`

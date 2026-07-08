@@ -18,3 +18,4 @@
 - `v0.2.6_*`：来自 `docs/stage-reports/v0.2.6_paid_builder_benchmark_experiment.md`。
 - `v0.2.7_*`：来自 `docs/stage-reports/v0.2.7_builder_test_self_consistency.md`。
 - `v0.2.8_*`：来自 `docs/stage-reports/v0.2.8_paid_builder_benchmark_rerun.md`。
+- `v0.2.9_*`：来自 `docs/stage-reports/v0.2.9_benchmark_node_type_equivalence.md`。

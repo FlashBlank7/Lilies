@@ -24,6 +24,12 @@ CONFIGURED_RESULT_PATH = Path(
     os.getenv("LIVE_BUILDER_BENCHMARK_RESULT_PATH", str(DEFAULT_RESULT_PATH))
 )
 RESULT_PATH = CONFIGURED_RESULT_PATH if CONFIGURED_RESULT_PATH.is_absolute() else ROOT / CONFIGURED_RESULT_PATH
+CONFIGURED_REUSE_SOURCE_PATH = Path(os.getenv("LIVE_BUILDER_BENCHMARK_REUSE_SOURCE_PATH", str(RESULT_PATH)))
+REUSE_SOURCE_PATH = (
+    CONFIGURED_REUSE_SOURCE_PATH
+    if CONFIGURED_REUSE_SOURCE_PATH.is_absolute()
+    else ROOT / CONFIGURED_REUSE_SOURCE_PATH
+)
 BASE_URL = os.getenv("AGENT_PLATFORM_URL", "http://127.0.0.1:8001")
 MAX_TURNS = int(os.getenv("LIVE_BUILDER_BENCHMARK_MAX_TURNS", "36"))
 TIMEOUT_SECONDS = float(os.getenv("LIVE_BUILDER_BENCHMARK_TIMEOUT_SECONDS", "900"))
@@ -165,6 +171,7 @@ def main() -> None:
         "base_url": BASE_URL,
         "runner_mode": RUNNER_MODE,
         "reuse_result": REUSE_RESULT,
+        "reuse_source_path": str(REUSE_SOURCE_PATH) if REUSE_RESULT else "",
         "max_turns": MAX_TURNS,
         "requirement": requirement,
         "application_id": None,
@@ -215,8 +222,8 @@ def main() -> None:
             }
             if not health.get("deepseek_configured"):
                 raise RuntimeError("backend reports deepseek_configured=false")
-            if REUSE_RESULT and RESULT_PATH.exists():
-                previous = json.loads(RESULT_PATH.read_text(encoding="utf-8"))
+            if REUSE_RESULT and REUSE_SOURCE_PATH.exists():
+                previous = json.loads(REUSE_SOURCE_PATH.read_text(encoding="utf-8"))
                 result["application_id"] = previous.get("application_id")
                 result["build_id"] = previous.get("build_id")
                 if not result["application_id"] or not result["build_id"]:
