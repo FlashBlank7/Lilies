@@ -25,6 +25,7 @@
 - `stage-reports/v0.2.3_platform_harness_and_development_roadmap.md`
 - `stage-reports/v0.2.4_platform_harness_observability_ui.md`
 - `stage-reports/v0.2.5_builder_benchmark_suite.md`
+- `stage-reports/v0.2.6_paid_builder_benchmark_experiment.md`
 
 ## 使用原则
 
