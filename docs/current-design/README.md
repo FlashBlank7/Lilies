@@ -11,7 +11,7 @@
 | `design_plan_first_and_modular_builder.md` | 已完成 | `docs/workingon/plan_apply_lilies_design_notes_2026_07_08.md` |
 | `design_structured_tests_and_feedback_repair.md` | 已完成 | `docs/workingon/plan_apply_lilies_design_notes_2026_07_08.md` |
 | `design_template_rag_workflow_reuse.md` | 已完成 | `docs/workingon/plan_apply_lilies_design_notes_2026_07_08.md` |
-| `design_harness_sidecar_and_task_monitor.md` | 草案 | `docs/workingon/plan_apply_lilies_design_notes_2026_07_08.md` |
+| `design_harness_sidecar_and_task_monitor.md` | 已完成 | `docs/workingon/plan_apply_lilies_design_notes_2026_07_08.md` |
 | `design_lilies_assistant_memory_surface.md` | 草案 | `docs/workingon/plan_apply_lilies_design_notes_2026_07_08.md` |
 
 状态定义：
