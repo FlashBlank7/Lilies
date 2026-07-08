@@ -9,6 +9,7 @@
 - `design_platform_harness_task_monitor_v1.md`
 - `design_builder_benchmark_v1.md`
 - `design_natural_language_draft_patch_preview.md`
+- `design_platform_harness_observability_ui_v1.md`
 
 注意：design 只有在对应版本 state 或 stage report 明确出现，并标记最终状态后，才可以归档。没有明确版本状态时，应保留在本目录，或者先拒绝归档并补齐版本状态。
 
@@ -21,3 +22,7 @@ v0.2.3 对应的 design 已按版本归档到：
 - `docs/historical-designs/v0.2.3_design_platform_harness_task_monitor_v1.md`
 - `docs/historical-designs/v0.2.3_design_builder_benchmark_v1.md`
 - `docs/historical-designs/v0.2.3_design_natural_language_draft_patch_preview.md`
+
+v0.2.4 对应的 design 已按版本归档到：
+
+- `docs/historical-designs/v0.2.4_design_platform_harness_observability_ui_v1.md`

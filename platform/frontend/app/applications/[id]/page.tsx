@@ -28,6 +28,7 @@ import {
   saveClientToken,
   type Block,
   type Draft,
+  type PlatformTaskRecord,
   type WorkflowNode,
   withFrontendToken,
 } from '@/lib/platform'
@@ -35,6 +36,8 @@ import { defaultLocale, isLocale, messages, nextLocale, type Locale } from '@/li
 
 type StudioNode = Node<{ title: string; blockType: string; description: string; status?: string }>
 type Copy = (typeof messages)[Locale]
+type StudioTab = 'build' | 'edit' | 'test' | 'run' | 'monitor'
+type MonitorFilter = 'related' | 'failed' | 'all'
 type Version = { version: number; content_hash: string; created_at: string; validation_report: Record<string, unknown> }
 type Build = { id: string; status: string; error?: string; team_state: { tasks: Array<Record<string, unknown>>; teammates: Record<string, Record<string, unknown>>; repair_cycles: number } }
 type Run = { id: string; status: string; outputs: Record<string, unknown>; error?: string; state: { waiting_node_id?: string | null } }
@@ -218,6 +221,21 @@ function asStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.map(item => String(item)) : []
 }
 
+function shortTime(value?: string | null) {
+  if (!value) return '-'
+  const date = new Date(value)
+  return Number.isNaN(date.valueOf()) ? value : date.toLocaleString()
+}
+
+function taskIsRelated(task: PlatformTaskRecord, applicationId: string, build: Build | null, run: Run | null) {
+  return task.owner_id === applicationId
+    || task.resource_id === applicationId
+    || task.id === build?.id
+    || task.resource_id === build?.id
+    || task.id === run?.id
+    || task.resource_id === run?.id
+}
+
 function workflowTests(draft: Draft | null): Record<string, unknown>[] {
   return (draft?.snapshot.tests || []).map(test => asRecord(test))
 }
@@ -375,12 +393,16 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   const [configText, setConfigText] = useState('{}')
   const [build, setBuild] = useState<Build | null>(null)
   const [events, setEvents] = useState<Array<{ type: string; data: Record<string, unknown> }>>([])
-  const [tab, setTab] = useState<'build' | 'edit' | 'test' | 'run'>('build')
+  const [tab, setTab] = useState<StudioTab>('build')
   const [requirement, setRequirement] = useState('')
   const [runFields, setRunFields] = useState<RunInputFieldState[]>([])
   const [run, setRun] = useState<Run | null>(null)
   const [runEvents, setRunEvents] = useState<StoredEvent[]>([])
   const [testReport, setTestReport] = useState<Record<string, unknown> | null>(null)
+  const [monitorTasks, setMonitorTasks] = useState<PlatformTaskRecord[]>([])
+  const [monitorFilter, setMonitorFilter] = useState<MonitorFilter>('related')
+  const [monitorLoading, setMonitorLoading] = useState(false)
+  const [monitorError, setMonitorError] = useState('')
   const [humanValues, setHumanValues] = useState('{}')
   const [notice, setNotice] = useState('')
   const [authRequired, setAuthRequired] = useState(false)
@@ -503,12 +525,30 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     }, delay)
   }, [refresh])
 
+  const refreshMonitorTasks = useCallback(async () => {
+    setMonitorLoading(true)
+    setMonitorError('')
+    try {
+      const tasks = await api<PlatformTaskRecord[]>('/api/v1/platform/harness/tasks?limit=100')
+      setMonitorTasks(tasks)
+      setAuthRequired(false)
+      return tasks
+    } catch (error) {
+      if (isAuthError(error)) setAuthRequired(true)
+      setMonitorError(String(error))
+      throw error
+    } finally {
+      setMonitorLoading(false)
+    }
+  }, [])
+
   useEffect(() => {
     const stored = globalThis.localStorage?.getItem('foundry.locale')
     if (isLocale(stored)) setLocale(stored)
     setTokenInput(getClientToken())
     refresh().catch(error => setNotice(String(error)))
-  }, [refresh])
+    refreshMonitorTasks().catch(error => setNotice(String(error)))
+  }, [refresh, refreshMonitorTasks])
   useEffect(() => {
     const buildId = new URLSearchParams(window.location.search).get('build')
     if (buildId) watchBuild(buildId)
@@ -666,6 +706,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
       method: 'POST', body: JSON.stringify({ requirement, auto_publish: true }),
     })
     history.replaceState(null, '', `?build=${result.build_id}`)
+    void refreshMonitorTasks().catch(error => setNotice(String(error)))
     watchBuild(result.build_id)
   }
 
@@ -694,6 +735,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
         const current = await api<Build>(`/api/v1/builds/${buildId}`)
         setBuild(current)
         await refresh()
+        await refreshMonitorTasks().catch(error => setNotice(String(error)))
       }
     }))
     buildPoll.current = window.setInterval(() => api<Build>(`/api/v1/builds/${buildId}`).then(value => {
@@ -720,6 +762,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     setTestReport(result)
     setNotice(result.passed ? t.testsPassed : t.testsFailed)
     await refresh()
+    await refreshMonitorTasks().catch(error => setNotice(String(error)))
   }
 
   async function publish() {
@@ -748,6 +791,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     setTab('run')
     setRunEvents([])
     setRun({ id: result.run_id, status: 'queued', outputs: {}, state: {} })
+    void refreshMonitorTasks().catch(error => setNotice(String(error)))
     watchRun(result.run_id)
   }
 
@@ -770,6 +814,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
       if (['succeeded', 'failed', 'paused', 'cancelled'].includes(current.status) && runPoll.current) {
         window.clearInterval(runPoll.current)
         runPoll.current = null
+        void refreshMonitorTasks().catch(error => setNotice(String(error)))
       }
     }
     void tick().catch(error => setNotice(String(error)))
@@ -791,6 +836,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     if (!run) return
     await api(`/api/v1/runs/${run.id}/cancel`, { method: 'POST' })
     setNotice(t.runCancelling)
+    void refreshMonitorTasks().catch(error => setNotice(String(error)))
     watchRun(run.id)
   }
 
@@ -801,6 +847,21 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   const runInputParsed = useMemo(() => parseRunFieldInputs(runFields, t), [runFields, t])
   const runInputPreview = JSON.stringify(runInputParsed.inputs || {}, null, 2)
   const pendingPermission = useMemo(() => latestPendingPermission(runEvents), [runEvents])
+  const relatedMonitorTasks = useMemo(
+    () => monitorTasks.filter(task => taskIsRelated(task, id, build, run)),
+    [build, id, monitorTasks, run],
+  )
+  const visibleMonitorTasks = useMemo(() => {
+    if (monitorFilter === 'all') return monitorTasks
+    if (monitorFilter === 'failed') return monitorTasks.filter(task => task.status === 'failed')
+    return relatedMonitorTasks
+  }, [monitorFilter, monitorTasks, relatedMonitorTasks])
+  const monitorSummary = useMemo(() => ({
+    total: monitorTasks.length,
+    related: relatedMonitorTasks.length,
+    failed: monitorTasks.filter(task => task.status === 'failed').length,
+    running: monitorTasks.filter(task => task.status === 'running').length,
+  }), [monitorTasks, relatedMonitorTasks.length])
   function toggleLocale() {
     const value = nextLocale(locale)
     setLocale(value)
@@ -842,7 +903,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     </header>
     <div className="studio-grid">
       <aside className="left-panel">
-        <div className="panel-tabs">{(['build', 'edit', 'test', 'run'] as const).map(item => <button className={tab === item ? 'active' : ''} onClick={() => setTab(item)} key={item}>{item === 'build' ? t.buildTab : item === 'edit' ? t.editTab : item === 'test' ? t.testTab : t.runTab}</button>)}</div>
+        <div className="panel-tabs">{(['build', 'edit', 'test', 'run', 'monitor'] as const).map(item => <button className={tab === item ? 'active' : ''} onClick={() => setTab(item)} key={item}>{item === 'build' ? t.buildTab : item === 'edit' ? t.editTab : item === 'test' ? t.testTab : item === 'run' ? t.runTab : t.monitorTab}</button>)}</div>
         {tab === 'build' && <div className="panel-body">
           <div className="panel-kicker">{t.builderTeam}</div><h2>{t.continueBuild}</h2>
           <textarea className="requirement-input" value={requirement} onChange={event => setRequirement(event.target.value)} />
@@ -886,6 +947,37 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
           {run && <div className="run-result"><b>{run.status}</b><button className="danger-link" onClick={cancelRun} disabled={['succeeded', 'failed', 'paused', 'cancelled'].includes(run.status)}>{t.cancelRun}</button><pre>{JSON.stringify(run.outputs || run.error, null, 2)}</pre>{run.status === 'paused' && <><label>{t.humanInput}</label><textarea value={humanValues} onChange={event => setHumanValues(event.target.value)} /><button onClick={resumeRun}>{t.resume}</button></>}</div>}
           {pendingPermission && <div className="permission-card"><h3>{t.permissionWaiting}</h3><p>{t.permissionTool}: <code>{pendingPermission.tool || '-'}</code>{pendingPermission.node_id ? <> · <code>{pendingPermission.node_id}</code></> : null}</p><pre>{JSON.stringify(pendingPermission.input || {}, null, 2)}</pre><div className="run-actions"><button className="wide" onClick={() => resolvePermission(pendingPermission, 'allow')}>{t.approvePermission}</button><button className="wide secondary" onClick={() => resolvePermission(pendingPermission, 'deny')}>{t.denyPermission}</button></div></div>}
           {runEvents.length > 0 && <><h3>{t.traceTitle}</h3><pre className="trace-log">{JSON.stringify(visibleRunEvents(runEvents), null, 2)}</pre></>}
+        </div>}
+        {tab === 'monitor' && <div className="panel-body">
+          <div className="panel-kicker">{t.platformHarness}</div><h2>{t.taskMonitor}</h2>
+          <p className="muted">{t.monitorHelp}</p>
+          <div className="monitor-summary">
+            <span><b>{monitorSummary.related}</b>{t.monitorRelated}</span>
+            <span><b>{monitorSummary.running}</b>{t.monitorRunning}</span>
+            <span><b>{monitorSummary.failed}</b>{t.monitorFailed}</span>
+            <span><b>{monitorSummary.total}</b>{t.monitorTotal}</span>
+          </div>
+          <div className="monitor-toolbar">
+            {(['related', 'failed', 'all'] as const).map(filter => <button className={monitorFilter === filter ? 'active' : ''} onClick={() => setMonitorFilter(filter)} key={filter}>{filter === 'related' ? t.monitorFilterRelated : filter === 'failed' ? t.monitorFilterFailed : t.monitorFilterAll}</button>)}
+            <button className="refresh" onClick={() => refreshMonitorTasks().catch(error => setNotice(String(error)))} disabled={monitorLoading}>{monitorLoading ? t.monitorRefreshing : t.monitorRefresh}</button>
+          </div>
+          {monitorError && <p className="error-banner">{monitorError}</p>}
+          <div className="monitor-list">{visibleMonitorTasks.length ? visibleMonitorTasks.map(task => {
+            const related = taskIsRelated(task, id, build, run)
+            const usageEntries = Object.entries(task.usage_counts)
+            const latestUsage = task.usage.slice(-3).reverse()
+            return <section className={`monitor-card ${related ? 'related' : ''}`} key={task.id}>
+              <div className="monitor-card-head">
+                <div><strong>{task.kind.replaceAll('_', ' ')}</strong><small>{task.id}</small></div>
+                <span className={task.status}>{task.status}</span>
+              </div>
+              <div className="monitor-meta"><code>{task.owner_id}</code><code>{task.resource_id}</code></div>
+              <div className="monitor-counts">{usageEntries.length ? usageEntries.map(([name, amount]) => <span key={name}>{name.replaceAll('_', ' ')} <b>{amount}</b></span>) : <span>{t.monitorNoUsage}</span>}</div>
+              {task.error && <p className="monitor-error">{task.error}</p>}
+              <div className="monitor-times"><span>{t.monitorCreated}: {shortTime(task.created_at)}</span><span>{t.monitorUpdated}: {shortTime(task.updated_at)}</span></div>
+              {latestUsage.length > 0 && <details><summary>{t.monitorLatestUsage}</summary><pre>{JSON.stringify(latestUsage, null, 2)}</pre></details>}
+            </section>
+          }) : <p className="muted">{t.monitorEmpty}</p>}</div>
         </div>}
       </aside>
       <section className="canvas-wrap">

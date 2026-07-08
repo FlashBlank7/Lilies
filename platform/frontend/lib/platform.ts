@@ -59,6 +59,40 @@ export type Block = {
   output_ports: Array<{ name: string; value_type: string }>
 }
 
+export type PlatformTaskKind =
+  | 'workflow_run'
+  | 'builder_build'
+  | 'test_suite'
+  | 'scheduler_trigger'
+  | 'scheduler_manual_trigger'
+  | 'benchmark'
+  | 'draft_patch_preview'
+
+export type PlatformTaskStatus = 'queued' | 'running' | 'paused' | 'succeeded' | 'failed' | 'cancelled'
+
+export type PlatformUsageRecord = {
+  usage_type: string
+  amount: number
+  metadata: Record<string, unknown>
+  created_at: string
+}
+
+export type PlatformTaskRecord = {
+  id: string
+  kind: PlatformTaskKind
+  owner_id: string
+  resource_id: string
+  status: PlatformTaskStatus
+  parent_task_id?: string | null
+  metadata: Record<string, unknown>
+  usage_counts: Record<string, number>
+  usage: PlatformUsageRecord[]
+  error: string
+  created_at: string
+  updated_at: string
+  finished_at?: string | null
+}
+
 const root = '/api/platform'
 const tokenKey = 'foundry.apiToken'
 

@@ -12,9 +12,11 @@
 - `implementation_apply_lilies_inspiration_notes_2026_07_08.md`
 - `work_platform_harness_and_development_roadmap_2026_07_08.md`
 - `implementation_platform_harness_and_development_roadmap_2026_07_08.md`
+- `work_platform_harness_observability_ui_2026_07_09.md`
 - `experiment-reports/`
 
 归档记录：
 
 - `work_apply_lilies_inspiration_notes_2026_07_08.md` 已归档到 `../stage-reports/v0.2.2_apply_lilies_inspiration_notes.md`，中间文件按规范保留。
 - `work_platform_harness_and_development_roadmap_2026_07_08.md` 已归档到 `../stage-reports/v0.2.3_platform_harness_and_development_roadmap.md`，中间文件按规范保留。
+- `work_platform_harness_observability_ui_2026_07_09.md` 已归档到 `../stage-reports/v0.2.4_platform_harness_observability_ui.md`，中间文件按规范保留。
