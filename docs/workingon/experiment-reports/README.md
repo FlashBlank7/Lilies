@@ -4,15 +4,14 @@
 
 命名格式：
 
-```text
-YYYY-MM-DD_HHMM_<experiment-topic>.docx
-```
+`YYYY-MM-DD_HHMM_<topic>.docx`
 
-报告固定结构：
+每份报告必须包含：
 
 1. 背景
 2. 实验设计
-3. 结果
-4. 结论
+3. 结果结论
+4. 图片或截图（如有）
 
-实验未真实完成时，不要在本目录放结果报告；应先放在 `docs/workingon/experiment_backlog_lilies_design_notes_2026_07_08.md` 或对应实验设计文档中。
+只有实际完成并有结果的实验才进入本目录。实验想法、实验计划和未完成结果放在 `docs/workingon/experiment_*.md` 或 backlog 中。
+

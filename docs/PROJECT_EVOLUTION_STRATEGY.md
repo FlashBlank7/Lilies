@@ -20,8 +20,8 @@ Lilies 的开发流程要从“做完一个需求后留下零散记录”转向�
 Lilies 的文档分为五个层级。层级越高，越像稳定结论；层级越低，越贴近当下执行。
 
 ```text
-phase-reports/          大版本报告：V1.0 -> V2.0 级别的巨大阶段复盘
-  └─ stage-reports/     小版本报告：V2.1、V2.2 级别的阶段总结
+phase-reports/          大版本报告：v0.2.0 -> v0.3.0 级别的阶段主线复盘
+  └─ stage-reports/     小版本报告：v0.2.1、v0.2.2 级别的阶段总结
       └─ workingon/     当前 stage 的任务 plan、中间实验、细节完成记录
           └─ current-design/  某个任务 plan 下的具体设计和实现报告
 
@@ -44,7 +44,9 @@ intellectual-assets/    跨阶段可复用的高价值智力资产
 
 ### 3.1 Phase：大版本
 
-`phase` 是项目的巨大阶段，对应 `V1.0`、`V2.0` 这样的版本。它代表一次方向明确的大演进，例如：
+`phase` 是项目的巨大阶段。当前 Lilies 还处于 pre-1.0，因此 phase 使用 `v0.<minor>.0` 这样的版本，例如 `v0.2.0`、`v0.3.0`。`v1.0.0` 只能在项目真正达到稳定产品交付、核心 Harness 与 Builder 能力经验证后使用。
+
+phase 代表一次方向明确的大演进，例如：
 
 - 从“能跑的原型”到“后端维护可接手的架构”。
 - 从“散乱文档”到“文档驱动开发流程”。
@@ -60,7 +62,7 @@ intellectual-assets/    跨阶段可复用的高价值智力资产
 
 ### 3.2 Stage：小版本
 
-`stage` 是大版本中的小阶段，对应 `V1.1`、`V1.2`、`V2.1` 这样的版本。它代表一组相关任务完成后的可交接节点。
+`stage` 是 phase 中的小阶段，对应 `v0.2.1`、`v0.2.2`、`v0.2.3` 这样的版本。它代表一组相关任务完成后的可交接节点。
 
 一个 stage 可以包含很多中间工作。每个中间工作都应该至少有一个任务级 plan；复杂任务还要展开为具体设计文档。
 
@@ -157,7 +159,7 @@ phase report 应该基于多个 stage report 总结：
 - 当前可以交接的稳定能力
 - 下一大版本应该解决什么
 
-phase report 是团队判断“项目已经从 V1.0 进入 V2.0”的证据。
+phase report 是团队判断“项目已经从 `v0.2.0` 进入 `v0.3.0`”这类阶段主线切换的证据。
 
 ### 4.5 `docs/intellectual-assets/`
 
@@ -190,8 +192,8 @@ phase report 是团队判断“项目已经从 V1.0 进入 V2.0”的证据。
 
 | 类型 | 命名格式 | 示例 |
 | --- | --- | --- |
-| Phase report | `V<major>.0_<theme>.md` | `V2.0_document_driven_development.md` |
-| Stage report | `V<major>.<minor>_<stage-topic>.md` | `V2.1_platform_harness_boundary.md` |
+| Phase report | `v0.<minor>.0_<theme>.md` | `v0.3.0_document_driven_development.md` |
+| Stage report | `v0.<minor>.<patch>_<stage-topic>.md` | `v0.2.3_platform_harness_boundary.md` |
 | Task plan | `plan_<task-topic>.md` | `plan_builder_benchmark_v1.md` |
 | Experiment report | `experiment_<topic>.md` | `experiment_graph_similarity_eval.md` |
 | Result report | `result_<topic>.md` | `result_scheduler_token_boundary.md` |
@@ -266,7 +268,7 @@ phase report 是团队判断“项目已经从 V1.0 进入 V2.0”的证据。
 ### 7.1 Phase report 模板
 
 ```md
-# Vx.0 <大版本主题>
+# v0.x.0 <大版本主题>
 
 ## 1. 大版本目标
 
@@ -294,13 +296,13 @@ phase report 是团队判断“项目已经从 V1.0 进入 V2.0”的证据。
 
 ## 6. 下一大版本目标
 
-Vx+1.0 应该完成什么。
+v0.(x+1).0 应该完成什么。
 ```
 
 ### 7.2 Stage report 模板
 
 ```md
-# Vx.y <阶段主题>
+# v0.x.y <阶段主题>
 
 ## 1. 阶段目标
 
@@ -444,7 +446,7 @@ Vx+1.0 应该完成什么。
 - `docs/source-materials/2026-07_initial_architecture_research/Lilies_竞品研究论文与未来方向报告.docx`：竞品、论文和未来方向报告原文。
 - `docs/source-materials/2026-07_initial_architecture_research/LANGUAGE_SYSTEM.md`：项目语言系统与术语映射规范原文。
 - `docs/source-materials/2026-07_initial_architecture_research/BUSINESS_LOGIC.md`：业务对象、生命周期和验收边界说明原文。
-- `docs/stage-reports/V1.1_docs_consolidation_and_asset_baseline.md`：本轮文档结构整理的 stage report。
+- `docs/stage-reports/v0.2.1_docs_consolidation_and_asset_baseline.md`：本轮文档结构整理的 stage report。
 - `docs/intellectual-assets/asset_blockflow_language_system.md`：从语言系统中提炼的稳定资产。
 - `docs/intellectual-assets/asset_platform_harness_task_monitor_boundary.md`：从后端报告和 Harness 讨论中提炼的稳定资产。
 

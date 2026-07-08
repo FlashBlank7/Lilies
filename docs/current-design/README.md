@@ -1,20 +1,17 @@
 # current-design
 
-本目录保存当前开发任务的具体设计和实现报告。
+本目录保存当前开发任务的具体设计和实现报告。`current-design` 不是最终交付物，而是实现契约：除非用户明确要求 design-only，否则创建设计后必须继续落代码、验证，并把证据写入 `docs/workingon/`。
 
 一个 task plan 如果需要展开模块边界、数据流、实现方案、风险和验收标准，就应该在这里新增 `design_<component-or-flow>.md`。设计文档应优先引用 `intellectual-assets/` 中的稳定结论。
 
-## 当前设计
+当前保留的设计：
 
-| 设计文档 | 状态 | 对应 plan |
-| --- | --- | --- |
-| `design_plan_first_and_modular_builder.md` | 已完成 | `docs/workingon/plan_apply_lilies_design_notes_2026_07_08.md` |
-| `design_structured_tests_and_feedback_repair.md` | 已完成 | `docs/workingon/plan_apply_lilies_design_notes_2026_07_08.md` |
-| `design_template_rag_workflow_reuse.md` | 已完成 | `docs/workingon/plan_apply_lilies_design_notes_2026_07_08.md` |
-| `design_harness_sidecar_and_task_monitor.md` | 已完成 | `docs/workingon/plan_apply_lilies_design_notes_2026_07_08.md` |
-| `design_lilies_assistant_memory_surface.md` | 已完成 | `docs/workingon/plan_apply_lilies_design_notes_2026_07_08.md` |
+- `design_platform_harness_task_monitor_v1.md`
+- `design_builder_benchmark_v1.md`
+- `design_natural_language_draft_patch_preview.md`
 
-状态定义：
+注意：design 只有在对应版本 state 或 stage report 明确出现，并标记最终状态后，才可以归档。没有明确版本状态时，应保留在本目录，或者先拒绝归档并补齐版本状态。
 
-- `草案`：已有主要方向，但还没有补齐边界、数据流、风险和验收。
-- `已完成`：已经可作为后续实现依据，并在对应 plan 中标记完成。
+v0.2.2 对应的 design 已按版本归档到：
+
+- `docs/historical-designs/v0.2.2_design_archive_manifest.md`

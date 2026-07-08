@@ -1,0 +1,4 @@
+interface:
+  display_name: "Lilies Evolution Development"
+  short_description: "Plan, design, implement, and archive Lilies work"
+  default_prompt: "Use $lilies-evolution-development to run a Lilies task through workingon plans, current design, implementation evidence, and stage archive."
