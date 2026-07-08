@@ -229,7 +229,75 @@ class ManualSkippingBuilderProvider(ModelProvider):
             yield StreamEvent(type="content_block_delta", data={
                 "index": 0, "delta": {"type": "text_delta", "text": "done"}
             })
-            yield StreamEvent(type="message_delta", data={"delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 1}})
+        yield StreamEvent(type="message_delta", data={"delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 1}})
+
+
+class InvalidRequiredNodeTestBuilderProvider(ModelProvider):
+    name = "deepseek"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def capabilities(self, model: str) -> ProviderCapabilities:
+        return ProviderCapabilities(True, True, True, False, False, 100_000, 10_000)
+
+    async def stream(
+        self,
+        *,
+        model: str,
+        system: str,
+        messages: list[ChatMessage],
+        tools: list[ToolDefinition],
+        max_output_tokens: int,
+        thinking_enabled: bool,
+        effort: str,
+        tool_choice: dict[str, str] | None = None,
+        user_id: str | None = None,
+    ) -> AsyncIterator[StreamEvent]:
+        operations = [
+            ("draft_add_node", {"node": {
+                "id": "start", "type": "start", "title": "Start",
+                "config": {"inputs": [{"name": "text", "type": "string"}]},
+            }}),
+            ("draft_add_node", {"node": {
+                "id": "end", "type": "end", "title": "End",
+                "config": {"outputs": {"ok": True}},
+            }}),
+            ("draft_connect", {"edge": {
+                "id": "start-end", "source": "start", "target": "end",
+                "source_port": "output", "target_port": "input",
+            }}),
+            ("test_add", {"test": {
+                "id": "bad_required_node",
+                "name": "Bad required node",
+                "requirement": "This test incorrectly names a nonexistent extractor node.",
+                "mandatory": True,
+                "structural_only": True,
+                "required_node_types": ["start", "extract_text", "end"],
+                "assertions": [{"path": [], "operator": "exists", "structural": True}],
+            }}),
+        ]
+        self.calls += 1
+        yield StreamEvent(type="message_start", data={"message": {"usage": {"input_tokens": 1}}})
+        if self.calls <= len(operations):
+            name, value = operations[self.calls - 1]
+            yield StreamEvent(type="content_block_start", data={
+                "index": 0,
+                "content_block": {"type": "tool_use", "id": f"invalid-test-{self.calls}", "name": name, "input": {}},
+            })
+            yield StreamEvent(type="content_block_delta", data={
+                "index": 0, "delta": {"type": "input_json_delta", "partial_json": json.dumps(value)},
+            })
+            yield StreamEvent(type="content_block_stop", data={"index": 0})
+            yield StreamEvent(type="message_delta", data={"delta": {"stop_reason": "tool_use"}, "usage": {"output_tokens": 1}})
+            return
+        yield StreamEvent(type="content_block_start", data={
+            "index": 0, "content_block": {"type": "text", "text": "done"}
+        })
+        yield StreamEvent(type="content_block_delta", data={
+            "index": 0, "delta": {"type": "text_delta", "text": "done"}
+        })
+        yield StreamEvent(type="message_delta", data={"delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 1}})
 
 
 class TemplateExpandBuilderProvider(ModelProvider):
@@ -2079,6 +2147,50 @@ def test_builder_must_read_manual_before_agent_architecture_blocks(tmp_path: Pat
             if event["type"] == "build.operation"
         ]
         assert any("manual lookup required" in result for result in results)
+
+
+def test_builder_rejects_tests_requiring_unavailable_node_types(tmp_path: Path) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+    )
+    app = create_app(settings, InvalidRequiredNodeTestBuilderProvider())
+    with TestClient(app) as client:
+        app_id = client.post(
+            "/api/v1/applications",
+            headers=headers(),
+            json={"name": "Invalid test", "requirement": "Build a tiny workflow."},
+        ).json()["id"]
+        build_id = client.post(
+            f"/api/v1/applications/{app_id}/builds",
+            headers=headers(),
+            json={"requirement": "Build a tiny workflow.", "auto_publish": False, "max_turns": 6},
+        ).json()["build_id"]
+        for _ in range(200):
+            build = client.get(f"/api/v1/builds/{build_id}", headers=headers()).json()
+            if build["status"] in {"ready", "needs_attention"}:
+                break
+            time.sleep(0.01)
+
+        assert build["status"] == "ready", build
+        operation_events = client.get(f"/v1/streams/{build_id}", headers=headers()).json()
+        failed_test_add = [
+            event for event in operation_events
+            if event["type"] == "build.operation"
+            and event["data"].get("tool") == "test_add"
+            and event["data"].get("success") is False
+        ]
+        assert failed_test_add
+        result = failed_test_add[0]["data"]["result"]
+        assert "test required unavailable node types" in result
+        assert "extract_text" in result
+        assert "available node types" in result
+
+        draft = client.get(f"/api/v1/applications/{app_id}/draft", headers=headers()).json()
+        test_ids = [test["id"] for test in draft["snapshot"]["tests"]]
+        assert "bad_required_node" not in test_ids
+        assert "auto_smoke_acceptance" in test_ids
 
 
 def test_claude_like_coding_agent_template_is_valid_and_covers_architecture() -> None:

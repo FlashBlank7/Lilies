@@ -16,3 +16,4 @@
 - `v0.2.4_*`：来自 `docs/stage-reports/v0.2.4_platform_harness_observability_ui.md`。
 - `v0.2.5_*`：来自 `docs/stage-reports/v0.2.5_builder_benchmark_suite.md`。
 - `v0.2.6_*`：来自 `docs/stage-reports/v0.2.6_paid_builder_benchmark_experiment.md`。
+- `v0.2.7_*`：来自 `docs/stage-reports/v0.2.7_builder_test_self_consistency.md`。

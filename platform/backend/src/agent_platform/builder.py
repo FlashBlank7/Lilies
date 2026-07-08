@@ -310,6 +310,36 @@ class WorkflowBuilder:
                     inputs[name] = "test"
         return inputs
 
+    @staticmethod
+    def _validate_test_requirements_available(test: WorkflowTestCase, snapshot: Any) -> None:
+        node_types = sorted({node.type for node in snapshot.workflow.nodes})
+        tool_node_names = sorted({
+            str(node.config.get("tool_name"))
+            for node in snapshot.workflow.nodes
+            if node.type == "tool" and node.config.get("tool_name")
+        } | {
+            str(node.config.get("settings", {}).get("tool_name"))
+            for node in snapshot.workflow.nodes
+            if node.type == "tool_executor" and node.config.get("settings", {}).get("tool_name")
+        })
+        missing_node_types = sorted(set(test.required_node_types) - set(node_types))
+        missing_tool_nodes = sorted(set(test.required_tool_nodes) - set(tool_node_names))
+        messages: list[str] = []
+        if missing_node_types:
+            messages.append(
+                "test required unavailable node types: "
+                f"{missing_node_types}; available node types: {node_types}. "
+                "Update required_node_types to match the current draft, or add the missing block before adding the test."
+            )
+        if missing_tool_nodes:
+            messages.append(
+                "test required unavailable tool nodes: "
+                f"{missing_tool_nodes}; available tool nodes: {tool_node_names}. "
+                "Update required_tool_nodes to match tool nodes already present in the draft, or add the missing tool node first."
+            )
+        if messages:
+            raise RuntimeError(" ".join(messages))
+
     async def _agent_loop(
         self,
         build_id: str,
@@ -618,8 +648,10 @@ class WorkflowBuilder:
                     "agent": AgentSpec.model_validate(data["agent"]).model_dump(mode="json")
                 }
             elif tool == "test_add":
+                test = WorkflowTestCase.model_validate(data["test"])
+                self._validate_test_requirements_available(test, draft["snapshot"])
                 op, payload = "add_test", {
-                    "test": WorkflowTestCase.model_validate(data["test"]).model_dump(mode="json")
+                    "test": test.model_dump(mode="json")
                 }
             else:
                 op, payload = "remove_test", {"test_id": data["test_id"]}

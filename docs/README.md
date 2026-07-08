@@ -26,6 +26,7 @@
 - `stage-reports/v0.2.4_platform_harness_observability_ui.md`
 - `stage-reports/v0.2.5_builder_benchmark_suite.md`
 - `stage-reports/v0.2.6_paid_builder_benchmark_experiment.md`
+- `stage-reports/v0.2.7_builder_test_self_consistency.md`
 
 ## 使用原则
 
