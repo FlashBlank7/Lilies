@@ -1259,6 +1259,57 @@ def test_platform_harness_reconciles_stale_active_tasks(tmp_path: Path) -> None:
     asyncio.run(scenario())
 
 
+def test_platform_harness_secret_policy_blocks_http_secret_headers(tmp_path: Path) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+    )
+    app = create_app(settings, ScriptedProvider())
+    with TestClient(app) as client:
+        app_id = client.post(
+            "/api/v1/applications",
+            headers=headers(),
+            json={"name": "Secret policy", "requirement": "Block secret headers."},
+        ).json()["id"]
+        revision = 0
+        for node in [
+            {"id": "start", "type": "start", "title": "Start", "config": {"inputs": []}},
+            {"id": "http", "type": "http_request", "title": "HTTP", "config": {
+                "method": "GET",
+                "url": "https://example.test/blocked",
+                "headers": {"Authorization": "Bearer sk-test"},
+            }},
+            {"id": "end", "type": "end", "title": "End", "config": {"outputs": {"ok": True}}},
+        ]:
+            revision = mutate(client, app_id, revision, "add_node", {"node": node})
+        revision = mutate(client, app_id, revision, "add_edge", {"edge": {
+            "id": "start-http", "source": "start", "target": "http",
+            "source_port": "output", "target_port": "input",
+        }})
+        mutate(client, app_id, revision, "add_edge", {"edge": {
+            "id": "http-end", "source": "http", "target": "end",
+            "source_port": "output", "target_port": "input",
+        }})
+
+        created = client.post(
+            f"/api/v1/applications/{app_id}/runs",
+            headers=headers(),
+            json={"inputs": {}, "use_draft": True},
+        )
+        assert created.status_code == 202, created.text
+        run_id = created.json()["run_id"]
+        for _ in range(100):
+            run = client.get(f"/api/v1/runs/{run_id}", headers=headers()).json()
+            if run["status"] == "failed":
+                break
+            time.sleep(0.01)
+
+        assert run["status"] == "failed", run
+        assert "secret policy blocked" in run["error"]
+        assert "headers.Authorization" in run["error"]
+
+
 def test_builder_benchmark_treats_llm_as_model_turn_equivalent(tmp_path: Path) -> None:
     settings = Settings(
         api_token="workflow-test",

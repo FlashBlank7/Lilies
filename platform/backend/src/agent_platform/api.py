@@ -82,6 +82,18 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         deepseek_base_url=settings.deepseek_base_url,
         timeout_seconds=settings.deepseek_timeout_seconds,
     )
+    harness = PlatformHarness(
+        storage=storage,
+        max_active_tasks=settings.platform_harness_max_active_tasks,
+        max_model_calls_per_task=settings.platform_harness_max_model_calls_per_task,
+        max_tool_calls_per_task=settings.platform_harness_max_tool_calls_per_task,
+        max_node_executions_per_task=settings.platform_harness_max_node_executions_per_task,
+        max_model_calls_per_owner=settings.platform_harness_max_model_calls_per_owner,
+        max_tool_calls_per_owner=settings.platform_harness_max_tool_calls_per_owner,
+        max_node_executions_per_owner=settings.platform_harness_max_node_executions_per_owner,
+        stale_active_task_seconds=settings.platform_harness_stale_active_task_seconds,
+        secret_policy_enabled=settings.platform_harness_secret_policy_enabled,
+    )
     runtime = AgentRuntime(
         settings=settings,
         storage=storage,
@@ -89,6 +101,7 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         tools=tools,
         sandboxes=sandboxes,
         permissions=permissions,
+        harness=harness,
     )
     factory = AgentFactory(
         settings=settings,
@@ -100,17 +113,6 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
     )
     blocks = build_block_registry()
     workflow_store = WorkflowStorage(storage)
-    harness = PlatformHarness(
-        storage=storage,
-        max_active_tasks=settings.platform_harness_max_active_tasks,
-        max_model_calls_per_task=settings.platform_harness_max_model_calls_per_task,
-        max_tool_calls_per_task=settings.platform_harness_max_tool_calls_per_task,
-        max_node_executions_per_task=settings.platform_harness_max_node_executions_per_task,
-        max_model_calls_per_owner=settings.platform_harness_max_model_calls_per_owner,
-        max_tool_calls_per_owner=settings.platform_harness_max_tool_calls_per_owner,
-        max_node_executions_per_owner=settings.platform_harness_max_node_executions_per_owner,
-        stale_active_task_seconds=settings.platform_harness_stale_active_task_seconds,
-    )
     applications = ApplicationService(workflow_store, blocks, tools)
     workflow_runtime = WorkflowRuntime(
         storage=storage,

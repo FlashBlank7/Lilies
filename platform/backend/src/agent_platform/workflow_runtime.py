@@ -1603,6 +1603,10 @@ class WorkflowRuntime:
 
         try:
             resolved_input = self._resolve(config.input, context)
+            self.harness.enforce_secret_policy(
+                surface=f"workflow_tool:{config.tool_name}",
+                payload=resolved_input,
+            )
             await self.harness.record_usage(
                 run_id,
                 "tool_call",
@@ -1658,6 +1662,10 @@ class WorkflowRuntime:
         headers = {key: str(self._resolve(value, context)) for key, value in config.headers.items()}
         query = {key: self._resolve(value, context) for key, value in config.query.items()}
         body = self._resolve(config.body, context)
+        self.harness.enforce_secret_policy(
+            surface=f"http:{parsed.hostname}",
+            payload={"headers": headers, "query": query, "body": body},
+        )
         async with httpx.AsyncClient(timeout=config.timeout_seconds, follow_redirects=True) as client:
             response = await client.request(
                 config.method, url, headers=headers, params=query, json=body if body is not None else None

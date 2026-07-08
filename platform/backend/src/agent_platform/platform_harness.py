@@ -27,6 +27,16 @@ UsageType = Literal[
     "nested_workflow_call",
     "scheduler_fire",
 ]
+SECRET_FIELD_MARKERS = (
+    "api_key",
+    "apikey",
+    "secret",
+    "token",
+    "password",
+    "credential",
+    "authorization",
+    "cookie",
+)
 
 
 class PlatformHarnessViolation(RuntimeError):
@@ -77,6 +87,7 @@ class PlatformHarness:
         max_tool_calls_per_owner: int = 0,
         max_node_executions_per_owner: int = 0,
         stale_active_task_seconds: float = 0.0,
+        secret_policy_enabled: bool = True,
     ) -> None:
         self.storage = storage
         self.max_active_tasks = max_active_tasks
@@ -87,6 +98,7 @@ class PlatformHarness:
         self.max_tool_calls_per_owner = max_tool_calls_per_owner
         self.max_node_executions_per_owner = max_node_executions_per_owner
         self.stale_active_task_seconds = stale_active_task_seconds
+        self.secret_policy_enabled = secret_policy_enabled
         self._tasks: dict[str, PlatformTaskRecord] = {}
         self._lock = asyncio.Lock()
 
@@ -303,6 +315,34 @@ class PlatformHarness:
         if usage_type == "node_execution":
             return self.max_node_executions_per_owner
         return 0
+
+    def enforce_secret_policy(self, *, surface: str, payload: Any) -> None:
+        if not self.secret_policy_enabled:
+            return
+        path = self._find_secret_field(payload)
+        if not path:
+            return
+        raise PlatformHarnessViolation(
+            f"secret policy blocked {surface}: forbidden secret field at {path}"
+        )
+
+    def _find_secret_field(self, value: Any, path: str = "$") -> str:
+        if isinstance(value, dict):
+            for key, item in value.items():
+                key_text = str(key)
+                key_folded = key_text.casefold().replace("-", "_")
+                item_path = f"{path}.{key_text}"
+                if any(marker in key_folded for marker in SECRET_FIELD_MARKERS) and item not in (None, ""):
+                    return item_path
+                nested = self._find_secret_field(item, item_path)
+                if nested:
+                    return nested
+        if isinstance(value, list):
+            for index, item in enumerate(value):
+                nested = self._find_secret_field(item, f"{path}[{index}]")
+                if nested:
+                    return nested
+        return ""
 
     async def _cached_or_persisted_task(self, task_id: str) -> PlatformTaskRecord | None:
         async with self._lock:

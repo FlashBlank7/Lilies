@@ -28,6 +28,8 @@
 - `implementation_builder_benchmark_history_2026_07_09.md`
 - `work_platform_harness_asset_update_2026_07_09.md`
 - `implementation_platform_harness_asset_update_2026_07_09.md`
+- `work_platform_harness_secret_policy_2026_07_09.md`
+- `implementation_platform_harness_secret_policy_2026_07_09.md`
 - `experiment_paid_builder_benchmark_result_2026_07_09.json`
 - `experiment_builder_test_self_consistency_rerun_2026_07_09.json`
 - `experiment_benchmark_node_type_equivalence_recheck_2026_07_09.json`
@@ -48,3 +50,4 @@
 - `work_platform_harness_stale_task_reconciliation_2026_07_09.md` 已归档到 `../stage-reports/v0.2.12_platform_harness_stale_task_reconciliation.md`，中间文件按规范保留。
 - `work_builder_benchmark_history_2026_07_09.md` 已归档到 `../stage-reports/v0.2.13_builder_benchmark_history.md`，中间文件按规范保留。
 - `work_platform_harness_asset_update_2026_07_09.md` 已归档到 `../stage-reports/v0.2.14_platform_harness_asset_update.md`，中间文件按规范保留。
+- `work_platform_harness_secret_policy_2026_07_09.md` 已归档到 `../stage-reports/v0.2.15_platform_harness_secret_policy.md`，中间文件按规范保留。

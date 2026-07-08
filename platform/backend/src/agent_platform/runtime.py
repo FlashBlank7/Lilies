@@ -17,6 +17,7 @@ from .models import (
     Usage,
 )
 from .permissions import PermissionBroker
+from .platform_harness import PlatformHarness
 from .prompts import build_system_prompt
 from .providers import ModelProvider, ProviderError
 from .sandbox import SandboxManager, SandboxSession
@@ -47,6 +48,7 @@ class AgentRuntime:
         tools: ToolRegistry,
         sandboxes: SandboxManager,
         permissions: PermissionBroker,
+        harness: PlatformHarness,
     ) -> None:
         self.settings = settings
         self.storage = storage
@@ -54,6 +56,7 @@ class AgentRuntime:
         self.tools = tools
         self.sandboxes = sandboxes
         self.permissions = permissions
+        self.harness = harness
         self.sessions: dict[str, SessionRuntime] = {}
         self.event_relays: dict[str, Callable[[str, dict[str, Any]], Awaitable[None]]] = {}
 
@@ -320,6 +323,10 @@ class AgentRuntime:
             allowed = {definition.name for definition in self.tools.definitions_for(session.agent)}
             if tool_name not in allowed:
                 raise PermissionError(f"tool is not enabled: {tool_name}")
+            self.harness.enforce_secret_policy(
+                surface=f"agent_tool:{tool_name}",
+                payload=tool_input,
+            )
             tool_input = await self.permissions.request(
                 session_id=session.id,
                 mode=session.agent.permission_mode,

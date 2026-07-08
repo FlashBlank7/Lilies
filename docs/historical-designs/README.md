@@ -24,3 +24,4 @@
 - `v0.2.12_*`：来自 `docs/stage-reports/v0.2.12_platform_harness_stale_task_reconciliation.md`。
 - `v0.2.13_*`：来自 `docs/stage-reports/v0.2.13_builder_benchmark_history.md`。
 - `v0.2.14_*`：来自 `docs/stage-reports/v0.2.14_platform_harness_asset_update.md`。
+- `v0.2.15_*`：来自 `docs/stage-reports/v0.2.15_platform_harness_secret_policy.md`。

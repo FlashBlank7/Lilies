@@ -10,6 +10,7 @@ from agent_platform.config import Settings
 from agent_platform.factory import AgentFactory
 from agent_platform.models import ChatMessage, StreamEvent, ToolDefinition
 from agent_platform.permissions import PermissionBroker
+from agent_platform.platform_harness import PlatformHarness
 from agent_platform.providers.base import ModelProvider, ProviderCapabilities
 from agent_platform.runtime import AgentRuntime
 from agent_platform.sandbox import SandboxManager
@@ -70,6 +71,7 @@ async def test_factory_generates_valid_platform_agent(tmp_path: Path) -> None:
     provider = GeneratorProvider()
     tools = build_core_registry()
     sandboxes = SandboxManager(settings)
+    harness = PlatformHarness(storage=storage)
     runtime = AgentRuntime(
         settings=settings,
         storage=storage,
@@ -77,6 +79,7 @@ async def test_factory_generates_valid_platform_agent(tmp_path: Path) -> None:
         tools=tools,
         sandboxes=sandboxes,
         permissions=PermissionBroker(),
+        harness=harness,
     )
     factory = AgentFactory(
         settings=settings,
@@ -90,4 +93,3 @@ async def test_factory_generates_valid_platform_agent(tmp_path: Path) -> None:
     assert spec.name == "Python Test Fixer"
     assert spec.provider_profile.provider == "deepseek"
     assert set(spec.tools) == {"Read", "Edit", "Grep", "Bash"}
-

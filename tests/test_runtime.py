@@ -14,6 +14,7 @@ from agent_platform.models import (
     ToolDefinition,
 )
 from agent_platform.permissions import PermissionBroker
+from agent_platform.platform_harness import PlatformHarness
 from agent_platform.providers.base import ModelProvider, ProviderCapabilities
 from agent_platform.runtime import AgentRuntime
 from agent_platform.sandbox import CommandResult
@@ -104,6 +105,7 @@ async def test_runtime_executes_tool_loop_and_persists_events(tmp_path: Path) ->
     await storage.initialize()
     provider = ScriptedProvider()
     sandboxes = FakeSandboxes(settings.workspace_root)
+    harness = PlatformHarness(storage=storage)
     runtime = AgentRuntime(
         settings=settings,
         storage=storage,
@@ -111,6 +113,7 @@ async def test_runtime_executes_tool_loop_and_persists_events(tmp_path: Path) ->
         tools=build_core_registry(),
         sandboxes=sandboxes,  # type: ignore[arg-type]
         permissions=PermissionBroker(),
+        harness=harness,
     )
     spec = AgentSpec(
         name="writer",
@@ -129,4 +132,3 @@ async def test_runtime_executes_tool_loop_and_persists_events(tmp_path: Path) ->
     assert "model.thinking.delta" in event_types
     assert "tool.started" in event_types
     assert "tool.completed" in event_types
-
