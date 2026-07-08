@@ -89,8 +89,24 @@ class Storage:
                   created_at TEXT NOT NULL,
                   PRIMARY KEY (run_id, checkpoint_id)
                 );
+                CREATE TABLE IF NOT EXISTS platform_harness_tasks (
+                  id TEXT PRIMARY KEY,
+                  kind TEXT NOT NULL,
+                  status TEXT NOT NULL,
+                  owner_id TEXT NOT NULL,
+                  resource_id TEXT NOT NULL,
+                  parent_task_id TEXT,
+                  record_json TEXT NOT NULL,
+                  created_at TEXT NOT NULL,
+                  updated_at TEXT NOT NULL,
+                  finished_at TEXT
+                );
                 CREATE INDEX IF NOT EXISTS idx_generations_agent ON generations(agent_id);
                 CREATE INDEX IF NOT EXISTS idx_sessions_agent ON sessions(agent_id);
+                CREATE INDEX IF NOT EXISTS idx_platform_harness_tasks_kind_status
+                  ON platform_harness_tasks(kind, status);
+                CREATE INDEX IF NOT EXISTS idx_platform_harness_tasks_owner
+                  ON platform_harness_tasks(owner_id);
                 """
             )
 
@@ -261,6 +277,108 @@ class Storage:
             return row
         return None
 
+    async def save_platform_task(self, record: dict[str, Any]) -> None:
+        async with self._lock:
+            await asyncio.to_thread(self._save_platform_task_sync, record)
+
+    def _save_platform_task_sync(self, record: dict[str, Any]) -> None:
+        encoded = json.dumps(record, ensure_ascii=False, separators=(",", ":"))
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO platform_harness_tasks(
+                  id, kind, status, owner_id, resource_id, parent_task_id,
+                  record_json, created_at, updated_at, finished_at
+                )
+                VALUES(?,?,?,?,?,?,?,?,?,?)
+                ON CONFLICT(id) DO UPDATE SET
+                  kind=excluded.kind,
+                  status=excluded.status,
+                  owner_id=excluded.owner_id,
+                  resource_id=excluded.resource_id,
+                  parent_task_id=excluded.parent_task_id,
+                  record_json=excluded.record_json,
+                  updated_at=excluded.updated_at,
+                  finished_at=excluded.finished_at
+                """,
+                (
+                    record["id"],
+                    record["kind"],
+                    record["status"],
+                    record["owner_id"],
+                    record["resource_id"],
+                    record.get("parent_task_id"),
+                    encoded,
+                    record["created_at"],
+                    record["updated_at"],
+                    record.get("finished_at"),
+                ),
+            )
+
+    async def get_platform_task(self, task_id: str) -> dict[str, Any]:
+        row = await asyncio.to_thread(
+            self._get_one,
+            "SELECT record_json FROM platform_harness_tasks WHERE id=?",
+            (task_id,),
+        )
+        return json.loads(row["record_json"])
+
+    async def list_platform_tasks(
+        self,
+        *,
+        kind: str | None = None,
+        status: str | None = None,
+        owner_id: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        return await asyncio.to_thread(
+            self._list_platform_tasks_sync,
+            kind,
+            status,
+            owner_id,
+            max(1, min(limit, 500)),
+        )
+
+    def _list_platform_tasks_sync(
+        self,
+        kind: str | None,
+        status: str | None,
+        owner_id: str | None,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        where = []
+        params: list[Any] = []
+        if kind:
+            where.append("kind=?")
+            params.append(kind)
+        if status:
+            where.append("status=?")
+            params.append(status)
+        if owner_id:
+            where.append("owner_id=?")
+            params.append(owner_id)
+        where_sql = f"WHERE {' AND '.join(where)}" if where else ""
+        sql = (
+            "SELECT record_json FROM platform_harness_tasks "
+            f"{where_sql} ORDER BY created_at DESC LIMIT ?"
+        )
+        rows = self._get_all(sql, tuple(params + [limit]))
+        return [json.loads(row["record_json"]) for row in rows]
+
+    async def count_platform_tasks(self, *, statuses: set[str]) -> int:
+        if not statuses:
+            return 0
+        return await asyncio.to_thread(self._count_platform_tasks_sync, statuses)
+
+    def _count_platform_tasks_sync(self, statuses: set[str]) -> int:
+        placeholders = ",".join("?" for _ in statuses)
+        with self._connect() as conn:
+            row = conn.execute(
+                f"SELECT COUNT(*) AS count FROM platform_harness_tasks WHERE status IN ({placeholders})",
+                tuple(statuses),
+            ).fetchone()
+        return int(row["count"]) if row else 0
+
     async def append_event(self, stream_id: str, event_type: str, data: dict[str, Any]) -> EventRecord:
         async with self._lock:
             event = await asyncio.to_thread(self._append_event_sync, stream_id, event_type, data)
@@ -333,3 +451,8 @@ class Storage:
             if not row:
                 raise KeyError("record not found")
             return dict(row)
+
+    def _get_all(self, sql: str, params: tuple[Any, ...]) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(sql, params).fetchall()
+            return [dict(row) for row in rows]

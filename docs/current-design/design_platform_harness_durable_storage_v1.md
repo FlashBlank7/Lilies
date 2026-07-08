@@ -1,0 +1,116 @@
+# design_platform_harness_durable_storage_v1
+
+## 1. Goal
+
+Extend Platform Harness from in-process task monitoring to durable task record storage. The intent is not to build a queue or scheduler recovery layer yet; it is to make the Platform Harness task monitor records queryable after app/service recreation.
+
+## 2. Module Boundary
+
+In scope:
+
+- `platform/backend/src/agent_platform/storage.py`
+- `platform/backend/src/agent_platform/platform_harness.py`
+- `tests/test_workflow.py`
+- workingon/stage/historical design docs for `v0.2.10`
+
+Out of scope:
+
+- API route shape changes.
+- New frontend UI.
+- Multi-tenant billing policy.
+- Network egress or secret policy enforcement.
+- Durable execution workers.
+
+## 3. Data Flow
+
+```text
+PlatformHarness.start_task()
+  -> create/update PlatformTaskRecord in memory
+  -> Storage.save_platform_task(record_json, indexed fields)
+  -> emit platform_harness.task.started events
+
+PlatformHarness.record_usage()
+  -> mutate usage and usage_counts
+  -> Storage.save_platform_task(...)
+  -> emit usage / violation events
+
+PlatformHarness.finish_task()
+  -> mutate status/error/finished_at
+  -> Storage.save_platform_task(...)
+  -> emit task terminal event
+
+PlatformHarness.get_task() / list_tasks()
+  -> prefer durable Storage query
+  -> hydrate PlatformTaskRecord from record_json
+```
+
+## 4. Implementation Plan
+
+1. Add `platform_harness_tasks` SQLite table:
+   - `id`
+   - `kind`
+   - `status`
+   - `owner_id`
+   - `resource_id`
+   - `parent_task_id`
+   - `record_json`
+   - `created_at`
+   - `updated_at`
+   - `finished_at`
+2. Add Storage methods:
+   - `save_platform_task(record: dict[str, Any])`
+   - `get_platform_task(task_id: str)`
+   - `list_platform_tasks(kind, status, owner_id, limit)`
+3. Update `PlatformHarness`:
+   - persist after every lifecycle mutation before event emission
+   - count active tasks from durable storage
+   - hydrate missing tasks from storage for `get_task`, `record_usage`, and `finish_task`
+4. Add regression coverage:
+   - create a benchmark task in one app instance
+   - recreate app with the same `data_dir`
+   - query the same task and list endpoint successfully
+5. Run verification:
+   - focused Platform Harness tests
+   - full backend pytest
+   - changed-file ruff
+
+## 5. Referenced Intellectual Assets
+
+- `docs/intellectual-assets/asset_platform_harness_task_monitor_boundary.md`
+- `docs/intellectual-assets/asset_harness_llm_composite.md`
+
+## 6. Risks
+
+- Active task limit can become conservative if a previous process crashed with records still marked `running`.
+- Persisting full `record_json` duplicates indexed columns, but keeps the API response shape stable and avoids lossy migrations.
+- This does not make execution itself durable; it only makes monitor records durable.
+
+## 7. Acceptance Criteria
+
+- Platform Harness task records survive service recreation.
+- Existing API response contracts are unchanged.
+- Usage counters and terminal status are persisted.
+- Tests cover persistence across two app instances.
+
+## 8. Implementation Result
+
+Status: implemented.
+
+Implemented modules:
+
+- `platform/backend/src/agent_platform/storage.py`
+- `platform/backend/src/agent_platform/platform_harness.py`
+- `tests/test_workflow.py`
+
+Verification:
+
+- Focused Platform Harness persistence tests passed: `4 passed, 1 warning`.
+- Full backend pytest passed: `58 passed, 1 warning`.
+- Changed-file ruff passed.
+- Compile check passed.
+
+Boundary:
+
+- This stage makes task monitor records durable.
+- It does not make workflow execution, retry, or queue recovery durable.
+- It does not yet implement account-level budget, secret policy, or network egress policy.

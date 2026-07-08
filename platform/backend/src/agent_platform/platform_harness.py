@@ -56,11 +56,12 @@ class PlatformTaskRecord(BaseModel):
 
 
 class PlatformHarness:
-    """In-process Platform Harness task monitor.
+    """Platform Harness task monitor with durable task records.
 
     This is intentionally small: it gives Lilies a hard platform-side task
-    boundary and resource counters without pretending to be a durable queue.
-    Every transition is also emitted to the event store for audit.
+    boundary and resource counters with durable monitor records, without
+    pretending to be a durable execution queue. Every transition is also
+    emitted to the event store for audit.
     """
 
     def __init__(
@@ -90,15 +91,25 @@ class PlatformHarness:
         parent_task_id: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> PlatformTaskRecord:
+        existing = await self._cached_or_persisted_task(task_id)
+        if existing:
+            should_emit = False
+            async with self._lock:
+                record = self._tasks[task_id]
+                if record.status == "paused":
+                    record.status = "running"
+                    record.updated_at = utc_now()
+                    record.finished_at = None
+                    should_emit = True
+            if should_emit:
+                await self._persist(record)
+                await self._emit(record, "platform_harness.task.started")
+            return record
+
+        active = await self.storage.count_platform_tasks(statuses={"queued", "running"})
         async with self._lock:
-            existing = self._tasks.get(task_id)
-            if existing:
-                if existing.status == "paused":
-                    existing.status = "running"
-                    existing.updated_at = utc_now()
-                    existing.finished_at = None
-                return existing
-            active = sum(1 for item in self._tasks.values() if item.status in {"queued", "running"})
+            if task_id in self._tasks:
+                return self._tasks[task_id]
             if active >= self.max_active_tasks:
                 raise PlatformHarnessViolation(
                     f"platform harness active task limit exceeded: {active} >= {self.max_active_tasks}"
@@ -113,6 +124,7 @@ class PlatformHarness:
                 metadata=metadata or {},
             )
             self._tasks[task_id] = record
+        await self._persist(record)
         await self._emit(record, "platform_harness.task.started")
         return record
 
@@ -124,6 +136,7 @@ class PlatformHarness:
         amount: int = 1,
         metadata: dict[str, Any] | None = None,
     ) -> PlatformUsageRecord:
+        await self._cached_or_persisted_task(task_id)
         async with self._lock:
             record = self._tasks.get(task_id)
             if record is None:
@@ -145,6 +158,7 @@ class PlatformHarness:
                 record.status = "failed"
                 record.error = violation
                 record.finished_at = record.updated_at
+        await self._persist(record)
         await self._emit(record, "platform_harness.usage.recorded", usage.model_dump(mode="json"))
         if violation:
             await self._emit(record, "platform_harness.violation", {"error": violation})
@@ -159,6 +173,7 @@ class PlatformHarness:
         error: str = "",
         metadata: dict[str, Any] | None = None,
     ) -> PlatformTaskRecord | None:
+        await self._cached_or_persisted_task(task_id)
         async with self._lock:
             record = self._tasks.get(task_id)
             if record is None:
@@ -169,15 +184,15 @@ class PlatformHarness:
             record.finished_at = record.updated_at
             if metadata:
                 record.metadata.update(metadata)
+        await self._persist(record)
         await self._emit(record, f"platform_harness.task.{status}")
         return record
 
     async def get_task(self, task_id: str) -> PlatformTaskRecord:
-        async with self._lock:
-            try:
-                return self._tasks[task_id].model_copy(deep=True)
-            except KeyError:
-                raise KeyError(f"platform task not found: {task_id}") from None
+        record = await self._cached_or_persisted_task(task_id)
+        if not record:
+            raise KeyError(f"platform task not found: {task_id}") from None
+        return record.model_copy(deep=True)
 
     async def list_tasks(
         self,
@@ -187,14 +202,16 @@ class PlatformHarness:
         owner_id: str | None = None,
         limit: int = 100,
     ) -> list[PlatformTaskRecord]:
+        rows = await self.storage.list_platform_tasks(
+            kind=kind,
+            status=status,
+            owner_id=owner_id,
+            limit=limit,
+        )
+        tasks = [PlatformTaskRecord.model_validate(item) for item in rows]
         async with self._lock:
-            tasks = list(self._tasks.values())
-        if kind:
-            tasks = [item for item in tasks if item.kind == kind]
-        if status:
-            tasks = [item for item in tasks if item.status == status]
-        if owner_id:
-            tasks = [item for item in tasks if item.owner_id == owner_id]
+            for task in tasks:
+                self._tasks.setdefault(task.id, task)
         tasks.sort(key=lambda item: item.created_at, reverse=True)
         return [item.model_copy(deep=True) for item in tasks[:limit]]
 
@@ -219,6 +236,22 @@ class PlatformHarness:
                 f"{counts['node_execution']} > {self.max_node_executions_per_task}"
             )
         return ""
+
+    async def _cached_or_persisted_task(self, task_id: str) -> PlatformTaskRecord | None:
+        async with self._lock:
+            record = self._tasks.get(task_id)
+            if record is not None:
+                return record
+        try:
+            data = await self.storage.get_platform_task(task_id)
+        except KeyError:
+            return None
+        record = PlatformTaskRecord.model_validate(data)
+        async with self._lock:
+            return self._tasks.setdefault(task_id, record)
+
+    async def _persist(self, record: PlatformTaskRecord) -> None:
+        await self.storage.save_platform_task(record.model_dump(mode="json"))
 
     async def _emit(
         self, record: PlatformTaskRecord, event_type: str, extra: dict[str, Any] | None = None

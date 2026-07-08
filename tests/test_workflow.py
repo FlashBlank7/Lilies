@@ -1048,6 +1048,67 @@ def test_builder_benchmark_suite_reports_aggregate_trends_and_harness_usage(tmp_
         assert task["usage_counts"]["node_execution"] == 2
 
 
+def test_platform_harness_tasks_persist_across_app_instances(tmp_path: Path) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+    )
+    reference = {
+        "nodes": [
+            {"id": "start", "type": "start", "title": "Start", "config": {"inputs": []}},
+            {"id": "end", "type": "end", "title": "End", "config": {"outputs": {"ok": True}}},
+        ],
+        "edges": [
+            {"id": "a", "source": "start", "target": "end", "source_port": "output", "target_port": "input"},
+        ],
+    }
+    suite = {
+        "name": "durable harness suite",
+        "minimum_score": 0.8,
+        "minimum_pass_rate": 1.0,
+        "cases": [
+            {
+                "name": "durable task",
+                "reference": reference,
+                "candidate": reference,
+            }
+        ],
+    }
+
+    app = create_app(settings, ScriptedProvider())
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/builder-benchmark/suites/evaluate",
+            headers=headers(),
+            json=suite,
+        )
+        assert response.status_code == 200, response.text
+        task_id = response.json()["task_id"]
+
+    restarted_app = create_app(settings, ScriptedProvider())
+    with TestClient(restarted_app) as client:
+        fetched = client.get(
+            f"/api/v1/platform/harness/tasks/{task_id}",
+            headers=headers(),
+        )
+        assert fetched.status_code == 200, fetched.text
+        task = fetched.json()
+        assert task["id"] == task_id
+        assert task["kind"] == "benchmark"
+        assert task["status"] == "succeeded"
+        assert task["owner_id"] == "builder-benchmark-suite"
+        assert task["metadata"]["case_count"] == 1
+        assert task["usage_counts"]["node_execution"] == 1
+
+        listed = client.get(
+            "/api/v1/platform/harness/tasks?kind=benchmark&owner_id=builder-benchmark-suite",
+            headers=headers(),
+        )
+        assert listed.status_code == 200, listed.text
+        assert any(item["id"] == task_id for item in listed.json())
+
+
 def test_builder_benchmark_treats_llm_as_model_turn_equivalent(tmp_path: Path) -> None:
     settings = Settings(
         api_token="workflow-test",
