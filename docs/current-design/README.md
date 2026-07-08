@@ -21,6 +21,7 @@
 - `design_builder_benchmark_history_v1.md`
 - `design_platform_harness_asset_update_v1.md`
 - `design_platform_harness_secret_policy_v1.md`
+- `design_platform_harness_network_egress_policy_v1.md`
 
 注意：design 只有在对应版本 state 或 stage report 明确出现，并标记最终状态后，才可以归档。没有明确版本状态时，应保留在本目录，或者先拒绝归档并补齐版本状态。
 
@@ -81,3 +82,7 @@ v0.2.14 对应的 design 已按版本归档到：
 v0.2.15 对应的 design 已按版本归档到：
 
 - `docs/historical-designs/v0.2.15_design_platform_harness_secret_policy_v1.md`
+
+v0.2.16 对应的 design 已按版本归档到：
+
+- `docs/historical-designs/v0.2.16_design_platform_harness_network_egress_policy_v1.md`

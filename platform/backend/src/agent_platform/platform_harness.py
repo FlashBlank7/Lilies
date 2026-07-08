@@ -88,6 +88,8 @@ class PlatformHarness:
         max_node_executions_per_owner: int = 0,
         stale_active_task_seconds: float = 0.0,
         secret_policy_enabled: bool = True,
+        network_egress_policy: str = "full",
+        network_egress_allowlist: list[str] | None = None,
     ) -> None:
         self.storage = storage
         self.max_active_tasks = max_active_tasks
@@ -99,6 +101,8 @@ class PlatformHarness:
         self.max_node_executions_per_owner = max_node_executions_per_owner
         self.stale_active_task_seconds = stale_active_task_seconds
         self.secret_policy_enabled = secret_policy_enabled
+        self.network_egress_policy = network_egress_policy
+        self.network_egress_allowlist = network_egress_allowlist or []
         self._tasks: dict[str, PlatformTaskRecord] = {}
         self._lock = asyncio.Lock()
 
@@ -343,6 +347,24 @@ class PlatformHarness:
                 if nested:
                     return nested
         return ""
+
+    def enforce_network_egress_policy(self, *, surface: str, hostname: str) -> None:
+        policy = self.network_egress_policy.casefold()
+        if policy == "full":
+            return
+        if policy == "none":
+            raise PlatformHarnessViolation(
+                f"network egress policy blocked {surface}: outbound network is disabled"
+            )
+        if policy != "allowlist":
+            raise PlatformHarnessViolation(f"unknown network egress policy: {self.network_egress_policy}")
+        normalized = hostname.casefold().rstrip(".")
+        allowed = [entry.casefold().rstrip(".") for entry in self.network_egress_allowlist]
+        if any(normalized == entry or normalized.endswith(f".{entry}") for entry in allowed):
+            return
+        raise PlatformHarnessViolation(
+            f"network egress policy blocked {surface}: host {hostname} is not allowlisted"
+        )
 
     async def _cached_or_persisted_task(self, task_id: str) -> PlatformTaskRecord | None:
         async with self._lock:

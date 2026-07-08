@@ -46,6 +46,8 @@ class Settings(BaseSettings):
     platform_harness_max_node_executions_per_owner: int = 0
     platform_harness_stale_active_task_seconds: float = 0.0
     platform_harness_secret_policy_enabled: bool = True
+    platform_harness_network_egress_policy: str = "full"
+    platform_harness_network_egress_allowlist: list[str] = Field(default_factory=list)
 
     def prepare(self) -> None:
         self.data_dir.mkdir(parents=True, exist_ok=True)

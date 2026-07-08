@@ -1659,6 +1659,10 @@ class WorkflowRuntime:
         except ValueError as error:
             if "rejects" in str(error):
                 raise
+        self.harness.enforce_network_egress_policy(
+            surface="http_request",
+            hostname=parsed.hostname,
+        )
         headers = {key: str(self._resolve(value, context)) for key, value in config.headers.items()}
         query = {key: self._resolve(value, context) for key, value in config.query.items()}
         body = self._resolve(config.body, context)
