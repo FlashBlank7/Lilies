@@ -1,6 +1,6 @@
 ---
 name: lilies-evolution-development
-description: Execute Lilies report-driven development workflows. Use when working in the Lilies repo on complex backend/platform/agent/workflow tasks, project evolution strategy, stage or phase planning, splitting a request into workingon plans and current-design documents, implementing those designs in code one by one, recording experiments or implementation evidence, deciding whether to continue the current design or move to the next design, waiting for user review before archiving, archiving workingon on request, running automatic evolution mode when the user asks to continue the next version or complete work and archive automatically, rolling docs only back to an earlier stage baseline, creating stage-reports or phase-reports, or screening intellectual-assets such as BlockFlow, Template, Harness, Platform Harness, and task monitor boundary conclusions.
+description: Execute Lilies report-driven development workflows. Use when working in the Lilies repo on complex backend/platform/agent/workflow tasks, project evolution strategy, stage or phase planning, splitting a request into workingon plans and current-design documents, implementing those designs in code one by one, recording experiments or implementation evidence, deciding whether to continue the current design or move to the next design, waiting for user review before archiving, archiving workingon on request, checking previous-stage design archives, recycling current-stage designs during every small-version archive, running automatic evolution mode when the user asks to continue the next version or complete work and archive automatically, rolling docs only back to an earlier stage baseline, creating stage-reports or phase-reports, or screening intellectual-assets such as BlockFlow, Template, Harness, Platform Harness, and task monitor boundary conclusions.
 ---
 
 # Lilies Evolution Development
@@ -45,19 +45,43 @@ In this mode:
 - write implementation evidence in `docs/workingon/implementation_<topic>.md`
 - run focused deterministic verification, and run bounded paid/live model tests when the change depends on model behavior, Builder quality, benchmark validity, workflow generation, or Platform Harness enforcement
 - archive the completed stage without waiting for a separate user "archive" request
+- before starting a new version, confirm the previous version's design files were archived into `docs/historical-designs/`; if not, repair that archive gap first
 - copy every stage design to `docs/historical-designs/v<version>_design_<topic>.md` after the stage report exists
+- during every small-version archive, recycle all current-stage designs into historical design records before the archive commit
 - create a git commit automatically after each completed stage
 - after a successful archive commit, immediately inspect the new stage report's next-stage task pool and continue the next version if the objective still calls for ongoing evolution
+
+#### Design Archive Gate
+
+Run this gate in Automatic Evolution Mode and in normal document-evolution development before starting a new stage and again before committing a stage archive.
+
+Before starting a new version:
+
+1. Identify the latest completed stage report and its version, such as `v0.2.9`.
+2. Check that every design referenced by that stage report, its workingon file, or its current-design links has a corresponding historical record in `docs/historical-designs/`.
+3. If a previous-stage design is missing, repair the historical design archive first. Do not begin the next version until the previous version's design archive is complete or the stage report explicitly marks the design as rejected/deferred with evidence.
+
+During each small-version archive:
+
+- collect every `docs/current-design/design_*.md` created, revised, implemented, deferred, or rejected for the completed version
+- write each historical design as `docs/historical-designs/v<version>_design_<topic>_v<n>.md`; do not use dates as the primary filename
+- record source stage, original design path, final status, implementation evidence, verification evidence, remaining risk, and whether the active design should remain in `docs/current-design/`
+- update `docs/current-design/README.md` and `docs/historical-designs/README.md` when their status inventory changes
+- include a `Historical Designs` or equivalent section in the stage report so the next run can audit completion quickly
+- refuse to archive or advance if the stage has no accepted version/state document yet
+
+Treat design recycling as part of the archive, not as optional cleanup. A stage archive is incomplete until its design contracts have been recovered into historical design records.
 
 #### Continuation Gate
 
 After every archive commit in Automatic Evolution Mode, run this gate before any final answer:
 
 1. Read the just-committed stage report's `Next-stage Tasks` and `Automatic Evolution Handoff`.
-2. Run `git log --oneline -3` and `git status --short` to confirm the commit and unrelated working tree noise.
-3. If the handoff says continue, or if any next-stage task is concrete and unblocked, do not send a final answer. Select the next version, create/update its `workingon` and `current-design`, and start implementation.
-4. A final answer is allowed only when the user explicitly pauses/stops, no meaningful next task exists, or a real blocker from the hard-boundary list below is present.
-5. If context pressure, long runtime, or fatigue is the only reason to stop, treat that as a process failure. Instead shrink the next stage, commit a small safe slice, and continue. Do not declare the objective complete.
+2. Run the Design Archive Gate against the just-completed version and repair any missing historical design records before selecting the next version.
+3. Run `git log --oneline -3` and `git status --short` to confirm the commit and unrelated working tree noise.
+4. If the handoff says continue, or if any next-stage task is concrete and unblocked, do not send a final answer. Select the next version, create/update its `workingon` and `current-design`, and start implementation.
+5. A final answer is allowed only when the user explicitly pauses/stops, no meaningful next task exists, or a real blocker from the hard-boundary list below is present.
+6. If context pressure, long runtime, or fatigue is the only reason to stop, treat that as a process failure. Instead shrink the next stage, commit a small safe slice, and continue. Do not declare the objective complete.
 
 Use this quick test before finalizing: "Could I name the next version and first workingon file from the latest stage report?" If yes, keep going.
 
@@ -165,12 +189,14 @@ Also archive every relevant design contract from the completed stage into histor
 
 - create `docs/historical-designs/` if it does not exist
 - copy or consolidate every implemented, revised, deferred, or rejected `docs/current-design/design_*.md` that belonged to the stage
+- before archiving the current stage, audit the previous stage's historical design records; if the previous stage is incomplete, repair that archive first
 - archive design files only after the corresponding stage/version state exists in a stage report or equivalent accepted version-state document
 - if a user asks to archive design files before the corresponding version state exists, refuse the design archive first and ask to create or confirm the version state
 - name historical designs with an explicit version or stage marker, for example `v0.2.3_design_platform_harness_task_monitor_v1.md`
 - do not use dates as the primary historical design filename; dates may appear inside the file metadata, but the filename must be version/state based
 - never overwrite an earlier historical design version; preserve design evolution across stages
 - record source stage, original design path, final status, implementation evidence, verification, and remaining risk
+- every small-version completion, for example `v0.2.9`, must recover the designs that define that version into `docs/historical-designs/` before the archive commit
 - keep `docs/current-design/` as the active design workspace; clear or replace active designs only when the user explicitly requests cleanup or the next stage requires it
 
 Do not delete `workingon` files during archive unless the user asks for cleanup.
