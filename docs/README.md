@@ -21,6 +21,16 @@
 
 - `stage-reports/V1.1_docs_consolidation_and_asset_baseline.md`
 
+## 当前 workingon
+
+- `workingon/plan_apply_lilies_design_notes_2026_07_08.md`：当前 stage 主计划和状态表。
+- `workingon/question_log_lilies_backend_design_2026_07_08.md`：机制问题回答。
+- `workingon/experiment_backlog_lilies_design_notes_2026_07_08.md`：实验 backlog 和 `.docx` 报告规则。
+
+## 当前具体设计
+
+- 具体状态见 `current-design/README.md`。
+
 ## 使用原则
 
 新任务先进入未来的 `workingon/` task plan；需要审阅的实现细节进入未来的 `current-design/`；阶段结束后归档到 `stage-reports/`；只有经过筛选的复杂结论才进入 `intellectual-assets/`。
