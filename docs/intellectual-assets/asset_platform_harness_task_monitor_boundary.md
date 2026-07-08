@@ -10,9 +10,18 @@ Lilies 需要把所有“会消耗资源、可能长时间运行、可能递归�
 - 平台外的 Platform Harness 才负责硬约束：任务登记、预算封顶、取消、超时、重试上限、并发限制、审计、状态恢复和异常收敛。
 - 发布门禁 `tested_hash == content_hash` 是可靠性边界的一部分，它防止未经重新测试的草稿被发布。
 
+截至 `v0.2.13`，Lilies 的 Platform Harness 已形成一个最小 durable monitor baseline：
+
+- task records 持久化到 `Storage`，可在 app/service recreation 后查询。
+- owner-level budgets 可以跨 task 汇总 usage，防止通过拆分任务绕开 per-task budget。
+- stale active task reconciliation 可以把过旧 `queued` / `running` task terminalize，避免永久占用 active slots。
+- Builder benchmark history 可以直接从 durable benchmark task records 查询。
+
+这个 baseline 仍不是 durable execution：它能让任务边界、预算和历史记录可恢复，但不能恢复崩溃中的执行栈、worker lease 或未完成节点。
+
 ## 2. 获得成本
 
-这个结论来自后端核心技术报告、早期 Schedule Trigger token 消耗复盘、Harness 设计推演和当前运行时代码边界梳理。它不是普通“加个限流”的建议，而是 Lilies 从原型走向可控开发的核心治理原则。
+这个结论来自后端核心技术报告、早期 Schedule Trigger token 消耗复盘、Harness 设计推演、当前运行时代码边界梳理，以及 `v0.2.10`-`v0.2.13` 的连续 Platform Harness 工程化阶段。它不是普通“加个限流”的建议，而是 Lilies 从原型走向可控开发的核心治理原则。
 
 ## 3. 证据链
 
@@ -20,9 +29,15 @@ Lilies 需要把所有“会消耗资源、可能长时间运行、可能递归�
 - `docs/source-materials/2026-07_initial_architecture_research/DESIGN_RATIONALE.md`
 - `docs/source-materials/2026-07_initial_architecture_research/MEETING_RESPONSE.md`
 - `docs/source-materials/2026-07_initial_architecture_research/BUSINESS_LOGIC.md`
+- `docs/stage-reports/v0.2.10_platform_harness_durable_storage.md`
+- `docs/stage-reports/v0.2.11_platform_harness_owner_budget.md`
+- `docs/stage-reports/v0.2.12_platform_harness_stale_task_reconciliation.md`
+- `docs/stage-reports/v0.2.13_builder_benchmark_history.md`
 
 主要代码锚点：
 
+- `platform/backend/src/agent_platform/platform_harness.py`
+- `platform/backend/src/agent_platform/storage.py`
 - `platform/backend/src/agent_platform/builder.py`
 - `platform/backend/src/agent_platform/workflow_runtime.py`
 - `platform/backend/src/agent_platform/runtime.py`

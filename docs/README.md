@@ -33,6 +33,7 @@
 - `stage-reports/v0.2.11_platform_harness_owner_budget.md`
 - `stage-reports/v0.2.12_platform_harness_stale_task_reconciliation.md`
 - `stage-reports/v0.2.13_builder_benchmark_history.md`
+- `stage-reports/v0.2.14_platform_harness_asset_update.md`
 
 ## 使用原则
 
