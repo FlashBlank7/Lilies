@@ -379,6 +379,20 @@ class Storage:
             ).fetchone()
         return int(row["count"]) if row else 0
 
+    async def sum_platform_usage_count(self, *, owner_id: str, usage_type: str) -> int:
+        return await asyncio.to_thread(self._sum_platform_usage_count_sync, owner_id, usage_type)
+
+    def _sum_platform_usage_count_sync(self, owner_id: str, usage_type: str) -> int:
+        rows = self._get_all(
+            "SELECT record_json FROM platform_harness_tasks WHERE owner_id=?",
+            (owner_id,),
+        )
+        total = 0
+        for row in rows:
+            record = json.loads(row["record_json"])
+            total += int(record.get("usage_counts", {}).get(usage_type, 0))
+        return total
+
     async def append_event(self, stream_id: str, event_type: str, data: dict[str, Any]) -> EventRecord:
         async with self._lock:
             event = await asyncio.to_thread(self._append_event_sync, stream_id, event_type, data)

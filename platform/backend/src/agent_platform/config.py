@@ -41,6 +41,9 @@ class Settings(BaseSettings):
     platform_harness_max_model_calls_per_task: int = 100
     platform_harness_max_tool_calls_per_task: int = 200
     platform_harness_max_node_executions_per_task: int = 1000
+    platform_harness_max_model_calls_per_owner: int = 0
+    platform_harness_max_tool_calls_per_owner: int = 0
+    platform_harness_max_node_executions_per_owner: int = 0
 
     def prepare(self) -> None:
         self.data_dir.mkdir(parents=True, exist_ok=True)

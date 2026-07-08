@@ -20,6 +20,8 @@
 - `work_benchmark_node_type_equivalence_2026_07_09.md`
 - `work_platform_harness_durable_storage_2026_07_09.md`
 - `implementation_platform_harness_durable_storage_2026_07_09.md`
+- `work_platform_harness_owner_budget_2026_07_09.md`
+- `implementation_platform_harness_owner_budget_2026_07_09.md`
 - `experiment_paid_builder_benchmark_result_2026_07_09.json`
 - `experiment_builder_test_self_consistency_rerun_2026_07_09.json`
 - `experiment_benchmark_node_type_equivalence_recheck_2026_07_09.json`
@@ -36,3 +38,4 @@
 - `work_paid_builder_benchmark_rerun_2026_07_09.md` 已归档到 `../stage-reports/v0.2.8_paid_builder_benchmark_rerun.md`，中间文件和 DOCX 实验报告按规范保留。
 - `work_benchmark_node_type_equivalence_2026_07_09.md` 已归档到 `../stage-reports/v0.2.9_benchmark_node_type_equivalence.md`，中间文件和 DOCX 实验报告按规范保留。
 - `work_platform_harness_durable_storage_2026_07_09.md` 已归档到 `../stage-reports/v0.2.10_platform_harness_durable_storage.md`，中间文件按规范保留。
+- `work_platform_harness_owner_budget_2026_07_09.md` 已归档到 `../stage-reports/v0.2.11_platform_harness_owner_budget.md`，中间文件按规范保留。

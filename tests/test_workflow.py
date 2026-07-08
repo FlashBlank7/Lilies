@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, AsyncIterator
 from uuid import uuid4
 
+import pytest
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
@@ -18,8 +19,10 @@ from agent_platform.api import create_app
 from agent_platform.blocks import build_block_registry
 from agent_platform.config import Settings
 from agent_platform.models import ChatMessage, StreamEvent, ToolDefinition
+from agent_platform.platform_harness import PlatformHarness, PlatformHarnessViolation
 from agent_platform.providers.base import ModelProvider, ProviderCapabilities
 from agent_platform.sandbox import CommandResult
+from agent_platform.storage import Storage
 from agent_platform.tools import Tool, ToolContext, ToolResult
 from agent_platform.workflow_runtime import WorkflowRuntime
 from tests.test_runtime import ScriptedProvider
@@ -1107,6 +1110,53 @@ def test_platform_harness_tasks_persist_across_app_instances(tmp_path: Path) -> 
         )
         assert listed.status_code == 200, listed.text
         assert any(item["id"] == task_id for item in listed.json())
+
+
+def test_platform_harness_owner_budget_blocks_cross_task_usage(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        storage = Storage(data_dir)
+        await storage.initialize()
+        harness = PlatformHarness(
+            storage=storage,
+            max_model_calls_per_owner=1,
+        )
+
+        await harness.start_task(
+            "owner-budget-1",
+            kind="benchmark",
+            owner_id="owner-a",
+            resource_id="case-1",
+        )
+        await harness.record_usage("owner-budget-1", "model_call")
+        await harness.finish_task("owner-budget-1", status="succeeded")
+
+        await harness.start_task(
+            "owner-budget-2",
+            kind="benchmark",
+            owner_id="owner-a",
+            resource_id="case-2",
+        )
+        with pytest.raises(PlatformHarnessViolation, match="owner model call budget exceeded"):
+            await harness.record_usage("owner-budget-2", "model_call")
+
+        failed = await harness.get_task("owner-budget-2")
+        assert failed.status == "failed"
+        assert failed.usage_counts["model_call"] == 1
+        assert "owner model call budget exceeded" in failed.error
+
+        restarted_storage = Storage(data_dir)
+        await restarted_storage.initialize()
+        restarted = PlatformHarness(
+            storage=restarted_storage,
+            max_model_calls_per_owner=1,
+        )
+        persisted = await restarted.get_task("owner-budget-2")
+        assert persisted.status == "failed"
+        assert persisted.error == failed.error
+
+    asyncio.run(scenario())
 
 
 def test_builder_benchmark_treats_llm_as_model_turn_equivalent(tmp_path: Path) -> None:

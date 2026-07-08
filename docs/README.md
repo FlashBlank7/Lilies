@@ -30,6 +30,7 @@
 - `stage-reports/v0.2.8_paid_builder_benchmark_rerun.md`
 - `stage-reports/v0.2.9_benchmark_node_type_equivalence.md`
 - `stage-reports/v0.2.10_platform_harness_durable_storage.md`
+- `stage-reports/v0.2.11_platform_harness_owner_budget.md`
 
 ## 使用原则
 

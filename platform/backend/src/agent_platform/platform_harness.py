@@ -72,12 +72,18 @@ class PlatformHarness:
         max_model_calls_per_task: int = 100,
         max_tool_calls_per_task: int = 200,
         max_node_executions_per_task: int = 1000,
+        max_model_calls_per_owner: int = 0,
+        max_tool_calls_per_owner: int = 0,
+        max_node_executions_per_owner: int = 0,
     ) -> None:
         self.storage = storage
         self.max_active_tasks = max_active_tasks
         self.max_model_calls_per_task = max_model_calls_per_task
         self.max_tool_calls_per_task = max_tool_calls_per_task
         self.max_node_executions_per_task = max_node_executions_per_task
+        self.max_model_calls_per_owner = max_model_calls_per_owner
+        self.max_tool_calls_per_owner = max_tool_calls_per_owner
+        self.max_node_executions_per_owner = max_node_executions_per_owner
         self._tasks: dict[str, PlatformTaskRecord] = {}
         self._lock = asyncio.Lock()
 
@@ -145,6 +151,18 @@ class PlatformHarness:
                 raise PlatformHarnessViolation(
                     f"platform task is not running: {task_id} status={record.status}"
                 )
+            owner_id = record.owner_id
+
+        owner_violation = await self._owner_violation(owner_id, usage_type, amount)
+
+        async with self._lock:
+            record = self._tasks.get(task_id)
+            if record is None:
+                raise PlatformHarnessViolation(f"platform task not registered: {task_id}")
+            if record.status not in {"queued", "running"}:
+                raise PlatformHarnessViolation(
+                    f"platform task is not running: {task_id} status={record.status}"
+                )
             usage = PlatformUsageRecord(
                 usage_type=usage_type,
                 amount=amount,
@@ -153,7 +171,7 @@ class PlatformHarness:
             record.usage.append(usage)
             record.usage_counts[usage_type] = record.usage_counts.get(usage_type, 0) + amount
             record.updated_at = utc_now()
-            violation = self._violation(record, usage_type)
+            violation = self._violation(record, usage_type) or owner_violation
             if violation:
                 record.status = "failed"
                 record.error = violation
@@ -236,6 +254,33 @@ class PlatformHarness:
                 f"{counts['node_execution']} > {self.max_node_executions_per_task}"
             )
         return ""
+
+    async def _owner_violation(self, owner_id: str, usage_type: UsageType, amount: int) -> str:
+        limit = self._owner_limit(usage_type)
+        if limit <= 0:
+            return ""
+        used = await self.storage.sum_platform_usage_count(
+            owner_id=owner_id,
+            usage_type=usage_type,
+        )
+        total = used + amount
+        if total <= limit:
+            return ""
+        label = {
+            "model_call": "model call",
+            "tool_call": "tool call",
+            "node_execution": "node execution",
+        }.get(usage_type, usage_type.replace("_", " "))
+        return f"owner {label} budget exceeded: {total} > {limit}"
+
+    def _owner_limit(self, usage_type: UsageType) -> int:
+        if usage_type == "model_call":
+            return self.max_model_calls_per_owner
+        if usage_type == "tool_call":
+            return self.max_tool_calls_per_owner
+        if usage_type == "node_execution":
+            return self.max_node_executions_per_owner
+        return 0
 
     async def _cached_or_persisted_task(self, task_id: str) -> PlatformTaskRecord | None:
         async with self._lock:
