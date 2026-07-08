@@ -26,6 +26,46 @@ class BuilderBenchmarkReport(BaseModel):
     missing: dict[str, list[str]]
 
 
+class BuilderBenchmarkCostRecord(BaseModel):
+    model_calls: int = Field(default=0, ge=0)
+    tool_calls: int = Field(default=0, ge=0)
+    estimated_cost_usd: float | None = Field(default=None, ge=0)
+    provider: str = ""
+    model: str = ""
+    notes: str = ""
+
+
+class BuilderBenchmarkTrend(BaseModel):
+    name: str
+    score: float
+    baseline_score: float | None = None
+    delta: float | None = None
+    direction: str = "new"
+
+
+class BuilderBenchmarkSuiteCase(BaseModel):
+    name: str
+    description: str = ""
+    cases: list[BuilderBenchmarkCase] = Field(default_factory=list, min_length=1)
+    minimum_score: float = Field(default=0.8, ge=0, le=1)
+    minimum_pass_rate: float = Field(default=1.0, ge=0, le=1)
+    baseline_scores: dict[str, float] = Field(default_factory=dict)
+    cost: BuilderBenchmarkCostRecord = Field(default_factory=BuilderBenchmarkCostRecord)
+
+
+class BuilderBenchmarkSuiteReport(BaseModel):
+    name: str
+    passed: bool
+    score: float
+    pass_rate: float
+    case_count: int
+    failed_cases: list[str]
+    reports: list[BuilderBenchmarkReport]
+    metrics: dict[str, Any]
+    trends: list[BuilderBenchmarkTrend]
+    cost: BuilderBenchmarkCostRecord
+
+
 class BuilderBenchmark:
     def evaluate(self, case: BuilderBenchmarkCase) -> BuilderBenchmarkReport:
         candidate_types = [node.type for node in case.candidate.nodes]
@@ -91,3 +131,62 @@ class BuilderBenchmark:
             missing=missing,
         )
 
+    def evaluate_suite(self, suite: BuilderBenchmarkSuiteCase) -> BuilderBenchmarkSuiteReport:
+        reports = [self.evaluate(case) for case in suite.cases]
+        case_count = len(reports)
+        score = round(sum(report.score for report in reports) / max(case_count, 1), 3)
+        passed_cases = [report for report in reports if report.passed]
+        pass_rate = round(len(passed_cases) / max(case_count, 1), 3)
+        failed_cases = [report.name for report in reports if not report.passed]
+        trends = [
+            self._trend_for(report, suite.baseline_scores.get(report.name))
+            for report in reports
+        ]
+        metric_keys = sorted({key for report in reports for key in report.metrics})
+        averages = {
+            key: round(
+                sum(float(report.metrics.get(key, 0)) for report in reports)
+                / max(case_count, 1),
+                3,
+            )
+            for key in metric_keys
+            if all(isinstance(report.metrics.get(key, 0), int | float) for report in reports)
+        }
+        return BuilderBenchmarkSuiteReport(
+            name=suite.name,
+            passed=score >= suite.minimum_score and pass_rate >= suite.minimum_pass_rate,
+            score=score,
+            pass_rate=pass_rate,
+            case_count=case_count,
+            failed_cases=failed_cases,
+            reports=reports,
+            metrics={
+                "average": averages,
+                "minimum_score": suite.minimum_score,
+                "minimum_pass_rate": suite.minimum_pass_rate,
+            },
+            trends=trends,
+            cost=suite.cost,
+        )
+
+    def _trend_for(
+        self,
+        report: BuilderBenchmarkReport,
+        baseline_score: float | None,
+    ) -> BuilderBenchmarkTrend:
+        if baseline_score is None:
+            return BuilderBenchmarkTrend(name=report.name, score=report.score)
+        delta = round(report.score - baseline_score, 3)
+        if delta > 0:
+            direction = "improved"
+        elif delta < 0:
+            direction = "regressed"
+        else:
+            direction = "unchanged"
+        return BuilderBenchmarkTrend(
+            name=report.name,
+            score=report.score,
+            baseline_score=baseline_score,
+            delta=delta,
+            direction=direction,
+        )

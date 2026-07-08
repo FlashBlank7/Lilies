@@ -22,6 +22,9 @@
 
 - `stage-reports/v0.2.1_docs_consolidation_and_asset_baseline.md`
 - `stage-reports/v0.2.2_apply_lilies_inspiration_notes.md`
+- `stage-reports/v0.2.3_platform_harness_and_development_roadmap.md`
+- `stage-reports/v0.2.4_platform_harness_observability_ui.md`
+- `stage-reports/v0.2.5_builder_benchmark_suite.md`
 
 ## 使用原则
 

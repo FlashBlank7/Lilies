@@ -879,6 +879,107 @@ def test_builder_benchmark_reports_missing_harness_nodes(tmp_path: Path) -> None
         assert task["kind"] == "benchmark"
 
 
+def test_builder_benchmark_suite_reports_aggregate_trends_and_harness_usage(tmp_path: Path) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+    )
+    app = create_app(settings, ScriptedProvider())
+    reference = {
+        "nodes": [
+            {"id": "start", "type": "start", "title": "Start", "config": {"inputs": []}},
+            {"id": "permission", "type": "permission_gate", "title": "Permission", "config": {
+                "input": {"$ref": {"node_id": "start", "path": ["output"]}},
+                "settings": {"auto_approve": True},
+            }},
+            {"id": "end", "type": "end", "title": "End", "config": {
+                "outputs": {"ok": {"$ref": {"node_id": "permission", "path": ["output"]}}},
+            }},
+        ],
+        "edges": [
+            {"id": "a", "source": "start", "target": "permission", "source_port": "output", "target_port": "input"},
+            {"id": "b", "source": "permission", "target": "end", "source_port": "output", "target_port": "input"},
+        ],
+    }
+    missing_harness_candidate = {
+        "nodes": [
+            {"id": "start", "type": "start", "title": "Start", "config": {"inputs": []}},
+            {"id": "end", "type": "end", "title": "End", "config": {"outputs": {"ok": True}}},
+        ],
+        "edges": [
+            {"id": "a", "source": "start", "target": "end", "source_port": "output", "target_port": "input"},
+        ],
+    }
+    case_base = {
+        "reference": reference,
+        "required_harness_nodes": ["permission_gate"],
+        "tests": [
+            {
+                "name": "Permission gate is auditable",
+                "requirement": "The workflow exposes permission control.",
+                "frame": {
+                    "title": "Harness coverage",
+                    "category": "safety",
+                    "purpose": "Show that a reviewer can inspect permission control.",
+                },
+            }
+        ],
+    }
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/builder-benchmark/suites/evaluate",
+            headers=headers(),
+            json={
+                "name": "harness suite",
+                "minimum_score": 0.8,
+                "minimum_pass_rate": 0.75,
+                "baseline_scores": {
+                    "complete harness": 0.9,
+                    "missing harness": 0.7,
+                },
+                "cost": {
+                    "model_calls": 0,
+                    "tool_calls": 0,
+                    "estimated_cost_usd": 0,
+                    "notes": "deterministic suite smoke",
+                },
+                "cases": [
+                    {
+                        **case_base,
+                        "name": "complete harness",
+                        "candidate": reference,
+                    },
+                    {
+                        **case_base,
+                        "name": "missing harness",
+                        "candidate": missing_harness_candidate,
+                    },
+                ],
+            },
+        )
+        assert response.status_code == 200, response.text
+        body = response.json()
+        report = body["report"]
+        assert report["passed"] is False
+        assert report["case_count"] == 2
+        assert report["pass_rate"] == 0.5
+        assert report["failed_cases"] == ["missing harness"]
+        trends = {item["name"]: item for item in report["trends"]}
+        assert trends["complete harness"]["direction"] == "improved"
+        assert trends["missing harness"]["direction"] == "regressed"
+        assert report["cost"]["notes"] == "deterministic suite smoke"
+
+        task = client.get(
+            f"/api/v1/platform/harness/tasks/{body['task_id']}",
+            headers=headers(),
+        ).json()
+        assert task["kind"] == "benchmark"
+        assert task["owner_id"] == "builder-benchmark-suite"
+        assert task["metadata"]["case_count"] == 2
+        assert task["usage_counts"]["node_execution"] == 2
+
+
 def test_natural_language_draft_patch_preview_is_non_destructive(tmp_path: Path) -> None:
     settings = Settings(
         api_token="workflow-test",

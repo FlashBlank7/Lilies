@@ -8,6 +8,7 @@
 
 - `design_platform_harness_task_monitor_v1.md`
 - `design_builder_benchmark_v1.md`
+- `design_builder_benchmark_suite_v1.md`
 - `design_natural_language_draft_patch_preview.md`
 - `design_platform_harness_observability_ui_v1.md`
 
@@ -26,3 +27,7 @@ v0.2.3 对应的 design 已按版本归档到：
 v0.2.4 对应的 design 已按版本归档到：
 
 - `docs/historical-designs/v0.2.4_design_platform_harness_observability_ui_v1.md`
+
+v0.2.5 对应的 design 已按版本归档到：
+
+- `docs/historical-designs/v0.2.5_design_builder_benchmark_suite_v1.md`

@@ -17,7 +17,7 @@ from .config import Settings, get_settings
 from .applications import ApplicationService
 from .blocks import BlockRegistry, build_block_registry
 from .builder import WorkflowBuilder
-from .builder_benchmark import BuilderBenchmark, BuilderBenchmarkCase
+from .builder_benchmark import BuilderBenchmark, BuilderBenchmarkCase, BuilderBenchmarkSuiteCase
 from .factory import AgentFactory
 from .draft_patch_preview import DraftPatchPreviewer, DraftPatchPreviewRequest
 from .models import (
@@ -262,6 +262,46 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                 task_id,
                 status="succeeded" if report.passed else "failed",
                 metadata={"score": report.score},
+            )
+            return {"task_id": task_id, "report": report.model_dump(mode="json")}
+        except Exception as error:
+            await services.harness.finish_task(task_id, status="failed", error=str(error))
+            raise
+
+    @app.post("/api/v1/builder-benchmark/suites/evaluate", dependencies=[Depends(require_token)])
+    async def evaluate_builder_benchmark_suite(body: BuilderBenchmarkSuiteCase) -> dict[str, Any]:
+        task_id = str(uuid4())
+        await services.harness.start_task(
+            task_id,
+            kind="benchmark",
+            owner_id="builder-benchmark-suite",
+            resource_id=body.name,
+            metadata={
+                "suite": body.name,
+                "case_count": len(body.cases),
+                "minimum_score": body.minimum_score,
+                "minimum_pass_rate": body.minimum_pass_rate,
+            },
+        )
+        try:
+            await services.harness.record_usage(
+                task_id,
+                "node_execution",
+                amount=max(1, len(body.cases)),
+                metadata={
+                    "operation": "builder_benchmark_suite",
+                    "case_count": len(body.cases),
+                },
+            )
+            report = services.benchmark.evaluate_suite(body)
+            await services.harness.finish_task(
+                task_id,
+                status="succeeded" if report.passed else "failed",
+                metadata={
+                    "score": report.score,
+                    "pass_rate": report.pass_rate,
+                    "failed_cases": report.failed_cases,
+                },
             )
             return {"task_id": task_id, "report": report.model_dump(mode="json")}
         except Exception as error:
