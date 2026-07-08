@@ -218,7 +218,7 @@ And GET /draft 的 edges 不包含该边
 如果启动、调试或编辑方法发生变化，必须同步更新：
 
 1. `README.md`：复制即可运行的启动/验证命令。
-2. `docs/MANUAL_EDITOR_TEST_PLAN.md`：新增 bug 的复现、验收和回归场景。
+2. `docs/source-materials/2026-07_initial_architecture_research/MANUAL_EDITOR_TEST_PLAN.md`：新增 bug 的复现、验收和回归场景。
 3. `PRELOAD_PROMPTS.md`：把本次 debug 方法论沉淀为后续预加载 prompt。
 
 这条规则是为了避免“代码修好了，但下一轮 agent 又按旧方法启动/调试”的问题。
