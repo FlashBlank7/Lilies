@@ -1,1 +1,515 @@
-{"meta":{"name":"app_automation_workflow","title":"App 自动化决策流程","description":"从钉钉打卡自动化中提取的通用决策模式。任何'自动操作App X'的任务都应走这个流程：先检查API可用性→无API则检查急速模式→仍不行则模拟点击→都不行则人工介入。避免在错误方向上探索。","category":"task_management","icon":"workflow","tags":["automation","decision-tree","app","android"],"expected_inputs":{"app_name":"string","task_description":"string"},"expected_outputs":{"solution_type":"string","deliverable":"string"},"author":"platform","version":1,"min_blocks_required":["llm","if_else","template_transform"]},"workflow":{"nodes":[{"id":"start","type":"start","title":"自动化需求","config":{"inputs":[{"name":"app_name","label":"App名称","type":"string"},{"name":"task_description","label":"任务描述","type":"string"}]}},{"id":"api_check","type":"llm","title":"检查 API 可用性","config":{"system":"Check if the app has a public API for the task. Search for: official API docs, developer platform, third-party integrations. Answer YES, NO, or LIMITED with explanation.","prompt":"App: {{ app_name }}\nTask: {{ task_description }}\n\nDoes this app have a public API that can accomplish this task? Answer with analysis.","variables":{"app_name":{"$ref":{"node_id":"start","path":["app_name"]}},"task_description":{"$ref":{"node_id":"start","path":["task_description"]}}}}},{"id":"api_router","type":"if_else","title":"API 可用?","config":{"cases":[{"id":"yes","conditions":[{"value":{"$ref":{"node_id":"api_check","path":["text"]}},"operator":"contains","expected":"YES"}],"logical_operator":"and"},{"id":"limited","conditions":[{"value":{"$ref":{"node_id":"api_check","path":["text"]}},"operator":"contains","expected":"LIMITED"}],"logical_operator":"and"}],"default_branch":"no"}},{"id":"use_api","type":"template_transform","title":"方案A: API 直接调用","config":{"template":"# 方案A: 使用官方 API\n\n## 可行性分析\n{{ analysis }}\n\n## 实现方式\n1. 获取 API 凭证 (AppKey/AppSecret)\n2. 通过 HTTP Request 积木调用\n3. 配置 schedule_trigger 定时触发\n\n## Lilies 工作流\n使用 http_request + schedule_trigger 积木即可完成。","variables":{"analysis":{"$ref":{"node_id":"api_check","path":["text"]}}}}},{"id":"quick_mode_check","type":"llm","title":"检查急速/自动模式","config":{"system":"Check if the app has a quick/auto mode (急速打卡, 自动签到, etc.) that triggers automatically when the app is opened. Search the app's settings or online docs. Answer YES or NO.","prompt":"App: {{ app_name }}\n\nDoes this app have a 'quick mode' or 'auto mode' that triggers just by opening the app?\nFor example: DingTalk quick punch (急速打卡), WeChat auto sign-in, etc.\nAnswer YES or NO with explanation.","variables":{"app_name":{"$ref":{"node_id":"start","path":["app_name"]}}}}},{"id":"quick_router","type":"if_else","title":"急速模式?","config":{"cases":[{"id":"yes","conditions":[{"value":{"$ref":{"node_id":"quick_mode_check","path":["text"]}},"operator":"contains","expected":"YES"}],"logical_operator":"and"}],"default_branch":"no"}},{"id":"use_quick_mode","type":"template_transform","title":"方案B: 急速模式 + 启动App","config":{"template":"# 方案B: 急速模式 (推荐)\n\n{{ analysis }}\n\n## 实现方式\n仅需: 定时启动 App → App 自动完成操作\n- Android: Termux + crontab + am start\n- 无需 API、无需坐标、无需点击\n\n## 复杂度: 极低\n一个 50 行 shell 脚本即可完成。","variables":{"analysis":{"$ref":{"node_id":"quick_mode_check","path":["text"]}}}}},{"id":"click_check","type":"llm","title":"检查模拟点击可行性","config":{"system":"Evaluate if the task can be done via simulated taps. Consider: screen coordinates stability, UI changes, anti-automation detection. Answer FEASIBLE or NOT_FEASIBLE.","prompt":"App: {{ app_name }}\nTask: {{ task_description }}\n\nCan this be done via simulated screen taps (input tap)?\nConsider coordinate stability, app updates, detection risk.","variables":{"app_name":{"$ref":{"node_id":"start","path":["app_name"]}},"task_description":{"$ref":{"node_id":"start","path":["task_description"]}}}}},{"id":"click_router","type":"if_else","title":"点击可行?","config":{"cases":[{"id":"yes","conditions":[{"value":{"$ref":{"node_id":"click_check","path":["text"]}},"operator":"contains","expected":"FEASIBLE"}],"logical_operator":"and"}],"default_branch":"no"}},{"id":"use_clicks","type":"template_transform","title":"方案C: 模拟点击","config":{"template":"# 方案C: 模拟点击 (备选)\n\n{{ analysis }}\n\n## 注意\n- 坐标需校准\n- App 更新可能改变 UI 布局\n- 钉钉/企业微信等有反自动化检测\n\n## 实现方式\n- Android: Termux + input tap\n- 需记录屏幕坐标","variables":{"analysis":{"$ref":{"node_id":"click_check","path":["text"]}}}}},{"id":"fallback","type":"template_transform","title":"方案D: 人工/待定","config":{"template":"# 无法自动化\n\n{{ analysis }}\n\n该 App 的「{{ task }}」目前无法可靠地自动化。\n建议: 设置定时提醒，人工完成。\n\n等待 App 开放 API 或增加自动模式后再尝试。","variables":{"analysis":{"$ref":{"node_id":"click_check","path":["text"]}},"task":{"$ref":{"node_id":"start","path":["task_description"]}}}}},{"id":"end","type":"end","title":"方案输出","config":{"outputs":{"solution_type":{"$ref":{"node_id":"agg","path":["output","branch"]}},"deliverable":{"$ref":{"node_id":"agg","path":["output"]}}}},"position":{"x":2080,"y":0}},{"id":"agg","type":"variable_aggregator","title":"聚合结果","config":{"variables":[{"$ref":{"node_id":"use_api","path":["text"],"optional":true}},{"$ref":{"node_id":"use_quick_mode","path":["text"],"optional":true}},{"$ref":{"node_id":"use_clicks","path":["text"],"optional":true}},{"$ref":{"node_id":"fallback","path":["text"],"optional":true}}],"mode":"first_non_null"},"position":{"x":1820,"y":0}}],"edges":[{"id":"e1","source":"start","target":"api_check","source_port":"output","target_port":"input"},{"id":"e2","source":"api_check","target":"api_router","source_port":"text","target_port":"input"},{"id":"e3","source":"api_router","target":"use_api","source_port":"branch","target_port":"input","branch":"yes"},{"id":"e4","source":"api_router","target":"use_api","source_port":"branch","target_port":"input","branch":"limited"},{"id":"e5","source":"api_router","target":"quick_mode_check","source_port":"branch","target_port":"input","branch":"no"},{"id":"e6","source":"use_api","target":"end","source_port":"text","target_port":"input"},{"id":"e7","source":"quick_mode_check","target":"quick_router","source_port":"text","target_port":"input"},{"id":"e8","source":"quick_router","target":"use_quick_mode","source_port":"branch","target_port":"input","branch":"yes"},{"id":"e9","source":"quick_router","target":"click_check","source_port":"branch","target_port":"input","branch":"no"},{"id":"e10","source":"click_check","target":"click_router","source_port":"text","target_port":"input"},{"id":"e11","source":"click_router","target":"use_clicks","source_port":"branch","target_port":"input","branch":"yes"},{"id":"e12","source":"click_router","target":"fallback","source_port":"branch","target_port":"input","branch":"no"},{"id":"e13","source":"use_quick_mode","target":"end","source_port":"text","target_port":"input"},{"id":"e14","source":"use_clicks","target":"end","source_port":"text","target_port":"input"},{"id":"e15","source":"fallback","target":"end","source_port":"text","target_port":"input"}]}}
+{
+  "meta": {
+    "name": "app_automation_workflow",
+    "title": "App 自动化决策流程",
+    "description": "从钉钉打卡自动化中提取的通用决策模式。任何'自动操作App X'的任务都应走这个流程：先检查API可用性→无API则检查急速模式→仍不行则模拟点击→都不行则人工介入。避免在错误方向上探索。",
+    "category": "task_management",
+    "icon": "workflow",
+    "tags": [
+      "automation",
+      "decision-tree",
+      "app",
+      "android"
+    ],
+    "expected_inputs": {
+      "app_name": "string",
+      "task_description": "string"
+    },
+    "expected_outputs": {
+      "solution_type": "string",
+      "deliverable": "string"
+    },
+    "author": "platform",
+    "version": 1,
+    "min_blocks_required": [
+      "llm",
+      "if_else",
+      "template_transform"
+    ],
+    "provenance": [
+      {
+        "source_type": "expert_manual",
+        "identifier": "platform:app_automation_workflow.json",
+        "created_at": "2026-06-26T00:00:00Z",
+        "user_id": null
+      }
+    ],
+    "confidence": 0.7,
+    "seed_template": true,
+    "usage_count": 0,
+    "rating_sum": 0,
+    "rating_count": 0
+  },
+  "workflow": {
+    "nodes": [
+      {
+        "id": "start",
+        "type": "start",
+        "title": "自动化需求",
+        "config": {
+          "inputs": [
+            {
+              "name": "app_name",
+              "label": "App名称",
+              "type": "string"
+            },
+            {
+              "name": "task_description",
+              "label": "任务描述",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      {
+        "id": "api_check",
+        "type": "llm",
+        "title": "检查 API 可用性",
+        "config": {
+          "system": "Check if the app has a public API for the task. Search for: official API docs, developer platform, third-party integrations. Answer YES, NO, or LIMITED with explanation.",
+          "prompt": "App: {{ app_name }}\nTask: {{ task_description }}\n\nDoes this app have a public API that can accomplish this task? Answer with analysis.",
+          "variables": {
+            "app_name": {
+              "$ref": {
+                "node_id": "start",
+                "path": [
+                  "app_name"
+                ]
+              }
+            },
+            "task_description": {
+              "$ref": {
+                "node_id": "start",
+                "path": [
+                  "task_description"
+                ]
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "api_router",
+        "type": "if_else",
+        "title": "API 可用?",
+        "config": {
+          "cases": [
+            {
+              "id": "yes",
+              "conditions": [
+                {
+                  "value": {
+                    "$ref": {
+                      "node_id": "api_check",
+                      "path": [
+                        "text"
+                      ]
+                    }
+                  },
+                  "operator": "contains",
+                  "expected": "YES"
+                }
+              ],
+              "logical_operator": "and"
+            },
+            {
+              "id": "limited",
+              "conditions": [
+                {
+                  "value": {
+                    "$ref": {
+                      "node_id": "api_check",
+                      "path": [
+                        "text"
+                      ]
+                    }
+                  },
+                  "operator": "contains",
+                  "expected": "LIMITED"
+                }
+              ],
+              "logical_operator": "and"
+            }
+          ],
+          "default_branch": "no"
+        }
+      },
+      {
+        "id": "use_api",
+        "type": "template_transform",
+        "title": "方案A: API 直接调用",
+        "config": {
+          "template": "# 方案A: 使用官方 API\n\n## 可行性分析\n{{ analysis }}\n\n## 实现方式\n1. 获取 API 凭证 (AppKey/AppSecret)\n2. 通过 HTTP Request 积木调用\n3. 配置 schedule_trigger 定时触发\n\n## Lilies 工作流\n使用 http_request + schedule_trigger 积木即可完成。",
+          "variables": {
+            "analysis": {
+              "$ref": {
+                "node_id": "api_check",
+                "path": [
+                  "text"
+                ]
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "quick_mode_check",
+        "type": "llm",
+        "title": "检查急速/自动模式",
+        "config": {
+          "system": "Check if the app has a quick/auto mode (急速打卡, 自动签到, etc.) that triggers automatically when the app is opened. Search the app's settings or online docs. Answer YES or NO.",
+          "prompt": "App: {{ app_name }}\n\nDoes this app have a 'quick mode' or 'auto mode' that triggers just by opening the app?\nFor example: DingTalk quick punch (急速打卡), WeChat auto sign-in, etc.\nAnswer YES or NO with explanation.",
+          "variables": {
+            "app_name": {
+              "$ref": {
+                "node_id": "start",
+                "path": [
+                  "app_name"
+                ]
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "quick_router",
+        "type": "if_else",
+        "title": "急速模式?",
+        "config": {
+          "cases": [
+            {
+              "id": "yes",
+              "conditions": [
+                {
+                  "value": {
+                    "$ref": {
+                      "node_id": "quick_mode_check",
+                      "path": [
+                        "text"
+                      ]
+                    }
+                  },
+                  "operator": "contains",
+                  "expected": "YES"
+                }
+              ],
+              "logical_operator": "and"
+            }
+          ],
+          "default_branch": "no"
+        }
+      },
+      {
+        "id": "use_quick_mode",
+        "type": "template_transform",
+        "title": "方案B: 急速模式 + 启动App",
+        "config": {
+          "template": "# 方案B: 急速模式 (推荐)\n\n{{ analysis }}\n\n## 实现方式\n仅需: 定时启动 App → App 自动完成操作\n- Android: Termux + crontab + am start\n- 无需 API、无需坐标、无需点击\n\n## 复杂度: 极低\n一个 50 行 shell 脚本即可完成。",
+          "variables": {
+            "analysis": {
+              "$ref": {
+                "node_id": "quick_mode_check",
+                "path": [
+                  "text"
+                ]
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "click_check",
+        "type": "llm",
+        "title": "检查模拟点击可行性",
+        "config": {
+          "system": "Evaluate if the task can be done via simulated taps. Consider: screen coordinates stability, UI changes, anti-automation detection. Answer FEASIBLE or NOT_FEASIBLE.",
+          "prompt": "App: {{ app_name }}\nTask: {{ task_description }}\n\nCan this be done via simulated screen taps (input tap)?\nConsider coordinate stability, app updates, detection risk.",
+          "variables": {
+            "app_name": {
+              "$ref": {
+                "node_id": "start",
+                "path": [
+                  "app_name"
+                ]
+              }
+            },
+            "task_description": {
+              "$ref": {
+                "node_id": "start",
+                "path": [
+                  "task_description"
+                ]
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "click_router",
+        "type": "if_else",
+        "title": "点击可行?",
+        "config": {
+          "cases": [
+            {
+              "id": "yes",
+              "conditions": [
+                {
+                  "value": {
+                    "$ref": {
+                      "node_id": "click_check",
+                      "path": [
+                        "text"
+                      ]
+                    }
+                  },
+                  "operator": "contains",
+                  "expected": "FEASIBLE"
+                }
+              ],
+              "logical_operator": "and"
+            }
+          ],
+          "default_branch": "no"
+        }
+      },
+      {
+        "id": "use_clicks",
+        "type": "template_transform",
+        "title": "方案C: 模拟点击",
+        "config": {
+          "template": "# 方案C: 模拟点击 (备选)\n\n{{ analysis }}\n\n## 注意\n- 坐标需校准\n- App 更新可能改变 UI 布局\n- 钉钉/企业微信等有反自动化检测\n\n## 实现方式\n- Android: Termux + input tap\n- 需记录屏幕坐标",
+          "variables": {
+            "analysis": {
+              "$ref": {
+                "node_id": "click_check",
+                "path": [
+                  "text"
+                ]
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "fallback",
+        "type": "template_transform",
+        "title": "方案D: 人工/待定",
+        "config": {
+          "template": "# 无法自动化\n\n{{ analysis }}\n\n该 App 的「{{ task }}」目前无法可靠地自动化。\n建议: 设置定时提醒，人工完成。\n\n等待 App 开放 API 或增加自动模式后再尝试。",
+          "variables": {
+            "analysis": {
+              "$ref": {
+                "node_id": "click_check",
+                "path": [
+                  "text"
+                ]
+              }
+            },
+            "task": {
+              "$ref": {
+                "node_id": "start",
+                "path": [
+                  "task_description"
+                ]
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "end",
+        "type": "end",
+        "title": "方案输出",
+        "config": {
+          "outputs": {
+            "solution_type": {
+              "$ref": {
+                "node_id": "agg",
+                "path": [
+                  "output",
+                  "branch"
+                ]
+              }
+            },
+            "deliverable": {
+              "$ref": {
+                "node_id": "agg",
+                "path": [
+                  "output"
+                ]
+              }
+            }
+          }
+        },
+        "position": {
+          "x": 2080,
+          "y": 0
+        }
+      },
+      {
+        "id": "agg",
+        "type": "variable_aggregator",
+        "title": "聚合结果",
+        "config": {
+          "variables": [
+            {
+              "$ref": {
+                "node_id": "use_api",
+                "path": [
+                  "text"
+                ],
+                "optional": true
+              }
+            },
+            {
+              "$ref": {
+                "node_id": "use_quick_mode",
+                "path": [
+                  "text"
+                ],
+                "optional": true
+              }
+            },
+            {
+              "$ref": {
+                "node_id": "use_clicks",
+                "path": [
+                  "text"
+                ],
+                "optional": true
+              }
+            },
+            {
+              "$ref": {
+                "node_id": "fallback",
+                "path": [
+                  "text"
+                ],
+                "optional": true
+              }
+            }
+          ],
+          "mode": "first_non_null"
+        },
+        "position": {
+          "x": 1820,
+          "y": 0
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e1",
+        "source": "start",
+        "target": "api_check",
+        "source_port": "output",
+        "target_port": "input"
+      },
+      {
+        "id": "e2",
+        "source": "api_check",
+        "target": "api_router",
+        "source_port": "text",
+        "target_port": "input"
+      },
+      {
+        "id": "e3",
+        "source": "api_router",
+        "target": "use_api",
+        "source_port": "branch",
+        "target_port": "input",
+        "branch": "yes"
+      },
+      {
+        "id": "e4",
+        "source": "api_router",
+        "target": "use_api",
+        "source_port": "branch",
+        "target_port": "input",
+        "branch": "limited"
+      },
+      {
+        "id": "e5",
+        "source": "api_router",
+        "target": "quick_mode_check",
+        "source_port": "branch",
+        "target_port": "input",
+        "branch": "no"
+      },
+      {
+        "id": "e6",
+        "source": "use_api",
+        "target": "end",
+        "source_port": "text",
+        "target_port": "input"
+      },
+      {
+        "id": "e7",
+        "source": "quick_mode_check",
+        "target": "quick_router",
+        "source_port": "text",
+        "target_port": "input"
+      },
+      {
+        "id": "e8",
+        "source": "quick_router",
+        "target": "use_quick_mode",
+        "source_port": "branch",
+        "target_port": "input",
+        "branch": "yes"
+      },
+      {
+        "id": "e9",
+        "source": "quick_router",
+        "target": "click_check",
+        "source_port": "branch",
+        "target_port": "input",
+        "branch": "no"
+      },
+      {
+        "id": "e10",
+        "source": "click_check",
+        "target": "click_router",
+        "source_port": "text",
+        "target_port": "input"
+      },
+      {
+        "id": "e11",
+        "source": "click_router",
+        "target": "use_clicks",
+        "source_port": "branch",
+        "target_port": "input",
+        "branch": "yes"
+      },
+      {
+        "id": "e12",
+        "source": "click_router",
+        "target": "fallback",
+        "source_port": "branch",
+        "target_port": "input",
+        "branch": "no"
+      },
+      {
+        "id": "e13",
+        "source": "use_quick_mode",
+        "target": "end",
+        "source_port": "text",
+        "target_port": "input"
+      },
+      {
+        "id": "e14",
+        "source": "use_clicks",
+        "target": "end",
+        "source_port": "text",
+        "target_port": "input"
+      },
+      {
+        "id": "e15",
+        "source": "fallback",
+        "target": "end",
+        "source_port": "text",
+        "target_port": "input"
+      }
+    ]
+  }
+}

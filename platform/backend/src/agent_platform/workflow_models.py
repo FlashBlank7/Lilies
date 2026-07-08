@@ -31,6 +31,8 @@ class ErrorStrategy(str, Enum):
     fail = "fail"
     continue_on_error = "continue"
     error_branch = "error_branch"
+    degraded = "degraded"             # Mark degraded, inject warning, continue
+    retry_with_fallback = "retry_with_fallback"  # Retry N times, fallback if exhausted
 
 
 class RetryPolicy(BaseModel):
@@ -45,6 +47,33 @@ class PortDefinition(BaseModel):
     required: bool = False
     multiple: bool = False
     description: str = ""
+
+
+class NodeContract(BaseModel):
+    """Runtime-enforced I/O contract for a workflow node.
+
+    When *enforce* is True, the runtime validates that the node's actual
+    output matches the declared *outputs* schema.  Warnings are emitted
+    for input mismatches; output mismatches are errors unless *lenient*
+    is set.
+    """
+
+    inputs: dict[str, str] = Field(
+        default_factory=dict,
+        description="field_name → type_string (e.g. {'task': 'string'})",
+    )
+    outputs: dict[str, str] = Field(
+        default_factory=dict,
+        description="field_name → type_string that this node guarantees to produce",
+    )
+    enforce: bool = Field(
+        default=False,
+        description="When True the runtime validates inputs and outputs",
+    )
+    lenient: bool = Field(
+        default=True,
+        description="When True, missing output keys are warnings, not errors",
+    )
 
 
 class BlockDefinition(BaseModel):
@@ -87,6 +116,18 @@ class NodeSpec(BaseModel):
     position: Position = Field(default_factory=Position)
     retry: RetryPolicy = Field(default_factory=RetryPolicy)
     error_strategy: ErrorStrategy = ErrorStrategy.fail
+    contract: NodeContract | None = Field(
+        default=None,
+        description="Runtime-enforced I/O contract for this node",
+    )
+    degraded_value: Any = Field(
+        default=None,
+        description="Fallback value used when error_strategy=degraded",
+    )
+    fallback_value: Any = Field(
+        default=None,
+        description="Fallback value used when error_strategy=retry_with_fallback and retries exhausted",
+    )
 
 
 class EdgeSpec(BaseModel):

@@ -1,0 +1,273 @@
+{
+  "meta": {
+    "name": "dingtalk_smart_punch",
+    "title": "钉钉智能打卡（双策略降级）",
+    "description": "智能钉钉打卡工作流：Tier1 急速打卡（启动App自动触发）→ Tier2 input tap模拟点击 → Tier3 人工通知。支持上班打卡(8:45)和下班签退(19:00)，周一至周五自动运行，支持坐标校准。",
+    "category": "task_management",
+    "icon": "clock",
+    "tags": ["dingtalk", "checkin", "automation", "android", "tap-simulation", "scheduled"],
+    "expected_inputs": {
+      "checkin_x": "number",
+      "checkin_y": "number",
+      "checkout_x": "number",
+      "checkout_y": "number",
+      "entry_x": "number",
+      "entry_y": "number",
+      "punch_type": "string"
+    },
+    "expected_outputs": {
+      "result": "object",
+      "tier_used": "number",
+      "screenshot_path": "string",
+      "report": "string"
+    },
+    "author": "platform",
+    "version": 2,
+    "min_blocks_required": ["schedule_trigger", "tool", "if_else", "template_transform", "variable_aggregator"]
+  },
+  "workflow": {
+    "nodes": [
+      {
+        "id": "trigger",
+        "type": "schedule_trigger",
+        "title": "⏰ 定时触发",
+        "config": {
+          "timezone": "Asia/Shanghai",
+          "hour": 8,
+          "minute": 45,
+          "inputs": {}
+        }
+      },
+      {
+        "id": "classify_day",
+        "type": "llm",
+        "title": "📅 判断工作日",
+        "config": {
+          "system": "You are a calendar checker. Given the current date, determine if today is a working day (Mon-Fri, not a Chinese public holiday). Answer ONLY 'WORKDAY' or 'HOLIDAY'.",
+          "prompt": "Is today a working day (Monday to Friday, not a Chinese public holiday)? Return WORKDAY or HOLIDAY."
+        }
+      },
+      {
+        "id": "day_check",
+        "type": "if_else",
+        "title": "工作日?",
+        "config": {
+          "cases": [
+            {
+              "id": "workday",
+              "conditions": [
+                {
+                  "value": {"$ref": {"node_id": "classify_day", "path": ["text"]}},
+                  "operator": "contains",
+                  "expected": "WORKDAY"
+                }
+              ],
+              "logical_operator": "and"
+            }
+          ],
+          "default_branch": "skip"
+        }
+      },
+      {
+        "id": "tier1_launch",
+        "type": "tool",
+        "title": "🚀 Tier1: 急速打卡（启动钉钉）",
+        "config": {
+          "tool_name": "Bash",
+          "input": {
+            "command": "input keyevent 26 && sleep 1 && am start -n com.alibaba.android.rimet/.LaunchHomeActivity 2>/dev/null || am start -n com.alibaba.android.rimet/.LaunchActivity 2>/dev/null || am start -a android.intent.action.VIEW -d 'dingtalk://' 2>/dev/null && echo 'launched' && sleep 8 && am force-stop com.alibaba.android.rimet 2>/dev/null && echo 'closed'"
+          }
+        }
+      },
+      {
+        "id": "tier1_check",
+        "type": "if_else",
+        "title": "急速打卡成功?",
+        "config": {
+          "cases": [
+            {
+              "id": "success",
+              "conditions": [
+                {
+                  "value": {"$ref": {"node_id": "tier1_launch", "path": ["output"]}},
+                  "operator": "contains",
+                  "expected": "launched"
+                }
+              ],
+              "logical_operator": "and"
+            }
+          ],
+          "default_branch": "fallback"
+        }
+      },
+      {
+        "id": "tier2_wakeup",
+        "type": "tool",
+        "title": "🔓 Tier2: 唤醒屏幕",
+        "config": {
+          "tool_name": "Bash",
+          "input": {
+            "command": "input keyevent 26 && sleep 1 && input swipe 500 1500 500 500 && sleep 1 && echo 'screen_on'"
+          }
+        }
+      },
+      {
+        "id": "tier2_launch",
+        "type": "tool",
+        "title": "📲 Tier2: 打开钉钉",
+        "config": {
+          "tool_name": "Bash",
+          "input": {
+            "command": "am start -n com.alibaba.android.rimet/.LaunchHomeActivity 2>/dev/null || am start -n com.alibaba.android.rimet/.LaunchActivity 2>/dev/null && sleep 5 && echo 'app_started'"
+          }
+        }
+      },
+      {
+        "id": "tier2_entry_tap",
+        "type": "tool",
+        "title": "👆 Tier2: 点击考勤入口",
+        "config": {
+          "tool_name": "Bash",
+          "input": {
+            "command": "input tap {{ entry_x }} {{ entry_y }} && sleep 3 && echo 'entry_tapped'"
+          }
+        }
+      },
+      {
+        "id": "tier2_punch_tap",
+        "type": "tool",
+        "title": "✅ Tier2: 点击打卡按钮",
+        "config": {
+          "tool_name": "Bash",
+          "input": {
+            "command": "input tap {{ punch_x }} {{ punch_y }} && sleep 2 && echo 'punch_tapped'",
+            "entry_x": {"$ref": {"node_id": "trigger", "path": ["entry_x"]}},
+            "entry_y": {"$ref": {"node_id": "trigger", "path": ["entry_y"]}},
+            "punch_x": {"$ref": {"node_id": "trigger", "path": ["checkin_x"]}},
+            "punch_y": {"$ref": {"node_id": "trigger", "path": ["checkin_y"]}}
+          }
+        }
+      },
+      {
+        "id": "tier2_screenshot",
+        "type": "tool",
+        "title": "📸 Tier2: 截图留证",
+        "config": {
+          "tool_name": "Bash",
+          "input": {
+            "command": "screencap -p /sdcard/dingtalk_punch_$(date +%Y%m%d_%H%M%S).png 2>/dev/null && echo 'screenshot_saved' || echo 'screenshot_failed'"
+          }
+        }
+      },
+      {
+        "id": "tier2_cleanup",
+        "type": "tool",
+        "title": "🏠 Tier2: 返回桌面",
+        "config": {
+          "tool_name": "Bash",
+          "input": {
+            "command": "sleep 2 && am force-stop com.alibaba.android.rimet 2>/dev/null && input keyevent 3 && echo 'home'"
+          }
+        }
+      },
+      {
+        "id": "tier3_notify",
+        "type": "tool",
+        "title": "🔔 Tier3: 通知手动打卡",
+        "config": {
+          "tool_name": "Bash",
+          "input": {
+            "command": "am start -a android.intent.action.VIEW -d 'dingtalk://' 2>/dev/null && termux-notification --title '钉钉打卡提醒' --content '自动打卡失败，请手动打卡！' --priority high --vibrate 500,200,500,200,500 2>/dev/null; echo 'manual_notification_sent'"
+          }
+        }
+      },
+      {
+        "id": "result_success",
+        "type": "template_transform",
+        "title": "✅ 打卡成功报告",
+        "config": {
+          "template": "## 钉钉打卡成功 🎉\n\n- 策略: {{ tier }}\n- 时间: {{ time }}\n- 截图: {{ screenshot }}\n- 状态: ✅ 已完成",
+          "variables": {
+            "tier": {"$ref": {"node_id": "tier1_launch", "path": ["output"]}},
+            "time": {"$ref": {"node_id": "trigger", "path": ["output"]}},
+            "screenshot": {"$ref": {"node_id": "tier2_screenshot", "path": ["output"], "optional": true}}
+          }
+        }
+      },
+      {
+        "id": "result_fallback",
+        "type": "template_transform",
+        "title": "⚠️ 降级报告",
+        "config": {
+          "template": "## 钉钉打卡降级 ⚠️\n\n- 急速打卡: {{ tier1_status }}\n- 模拟点击: {{ tier2_status }}\n- 最终策略: {{ final_tier }}\n- 时间: {{ time }}",
+          "variables": {
+            "tier1_status": {"$ref": {"node_id": "tier1_launch", "path": ["output"], "optional": true}},
+            "tier2_status": {"$ref": {"node_id": "tier2_punch_tap", "path": ["output"], "optional": true}},
+            "final_tier": {"$ref": {"node_id": "tier3_notify", "path": ["output"], "optional": true}},
+            "time": {"$ref": {"node_id": "trigger", "path": ["output"]}}
+          }
+        }
+      },
+      {
+        "id": "result_holiday",
+        "type": "template_transform",
+        "title": "🏖️ 节假日跳过",
+        "config": {
+          "template": "## 节假日跳过 🏖️\n\n- 今天不是工作日，跳过打卡\n- 时间: {{ time }}",
+          "variables": {
+            "time": {"$ref": {"node_id": "trigger", "path": ["output"]}}
+          }
+        }
+      },
+      {
+        "id": "aggregator",
+        "type": "variable_aggregator",
+        "title": "📊 聚合结果",
+        "config": {
+          "variables": [
+            {"$ref": {"node_id": "result_success", "path": ["text"], "optional": true}},
+            {"$ref": {"node_id": "result_fallback", "path": ["text"], "optional": true}},
+            {"$ref": {"node_id": "result_holiday", "path": ["text"], "optional": true}}
+          ],
+          "mode": "first_non_null"
+        }
+      },
+      {
+        "id": "end",
+        "type": "end",
+        "title": "完成",
+        "config": {
+          "outputs": {
+            "report": {"$ref": {"node_id": "aggregator", "path": ["output"]}},
+            "tier1_result": {"$ref": {"node_id": "tier1_launch", "path": ["output"]}},
+            "tier2_result": {"$ref": {"node_id": "tier2_punch_tap", "path": ["output"]}},
+            "screenshot": {"$ref": {"node_id": "tier2_screenshot", "path": ["output"]}},
+            "timestamp": {"$ref": {"node_id": "trigger", "path": ["output"]}}
+          }
+        },
+        "position": {"x": 1560, "y": 0}
+      }
+    ],
+    "edges": [
+      {"id": "e_trigger_classify", "source": "trigger", "target": "classify_day", "source_port": "output", "target_port": "input"},
+      {"id": "e_classify_check", "source": "classify_day", "target": "day_check", "source_port": "text", "target_port": "input"},
+      {"id": "e_workday_tier1", "source": "day_check", "target": "tier1_launch", "source_port": "branch", "target_port": "input", "branch": "workday"},
+      {"id": "e_holiday_result", "source": "day_check", "target": "result_holiday", "source_port": "branch", "target_port": "input", "branch": "skip"},
+      {"id": "e_tier1_done_check", "source": "tier1_launch", "target": "tier1_check", "source_port": "output", "target_port": "input"},
+      {"id": "e_tier1_success", "source": "tier1_check", "target": "result_success", "source_port": "branch", "target_port": "input", "branch": "success"},
+      {"id": "e_tier1_fallback", "source": "tier1_check", "target": "tier2_wakeup", "source_port": "branch", "target_port": "input", "branch": "fallback"},
+      {"id": "e_tier2_wakeup", "source": "tier2_wakeup", "target": "tier2_launch", "source_port": "output", "target_port": "input"},
+      {"id": "e_tier2_launch", "source": "tier2_launch", "target": "tier2_entry_tap", "source_port": "output", "target_port": "input"},
+      {"id": "e_tier2_entry", "source": "tier2_entry_tap", "target": "tier2_punch_tap", "source_port": "output", "target_port": "input"},
+      {"id": "e_tier2_punch", "source": "tier2_punch_tap", "target": "tier2_screenshot", "source_port": "output", "target_port": "input"},
+      {"id": "e_tier2_ss", "source": "tier2_screenshot", "target": "tier2_cleanup", "source_port": "output", "target_port": "input"},
+      {"id": "e_tier2_cleanup", "source": "tier2_cleanup", "target": "result_success", "source_port": "output", "target_port": "input"},
+      {"id": "e_tier3_notify", "source": "tier2_punch_tap", "target": "tier3_notify", "source_port": "output", "target_port": "input", "branch": "error"},
+      {"id": "e_tier3_result", "source": "tier3_notify", "target": "result_fallback", "source_port": "output", "target_port": "input"},
+      {"id": "e_result_tier1_success_fallback_holiday_to_agg", "source": "result_success", "target": "aggregator", "source_port": "text", "target_port": "input"},
+      {"id": "e_result_fallback_to_agg", "source": "result_fallback", "target": "aggregator", "source_port": "text", "target_port": "input"},
+      {"id": "e_result_holiday_to_agg", "source": "result_holiday", "target": "aggregator", "source_port": "text", "target_port": "input"},
+      {"id": "e_agg_end", "source": "aggregator", "target": "end", "source_port": "output", "target_port": "input"}
+    ]
+  }
+}
