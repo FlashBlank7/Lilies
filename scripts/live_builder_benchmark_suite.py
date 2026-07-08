@@ -19,7 +19,11 @@ from agent_platform.config import Settings
 
 
 ROOT = Path(__file__).resolve().parents[1]
-RESULT_PATH = ROOT / "docs" / "workingon" / "experiment_paid_builder_benchmark_result_2026_07_09.json"
+DEFAULT_RESULT_PATH = ROOT / "docs" / "workingon" / "experiment_paid_builder_benchmark_result_2026_07_09.json"
+CONFIGURED_RESULT_PATH = Path(
+    os.getenv("LIVE_BUILDER_BENCHMARK_RESULT_PATH", str(DEFAULT_RESULT_PATH))
+)
+RESULT_PATH = CONFIGURED_RESULT_PATH if CONFIGURED_RESULT_PATH.is_absolute() else ROOT / CONFIGURED_RESULT_PATH
 BASE_URL = os.getenv("AGENT_PLATFORM_URL", "http://127.0.0.1:8001")
 MAX_TURNS = int(os.getenv("LIVE_BUILDER_BENCHMARK_MAX_TURNS", "36"))
 TIMEOUT_SECONDS = float(os.getenv("LIVE_BUILDER_BENCHMARK_TIMEOUT_SECONDS", "900"))

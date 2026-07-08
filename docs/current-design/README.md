@@ -11,6 +11,7 @@
 - `design_builder_benchmark_suite_v1.md`
 - `design_builder_test_self_consistency_v1.md`
 - `design_paid_builder_benchmark_experiment_v1.md`
+- `design_paid_builder_benchmark_rerun_v1.md`
 - `design_natural_language_draft_patch_preview.md`
 - `design_platform_harness_observability_ui_v1.md`
 
@@ -41,3 +42,7 @@ v0.2.6 对应的 design 已按版本归档到：
 v0.2.7 对应的 design 已按版本归档到：
 
 - `docs/historical-designs/v0.2.7_design_builder_test_self_consistency_v1.md`
+
+v0.2.8 对应的 design 已按版本归档到：
+
+- `docs/historical-designs/v0.2.8_design_paid_builder_benchmark_rerun_v1.md`

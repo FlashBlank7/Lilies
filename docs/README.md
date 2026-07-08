@@ -27,6 +27,7 @@
 - `stage-reports/v0.2.5_builder_benchmark_suite.md`
 - `stage-reports/v0.2.6_paid_builder_benchmark_experiment.md`
 - `stage-reports/v0.2.7_builder_test_self_consistency.md`
+- `stage-reports/v0.2.8_paid_builder_benchmark_rerun.md`
 
 ## 使用原则
 
