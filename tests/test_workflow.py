@@ -469,6 +469,115 @@ class TemplateExpandBuilderProvider(ModelProvider):
             yield StreamEvent(type="message_delta", data={"delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 1}})
 
 
+class TemplateListBuilderProvider(ModelProvider):
+    name = "deepseek"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def capabilities(self, model: str) -> ProviderCapabilities:
+        return ProviderCapabilities(True, True, True, False, False, 100_000, 10_000)
+
+    async def stream(
+        self,
+        *,
+        model: str,
+        system: str,
+        messages: list[ChatMessage],
+        tools: list[ToolDefinition],
+        max_output_tokens: int,
+        thinking_enabled: bool,
+        effort: str,
+        tool_choice: dict[str, str] | None = None,
+        user_id: str | None = None,
+    ) -> AsyncIterator[StreamEvent]:
+        self.calls += 1
+        yield StreamEvent(type="message_start", data={"message": {"usage": {"input_tokens": 1}}})
+        if self.calls == 1:
+            yield StreamEvent(type="content_block_start", data={
+                "index": 0,
+                "content_block": {
+                    "type": "tool_use",
+                    "id": "list-templates",
+                    "name": "template_list",
+                    "input": {},
+                },
+            })
+            yield StreamEvent(type="content_block_delta", data={
+                "index": 0,
+                "delta": {"type": "input_json_delta", "partial_json": "{}"},
+            })
+            yield StreamEvent(type="content_block_stop", data={"index": 0})
+            yield StreamEvent(type="message_delta", data={"delta": {"stop_reason": "tool_use"}, "usage": {"output_tokens": 1}})
+            return
+        yield StreamEvent(type="content_block_start", data={
+            "index": 0,
+            "content_block": {"type": "text", "text": "template list inspected"},
+        })
+        yield StreamEvent(type="content_block_delta", data={
+            "index": 0,
+            "delta": {"type": "text_delta", "text": "template list inspected"},
+        })
+        yield StreamEvent(type="message_delta", data={"delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 1}})
+
+
+class MarketplaceTemplateExpandBuilderProvider(ModelProvider):
+    name = "deepseek"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def capabilities(self, model: str) -> ProviderCapabilities:
+        return ProviderCapabilities(True, True, True, False, False, 100_000, 10_000)
+
+    async def stream(
+        self,
+        *,
+        model: str,
+        system: str,
+        messages: list[ChatMessage],
+        tools: list[ToolDefinition],
+        max_output_tokens: int,
+        thinking_enabled: bool,
+        effort: str,
+        tool_choice: dict[str, str] | None = None,
+        user_id: str | None = None,
+    ) -> AsyncIterator[StreamEvent]:
+        self.calls += 1
+        yield StreamEvent(type="message_start", data={"message": {"usage": {"input_tokens": 1}}})
+        if self.calls == 1:
+            value = {
+                "name": "code_reviewer",
+                "prefix": "review",
+                "position": {"x": 10, "y": 20},
+            }
+            yield StreamEvent(type="content_block_start", data={
+                "index": 0,
+                "content_block": {
+                    "type": "tool_use",
+                    "id": "expand-marketplace-template",
+                    "name": "template_expand",
+                    "input": {},
+                },
+            })
+            yield StreamEvent(type="content_block_delta", data={
+                "index": 0,
+                "delta": {"type": "input_json_delta", "partial_json": json.dumps(value)},
+            })
+            yield StreamEvent(type="content_block_stop", data={"index": 0})
+            yield StreamEvent(type="message_delta", data={"delta": {"stop_reason": "tool_use"}, "usage": {"output_tokens": 1}})
+            return
+        yield StreamEvent(type="content_block_start", data={
+            "index": 0,
+            "content_block": {"type": "text", "text": "marketplace template expanded"},
+        })
+        yield StreamEvent(type="content_block_delta", data={
+            "index": 0,
+            "delta": {"type": "text_delta", "text": "marketplace template expanded"},
+        })
+        yield StreamEvent(type="message_delta", data={"delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 1}})
+
+
 class PromptCaptureProvider(ModelProvider):
     name = "deepseek"
 
@@ -3729,6 +3838,89 @@ def test_builder_can_expand_claude_like_template_into_editable_draft(tmp_path: P
             if event["type"] == "build.operation" and event["data"].get("tool") == "template_expand"
         ]
         assert expand_events and expand_events[0]["data"]["success"] is True
+
+
+def test_builder_template_list_includes_marketplace_and_server_defined_templates(tmp_path: Path) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+        templates_dir=Path(__file__).resolve().parents[1] / "templates",
+    )
+    app = create_app(settings, TemplateListBuilderProvider())
+    with TestClient(app) as client:
+        app_id = client.post(
+            "/api/v1/applications",
+            headers=headers(),
+            json={"name": "Template List", "requirement": "Inspect available reusable templates."},
+        ).json()["id"]
+        build_id = client.post(
+            f"/api/v1/applications/{app_id}/builds",
+            headers=headers(),
+            json={"requirement": "Inspect available reusable templates.", "auto_publish": False, "max_turns": 5},
+        ).json()["build_id"]
+        for _ in range(100):
+            build = client.get(f"/api/v1/builds/{build_id}", headers=headers()).json()
+            if build["status"] in {"ready", "needs_attention", "published", "cancelled"}:
+                break
+            time.sleep(0.01)
+        operation_events = client.get(f"/v1/streams/{build_id}", headers=headers()).json()
+        list_events = [
+            event for event in operation_events
+            if event["type"] == "build.operation" and event["data"].get("tool") == "template_list"
+        ]
+        assert list_events and list_events[0]["data"]["success"] is True
+        templates = json.loads(list_events[0]["data"]["result"])
+        by_name = {item["name"]: item for item in templates}
+        assert by_name["claude_like_coding_agent"]["source"] == "server_defined"
+        assert by_name["code_reviewer"]["source"] == "marketplace"
+        assert by_name["code_reviewer"]["recommended_action"] == "expand_template"
+
+
+def test_builder_can_expand_marketplace_template_into_editable_draft(tmp_path: Path) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+        templates_dir=Path(__file__).resolve().parents[1] / "templates",
+    )
+    app = create_app(settings, MarketplaceTemplateExpandBuilderProvider())
+    with TestClient(app) as client:
+        app_id = client.post(
+            "/api/v1/applications",
+            headers=headers(),
+            json={"name": "Marketplace Template", "requirement": "Expand the code reviewer template."},
+        ).json()["id"]
+        build_id = client.post(
+            f"/api/v1/applications/{app_id}/builds",
+            headers=headers(),
+            json={"requirement": "Expand the code reviewer template.", "auto_publish": False, "max_turns": 5},
+        ).json()["build_id"]
+        for _ in range(200):
+            build = client.get(f"/api/v1/builds/{build_id}", headers=headers()).json()
+            if build["status"] in {"ready", "needs_attention", "published", "cancelled"}:
+                break
+            time.sleep(0.01)
+        assert build["status"] == "ready", build
+        draft = client.get(f"/api/v1/applications/{app_id}/draft", headers=headers()).json()
+        nodes = {
+            node["id"]: node
+            for node in draft["snapshot"]["workflow"]["nodes"]
+        }
+        assert {"review_start", "review_analyze", "review_end"} <= set(nodes)
+        assert nodes["review_analyze"]["type"] == "llm"
+        outputs = nodes["review_end"]["config"]["outputs"]
+        assert outputs["report"]["$ref"]["node_id"] == "review_analyze"
+        operation_events = client.get(f"/v1/streams/{build_id}", headers=headers()).json()
+        expand_events = [
+            event for event in operation_events
+            if event["type"] == "build.operation" and event["data"].get("tool") == "template_expand"
+        ]
+        assert expand_events and expand_events[0]["data"]["success"] is True
+        result = json.loads(expand_events[0]["data"]["result"])
+        assert result["template"] == "code_reviewer"
+        assert result["source"] == "marketplace"
+        assert set(result["nodes"]) == {"review_start", "review_analyze", "review_end"}
 
 
 def test_iteration_and_loop_execute_nested_workflows(tmp_path: Path) -> None:

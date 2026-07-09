@@ -35,6 +35,7 @@ TIMEOUT_SECONDS = float(os.getenv("E05_REUSE_DEPTH_TIMEOUT_SECONDS", "900"))
 PROVIDER_TIMEOUT_SECONDS = float(os.getenv("E05_REUSE_DEPTH_PROVIDER_TIMEOUT_SECONDS", "120"))
 SKIP_PAID = os.getenv("E05_REUSE_DEPTH_SKIP_PAID", "0") == "1"
 RUN_ID = os.getenv("E05_REUSE_DEPTH_RUN_ID") or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+EXPERIMENT_VERSION = os.getenv("E05_REUSE_DEPTH_EXPERIMENT_VERSION", "v0.2.38")
 
 
 @dataclass(frozen=True)
@@ -437,7 +438,7 @@ def main() -> None:
         "started_at": utc_now(),
         "finished_at": None,
         "experiment": "E05 template reuse-depth live comparison",
-        "version": "v0.2.38",
+        "version": EXPERIMENT_VERSION,
         "budget": {
             "arms": [arm.depth for arm in depth_arms()],
             "max_turns_per_arm": MAX_TURNS,

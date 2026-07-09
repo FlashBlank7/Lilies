@@ -560,6 +560,7 @@ class WorkflowBuilder:
                     {
                         "name": m.name,
                         "title": m.title,
+                        "source": "marketplace",
                         "confidence": m.confidence,
                         "relevance": round(s, 3),
                         "tags": m.tags,
@@ -571,26 +572,54 @@ class WorkflowBuilder:
                 ],
             }
         if tool == "template_list":
-            return [
+            templates = [
                 {
                     "name": name,
+                    "title": name,
+                    "source": "server_defined",
                     "description": "Editable Claude-like coding agent architecture subgraph."
                     if name == "claude_like_coding_agent"
                     else "",
                 }
                 for name in self.blocks.template_names()
             ]
+            if self.template_store:
+                for meta in self.template_store.list():
+                    templates.append({
+                        "name": meta.name,
+                        "title": meta.title,
+                        "source": "marketplace",
+                        "description": meta.description,
+                        "category": meta.category,
+                        "tags": meta.tags,
+                        "confidence": meta.confidence,
+                        "recommended_action": "expand_template",
+                    })
+            return templates
         if tool == "template_expand":
             self._enforce_planning_required(state, tool)
             template_name = str(data["name"])
             prefix = str(data.get("prefix") or template_name)
             position = data.get("position") if isinstance(data.get("position"), dict) else {}
-            workflow = self.blocks.expand_template(
-                template_name,
-                prefix=prefix,
-                x=float(position.get("x", 0)),
-                y=float(position.get("y", 0)),
-            )
+            x = float(position.get("x", 0))
+            y = float(position.get("y", 0))
+            marketplace_names = set(self.template_store.names()) if self.template_store else set()
+            if self.template_store and template_name in marketplace_names:
+                source = "marketplace"
+                workflow = self.template_store.expand_into_workflow(
+                    template_name,
+                    prefix=prefix,
+                    x=x,
+                    y=y,
+                )
+            else:
+                source = "server_defined"
+                workflow = self.blocks.expand_template(
+                    template_name,
+                    prefix=prefix,
+                    x=x,
+                    y=y,
+                )
             draft = await self.workflow_store.get_draft(application_id)
             revision = int(draft["revision"])
             for node in workflow.nodes:
@@ -621,6 +650,7 @@ class WorkflowBuilder:
             state.revision = revision
             return {
                 "template": template_name,
+                "source": source,
                 "revision": revision,
                 "nodes": [node.id for node in workflow.nodes],
                 "edges": [edge.id for edge in workflow.edges],
@@ -819,8 +849,8 @@ class WorkflowBuilder:
             ToolDefinition(name="manual_get", description="Read one block manual, including when to use it, examples, anti-patterns, and Claude architecture mapping.", input_schema={"type": "object", "properties": {"type": {"type": "string"}}, "required": ["type"]}),
             ToolDefinition(name="architecture_blueprint", description="Read the Claude-like runtime blueprint made from explicit composable bricks.", input_schema={"type": "object", "properties": {}}),
             ToolDefinition(name="template_suggestions", description="Search template marketplace for matching templates. Use BEFORE building from scratch.", input_schema={"type": "object", "properties": {"requirement": {"type": "string", "description": "Natural language requirement to match against templates"}, "reuse_depth": {"enum": ["none", "shallow", "deep"], "description": "How aggressively to reuse templates."}}, "required": ["requirement"]}),
-            ToolDefinition(name="template_list", description="List server-defined editable workflow subgraph templates.", input_schema={"type": "object", "properties": {}}),
-            ToolDefinition(name="template_expand", description="Expand one server-defined editable subgraph template into the draft.", input_schema={"type": "object", "properties": {"name": {"type": "string"}, "prefix": {"type": "string"}, "position": {"type": "object", "additionalProperties": True}}, "required": ["name"]}),
+            ToolDefinition(name="template_list", description="List expandable server-defined and marketplace workflow templates.", input_schema={"type": "object", "properties": {}}),
+            ToolDefinition(name="template_expand", description="Expand one server-defined or marketplace workflow template into the draft.", input_schema={"type": "object", "properties": {"name": {"type": "string"}, "prefix": {"type": "string"}, "position": {"type": "object", "additionalProperties": True}}, "required": ["name"]}),
             ToolDefinition(name="draft_inspect", description="Inspect the current shared draft and revision.", input_schema={"type": "object", "properties": {}}),
             ToolDefinition(name="draft_add_node", description="Add exactly one configured node to the draft.", input_schema={"type": "object", "properties": {"node": NodeSpec.model_json_schema()}, "required": ["node"]}),
             ToolDefinition(name="draft_update_node", description="Patch exactly one node; config patches merge by default.", input_schema={"type": "object", "properties": {"node_id": {"type": "string"}, "changes": object_schema, "merge_config": {"type": "boolean"}}, "required": ["node_id", "changes"]}),

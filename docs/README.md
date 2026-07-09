@@ -60,6 +60,7 @@
 - `stage-reports/v0.2.36_e02_readable_testframe_human_review.md`
 - `stage-reports/v0.2.37_e04_local_repair_vs_full_rebuild.md`
 - `stage-reports/v0.2.38_e05_template_reuse_depth_live_comparison.md`
+- `stage-reports/v0.2.39_template_reuse_expandability_contract.md`
 
 ## 使用原则
 
