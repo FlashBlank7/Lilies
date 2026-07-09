@@ -1,0 +1,1523 @@
+{
+  "status": "completed",
+  "started_at": "2026-07-09T11:33:34.304877+00:00",
+  "finished_at": "2026-07-09T11:50:40.800946+00:00",
+  "experiment": "E05 template reuse-depth live comparison",
+  "version": "v0.2.38",
+  "budget": {
+    "arms": [
+      "none",
+      "shallow",
+      "deep"
+    ],
+    "max_turns_per_arm": 42,
+    "max_repair_cycles_per_arm": 2,
+    "timeout_seconds_per_arm": 900.0,
+    "provider_timeout_seconds": 120.0,
+    "skip_paid": false,
+    "run_id": "v0_2_38_rerun"
+  },
+  "health": {
+    "status": "ok",
+    "deepseek_configured": true
+  },
+  "models": {
+    "provider": "multi",
+    "generator_model": "deepseek-v4-pro",
+    "runtime_model": "deepseek-v4-pro",
+    "configured_models": [
+      "deepseek/deepseek-v4-pro"
+    ]
+  },
+  "preflight": {
+    "template_count": 10,
+    "templates": [
+      {
+        "name": "app_automation_workflow",
+        "title": "App 自动化决策流程",
+        "description": "从钉钉打卡自动化中提取的通用决策模式。任何'自动操作App X'的任务都应走这个流程：先检查API可用性→无API则检查急速模式→仍不行则模拟点击→都不行则人工介入。避免在错误方向上探索。",
+        "category": "task_management",
+        "icon": "workflow",
+        "tags": [
+          "automation",
+          "decision-tree",
+          "app",
+          "android"
+        ],
+        "expected_inputs": {
+          "app_name": "string",
+          "task_description": "string"
+        },
+        "expected_outputs": {
+          "solution_type": "string",
+          "deliverable": "string"
+        },
+        "author": "platform",
+        "version": 1,
+        "min_blocks_required": [
+          "llm",
+          "if_else",
+          "template_transform"
+        ],
+        "provenance": [
+          {
+            "source_type": "expert_manual",
+            "identifier": "platform:app_automation_workflow.json",
+            "created_at": "2026-06-26T00:00:00Z",
+            "user_id": null
+          }
+        ],
+        "confidence": 0.7,
+        "seed_template": true,
+        "usage_count": 0,
+        "pending_branches_count": 0,
+        "rating_sum": 0.0,
+        "rating_count": 0
+      },
+      {
+        "name": "long_form_writer",
+        "title": "万字长文生成器",
+        "description": "分章节并行生成长文并自动拼接润色。工作流化解决单次LLM输出长度限制：先生成大纲→迭代生成每章→聚合→全文润色。适用于技术文档、分析报告、教程等。",
+        "category": "content_creation",
+        "icon": "file-text",
+        "tags": [
+          "writing",
+          "long-form",
+          "content-generation",
+          "chapters"
+        ],
+        "expected_inputs": {
+          "topic": "string",
+          "target_sections": "number"
+        },
+        "expected_outputs": {
+          "full_text": "string",
+          "outline": "string",
+          "sections": "number"
+        },
+        "author": "platform",
+        "version": 1,
+        "min_blocks_required": [
+          "llm",
+          "iteration",
+          "variable_aggregator",
+          "template_transform"
+        ],
+        "provenance": [
+          {
+            "source_type": "expert_manual",
+            "identifier": "platform:long_form_writer.json",
+            "created_at": "2026-06-26T00:00:00Z",
+            "user_id": null
+          }
+        ],
+        "confidence": 0.7,
+        "seed_template": true,
+        "usage_count": 0,
+        "pending_branches_count": 0,
+        "rating_sum": 0.0,
+        "rating_count": 0
+      },
+      {
+        "name": "code_reviewer",
+        "title": "代码审查与修复",
+        "description": "标准代码审查工作流: 读取源码 → 运行测试 → 定位失败根因 → 最小修改 → 重新验证 → 生成报告。这是最核心的软件开发质量保证流程。",
+        "category": "code_engineering",
+        "icon": "bug",
+        "tags": [
+          "code-review",
+          "testing",
+          "debugging",
+          "quality"
+        ],
+        "expected_inputs": {
+          "workspace_path": "string",
+          "test_command": "string"
+        },
+        "expected_outputs": {
+          "report": "object",
+          "tests_passed": "boolean",
+          "bugs_found": "number"
+        },
+        "author": "platform",
+        "version": 1,
+        "min_blocks_required": [
+          "llm",
+          "tool"
+        ],
+        "provenance": [
+          {
+            "source_type": "expert_manual",
+            "identifier": "platform:code_reviewer.json",
+            "created_at": "2026-06-26T00:00:00Z",
+            "user_id": null
+          }
+        ],
+        "confidence": 0.85,
+        "seed_template": true,
+        "usage_count": 0,
+        "pending_branches_count": 0,
+        "rating_sum": 0.0,
+        "rating_count": 0
+      },
+      {
+        "name": "task_decomposer",
+        "title": "任务分解与规划",
+        "description": "将复杂任务分解为可执行的子任务并按依赖排序。输入任务描述→LLM拆解→提取子任务→依赖排序→生成格式化计划。",
+        "category": "task_management",
+        "icon": "list-checks",
+        "tags": [
+          "planning",
+          "decomposition",
+          "dependencies",
+          "project-management"
+        ],
+        "expected_inputs": {
+          "complex_task": "string"
+        },
+        "expected_outputs": {
+          "plan": "string",
+          "subtask_count": "number"
+        },
+        "author": "platform",
+        "version": 1,
+        "min_blocks_required": [
+          "llm",
+          "template_transform"
+        ],
+        "provenance": [
+          {
+            "source_type": "expert_manual",
+            "identifier": "platform:task_decomposer.json",
+            "created_at": "2026-06-26T00:00:00Z",
+            "user_id": null
+          }
+        ],
+        "confidence": 0.85,
+        "seed_template": true,
+        "usage_count": 0,
+        "pending_branches_count": 0,
+        "rating_sum": 0.0,
+        "rating_count": 0
+      },
+      {
+        "name": "data_analyzer",
+        "title": "数据分析流水线",
+        "description": "标准数据分析工作流：加载数据→统计摘要→异常检测→生成报告。适用于CSV/JSON数据的自动化分析场景。",
+        "category": "data_analysis",
+        "icon": "bar-chart",
+        "tags": [
+          "data",
+          "statistics",
+          "analysis",
+          "reporting"
+        ],
+        "expected_inputs": {
+          "data_description": "string"
+        },
+        "expected_outputs": {
+          "report": "string",
+          "statistics": "object"
+        },
+        "author": "platform",
+        "version": 1,
+        "min_blocks_required": [
+          "llm",
+          "parameter_extractor",
+          "template_transform"
+        ],
+        "provenance": [
+          {
+            "source_type": "expert_manual",
+            "identifier": "platform:data_analyzer.json",
+            "created_at": "2026-06-26T00:00:00Z",
+            "user_id": null
+          }
+        ],
+        "confidence": 0.85,
+        "seed_template": true,
+        "usage_count": 0,
+        "pending_branches_count": 0,
+        "rating_sum": 0.0,
+        "rating_count": 0
+      },
+      {
+        "name": "document_summarizer",
+        "title": "文档摘要生成器",
+        "description": "阅读文档并生成多层级摘要：一句话总结→三段要点→完整摘要。适用于合同、论文、长文等场景。",
+        "category": "content_creation",
+        "icon": "scroll-text",
+        "tags": [
+          "summarization",
+          "document",
+          "reading",
+          "digest"
+        ],
+        "expected_inputs": {
+          "document_text": "string"
+        },
+        "expected_outputs": {
+          "one_liner": "string",
+          "key_points": "string",
+          "full_summary": "string"
+        },
+        "author": "platform",
+        "version": 1,
+        "min_blocks_required": [
+          "llm",
+          "template_transform"
+        ],
+        "provenance": [
+          {
+            "source_type": "expert_manual",
+            "identifier": "platform:document_summarizer.json",
+            "created_at": "2026-06-26T00:00:00Z",
+            "user_id": null
+          }
+        ],
+        "confidence": 0.85,
+        "seed_template": true,
+        "usage_count": 0,
+        "pending_branches_count": 0,
+        "rating_sum": 0.0,
+        "rating_count": 0
+      },
+      {
+        "name": "customer_support_router",
+        "title": "智能客服路由",
+        "description": "客服消息智能分类与差异化响应。将客户消息分为投诉/咨询/反馈/紧急四类，每类返回差异化响应。",
+        "category": "customer_service",
+        "icon": "message-circle",
+        "tags": [
+          "customer-support",
+          "routing",
+          "classification"
+        ],
+        "expected_inputs": {
+          "customer_message": "string"
+        },
+        "expected_outputs": {
+          "intent": "string",
+          "response": "string"
+        },
+        "author": "platform",
+        "version": 1,
+        "min_blocks_required": [
+          "question_classifier",
+          "if_else",
+          "template_transform"
+        ],
+        "provenance": [
+          {
+            "source_type": "expert_manual",
+            "identifier": "platform:customer_support_router.json",
+            "created_at": "2026-06-26T00:00:00Z",
+            "user_id": null
+          }
+        ],
+        "confidence": 0.85,
+        "seed_template": true,
+        "usage_count": 0,
+        "pending_branches_count": 0,
+        "rating_sum": 0.0,
+        "rating_count": 0
+      },
+      {
+        "name": "dingtalk_checkin",
+        "title": "钉钉上班打卡 (8:45)",
+        "description": "每日8:45触发钉钉上班打卡。schedule_trigger 定时 → HTTP Request 调用钉钉考勤API → 模板格式化结果。",
+        "category": "task_management",
+        "icon": "clock",
+        "tags": [
+          "dingtalk",
+          "checkin",
+          "scheduled",
+          "attendance"
+        ],
+        "expected_inputs": {},
+        "expected_outputs": {
+          "result": "string",
+          "status": "number"
+        },
+        "author": "platform",
+        "version": 1,
+        "min_blocks_required": [
+          "schedule_trigger",
+          "http_request",
+          "template_transform"
+        ],
+        "provenance": [],
+        "confidence": 0.7,
+        "seed_template": false,
+        "usage_count": 0,
+        "pending_branches_count": 0,
+        "rating_sum": 0.0,
+        "rating_count": 0
+      },
+      {
+        "name": "dingtalk_checkout",
+        "title": "钉钉下班签退 (19:00)",
+        "description": "每日19:00触发钉钉下班签退。schedule_trigger 定时 → HTTP Request 调用钉钉考勤API → 模板格式化结果。",
+        "category": "task_management",
+        "icon": "clock",
+        "tags": [
+          "dingtalk",
+          "checkout",
+          "scheduled",
+          "attendance"
+        ],
+        "expected_inputs": {},
+        "expected_outputs": {
+          "result": "string",
+          "status": "number"
+        },
+        "author": "platform",
+        "version": 1,
+        "min_blocks_required": [
+          "schedule_trigger",
+          "http_request",
+          "template_transform"
+        ],
+        "provenance": [],
+        "confidence": 0.7,
+        "seed_template": false,
+        "usage_count": 0,
+        "pending_branches_count": 0,
+        "rating_sum": 0.0,
+        "rating_count": 0
+      },
+      {
+        "name": "dingtalk_smart_punch",
+        "title": "钉钉智能打卡（双策略降级）",
+        "description": "智能钉钉打卡工作流：Tier1 急速打卡（启动App自动触发）→ Tier2 input tap模拟点击 → Tier3 人工通知。支持上班打卡(8:45)和下班签退(19:00)，周一至周五自动运行，支持坐标校准。",
+        "category": "task_management",
+        "icon": "clock",
+        "tags": [
+          "dingtalk",
+          "checkin",
+          "automation",
+          "android",
+          "tap-simulation",
+          "scheduled"
+        ],
+        "expected_inputs": {
+          "checkin_x": "number",
+          "checkin_y": "number",
+          "checkout_x": "number",
+          "checkout_y": "number",
+          "entry_x": "number",
+          "entry_y": "number",
+          "punch_type": "string"
+        },
+        "expected_outputs": {
+          "result": "object",
+          "tier_used": "number",
+          "screenshot_path": "string",
+          "report": "string"
+        },
+        "author": "platform",
+        "version": 2,
+        "min_blocks_required": [
+          "schedule_trigger",
+          "tool",
+          "if_else",
+          "template_transform",
+          "variable_aggregator"
+        ],
+        "provenance": [],
+        "confidence": 0.7,
+        "seed_template": false,
+        "usage_count": 0,
+        "pending_branches_count": 0,
+        "rating_sum": 0.0,
+        "rating_count": 0
+      }
+    ],
+    "categories": [
+      "code_engineering",
+      "content_creation",
+      "customer_service",
+      "data_analysis",
+      "task_management"
+    ],
+    "suggestions": {
+      "none": [],
+      "shallow": [
+        {
+          "name": "code_reviewer",
+          "title": "代码审查与修复",
+          "description": "标准代码审查工作流: 读取源码 → 运行测试 → 定位失败根因 → 最小修改 → 重新验证 → 生成报告。这是最核心的软件开发质量保证流程。",
+          "category": "code_engineering",
+          "icon": "bug",
+          "tags": [
+            "code-review",
+            "testing",
+            "debugging",
+            "quality"
+          ],
+          "expected_inputs": {
+            "workspace_path": "string",
+            "test_command": "string"
+          },
+          "expected_outputs": {
+            "report": "object",
+            "tests_passed": "boolean",
+            "bugs_found": "number"
+          },
+          "author": "platform",
+          "version": 1,
+          "min_blocks_required": [
+            "llm",
+            "tool"
+          ],
+          "provenance": [
+            {
+              "source_type": "expert_manual",
+              "identifier": "platform:code_reviewer.json",
+              "created_at": "2026-06-26T00:00:00Z",
+              "user_id": null
+            }
+          ],
+          "confidence": 0.85,
+          "seed_template": true,
+          "usage_count": 0,
+          "pending_branches_count": 0,
+          "rating_sum": 0.0,
+          "rating_count": 0,
+          "relevance_score": 2.125,
+          "reuse_depth": "shallow",
+          "recommended_action": "expand_template"
+        }
+      ],
+      "deep": [
+        {
+          "name": "code_reviewer",
+          "title": "代码审查与修复",
+          "description": "标准代码审查工作流: 读取源码 → 运行测试 → 定位失败根因 → 最小修改 → 重新验证 → 生成报告。这是最核心的软件开发质量保证流程。",
+          "category": "code_engineering",
+          "icon": "bug",
+          "tags": [
+            "code-review",
+            "testing",
+            "debugging",
+            "quality"
+          ],
+          "expected_inputs": {
+            "workspace_path": "string",
+            "test_command": "string"
+          },
+          "expected_outputs": {
+            "report": "object",
+            "tests_passed": "boolean",
+            "bugs_found": "number"
+          },
+          "author": "platform",
+          "version": 1,
+          "min_blocks_required": [
+            "llm",
+            "tool"
+          ],
+          "provenance": [
+            {
+              "source_type": "expert_manual",
+              "identifier": "platform:code_reviewer.json",
+              "created_at": "2026-06-26T00:00:00Z",
+              "user_id": null
+            }
+          ],
+          "confidence": 0.85,
+          "seed_template": true,
+          "usage_count": 0,
+          "pending_branches_count": 0,
+          "rating_sum": 0.0,
+          "rating_count": 0,
+          "relevance_score": 2.125,
+          "reuse_depth": "deep",
+          "recommended_action": "compose_modules"
+        }
+      ]
+    }
+  },
+  "arms": [
+    {
+      "depth": "none",
+      "expected_action": "build_from_scratch",
+      "status": "completed",
+      "elapsed_seconds": 228.812,
+      "application_id": "8385fb6d-7ee3-4c68-b91f-dadeaeb058cd",
+      "build_id": "1931edee-53c8-4122-81a3-8d9609c3da3b",
+      "build_status": "published",
+      "build_error": null,
+      "build_plan": {
+        "goal": "Build and verify an editable code review and repair BlockFlow with inputs: task, repository_path, failing_test_output, test_command. Outputs: report, tests_passed, repair_summary. Must include auditable architecture, mandatory test with required_node_types, and explicit output contract.",
+        "strategy": "Reuse depth is intentionally set to 'none'. Call template_suggestions with reuse_depth='none' to prove templates are disabled, then build the BlockFlow from scratch using composable bricks: Start, Question Classifier (or LLM for analysis), Template Transform for report formatting, and Answer/End for final outputs.",
+        "modules": [
+          {
+            "id": "m1",
+            "title": "Input and routing",
+            "purpose": "Define start inputs and route task to analysis",
+            "status": "done",
+            "depends_on": [],
+            "expected_blocks": [
+              "Start",
+              "Question Classifier or LLM"
+            ],
+            "draft_node_ids": [
+              "start",
+              "prompt_composer"
+            ],
+            "test_ids": [
+              "t1_output_contract",
+              "t2_content_safety"
+            ],
+            "evidence": [
+              "Start node declares four required inputs: task, repository_path, failing_test_output, test_command",
+              "prompt_composer template_transform references all four $inputs fields correctly"
+            ]
+          },
+          {
+            "id": "m2",
+            "title": "Code analysis and repair planning",
+            "purpose": "Analyze the failing test output and produce a minimal repair plan",
+            "status": "done",
+            "depends_on": [],
+            "expected_blocks": [
+              "LLM",
+              "Context",
+              "Template Transform"
+            ],
+            "draft_node_ids": [
+              "analyzer"
+            ],
+            "test_ids": [
+              "t1_output_contract",
+              "t2_content_safety"
+            ],
+            "evidence": [
+              "LLM analyzer produces structured_output with report, tests_passed, repair_summary",
+              "tests_passed correctly resolves to false for failing test input",
+              "Report contains NullPointerException and UserService references"
+            ]
+          },
+          {
+            "id": "m3",
+            "title": "Report generation and output",
+            "purpose": "Format final reviewer-facing report with repair summary and test result",
+            "status": "done",
+            "depends_on": [],
+            "expected_blocks": [
+              "Template Transform",
+              "Answer/End"
+            ],
+            "draft_node_ids": [
+              "report_formatter",
+              "end"
+            ],
+            "test_ids": [
+              "t1_output_contract",
+              "t2_content_safety"
+            ],
+            "evidence": [
+              "report_formatter template_transform formats the LLM structured output into a clean reviewer-facing markdown report",
+              "End node correctly maps three outputs: report from report_formatter.text, tests_passed and repair_summary from analyzer.structured",
+              "All six assertions in t1 pass (structure, exists, min_length)",
+              "All three assertions in t2 pass (equals false, contains NullPointerException, contains UserService)"
+            ]
+          }
+        ],
+        "reuse_depth": "none",
+        "complexity": "medium",
+        "risks": [
+          "Template reuse intentionally disabled; must build from scratch",
+          "LLM output variability must be handled by structural assertions",
+          "Must wire all four inputs through to downstream nodes"
+        ]
+      },
+      "build_plan_reuse_depth": "none",
+      "usage_counts": {
+        "model_call": 24,
+        "tool_call": 41
+      },
+      "draft_counts": {
+        "nodes": 5,
+        "edges": 4,
+        "tests": 2,
+        "node_types": [
+          "end",
+          "llm",
+          "start",
+          "template_transform"
+        ]
+      },
+      "event_summary": {
+        "operation_counts": {
+          "build_plan": 4,
+          "template_suggestions": 1,
+          "draft_inspect": 1,
+          "catalog_search": 12,
+          "catalog_get": 7,
+          "draft_add_node": 6,
+          "draft_update_node": 1,
+          "draft_connect": 4,
+          "draft_validate": 1,
+          "test_add": 2,
+          "test_run": 1,
+          "draft_publish": 1
+        },
+        "template_suggestion_count": 1,
+        "template_expand_count": 0,
+        "template_suggestions": [
+          {
+            "input": {
+              "requirement": "code review and repair BlockFlow with inputs task, repository_path, failing_test_output, test_command. Analyze failing test output, produce minimal repair plan and reviewer-facing final report with outputs report, tests_passed, repair_summary.",
+              "reuse_depth": "none"
+            },
+            "success": true,
+            "reuse_depth": "none",
+            "recommended_action": "build_from_scratch",
+            "templates": []
+          }
+        ],
+        "template_expands": [],
+        "failed_operations": [
+          {
+            "tool": "draft_add_node",
+            "input": {
+              "_invalid_tool_input_json": {
+                "error": "Expecting ',' delimiter: line 1 column 745 (char 744)",
+                "raw_preview": "{\"node\": {\"id\":\"report_formatter\",\"type\":\"template_transform\",\"title\":\"Format Reviewer Report\",\"description\":\"Formats the structured LLM output into a clean reviewer-facing markdown report.\",\"config\":{\"template\":\"# Code Review & Repair Report\\n\\n## Reviewer-Facing Report\\n\\n{{ report }}\\n\\n---\\n\\n## Repair Summary\\n\\n{{ repair_summary }}\\n\\n## Test Status\\n\\n**Tests Passing:** {{ tests_passed }}\\n\\n---\\n\\n*Generated by Code Review & Repair BlockFlow*\",\"variables\":{\"report\":{\"$ref\":{\"node_id\":\"analyzer\",\"path\":[\"structured\",\"report\"]}},\"repair_summary\":{\"$ref\":{\"node_id\":\"analyzer\",\"path\":[\"structured\",\"repair_summary\"]}},\"tests_passed\":{\"$ref\":{\"node_id\":\"analyzer\",\"path\":[\"structured\",\"tests_passed\"]}}},\"position\":{\"x\":600,\"y\":200}}}",
+                "raw_length": 744
+              }
+            },
+            "result": "RuntimeError: invalid tool input JSON for draft_add_node: Expecting ',' delimiter: line 1 column 745 (char 744). Re-emit this tool call with valid JSON arguments."
+          }
+        ]
+      },
+      "benchmark_report": {
+        "name": "E05 template reuse-depth code review comparison",
+        "passed": true,
+        "score": 0.85,
+        "pass_rate": 1.0,
+        "case_count": 1,
+        "failed_cases": [],
+        "reports": [
+          {
+            "name": "code review repair blockflow reuse_depth=none",
+            "passed": true,
+            "score": 0.85,
+            "metrics": {
+              "node_type_coverage": 1.0,
+              "tool_node_coverage": 1.0,
+              "harness_coverage": 1.0,
+              "edge_similarity": 0.0,
+              "test_frame_coverage": 1.0,
+              "candidate_node_count": 5,
+              "reference_node_count": 3,
+              "node_type_equivalences": {
+                "end": [
+                  "answer"
+                ],
+                "model_turn": [
+                  "llm"
+                ]
+              }
+            },
+            "missing": {
+              "node_types": [],
+              "tool_nodes": [],
+              "harness_nodes": []
+            }
+          }
+        ],
+        "metrics": {
+          "average": {
+            "candidate_node_count": 5.0,
+            "edge_similarity": 0.0,
+            "harness_coverage": 1.0,
+            "node_type_coverage": 1.0,
+            "reference_node_count": 3.0,
+            "test_frame_coverage": 1.0,
+            "tool_node_coverage": 1.0
+          },
+          "minimum_score": 0.45,
+          "minimum_pass_rate": 0.0
+        },
+        "trends": [
+          {
+            "name": "code review repair blockflow reuse_depth=none",
+            "score": 0.85,
+            "baseline_score": null,
+            "delta": null,
+            "direction": "new"
+          }
+        ],
+        "cost": {
+          "model_calls": 0,
+          "tool_calls": 0,
+          "estimated_cost_usd": null,
+          "provider": "deepseek",
+          "model": "",
+          "notes": "Counts come from Platform Harness task usage when available."
+        }
+      },
+      "builder_task_summary": {
+        "id": "1931edee-53c8-4122-81a3-8d9609c3da3b",
+        "kind": "builder_build",
+        "status": "succeeded",
+        "usage_counts": {
+          "model_call": 24,
+          "tool_call": 41
+        },
+        "error": "",
+        "created_at": "2026-07-09T11:33:34.351548+00:00",
+        "updated_at": "2026-07-09T11:37:21.420991+00:00",
+        "finished_at": "2026-07-09T11:37:21.420991+00:00"
+      }
+    },
+    {
+      "depth": "shallow",
+      "expected_action": "expand_template",
+      "status": "completed",
+      "elapsed_seconds": 385.149,
+      "application_id": "dc312a72-3f12-43dd-ace9-898adf8f1428",
+      "build_id": "2d3f63b2-f737-4cec-abcc-f3c1a01acf0c",
+      "build_status": "needs_attention",
+      "build_error": "builder stopped before mandatory tests passed",
+      "build_plan": {
+        "goal": "Build and validate an editable code review and repair BlockFlow with inputs: task, repository_path, failing_test_output, test_command. Outputs: report, tests_passed, repair_summary.",
+        "strategy": "Use template_suggestions with reuse_depth='shallow'. The code_reviewer template matched with confidence 0.85. Expand it, then customize for the exact input/output contract. Add mandatory tests with required_node_types.",
+        "modules": [
+          {
+            "id": "m1",
+            "title": "Template expansion and assessment",
+            "purpose": "Expand code_reviewer template and inspect its structure",
+            "status": "building",
+            "depends_on": [],
+            "expected_blocks": [
+              "Start",
+              "Claude Agent or explicit bricks",
+              "Answer/End"
+            ],
+            "draft_node_ids": [],
+            "test_ids": [],
+            "evidence": [
+              "Expanded claude_like_coding_agent template with 22 nodes. Will strip to essentials: Start + Model Turn + Template Transform + End. Keeping cr__start and cr__end as structural skeleton from template for shallow reuse."
+            ]
+          },
+          {
+            "id": "m2",
+            "title": "Input contract and routing",
+            "purpose": "Ensure Start inputs (task, repository_path, failing_test_output, test_command) are properly wired",
+            "status": "building",
+            "depends_on": [
+              "m1"
+            ],
+            "expected_blocks": [
+              "Start",
+              "template_transform or similar"
+            ],
+            "draft_node_ids": [
+              "cr__start",
+              "cr__model_turn",
+              "cr__report_formatter",
+              "cr__end"
+            ],
+            "test_ids": [],
+            "evidence": [
+              "Updated Start inputs: task, repository_path, failing_test_output, test_command",
+              "Added Model Turn for LLM analysis",
+              "Added Template Transform for report formatting",
+              "Updated End outputs: report, tests_passed, repair_summary"
+            ]
+          },
+          {
+            "id": "m3",
+            "title": "Repair plan and report generation",
+            "purpose": "Produce minimal repair plan, reviewer-facing report, tests_passed, repair_summary",
+            "status": "building",
+            "depends_on": [
+              "m2"
+            ],
+            "expected_blocks": [
+              "template_transform",
+              "Answer/End"
+            ],
+            "draft_node_ids": [
+              "cr__report_formatter",
+              "cr__end"
+            ],
+            "test_ids": [],
+            "evidence": [
+              "Template Transform formats report, End references model_turn for structured fields"
+            ]
+          },
+          {
+            "id": "m4",
+            "title": "Testing and validation",
+            "purpose": "Add mandatory test with required_node_types, run tests, validate, publish",
+            "status": "planned",
+            "depends_on": [
+              "m3"
+            ],
+            "expected_blocks": [],
+            "draft_node_ids": [],
+            "test_ids": [],
+            "evidence": []
+          }
+        ],
+        "reuse_depth": "shallow",
+        "complexity": "medium",
+        "risks": [
+          "Template may not exactly match the required input/output contract",
+          "Need to ensure auditable block-level architecture (not opaque Agent)",
+          "Must add required_node_types to tests"
+        ]
+      },
+      "build_plan_reuse_depth": "shallow",
+      "usage_counts": {
+        "model_call": 42,
+        "tool_call": 73
+      },
+      "draft_counts": {
+        "nodes": 4,
+        "edges": 3,
+        "tests": 1,
+        "node_types": [
+          "end",
+          "model_turn",
+          "start",
+          "template_transform"
+        ]
+      },
+      "event_summary": {
+        "operation_counts": {
+          "draft_inspect": 4,
+          "catalog_search": 3,
+          "template_suggestions": 1,
+          "build_plan": 4,
+          "template_expand": 2,
+          "template_list": 1,
+          "manual_search": 1,
+          "catalog_get": 3,
+          "draft_remove_node": 21,
+          "draft_update_node": 9,
+          "draft_add_node": 4,
+          "manual_get": 1,
+          "draft_connect": 6,
+          "architecture_blueprint": 1,
+          "draft_validate": 5,
+          "test_add": 2,
+          "test_run": 3,
+          "test_remove": 1,
+          "draft_remove_edge": 1
+        },
+        "template_suggestion_count": 1,
+        "template_expand_count": 2,
+        "template_suggestions": [
+          {
+            "input": {
+              "requirement": "code review and repair BlockFlow with inputs task, repository_path, failing_test_output, test_command. Analyze code review task and failing test output. Produce minimal repair plan and reviewer-facing final report. End with outputs report, tests_passed, repair_summary.",
+              "reuse_depth": "shallow"
+            },
+            "success": true,
+            "reuse_depth": "shallow",
+            "recommended_action": "expand_template",
+            "templates": [
+              {
+                "name": "code_reviewer",
+                "title": "代码审查与修复",
+                "confidence": 0.85,
+                "relevance": 0.425,
+                "tags": [
+                  "code-review",
+                  "testing",
+                  "debugging",
+                  "quality"
+                ],
+                "recommended_action": "expand_template"
+              },
+              {
+                "name": "task_decomposer",
+                "title": "任务分解与规划",
+                "confidence": 0.85,
+                "relevance": 0.425,
+                "tags": [
+                  "planning",
+                  "decomposition",
+                  "dependencies",
+                  "project-management"
+                ],
+                "recommended_action": "expand_template"
+              },
+              {
+                "name": "data_analyzer",
+                "title": "数据分析流水线",
+                "confidence": 0.85,
+                "relevance": 0.425,
+                "tags": [
+                  "data",
+                  "statistics",
+                  "analysis",
+                  "reporting"
+                ],
+                "recommended_action": "expand_template"
+              }
+            ]
+          }
+        ],
+        "template_expands": [
+          {
+            "input": {
+              "name": "code_reviewer",
+              "prefix": "cr_"
+            },
+            "success": false,
+            "result": "KeyError: 'unknown workflow template: code_reviewer'"
+          },
+          {
+            "input": {
+              "name": "claude_like_coding_agent",
+              "prefix": "cr_"
+            },
+            "success": true,
+            "result": {
+              "template": "claude_like_coding_agent",
+              "revision": 43,
+              "nodes": [
+                "cr__start",
+                "cr__context",
+                "cr__workspace",
+                "cr__skills",
+                "cr__mcp",
+                "cr__capabilities",
+                "cr__memory",
+                "cr__compact",
+                "cr__budget",
+                "cr__rounds",
+                "cr__permission",
+                "cr__sandbox",
+                "cr__loop",
+                "cr__retry",
+                "cr__subagent",
+                "cr__dispatch",
+                "cr__deps",
+                "cr__mailbox",
+                "cr__checkpoint",
+                "cr__cancel",
+                "cr__trace",
+                "cr__end"
+              ],
+              "edges": [
+                "cr__start_to_context",
+                "cr__context_to_workspace",
+                "cr__workspace_to_skills",
+                "cr__skills_to_mcp",
+                "cr__mcp_to_capabilities",
+                "cr__capabilities_to_memory",
+                "cr__memory_to_compact",
+                "cr__compact_to_budget",
+                "cr__budget_to_rounds",
+                "cr__rounds_to_permission",
+                "cr__permission_to_sandbox",
+                "cr__sandbox_to_loop",
+                "cr__loop_to_retry",
+                "cr__retry_to_subagent",
+                "cr__subagent_to_dispatch",
+                "cr__dispatch_to_deps",
+                "cr__deps_to_mailbox",
+                "cr__mailbox_to_checkpoint",
+                "cr__checkpoint_to_cancel",
+                "cr__cancel_to_trace",
+                "cr__trace_to_end"
+              ]
+            }
+          }
+        ],
+        "failed_operations": [
+          {
+            "tool": "template_expand",
+            "input": {
+              "name": "code_reviewer",
+              "prefix": "cr_"
+            },
+            "result": "KeyError: 'unknown workflow template: code_reviewer'"
+          },
+          {
+            "tool": "draft_add_node",
+            "input": {
+              "node": {
+                "id": "cr__model_turn",
+                "type": "model_turn",
+                "block_version": 1,
+                "title": "Code Review Analyzer",
+                "description": "Analyzes the code review task and failing test output, produces a repair plan.",
+                "config": {
+                  "settings": {
+                    "prompt": "You are a code reviewer. Analyze the following:\n\nTask: {{ task }}\nRepository path: {{ repository_path }}\nFailing test output:\n{{ failing_test_output }}\nTest command: {{ test_command }}\n\nProduce:\n1. A minimal repair plan identifying the root cause and specific code changes needed.\n2. Whether the tests are expected to pass after the repair (true/false).\n3. A concise repair summary.\n\nOutput your analysis in JSON format with keys: repair_plan, tests_passed, repair_summary."
+                  },
+                  "input": {
+                    "$ref": {
+                      "node_id": "cr__start",
+                      "path": [
+                        "output"
+                      ]
+                    }
+                  }
+                },
+                "position": {
+                  "x": 260,
+                  "y": 0
+                }
+              }
+            },
+            "result": "RuntimeError: manual lookup required before using agent architecture block: model_turn"
+          }
+        ]
+      },
+      "benchmark_report": {
+        "name": "E05 template reuse-depth code review comparison",
+        "passed": true,
+        "score": 0.733,
+        "pass_rate": 0.0,
+        "case_count": 1,
+        "failed_cases": [
+          "code review repair blockflow reuse_depth=shallow"
+        ],
+        "reports": [
+          {
+            "name": "code review repair blockflow reuse_depth=shallow",
+            "passed": false,
+            "score": 0.733,
+            "metrics": {
+              "node_type_coverage": 0.667,
+              "tool_node_coverage": 1.0,
+              "harness_coverage": 1.0,
+              "edge_similarity": 0.0,
+              "test_frame_coverage": 1.0,
+              "candidate_node_count": 4,
+              "reference_node_count": 3,
+              "node_type_equivalences": {
+                "end": [
+                  "answer"
+                ],
+                "model_turn": [
+                  "llm"
+                ]
+              }
+            },
+            "missing": {
+              "node_types": [
+                "llm"
+              ],
+              "tool_nodes": [],
+              "harness_nodes": []
+            }
+          }
+        ],
+        "metrics": {
+          "average": {
+            "candidate_node_count": 4.0,
+            "edge_similarity": 0.0,
+            "harness_coverage": 1.0,
+            "node_type_coverage": 0.667,
+            "reference_node_count": 3.0,
+            "test_frame_coverage": 1.0,
+            "tool_node_coverage": 1.0
+          },
+          "minimum_score": 0.45,
+          "minimum_pass_rate": 0.0
+        },
+        "trends": [
+          {
+            "name": "code review repair blockflow reuse_depth=shallow",
+            "score": 0.733,
+            "baseline_score": null,
+            "delta": null,
+            "direction": "new"
+          }
+        ],
+        "cost": {
+          "model_calls": 0,
+          "tool_calls": 0,
+          "estimated_cost_usd": null,
+          "provider": "deepseek",
+          "model": "",
+          "notes": "Counts come from Platform Harness task usage when available."
+        }
+      },
+      "builder_task_summary": {
+        "id": "2d3f63b2-f737-4cec-abcc-f3c1a01acf0c",
+        "kind": "builder_build",
+        "status": "failed",
+        "usage_counts": {
+          "model_call": 42,
+          "tool_call": 73
+        },
+        "error": "builder stopped before mandatory tests passed",
+        "created_at": "2026-07-09T11:37:23.216700+00:00",
+        "updated_at": "2026-07-09T11:43:46.928208+00:00",
+        "finished_at": "2026-07-09T11:43:46.928208+00:00"
+      }
+    },
+    {
+      "depth": "deep",
+      "expected_action": "compose_modules",
+      "status": "completed",
+      "elapsed_seconds": 412.285,
+      "application_id": "e06bf95b-d853-44db-8c97-c1b6d5005807",
+      "build_id": "9b0fa80a-c533-49ac-ad9b-387d622485d6",
+      "build_status": "needs_attention",
+      "build_error": "builder stopped before mandatory tests passed",
+      "build_plan": {
+        "goal": "Build and validate an editable code review and repair BlockFlow. Inputs: task, repository_path, failing_test_output, test_command. Outputs: report, tests_passed, repair_summary.",
+        "strategy": "Use deep reuse: expand the code_reviewer template as the core, then augment with explicit contract/output nodes and auditable test structure. Compose modules from template where possible.",
+        "modules": [
+          {
+            "id": "m1",
+            "title": "Template Expansion - code_reviewer",
+            "purpose": "Expand the code_reviewer template as the core workflow backbone",
+            "status": "planned",
+            "depends_on": [],
+            "expected_blocks": [
+              "code_reviewer template nodes"
+            ],
+            "draft_node_ids": [],
+            "test_ids": [],
+            "evidence": []
+          },
+          {
+            "id": "m2",
+            "title": "Input/Output Contract & Report Formatting",
+            "purpose": "Ensure Start inputs are wired, add explicit output contract, and format final report with report/tests_passed/repair_summary",
+            "status": "planned",
+            "depends_on": [
+              "m1"
+            ],
+            "expected_blocks": [
+              "start",
+              "answer",
+              "template_transform",
+              "variable_aggregator"
+            ],
+            "draft_node_ids": [],
+            "test_ids": [],
+            "evidence": []
+          },
+          {
+            "id": "m3",
+            "title": "Mandatory Test with required_node_types",
+            "purpose": "Add auditable test with required_node_types, required_tool_nodes, and readable frame",
+            "status": "planned",
+            "depends_on": [
+              "m2"
+            ],
+            "expected_blocks": [],
+            "draft_node_ids": [],
+            "test_ids": [],
+            "evidence": []
+          }
+        ],
+        "reuse_depth": "deep",
+        "complexity": "medium",
+        "risks": [
+          "Template expansion may miss required explicit output contract",
+          "Need to ensure Start inputs are properly wired to downstream nodes",
+          "Must validate required_node_types in tests"
+        ]
+      },
+      "build_plan_reuse_depth": "deep",
+      "usage_counts": {
+        "model_call": 42,
+        "tool_call": 77
+      },
+      "draft_counts": {
+        "nodes": 5,
+        "edges": 4,
+        "tests": 2,
+        "node_types": [
+          "context_assembler",
+          "end",
+          "model_turn",
+          "start",
+          "template_transform"
+        ]
+      },
+      "event_summary": {
+        "operation_counts": {
+          "draft_inspect": 4,
+          "template_suggestions": 1,
+          "template_list": 1,
+          "build_plan": 1,
+          "template_expand": 2,
+          "catalog_search": 6,
+          "catalog_get": 5,
+          "draft_remove_node": 22,
+          "draft_update_node": 8,
+          "draft_add_node": 6,
+          "manual_get": 1,
+          "draft_connect": 8,
+          "draft_validate": 4,
+          "task": 1,
+          "test_add": 2,
+          "test_run": 3,
+          "architecture_blueprint": 1,
+          "draft_remove_edge": 1
+        },
+        "template_suggestion_count": 1,
+        "template_expand_count": 2,
+        "template_suggestions": [
+          {
+            "input": {
+              "requirement": "code review and repair BlockFlow with inputs task, repository_path, failing_test_output, test_command. Analyze failing test output, produce repair plan and report. Outputs: report, tests_passed, repair_summary.",
+              "reuse_depth": "deep"
+            },
+            "success": true,
+            "reuse_depth": "deep",
+            "recommended_action": "compose_modules",
+            "templates": [
+              {
+                "name": "code_reviewer",
+                "title": "代码审查与修复",
+                "confidence": 0.85,
+                "relevance": 0.425,
+                "tags": [
+                  "code-review",
+                  "testing",
+                  "debugging",
+                  "quality"
+                ],
+                "recommended_action": "compose_modules"
+              },
+              {
+                "name": "task_decomposer",
+                "title": "任务分解与规划",
+                "confidence": 0.85,
+                "relevance": 0.425,
+                "tags": [
+                  "planning",
+                  "decomposition",
+                  "dependencies",
+                  "project-management"
+                ],
+                "recommended_action": "compose_modules"
+              },
+              {
+                "name": "data_analyzer",
+                "title": "数据分析流水线",
+                "confidence": 0.85,
+                "relevance": 0.425,
+                "tags": [
+                  "data",
+                  "statistics",
+                  "analysis",
+                  "reporting"
+                ],
+                "recommended_action": "compose_modules"
+              }
+            ]
+          }
+        ],
+        "template_expands": [
+          {
+            "input": {
+              "name": "code_reviewer",
+              "prefix": "cr_"
+            },
+            "success": false,
+            "result": "KeyError: 'unknown workflow template: code_reviewer'"
+          },
+          {
+            "input": {
+              "name": "claude_like_coding_agent",
+              "prefix": "cca_"
+            },
+            "success": true,
+            "result": {
+              "template": "claude_like_coding_agent",
+              "revision": 43,
+              "nodes": [
+                "cca__start",
+                "cca__context",
+                "cca__workspace",
+                "cca__skills",
+                "cca__mcp",
+                "cca__capabilities",
+                "cca__memory",
+                "cca__compact",
+                "cca__budget",
+                "cca__rounds",
+                "cca__permission",
+                "cca__sandbox",
+                "cca__loop",
+                "cca__retry",
+                "cca__subagent",
+                "cca__dispatch",
+                "cca__deps",
+                "cca__mailbox",
+                "cca__checkpoint",
+                "cca__cancel",
+                "cca__trace",
+                "cca__end"
+              ],
+              "edges": [
+                "cca__start_to_context",
+                "cca__context_to_workspace",
+                "cca__workspace_to_skills",
+                "cca__skills_to_mcp",
+                "cca__mcp_to_capabilities",
+                "cca__capabilities_to_memory",
+                "cca__memory_to_compact",
+                "cca__compact_to_budget",
+                "cca__budget_to_rounds",
+                "cca__rounds_to_permission",
+                "cca__permission_to_sandbox",
+                "cca__sandbox_to_loop",
+                "cca__loop_to_retry",
+                "cca__retry_to_subagent",
+                "cca__subagent_to_dispatch",
+                "cca__dispatch_to_deps",
+                "cca__deps_to_mailbox",
+                "cca__mailbox_to_checkpoint",
+                "cca__checkpoint_to_cancel",
+                "cca__cancel_to_trace",
+                "cca__trace_to_end"
+              ]
+            }
+          }
+        ],
+        "failed_operations": [
+          {
+            "tool": "template_expand",
+            "input": {
+              "name": "code_reviewer",
+              "prefix": "cr_"
+            },
+            "result": "KeyError: 'unknown workflow template: code_reviewer'"
+          },
+          {
+            "tool": "draft_add_node",
+            "input": {
+              "node": {
+                "id": "cr_analysis",
+                "type": "model_turn",
+                "block_version": 1,
+                "title": "Code Review Analysis",
+                "description": "Analyze the code review task and failing test output, produce a minimal repair plan.",
+                "config": {
+                  "settings": {
+                    "prompt": "You are a code reviewer. Analyze the following task, repository path, failing test output, and test command. Produce:\n1. A minimal repair plan that identifies the root cause and exact code changes needed.\n2. A boolean indicating whether tests are expected to pass after repair (tests_passed).\n3. A concise repair summary.\n\nProvide your output as JSON with keys: repair_plan, tests_passed (boolean), repair_summary (string).",
+                    "system_prompt": "You are an expert code reviewer and debugger. Be precise, minimal, and actionable."
+                  },
+                  "input": {
+                    "$ref": {
+                      "node_id": "cca__context",
+                      "path": [
+                        "output"
+                      ]
+                    }
+                  }
+                },
+                "position": {
+                  "x": 780,
+                  "y": 0
+                },
+                "retry": {
+                  "enabled": false,
+                  "max_attempts": 1,
+                  "delay_seconds": 0.5
+                },
+                "error_strategy": "fail"
+              }
+            },
+            "result": "RuntimeError: manual lookup required before using agent architecture block: model_turn"
+          }
+        ]
+      },
+      "benchmark_report": {
+        "name": "E05 template reuse-depth code review comparison",
+        "passed": true,
+        "score": 0.733,
+        "pass_rate": 0.0,
+        "case_count": 1,
+        "failed_cases": [
+          "code review repair blockflow reuse_depth=deep"
+        ],
+        "reports": [
+          {
+            "name": "code review repair blockflow reuse_depth=deep",
+            "passed": false,
+            "score": 0.733,
+            "metrics": {
+              "node_type_coverage": 0.667,
+              "tool_node_coverage": 1.0,
+              "harness_coverage": 1.0,
+              "edge_similarity": 0.0,
+              "test_frame_coverage": 1.0,
+              "candidate_node_count": 5,
+              "reference_node_count": 3,
+              "node_type_equivalences": {
+                "end": [
+                  "answer"
+                ],
+                "model_turn": [
+                  "llm"
+                ]
+              }
+            },
+            "missing": {
+              "node_types": [
+                "llm"
+              ],
+              "tool_nodes": [],
+              "harness_nodes": []
+            }
+          }
+        ],
+        "metrics": {
+          "average": {
+            "candidate_node_count": 5.0,
+            "edge_similarity": 0.0,
+            "harness_coverage": 1.0,
+            "node_type_coverage": 0.667,
+            "reference_node_count": 3.0,
+            "test_frame_coverage": 1.0,
+            "tool_node_coverage": 1.0
+          },
+          "minimum_score": 0.45,
+          "minimum_pass_rate": 0.0
+        },
+        "trends": [
+          {
+            "name": "code review repair blockflow reuse_depth=deep",
+            "score": 0.733,
+            "baseline_score": null,
+            "delta": null,
+            "direction": "new"
+          }
+        ],
+        "cost": {
+          "model_calls": 0,
+          "tool_calls": 0,
+          "estimated_cost_usd": null,
+          "provider": "deepseek",
+          "model": "",
+          "notes": "Counts come from Platform Harness task usage when available."
+        }
+      },
+      "builder_task_summary": {
+        "id": "9b0fa80a-c533-49ac-ad9b-387d622485d6",
+        "kind": "builder_build",
+        "status": "failed",
+        "usage_counts": {
+          "model_call": 42,
+          "tool_call": 77
+        },
+        "error": "builder stopped before mandatory tests passed",
+        "created_at": "2026-07-09T11:43:48.440727+00:00",
+        "updated_at": "2026-07-09T11:50:39.589491+00:00",
+        "finished_at": "2026-07-09T11:50:39.589491+00:00"
+      }
+    }
+  ],
+  "error": ""
+}

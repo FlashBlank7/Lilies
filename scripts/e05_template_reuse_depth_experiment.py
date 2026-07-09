@@ -1,0 +1,510 @@
+#!/usr/bin/env python3
+"""Run the v0.2.38 E05 template reuse-depth live comparison experiment."""
+
+from __future__ import annotations
+
+import json
+import os
+import sys
+import time
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+from uuid import uuid4
+
+from fastapi.testclient import TestClient
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "platform" / "backend" / "src"))
+
+from agent_platform.api import create_app  # noqa: E402
+from agent_platform.config import Settings  # noqa: E402
+
+DEFAULT_RESULT_PATH = (
+    ROOT
+    / "docs"
+    / "experiment-status"
+    / "evidence"
+    / "experiment_v0.2.38_e05_template_reuse_depth_2026_07_09.json"
+)
+RESULT_PATH = Path(os.getenv("E05_REUSE_DEPTH_RESULT_PATH", str(DEFAULT_RESULT_PATH)))
+MAX_TURNS = int(os.getenv("E05_REUSE_DEPTH_MAX_TURNS", "42"))
+MAX_REPAIR_CYCLES = int(os.getenv("E05_REUSE_DEPTH_MAX_REPAIR_CYCLES", "2"))
+TIMEOUT_SECONDS = float(os.getenv("E05_REUSE_DEPTH_TIMEOUT_SECONDS", "900"))
+PROVIDER_TIMEOUT_SECONDS = float(os.getenv("E05_REUSE_DEPTH_PROVIDER_TIMEOUT_SECONDS", "120"))
+SKIP_PAID = os.getenv("E05_REUSE_DEPTH_SKIP_PAID", "0") == "1"
+RUN_ID = os.getenv("E05_REUSE_DEPTH_RUN_ID") or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+
+@dataclass(frozen=True)
+class ReuseDepthArm:
+    depth: str
+    instruction: str
+    expected_action: str
+
+
+def utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def load_dotenv(path: Path) -> None:
+    if not path.exists():
+        return
+    for line in path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key, value = stripped.split("=", 1)
+        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
+def result_path() -> Path:
+    return RESULT_PATH if RESULT_PATH.is_absolute() else ROOT / RESULT_PATH
+
+
+def headers(token: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+
+
+def request(client: TestClient, method: str, path: str, token: str, **kwargs: Any) -> Any:
+    response = client.request(method, path, headers=headers(token), **kwargs)
+    if response.status_code >= 400:
+        raise RuntimeError(f"{method} {path}: {response.status_code} {response.text}")
+    return response.json()
+
+
+def depth_arms() -> list[ReuseDepthArm]:
+    return [
+        ReuseDepthArm(
+            depth="none",
+            instruction=(
+                "Set BuildPlan.reuse_depth to 'none'. Call template_suggestions with reuse_depth='none' "
+                "to prove templates are intentionally disabled, then build the BlockFlow from scratch."
+            ),
+            expected_action="build_from_scratch",
+        ),
+        ReuseDepthArm(
+            depth="shallow",
+            instruction=(
+                "Set BuildPlan.reuse_depth to 'shallow'. Call template_suggestions with reuse_depth='shallow' "
+                "before draft mutations. If a relevant template is suggested, reuse its structure lightly while "
+                "keeping the final BlockFlow editable and tested."
+            ),
+            expected_action="expand_template",
+        ),
+        ReuseDepthArm(
+            depth="deep",
+            instruction=(
+                "Set BuildPlan.reuse_depth to 'deep'. Call template_suggestions with reuse_depth='deep' "
+                "before draft mutations. Compose the workflow around reusable template modules where possible, "
+                "and record the reuse decision in the BuildPlan."
+            ),
+            expected_action="compose_modules",
+        ),
+    ]
+
+
+def base_requirement() -> str:
+    return """
+Build and validate an editable code review and repair BlockFlow.
+
+The BlockFlow must:
+1. Start with inputs: task, repository_path, failing_test_output, and test_command.
+2. Analyze the code review task and failing test output.
+3. Produce a minimal repair plan and a reviewer-facing final report.
+4. Include an explicit tested output contract with a readable frame.
+5. Include required_node_types in the mandatory test so the workflow remains auditable.
+6. End with outputs: report, tests_passed, and repair_summary.
+
+This requirement is intentionally related to the built-in code_reviewer template
+and should expose whether Template reuse depth changes Builder behavior.
+""".strip()
+
+
+def requirement_for_arm(arm: ReuseDepthArm) -> str:
+    return f"{base_requirement()}\n\nE05 reuse-depth instruction:\n{arm.instruction}"
+
+
+def benchmark_reference() -> dict[str, Any]:
+    return {
+        "nodes": [
+            {
+                "id": "start",
+                "type": "start",
+                "title": "Code Review Inputs",
+                "config": {
+                    "inputs": [
+                        {"name": "task", "type": "string"},
+                        {"name": "repository_path", "type": "string"},
+                        {"name": "failing_test_output", "type": "string"},
+                        {"name": "test_command", "type": "string", "required": False},
+                    ],
+                },
+            },
+            {
+                "id": "review",
+                "type": "llm",
+                "title": "Review And Repair Analysis",
+                "config": {
+                    "system": "Analyze failing tests and produce a minimal repair plan.",
+                    "prompt": {
+                        "$ref": {
+                            "node_id": "start",
+                            "path": ["task"],
+                        }
+                    },
+                },
+            },
+            {
+                "id": "end",
+                "type": "end",
+                "title": "Return Review Report",
+                "config": {
+                    "outputs": {
+                        "report": {"$ref": {"node_id": "review", "path": ["text"]}},
+                        "tests_passed": False,
+                        "repair_summary": {"$ref": {"node_id": "review", "path": ["text"]}},
+                    }
+                },
+            },
+        ],
+        "edges": [
+            {
+                "id": "start-review",
+                "source": "start",
+                "target": "review",
+                "source_port": "output",
+                "target_port": "input",
+            },
+            {
+                "id": "review-end",
+                "source": "review",
+                "target": "end",
+                "source_port": "text",
+                "target_port": "input",
+            },
+        ],
+    }
+
+
+def build_settings(api_token: str) -> Settings:
+    default_settings = Settings()
+    generator_model = os.getenv(
+        "DEEPSEEK_GENERATOR_MODEL",
+        default_settings.deepseek_generator_model,
+    )
+    runtime_model = os.getenv("E05_REUSE_DEPTH_RUNTIME_MODEL") or generator_model
+    runtime_root = ROOT / ".tmp" / "e05_template_reuse_depth" / RUN_ID
+    return Settings(
+        api_token=api_token,
+        data_dir=runtime_root / "data",
+        workspace_root=runtime_root / "workspaces",
+        templates_dir=ROOT / "templates",
+        deepseek_api_key=os.getenv("DEEPSEEK_API_KEY") or default_settings.deepseek_api_key,
+        deepseek_base_url=os.getenv("DEEPSEEK_BASE_URL", default_settings.deepseek_base_url),
+        deepseek_generator_model=generator_model,
+        deepseek_runtime_model=runtime_model,
+        deepseek_timeout_seconds=PROVIDER_TIMEOUT_SECONDS,
+    )
+
+
+def wait_build(client: TestClient, build_id: str, token: str) -> dict[str, Any]:
+    deadline = time.monotonic() + TIMEOUT_SECONDS
+    while time.monotonic() < deadline:
+        current = request(client, "GET", f"/api/v1/builds/{build_id}", token)
+        print("build", build_id, current["status"], flush=True)
+        if current["status"] in {"ready", "published", "needs_attention", "cancelled"}:
+            if not isinstance(current, dict):
+                raise RuntimeError("build endpoint returned non-object")
+            return current
+        time.sleep(3)
+    raise TimeoutError(f"build timed out after {TIMEOUT_SECONDS} seconds")
+
+
+def parse_operation_result(event: dict[str, Any]) -> Any:
+    result = event.get("data", {}).get("result")
+    if not isinstance(result, str):
+        return None
+    try:
+        return json.loads(result)
+    except json.JSONDecodeError:
+        return result
+
+
+def summarize_events(events: list[dict[str, Any]]) -> dict[str, Any]:
+    operation_counts: dict[str, int] = {}
+    template_suggestions: list[dict[str, Any]] = []
+    template_expands: list[dict[str, Any]] = []
+    failed_operations: list[dict[str, Any]] = []
+    for event in events:
+        if event.get("type") != "build.operation":
+            continue
+        data = event.get("data", {})
+        tool = str(data.get("tool") or "")
+        operation_counts[tool] = operation_counts.get(tool, 0) + 1
+        parsed = parse_operation_result(event)
+        if tool == "template_suggestions" and isinstance(parsed, dict):
+            template_suggestions.append({
+                "input": data.get("input", {}),
+                "success": data.get("success"),
+                "reuse_depth": parsed.get("reuse_depth"),
+                "recommended_action": parsed.get("recommended_action"),
+                "templates": parsed.get("templates", []),
+            })
+        if tool == "template_expand":
+            template_expands.append({
+                "input": data.get("input", {}),
+                "success": data.get("success"),
+                "result": parsed,
+            })
+        if not data.get("success", False):
+            failed_operations.append({
+                "tool": tool,
+                "input": data.get("input", {}),
+                "result": parsed,
+            })
+    return {
+        "operation_counts": operation_counts,
+        "template_suggestion_count": operation_counts.get("template_suggestions", 0),
+        "template_expand_count": operation_counts.get("template_expand", 0),
+        "template_suggestions": template_suggestions,
+        "template_expands": template_expands,
+        "failed_operations": failed_operations,
+    }
+
+
+def task_usage_counts(build: dict[str, Any]) -> dict[str, int]:
+    task = build.get("task") if isinstance(build.get("task"), dict) else None
+    if not task:
+        return {}
+    counts = task.get("usage_counts")
+    if not isinstance(counts, dict):
+        return {}
+    return {
+        "model_call": int(counts.get("model_call", 0)),
+        "tool_call": int(counts.get("tool_call", 0)),
+    }
+
+
+def get_harness_task(client: TestClient, token: str, task_id: str) -> dict[str, Any] | None:
+    try:
+        task = request(client, "GET", f"/api/v1/platform/harness/tasks/{task_id}", token)
+    except Exception:
+        return None
+    return task if isinstance(task, dict) else None
+
+
+def draft_counts(draft: dict[str, Any]) -> dict[str, Any]:
+    workflow = draft.get("snapshot", {}).get("workflow", {})
+    tests = draft.get("snapshot", {}).get("tests", [])
+    nodes = workflow.get("nodes", [])
+    edges = workflow.get("edges", [])
+    return {
+        "nodes": len(nodes),
+        "edges": len(edges),
+        "tests": len(tests),
+        "node_types": sorted({str(node.get("type")) for node in nodes}),
+    }
+
+
+def run_template_preflight(client: TestClient, token: str) -> dict[str, Any]:
+    templates = request(client, "GET", "/api/v1/templates", token)
+    server_templates = request(client, "GET", "/api/v1/templates/categories", token)
+    suggestions: dict[str, Any] = {}
+    for arm in depth_arms():
+        suggestions[arm.depth] = request(
+            client,
+            "GET",
+            (
+                "/api/v1/templates/suggestions"
+                f"?requirement=code%20review%20testing%20debugging%20quality"
+                f"&reuse_depth={arm.depth}"
+            ),
+            token,
+        )
+    return {
+        "template_count": len(templates) if isinstance(templates, list) else 0,
+        "templates": templates,
+        "categories": server_templates,
+        "suggestions": suggestions,
+    }
+
+
+def run_arm(client: TestClient, token: str, arm: ReuseDepthArm) -> dict[str, Any]:
+    requirement = requirement_for_arm(arm)
+    started = time.perf_counter()
+    application = request(
+        client,
+        "POST",
+        "/api/v1/applications",
+        token,
+        json={
+            "name": f"E05 {arm.depth} reuse {uuid4().hex[:6]}",
+            "description": f"E05 template reuse-depth experiment arm: {arm.depth}",
+            "requirement": requirement,
+            "mode": "workflow",
+        },
+    )
+    build = request(
+        client,
+        "POST",
+        f"/api/v1/applications/{application['id']}/builds",
+        token,
+        json={
+            "requirement": requirement,
+            "auto_publish": False,
+            "max_turns": MAX_TURNS,
+            "max_repair_cycles": MAX_REPAIR_CYCLES,
+            "planning_mode": "required",
+        },
+    )
+    completed = wait_build(client, build["build_id"], token)
+    elapsed = round(time.perf_counter() - started, 3)
+    builder_task = get_harness_task(client, token, build["build_id"])
+    draft = request(client, "GET", f"/api/v1/applications/{application['id']}/draft", token)
+    events = request(client, "GET", f"/v1/streams/{build['build_id']}", token)
+    if not isinstance(events, list):
+        raise RuntimeError("stream endpoint returned non-list")
+    workflow = draft["snapshot"]["workflow"]
+    tests = draft["snapshot"].get("tests", [])
+    usage_counts = task_usage_counts({"task": builder_task} if builder_task else completed)
+    suite = request(
+        client,
+        "POST",
+        "/api/v1/builder-benchmark/suites/evaluate",
+        token,
+        json={
+            "name": "E05 template reuse-depth code review comparison",
+            "description": f"Benchmark arm for reuse_depth={arm.depth}.",
+            "minimum_score": 0.45,
+            "minimum_pass_rate": 0.0,
+            "cost": {
+                "model_calls": usage_counts.get("model_call", 0),
+                "tool_calls": usage_counts.get("tool_call", 0),
+                "provider": "deepseek",
+                "model": "",
+                "notes": "Counts come from Platform Harness task usage when available.",
+            },
+            "cases": [
+                {
+                    "name": f"code review repair blockflow reuse_depth={arm.depth}",
+                    "requirement": requirement,
+                    "reference": benchmark_reference(),
+                    "candidate": workflow,
+                    "required_node_types": ["start", "llm", "end"],
+                    "tests": tests,
+                }
+            ],
+        },
+    )
+    team_state = completed.get("team_state") or {}
+    build_plan = team_state.get("build_plan") if isinstance(team_state, dict) else None
+    event_summary = summarize_events(events)
+    return {
+        "depth": arm.depth,
+        "expected_action": arm.expected_action,
+        "status": "completed",
+        "elapsed_seconds": elapsed,
+        "application_id": application["id"],
+        "build_id": build["build_id"],
+        "build_status": completed.get("status"),
+        "build_error": completed.get("error", ""),
+        "builder_task": builder_task,
+        "build_plan": build_plan,
+        "build_plan_reuse_depth": build_plan.get("reuse_depth") if isinstance(build_plan, dict) else None,
+        "usage_counts": usage_counts,
+        "draft_counts": draft_counts(draft),
+        "event_summary": event_summary,
+        "benchmark_report": suite.get("report"),
+    }
+
+
+def write_result(result: dict[str, Any]) -> None:
+    path = result_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    print("result", path)
+
+
+def main() -> None:
+    load_dotenv(ROOT / ".env")
+    token = os.getenv("E05_REUSE_DEPTH_API_TOKEN") or os.getenv("API_TOKEN") or "workflow-test"
+    settings = build_settings(token)
+    settings.prepare()
+    result: dict[str, Any] = {
+        "status": "started",
+        "started_at": utc_now(),
+        "finished_at": None,
+        "experiment": "E05 template reuse-depth live comparison",
+        "version": "v0.2.38",
+        "budget": {
+            "arms": [arm.depth for arm in depth_arms()],
+            "max_turns_per_arm": MAX_TURNS,
+            "max_repair_cycles_per_arm": MAX_REPAIR_CYCLES,
+            "timeout_seconds_per_arm": TIMEOUT_SECONDS,
+            "provider_timeout_seconds": PROVIDER_TIMEOUT_SECONDS,
+            "skip_paid": SKIP_PAID,
+            "run_id": RUN_ID,
+        },
+        "health": {},
+        "models": {},
+        "preflight": {},
+        "arms": [],
+        "error": "",
+    }
+    try:
+        app = create_app(settings)
+        with TestClient(app) as client:
+            health = request(client, "GET", "/health", token)
+            models = request(client, "GET", "/v1/models", token)
+            result["health"] = {
+                "status": health.get("status"),
+                "deepseek_configured": health.get("deepseek_configured"),
+            }
+            result["models"] = {
+                "provider": models.get("provider"),
+                "generator_model": models.get("generator_model"),
+                "runtime_model": models.get("runtime_model"),
+                "configured_models": models.get("configured_models", []),
+            }
+            result["preflight"] = run_template_preflight(client, token)
+            if SKIP_PAID:
+                result["status"] = "skipped"
+                result["error"] = "E05_REUSE_DEPTH_SKIP_PAID=1"
+                return
+            if not health.get("deepseek_configured"):
+                result["status"] = "blocked"
+                result["error"] = "backend reports deepseek_configured=false"
+                return
+            for arm in depth_arms():
+                try:
+                    result["arms"].append(run_arm(client, token, arm))
+                except Exception as error:
+                    result["arms"].append({
+                        "depth": arm.depth,
+                        "expected_action": arm.expected_action,
+                        "status": "error",
+                        "error": str(error),
+                    })
+            if any(arm.get("status") == "completed" for arm in result["arms"]):
+                result["status"] = "completed"
+            elif result["arms"]:
+                result["status"] = "error"
+            else:
+                result["status"] = "blocked"
+    except Exception as error:
+        result["status"] = "error"
+        result["error"] = str(error)
+    except KeyboardInterrupt:
+        result["status"] = "interrupted"
+        result["error"] = "KeyboardInterrupt"
+        raise
+    finally:
+        result["finished_at"] = utc_now()
+        write_result(result)
+        print("status", result["status"])
+
+
+if __name__ == "__main__":
+    main()
