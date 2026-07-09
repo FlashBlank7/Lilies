@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Any, AsyncIterator
 
@@ -17,7 +18,7 @@ from agent_platform.models import (
 )
 from agent_platform.permissions import PermissionBroker
 from agent_platform.platform_harness import PlatformHarness, PlatformHarnessViolation
-from agent_platform.providers.base import ModelProvider, ProviderCapabilities
+from agent_platform.providers.base import ModelProvider, ProviderCapabilities, ProviderError
 from agent_platform.runtime import AgentRuntime
 from agent_platform.sandbox import CommandResult
 from agent_platform.storage import Storage
@@ -128,6 +129,29 @@ class InvalidJsonThenTextProvider(ModelProvider):
         yield StreamEvent(type="message_delta", data={
             "delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 5}
         })
+
+
+class SlowStreamProvider(ModelProvider):
+    name = "deepseek"
+
+    def capabilities(self, model: str) -> ProviderCapabilities:
+        return ProviderCapabilities(True, True, True, False, False, 100_000, 10_000)
+
+    async def stream(
+        self,
+        *,
+        model: str,
+        system: str,
+        messages: list[ChatMessage],
+        tools: list[ToolDefinition],
+        max_output_tokens: int,
+        thinking_enabled: bool,
+        effort: str,
+        tool_choice: dict[str, str] | None = None,
+        user_id: str | None = None,
+    ) -> AsyncIterator[StreamEvent]:
+        await asyncio.sleep(1)
+        yield StreamEvent(type="message_start", data={"message": {"usage": {"input_tokens": 1}}})
 
 
 class FakeSandbox:
@@ -344,3 +368,43 @@ async def test_runtime_feeds_invalid_tool_json_back_to_model(tmp_path: Path) -> 
     invalid_tool_use = session.messages[1].content[0]
     assert invalid_tool_use.input
     assert "_invalid_tool_input_json" in invalid_tool_use.input
+
+
+@pytest.mark.asyncio
+async def test_collect_stream_timeout_emits_retryable_provider_error(tmp_path: Path) -> None:
+    settings = Settings(
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+        deepseek_timeout_seconds=0.01,
+    )
+    settings.prepare()
+    storage = Storage(settings.data_dir)
+    await storage.initialize()
+    runtime = AgentRuntime(
+        settings=settings,
+        storage=storage,
+        provider=SlowStreamProvider(),
+        tools=build_core_registry(),
+        sandboxes=FakeSandboxes(settings.workspace_root),  # type: ignore[arg-type]
+        permissions=PermissionBroker(),
+        harness=PlatformHarness(storage=storage),
+    )
+    stream = runtime.provider.stream(
+        model="deepseek-test",
+        system="",
+        messages=[],
+        tools=[],
+        max_output_tokens=1,
+        thinking_enabled=False,
+        effort="low",
+    )
+
+    with pytest.raises(ProviderError, match="model stream timed out") as raised:
+        await runtime._collect_stream("stream-timeout", stream, "model", "deepseek-test")
+
+    assert raised.value.retryable is True
+    events = await storage.list_events("stream-timeout")
+    timeout_events = [event for event in events if event.type == "model.timeout"]
+    assert timeout_events
+    assert timeout_events[0].data["model"] == "deepseek-test"
+    assert timeout_events[0].data["timeout_seconds"] == 0.01

@@ -49,6 +49,7 @@
 - `v0.2.37_*`：来自 `docs/stage-reports/v0.2.37_e04_local_repair_vs_full_rebuild.md`。
 - `v0.2.38_*`：来自 `docs/stage-reports/v0.2.38_e05_template_reuse_depth_live_comparison.md`。
 - `v0.2.39_*`：来自 `docs/stage-reports/v0.2.39_template_reuse_expandability_contract.md`。
+- `v0.2.40_*`：来自 `docs/stage-reports/v0.2.40_builder_provider_timeout_boundary.md`。
 
 Active workspace rule:
 

@@ -9,7 +9,7 @@ from uuid import uuid4
 from .applications import ApplicationService
 from .blocks import BlockRegistry
 from .models import ChatMessage, ContentBlock, ToolDefinition
-from .providers import ModelProvider
+from .providers import ModelProvider, ProviderError
 from .runtime import AgentRuntime, INVALID_TOOL_INPUT_JSON_KEY
 from .storage import Storage
 from .models import AgentSpec
@@ -218,12 +218,20 @@ class WorkflowBuilder:
             await self._emit(build_id, "build.cancelled", {})
             raise
         except Exception as error:
+            failure_metadata = self._failure_metadata(error)
             await self.workflow_store.update_build(
                 build_id, status="needs_attention", team_state=state, error=str(error)
             )
-            await self.harness.finish_task(build_id, status="failed", error=str(error))
+            await self.harness.finish_task(
+                build_id,
+                status="failed",
+                error=str(error),
+                metadata=failure_metadata,
+            )
             await self._emit(build_id, "build.needs_attention", {
-                "error": str(error), "error_type": type(error).__name__
+                "error": str(error),
+                "error_type": type(error).__name__,
+                **failure_metadata,
             })
 
     async def _ensure_mandatory_smoke_test(
@@ -899,6 +907,28 @@ class WorkflowBuilder:
 
     async def _emit(self, stream_id: str, kind: str, data: dict[str, Any]) -> None:
         await self.storage.append_event(stream_id, kind, data)
+
+    @staticmethod
+    def _failure_metadata(error: Exception) -> dict[str, Any]:
+        message = str(error)
+        timeout_like = "timeout" in message.casefold() or "timed out" in message.casefold()
+        if isinstance(error, ProviderError):
+            failure = {
+                "type": "model_provider",
+                "error_type": type(error).__name__,
+                "retryable": error.retryable,
+                "status_code": error.status_code,
+                "timeout_like": timeout_like,
+            }
+        else:
+            failure = {
+                "type": "runtime",
+                "error_type": type(error).__name__,
+                "retryable": False,
+                "status_code": None,
+                "timeout_like": timeout_like,
+            }
+        return {"failure": failure}
 
     @staticmethod
     def _redact(value: Any) -> Any:

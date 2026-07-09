@@ -250,6 +250,39 @@ class AgentRuntime:
         raise last_error or RuntimeError("model request failed")
 
     async def _collect_stream(
+        self,
+        stream_id: str,
+        stream: Any,
+        event_prefix: str,
+        model: str = "",
+        timeout_seconds: float | None = None,
+    ) -> ModelResponse:
+        timeout = self.settings.deepseek_timeout_seconds if timeout_seconds is None else timeout_seconds
+        try:
+            if timeout > 0:
+                async with asyncio.timeout(timeout):
+                    return await self._collect_stream_unbounded(stream_id, stream, event_prefix, model)
+            return await self._collect_stream_unbounded(stream_id, stream, event_prefix, model)
+        except asyncio.TimeoutError as error:
+            await self.emit(stream_id, f"{event_prefix}.timeout", {
+                "model": model,
+                "timeout_seconds": timeout,
+            })
+            raise ProviderError(
+                f"model stream timed out after {timeout:g}s",
+                retryable=True,
+            ) from error
+        except ProviderError as error:
+            await self.emit(stream_id, f"{event_prefix}.failed", {
+                "model": model,
+                "error": str(error),
+                "error_type": type(error).__name__,
+                "retryable": error.retryable,
+                "status_code": error.status_code,
+            })
+            raise
+
+    async def _collect_stream_unbounded(
         self, stream_id: str, stream: Any, event_prefix: str, model: str = ""
     ) -> ModelResponse:
         blocks: dict[int, ContentBlock] = {}

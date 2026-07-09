@@ -21,7 +21,7 @@ from agent_platform.blocks import build_block_registry
 from agent_platform.config import Settings
 from agent_platform.models import ChatMessage, StreamEvent, ToolDefinition
 from agent_platform.platform_harness import PlatformHarness, PlatformHarnessViolation
-from agent_platform.providers.base import ModelProvider, ProviderCapabilities
+from agent_platform.providers.base import ModelProvider, ProviderCapabilities, ProviderError
 from agent_platform.sandbox import CommandResult
 from agent_platform.storage import Storage
 from agent_platform.tools import Tool, ToolContext, ToolResult
@@ -219,6 +219,29 @@ class PlanFirstBuilderProvider(ModelProvider):
                 "index": 0, "delta": {"type": "text_delta", "text": "planned"}
             })
             yield StreamEvent(type="message_delta", data={"delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 1}})
+
+
+class TimeoutBuilderProvider(ModelProvider):
+    name = "deepseek"
+
+    def capabilities(self, model: str) -> ProviderCapabilities:
+        return ProviderCapabilities(True, True, True, False, False, 100_000, 10_000)
+
+    async def stream(
+        self,
+        *,
+        model: str,
+        system: str,
+        messages: list[ChatMessage],
+        tools: list[ToolDefinition],
+        max_output_tokens: int,
+        thinking_enabled: bool,
+        effort: str,
+        tool_choice: dict[str, str] | None = None,
+        user_id: str | None = None,
+    ) -> AsyncIterator[StreamEvent]:
+        raise ProviderError("DeepSeek request timed out", retryable=True)
+        yield StreamEvent(type="message_start", data={"message": {"usage": {"input_tokens": 1}}})
 
 
 class ManualSkippingBuilderProvider(ModelProvider):
@@ -3529,6 +3552,56 @@ def test_builder_adds_preflight_smoke_test_when_model_omits_tests(tmp_path: Path
         assert set(tests[0]["required_node_types"]) == {"start", "template_transform", "end"}
         operation_events = client.get(f"/v1/streams/{build_id}", headers=headers()).json()
         assert any(event["type"] == "build.preflight_test_added" for event in operation_events)
+
+
+def test_builder_records_provider_timeout_in_harness_metadata(tmp_path: Path) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+    )
+    app = create_app(settings, TimeoutBuilderProvider())
+    with TestClient(app) as client:
+        app_id = client.post(
+            "/api/v1/applications",
+            headers=headers(),
+            json={"name": "Timeout build", "requirement": "Build a workflow that times out."},
+        ).json()["id"]
+        build_id = client.post(
+            f"/api/v1/applications/{app_id}/builds",
+            headers=headers(),
+            json={"requirement": "Build a workflow that times out.", "auto_publish": False, "max_turns": 5},
+        ).json()["build_id"]
+        for _ in range(100):
+            build = client.get(f"/api/v1/builds/{build_id}", headers=headers()).json()
+            if build["status"] == "needs_attention":
+                break
+            time.sleep(0.01)
+
+        assert build["status"] == "needs_attention", build
+        assert "timed out" in build["error"]
+
+        task = client.get(f"/api/v1/platform/harness/tasks/{build_id}", headers=headers()).json()
+        assert task["status"] == "failed"
+        assert task["error"] == "DeepSeek request timed out"
+        failure = task["metadata"]["failure"]
+        assert failure["type"] == "model_provider"
+        assert failure["error_type"] == "ProviderError"
+        assert failure["retryable"] is True
+        assert failure["status_code"] is None
+        assert failure["timeout_like"] is True
+
+        events = client.get(f"/v1/streams/{build_id}", headers=headers()).json()
+        failed_events = [
+            event for event in events if event["type"] == "build.coordinator.model.failed"
+        ]
+        assert failed_events and failed_events[0]["data"]["retryable"] is True
+        needs_attention = [
+            event for event in events if event["type"] == "build.needs_attention"
+        ]
+        assert needs_attention
+        assert needs_attention[0]["data"]["failure"]["type"] == "model_provider"
+        assert needs_attention[0]["data"]["failure"]["timeout_like"] is True
 
 
 def test_builder_persists_plan_first_build_plan(tmp_path: Path) -> None:
