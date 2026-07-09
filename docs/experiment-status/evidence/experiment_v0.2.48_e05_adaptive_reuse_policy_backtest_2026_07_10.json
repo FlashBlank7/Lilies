@@ -1,0 +1,85 @@
+{
+  "experiment_id": "v0.2.48_e05_adaptive_reuse_policy_backtest",
+  "status": "completed",
+  "generated_at": "2026-07-09T19:34:18.408826+00:00",
+  "policy_mode": "adaptive",
+  "template_count": 10,
+  "families": [
+    {
+      "family": "code_reviewer",
+      "requirement": "Review code, inspect failing tests, and produce a repair report.",
+      "top_template": "code_reviewer",
+      "relevance_score": 1.006,
+      "recommended_depth": "shallow",
+      "recommended_action": "expand_template",
+      "policy_reason": "adaptive:template_match:code_reviewer",
+      "best_known_depth": "shallow",
+      "success_envelope": [
+        "shallow"
+      ],
+      "matches_best_known": true,
+      "within_success_envelope": true,
+      "alignment": "exact_match",
+      "evidence_summary_path": "docs/experiment-status/evidence/experiment_v0.2.41_e05_success_condition_2026_07_09_summary.md",
+      "min_blocks_required": [
+        "llm",
+        "tool"
+      ],
+      "note": "Existing E05 evidence favors shallow over deep for the code-review family."
+    },
+    {
+      "family": "customer_support_router",
+      "requirement": "Classify support tickets and route each customer issue to the right response path.",
+      "top_template": "customer_support_router",
+      "relevance_score": 1.307,
+      "recommended_depth": "shallow",
+      "recommended_action": "expand_template",
+      "policy_reason": "adaptive:template_match:customer_support_router",
+      "best_known_depth": "mixed",
+      "success_envelope": [
+        "none",
+        "shallow",
+        "deep"
+      ],
+      "matches_best_known": false,
+      "within_success_envelope": true,
+      "alignment": "within_success_envelope",
+      "evidence_summary_path": "docs/experiment-status/evidence/experiment_v0.2.46_e05_customer_support_deep_only_teammate_governance_2026_07_10_summary.md",
+      "min_blocks_required": [
+        "question_classifier",
+        "if_else",
+        "template_transform"
+      ],
+      "note": "Customer-support evidence is mixed across governance slices, so adaptive should stay conservative instead of forcing deep by default."
+    },
+    {
+      "family": "data_analyzer",
+      "requirement": "Analyze CSV statistics, extract anomalies, and produce a data report.",
+      "top_template": "data_analyzer",
+      "relevance_score": 1.813,
+      "recommended_depth": "deep",
+      "recommended_action": "compose_modules",
+      "policy_reason": "adaptive:complex_blocks:parameter_extractor",
+      "best_known_depth": "deep",
+      "success_envelope": [
+        "deep"
+      ],
+      "matches_best_known": true,
+      "within_success_envelope": true,
+      "alignment": "exact_match",
+      "evidence_summary_path": "docs/experiment-status/evidence/experiment_v0.2.47_e05_data_analyzer_breadth_2026_07_10_summary.md",
+      "min_blocks_required": [
+        "llm",
+        "parameter_extractor",
+        "template_transform"
+      ],
+      "note": "The latest breadth/default slice showed deep publishing while shallow timed out."
+    }
+  ],
+  "summary": {
+    "family_count": 3,
+    "exact_matches": 2,
+    "bounded_matches": 1,
+    "mismatches": 0
+  }
+}

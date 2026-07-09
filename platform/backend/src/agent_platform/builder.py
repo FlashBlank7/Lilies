@@ -15,6 +15,13 @@ from .runtime import AgentRuntime, INVALID_TOOL_INPUT_JSON_KEY
 from .storage import Storage
 from .models import AgentSpec
 from .platform_harness import PlatformHarness
+from .template_strategy import (
+    ALLOWED_REUSE_DEPTHS,
+    build_suggestion_payload,
+    recommended_action_for_depth,
+    resolve_effective_reuse_depth,
+    score_template_matches,
+)
 from .workflow_models import (
     BuildPlan,
     BuildTask,
@@ -51,6 +58,9 @@ Core rules:
   with confidence >= 0.7 matches the requirement, prefer expanding it via
   template_expand instead of building from scratch. This saves time and reuses
   proven patterns.
+- When the correct reuse depth is unclear, call template_suggestions with reuse_depth="adaptive".
+  If it returns effective_reuse_depth and policy_reason, update the BuildPlan to that concrete depth
+  before mutating the draft.
 - For agent architecture bricks, call manual_search or manual_get first, then add one brick at a time.
 - Use architecture_blueprint when reconstructing a Claude-like agent loop from explicit bricks.
 - Use template_list and template_expand when a known Claude-like subgraph template fits; the expanded graph is
@@ -673,42 +683,39 @@ class WorkflowBuilder:
             reuse_depth = str(data.get("reuse_depth") or (
                 state.build_plan.reuse_depth if state.build_plan else "shallow"
             ))
+            if reuse_depth not in ALLOWED_REUSE_DEPTHS:
+                allowed = ", ".join(sorted(ALLOWED_REUSE_DEPTHS))
+                raise RuntimeError(f"reuse_depth must be one of: {allowed}")
             if reuse_depth == "none":
                 return {
                     "reuse_depth": reuse_depth,
+                    "effective_reuse_depth": "none",
                     "recommended_action": "build_from_scratch",
+                    "policy_reason": "explicit:none",
                     "templates": [],
                 }
-            # Call the API endpoint internally — simple relevance scoring
-            scored: list[tuple[float, dict[str, Any]]] = []
-            query = requirement.casefold()
             templates = self.template_store.list() if self.template_store else []
-            for meta in templates:
-                searchable = f"{meta.name} {meta.title} {' '.join(meta.tags)}".casefold()
-                tag_matches = sum(1 for tag in meta.tags if tag.casefold() in query)
-                name_match = 1.0 if any(w in searchable for w in query.split() if len(w) > 3) else 0.0
-                score = meta.confidence * (0.5 * tag_matches + 0.5 * name_match)
-                if score > 0.1:
-                    scored.append((score, meta))
-            scored.sort(key=lambda x: x[0], reverse=True)
+            scored = score_template_matches(requirement, templates)
             # Bump usage_count for top matches (feedback: Builder selected this template)
-            for s, meta in scored[:3]:
+            for _, meta in scored[:3]:
                 if hasattr(meta, "usage_count"):
                     meta.usage_count += 1  # recommendation flywheel: template was chosen
+            top_meta = scored[0][1] if scored else None
+            effective_reuse_depth, policy_reason = resolve_effective_reuse_depth(reuse_depth, top_meta)
             return {
                 "reuse_depth": reuse_depth,
-                "recommended_action": "compose_modules" if reuse_depth == "deep" else "expand_template",
+                "effective_reuse_depth": effective_reuse_depth,
+                "recommended_action": recommended_action_for_depth(effective_reuse_depth),
+                "policy_reason": policy_reason,
                 "templates": [
                     {
-                        "name": m.name,
-                        "title": m.title,
-                        "source": "marketplace",
-                        "confidence": m.confidence,
-                        "relevance": round(s, 3),
-                        "tags": m.tags,
-                        "recommended_action": (
-                            "compose_modules" if reuse_depth == "deep" else "expand_template"
+                        **build_suggestion_payload(
+                            m,
+                            s,
+                            reuse_depth,
                         ),
+                        "source": "marketplace",
+                        "relevance": round(s, 3),
                     }
                     for s, m in scored[:5]
                 ],
@@ -1032,7 +1039,7 @@ class WorkflowBuilder:
             ToolDefinition(name="manual_search", description="Search block manuals before selecting agent architecture bricks.", input_schema={"type": "object", "properties": {"query": {"type": "string"}, "block_kind": {"enum": ["business_workflow", "agent_architecture", "legacy_compatibility"]}}}),
             ToolDefinition(name="manual_get", description="Read one block manual, including when to use it, examples, anti-patterns, and Claude architecture mapping.", input_schema={"type": "object", "properties": {"type": {"type": "string"}}, "required": ["type"]}),
             ToolDefinition(name="architecture_blueprint", description="Read the Claude-like runtime blueprint made from explicit composable bricks.", input_schema={"type": "object", "properties": {}}),
-            ToolDefinition(name="template_suggestions", description="Search template marketplace for matching templates. Use BEFORE building from scratch.", input_schema={"type": "object", "properties": {"requirement": {"type": "string", "description": "Natural language requirement to match against templates"}, "reuse_depth": {"enum": ["none", "shallow", "deep"], "description": "How aggressively to reuse templates."}}, "required": ["requirement"]}),
+            ToolDefinition(name="template_suggestions", description="Search template marketplace for matching templates. Use BEFORE building from scratch.", input_schema={"type": "object", "properties": {"requirement": {"type": "string", "description": "Natural language requirement to match against templates"}, "reuse_depth": {"enum": ["none", "shallow", "deep", "adaptive"], "description": "How aggressively to reuse templates."}}, "required": ["requirement"]}),
             ToolDefinition(name="template_list", description="List expandable server-defined and marketplace workflow templates.", input_schema={"type": "object", "properties": {}}),
             ToolDefinition(name="template_expand", description="Expand one server-defined or marketplace workflow template into the draft.", input_schema={"type": "object", "properties": {"name": {"type": "string"}, "prefix": {"type": "string"}, "position": {"type": "object", "additionalProperties": True}}, "required": ["name"]}),
             ToolDefinition(name="draft_inspect", description="Inspect the current shared draft and revision.", input_schema={"type": "object", "properties": {}}),

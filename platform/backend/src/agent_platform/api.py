@@ -36,6 +36,11 @@ from .sandbox import SandboxManager
 from .scheduler import WorkflowScheduler
 from .storage import Storage
 from .template_models import TemplateCreateRequest
+from .template_strategy import (
+    ALLOWED_REUSE_DEPTHS,
+    build_suggestion_payload,
+    score_template_matches,
+)
 from .template_store import TemplateStore
 from .tools import ToolRegistry, build_core_registry
 from .workflow_models import (
@@ -517,38 +522,13 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         """Suggest matching templates for a requirement, sorted by relevance."""
         if not requirement:
             return []
-        if reuse_depth not in {"none", "shallow", "deep"}:
-            raise HTTPException(422, "reuse_depth must be one of: none, shallow, deep")
+        if reuse_depth not in ALLOWED_REUSE_DEPTHS:
+            raise HTTPException(422, "reuse_depth must be one of: adaptive, deep, none, shallow")
         if reuse_depth == "none":
             return []
-
-        query = requirement.casefold()
-        scored: list[tuple[float, Any]] = []
-
-        for meta in services.templates.list():
-            searchable = f"{meta.name} {meta.title} {meta.description} {' '.join(meta.tags)}".casefold()
-            tag_matches = sum(
-                1 for tag in meta.tags
-                if tag.casefold() in query or any(
-                    word in tag.casefold() for word in query.split()
-                )
-            )
-            name_match = 1.0 if any(
-                word in searchable for word in query.split() if len(word) > 3
-            ) else 0.0
-            score = meta.confidence * (0.5 * tag_matches + 0.5 * name_match)
-            if score > 0.1:
-                scored.append((score, meta))
-
-        scored.sort(key=lambda x: x[0], reverse=True)
-        recommended_action = "compose_modules" if reuse_depth == "deep" else "expand_template"
+        scored = score_template_matches(requirement, services.templates.list())
         return [
-            {
-                **meta.model_dump(mode="json"),
-                "relevance_score": round(score, 3),
-                "reuse_depth": reuse_depth,
-                "recommended_action": recommended_action,
-            }
+            build_suggestion_payload(meta, score, reuse_depth)
             for score, meta in scored[:5]
         ]
 

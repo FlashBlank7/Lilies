@@ -716,6 +716,62 @@ class TemplateListBuilderProvider(ModelProvider):
         yield StreamEvent(type="message_delta", data={"delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 1}})
 
 
+class AdaptiveTemplateSuggestionBuilderProvider(ModelProvider):
+    name = "deepseek"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def capabilities(self, model: str) -> ProviderCapabilities:
+        return ProviderCapabilities(True, True, True, False, False, 100_000, 10_000)
+
+    async def stream(
+        self,
+        *,
+        model: str,
+        system: str,
+        messages: list[ChatMessage],
+        tools: list[ToolDefinition],
+        max_output_tokens: int,
+        thinking_enabled: bool,
+        effort: str,
+        tool_choice: dict[str, str] | None = None,
+        user_id: str | None = None,
+    ) -> AsyncIterator[StreamEvent]:
+        self.calls += 1
+        yield StreamEvent(type="message_start", data={"message": {"usage": {"input_tokens": 1}}})
+        if self.calls == 1:
+            value = {
+                "requirement": "Analyze CSV statistics and anomaly report.",
+                "reuse_depth": "adaptive",
+            }
+            yield StreamEvent(type="content_block_start", data={
+                "index": 0,
+                "content_block": {
+                    "type": "tool_use",
+                    "id": "adaptive-template-suggestions",
+                    "name": "template_suggestions",
+                    "input": {},
+                },
+            })
+            yield StreamEvent(type="content_block_delta", data={
+                "index": 0,
+                "delta": {"type": "input_json_delta", "partial_json": json.dumps(value)},
+            })
+            yield StreamEvent(type="content_block_stop", data={"index": 0})
+            yield StreamEvent(type="message_delta", data={"delta": {"stop_reason": "tool_use"}, "usage": {"output_tokens": 1}})
+            return
+        yield StreamEvent(type="content_block_start", data={
+            "index": 0,
+            "content_block": {"type": "text", "text": "adaptive suggestion inspected"},
+        })
+        yield StreamEvent(type="content_block_delta", data={
+            "index": 0,
+            "delta": {"type": "text_delta", "text": "adaptive suggestion inspected"},
+        })
+        yield StreamEvent(type="message_delta", data={"delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 1}})
+
+
 class MarketplaceTemplateExpandBuilderProvider(ModelProvider):
     name = "deepseek"
 
@@ -1273,6 +1329,7 @@ def test_template_suggestions_include_reuse_depth_actions(tmp_path: Path) -> Non
         api_token="workflow-test",
         data_dir=tmp_path / "data",
         workspace_root=tmp_path / "workspaces",
+        templates_dir=Path(__file__).resolve().parents[1] / "templates",
     )
     app = create_app(settings, ScriptedProvider())
     with TestClient(app) as client:
@@ -1317,6 +1374,18 @@ def test_template_suggestions_include_reuse_depth_actions(tmp_path: Path) -> Non
             headers=headers(),
         ).json()
         assert none == []
+
+        adaptive = client.get(
+            "/api/v1/templates/suggestions?requirement=data%20analysis%20statistics%20anomalies%20report&reuse_depth=adaptive",
+            headers=headers(),
+        )
+        assert adaptive.status_code == 200, adaptive.text
+        adaptive_body = adaptive.json()
+        assert adaptive_body[0]["name"] == "data_analyzer"
+        assert adaptive_body[0]["reuse_depth"] == "adaptive"
+        assert adaptive_body[0]["effective_reuse_depth"] == "deep"
+        assert adaptive_body[0]["recommended_action"] == "compose_modules"
+        assert "parameter_extractor" in adaptive_body[0]["policy_reason"]
 
 
 def test_platform_harness_tracks_test_suite_and_workflow_usage(tmp_path: Path) -> None:
@@ -4365,6 +4434,50 @@ def test_builder_template_list_includes_marketplace_and_server_defined_templates
         assert by_name["claude_like_coding_agent"]["source"] == "server_defined"
         assert by_name["code_reviewer"]["source"] == "marketplace"
         assert by_name["code_reviewer"]["recommended_action"] == "expand_template"
+
+
+def test_builder_template_suggestions_adaptive_returns_effective_depth(tmp_path: Path) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+        templates_dir=Path(__file__).resolve().parents[1] / "templates",
+    )
+    app = create_app(settings, AdaptiveTemplateSuggestionBuilderProvider())
+    with TestClient(app) as client:
+        app_id = client.post(
+            "/api/v1/applications",
+            headers=headers(),
+            json={"name": "Adaptive Template", "requirement": "Inspect adaptive template suggestions."},
+        ).json()["id"]
+        build_id = client.post(
+            f"/api/v1/applications/{app_id}/builds",
+            headers=headers(),
+            json={
+                "requirement": "Inspect adaptive template suggestions.",
+                "auto_publish": False,
+                "max_turns": 5,
+            },
+        ).json()["build_id"]
+        for _ in range(100):
+            build = client.get(f"/api/v1/builds/{build_id}", headers=headers()).json()
+            if build["status"] in {"ready", "needs_attention", "published", "cancelled"}:
+                break
+            time.sleep(0.01)
+
+        operation_events = client.get(f"/v1/streams/{build_id}", headers=headers()).json()
+        suggestion_events = [
+            event for event in operation_events
+            if event["type"] == "build.operation" and event["data"].get("tool") == "template_suggestions"
+        ]
+        assert suggestion_events and suggestion_events[0]["data"]["success"] is True
+        result = json.loads(suggestion_events[0]["data"]["result"])
+        assert result["reuse_depth"] == "adaptive"
+        assert result["effective_reuse_depth"] == "deep"
+        assert result["recommended_action"] == "compose_modules"
+        assert "parameter_extractor" in result["policy_reason"]
+        assert result["templates"][0]["name"] == "data_analyzer"
+        assert result["templates"][0]["effective_reuse_depth"] == "deep"
 
 
 def test_builder_can_expand_marketplace_template_into_editable_draft(tmp_path: Path) -> None:
