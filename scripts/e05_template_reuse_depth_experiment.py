@@ -131,6 +131,16 @@ def depth_arms() -> list[ReuseDepthArm]:
             ),
             expected_action="policy_selected",
         ),
+        ReuseDepthArm(
+            depth="policy_default",
+            instruction=(
+                "Do not set BuildPlan.reuse_depth explicitly. Call template_suggestions without a reuse_depth "
+                "parameter before draft mutations so the product policy default applies. Read the returned "
+                "reuse_depth_source, effective_reuse_depth, and policy_reason, then follow that concrete reuse "
+                "strategy during the build while preserving the evidence that the path was policy-defaulted."
+            ),
+            expected_action="policy_default",
+        ),
     ]
 
 
@@ -521,6 +531,13 @@ def benchmark_reference(case: ExperimentCase | None = None) -> dict[str, Any]:
     return (case or experiment_case()).benchmark_reference
 
 
+def suggestion_query_for_arm(arm: ReuseDepthArm, query: str) -> str:
+    base = f"/api/v1/templates/suggestions?requirement={query.replace(' ', '%20')}"
+    if arm.depth == "policy_default":
+        return base
+    return f"{base}&reuse_depth={arm.depth}"
+
+
 def build_request_payload(requirement: str) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "requirement": requirement,
@@ -620,6 +637,10 @@ def summarize_events(events: list[dict[str, Any]]) -> dict[str, Any]:
                 "input": data.get("input", {}),
                 "success": data.get("success"),
                 "reuse_depth": parsed.get("reuse_depth"),
+                "reuse_depth_source": parsed.get("reuse_depth_source"),
+                "defaulted_by_policy": parsed.get("defaulted_by_policy"),
+                "default_policy_version": parsed.get("default_policy_version"),
+                "available_overrides": parsed.get("available_overrides"),
                 "effective_reuse_depth": parsed.get("effective_reuse_depth"),
                 "policy_reason": parsed.get("policy_reason"),
                 "recommended_action": parsed.get("recommended_action"),
@@ -757,11 +778,7 @@ def run_template_preflight(client: TestClient, token: str, case: ExperimentCase 
         suggestions[arm.depth] = request(
             client,
             "GET",
-            (
-                "/api/v1/templates/suggestions"
-                f"?requirement={selected.preflight_query.replace(' ', '%20')}"
-                f"&reuse_depth={arm.depth}"
-            ),
+            suggestion_query_for_arm(arm, selected.preflight_query),
             token,
         )
     return {
@@ -842,14 +859,18 @@ def run_arm(client: TestClient, token: str, arm: ReuseDepthArm, case: Experiment
     event_summary = summarize_events(events)
     failure_summary = summarize_failure(completed, builder_task, event_summary)
     benchmark_report = suite.get("report")
-    adaptive_resolution = None
-    if arm.depth == "adaptive" and event_summary.get("template_suggestions"):
-        adaptive_resolution = event_summary["template_suggestions"][-1]
+    resolved_template_strategy = None
+    if event_summary.get("template_suggestions"):
+        resolved_template_strategy = event_summary["template_suggestions"][-1]
+    adaptive_resolution = resolved_template_strategy if arm.depth == "adaptive" else None
+    policy_default_resolution = resolved_template_strategy if arm.depth == "policy_default" else None
     return {
         "depth": arm.depth,
         "case": selected.name,
         "expected_action": arm.expected_action,
         "adaptive_resolution": adaptive_resolution,
+        "policy_default_resolution": policy_default_resolution,
+        "resolved_template_strategy": resolved_template_strategy,
         "status": "completed",
         "elapsed_seconds": elapsed,
         "application_id": application["id"],

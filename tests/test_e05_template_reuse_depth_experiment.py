@@ -31,24 +31,29 @@ def test_e05_depth_arms_and_requirements_are_explicit() -> None:
     module = load_e05_module()
 
     arms = module.depth_arms()
-    assert [arm.depth for arm in arms] == ["none", "shallow", "deep", "adaptive"]
+    assert [arm.depth for arm in arms] == ["none", "shallow", "deep", "adaptive", "policy_default"]
     assert [arm.expected_action for arm in arms] == [
         "build_from_scratch",
         "expand_template",
         "compose_modules",
         "policy_selected",
+        "policy_default",
     ]
     for arm in arms:
         requirement = module.requirement_for_arm(arm)
-        assert f"reuse_depth='{arm.depth}'" in requirement
+        if arm.depth == "policy_default":
+            assert "without a reuse_depth parameter" in requirement
+            assert "policy-defaulted" in requirement
+        else:
+            assert f"reuse_depth='{arm.depth}'" in requirement
         assert "code review and repair BlockFlow" in requirement
 
 
 def test_e05_selected_arms_defaults_to_all() -> None:
     module = load_e05_module()
 
-    assert module.selected_arm_depths() == ["none", "shallow", "deep", "adaptive"]
-    assert [arm.depth for arm in module.selected_arms()] == ["none", "shallow", "deep", "adaptive"]
+    assert module.selected_arm_depths() == ["none", "shallow", "deep", "adaptive", "policy_default"]
+    assert [arm.depth for arm in module.selected_arms()] == ["none", "shallow", "deep", "adaptive", "policy_default"]
 
 
 def test_e05_selected_arms_accepts_deep_only(monkeypatch) -> None:
@@ -91,6 +96,10 @@ def test_e05_template_preflight_distinguishes_depth_actions(tmp_path: Path) -> N
     assert preflight["suggestions"]["shallow"][0]["recommended_action"] == "expand_template"
     assert preflight["suggestions"]["deep"][0]["recommended_action"] == "compose_modules"
     assert preflight["suggestions"]["adaptive"][0]["effective_reuse_depth"] == "shallow"
+    assert preflight["suggestions"]["policy_default"][0]["reuse_depth"] == "adaptive"
+    assert preflight["suggestions"]["policy_default"][0]["reuse_depth_source"] == "policy_default"
+    assert preflight["suggestions"]["policy_default"][0]["defaulted_by_policy"] is True
+    assert preflight["suggestions"]["policy_default"][0]["effective_reuse_depth"] == "shallow"
     assert any(item["name"] == "code_reviewer" for item in preflight["suggestions"]["shallow"])
 
 
@@ -145,6 +154,14 @@ def test_e05_data_analyzer_preflight_adaptive_resolves_to_deep(tmp_path: Path) -
     assert adaptive["recommended_action"] == "compose_modules"
     assert "parameter_extractor" in adaptive["policy_reason"]
 
+    policy_default = preflight["suggestions"]["policy_default"][0]
+    assert policy_default["name"] == "data_analyzer"
+    assert policy_default["reuse_depth"] == "adaptive"
+    assert policy_default["reuse_depth_source"] == "policy_default"
+    assert policy_default["defaulted_by_policy"] is True
+    assert policy_default["effective_reuse_depth"] == "deep"
+    assert policy_default["recommended_action"] == "compose_modules"
+
 
 def test_e05_build_payload_includes_optional_build_deadline() -> None:
     module = load_e05_module()
@@ -196,9 +213,9 @@ def test_e05_event_summary_extracts_template_metrics() -> None:
             "type": "build.operation",
             "data": {
                 "tool": "template_suggestions",
-                "input": {"reuse_depth": "adaptive"},
+                "input": {},
                 "success": True,
-                "result": '{"reuse_depth":"adaptive","effective_reuse_depth":"deep","policy_reason":"adaptive:complex_blocks:parameter_extractor","recommended_action":"compose_modules","templates":[{"name":"data_analyzer"}]}',
+                "result": '{"reuse_depth":"adaptive","reuse_depth_source":"policy_default","defaulted_by_policy":true,"default_policy_version":"v0.2.52_adaptive_default_productization","available_overrides":["adaptive","deep","none","shallow"],"effective_reuse_depth":"deep","policy_reason":"adaptive:complex_blocks:parameter_extractor","recommended_action":"compose_modules","templates":[{"name":"data_analyzer"}]}',
             },
         },
         {
@@ -217,6 +234,10 @@ def test_e05_event_summary_extracts_template_metrics() -> None:
     assert summary["template_suggestion_count"] == 1
     assert summary["template_expand_count"] == 1
     assert summary["template_suggestions"][0]["effective_reuse_depth"] == "deep"
+    assert summary["template_suggestions"][0]["reuse_depth_source"] == "policy_default"
+    assert summary["template_suggestions"][0]["defaulted_by_policy"] is True
+    assert summary["template_suggestions"][0]["default_policy_version"] == "v0.2.52_adaptive_default_productization"
+    assert summary["template_suggestions"][0]["available_overrides"] == ["adaptive", "deep", "none", "shallow"]
     assert summary["template_suggestions"][0]["policy_reason"] == "adaptive:complex_blocks:parameter_extractor"
     assert summary["template_suggestions"][0]["recommended_action"] == "compose_modules"
     assert summary["template_expands"][0]["success"] is False

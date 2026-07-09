@@ -78,6 +78,43 @@ def template_summary(event_summary: Any) -> str:
     return f"suggest={scalar(suggestions, '0')}, expand={scalar(expands, '0')}"
 
 
+def reuse_summary(arm: dict[str, Any]) -> str:
+    strategy = arm.get("resolved_template_strategy")
+    if not isinstance(strategy, dict):
+        strategy = arm.get("policy_default_resolution")
+    if not isinstance(strategy, dict):
+        strategy = arm.get("adaptive_resolution")
+    if not isinstance(strategy, dict):
+        event_summary = arm.get("event_summary")
+        if isinstance(event_summary, dict):
+            suggestions = event_summary.get("template_suggestions")
+            if isinstance(suggestions, list) and suggestions:
+                candidate = suggestions[-1]
+                if isinstance(candidate, dict):
+                    strategy = candidate
+    if not isinstance(strategy, dict):
+        return ""
+    source = scalar(strategy.get("reuse_depth_source"))
+    requested = scalar(strategy.get("reuse_depth"))
+    effective = scalar(strategy.get("effective_reuse_depth"))
+    action = scalar(strategy.get("recommended_action"))
+    segments: list[str] = []
+    if source:
+        segments.append(source)
+    depth_segment = ""
+    if requested and effective:
+        depth_segment = f"{requested}->{effective}"
+    elif effective:
+        depth_segment = effective
+    elif requested:
+        depth_segment = requested
+    if depth_segment:
+        segments.append(depth_segment)
+    if action:
+        segments.append(action)
+    return ", ".join(segments)
+
+
 def row(cells: list[str]) -> str:
     return "| " + " | ".join(cell.replace("\n", " ") for cell in cells) + " |"
 
@@ -89,8 +126,8 @@ def summarize_arms(data: dict[str, Any]) -> list[str]:
     lines = [
         "## Arms",
         "",
-        row(["Arm", "Status", "Build", "Elapsed", "Calls", "Template", "Benchmark", "Failure"]),
-        row(["---", "---", "---", "---", "---", "---", "---", "---"]),
+        row(["Arm", "Status", "Build", "Elapsed", "Calls", "Template", "Reuse", "Benchmark", "Failure"]),
+        row(["---", "---", "---", "---", "---", "---", "---", "---", "---"]),
     ]
     for arm in arms:
         if not isinstance(arm, dict):
@@ -111,6 +148,7 @@ def summarize_arms(data: dict[str, Any]) -> list[str]:
                     scalar(arm.get("elapsed_seconds")),
                     calls_summary(arm.get("usage_counts")),
                     template_summary(arm.get("event_summary")),
+                    reuse_summary(arm),
                     benchmark_summary(arm.get("benchmark_outcome") or arm.get("benchmark_report")),
                     failure,
                 ]
