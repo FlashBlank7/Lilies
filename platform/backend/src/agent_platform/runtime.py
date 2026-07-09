@@ -394,7 +394,16 @@ class AgentRuntime:
             return
         server_name = str(tool_input.get("server", ""))
         server = next((item for item in agent.mcp_servers if item.name == server_name), None)
-        if not server or server.transport != "http" or not server.url:
+        if not server:
+            return
+        if server.transport == "stdio":
+            self.harness.enforce_stdio_mcp_policy(
+                surface="agent_tool:MCP",
+                server_name=server.name,
+                agent_network_policy=agent.network_policy,
+            )
+            return
+        if not server.url:
             return
         parsed = urlparse(server.url)
         if parsed.hostname:

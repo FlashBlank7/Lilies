@@ -719,6 +719,23 @@ class PlatformHarness:
             f"network egress policy blocked {surface}: host {hostname} is not allowlisted"
         )
 
+    def enforce_stdio_mcp_policy(
+        self,
+        *,
+        surface: str,
+        server_name: str,
+        agent_network_policy: Any,
+    ) -> None:
+        platform_policy = self.network_egress_policy.casefold()
+        agent_policy = str(getattr(agent_network_policy, "value", agent_network_policy)).casefold()
+        if platform_policy == "full" and agent_policy == "full":
+            return
+        raise PlatformHarnessViolation(
+            "stdio MCP egress policy blocked "
+            f"{surface}:{server_name}: stdio servers do not declare hostnames; "
+            "use full network policy or a sandboxed/container stdio MCP runner"
+        )
+
     async def _cached_or_persisted_task(self, task_id: str) -> PlatformTaskRecord | None:
         async with self._lock:
             record = self._tasks.get(task_id)

@@ -31,6 +31,7 @@
 - `v0.2.19_*`：来自 `docs/stage-reports/v0.2.19_full_task_set_product_visibility.md`。
 - `v0.2.20_*`：来自 `docs/stage-reports/v0.2.20_platform_harness_worker_lease.md`。
 - `v0.2.21_*`：来自 `docs/stage-reports/v0.2.21_platform_harness_secret_references.md`。
+- `v0.2.22_*`：来自 `docs/stage-reports/v0.2.22_platform_harness_stdio_sandbox_egress.md`。
 
 Active workspace rule:
 
