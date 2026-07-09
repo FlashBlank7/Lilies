@@ -1,10 +1,10 @@
 # E05 Template Reuse Depth Ledger
 
-状态：多轮 paid/live 完成并触发工程修复；adaptive reuse-depth policy 已实现并完成首个 live validation，E05 仍未全局关闭
+状态：多轮 paid/live 完成并触发工程修复；adaptive reuse-depth policy 已完成双 family live validation，Builder 默认建议门槛已闭环
 
 ## 当前结论
 
-Template reuse 已证明会改变 Builder 行为，也证明 marketplace expandability contract、timeout boundary、build deadline 和 customer-support guardrails 是必要工程边界。当前证据仍不支持“reuse depth 越深越好”，但已经足以推翻更弱的固定假设: `shallow` 不是跨任务族都稳定的默认候选。`v0.2.48` 已把这一结论固化为后端能力: Builder/API 可以返回 `effective_reuse_depth`、`recommended_action` 和 `policy_reason`。`v0.2.49` 进一步给出第一个 live validation：在 `data_analyzer` family 上，adaptive 实际解析为 `deep`，并且比 explicit `shallow` 和 explicit `deep` 都更快地 `published`。这强化了 adaptive policy 的工程价值，但还不构成 E05 全局关闭。
+Template reuse 已证明会改变 Builder 行为，也证明 marketplace expandability contract、timeout boundary、build deadline 和 customer-support guardrails 是必要工程边界。当前证据不支持“reuse depth 越深越好”，但已经足以回答更重要的问题：固定 `shallow` 不是跨任务族都稳定的默认候选，而 adaptive 已经拥有足够的 paid/live 证据成为默认 Builder suggestion mode 的候选。`v0.2.49` 的 `data_analyzer` slice 给出 deep-resolving live evidence；`v0.2.51` 的 `code_review` slice 给出 shallow-resolving live evidence。两者都表明 adaptive 能正确解析到 concrete depth，并且不弱于最强 fixed arm 的最终 operational outcome。因此，E05 关于“默认建议应该怎么定”的核心问题已经闭环；剩余问题转为产品化落地和长期家族扩展监测，而不是继续停留在是否采用 adaptive 的争论。
 
 ## 关键证据
 
@@ -20,6 +20,7 @@ Template reuse 已证明会改变 Builder 行为，也证明 marketplace expanda
 | data-analyzer breadth/default check | 验证应用 / 默认假设修正 | `../reports/2026-07-10_0420_E05_data_analyzer_breadth_default_policy.docx` | `../evidence/experiment_v0.2.47_e05_data_analyzer_breadth_2026_07_10_summary.md` |
 | adaptive policy deterministic backtest | 已应用/验证应用 | `../reports/2026-07-10_0434_E05_adaptive_reuse_policy_backtest.docx` | `../evidence/experiment_v0.2.48_e05_adaptive_reuse_policy_backtest_2026_07_10_summary.md` |
 | adaptive live validation (`data_analyzer`) | 验证应用 | `../reports/2026-07-10_0452_E05_adaptive_live_validation_data_analyzer.docx` | `../evidence/experiment_v0.2.49_e05_data_analyzer_adaptive_live_2026_07_10_summary.md` |
+| adaptive live validation (`code_review`) | 验证应用 / 默认化门槛通过 | `../reports/2026-07-10_0530_E05_code_review_adaptive_live_validation.docx` | `../evidence/experiment_v0.2.51_e05_code_review_adaptive_live_2026_07_10_summary.md` |
 
 ## 已应用工程
 
@@ -30,6 +31,7 @@ Template reuse 已证明会改变 Builder 行为，也证明 marketplace expanda
 - v0.2.46：Builder teammate work受 repair budget 和剩余 build deadline 共同约束；teammate-side `test_run` 达到 `maximum repair cycles reached` 后不再继续长尾 debug。
 - v0.2.48：新增共享 adaptive template strategy helper；API/Builder `template_suggestions` 支持 `reuse_depth=adaptive`，并返回 `effective_reuse_depth`、`recommended_action`、`policy_reason`；确定性 backtest 产出作为首轮策略验证。
 - v0.2.49：canonical E05 runner 原生支持 `adaptive` 臂；首个 live validation 显示 adaptive 在 `data_analyzer` family 中解析为 `deep` 且比 explicit `shallow`/`deep` 更快 `published`。
+- v0.2.51：`code_review` second-family live validation 显示 adaptive 在 shallow-resolving family 中正确解析为 `shallow`，并以 `published`、`313.696s`、`38 / 46` model/tool calls 优于显式 `shallow` (`ready`, `388.427s`) 与显式 `deep` (`needs_attention`, `382.777s`, `44 / 70`)；由此形成 Builder 默认建议门槛。
 
 ## 关键结果
 
@@ -41,7 +43,8 @@ Template reuse 已证明会改变 Builder 行为，也证明 marketplace expanda
 - v0.2.47：`data_analyzer` family 中 `none` runtime 失败、`shallow` benchmark-clean 但超时、`deep` `published` 且耗时 `461.068s`；固定 `shallow` 默认假设不再成立。
 - v0.2.48：adaptive policy deterministic backtest 对当前三族给出 `exact_matches=2`、`bounded_matches=1`、`mismatches=0`；当前窄规则足以作为后端显式策略上线，但还不能替代 fresh live validation。
 - v0.2.49：在 `data_analyzer` 的 bounded paid/live rerun 中，`shallow`、`deep`、`adaptive` 全部 `published`，但 adaptive 解析为 `deep` 后以 `159.669s`、`11/17` model/tool calls 收敛，快于 `shallow` (`213.959s`, `9/20`) 与 `deep` (`301.290s`, `15/23`)。
+- v0.2.51：在 `code_review` 的 bounded paid/live run 中，`shallow` 为 `ready`、`deep` 为 `needs_attention`、`adaptive` 为 `published`；adaptive 解析为 `shallow`，并以 `313.696s`、`38/46` model/tool calls 获得该 family 的最优 operational outcome。
 
 ## 下一步
 
-E05 下一步不再是“先把 adaptive policy 跑起来”，因为这一步已经完成。现在的关闭路径更偏向广度与边界：选第二个 family 做 adaptive live validation，或明确 adaptive 默认化所需要的最小多族证据门槛，再决定是否把 Builder 默认建议模式切到 adaptive。
+E05 的原始 backlog 问题已经从“该不该上 adaptive”转移到“如何把 adaptive 产品化且保持可观测、可回退”。因此下一步不是再做同类证明，而是把 adaptive 默认建议门槛落实到产品行为，同时保留 fixed-depth 显式选项与后续 family 监测。

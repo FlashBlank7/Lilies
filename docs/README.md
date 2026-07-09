@@ -19,6 +19,7 @@
 - `intellectual-assets/asset_platform_harness_task_monitor_boundary.md`
 - `intellectual-assets/asset_harness_llm_composite.md`
 - `intellectual-assets/asset_lilies_competitive_strategy.md`
+- `intellectual-assets/asset_adaptive_reuse_defaultization_gate.md`
 
 ## 当前阶段报告
 
@@ -72,6 +73,7 @@
 - `stage-reports/v0.2.48_adaptive_reuse_depth_policy.md`
 - `stage-reports/v0.2.49_adaptive_policy_live_validation.md`
 - `stage-reports/v0.2.50_builder_deadline_visibility.md`
+- `stage-reports/v0.2.51_e05_second_family_adaptive_validation.md`
 
 ## 使用原则
 
