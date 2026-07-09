@@ -55,6 +55,9 @@ Core rules:
 - Use architecture_blueprint when reconstructing a Claude-like agent loop from explicit bricks.
 - Use template_list and template_expand when a known Claude-like subgraph template fits; the expanded graph is
   editable and must still be validated, tested, and repaired incrementally.
+- After template_expand, read the returned validation, node_types, and template_contract. Preserve
+  template_contract.min_blocks_required unless you deliberately replace that capability with another visible
+  block and then update tests to match the current draft.
 - Use spawn_teammate for bounded independent design or verification work. Roles are dynamic, not predefined.
 - Add and configure one node or edge per mutation tool call. Never assume an operation succeeded.
 - Prefer explicit workflow bricks and agent architecture bricks over hiding behavior inside one Claude Agent. Use Tool bricks for registered
@@ -395,6 +398,54 @@ class WorkflowBuilder:
         if messages:
             raise RuntimeError(" ".join(messages))
 
+    @staticmethod
+    def _validate_node_removal_keeps_test_requirements(node_id: str, snapshot: Any) -> None:
+        node = next((item for item in snapshot.workflow.nodes if item.id == node_id), None)
+        if node is None:
+            return
+        remaining_node_types = [item.type for item in snapshot.workflow.nodes if item.id != node_id]
+        blocked_tests: list[str] = []
+        for test in snapshot.tests:
+            if not test.mandatory or node.type not in test.required_node_types:
+                continue
+            if node.type not in remaining_node_types:
+                blocked_tests.append(test.id)
+        if blocked_tests:
+            raise RuntimeError(
+                f"removing node {node_id!r} would break mandatory test required_node_types "
+                f"for node type {node.type!r}: {blocked_tests}. "
+                "Update or remove the affected tests first, or add a replacement node with the same type."
+            )
+
+    async def _draft_validation_summary(self, application_id: str) -> dict[str, Any]:
+        validation = await self.applications.validate_draft(application_id)
+        return {
+            "valid": validation["valid"],
+            "errors": validation["errors"],
+            "warnings": validation["warnings"],
+            "revision": validation["revision"],
+            "test_count": validation["test_count"],
+        }
+
+    def _template_contract(self, template_name: str, source: str) -> dict[str, Any] | None:
+        if source != "marketplace" or not self.template_store:
+            return None
+        try:
+            template = self.template_store.get(template_name)
+        except KeyError:
+            return None
+        meta = template.meta
+        return {
+            "name": meta.name,
+            "title": meta.title,
+            "category": meta.category,
+            "expected_inputs": meta.expected_inputs,
+            "expected_outputs": meta.expected_outputs,
+            "min_blocks_required": meta.min_blocks_required,
+            "confidence": meta.confidence,
+            "tags": meta.tags,
+        }
+
     async def _agent_loop(
         self,
         build_id: str,
@@ -712,12 +763,21 @@ class WorkflowBuilder:
                 )
                 revision = int(result["revision"])
             state.revision = revision
+            validation_errors = self.blocks.validate_workflow(workflow)
             return {
                 "template": template_name,
                 "source": source,
                 "revision": revision,
                 "nodes": [node.id for node in workflow.nodes],
                 "edges": [edge.id for edge in workflow.edges],
+                "node_types": sorted({node.type for node in workflow.nodes}),
+                "edge_count": len(workflow.edges),
+                "validation": {
+                    "valid": not validation_errors,
+                    "errors": validation_errors,
+                },
+                "draft_validation": await self._draft_validation_summary(application_id),
+                "template_contract": self._template_contract(template_name, source),
             }
         if tool == "draft_inspect":
             draft = await self.workflow_store.get_draft(application_id)
@@ -748,6 +808,7 @@ class WorkflowBuilder:
                     "merge_config": data.get("merge_config", True),
                 }
             elif tool == "draft_remove_node":
+                self._validate_node_removal_keeps_test_requirements(str(data["node_id"]), draft["snapshot"])
                 op, payload = "remove_node", {"node_id": data["node_id"]}
             elif tool == "draft_connect":
                 op, payload = "add_edge", {
@@ -787,6 +848,8 @@ class WorkflowBuilder:
                 tracker._current = tracker.ask(decision_label, f"Build {build_id[:8]}")
                 tracker.answer("proceed", f"Revision {result['revision']}", f"{tool} succeeded")
             state.revision = result["revision"]
+            if tool in {"draft_update_node", "draft_remove_node", "draft_connect", "draft_remove_edge", "test_add"}:
+                result["validation"] = await self._draft_validation_summary(application_id)
             return result
         if tool == "draft_validate":
             return await self.applications.validate_draft(application_id)

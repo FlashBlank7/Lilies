@@ -33,6 +33,7 @@ MAX_TURNS = int(os.getenv("E05_REUSE_DEPTH_MAX_TURNS", "42"))
 MAX_REPAIR_CYCLES = int(os.getenv("E05_REUSE_DEPTH_MAX_REPAIR_CYCLES", "2"))
 TIMEOUT_SECONDS = float(os.getenv("E05_REUSE_DEPTH_TIMEOUT_SECONDS", "900"))
 PROVIDER_TIMEOUT_SECONDS = float(os.getenv("E05_REUSE_DEPTH_PROVIDER_TIMEOUT_SECONDS", "120"))
+BENCHMARK_MINIMUM_PASS_RATE = float(os.getenv("E05_BENCHMARK_MINIMUM_PASS_RATE", "1.0"))
 MAX_ELAPSED_SECONDS = (
     float(os.environ["E05_REUSE_DEPTH_MAX_ELAPSED_SECONDS"])
     if os.getenv("E05_REUSE_DEPTH_MAX_ELAPSED_SECONDS")
@@ -519,6 +520,33 @@ def summarize_failure(
     }
 
 
+def summarize_benchmark_report(report: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(report, dict):
+        return {
+            "suite_passed": None,
+            "suite_score": None,
+            "suite_pass_rate": None,
+            "case_count": 0,
+            "case_passed": None,
+            "case_score": None,
+            "failed_cases": [],
+            "missing": {},
+        }
+    case_reports = report.get("reports")
+    first_case = case_reports[0] if isinstance(case_reports, list) and case_reports else {}
+    first_case = first_case if isinstance(first_case, dict) else {}
+    return {
+        "suite_passed": report.get("passed"),
+        "suite_score": report.get("score"),
+        "suite_pass_rate": report.get("pass_rate"),
+        "case_count": report.get("case_count"),
+        "case_passed": first_case.get("passed"),
+        "case_score": first_case.get("score"),
+        "failed_cases": report.get("failed_cases", []),
+        "missing": first_case.get("missing", {}),
+    }
+
+
 def task_usage_counts(build: dict[str, Any]) -> dict[str, int]:
     task = build.get("task") if isinstance(build.get("task"), dict) else None
     if not task:
@@ -622,7 +650,7 @@ def run_arm(client: TestClient, token: str, arm: ReuseDepthArm, case: Experiment
             "name": f"E05 template reuse-depth {selected.name} comparison",
             "description": f"Benchmark arm for reuse_depth={arm.depth}.",
             "minimum_score": 0.45,
-            "minimum_pass_rate": 0.0,
+            "minimum_pass_rate": BENCHMARK_MINIMUM_PASS_RATE,
             "cost": {
                 "model_calls": usage_counts.get("model_call", 0),
                 "tool_calls": usage_counts.get("tool_call", 0),
@@ -646,6 +674,7 @@ def run_arm(client: TestClient, token: str, arm: ReuseDepthArm, case: Experiment
     build_plan = team_state.get("build_plan") if isinstance(team_state, dict) else None
     event_summary = summarize_events(events)
     failure_summary = summarize_failure(completed, builder_task, event_summary)
+    benchmark_report = suite.get("report")
     return {
         "depth": arm.depth,
         "case": selected.name,
@@ -663,7 +692,8 @@ def run_arm(client: TestClient, token: str, arm: ReuseDepthArm, case: Experiment
         "draft_counts": draft_counts(draft),
         "event_summary": event_summary,
         "failure_summary": failure_summary,
-        "benchmark_report": suite.get("report"),
+        "benchmark_outcome": summarize_benchmark_report(benchmark_report),
+        "benchmark_report": benchmark_report,
     }
 
 
@@ -699,6 +729,7 @@ def main() -> None:
             "max_elapsed_seconds_per_arm": MAX_ELAPSED_SECONDS,
             "timeout_seconds_per_arm": TIMEOUT_SECONDS,
             "provider_timeout_seconds": PROVIDER_TIMEOUT_SECONDS,
+            "benchmark_minimum_pass_rate": BENCHMARK_MINIMUM_PASS_RATE,
             "skip_paid": SKIP_PAID,
             "run_id": RUN_ID,
         },

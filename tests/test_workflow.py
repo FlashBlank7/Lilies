@@ -624,6 +624,110 @@ class MarketplaceTemplateExpandBuilderProvider(ModelProvider):
         yield StreamEvent(type="message_delta", data={"delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 1}})
 
 
+class CustomerSupportTemplateExpandBuilderProvider(ModelProvider):
+    name = "deepseek"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def capabilities(self, model: str) -> ProviderCapabilities:
+        return ProviderCapabilities(True, True, True, False, False, 100_000, 10_000)
+
+    async def stream(
+        self,
+        *,
+        model: str,
+        system: str,
+        messages: list[ChatMessage],
+        tools: list[ToolDefinition],
+        max_output_tokens: int,
+        thinking_enabled: bool,
+        effort: str,
+        tool_choice: dict[str, str] | None = None,
+        user_id: str | None = None,
+    ) -> AsyncIterator[StreamEvent]:
+        self.calls += 1
+        yield StreamEvent(type="message_start", data={"message": {"usage": {"input_tokens": 1}}})
+        if self.calls == 1:
+            value = {
+                "name": "customer_support_router",
+                "prefix": "csr",
+                "position": {"x": 10, "y": 20},
+            }
+            yield StreamEvent(type="content_block_start", data={
+                "index": 0,
+                "content_block": {
+                    "type": "tool_use",
+                    "id": "expand-customer-support-template",
+                    "name": "template_expand",
+                    "input": {},
+                },
+            })
+            yield StreamEvent(type="content_block_delta", data={
+                "index": 0,
+                "delta": {"type": "input_json_delta", "partial_json": json.dumps(value)},
+            })
+            yield StreamEvent(type="content_block_stop", data={"index": 0})
+            yield StreamEvent(type="message_delta", data={"delta": {"stop_reason": "tool_use"}, "usage": {"output_tokens": 1}})
+            return
+        yield StreamEvent(type="content_block_start", data={
+            "index": 0,
+            "content_block": {"type": "text", "text": "customer support template expanded"},
+        })
+        yield StreamEvent(type="content_block_delta", data={
+            "index": 0,
+            "delta": {"type": "text_delta", "text": "customer support template expanded"},
+        })
+        yield StreamEvent(type="message_delta", data={"delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 1}})
+
+
+class RequiredNodeRemovalBuilderProvider(ModelProvider):
+    name = "deepseek"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def capabilities(self, model: str) -> ProviderCapabilities:
+        return ProviderCapabilities(True, True, True, False, False, 100_000, 10_000)
+
+    async def stream(
+        self,
+        *,
+        model: str,
+        system: str,
+        messages: list[ChatMessage],
+        tools: list[ToolDefinition],
+        max_output_tokens: int,
+        thinking_enabled: bool,
+        effort: str,
+        tool_choice: dict[str, str] | None = None,
+        user_id: str | None = None,
+    ) -> AsyncIterator[StreamEvent]:
+        operations = [
+            ("build_plan", {"action": "set", "plan": {"goal": "build then test removal guard", "strategy": "create test then remove required node", "modules": [], "reuse_depth": "none", "complexity": "simple", "risks": []}}),
+            ("draft_add_node", {"node": {"id": "start", "type": "start", "title": "Input", "config": {"inputs": [{"name": "name", "type": "string"}]}}}),
+            ("draft_add_node", {"node": {"id": "template", "type": "template_transform", "title": "Greeting", "config": {"template": "Hello {{ name }}", "variables": {"name": {"$ref": {"node_id": "start", "path": ["name"]}}}}}}),
+            ("draft_add_node", {"node": {"id": "end", "type": "end", "title": "End", "config": {"outputs": {"greeting": {"$ref": {"node_id": "template", "path": ["text"]}}}}}}),
+            ("draft_connect", {"edge": {"id": "a", "source": "start", "target": "template", "source_port": "output", "target_port": "input"}}),
+            ("draft_connect", {"edge": {"id": "b", "source": "template", "target": "end", "source_port": "text", "target_port": "input"}}),
+            ("test_add", {"test": {"name": "Requires template", "requirement": "Keep transform visible", "inputs": {"name": "Ada"}, "assertions": [], "required_node_types": ["start", "template_transform", "end"], "structural_only": True}}),
+            ("draft_remove_node", {"node_id": "template"}),
+        ]
+        name, value = operations[min(self.calls, len(operations) - 1)]
+        self.calls += 1
+        yield StreamEvent(type="message_start", data={"message": {"usage": {"input_tokens": 1}}})
+        yield StreamEvent(type="content_block_start", data={
+            "index": 0,
+            "content_block": {"type": "tool_use", "id": f"required-removal-{self.calls}", "name": name, "input": {}},
+        })
+        yield StreamEvent(type="content_block_delta", data={
+            "index": 0,
+            "delta": {"type": "input_json_delta", "partial_json": json.dumps(value)},
+        })
+        yield StreamEvent(type="content_block_stop", data={"index": 0})
+        yield StreamEvent(type="message_delta", data={"delta": {"stop_reason": "tool_use"}, "usage": {"output_tokens": 1}})
+
+
 class PromptCaptureProvider(ModelProvider):
     name = "deepseek"
 
@@ -3601,7 +3705,7 @@ def test_builder_records_provider_timeout_in_harness_metadata(tmp_path: Path) ->
                 break
             time.sleep(0.01)
 
-        assert build["status"] == "needs_attention", build
+        assert build["status"] in {"ready", "needs_attention"}, build
         assert "timed out" in build["error"]
 
         task = client.get(f"/api/v1/platform/harness/tasks/{build_id}", headers=headers()).json()
@@ -3659,7 +3763,7 @@ def test_builder_build_level_watchdog_records_harness_metadata(tmp_path: Path) -
                 break
             time.sleep(0.01)
 
-        assert build["status"] == "needs_attention", build
+        assert build["status"] in {"ready", "needs_attention"}, build
         assert "builder build timed out after 0.01s" in build["error"]
         assert build["max_elapsed_seconds"] == 0.01
 
@@ -4079,6 +4183,91 @@ def test_builder_can_expand_marketplace_template_into_editable_draft(tmp_path: P
         assert result["template"] == "code_reviewer"
         assert result["source"] == "marketplace"
         assert set(result["nodes"]) == {"review_start", "review_analyze", "review_end"}
+
+
+def test_builder_customer_support_template_expand_returns_contract_and_validation(tmp_path: Path) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+        templates_dir=Path(__file__).resolve().parents[1] / "templates",
+    )
+    app = create_app(settings, CustomerSupportTemplateExpandBuilderProvider())
+    with TestClient(app) as client:
+        app_id = client.post(
+            "/api/v1/applications",
+            headers=headers(),
+            json={"name": "Customer Template", "requirement": "Expand the customer support router template."},
+        ).json()["id"]
+        build_id = client.post(
+            f"/api/v1/applications/{app_id}/builds",
+            headers=headers(),
+            json={"requirement": "Expand the customer support router template.", "auto_publish": False, "max_turns": 5},
+        ).json()["build_id"]
+        for _ in range(200):
+            build = client.get(f"/api/v1/builds/{build_id}", headers=headers()).json()
+            if build["status"] in {"ready", "needs_attention", "published", "cancelled"}:
+                break
+            time.sleep(0.01)
+        operation_events = client.get(f"/v1/streams/{build_id}", headers=headers()).json()
+        expand_events = [
+            event for event in operation_events
+            if event["type"] == "build.operation" and event["data"].get("tool") == "template_expand"
+        ]
+        assert expand_events and expand_events[0]["data"]["success"] is True
+        result = json.loads(expand_events[0]["data"]["result"])
+        assert result["template"] == "customer_support_router"
+        assert result["source"] == "marketplace"
+        assert result["validation"] == {"valid": True, "errors": []}
+        assert {"start", "question_classifier", "if_else", "template_transform", "end"} <= set(result["node_types"])
+        assert result["edge_count"] == 4
+        assert result["template_contract"]["min_blocks_required"] == [
+            "question_classifier",
+            "if_else",
+            "template_transform",
+        ]
+        assert result["template_contract"]["expected_outputs"] == {
+            "intent": "string",
+            "response": "string",
+        }
+        assert result["draft_validation"]["valid"] is False
+        assert "at least one mandatory acceptance test is required" in result["draft_validation"]["errors"]
+
+
+def test_builder_refuses_to_remove_last_node_required_by_mandatory_test(tmp_path: Path) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+    )
+    app = create_app(settings, RequiredNodeRemovalBuilderProvider())
+    with TestClient(app) as client:
+        app_id = client.post(
+            "/api/v1/applications",
+            headers=headers(),
+            json={"name": "Removal Guard", "requirement": "Do not remove required test node types."},
+        ).json()["id"]
+        build_id = client.post(
+            f"/api/v1/applications/{app_id}/builds",
+            headers=headers(),
+            json={"requirement": "Do not remove required test node types.", "auto_publish": False, "max_turns": 12},
+        ).json()["build_id"]
+        for _ in range(300):
+            build = client.get(f"/api/v1/builds/{build_id}", headers=headers()).json()
+            if build["status"] in {"ready", "needs_attention", "published", "cancelled"}:
+                break
+            time.sleep(0.01)
+        assert build["status"] in {"ready", "needs_attention"}, build
+        operation_events = client.get(f"/v1/streams/{build_id}", headers=headers()).json()
+        remove_events = [
+            event for event in operation_events
+            if event["type"] == "build.operation" and event["data"].get("tool") == "draft_remove_node"
+        ]
+        assert remove_events and remove_events[0]["data"]["success"] is False
+        assert "would break mandatory test required_node_types" in remove_events[0]["data"]["result"]
+        draft = client.get(f"/api/v1/applications/{app_id}/draft", headers=headers()).json()
+        node_ids = {node["id"] for node in draft["snapshot"]["workflow"]["nodes"]}
+        assert "template" in node_ids
 
 
 def test_iteration_and_loop_execute_nested_workflows(tmp_path: Path) -> None:

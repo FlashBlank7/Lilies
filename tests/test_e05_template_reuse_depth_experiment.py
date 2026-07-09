@@ -93,6 +93,34 @@ def test_e05_build_payload_includes_optional_build_deadline() -> None:
     assert payload["planning_mode"] == "required"
 
 
+def test_e05_benchmark_outcome_preserves_case_failure_when_suite_passes() -> None:
+    module = load_e05_module()
+    report = {
+        "passed": True,
+        "score": 0.78,
+        "pass_rate": 0.0,
+        "case_count": 1,
+        "failed_cases": ["customer_support_router blockflow reuse_depth=none"],
+        "reports": [
+            {
+                "name": "customer_support_router blockflow reuse_depth=none",
+                "passed": False,
+                "score": 0.78,
+                "missing": {"node_types": ["if_else"], "tool_nodes": [], "harness_nodes": []},
+            }
+        ],
+    }
+
+    outcome = module.summarize_benchmark_report(report)
+
+    assert module.BENCHMARK_MINIMUM_PASS_RATE == 1.0
+    assert outcome["suite_passed"] is True
+    assert outcome["suite_pass_rate"] == 0.0
+    assert outcome["case_passed"] is False
+    assert outcome["case_score"] == 0.78
+    assert outcome["missing"]["node_types"] == ["if_else"]
+
+
 def test_e05_event_summary_extracts_template_metrics() -> None:
     module = load_e05_module()
     events = [
