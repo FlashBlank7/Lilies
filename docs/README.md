@@ -78,6 +78,7 @@
 - `stage-reports/v0.2.52_adaptive_default_productization.md`
 - `stage-reports/v0.2.53_adaptive_default_live_acceptance.md`
 - `stage-reports/v0.2.54_policy_default_live_reliability.md`
+- `stage-reports/v0.2.55_e08_harness_sidecar_passmode.md`
 
 ## 使用原则
 

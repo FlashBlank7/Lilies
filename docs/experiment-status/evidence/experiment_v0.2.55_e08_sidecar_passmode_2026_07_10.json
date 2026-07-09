@@ -1,0 +1,82 @@
+{
+  "experiment": "E08 harness sidecar/passmode comparison",
+  "version": "v0.2.55",
+  "status": "completed",
+  "started_at": "2026-07-09T22:54:54.792291+00:00",
+  "finished_at": "2026-07-09T22:54:54.792293+00:00",
+  "paid_model_required": false,
+  "scenarios": [
+    {
+      "name": "workflow_internal_permission_pause",
+      "layer": "workflow_internal_soft_harness",
+      "passmode": "always_ask",
+      "status": "paused",
+      "enforcement_strength": "soft_pause",
+      "bypassable_by_workflow_config": true,
+      "observability": [
+        "harness.signal",
+        "node.completed",
+        "node.started",
+        "permission.requested",
+        "workflow.paused",
+        "workflow.started"
+      ],
+      "failure_isolation": "run_paused_without_platform_failure",
+      "recovery_semantics": "resume_with_human_approval_or_preset_input",
+      "cost_signal": {
+        "model_calls": 0,
+        "external_actions": 0,
+        "terminal": false
+      },
+      "error": ""
+    },
+    {
+      "name": "workflow_internal_permission_auto_approve",
+      "layer": "workflow_internal_soft_harness",
+      "passmode": "auto_approve",
+      "status": "succeeded",
+      "enforcement_strength": "soft_pass",
+      "bypassable_by_workflow_config": true,
+      "observability": [
+        "harness.signal",
+        "node.completed",
+        "node.started",
+        "permission.resolved",
+        "workflow.completed",
+        "workflow.started"
+      ],
+      "failure_isolation": "workflow_continues_by_configuration",
+      "recovery_semantics": "not_needed_when_passmode_allows",
+      "cost_signal": {
+        "model_calls": 0,
+        "external_actions": 0,
+        "terminal": true
+      },
+      "error": ""
+    },
+    {
+      "name": "platform_sidecar_network_block",
+      "layer": "platform_harness_sidecar",
+      "passmode": "platform_policy_none",
+      "status": "failed",
+      "enforcement_strength": "hard_block",
+      "bypassable_by_workflow_config": false,
+      "observability": [
+        "node.completed",
+        "node.failed",
+        "node.started",
+        "workflow.failed",
+        "workflow.started"
+      ],
+      "failure_isolation": "run_failed_before_outbound_network_action",
+      "recovery_semantics": "change_platform_policy_or_remove_external_action_then_retry",
+      "cost_signal": {
+        "model_calls": 0,
+        "external_actions": 0,
+        "terminal": true
+      },
+      "error": "node http failed: network egress policy blocked http_request: outbound network is disabled"
+    }
+  ],
+  "conclusion": "workflow-internal passmode can pause or pass by workflow configuration; Platform Harness sidecar policy is a hard boundary that fails the run before the external action."
+}
