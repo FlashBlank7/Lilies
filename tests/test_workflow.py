@@ -1768,6 +1768,40 @@ def test_platform_harness_tool_egress_policy_blocks_websearch_tool(tmp_path: Pat
         assert "WebSearch" in run["error"]
 
 
+def test_platform_harness_policy_controls_api_reports_stdio_mcp_decisions(tmp_path: Path) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+        platform_harness_network_egress_policy="full",
+        platform_harness_network_egress_allowlist=["api.example.test"],
+        platform_harness_secret_policy_enabled=True,
+        platform_harness_worker_lease_seconds=60,
+    )
+    app = create_app(settings, ScriptedProvider())
+    with TestClient(app) as client:
+        response = client.get("/api/v1/platform/harness/policy-controls", headers=headers())
+        assert response.status_code == 200, response.text
+        body = response.json()
+
+        assert body["network_egress_policy"] == "full"
+        assert body["network_egress_allowlist"] == ["api.example.test"]
+        assert body["secret_policy_enabled"] is True
+        assert body["worker_lease_seconds"] == 60
+
+        stdio = body["stdio_mcp"]
+        assert stdio["sandboxed_no_network_supported"] is True
+        assert stdio["allowlist_supported"] is False
+
+        decisions = {item["id"]: item for item in stdio["decisions"]}
+        assert decisions["sandboxed_no_network"]["allowed"] is True
+        assert decisions["sandboxed_no_network"]["mode"] == "sandboxed_no_network"
+        assert decisions["sandboxed_allowlist"]["allowed"] is False
+        assert "allowlist-grade enforcement" in decisions["sandboxed_allowlist"]["reason"]
+        assert decisions["sandboxed_allowlist"]["operator_action"]
+        assert decisions["restricted_unsandboxed"]["allowed"] is False
+
+
 def test_builder_benchmark_treats_llm_as_model_turn_equivalent(tmp_path: Path) -> None:
     settings = Settings(
         api_token="workflow-test",

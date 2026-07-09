@@ -30,6 +30,7 @@ import {
   type Block,
   type Draft,
   type DraftPatchPreview,
+  type PlatformPolicyControls,
   type PlatformTaskRecord,
   type WorkflowNode,
   withFrontendToken,
@@ -405,6 +406,9 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   const [monitorFilter, setMonitorFilter] = useState<MonitorFilter>('related')
   const [monitorLoading, setMonitorLoading] = useState(false)
   const [monitorError, setMonitorError] = useState('')
+  const [policyControls, setPolicyControls] = useState<PlatformPolicyControls | null>(null)
+  const [policyControlsLoading, setPolicyControlsLoading] = useState(false)
+  const [policyControlsError, setPolicyControlsError] = useState('')
   const [benchmarkHistory, setBenchmarkHistory] = useState<BuilderBenchmarkHistoryRecord[]>([])
   const [benchmarkHistoryLoading, setBenchmarkHistoryLoading] = useState(false)
   const [benchmarkHistoryError, setBenchmarkHistoryError] = useState('')
@@ -551,6 +555,23 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     }
   }, [])
 
+  const refreshPolicyControls = useCallback(async () => {
+    setPolicyControlsLoading(true)
+    setPolicyControlsError('')
+    try {
+      const controls = await api<PlatformPolicyControls>('/api/v1/platform/harness/policy-controls')
+      setPolicyControls(controls)
+      setAuthRequired(false)
+      return controls
+    } catch (error) {
+      if (isAuthError(error)) setAuthRequired(true)
+      setPolicyControlsError(String(error))
+      throw error
+    } finally {
+      setPolicyControlsLoading(false)
+    }
+  }, [])
+
   const refreshBenchmarkHistory = useCallback(async () => {
     setBenchmarkHistoryLoading(true)
     setBenchmarkHistoryError('')
@@ -574,8 +595,9 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     setTokenInput(getClientToken())
     refresh().catch(error => setNotice(String(error)))
     refreshMonitorTasks().catch(error => setNotice(String(error)))
+    refreshPolicyControls().catch(error => setNotice(String(error)))
     refreshBenchmarkHistory().catch(error => setNotice(String(error)))
-  }, [refresh, refreshBenchmarkHistory, refreshMonitorTasks])
+  }, [refresh, refreshBenchmarkHistory, refreshMonitorTasks, refreshPolicyControls])
   useEffect(() => {
     const buildId = new URLSearchParams(window.location.search).get('build')
     if (buildId) watchBuild(buildId)
@@ -1050,9 +1072,32 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
           </div>
           <div className="monitor-toolbar">
             {(['related', 'failed', 'all'] as const).map(filter => <button className={monitorFilter === filter ? 'active' : ''} onClick={() => setMonitorFilter(filter)} key={filter}>{filter === 'related' ? t.monitorFilterRelated : filter === 'failed' ? t.monitorFilterFailed : t.monitorFilterAll}</button>)}
-            <button className="refresh" onClick={() => { refreshMonitorTasks().catch(error => setNotice(String(error))); refreshBenchmarkHistory().catch(error => setNotice(String(error))) }} disabled={monitorLoading || benchmarkHistoryLoading}>{monitorLoading || benchmarkHistoryLoading ? t.monitorRefreshing : t.monitorRefresh}</button>
+            <button className="refresh" onClick={() => { refreshMonitorTasks().catch(error => setNotice(String(error))); refreshPolicyControls().catch(error => setNotice(String(error))); refreshBenchmarkHistory().catch(error => setNotice(String(error))) }} disabled={monitorLoading || policyControlsLoading || benchmarkHistoryLoading}>{monitorLoading || policyControlsLoading || benchmarkHistoryLoading ? t.monitorRefreshing : t.monitorRefresh}</button>
           </div>
           {monitorError && <p className="error-banner">{monitorError}</p>}
+          <section className="policy-controls">
+            <div className="policy-controls-head"><strong>{t.policyControlsTitle}</strong><small>{t.policyControlsHelp}</small></div>
+            {policyControlsError && <p className="error-banner">{policyControlsError}</p>}
+            {policyControls ? <>
+              <div className="policy-summary">
+                <span><b>{policyControls.network_egress_policy}</b>{t.policyNetwork}</span>
+                <span><b>{policyControls.secret_policy_enabled ? t.policyEnabled : t.policyDisabled}</b>{t.policySecrets}</span>
+                <span><b>{policyControls.worker_lease_seconds || 0}s</b>{t.policyWorkerLease}</span>
+                <span><b>{policyControls.stdio_mcp.allowlist_supported ? t.policyEnabled : t.policyDisabled}</b>stdio allowlist</span>
+              </div>
+              <div className="policy-allowlist">
+                <strong>{t.policyAllowlist}</strong>
+                <div>{policyControls.network_egress_allowlist.length ? policyControls.network_egress_allowlist.map(host => <code key={host}>{host}</code>) : <span>{t.policyNoAllowlist}</span>}</div>
+              </div>
+              <h3>{t.policyStdioTitle}</h3>
+              <div className="policy-decision-list">{policyControls.stdio_mcp.decisions.map(decision => <article className={`policy-decision ${decision.allowed ? 'allowed' : 'blocked'}`} key={decision.id}>
+                <div className="policy-decision-head"><strong>{decision.label}</strong><span>{decision.allowed ? t.policyAllowed : t.policyBlocked}</span></div>
+                <div className="policy-fields"><code>{t.policyMode}: {decision.mode}</code><code>platform: {decision.platform_policy}</code><code>agent: {decision.agent_network_policy}</code><code>sandbox: {decision.sandbox_network_policy || '-'}</code></div>
+                <p><b>{t.policyReason}</b>{decision.reason}</p>
+                <p><b>{t.policyAction}</b>{decision.operator_action}</p>
+              </article>)}</div>
+            </> : <p className="muted">{policyControlsLoading ? t.monitorRefreshing : t.policyControlsEmpty}</p>}
+          </section>
           <section className="benchmark-history">
             <div className="benchmark-history-head"><strong>{t.benchmarkHistoryTitle}</strong><small>{t.benchmarkHistoryHelp}</small></div>
             {benchmarkHistoryError && <p className="error-banner">{benchmarkHistoryError}</p>}

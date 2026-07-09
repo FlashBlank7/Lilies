@@ -727,22 +727,153 @@ class PlatformHarness:
         agent_network_policy: Any,
         sandbox_network_policy: Any | None = None,
     ) -> None:
-        platform_policy = self.network_egress_policy.casefold()
-        agent_policy = str(getattr(agent_network_policy, "value", agent_network_policy)).casefold()
-        if platform_policy == "full" and agent_policy == "full":
+        decision = self.explain_stdio_mcp_policy(
+            surface=surface,
+            server_name=server_name,
+            agent_network_policy=agent_network_policy,
+            sandbox_network_policy=sandbox_network_policy,
+        )
+        if decision["allowed"]:
             return
+        raise PlatformHarnessViolation(decision["reason"])
+
+    def explain_stdio_mcp_policy(
+        self,
+        *,
+        surface: str,
+        server_name: str,
+        agent_network_policy: Any,
+        sandbox_network_policy: Any | None = None,
+    ) -> dict[str, Any]:
+        platform_policy = self._normalized_policy(self.network_egress_policy)
+        agent_policy = self._normalized_policy(agent_network_policy)
         sandbox_policy = (
-            str(getattr(sandbox_network_policy, "value", sandbox_network_policy)).casefold()
+            self._normalized_policy(sandbox_network_policy)
             if sandbox_network_policy is not None
-            else ""
+            else None
         )
+        base = {
+            "surface": surface,
+            "server_name": server_name,
+            "platform_policy": platform_policy,
+            "agent_network_policy": agent_policy,
+            "sandbox_network_policy": sandbox_policy,
+            "allowed": False,
+            "mode": "blocked",
+            "reason": "",
+            "operator_action": "",
+        }
+        if platform_policy == "full" and agent_policy == "full":
+            return {
+                **base,
+                "allowed": True,
+                "mode": "host_or_sandbox_full_network",
+                "reason": (
+                    f"stdio MCP allowed {surface}:{server_name}: platform and agent "
+                    "network policies are both full"
+                ),
+                "operator_action": "Use only with trusted stdio MCP servers.",
+            }
         if sandbox_policy == "none" and platform_policy in {"full", "none"} and agent_policy == "none":
-            return
-        raise PlatformHarnessViolation(
-            "stdio MCP egress policy blocked "
-            f"{surface}:{server_name}: stdio servers do not declare hostnames; "
-            "use full network policy or a sandboxed/container stdio MCP runner"
-        )
+            return {
+                **base,
+                "allowed": True,
+                "mode": "sandboxed_no_network",
+                "reason": (
+                    f"stdio MCP allowed {surface}:{server_name}: execution is inside a "
+                    "no-network sandbox boundary"
+                ),
+                "operator_action": "Keep the stdio server inside the sandbox runner.",
+            }
+        if sandbox_policy == "allowlist" or platform_policy == "allowlist" or agent_policy == "allowlist":
+            reason = (
+                "stdio MCP egress policy blocked "
+                f"{surface}:{server_name}: stdio servers do not declare hostnames, "
+                "so allowlist-grade enforcement requires hard sandbox/container firewalling"
+            )
+            action = (
+                "Use an HTTP MCP server with a hostname allowlist, switch to a no-network "
+                "sandbox for local stdio, or add hard sandbox firewalling before enabling stdio allowlist."
+            )
+        else:
+            reason = (
+                "stdio MCP egress policy blocked "
+                f"{surface}:{server_name}: stdio servers do not declare hostnames; "
+                "use full network policy or the sandboxed no-network stdio runner"
+            )
+            action = "Use full/full for trusted local stdio or sandboxed none/none for no-network stdio."
+        return {**base, "reason": reason, "operator_action": action}
+
+    def policy_controls(self) -> dict[str, Any]:
+        decisions = [
+            self._stdio_policy_control_decision(
+                "trusted_full_network",
+                "Trusted host or sandbox stdio",
+                agent_policy="full",
+                sandbox_policy=None,
+            ),
+            self._stdio_policy_control_decision(
+                "sandboxed_no_network",
+                "Sandboxed no-network stdio",
+                agent_policy="none",
+                sandbox_policy="none",
+            ),
+            self._stdio_policy_control_decision(
+                "sandboxed_allowlist",
+                "Sandboxed allowlist stdio",
+                agent_policy="allowlist",
+                sandbox_policy="allowlist",
+            ),
+            self._stdio_policy_control_decision(
+                "restricted_unsandboxed",
+                "Restricted unsandboxed stdio",
+                agent_policy="none",
+                sandbox_policy=None,
+            ),
+        ]
+        return {
+            "network_egress_policy": self._normalized_policy(self.network_egress_policy),
+            "network_egress_allowlist": list(self.network_egress_allowlist),
+            "secret_policy_enabled": self.secret_policy_enabled,
+            "worker_id": self.worker_id,
+            "worker_lease_seconds": self.worker_lease_seconds,
+            "limits": {
+                "max_active_tasks": self.max_active_tasks,
+                "max_model_calls_per_task": self.max_model_calls_per_task,
+                "max_tool_calls_per_task": self.max_tool_calls_per_task,
+                "max_node_executions_per_task": self.max_node_executions_per_task,
+                "max_model_calls_per_owner": self.max_model_calls_per_owner,
+                "max_tool_calls_per_owner": self.max_tool_calls_per_owner,
+                "max_node_executions_per_owner": self.max_node_executions_per_owner,
+            },
+            "stdio_mcp": {
+                "sandboxed_no_network_supported": True,
+                "allowlist_supported": False,
+                "decisions": decisions,
+            },
+        }
+
+    def _stdio_policy_control_decision(
+        self,
+        decision_id: str,
+        label: str,
+        *,
+        agent_policy: str,
+        sandbox_policy: str | None,
+    ) -> dict[str, Any]:
+        return {
+            "id": decision_id,
+            "label": label,
+            **self.explain_stdio_mcp_policy(
+                surface="policy_controls",
+                server_name=decision_id,
+                agent_network_policy=agent_policy,
+                sandbox_network_policy=sandbox_policy,
+            ),
+        }
+
+    def _normalized_policy(self, value: Any) -> str:
+        return str(getattr(value, "value", value)).casefold()
 
     async def _cached_or_persisted_task(self, task_id: str) -> PlatformTaskRecord | None:
         async with self._lock:

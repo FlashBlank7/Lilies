@@ -274,6 +274,10 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
 
+    @app.get("/api/v1/platform/harness/policy-controls", dependencies=[Depends(require_token)])
+    async def get_platform_harness_policy_controls() -> dict[str, Any]:
+        return services.harness.policy_controls()
+
     @app.post("/api/v1/platform/harness/tasks/{task_id}/lease", dependencies=[Depends(require_token)])
     async def claim_platform_harness_task_lease(
         task_id: str, body: PlatformTaskLeaseRequest

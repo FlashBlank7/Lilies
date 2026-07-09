@@ -96,6 +96,34 @@ export type PlatformTaskRecord = {
   finished_at?: string | null
 }
 
+export type PlatformPolicyDecision = {
+  id: string
+  label: string
+  surface: string
+  server_name: string
+  platform_policy: string
+  agent_network_policy: string
+  sandbox_network_policy?: string | null
+  allowed: boolean
+  mode: string
+  reason: string
+  operator_action: string
+}
+
+export type PlatformPolicyControls = {
+  network_egress_policy: string
+  network_egress_allowlist: string[]
+  secret_policy_enabled: boolean
+  worker_id: string
+  worker_lease_seconds: number
+  limits: Record<string, number>
+  stdio_mcp: {
+    sandboxed_no_network_supported: boolean
+    allowlist_supported: boolean
+    decisions: PlatformPolicyDecision[]
+  }
+}
+
 export type DraftPatchOperation = {
   expected_revision?: number
   op: string
