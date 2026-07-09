@@ -1550,6 +1550,44 @@ def test_platform_harness_worker_runner_skips_unsupported_task(tmp_path: Path) -
     asyncio.run(scenario())
 
 
+def test_platform_harness_worker_runner_renews_lease_for_long_handler(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        storage = Storage(tmp_path / "data")
+        await storage.initialize()
+        harness = PlatformHarness(storage=storage, worker_lease_seconds=0.05)
+        await harness.start_task(
+            "runner-renew-1",
+            kind="scheduler_manual_trigger",
+            owner_id="owner-a",
+            resource_id="schedule-a",
+            worker_id="producer",
+            lease_seconds=0.05,
+        )
+        await harness.release_task_lease("runner-renew-1", worker_id="producer", next_status="queued")
+
+        async def handler(_record):
+            await asyncio.sleep(0.12)
+            return {"handled": True}
+
+        runner = PlatformHarnessWorkerRunner(
+            harness=harness,
+            worker_id="worker-a",
+            lease_seconds=0.05,
+            renewal_interval_seconds=0.02,
+            handlers={"scheduler_manual_trigger": handler},
+        )
+        results = await runner.run_once(limit=5)
+
+        assert [(item.task_id, item.status) for item in results] == [("runner-renew-1", "succeeded")]
+        finished = await harness.get_task("runner-renew-1")
+        assert finished.status == "succeeded"
+        assert finished.lease_version > 3
+        assert finished.metadata["worker_runner"]["renewal_count"] >= 1
+        assert finished.metadata["worker_runner"]["result"]["handled"] is True
+
+    asyncio.run(scenario())
+
+
 def test_platform_worker_runner_helper_imports() -> None:
     assert callable(run_worker_once)
 

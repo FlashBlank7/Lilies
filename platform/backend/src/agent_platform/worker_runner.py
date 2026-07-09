@@ -38,15 +38,19 @@ class PlatformHarnessWorkerRunner:
         harness: PlatformHarness,
         worker_id: str,
         lease_seconds: float = 60.0,
+        renewal_interval_seconds: float | None = None,
         handlers: dict[str, PlatformTaskHandler] | None = None,
     ) -> None:
         if not worker_id.strip():
             raise ValueError("worker_id is required")
         if lease_seconds <= 0:
             raise ValueError("lease_seconds must be greater than 0")
+        if renewal_interval_seconds is not None and renewal_interval_seconds <= 0:
+            raise ValueError("renewal_interval_seconds must be greater than 0")
         self.harness = harness
         self.worker_id = worker_id
         self.lease_seconds = lease_seconds
+        self.renewal_interval_seconds = renewal_interval_seconds or (lease_seconds / 2)
         self.handlers = handlers or {}
 
     def register_handler(self, kind: str, handler: PlatformTaskHandler) -> None:
@@ -80,13 +84,16 @@ class PlatformHarnessWorkerRunner:
             except Exception as error:
                 results.append(self._result(task, "claim_failed", error=str(error)))
                 continue
+            renewal_state: dict[str, Any] = {"count": 0}
+            renewal_task = asyncio.create_task(self._renew_lease_until_cancelled(claimed.id, renewal_state))
             try:
                 output = handler(claimed)
                 if inspect.isawaitable(output):
                     output = await output
                 result_metadata = output or {}
             except Exception as error:
-                metadata = self._worker_metadata(status="failed", result={})
+                await self._stop_renewal_task(renewal_task)
+                metadata = self._worker_metadata(status="failed", result={}, renewal_state=renewal_state)
                 finished = await self.harness.finish_task(
                     claimed.id,
                     status="failed",
@@ -95,7 +102,12 @@ class PlatformHarnessWorkerRunner:
                 )
                 results.append(self._result(finished or claimed, "failed", error=str(error), metadata=metadata))
                 continue
-            metadata = self._worker_metadata(status="succeeded", result=result_metadata)
+            await self._stop_renewal_task(renewal_task)
+            metadata = self._worker_metadata(
+                status="succeeded",
+                result=result_metadata,
+                renewal_state=renewal_state,
+            )
             finished = await self.harness.finish_task(
                 claimed.id,
                 status="succeeded",
@@ -104,12 +116,47 @@ class PlatformHarnessWorkerRunner:
             results.append(self._result(finished or claimed, "succeeded", metadata=metadata))
         return results
 
-    def _worker_metadata(self, *, status: str, result: dict[str, Any]) -> dict[str, Any]:
+    async def _renew_lease_until_cancelled(self, task_id: str, state: dict[str, Any]) -> None:
+        try:
+            while True:
+                await asyncio.sleep(self.renewal_interval_seconds)
+                record = await self.harness.renew_task_lease(
+                    task_id,
+                    worker_id=self.worker_id,
+                    lease_seconds=self.lease_seconds,
+                )
+                state["count"] = int(state.get("count", 0)) + 1
+                state["lease_version"] = record.lease_version
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:
+            state["error"] = str(error)
+
+    async def _stop_renewal_task(self, task: asyncio.Task[None]) -> None:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            return
+
+    def _worker_metadata(
+        self,
+        *,
+        status: str,
+        result: dict[str, Any],
+        renewal_state: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        worker_runner = {
+            "worker_id": self.worker_id,
+            "status": status,
+            "result": result,
+            "renewal_count": int((renewal_state or {}).get("count", 0)),
+        }
+        if renewal_state and renewal_state.get("error"):
+            worker_runner["renewal_error"] = renewal_state["error"]
         return {
             "worker_runner": {
-                "worker_id": self.worker_id,
-                "status": status,
-                "result": result,
+                **worker_runner,
             }
         }
 
@@ -162,6 +209,7 @@ async def create_platform_worker_runner(
     *,
     worker_id: str | None = None,
     lease_seconds: float | None = None,
+    renewal_interval_seconds: float | None = None,
 ) -> tuple[Any, PlatformHarnessWorkerRunner]:
     from .api import build_services
     from .config import get_settings
@@ -176,6 +224,7 @@ async def create_platform_worker_runner(
         harness=services.harness,
         worker_id=worker_id or services.harness.worker_id,
         lease_seconds=lease_seconds or max(services.harness.worker_lease_seconds, 60.0),
+        renewal_interval_seconds=renewal_interval_seconds,
         handlers=build_platform_worker_handlers(services),
     )
     return services, runner
@@ -185,6 +234,7 @@ async def run_worker_once(
     *,
     worker_id: str | None = None,
     lease_seconds: float | None = None,
+    renewal_interval_seconds: float | None = None,
     kind: str | None = None,
     owner_id: str | None = None,
     limit: int = 10,
@@ -192,6 +242,7 @@ async def run_worker_once(
     services, runner = await create_platform_worker_runner(
         worker_id=worker_id,
         lease_seconds=lease_seconds,
+        renewal_interval_seconds=renewal_interval_seconds,
     )
     try:
         return await runner.run_once(kind=kind, owner_id=owner_id, limit=limit)
@@ -203,6 +254,7 @@ async def _run_worker_from_args(args: argparse.Namespace) -> None:
     services, runner = await create_platform_worker_runner(
         worker_id=args.worker_id,
         lease_seconds=args.lease_seconds,
+        renewal_interval_seconds=args.renewal_interval_seconds,
     )
     try:
         while True:
@@ -219,6 +271,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run a Platform Harness worker.")
     parser.add_argument("--worker-id", default=None)
     parser.add_argument("--lease-seconds", type=float, default=None)
+    parser.add_argument("--renewal-interval-seconds", type=float, default=None)
     parser.add_argument("--kind", default=None)
     parser.add_argument("--owner-id", default=None)
     parser.add_argument("--limit", type=int, default=10)
