@@ -1,0 +1,3853 @@
+{
+  "status": "completed",
+  "started_at": "2026-07-09T18:22:11.552536+00:00",
+  "finished_at": "2026-07-09T19:19:16.728688+00:00",
+  "experiment": "E05 template reuse-depth live comparison",
+  "version": "v0.2.47",
+  "case": {
+    "name": "data_analyzer",
+    "title": "Data analysis reporting",
+    "template_name": "data_analyzer",
+    "required_node_types": [
+      "start",
+      "llm",
+      "parameter_extractor",
+      "template_transform",
+      "end"
+    ]
+  },
+  "budget": {
+    "arms": [
+      "none",
+      "shallow",
+      "deep"
+    ],
+    "max_turns_per_arm": 42,
+    "max_repair_cycles_per_arm": 2,
+    "max_elapsed_seconds_per_arm": 600.0,
+    "timeout_seconds_per_arm": 900.0,
+    "provider_timeout_seconds": 180.0,
+    "benchmark_minimum_pass_rate": 1.0,
+    "skip_paid": false,
+    "run_id": "v0.2.47_e05_data_analyzer_breadth_20260710"
+  },
+  "health": {
+    "status": "ok",
+    "deepseek_configured": true
+  },
+  "models": {
+    "provider": "multi",
+    "generator_model": "deepseek-v4-pro",
+    "runtime_model": "deepseek-v4-pro",
+    "configured_models": [
+      "deepseek/deepseek-v4-pro"
+    ]
+  },
+  "preflight": {
+    "case": "data_analyzer",
+    "template_name": "data_analyzer",
+    "template_count": 10,
+    "templates": [
+      {
+        "name": "app_automation_workflow",
+        "title": "App 自动化决策流程",
+        "description": "从钉钉打卡自动化中提取的通用决策模式。任何'自动操作App X'的任务都应走这个流程：先检查API可用性→无API则检查急速模式→仍不行则模拟点击→都不行则人工介入。避免在错误方向上探索。",
+        "category": "task_management",
+        "icon": "workflow",
+        "tags": [
+          "automation",
+          "decision-tree",
+          "app",
+          "android"
+        ],
+        "expected_inputs": {
+          "app_name": "string",
+          "task_description": "string"
+        },
+        "expected_outputs": {
+          "solution_type": "string",
+          "deliverable": "string"
+        },
+        "author": "platform",
+        "version": 1,
+        "min_blocks_required": [
+          "llm",
+          "if_else",
+          "template_transform"
+        ],
+        "provenance": [
+          {
+            "source_type": "expert_manual",
+            "identifier": "platform:app_automation_workflow.json",
+            "created_at": "2026-06-26T00:00:00Z",
+            "user_id": null
+          }
+        ],
+        "confidence": 0.7,
+        "seed_template": true,
+        "usage_count": 0,
+        "pending_branches_count": 0,
+        "rating_sum": 0.0,
+        "rating_count": 0
+      },
+      {
+        "name": "long_form_writer",
+        "title": "万字长文生成器",
+        "description": "分章节并行生成长文并自动拼接润色。工作流化解决单次LLM输出长度限制：先生成大纲→迭代生成每章→聚合→全文润色。适用于技术文档、分析报告、教程等。",
+        "category": "content_creation",
+        "icon": "file-text",
+        "tags": [
+          "writing",
+          "long-form",
+          "content-generation",
+          "chapters"
+        ],
+        "expected_inputs": {
+          "topic": "string",
+          "target_sections": "number"
+        },
+        "expected_outputs": {
+          "full_text": "string",
+          "outline": "string",
+          "sections": "number"
+        },
+        "author": "platform",
+        "version": 1,
+        "min_blocks_required": [
+          "llm",
+          "iteration",
+          "variable_aggregator",
+          "template_transform"
+        ],
+        "provenance": [
+          {
+            "source_type": "expert_manual",
+            "identifier": "platform:long_form_writer.json",
+            "created_at": "2026-06-26T00:00:00Z",
+            "user_id": null
+          }
+        ],
+        "confidence": 0.7,
+        "seed_template": true,
+        "usage_count": 0,
+        "pending_branches_count": 0,
+        "rating_sum": 0.0,
+        "rating_count": 0
+      },
+      {
+        "name": "code_reviewer",
+        "title": "代码审查与修复",
+        "description": "标准代码审查工作流: 读取源码 → 运行测试 → 定位失败根因 → 最小修改 → 重新验证 → 生成报告。这是最核心的软件开发质量保证流程。",
+        "category": "code_engineering",
+        "icon": "bug",
+        "tags": [
+          "code-review",
+          "testing",
+          "debugging",
+          "quality"
+        ],
+        "expected_inputs": {
+          "workspace_path": "string",
+          "test_command": "string"
+        },
+        "expected_outputs": {
+          "report": "object",
+          "tests_passed": "boolean",
+          "bugs_found": "number"
+        },
+        "author": "platform",
+        "version": 1,
+        "min_blocks_required": [
+          "llm",
+          "tool"
+        ],
+        "provenance": [
+          {
+            "source_type": "expert_manual",
+            "identifier": "platform:code_reviewer.json",
+            "created_at": "2026-06-26T00:00:00Z",
+            "user_id": null
+          }
+        ],
+        "confidence": 0.85,
+        "seed_template": true,
+        "usage_count": 0,
+        "pending_branches_count": 0,
+        "rating_sum": 0.0,
+        "rating_count": 0
+      },
+      {
+        "name": "task_decomposer",
+        "title": "任务分解与规划",
+        "description": "将复杂任务分解为可执行的子任务并按依赖排序。输入任务描述→LLM拆解→提取子任务→依赖排序→生成格式化计划。",
+        "category": "task_management",
+        "icon": "list-checks",
+        "tags": [
+          "planning",
+          "decomposition",
+          "dependencies",
+          "project-management"
+        ],
+        "expected_inputs": {
+          "complex_task": "string"
+        },
+        "expected_outputs": {
+          "plan": "string",
+          "subtask_count": "number"
+        },
+        "author": "platform",
+        "version": 1,
+        "min_blocks_required": [
+          "llm",
+          "template_transform"
+        ],
+        "provenance": [
+          {
+            "source_type": "expert_manual",
+            "identifier": "platform:task_decomposer.json",
+            "created_at": "2026-06-26T00:00:00Z",
+            "user_id": null
+          }
+        ],
+        "confidence": 0.85,
+        "seed_template": true,
+        "usage_count": 0,
+        "pending_branches_count": 0,
+        "rating_sum": 0.0,
+        "rating_count": 0
+      },
+      {
+        "name": "data_analyzer",
+        "title": "数据分析流水线",
+        "description": "标准数据分析工作流：加载数据→统计摘要→异常检测→生成报告。适用于CSV/JSON数据的自动化分析场景。",
+        "category": "data_analysis",
+        "icon": "bar-chart",
+        "tags": [
+          "data",
+          "statistics",
+          "analysis",
+          "reporting"
+        ],
+        "expected_inputs": {
+          "data_description": "string"
+        },
+        "expected_outputs": {
+          "report": "string",
+          "statistics": "object"
+        },
+        "author": "platform",
+        "version": 1,
+        "min_blocks_required": [
+          "llm",
+          "parameter_extractor",
+          "template_transform"
+        ],
+        "provenance": [
+          {
+            "source_type": "expert_manual",
+            "identifier": "platform:data_analyzer.json",
+            "created_at": "2026-06-26T00:00:00Z",
+            "user_id": null
+          }
+        ],
+        "confidence": 0.85,
+        "seed_template": true,
+        "usage_count": 0,
+        "pending_branches_count": 0,
+        "rating_sum": 0.0,
+        "rating_count": 0
+      },
+      {
+        "name": "document_summarizer",
+        "title": "文档摘要生成器",
+        "description": "阅读文档并生成多层级摘要：一句话总结→三段要点→完整摘要。适用于合同、论文、长文等场景。",
+        "category": "content_creation",
+        "icon": "scroll-text",
+        "tags": [
+          "summarization",
+          "document",
+          "reading",
+          "digest"
+        ],
+        "expected_inputs": {
+          "document_text": "string"
+        },
+        "expected_outputs": {
+          "one_liner": "string",
+          "key_points": "string",
+          "full_summary": "string"
+        },
+        "author": "platform",
+        "version": 1,
+        "min_blocks_required": [
+          "llm",
+          "template_transform"
+        ],
+        "provenance": [
+          {
+            "source_type": "expert_manual",
+            "identifier": "platform:document_summarizer.json",
+            "created_at": "2026-06-26T00:00:00Z",
+            "user_id": null
+          }
+        ],
+        "confidence": 0.85,
+        "seed_template": true,
+        "usage_count": 0,
+        "pending_branches_count": 0,
+        "rating_sum": 0.0,
+        "rating_count": 0
+      },
+      {
+        "name": "customer_support_router",
+        "title": "智能客服路由",
+        "description": "客服消息智能分类与差异化响应。将客户消息分为投诉/咨询/反馈/紧急四类，每类返回差异化响应。",
+        "category": "customer_service",
+        "icon": "message-circle",
+        "tags": [
+          "customer-support",
+          "routing",
+          "classification"
+        ],
+        "expected_inputs": {
+          "customer_message": "string"
+        },
+        "expected_outputs": {
+          "intent": "string",
+          "response": "string"
+        },
+        "author": "platform",
+        "version": 1,
+        "min_blocks_required": [
+          "question_classifier",
+          "if_else",
+          "template_transform"
+        ],
+        "provenance": [
+          {
+            "source_type": "expert_manual",
+            "identifier": "platform:customer_support_router.json",
+            "created_at": "2026-06-26T00:00:00Z",
+            "user_id": null
+          }
+        ],
+        "confidence": 0.85,
+        "seed_template": true,
+        "usage_count": 0,
+        "pending_branches_count": 0,
+        "rating_sum": 0.0,
+        "rating_count": 0
+      },
+      {
+        "name": "dingtalk_checkin",
+        "title": "钉钉上班打卡 (8:45)",
+        "description": "每日8:45触发钉钉上班打卡。schedule_trigger 定时 → HTTP Request 调用钉钉考勤API → 模板格式化结果。",
+        "category": "task_management",
+        "icon": "clock",
+        "tags": [
+          "dingtalk",
+          "checkin",
+          "scheduled",
+          "attendance"
+        ],
+        "expected_inputs": {},
+        "expected_outputs": {
+          "result": "string",
+          "status": "number"
+        },
+        "author": "platform",
+        "version": 1,
+        "min_blocks_required": [
+          "schedule_trigger",
+          "http_request",
+          "template_transform"
+        ],
+        "provenance": [],
+        "confidence": 0.7,
+        "seed_template": false,
+        "usage_count": 0,
+        "pending_branches_count": 0,
+        "rating_sum": 0.0,
+        "rating_count": 0
+      },
+      {
+        "name": "dingtalk_checkout",
+        "title": "钉钉下班签退 (19:00)",
+        "description": "每日19:00触发钉钉下班签退。schedule_trigger 定时 → HTTP Request 调用钉钉考勤API → 模板格式化结果。",
+        "category": "task_management",
+        "icon": "clock",
+        "tags": [
+          "dingtalk",
+          "checkout",
+          "scheduled",
+          "attendance"
+        ],
+        "expected_inputs": {},
+        "expected_outputs": {
+          "result": "string",
+          "status": "number"
+        },
+        "author": "platform",
+        "version": 1,
+        "min_blocks_required": [
+          "schedule_trigger",
+          "http_request",
+          "template_transform"
+        ],
+        "provenance": [],
+        "confidence": 0.7,
+        "seed_template": false,
+        "usage_count": 0,
+        "pending_branches_count": 0,
+        "rating_sum": 0.0,
+        "rating_count": 0
+      },
+      {
+        "name": "dingtalk_smart_punch",
+        "title": "钉钉智能打卡（双策略降级）",
+        "description": "智能钉钉打卡工作流：Tier1 急速打卡（启动App自动触发）→ Tier2 input tap模拟点击 → Tier3 人工通知。支持上班打卡(8:45)和下班签退(19:00)，周一至周五自动运行，支持坐标校准。",
+        "category": "task_management",
+        "icon": "clock",
+        "tags": [
+          "dingtalk",
+          "checkin",
+          "automation",
+          "android",
+          "tap-simulation",
+          "scheduled"
+        ],
+        "expected_inputs": {
+          "checkin_x": "number",
+          "checkin_y": "number",
+          "checkout_x": "number",
+          "checkout_y": "number",
+          "entry_x": "number",
+          "entry_y": "number",
+          "punch_type": "string"
+        },
+        "expected_outputs": {
+          "result": "object",
+          "tier_used": "number",
+          "screenshot_path": "string",
+          "report": "string"
+        },
+        "author": "platform",
+        "version": 2,
+        "min_blocks_required": [
+          "schedule_trigger",
+          "tool",
+          "if_else",
+          "template_transform",
+          "variable_aggregator"
+        ],
+        "provenance": [],
+        "confidence": 0.7,
+        "seed_template": false,
+        "usage_count": 0,
+        "pending_branches_count": 0,
+        "rating_sum": 0.0,
+        "rating_count": 0
+      }
+    ],
+    "categories": [
+      "code_engineering",
+      "content_creation",
+      "customer_service",
+      "data_analysis",
+      "task_management"
+    ],
+    "suggestions": {
+      "none": [],
+      "shallow": [
+        {
+          "name": "data_analyzer",
+          "title": "数据分析流水线",
+          "description": "标准数据分析工作流：加载数据→统计摘要→异常检测→生成报告。适用于CSV/JSON数据的自动化分析场景。",
+          "category": "data_analysis",
+          "icon": "bar-chart",
+          "tags": [
+            "data",
+            "statistics",
+            "analysis",
+            "reporting"
+          ],
+          "expected_inputs": {
+            "data_description": "string"
+          },
+          "expected_outputs": {
+            "report": "string",
+            "statistics": "object"
+          },
+          "author": "platform",
+          "version": 1,
+          "min_blocks_required": [
+            "llm",
+            "parameter_extractor",
+            "template_transform"
+          ],
+          "provenance": [
+            {
+              "source_type": "expert_manual",
+              "identifier": "platform:data_analyzer.json",
+              "created_at": "2026-06-26T00:00:00Z",
+              "user_id": null
+            }
+          ],
+          "confidence": 0.85,
+          "seed_template": true,
+          "usage_count": 0,
+          "pending_branches_count": 0,
+          "rating_sum": 0.0,
+          "rating_count": 0,
+          "relevance_score": 2.125,
+          "reuse_depth": "shallow",
+          "recommended_action": "expand_template"
+        }
+      ],
+      "deep": [
+        {
+          "name": "data_analyzer",
+          "title": "数据分析流水线",
+          "description": "标准数据分析工作流：加载数据→统计摘要→异常检测→生成报告。适用于CSV/JSON数据的自动化分析场景。",
+          "category": "data_analysis",
+          "icon": "bar-chart",
+          "tags": [
+            "data",
+            "statistics",
+            "analysis",
+            "reporting"
+          ],
+          "expected_inputs": {
+            "data_description": "string"
+          },
+          "expected_outputs": {
+            "report": "string",
+            "statistics": "object"
+          },
+          "author": "platform",
+          "version": 1,
+          "min_blocks_required": [
+            "llm",
+            "parameter_extractor",
+            "template_transform"
+          ],
+          "provenance": [
+            {
+              "source_type": "expert_manual",
+              "identifier": "platform:data_analyzer.json",
+              "created_at": "2026-06-26T00:00:00Z",
+              "user_id": null
+            }
+          ],
+          "confidence": 0.85,
+          "seed_template": true,
+          "usage_count": 0,
+          "pending_branches_count": 0,
+          "rating_sum": 0.0,
+          "rating_count": 0,
+          "relevance_score": 2.125,
+          "reuse_depth": "deep",
+          "recommended_action": "compose_modules"
+        }
+      ]
+    }
+  },
+  "arms": [
+    {
+      "depth": "none",
+      "case": "data_analyzer",
+      "expected_action": "build_from_scratch",
+      "status": "completed",
+      "elapsed_seconds": 395.359,
+      "application_id": "c3a29368-9f03-40bf-8f15-1465de4ad980",
+      "build_id": "6b58821b-2253-48ea-9b2a-69eee83d73b3",
+      "build_status": "needs_attention",
+      "build_error": "builder stopped with invalid draft: unreachable nodes: ['analysis_turn', 'end', 'extract_turn', 'report_template', 'task_builder']",
+      "builder_task": {
+        "id": "6b58821b-2253-48ea-9b2a-69eee83d73b3",
+        "kind": "builder_build",
+        "owner_id": "c3a29368-9f03-40bf-8f15-1465de4ad980",
+        "resource_id": "6b58821b-2253-48ea-9b2a-69eee83d73b3",
+        "status": "failed",
+        "parent_task_id": null,
+        "metadata": {
+          "max_turns": 42,
+          "max_repair_cycles": 2,
+          "auto_publish": false,
+          "max_elapsed_seconds": 600.0,
+          "failure": {
+            "type": "runtime",
+            "error_type": "RuntimeError",
+            "retryable": false,
+            "status_code": null,
+            "timeout_like": false
+          }
+        },
+        "usage_counts": {
+          "model_call": 42,
+          "tool_call": 74
+        },
+        "usage": [
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 1,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:22:11.601171+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_inspect"
+            },
+            "created_at": "2026-07-09T18:22:15.828261+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "catalog_search"
+            },
+            "created_at": "2026-07-09T18:22:15.835349+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 2,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:22:15.847026+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "catalog_search"
+            },
+            "created_at": "2026-07-09T18:22:19.777185+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "catalog_search"
+            },
+            "created_at": "2026-07-09T18:22:19.791661+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "manual_search"
+            },
+            "created_at": "2026-07-09T18:22:19.798476+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 3,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:22:19.801947+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "template_suggestions"
+            },
+            "created_at": "2026-07-09T18:22:22.750662+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "architecture_blueprint"
+            },
+            "created_at": "2026-07-09T18:22:22.757181+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "catalog_get"
+            },
+            "created_at": "2026-07-09T18:22:22.763840+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 4,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:22:22.770286+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "catalog_get"
+            },
+            "created_at": "2026-07-09T18:22:27.749977+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "catalog_get"
+            },
+            "created_at": "2026-07-09T18:22:27.758415+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "catalog_get"
+            },
+            "created_at": "2026-07-09T18:22:27.762914+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "catalog_get"
+            },
+            "created_at": "2026-07-09T18:22:27.768271+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "catalog_get"
+            },
+            "created_at": "2026-07-09T18:22:27.771904+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 5,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:22:27.776541+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "manual_get"
+            },
+            "created_at": "2026-07-09T18:22:37.301661+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "catalog_get"
+            },
+            "created_at": "2026-07-09T18:22:37.311710+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 6,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:22:37.319552+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "build_plan"
+            },
+            "created_at": "2026-07-09T18:22:52.315830+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 7,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:22:52.327592+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "task"
+            },
+            "created_at": "2026-07-09T18:23:02.414329+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "task"
+            },
+            "created_at": "2026-07-09T18:23:02.421565+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "task"
+            },
+            "created_at": "2026-07-09T18:23:02.426903+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "task"
+            },
+            "created_at": "2026-07-09T18:23:02.431485+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "task"
+            },
+            "created_at": "2026-07-09T18:23:02.435154+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "task"
+            },
+            "created_at": "2026-07-09T18:23:02.437778+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 8,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:23:02.441910+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "task"
+            },
+            "created_at": "2026-07-09T18:23:06.456641+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_add_node"
+            },
+            "created_at": "2026-07-09T18:23:06.463768+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 9,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:23:06.474514+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "task"
+            },
+            "created_at": "2026-07-09T18:23:11.490280+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "task"
+            },
+            "created_at": "2026-07-09T18:23:11.497631+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_add_node"
+            },
+            "created_at": "2026-07-09T18:23:11.503850+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 10,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:23:11.512487+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_connect"
+            },
+            "created_at": "2026-07-09T18:23:16.630350+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_add_node"
+            },
+            "created_at": "2026-07-09T18:23:16.639132+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 11,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:23:16.647899+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_connect"
+            },
+            "created_at": "2026-07-09T18:23:21.468454+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_add_node"
+            },
+            "created_at": "2026-07-09T18:23:21.480694+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 12,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:23:21.489877+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_connect"
+            },
+            "created_at": "2026-07-09T18:23:26.448035+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_add_node"
+            },
+            "created_at": "2026-07-09T18:23:26.456566+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 13,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:23:26.469174+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_connect"
+            },
+            "created_at": "2026-07-09T18:23:30.115502+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_add_node"
+            },
+            "created_at": "2026-07-09T18:23:30.121070+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 14,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:23:30.125903+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_connect"
+            },
+            "created_at": "2026-07-09T18:23:32.386211+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 15,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:23:32.403449+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_validate"
+            },
+            "created_at": "2026-07-09T18:23:38.573242+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 16,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:23:38.587315+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "task"
+            },
+            "created_at": "2026-07-09T18:23:51.796131+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "task"
+            },
+            "created_at": "2026-07-09T18:23:51.804010+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "task"
+            },
+            "created_at": "2026-07-09T18:23:51.808677+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "task"
+            },
+            "created_at": "2026-07-09T18:23:51.812808+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "task"
+            },
+            "created_at": "2026-07-09T18:23:51.817810+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "test_add"
+            },
+            "created_at": "2026-07-09T18:23:51.821169+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 17,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:23:51.835664+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "test_run"
+            },
+            "created_at": "2026-07-09T18:23:54.507540+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 18,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:24:15.763834+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_inspect"
+            },
+            "created_at": "2026-07-09T18:24:35.527309+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 19,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:24:35.543608+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_remove_node"
+            },
+            "created_at": "2026-07-09T18:24:43.908960+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 20,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:24:43.924918+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "test_remove"
+            },
+            "created_at": "2026-07-09T18:24:55.183890+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 21,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:24:55.203403+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_remove_node"
+            },
+            "created_at": "2026-07-09T18:24:57.134284+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 22,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:24:57.151367+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_add_node"
+            },
+            "created_at": "2026-07-09T18:25:01.873436+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 23,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:25:01.892250+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_connect"
+            },
+            "created_at": "2026-07-09T18:25:05.084767+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_connect"
+            },
+            "created_at": "2026-07-09T18:25:05.097384+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 24,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:25:05.107553+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_update_node"
+            },
+            "created_at": "2026-07-09T18:25:08.054845+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 25,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:25:08.072770+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "test_add"
+            },
+            "created_at": "2026-07-09T18:25:14.548433+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 26,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:25:14.566097+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "test_run"
+            },
+            "created_at": "2026-07-09T18:25:16.534604+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 27,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:25:29.473041+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_remove_edge"
+            },
+            "created_at": "2026-07-09T18:25:42.858269+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 28,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:25:42.865767+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_connect"
+            },
+            "created_at": "2026-07-09T18:25:49.134199+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_update_node"
+            },
+            "created_at": "2026-07-09T18:25:49.146062+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 29,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:25:49.159459+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "test_run"
+            },
+            "created_at": "2026-07-09T18:25:51.605255+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 30,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:26:19.814131+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_remove_edge"
+            },
+            "created_at": "2026-07-09T18:26:25.502421+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 31,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:26:25.522025+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_update_node"
+            },
+            "created_at": "2026-07-09T18:26:28.727002+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_connect"
+            },
+            "created_at": "2026-07-09T18:26:28.739682+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 32,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:26:28.753516+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "test_run"
+            },
+            "created_at": "2026-07-09T18:26:31.244202+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 33,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:26:45.489723+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_update_node"
+            },
+            "created_at": "2026-07-09T18:26:58.432534+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 34,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:26:58.441109+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "test_run"
+            },
+            "created_at": "2026-07-09T18:27:00.116939+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 35,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:27:18.755977+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_update_node"
+            },
+            "created_at": "2026-07-09T18:27:31.045201+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 36,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:27:31.064756+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "manual_get"
+            },
+            "created_at": "2026-07-09T18:27:38.787075+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 37,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:27:38.802025+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_remove_node"
+            },
+            "created_at": "2026-07-09T18:27:46.452481+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 38,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:27:46.472429+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_connect"
+            },
+            "created_at": "2026-07-09T18:27:50.459212+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_update_node"
+            },
+            "created_at": "2026-07-09T18:27:50.467266+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 39,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:27:50.480842+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "test_run"
+            },
+            "created_at": "2026-07-09T18:27:54.481348+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 40,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:28:18.034373+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_upsert_agent"
+            },
+            "created_at": "2026-07-09T18:28:31.768889+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 41,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:28:31.792462+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_add_node"
+            },
+            "created_at": "2026-07-09T18:28:40.925904+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 42,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:28:40.931904+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_remove_edge"
+            },
+            "created_at": "2026-07-09T18:28:46.234104+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_remove_edge"
+            },
+            "created_at": "2026-07-09T18:28:46.250514+00:00"
+          }
+        ],
+        "error": "builder stopped with invalid draft: unreachable nodes: ['analysis_turn', 'end', 'extract_turn', 'report_template', 'task_builder']",
+        "worker_id": null,
+        "lease_expires_at": null,
+        "lease_version": 0,
+        "created_at": "2026-07-09T18:22:11.595726+00:00",
+        "updated_at": "2026-07-09T18:28:46.267559+00:00",
+        "finished_at": "2026-07-09T18:28:46.267559+00:00"
+      },
+      "build_plan": {
+        "goal": "Build a data analysis BlockFlow from scratch (reuse_depth=none) that accepts data_description and optional analysis_goal, produces statistical summary/anomaly notes/recommendations, extracts structured statistics, and outputs a reviewer-facing report.",
+        "strategy": "Compose explicit business workflow and agent architecture blocks: Start → Context Assembler → Model Turn (analysis) → Model Turn (structure extraction) → Template Transform (report) → End. No templates, no legacy Claude Agent macro.",
+        "modules": [
+          {
+            "id": "M1",
+            "title": "Input declaration",
+            "purpose": "Declare workflow inputs: data_description (required string) and analysis_goal (optional string).",
+            "status": "planned",
+            "depends_on": [],
+            "expected_blocks": [
+              "start"
+            ],
+            "draft_node_ids": [],
+            "test_ids": [],
+            "evidence": []
+          },
+          {
+            "id": "M2",
+            "title": "Context assembly and analysis",
+            "purpose": "Compose the analysis prompt from Start inputs and run a single model turn to produce statistical summary, anomaly notes, recommendations, and raw statistics.",
+            "status": "planned",
+            "depends_on": [
+              "M1"
+            ],
+            "expected_blocks": [
+              "context_assembler",
+              "model_turn"
+            ],
+            "draft_node_ids": [],
+            "test_ids": [],
+            "evidence": []
+          },
+          {
+            "id": "M3",
+            "title": "Structured statistics extraction",
+            "purpose": "Run a second model turn to parse the analysis output into structured JSON with key_findings, record_count, anomalies_found.",
+            "status": "planned",
+            "depends_on": [
+              "M2"
+            ],
+            "expected_blocks": [
+              "model_turn"
+            ],
+            "draft_node_ids": [],
+            "test_ids": [],
+            "evidence": []
+          },
+          {
+            "id": "M4",
+            "title": "Report formatting",
+            "purpose": "Render a reviewer-facing formatted report using Template Transform from the analysis and statistics outputs.",
+            "status": "planned",
+            "depends_on": [
+              "M3"
+            ],
+            "expected_blocks": [
+              "template_transform"
+            ],
+            "draft_node_ids": [],
+            "test_ids": [],
+            "evidence": []
+          },
+          {
+            "id": "M5",
+            "title": "Output delivery",
+            "purpose": "Return report and statistics as named workflow outputs.",
+            "status": "planned",
+            "depends_on": [
+              "M4"
+            ],
+            "expected_blocks": [
+              "end"
+            ],
+            "draft_node_ids": [],
+            "test_ids": [],
+            "evidence": []
+          },
+          {
+            "id": "M6",
+            "title": "Mandatory audit test",
+            "purpose": "Test with required_node_types covering all visible architecture blocks; verify report and statistics are produced.",
+            "status": "planned",
+            "depends_on": [
+              "M5"
+            ],
+            "expected_blocks": [],
+            "draft_node_ids": [],
+            "test_ids": [],
+            "evidence": []
+          }
+        ],
+        "reuse_depth": "none",
+        "complexity": "medium",
+        "risks": [
+          "Model Turn config schema is vague; may need trial and error to pass prompts",
+          "Template Transform variables must use Jinja syntax with declared variables map",
+          "Structured extraction model turn may produce non-JSON output requiring error handling"
+        ]
+      },
+      "build_plan_reuse_depth": "none",
+      "usage_counts": {
+        "model_call": 42,
+        "tool_call": 74
+      },
+      "draft_counts": {
+        "nodes": 6,
+        "edges": 2,
+        "tests": 1,
+        "node_types": [
+          "end",
+          "model_turn",
+          "start",
+          "template_transform"
+        ]
+      },
+      "event_summary": {
+        "operation_counts": {
+          "draft_inspect": 2,
+          "catalog_search": 3,
+          "manual_search": 1,
+          "template_suggestions": 1,
+          "architecture_blueprint": 1,
+          "catalog_get": 7,
+          "manual_get": 2,
+          "build_plan": 1,
+          "task": 14,
+          "draft_add_node": 8,
+          "draft_connect": 10,
+          "draft_validate": 1,
+          "test_add": 2,
+          "test_run": 6,
+          "draft_remove_node": 3,
+          "test_remove": 1,
+          "draft_update_node": 6,
+          "draft_remove_edge": 4,
+          "draft_upsert_agent": 1
+        },
+        "template_suggestion_count": 1,
+        "template_expand_count": 0,
+        "template_suggestions": [
+          {
+            "input": {
+              "requirement": "data analysis blockflow with statistical summary, anomaly notes, recommendations from dataset description, structured statistics",
+              "reuse_depth": "none"
+            },
+            "success": true,
+            "reuse_depth": "none",
+            "recommended_action": "build_from_scratch",
+            "templates": []
+          }
+        ],
+        "template_expands": [],
+        "failed_operations": [
+          {
+            "tool": "draft_remove_node",
+            "input": {
+              "node_id": "ctx_assembler"
+            },
+            "result": "RuntimeError: removing node 'ctx_assembler' would break mandatory test required_node_types for node type 'context_assembler': ['audit_test']. Update or remove the affected tests first, or add a replacement node with the same type."
+          }
+        ],
+        "provider_failure_events": [],
+        "model_timeout_events": [],
+        "needs_attention_events": [
+          {
+            "error": "builder stopped with invalid draft: unreachable nodes: ['analysis_turn', 'end', 'extract_turn', 'report_template', 'task_builder']",
+            "error_type": "RuntimeError",
+            "failure": {
+              "type": "runtime",
+              "error_type": "RuntimeError",
+              "retryable": false,
+              "status_code": null,
+              "timeout_like": false
+            }
+          }
+        ]
+      },
+      "failure_summary": {
+        "build_status": "needs_attention",
+        "build_error": "builder stopped with invalid draft: unreachable nodes: ['analysis_turn', 'end', 'extract_turn', 'report_template', 'task_builder']",
+        "task_status": "failed",
+        "task_error": "builder stopped with invalid draft: unreachable nodes: ['analysis_turn', 'end', 'extract_turn', 'report_template', 'task_builder']",
+        "task_failure": {
+          "type": "runtime",
+          "error_type": "RuntimeError",
+          "retryable": false,
+          "status_code": null,
+          "timeout_like": false
+        },
+        "event_failures": [
+          {
+            "type": "runtime",
+            "error_type": "RuntimeError",
+            "retryable": false,
+            "status_code": null,
+            "timeout_like": false
+          }
+        ],
+        "provider_failure_event_count": 0,
+        "model_timeout_event_count": 0,
+        "timeout_like": false
+      },
+      "benchmark_outcome": {
+        "suite_passed": false,
+        "suite_score": 0.71,
+        "suite_pass_rate": 0.0,
+        "case_count": 1,
+        "case_passed": false,
+        "case_score": 0.71,
+        "failed_cases": [
+          "data_analyzer blockflow reuse_depth=none"
+        ],
+        "missing": {
+          "node_types": [
+            "llm",
+            "parameter_extractor"
+          ],
+          "tool_nodes": [],
+          "harness_nodes": []
+        }
+      },
+      "benchmark_report": {
+        "name": "E05 template reuse-depth data_analyzer comparison",
+        "passed": false,
+        "score": 0.71,
+        "pass_rate": 0.0,
+        "case_count": 1,
+        "failed_cases": [
+          "data_analyzer blockflow reuse_depth=none"
+        ],
+        "reports": [
+          {
+            "name": "data_analyzer blockflow reuse_depth=none",
+            "passed": false,
+            "score": 0.71,
+            "metrics": {
+              "node_type_coverage": 0.6,
+              "tool_node_coverage": 1.0,
+              "harness_coverage": 1.0,
+              "edge_similarity": 0.0,
+              "test_frame_coverage": 1.0,
+              "candidate_node_count": 6,
+              "reference_node_count": 5,
+              "node_type_equivalences": {
+                "end": [
+                  "answer"
+                ],
+                "model_turn": [
+                  "llm"
+                ]
+              }
+            },
+            "missing": {
+              "node_types": [
+                "llm",
+                "parameter_extractor"
+              ],
+              "tool_nodes": [],
+              "harness_nodes": []
+            }
+          }
+        ],
+        "metrics": {
+          "average": {
+            "candidate_node_count": 6.0,
+            "edge_similarity": 0.0,
+            "harness_coverage": 1.0,
+            "node_type_coverage": 0.6,
+            "reference_node_count": 5.0,
+            "test_frame_coverage": 1.0,
+            "tool_node_coverage": 1.0
+          },
+          "minimum_score": 0.45,
+          "minimum_pass_rate": 1.0
+        },
+        "trends": [
+          {
+            "name": "data_analyzer blockflow reuse_depth=none",
+            "score": 0.71,
+            "baseline_score": null,
+            "delta": null,
+            "direction": "new"
+          }
+        ],
+        "cost": {
+          "model_calls": 42,
+          "tool_calls": 74,
+          "estimated_cost_usd": null,
+          "provider": "deepseek",
+          "model": "",
+          "notes": "Counts come from Platform Harness task usage when available."
+        }
+      }
+    },
+    {
+      "depth": "shallow",
+      "case": "data_analyzer",
+      "expected_action": "expand_template",
+      "status": "completed",
+      "elapsed_seconds": 600.247,
+      "application_id": "5a998563-4ee5-4a7c-9483-bd261965fc16",
+      "build_id": "522054a6-5caf-4716-afa5-05d66013545f",
+      "build_status": "needs_attention",
+      "build_error": "builder build timed out after 600s (elapsed 600.007s)",
+      "builder_task": {
+        "id": "522054a6-5caf-4716-afa5-05d66013545f",
+        "kind": "builder_build",
+        "owner_id": "5a998563-4ee5-4a7c-9483-bd261965fc16",
+        "resource_id": "522054a6-5caf-4716-afa5-05d66013545f",
+        "status": "failed",
+        "parent_task_id": null,
+        "metadata": {
+          "max_turns": 42,
+          "max_repair_cycles": 2,
+          "auto_publish": false,
+          "max_elapsed_seconds": 600.0,
+          "failure": {
+            "type": "build_timeout",
+            "error_type": "BuildDeadlineExceeded",
+            "retryable": true,
+            "status_code": null,
+            "timeout_like": true,
+            "max_elapsed_seconds": 600.0,
+            "elapsed_seconds": 600.007
+          }
+        },
+        "usage_counts": {
+          "model_call": 22,
+          "tool_call": 36
+        },
+        "usage": [
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 1,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:28:47.039450+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_inspect"
+            },
+            "created_at": "2026-07-09T18:28:53.651046+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "template_suggestions"
+            },
+            "created_at": "2026-07-09T18:28:53.656168+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "catalog_search"
+            },
+            "created_at": "2026-07-09T18:28:53.658952+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 2,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:28:53.667676+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "build_plan"
+            },
+            "created_at": "2026-07-09T18:29:04.607344+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "template_expand"
+            },
+            "created_at": "2026-07-09T18:29:04.613839+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 3,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:29:04.630640+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_inspect"
+            },
+            "created_at": "2026-07-09T18:29:09.644728+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 4,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:29:09.655975+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_validate"
+            },
+            "created_at": "2026-07-09T18:29:16.757872+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 5,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:29:16.767757+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "test_add"
+            },
+            "created_at": "2026-07-09T18:29:28.656966+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 6,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:29:28.670061+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_validate"
+            },
+            "created_at": "2026-07-09T18:29:31.385465+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "test_run"
+            },
+            "created_at": "2026-07-09T18:29:31.393937+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 7,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:30:14.550941+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "manual_get"
+            },
+            "created_at": "2026-07-09T18:30:32.464985+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "manual_get"
+            },
+            "created_at": "2026-07-09T18:30:32.471691+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "catalog_get"
+            },
+            "created_at": "2026-07-09T18:30:32.477098+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 8,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:30:32.483686+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "spawn_teammate"
+            },
+            "created_at": "2026-07-09T18:30:51.079353+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "debugger",
+              "turn": 1,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:30:51.097218+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "debugger",
+              "tool": "draft_inspect"
+            },
+            "created_at": "2026-07-09T18:30:53.717477+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "debugger",
+              "tool": "test_run"
+            },
+            "created_at": "2026-07-09T18:30:53.720322+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "debugger",
+              "turn": 2,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:31:21.639515+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "debugger",
+              "tool": "catalog_get"
+            },
+            "created_at": "2026-07-09T18:31:26.379386+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "debugger",
+              "tool": "catalog_get"
+            },
+            "created_at": "2026-07-09T18:31:26.386219+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "debugger",
+              "tool": "catalog_get"
+            },
+            "created_at": "2026-07-09T18:31:26.391489+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "debugger",
+              "turn": 3,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:31:26.397588+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "debugger",
+              "tool": "manual_get"
+            },
+            "created_at": "2026-07-09T18:32:08.016517+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "debugger",
+              "tool": "manual_get"
+            },
+            "created_at": "2026-07-09T18:32:08.024337+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "debugger",
+              "tool": "manual_get"
+            },
+            "created_at": "2026-07-09T18:32:08.029873+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "debugger",
+              "turn": 4,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:32:08.035915+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "debugger",
+              "tool": "catalog_search"
+            },
+            "created_at": "2026-07-09T18:33:01.409208+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "debugger",
+              "turn": 5,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:33:01.418270+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 9,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:33:41.573365+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_add_node"
+            },
+            "created_at": "2026-07-09T18:34:04.769885+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 10,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:34:04.784933+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_update_node"
+            },
+            "created_at": "2026-07-09T18:34:08.257739+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 11,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:34:08.275025+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_remove_edge"
+            },
+            "created_at": "2026-07-09T18:34:11.875554+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 12,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:34:11.890988+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_connect"
+            },
+            "created_at": "2026-07-09T18:34:15.040574+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_connect"
+            },
+            "created_at": "2026-07-09T18:34:15.049521+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 13,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:34:15.057870+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "test_run"
+            },
+            "created_at": "2026-07-09T18:34:23.359555+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 14,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:36:48.940343+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_validate"
+            },
+            "created_at": "2026-07-09T18:36:57.544778+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "build_plan"
+            },
+            "created_at": "2026-07-09T18:36:57.554274+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 15,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:36:57.563167+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "build_plan"
+            },
+            "created_at": "2026-07-09T18:37:05.086356+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "build_plan"
+            },
+            "created_at": "2026-07-09T18:37:05.093833+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "build_plan"
+            },
+            "created_at": "2026-07-09T18:37:05.098105+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "build_plan"
+            },
+            "created_at": "2026-07-09T18:37:05.102423+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 16,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:37:05.109683+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_inspect"
+            },
+            "created_at": "2026-07-09T18:37:07.461982+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 17,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T18:37:07.474243+00:00"
+          }
+        ],
+        "error": "builder build timed out after 600s (elapsed 600.007s)",
+        "worker_id": null,
+        "lease_expires_at": null,
+        "lease_version": 0,
+        "created_at": "2026-07-09T18:28:47.033849+00:00",
+        "updated_at": "2026-07-09T19:11:35.246972+00:00",
+        "finished_at": "2026-07-09T19:11:35.246972+00:00"
+      },
+      "build_plan": {
+        "goal": "Build an editable data analysis BlockFlow with statistical summary, anomaly detection, structured statistics extraction, and reviewer-facing report.",
+        "strategy": "Shallow reuse of the marketplace 'data_analyzer' template, expanding its structure lightly, then adapting blocks to meet the exact requirements: inputs (data_description, analysis_goal), outputs (report, statistics), structured stats extraction, mandatory auditable test.",
+        "modules": [
+          {
+            "id": "m1",
+            "title": "Input & Routing",
+            "purpose": "Accept data_description and optional analysis_goal; route to analysis path.",
+            "status": "done",
+            "depends_on": [],
+            "expected_blocks": [
+              "Start",
+              "input_variables or question_classifier"
+            ],
+            "draft_node_ids": [
+              "data_analyzer_start",
+              "data_analyzer_prompt"
+            ],
+            "test_ids": [],
+            "evidence": [
+              "Start inputs data_description (string) and analysis_goal (string, optional) configured",
+              "Prompt-builder template_transform bridges start inputs to LLM prompt"
+            ]
+          },
+          {
+            "id": "m2",
+            "title": "Statistical Analysis Core",
+            "purpose": "Produce statistical summary, anomaly notes, and recommendations from described dataset.",
+            "status": "done",
+            "depends_on": [],
+            "expected_blocks": [
+              "Model Turn, Tool, or agent architecture bricks"
+            ],
+            "draft_node_ids": [
+              "data_analyzer_analyze"
+            ],
+            "test_ids": [],
+            "evidence": [
+              "LLM node with analyst system prompt produces statistical summary, anomaly notes, and recommendations",
+              "Verified output: comprehensive report with data quality assessment, sales trends, anomaly detection, and recommendations"
+            ]
+          },
+          {
+            "id": "m3",
+            "title": "Structured Statistics Extraction",
+            "purpose": "Extract key_findings, record_count, anomalies_found as structured output.",
+            "status": "done",
+            "depends_on": [],
+            "expected_blocks": [
+              "template_transform or variable_aggregator"
+            ],
+            "draft_node_ids": [
+              "data_analyzer_extract"
+            ],
+            "test_ids": [],
+            "evidence": [
+              "parameter_extractor extracts record_count (5000), anomalies_found (83), key_findings (string summary)",
+              "Structured output feeds both statistics output and report formatting"
+            ]
+          },
+          {
+            "id": "m4",
+            "title": "Report Formatting",
+            "purpose": "Format a reviewer-facing report from the analysis and statistics.",
+            "status": "done",
+            "depends_on": [],
+            "expected_blocks": [
+              "template_transform",
+              "answer"
+            ],
+            "draft_node_ids": [
+              "data_analyzer_format",
+              "data_analyzer_end"
+            ],
+            "test_ids": [],
+            "evidence": [
+              "template_transform renders markdown report with findings, count, anomalies, and full analysis",
+              "End node outputs report (formatted text) and statistics (structured object)"
+            ]
+          },
+          {
+            "id": "m5",
+            "title": "Acceptance Test",
+            "purpose": "Mandatory test with required_node_types proving the workflow is auditable and tool-evidenced.",
+            "status": "done",
+            "depends_on": [],
+            "expected_blocks": [],
+            "draft_node_ids": [],
+            "test_ids": [
+              "test_analysis_flow"
+            ],
+            "evidence": [
+              "Mandatory test passes with required_node_types gate: start, llm, parameter_extractor, template_transform, end",
+              "All 4 structural assertions pass: report exists, report min_length 100, statistics exists, statistics.key_findings exists"
+            ]
+          }
+        ],
+        "reuse_depth": "shallow",
+        "complexity": "medium",
+        "risks": [
+          "Template may use legacy Claude Agent bricks; need to ensure editable composable blocks",
+          "Shallow reuse may leave gaps in structured extraction",
+          "Must ensure outputs are wired to End/Answer nodes for both report and statistics"
+        ]
+      },
+      "build_plan_reuse_depth": "shallow",
+      "usage_counts": {
+        "model_call": 22,
+        "tool_call": 36
+      },
+      "draft_counts": {
+        "nodes": 6,
+        "edges": 5,
+        "tests": 1,
+        "node_types": [
+          "end",
+          "llm",
+          "parameter_extractor",
+          "start",
+          "template_transform"
+        ]
+      },
+      "event_summary": {
+        "operation_counts": {
+          "draft_inspect": 4,
+          "template_suggestions": 1,
+          "catalog_search": 2,
+          "build_plan": 6,
+          "template_expand": 1,
+          "draft_validate": 3,
+          "test_add": 1,
+          "test_run": 3,
+          "manual_get": 5,
+          "catalog_get": 4,
+          "spawn_teammate": 1,
+          "draft_add_node": 1,
+          "draft_update_node": 1,
+          "draft_remove_edge": 1,
+          "draft_connect": 2
+        },
+        "template_suggestion_count": 1,
+        "template_expand_count": 1,
+        "template_suggestions": [
+          {
+            "input": {
+              "requirement": "Build an editable data analysis BlockFlow that starts with inputs data_description and optional analysis_goal, produces a statistical summary with anomaly notes and recommendations, extracts structured statistics including key_findings, record_count, anomalies_found, produces a reviewer-facing formatted report, and ends with outputs report and statistics.",
+              "reuse_depth": "shallow"
+            },
+            "success": true,
+            "reuse_depth": "shallow",
+            "recommended_action": "expand_template",
+            "templates": [
+              {
+                "name": "data_analyzer",
+                "title": "数据分析流水线",
+                "source": "marketplace",
+                "confidence": 0.85,
+                "relevance": 1.7,
+                "tags": [
+                  "data",
+                  "statistics",
+                  "analysis",
+                  "reporting"
+                ],
+                "recommended_action": "expand_template"
+              }
+            ]
+          }
+        ],
+        "template_expands": [
+          {
+            "input": {
+              "name": "data_analyzer"
+            },
+            "success": true,
+            "result": {
+              "template": "data_analyzer",
+              "source": "marketplace",
+              "revision": 9,
+              "nodes": [
+                "data_analyzer_start",
+                "data_analyzer_analyze",
+                "data_analyzer_extract",
+                "data_analyzer_format",
+                "data_analyzer_end"
+              ],
+              "edges": [
+                "data_analyzer_e1",
+                "data_analyzer_e2",
+                "data_analyzer_e3",
+                "data_analyzer_e4"
+              ],
+              "node_types": [
+                "end",
+                "llm",
+                "parameter_extractor",
+                "start",
+                "template_transform"
+              ],
+              "edge_count": 4,
+              "validation": {
+                "valid": true,
+                "errors": []
+              },
+              "draft_validation": {
+                "valid": false,
+                "errors": [
+                  "at least one mandatory acceptance test is required"
+                ],
+                "warnings": [],
+                "revision": 9,
+                "test_count": 0
+              },
+              "template_contract": {
+                "name": "data_analyzer",
+                "title": "数据分析流水线",
+                "category": "data_analysis",
+                "expected_inputs": {
+                  "data_description": "string"
+                },
+                "expected_outputs": {
+                  "report": "string",
+                  "statistics": "object"
+                },
+                "min_blocks_required": [
+                  "llm",
+                  "parameter_extractor",
+                  "template_transform"
+                ],
+                "confidence": 0.85,
+                "tags": [
+                  "data",
+                  "statistics",
+                  "analysis",
+                  "reporting"
+                ]
+              }
+            }
+          }
+        ],
+        "failed_operations": [],
+        "provider_failure_events": [],
+        "model_timeout_events": [],
+        "needs_attention_events": [
+          {
+            "error": "builder build timed out after 600s (elapsed 600.007s)",
+            "error_type": "BuildDeadlineExceeded",
+            "failure": {
+              "type": "build_timeout",
+              "error_type": "BuildDeadlineExceeded",
+              "retryable": true,
+              "status_code": null,
+              "timeout_like": true,
+              "max_elapsed_seconds": 600.0,
+              "elapsed_seconds": 600.007
+            }
+          }
+        ]
+      },
+      "failure_summary": {
+        "build_status": "needs_attention",
+        "build_error": "builder build timed out after 600s (elapsed 600.007s)",
+        "task_status": "failed",
+        "task_error": "builder build timed out after 600s (elapsed 600.007s)",
+        "task_failure": {
+          "type": "build_timeout",
+          "error_type": "BuildDeadlineExceeded",
+          "retryable": true,
+          "status_code": null,
+          "timeout_like": true,
+          "max_elapsed_seconds": 600.0,
+          "elapsed_seconds": 600.007
+        },
+        "event_failures": [
+          {
+            "type": "build_timeout",
+            "error_type": "BuildDeadlineExceeded",
+            "retryable": true,
+            "status_code": null,
+            "timeout_like": true,
+            "max_elapsed_seconds": 600.0,
+            "elapsed_seconds": 600.007
+          }
+        ],
+        "provider_failure_event_count": 0,
+        "model_timeout_event_count": 0,
+        "timeout_like": true
+      },
+      "benchmark_outcome": {
+        "suite_passed": true,
+        "suite_score": 0.85,
+        "suite_pass_rate": 1.0,
+        "case_count": 1,
+        "case_passed": true,
+        "case_score": 0.85,
+        "failed_cases": [],
+        "missing": {
+          "node_types": [],
+          "tool_nodes": [],
+          "harness_nodes": []
+        }
+      },
+      "benchmark_report": {
+        "name": "E05 template reuse-depth data_analyzer comparison",
+        "passed": true,
+        "score": 0.85,
+        "pass_rate": 1.0,
+        "case_count": 1,
+        "failed_cases": [],
+        "reports": [
+          {
+            "name": "data_analyzer blockflow reuse_depth=shallow",
+            "passed": true,
+            "score": 0.85,
+            "metrics": {
+              "node_type_coverage": 1.0,
+              "tool_node_coverage": 1.0,
+              "harness_coverage": 1.0,
+              "edge_similarity": 0.0,
+              "test_frame_coverage": 1.0,
+              "candidate_node_count": 6,
+              "reference_node_count": 5,
+              "node_type_equivalences": {
+                "end": [
+                  "answer"
+                ],
+                "model_turn": [
+                  "llm"
+                ]
+              }
+            },
+            "missing": {
+              "node_types": [],
+              "tool_nodes": [],
+              "harness_nodes": []
+            }
+          }
+        ],
+        "metrics": {
+          "average": {
+            "candidate_node_count": 6.0,
+            "edge_similarity": 0.0,
+            "harness_coverage": 1.0,
+            "node_type_coverage": 1.0,
+            "reference_node_count": 5.0,
+            "test_frame_coverage": 1.0,
+            "tool_node_coverage": 1.0
+          },
+          "minimum_score": 0.45,
+          "minimum_pass_rate": 1.0
+        },
+        "trends": [
+          {
+            "name": "data_analyzer blockflow reuse_depth=shallow",
+            "score": 0.85,
+            "baseline_score": null,
+            "delta": null,
+            "direction": "new"
+          }
+        ],
+        "cost": {
+          "model_calls": 22,
+          "tool_calls": 36,
+          "estimated_cost_usd": null,
+          "provider": "deepseek",
+          "model": "",
+          "notes": "Counts come from Platform Harness task usage when available."
+        }
+      }
+    },
+    {
+      "depth": "deep",
+      "case": "data_analyzer",
+      "expected_action": "compose_modules",
+      "status": "completed",
+      "elapsed_seconds": 461.068,
+      "application_id": "87d1859d-7774-4094-ab8d-b084db5e3917",
+      "build_id": "20d43a30-9b82-433a-b329-7975a6f2a583",
+      "build_status": "published",
+      "build_error": null,
+      "builder_task": {
+        "id": "20d43a30-9b82-433a-b329-7975a6f2a583",
+        "kind": "builder_build",
+        "owner_id": "87d1859d-7774-4094-ab8d-b084db5e3917",
+        "resource_id": "20d43a30-9b82-433a-b329-7975a6f2a583",
+        "status": "succeeded",
+        "parent_task_id": null,
+        "metadata": {
+          "max_turns": 42,
+          "max_repair_cycles": 2,
+          "auto_publish": false,
+          "max_elapsed_seconds": 600.0
+        },
+        "usage_counts": {
+          "model_call": 21,
+          "tool_call": 32
+        },
+        "usage": [
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 1,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T19:11:35.612422+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_inspect"
+            },
+            "created_at": "2026-07-09T19:11:39.985853+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "template_suggestions"
+            },
+            "created_at": "2026-07-09T19:11:39.992114+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 2,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T19:11:39.996792+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "build_plan"
+            },
+            "created_at": "2026-07-09T19:11:49.400570+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 3,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T19:11:49.409355+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "template_expand"
+            },
+            "created_at": "2026-07-09T19:11:52.294214+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "build_plan"
+            },
+            "created_at": "2026-07-09T19:11:52.314469+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 4,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T19:11:52.316710+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_inspect"
+            },
+            "created_at": "2026-07-09T19:11:56.065051+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 5,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T19:11:56.070400+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_update_node"
+            },
+            "created_at": "2026-07-09T19:12:14.616025+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_update_node"
+            },
+            "created_at": "2026-07-09T19:12:14.626103+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 6,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T19:12:14.633606+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_connect"
+            },
+            "created_at": "2026-07-09T19:12:24.505097+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 7,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T19:12:24.515823+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_validate"
+            },
+            "created_at": "2026-07-09T19:12:26.748347+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 8,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T19:12:26.756988+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "build_plan"
+            },
+            "created_at": "2026-07-09T19:12:34.829904+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "build_plan"
+            },
+            "created_at": "2026-07-09T19:12:34.835166+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "build_plan"
+            },
+            "created_at": "2026-07-09T19:12:34.838383+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "build_plan"
+            },
+            "created_at": "2026-07-09T19:12:34.841559+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 9,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T19:12:34.845889+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "test_add"
+            },
+            "created_at": "2026-07-09T19:12:45.321651+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 10,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T19:12:45.332873+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "test_run"
+            },
+            "created_at": "2026-07-09T19:12:47.135418+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 11,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T19:13:28.807102+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "catalog_get"
+            },
+            "created_at": "2026-07-09T19:13:36.412291+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 12,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T19:13:36.418209+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "manual_get"
+            },
+            "created_at": "2026-07-09T19:13:52.990481+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 13,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T19:13:52.998487+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_add_node"
+            },
+            "created_at": "2026-07-09T19:14:03.608848+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 14,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T19:14:03.620919+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_remove_edge"
+            },
+            "created_at": "2026-07-09T19:14:10.345263+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_update_node"
+            },
+            "created_at": "2026-07-09T19:14:10.353373+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 15,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T19:14:10.361851+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_connect"
+            },
+            "created_at": "2026-07-09T19:14:13.918678+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_connect"
+            },
+            "created_at": "2026-07-09T19:14:13.928146+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 16,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T19:14:13.936795+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "test_run"
+            },
+            "created_at": "2026-07-09T19:14:20.130791+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 17,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T19:16:56.262594+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_update_node"
+            },
+            "created_at": "2026-07-09T19:17:06.003086+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 18,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T19:17:06.019201+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "test_run"
+            },
+            "created_at": "2026-07-09T19:17:07.969710+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 19,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T19:18:59.720742+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "build_plan"
+            },
+            "created_at": "2026-07-09T19:19:09.881769+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "build_plan"
+            },
+            "created_at": "2026-07-09T19:19:09.888941+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "build_plan"
+            },
+            "created_at": "2026-07-09T19:19:09.892801+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 20,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T19:19:09.898368+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_validate"
+            },
+            "created_at": "2026-07-09T19:19:11.928773+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 21,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T19:19:11.933600+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "build_plan"
+            },
+            "created_at": "2026-07-09T19:19:15.714539+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_publish"
+            },
+            "created_at": "2026-07-09T19:19:15.718179+00:00"
+          }
+        ],
+        "error": "",
+        "worker_id": null,
+        "lease_expires_at": null,
+        "lease_version": 0,
+        "created_at": "2026-07-09T19:11:35.607207+00:00",
+        "updated_at": "2026-07-09T19:19:15.727624+00:00",
+        "finished_at": "2026-07-09T19:19:15.727624+00:00"
+      },
+      "build_plan": {
+        "goal": "Build and validate an editable data analysis BlockFlow with deep template reuse from data_analyzer.",
+        "strategy": "Expand the data_analyzer template (confidence 0.85) as the foundation, then adapt nodes to meet the specific requirements: Start inputs (data_description, analysis_goal), structured statistics extraction (key_findings, record_count, anomalies_found), anomaly notes and recommendations, reviewer-facing formatted report, and End outputs (report, statistics). Add mandatory test with required_node_types for auditability.",
+        "modules": [
+          {
+            "id": "m1",
+            "title": "Template Expansion",
+            "purpose": "Expand the data_analyzer template and inspect its structure, contract, and node types.",
+            "status": "done",
+            "depends_on": [],
+            "expected_blocks": [
+              "data_analyzer template"
+            ],
+            "draft_node_ids": [
+              "data_analyzer_start",
+              "data_analyzer_analyze",
+              "data_analyzer_extract",
+              "data_analyzer_format",
+              "data_analyzer_end"
+            ],
+            "test_ids": [],
+            "evidence": [
+              "Template expanded with 5 nodes: start, llm, parameter_extractor, template_transform, end. Template contract preserved."
+            ]
+          },
+          {
+            "id": "m2",
+            "title": "Input/Output Adaptation",
+            "purpose": "Adapt Start inputs to data_description + optional analysis_goal and ensure End outputs report + statistics.",
+            "status": "done",
+            "depends_on": [
+              "m1"
+            ],
+            "expected_blocks": [
+              "start",
+              "end"
+            ],
+            "draft_node_ids": [
+              "data_analyzer_start",
+              "data_analyzer_end"
+            ],
+            "test_ids": [],
+            "evidence": [
+              "Start already has data_description (required) and analysis_goal (optional). End already outputs report and statistics."
+            ]
+          },
+          {
+            "id": "m3",
+            "title": "Structured Statistics & Anomalies",
+            "purpose": "Extract key_findings, record_count, anomalies_found and produce anomaly notes + recommendations.",
+            "status": "done",
+            "depends_on": [
+              "m2"
+            ],
+            "expected_blocks": [
+              "llm",
+              "template_transform",
+              "variable_aggregator"
+            ],
+            "draft_node_ids": [
+              "data_analyzer_extract",
+              "data_analyzer_analyze",
+              "data_analyzer_build_prompt"
+            ],
+            "test_ids": [],
+            "evidence": [
+              "parameter_extractor extracts key_findings (required), record_count=500, anomalies_found=18. LLM produces statistical summary, anomaly notes, recommendations. build_prompt template_transform ensures prompt audibility."
+            ]
+          },
+          {
+            "id": "m4",
+            "title": "Reviewer Report Formatting",
+            "purpose": "Produce a reviewer-facing formatted report combining all outputs.",
+            "status": "done",
+            "depends_on": [
+              "m3"
+            ],
+            "expected_blocks": [
+              "template_transform",
+              "answer"
+            ],
+            "draft_node_ids": [
+              "data_analyzer_format"
+            ],
+            "test_ids": [],
+            "evidence": [
+              "template_transform produces English reviewer-facing report with Executive Summary, Statistical Indicators, Anomaly Notes & Recommendations sections."
+            ]
+          },
+          {
+            "id": "m5",
+            "title": "Mandatory Test & Validation",
+            "purpose": "Add mandatory test with required_node_types, validate, run tests, repair, and publish.",
+            "status": "done",
+            "depends_on": [
+              "m4"
+            ],
+            "expected_blocks": [],
+            "draft_node_ids": [],
+            "test_ids": [
+              "test_data_analysis_e2e"
+            ],
+            "evidence": [
+              "draft_validate: valid=true, 0 errors, 0 warnings. test_run: 1/1 passed. Required node types confirmed: start, llm, parameter_extractor, template_transform, end."
+            ]
+          }
+        ],
+        "reuse_depth": "deep",
+        "complexity": "medium",
+        "risks": [
+          "Template may need adaptation to match exact input/output schema",
+          "Structured statistics extraction may need additional nodes",
+          "Template contract must be preserved while adding customizations"
+        ]
+      },
+      "build_plan_reuse_depth": "deep",
+      "usage_counts": {
+        "model_call": 21,
+        "tool_call": 32
+      },
+      "draft_counts": {
+        "nodes": 6,
+        "edges": 6,
+        "tests": 1,
+        "node_types": [
+          "end",
+          "llm",
+          "parameter_extractor",
+          "start",
+          "template_transform"
+        ]
+      },
+      "event_summary": {
+        "operation_counts": {
+          "draft_inspect": 2,
+          "template_suggestions": 1,
+          "build_plan": 10,
+          "template_expand": 1,
+          "draft_update_node": 4,
+          "draft_connect": 3,
+          "draft_validate": 2,
+          "test_add": 1,
+          "test_run": 3,
+          "catalog_get": 1,
+          "manual_get": 1,
+          "draft_add_node": 1,
+          "draft_remove_edge": 1,
+          "draft_publish": 1
+        },
+        "template_suggestion_count": 1,
+        "template_expand_count": 1,
+        "template_suggestions": [
+          {
+            "input": {
+              "requirement": "Build and validate an editable data analysis BlockFlow. The BlockFlow must: Start with inputs: data_description and optional analysis_goal. Produce a statistical summary, anomaly notes, and recommendations from the described dataset. Extract structured statistics including key_findings, and optionally record_count and anomalies_found. Produce a reviewer-facing formatted report. Include a mandatory test with required_node_types so the workflow remains auditable. End with outputs: report and statistics.",
+              "reuse_depth": "deep"
+            },
+            "success": true,
+            "reuse_depth": "deep",
+            "recommended_action": "compose_modules",
+            "templates": [
+              {
+                "name": "data_analyzer",
+                "title": "数据分析流水线",
+                "source": "marketplace",
+                "confidence": 0.85,
+                "relevance": 1.7,
+                "tags": [
+                  "data",
+                  "statistics",
+                  "analysis",
+                  "reporting"
+                ],
+                "recommended_action": "compose_modules"
+              },
+              {
+                "name": "code_reviewer",
+                "title": "代码审查与修复",
+                "source": "marketplace",
+                "confidence": 0.85,
+                "relevance": 0.425,
+                "tags": [
+                  "code-review",
+                  "testing",
+                  "debugging",
+                  "quality"
+                ],
+                "recommended_action": "compose_modules"
+              },
+              {
+                "name": "app_automation_workflow",
+                "title": "App 自动化决策流程",
+                "source": "marketplace",
+                "confidence": 0.7,
+                "relevance": 0.35,
+                "tags": [
+                  "automation",
+                  "decision-tree",
+                  "app",
+                  "android"
+                ],
+                "recommended_action": "compose_modules"
+              }
+            ]
+          }
+        ],
+        "template_expands": [
+          {
+            "input": {
+              "name": "data_analyzer"
+            },
+            "success": true,
+            "result": {
+              "template": "data_analyzer",
+              "source": "marketplace",
+              "revision": 9,
+              "nodes": [
+                "data_analyzer_start",
+                "data_analyzer_analyze",
+                "data_analyzer_extract",
+                "data_analyzer_format",
+                "data_analyzer_end"
+              ],
+              "edges": [
+                "data_analyzer_e1",
+                "data_analyzer_e2",
+                "data_analyzer_e3",
+                "data_analyzer_e4"
+              ],
+              "node_types": [
+                "end",
+                "llm",
+                "parameter_extractor",
+                "start",
+                "template_transform"
+              ],
+              "edge_count": 4,
+              "validation": {
+                "valid": true,
+                "errors": []
+              },
+              "draft_validation": {
+                "valid": false,
+                "errors": [
+                  "at least one mandatory acceptance test is required"
+                ],
+                "warnings": [],
+                "revision": 9,
+                "test_count": 0
+              },
+              "template_contract": {
+                "name": "data_analyzer",
+                "title": "数据分析流水线",
+                "category": "data_analysis",
+                "expected_inputs": {
+                  "data_description": "string"
+                },
+                "expected_outputs": {
+                  "report": "string",
+                  "statistics": "object"
+                },
+                "min_blocks_required": [
+                  "llm",
+                  "parameter_extractor",
+                  "template_transform"
+                ],
+                "confidence": 0.85,
+                "tags": [
+                  "data",
+                  "statistics",
+                  "analysis",
+                  "reporting"
+                ]
+              }
+            }
+          }
+        ],
+        "failed_operations": [],
+        "provider_failure_events": [],
+        "model_timeout_events": [],
+        "needs_attention_events": []
+      },
+      "failure_summary": {
+        "build_status": "published",
+        "build_error": "",
+        "task_status": "succeeded",
+        "task_error": "",
+        "task_failure": null,
+        "event_failures": [],
+        "provider_failure_event_count": 0,
+        "model_timeout_event_count": 0,
+        "timeout_like": false
+      },
+      "benchmark_outcome": {
+        "suite_passed": true,
+        "suite_score": 0.85,
+        "suite_pass_rate": 1.0,
+        "case_count": 1,
+        "case_passed": true,
+        "case_score": 0.85,
+        "failed_cases": [],
+        "missing": {
+          "node_types": [],
+          "tool_nodes": [],
+          "harness_nodes": []
+        }
+      },
+      "benchmark_report": {
+        "name": "E05 template reuse-depth data_analyzer comparison",
+        "passed": true,
+        "score": 0.85,
+        "pass_rate": 1.0,
+        "case_count": 1,
+        "failed_cases": [],
+        "reports": [
+          {
+            "name": "data_analyzer blockflow reuse_depth=deep",
+            "passed": true,
+            "score": 0.85,
+            "metrics": {
+              "node_type_coverage": 1.0,
+              "tool_node_coverage": 1.0,
+              "harness_coverage": 1.0,
+              "edge_similarity": 0.0,
+              "test_frame_coverage": 1.0,
+              "candidate_node_count": 6,
+              "reference_node_count": 5,
+              "node_type_equivalences": {
+                "end": [
+                  "answer"
+                ],
+                "model_turn": [
+                  "llm"
+                ]
+              }
+            },
+            "missing": {
+              "node_types": [],
+              "tool_nodes": [],
+              "harness_nodes": []
+            }
+          }
+        ],
+        "metrics": {
+          "average": {
+            "candidate_node_count": 6.0,
+            "edge_similarity": 0.0,
+            "harness_coverage": 1.0,
+            "node_type_coverage": 1.0,
+            "reference_node_count": 5.0,
+            "test_frame_coverage": 1.0,
+            "tool_node_coverage": 1.0
+          },
+          "minimum_score": 0.45,
+          "minimum_pass_rate": 1.0
+        },
+        "trends": [
+          {
+            "name": "data_analyzer blockflow reuse_depth=deep",
+            "score": 0.85,
+            "baseline_score": null,
+            "delta": null,
+            "direction": "new"
+          }
+        ],
+        "cost": {
+          "model_calls": 21,
+          "tool_calls": 32,
+          "estimated_cost_usd": null,
+          "provider": "deepseek",
+          "model": "",
+          "notes": "Counts come from Platform Harness task usage when available."
+        }
+      }
+    }
+  ],
+  "error": ""
+}

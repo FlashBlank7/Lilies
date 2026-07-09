@@ -43,6 +43,7 @@ SKIP_PAID = os.getenv("E05_REUSE_DEPTH_SKIP_PAID", "0") == "1"
 RUN_ID = os.getenv("E05_REUSE_DEPTH_RUN_ID") or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 EXPERIMENT_VERSION = os.getenv("E05_REUSE_DEPTH_EXPERIMENT_VERSION", "v0.2.38")
 EXPERIMENT_CASE = os.getenv("E05_REUSE_DEPTH_CASE", "code_review")
+SELECTED_ARMS_ENV = "E05_REUSE_DEPTH_ONLY_ARMS"
 
 
 @dataclass(frozen=True)
@@ -122,6 +123,34 @@ def depth_arms() -> list[ReuseDepthArm]:
             expected_action="compose_modules",
         ),
     ]
+
+
+def selected_arm_depths(raw: str | None = None) -> list[str]:
+    allowed = [arm.depth for arm in depth_arms()]
+    source = raw if raw is not None else os.getenv(SELECTED_ARMS_ENV, "")
+    if not source.strip():
+        return allowed
+    requested: list[str] = []
+    for chunk in source.split(","):
+        normalized = chunk.strip().casefold()
+        if not normalized:
+            continue
+        if normalized not in requested:
+            requested.append(normalized)
+    if not requested:
+        raise ValueError(f"{SELECTED_ARMS_ENV} did not contain any valid arm values")
+    unknown = sorted(set(requested) - set(allowed))
+    if unknown:
+        raise ValueError(
+            f"unknown E05 arm(s) in {SELECTED_ARMS_ENV}: {', '.join(unknown)}; "
+            f"allowed values: {', '.join(allowed)}"
+        )
+    return [depth for depth in allowed if depth in requested]
+
+
+def selected_arms(raw: str | None = None) -> list[ReuseDepthArm]:
+    selected = set(selected_arm_depths(raw))
+    return [arm for arm in depth_arms() if arm.depth in selected]
 
 
 def code_review_case() -> ExperimentCase:
@@ -334,12 +363,139 @@ and should expose whether Template reuse depth generalizes beyond code-review wo
     )
 
 
+def data_analyzer_case() -> ExperimentCase:
+    reference = {
+        "nodes": [
+            {
+                "id": "start",
+                "type": "start",
+                "title": "Analysis Request",
+                "config": {
+                    "inputs": [
+                        {"name": "data_description", "type": "string"},
+                        {"name": "analysis_goal", "type": "string", "required": False},
+                    ],
+                },
+            },
+            {
+                "id": "analyze",
+                "type": "llm",
+                "title": "Perform Analysis",
+                "config": {
+                    "system": "Provide a statistical summary, anomalies, and recommendations.",
+                    "prompt": {
+                        "$ref": {
+                            "node_id": "start",
+                            "path": ["data_description"],
+                        }
+                    },
+                },
+            },
+            {
+                "id": "extract",
+                "type": "parameter_extractor",
+                "title": "Extract Structured Statistics",
+                "config": {
+                    "input": {"$ref": {"node_id": "analyze", "path": ["text"]}},
+                    "fields": [
+                        {"name": "record_count", "type": "number", "required": False},
+                        {"name": "anomalies_found", "type": "number", "required": False},
+                        {"name": "key_findings", "type": "string", "required": True},
+                    ],
+                },
+            },
+            {
+                "id": "format",
+                "type": "template_transform",
+                "title": "Format Report",
+                "config": {
+                    "template": "# Data Analysis Report\n\n{{ findings }}",
+                    "variables": {
+                        "findings": {
+                            "$ref": {
+                                "node_id": "extract",
+                                "path": ["structured", "key_findings"],
+                            }
+                        }
+                    },
+                },
+            },
+            {
+                "id": "end",
+                "type": "end",
+                "title": "Return Analysis Outputs",
+                "config": {
+                    "outputs": {
+                        "report": {"$ref": {"node_id": "format", "path": ["text"]}},
+                        "statistics": {"$ref": {"node_id": "extract", "path": ["structured"]}},
+                    }
+                },
+            },
+        ],
+        "edges": [
+            {
+                "id": "start-analyze",
+                "source": "start",
+                "target": "analyze",
+                "source_port": "output",
+                "target_port": "input",
+            },
+            {
+                "id": "analyze-extract",
+                "source": "analyze",
+                "target": "extract",
+                "source_port": "text",
+                "target_port": "input",
+            },
+            {
+                "id": "extract-format",
+                "source": "extract",
+                "target": "format",
+                "source_port": "structured",
+                "target_port": "input",
+            },
+            {
+                "id": "format-end",
+                "source": "format",
+                "target": "end",
+                "source_port": "text",
+                "target_port": "input",
+            },
+        ],
+    }
+    requirement = """
+Build and validate an editable data analysis BlockFlow.
+
+The BlockFlow must:
+1. Start with inputs: data_description and optional analysis_goal.
+2. Produce a statistical summary, anomaly notes, and recommendations from the described dataset.
+3. Extract structured statistics including key_findings, and optionally record_count and anomalies_found.
+4. Produce a reviewer-facing formatted report.
+5. Include a mandatory test with required_node_types so the workflow remains auditable.
+6. End with outputs: report and statistics.
+
+This requirement is intentionally related to the built-in data_analyzer template
+and should expose whether Template reuse depth generalizes beyond code-review and customer-support workflows.
+""".strip()
+    return ExperimentCase(
+        name="data_analyzer",
+        title="Data analysis reporting",
+        template_name="data_analyzer",
+        preflight_query="data analysis statistics anomalies reporting",
+        base_requirement=requirement,
+        benchmark_reference=reference,
+        required_node_types=["start", "llm", "parameter_extractor", "template_transform", "end"],
+    )
+
+
 def experiment_case(name: str = EXPERIMENT_CASE) -> ExperimentCase:
     normalized = name.strip().casefold().replace("-", "_")
     if normalized in {"code_review", "code_reviewer"}:
         return code_review_case()
     if normalized in {"customer_support", "customer_support_router", "support_router"}:
         return customer_support_router_case()
+    if normalized in {"data_analysis", "data_analyzer", "analysis"}:
+        return data_analyzer_case()
     raise ValueError(f"unknown E05 experiment case: {name}")
 
 
@@ -586,7 +742,7 @@ def run_template_preflight(client: TestClient, token: str, case: ExperimentCase 
     templates = request(client, "GET", "/api/v1/templates", token)
     server_templates = request(client, "GET", "/api/v1/templates/categories", token)
     suggestions: dict[str, Any] = {}
-    for arm in depth_arms():
+    for arm in selected_arms():
         suggestions[arm.depth] = request(
             client,
             "GET",
@@ -723,7 +879,7 @@ def main() -> None:
             "required_node_types": selected_case.required_node_types,
         },
         "budget": {
-            "arms": [arm.depth for arm in depth_arms()],
+            "arms": [arm.depth for arm in selected_arms()],
             "max_turns_per_arm": MAX_TURNS,
             "max_repair_cycles_per_arm": MAX_REPAIR_CYCLES,
             "max_elapsed_seconds_per_arm": MAX_ELAPSED_SECONDS,
@@ -763,7 +919,7 @@ def main() -> None:
                 result["status"] = "blocked"
                 result["error"] = "backend reports deepseek_configured=false"
                 return
-            for arm in depth_arms():
+            for arm in selected_arms():
                 try:
                     result["arms"].append(run_arm(client, token, arm, selected_case))
                 except Exception as error:

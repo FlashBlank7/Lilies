@@ -43,6 +43,36 @@ def test_e05_depth_arms_and_requirements_are_explicit() -> None:
         assert "code review and repair BlockFlow" in requirement
 
 
+def test_e05_selected_arms_defaults_to_all() -> None:
+    module = load_e05_module()
+
+    assert module.selected_arm_depths() == ["none", "shallow", "deep"]
+    assert [arm.depth for arm in module.selected_arms()] == ["none", "shallow", "deep"]
+
+
+def test_e05_selected_arms_accepts_deep_only(monkeypatch) -> None:
+    module = load_e05_module()
+    monkeypatch.setenv(module.SELECTED_ARMS_ENV, "deep")
+
+    assert module.selected_arm_depths() == ["deep"]
+    assert [arm.depth for arm in module.selected_arms()] == ["deep"]
+
+
+def test_e05_selected_arms_rejects_unknown_value(monkeypatch) -> None:
+    module = load_e05_module()
+    monkeypatch.setenv(module.SELECTED_ARMS_ENV, "deep,sidecar")
+
+    try:
+        module.selected_arm_depths()
+    except ValueError as error:
+        message = str(error)
+    else:
+        raise AssertionError("expected ValueError for invalid E05 arm filter")
+
+    assert module.SELECTED_ARMS_ENV in message
+    assert "sidecar" in message
+
+
 def test_e05_template_preflight_distinguishes_depth_actions(tmp_path: Path) -> None:
     module = load_e05_module()
     settings = Settings(
@@ -75,6 +105,22 @@ def test_e05_customer_support_case_has_distinct_requirement_and_reference() -> N
     assert "code review and repair BlockFlow" not in requirement
     assert "question_classifier" in case.required_node_types
     assert any(node["type"] == "question_classifier" for node in reference["nodes"])
+    assert any(node["type"] == "template_transform" for node in reference["nodes"])
+
+
+def test_e05_data_analyzer_case_has_distinct_requirement_and_reference() -> None:
+    module = load_e05_module()
+    case = module.experiment_case("data_analyzer")
+
+    requirement = module.requirement_for_arm(module.depth_arms()[1], case)
+    reference = module.benchmark_reference(case)
+
+    assert case.name == "data_analyzer"
+    assert case.template_name == "data_analyzer"
+    assert "editable data analysis BlockFlow" in requirement
+    assert "customer support routing BlockFlow" not in requirement
+    assert "parameter_extractor" in case.required_node_types
+    assert any(node["type"] == "parameter_extractor" for node in reference["nodes"])
     assert any(node["type"] == "template_transform" for node in reference["nodes"])
 
 

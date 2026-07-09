@@ -1,10 +1,10 @@
 # E05 Template Reuse Depth Ledger
 
-状态：多轮 paid/live 完成并触发工程修复；deep customer-support deadline slice 已闭环，原始质量收益未关闭
+状态：多轮 paid/live 完成并触发工程修复；fixed shallow default 假设已被多任务族证据削弱，下一步转向 adaptive reuse-depth policy
 
 ## 当前结论
 
-Template reuse 已证明会改变 Builder 行为，也证明 marketplace expandability contract、timeout boundary、build deadline 和 customer-support guardrails 是必要工程边界。当前证据仍不支持“reuse depth 越深越好”，但可以给出更窄也更准确的结论：在 customer-support family 中，deep path 经过 teammate deadline/repair-budget governance 后已能在同预算下回到 `ready`；下一步真正未回答的是 shallow/default 策略是否能在更多任务族中保持稳定。
+Template reuse 已证明会改变 Builder 行为，也证明 marketplace expandability contract、timeout boundary、build deadline 和 customer-support guardrails 是必要工程边界。当前证据仍不支持“reuse depth 越深越好”，但已经足以推翻更弱的固定假设: `shallow` 不是跨任务族都稳定的默认候选。code-review 倾向 `shallow`，customer-support 在治理修复后允许 `none/shallow/deep` 各自形成不同成本轮廓，而新的 `data_analyzer` family 明确表明 `deep` 可以优于 `shallow`。下一步应该把 E05 从“再找一个默认深度”推进到“定义并验证 adaptive reuse-depth policy”。
 
 ## 关键证据
 
@@ -17,6 +17,7 @@ Template reuse 已证明会改变 Builder 行为，也证明 marketplace expanda
 | customer-support second family | 验证应用 | `../reports/2026-07-10_0024_E05_customer_support_reuse_depth.docx` | `../evidence/experiment_v0.2.43_e05_customer_support_2026_07_09_summary.md` |
 | customer-support rerun | 验证应用 | `../reports/2026-07-10_0103_E05_customer_support_rerun_after_guardrails.docx` | `../evidence/experiment_v0.2.45_e05_customer_support_rerun_2026_07_10_summary.md` |
 | customer-support deep governance closure | 已应用/验证应用 | `../reports/2026-07-10_0302_E05_customer_support_deep_teammate_governance.docx` | `../evidence/experiment_v0.2.46_e05_customer_support_deep_only_teammate_governance_2026_07_10_summary.md` |
+| data-analyzer breadth/default check | 验证应用 / 默认假设修正 | `../reports/2026-07-10_0420_E05_data_analyzer_breadth_default_policy.docx` | `../evidence/experiment_v0.2.47_e05_data_analyzer_breadth_2026_07_10_summary.md` |
 
 ## 已应用工程
 
@@ -33,7 +34,8 @@ Template reuse 已证明会改变 Builder 行为，也证明 marketplace expanda
 - v0.2.41：`shallow` published 且成本最低；`deep` ready 但更贵；`none` 失败来自 provider timeout。
 - v0.2.45：`none` published 且 benchmark pass；`shallow` ready；`deep` benchmark-clean 但 hit `BuildDeadlineExceeded`。
 - v0.2.46：customer-support `deep` 在相同预算族下回到 `ready`，耗时从 `602.071s` 降到 `482.221s`；full-suite breadth 仍需独立关闭。
+- v0.2.47：`data_analyzer` family 中 `none` runtime 失败、`shallow` benchmark-clean 但超时、`deep` `published` 且耗时 `461.068s`；固定 `shallow` 默认假设不再成立。
 
 ## 下一步
 
-关闭 E05 前需要更多任务族，以及更清楚的默认策略判断：何时 `shallow` 足够、何时允许 `deep`、何时要拆成模块化复用或更强预算门控。
+关闭 E05 前应把“固定默认深度”改写为“条件化默认策略”。下一步重点不是继续追加同质 case，而是定义并验证 adaptive reuse-depth policy：何时直接 `none`，何时优先 `shallow`，何时根据 family/template signal 进入 `deep` / `compose_modules`。
