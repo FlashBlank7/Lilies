@@ -148,6 +148,8 @@ pip install -e ".[dev]"
 # OpenAPI: http://127.0.0.1:8001/docs
 ```
 
+本地开发请优先使用 `./scripts/dev_platform.sh` 同时启动 API 和 Studio。该脚本会把 Studio 代理显式指向 `http://127.0.0.1:8001`；不要手动把后端启动在另一个端口后再打开 Studio，否则前端 `/api/platform/*` 代理会返回 500。
+
 ---
 
 ## 目录结构

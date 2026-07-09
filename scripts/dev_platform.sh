@@ -53,10 +53,29 @@ if [[ -z "${API_TOKEN:-}" ]]; then
   exit 1
 fi
 
+ensure_node_tools() {
+  if command -v npm &>/dev/null; then
+    return 0
+  fi
+
+  if [[ -s "$HOME/.nvm/nvm.sh" ]]; then
+    # shellcheck source=/dev/null
+    source "$HOME/.nvm/nvm.sh"
+  fi
+
+  if ! command -v npm &>/dev/null; then
+    echo "npm is missing. Install Node.js 20+ or load your Node version manager before starting." >&2
+    echo "If you use nvm, run: source ~/.nvm/nvm.sh && nvm use" >&2
+    exit 1
+  fi
+}
+
 if [[ ! -x .venv/bin/uvicorn ]]; then
   echo ".venv is missing. Run: uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -e '.[dev]'" >&2
   exit 1
 fi
+
+ensure_node_tools
 
 if [[ ! -d platform/frontend/node_modules ]]; then
   echo "platform/frontend/node_modules is missing. Run: cd platform/frontend && npm install" >&2
@@ -154,6 +173,7 @@ echo "Starting API on http://$API_HOST:$API_PORT"
 .venv/bin/uvicorn agent_platform.api:app --host "$API_HOST" --port "$API_PORT" &
 
 echo "Starting Studio on http://$WEB_HOST:$WEB_PORT"
+echo "Studio proxy target: http://$API_HOST:$API_PORT"
 (
   cd platform/frontend
   AGENT_PLATFORM_URL="http://$API_HOST:$API_PORT" API_TOKEN="$API_TOKEN" npm run dev -- --hostname "$WEB_HOST" --port "$WEB_PORT"

@@ -21,6 +21,24 @@ Before substantial work, read:
 
 Use `rg` / `rg --files` first. Do not move or rename historical documents unless the user explicitly asks for migration or archive cleanup.
 
+## Local Startup Protocol
+
+When the user asks to start Lilies locally, do not guess backend ports from FastAPI defaults or prior runs.
+
+Use this order:
+
+1. Prefer `./scripts/dev_platform.sh` as the local development entrypoint.
+2. If manual startup is necessary, read `platform/frontend/.env.local` first, then `platform/frontend/.env.example`, and treat `AGENT_PLATFORM_URL` as the Studio proxy target.
+3. Start the backend on the exact host and port used by `AGENT_PLATFORM_URL`; for the current local development setup this is normally `http://127.0.0.1:8001`.
+4. Start the Studio on `http://127.0.0.1:3000`.
+5. Verify all three endpoints before reporting success:
+   - backend `/health`
+   - Studio `/`
+   - Studio proxy `/api/platform/api/v1/applications`
+6. If the proxy returns `500`, inspect the Next.js dev-server log before guessing. A common cause is `AGENT_PLATFORM_URL` pointing to a backend port that is not listening.
+
+Docker Compose is different: the API container listens on port `8000` and the web container uses `AGENT_PLATFORM_URL=http://api:8000` inside the Compose network. Do not mix Docker Compose port assumptions with local Studio development.
+
 ## Workflow
 
 ### 1. Classify the Request
