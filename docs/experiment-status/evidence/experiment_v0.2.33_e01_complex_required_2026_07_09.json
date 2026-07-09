@@ -1,0 +1,1463 @@
+{
+  "status": "build_failed_benchmark_evaluated",
+  "started_at": "2026-07-09T09:40:29.223134+00:00",
+  "finished_at": "2026-07-09T09:53:06.079363+00:00",
+  "base_url": "http://127.0.0.1:8001",
+  "runner_mode": "inprocess",
+  "benchmark_case": "complex_research_brief",
+  "planning_mode": "required",
+  "reuse_result": false,
+  "reuse_source_path": "",
+  "max_turns": 36,
+  "requirement": "搭建并验证一个复杂多模块研究简报 BlockFlow：\n1. Start 接收 question、source_notes 和可选 audience。\n2. 用参数提取模块抽取 topic、deliverable、constraints 等结构化研究约束。\n3. 用问题分类模块判断 brief 风格，至少区分 technical、strategy、mixed。\n4. 组装 source_notes、提取结果和分类结果，形成模型可用上下文。\n5. 使用模型推理节点生成结构化研究简报，内容包含 findings、risks、next_actions。\n6. 使用模板转换节点渲染最终 Markdown brief。\n7. 加入 event_recorder 或等价 soft harness 节点，记录生成事件，方便测试和审计。\n8. End 返回 brief 和 style。\n9. 添加带 frame 的强制结构测试，测试必须包含 required_node_types，覆盖可审计架构。\n10. auto_publish=false 时完成测试后停在 ready 状态。",
+  "application_id": "3c600599-7288-4aef-a476-cb368a219903",
+  "build_id": "2acb03ca-a7ef-4b3e-bcd5-2bb3c8bfa966",
+  "build_status": "needs_attention",
+  "build_error": "builder stopped before mandatory tests passed",
+  "health": {
+    "status": "ok",
+    "deepseek_configured": true,
+    "generator_model": null,
+    "runtime_model": null
+  },
+  "draft_counts": {
+    "nodes": 9,
+    "edges": 8,
+    "tests": 3,
+    "node_types": [
+      "context_assembler",
+      "end",
+      "event_recorder",
+      "llm",
+      "parameter_extractor",
+      "question_classifier",
+      "start",
+      "template_transform",
+      "variable_aggregator"
+    ]
+  },
+  "builder_task": {
+    "id": "2acb03ca-a7ef-4b3e-bcd5-2bb3c8bfa966",
+    "kind": "builder_build",
+    "owner_id": "3c600599-7288-4aef-a476-cb368a219903",
+    "resource_id": "2acb03ca-a7ef-4b3e-bcd5-2bb3c8bfa966",
+    "status": "failed",
+    "parent_task_id": null,
+    "metadata": {
+      "max_turns": 36,
+      "max_repair_cycles": 1,
+      "auto_publish": false
+    },
+    "usage_counts": {
+      "model_call": 41,
+      "tool_call": 98
+    },
+    "usage": [
+      {
+        "usage_type": "model_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "turn": 1,
+          "model": "deepseek-v4-pro"
+        },
+        "created_at": "2026-07-09T09:40:29.276680+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "draft_inspect"
+        },
+        "created_at": "2026-07-09T09:40:35.729315+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "build_plan"
+        },
+        "created_at": "2026-07-09T09:40:35.732601+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "catalog_search"
+        },
+        "created_at": "2026-07-09T09:40:35.734810+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "catalog_search"
+        },
+        "created_at": "2026-07-09T09:40:35.740223+00:00"
+      },
+      {
+        "usage_type": "model_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "turn": 2,
+          "model": "deepseek-v4-pro"
+        },
+        "created_at": "2026-07-09T09:40:35.745150+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "catalog_search"
+        },
+        "created_at": "2026-07-09T09:40:40.156138+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "catalog_search"
+        },
+        "created_at": "2026-07-09T09:40:40.167252+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "catalog_search"
+        },
+        "created_at": "2026-07-09T09:40:40.172959+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "catalog_search"
+        },
+        "created_at": "2026-07-09T09:40:40.177365+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "template_suggestions"
+        },
+        "created_at": "2026-07-09T09:40:40.182290+00:00"
+      },
+      {
+        "usage_type": "model_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "turn": 3,
+          "model": "deepseek-v4-pro"
+        },
+        "created_at": "2026-07-09T09:40:40.184900+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "catalog_search"
+        },
+        "created_at": "2026-07-09T09:40:44.256638+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "catalog_search"
+        },
+        "created_at": "2026-07-09T09:40:44.263073+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "catalog_search"
+        },
+        "created_at": "2026-07-09T09:40:44.267103+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "catalog_search"
+        },
+        "created_at": "2026-07-09T09:40:44.270435+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "catalog_search"
+        },
+        "created_at": "2026-07-09T09:40:44.273566+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "catalog_search"
+        },
+        "created_at": "2026-07-09T09:40:44.276530+00:00"
+      },
+      {
+        "usage_type": "model_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "turn": 4,
+          "model": "deepseek-v4-pro"
+        },
+        "created_at": "2026-07-09T09:40:44.279771+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "catalog_search"
+        },
+        "created_at": "2026-07-09T09:40:47.928183+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "catalog_search"
+        },
+        "created_at": "2026-07-09T09:40:47.940859+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "catalog_search"
+        },
+        "created_at": "2026-07-09T09:40:47.945938+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "catalog_search"
+        },
+        "created_at": "2026-07-09T09:40:47.949931+00:00"
+      },
+      {
+        "usage_type": "model_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "turn": 5,
+          "model": "deepseek-v4-pro"
+        },
+        "created_at": "2026-07-09T09:40:47.954910+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "catalog_get"
+        },
+        "created_at": "2026-07-09T09:40:53.571532+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "catalog_get"
+        },
+        "created_at": "2026-07-09T09:40:53.575195+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "catalog_get"
+        },
+        "created_at": "2026-07-09T09:40:53.576918+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "catalog_get"
+        },
+        "created_at": "2026-07-09T09:40:53.578873+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "catalog_get"
+        },
+        "created_at": "2026-07-09T09:40:53.580171+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "catalog_get"
+        },
+        "created_at": "2026-07-09T09:40:53.581382+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "catalog_get"
+        },
+        "created_at": "2026-07-09T09:40:53.582757+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "catalog_get"
+        },
+        "created_at": "2026-07-09T09:40:53.584290+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "catalog_get"
+        },
+        "created_at": "2026-07-09T09:40:53.585741+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "catalog_get"
+        },
+        "created_at": "2026-07-09T09:40:53.587079+00:00"
+      },
+      {
+        "usage_type": "model_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "turn": 6,
+          "model": "deepseek-v4-pro"
+        },
+        "created_at": "2026-07-09T09:40:53.590897+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "manual_get"
+        },
+        "created_at": "2026-07-09T09:41:19.225594+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "manual_get"
+        },
+        "created_at": "2026-07-09T09:41:19.232252+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "manual_get"
+        },
+        "created_at": "2026-07-09T09:41:19.235306+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "manual_get"
+        },
+        "created_at": "2026-07-09T09:41:19.238165+00:00"
+      },
+      {
+        "usage_type": "model_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "turn": 7,
+          "model": "deepseek-v4-pro"
+        },
+        "created_at": "2026-07-09T09:41:19.242058+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "build_plan"
+        },
+        "created_at": "2026-07-09T09:41:48.966377+00:00"
+      },
+      {
+        "usage_type": "model_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "turn": 8,
+          "model": "deepseek-v4-pro"
+        },
+        "created_at": "2026-07-09T09:41:48.974308+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "task"
+        },
+        "created_at": "2026-07-09T09:41:53.178301+00:00"
+      },
+      {
+        "usage_type": "model_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "turn": 9,
+          "model": "deepseek-v4-pro"
+        },
+        "created_at": "2026-07-09T09:41:53.188389+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "task"
+        },
+        "created_at": "2026-07-09T09:41:57.799491+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "draft_add_node"
+        },
+        "created_at": "2026-07-09T09:41:57.807314+00:00"
+      },
+      {
+        "usage_type": "model_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "turn": 10,
+          "model": "deepseek-v4-pro"
+        },
+        "created_at": "2026-07-09T09:41:57.820715+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "task"
+        },
+        "created_at": "2026-07-09T09:42:03.034396+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "task"
+        },
+        "created_at": "2026-07-09T09:42:03.039309+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "task"
+        },
+        "created_at": "2026-07-09T09:42:03.041885+00:00"
+      },
+      {
+        "usage_type": "model_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "turn": 11,
+          "model": "deepseek-v4-pro"
+        },
+        "created_at": "2026-07-09T09:42:03.046253+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "draft_add_node"
+        },
+        "created_at": "2026-07-09T09:42:10.046483+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "draft_add_node"
+        },
+        "created_at": "2026-07-09T09:42:10.055153+00:00"
+      },
+      {
+        "usage_type": "model_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "turn": 12,
+          "model": "deepseek-v4-pro"
+        },
+        "created_at": "2026-07-09T09:42:10.060992+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "draft_connect"
+        },
+        "created_at": "2026-07-09T09:42:12.882667+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "draft_connect"
+        },
+        "created_at": "2026-07-09T09:42:12.888192+00:00"
+      },
+      {
+        "usage_type": "model_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "turn": 13,
+          "model": "deepseek-v4-pro"
+        },
+        "created_at": "2026-07-09T09:42:12.893192+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "task"
+        },
+        "created_at": "2026-07-09T09:42:18.097232+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "task"
+        },
+        "created_at": "2026-07-09T09:42:18.102059+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "task"
+        },
+        "created_at": "2026-07-09T09:42:18.104606+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "draft_add_node"
+        },
+        "created_at": "2026-07-09T09:42:18.106999+00:00"
+      },
+      {
+        "usage_type": "model_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "turn": 14,
+          "model": "deepseek-v4-pro"
+        },
+        "created_at": "2026-07-09T09:42:18.112968+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "task"
+        },
+        "created_at": "2026-07-09T09:42:22.440734+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "draft_add_node"
+        },
+        "created_at": "2026-07-09T09:42:22.445329+00:00"
+      },
+      {
+        "usage_type": "model_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "turn": 15,
+          "model": "deepseek-v4-pro"
+        },
+        "created_at": "2026-07-09T09:42:22.452429+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "draft_connect"
+        },
+        "created_at": "2026-07-09T09:42:26.840791+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "task"
+        },
+        "created_at": "2026-07-09T09:42:26.847917+00:00"
+      },
+      {
+        "usage_type": "model_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "turn": 16,
+          "model": "deepseek-v4-pro"
+        },
+        "created_at": "2026-07-09T09:42:26.852787+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "task"
+        },
+        "created_at": "2026-07-09T09:42:33.776031+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "task"
+        },
+        "created_at": "2026-07-09T09:42:33.782332+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "draft_add_node"
+        },
+        "created_at": "2026-07-09T09:42:33.787407+00:00"
+      },
+      {
+        "usage_type": "model_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "turn": 17,
+          "model": "deepseek-v4-pro"
+        },
+        "created_at": "2026-07-09T09:42:33.795110+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "draft_connect"
+        },
+        "created_at": "2026-07-09T09:42:36.252066+00:00"
+      },
+      {
+        "usage_type": "model_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "turn": 18,
+          "model": "deepseek-v4-pro"
+        },
+        "created_at": "2026-07-09T09:42:36.261867+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "task"
+        },
+        "created_at": "2026-07-09T09:42:45.814626+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "task"
+        },
+        "created_at": "2026-07-09T09:42:45.822403+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "draft_add_node"
+        },
+        "created_at": "2026-07-09T09:42:45.827021+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "draft_add_node"
+        },
+        "created_at": "2026-07-09T09:42:45.836101+00:00"
+      },
+      {
+        "usage_type": "model_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "turn": 19,
+          "model": "deepseek-v4-pro"
+        },
+        "created_at": "2026-07-09T09:42:45.845196+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "draft_connect"
+        },
+        "created_at": "2026-07-09T09:42:53.628284+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "draft_connect"
+        },
+        "created_at": "2026-07-09T09:42:53.637695+00:00"
+      },
+      {
+        "usage_type": "model_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "turn": 20,
+          "model": "deepseek-v4-pro"
+        },
+        "created_at": "2026-07-09T09:42:53.645995+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "task"
+        },
+        "created_at": "2026-07-09T09:42:57.714806+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "draft_add_node"
+        },
+        "created_at": "2026-07-09T09:42:57.719532+00:00"
+      },
+      {
+        "usage_type": "model_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "turn": 21,
+          "model": "deepseek-v4-pro"
+        },
+        "created_at": "2026-07-09T09:42:57.727846+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "draft_connect"
+        },
+        "created_at": "2026-07-09T09:42:59.798894+00:00"
+      },
+      {
+        "usage_type": "model_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "turn": 22,
+          "model": "deepseek-v4-pro"
+        },
+        "created_at": "2026-07-09T09:42:59.820993+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "draft_validate"
+        },
+        "created_at": "2026-07-09T09:43:01.991225+00:00"
+      },
+      {
+        "usage_type": "model_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "turn": 23,
+          "model": "deepseek-v4-pro"
+        },
+        "created_at": "2026-07-09T09:43:01.999902+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "draft_inspect"
+        },
+        "created_at": "2026-07-09T09:43:12.506244+00:00"
+      },
+      {
+        "usage_type": "model_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "turn": 24,
+          "model": "deepseek-v4-pro"
+        },
+        "created_at": "2026-07-09T09:43:12.513384+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "draft_connect"
+        },
+        "created_at": "2026-07-09T09:43:19.062116+00:00"
+      },
+      {
+        "usage_type": "model_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "turn": 25,
+          "model": "deepseek-v4-pro"
+        },
+        "created_at": "2026-07-09T09:43:19.073840+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "draft_validate"
+        },
+        "created_at": "2026-07-09T09:43:20.784148+00:00"
+      },
+      {
+        "usage_type": "model_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "turn": 26,
+          "model": "deepseek-v4-pro"
+        },
+        "created_at": "2026-07-09T09:43:20.799604+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "task"
+        },
+        "created_at": "2026-07-09T09:43:28.033012+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "task"
+        },
+        "created_at": "2026-07-09T09:43:28.038082+00:00"
+      },
+      {
+        "usage_type": "model_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "turn": 27,
+          "model": "deepseek-v4-pro"
+        },
+        "created_at": "2026-07-09T09:43:28.042719+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "task"
+        },
+        "created_at": "2026-07-09T09:43:38.361017+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "task"
+        },
+        "created_at": "2026-07-09T09:43:38.369907+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "test_add"
+        },
+        "created_at": "2026-07-09T09:43:38.374041+00:00"
+      },
+      {
+        "usage_type": "model_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "turn": 28,
+          "model": "deepseek-v4-pro"
+        },
+        "created_at": "2026-07-09T09:43:38.388673+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "test_add"
+        },
+        "created_at": "2026-07-09T09:43:49.936657+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "test_add"
+        },
+        "created_at": "2026-07-09T09:43:49.946245+00:00"
+      },
+      {
+        "usage_type": "model_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "turn": 29,
+          "model": "deepseek-v4-pro"
+        },
+        "created_at": "2026-07-09T09:43:49.956612+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "draft_validate"
+        },
+        "created_at": "2026-07-09T09:43:52.152187+00:00"
+      },
+      {
+        "usage_type": "model_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "turn": 30,
+          "model": "deepseek-v4-pro"
+        },
+        "created_at": "2026-07-09T09:43:52.160422+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "test_run"
+        },
+        "created_at": "2026-07-09T09:43:54.110270+00:00"
+      },
+      {
+        "usage_type": "model_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "turn": 31,
+          "model": "deepseek-v4-pro"
+        },
+        "created_at": "2026-07-09T09:46:43.508114+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "spawn_teammate"
+        },
+        "created_at": "2026-07-09T09:47:16.698742+00:00"
+      },
+      {
+        "usage_type": "model_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "debug_test_failures",
+          "turn": 1,
+          "model": "deepseek-v4-pro"
+        },
+        "created_at": "2026-07-09T09:47:16.713497+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "debug_test_failures",
+          "tool": "draft_inspect"
+        },
+        "created_at": "2026-07-09T09:47:18.421096+00:00"
+      },
+      {
+        "usage_type": "model_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "debug_test_failures",
+          "turn": 2,
+          "model": "deepseek-v4-pro"
+        },
+        "created_at": "2026-07-09T09:47:18.430627+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "debug_test_failures",
+          "tool": "test_run"
+        },
+        "created_at": "2026-07-09T09:47:32.138368+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "debug_test_failures",
+          "tool": "draft_validate"
+        },
+        "created_at": "2026-07-09T09:47:32.145194+00:00"
+      },
+      {
+        "usage_type": "model_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "debug_test_failures",
+          "turn": 3,
+          "model": "deepseek-v4-pro"
+        },
+        "created_at": "2026-07-09T09:47:32.151650+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "debug_test_failures",
+          "tool": "catalog_get"
+        },
+        "created_at": "2026-07-09T09:47:35.858670+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "debug_test_failures",
+          "tool": "catalog_get"
+        },
+        "created_at": "2026-07-09T09:47:35.863619+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "debug_test_failures",
+          "tool": "catalog_get"
+        },
+        "created_at": "2026-07-09T09:47:35.866904+00:00"
+      },
+      {
+        "usage_type": "model_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "debug_test_failures",
+          "turn": 4,
+          "model": "deepseek-v4-pro"
+        },
+        "created_at": "2026-07-09T09:47:35.871558+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "debug_test_failures",
+          "tool": "catalog_get"
+        },
+        "created_at": "2026-07-09T09:47:49.965406+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "debug_test_failures",
+          "tool": "catalog_get"
+        },
+        "created_at": "2026-07-09T09:47:49.970266+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "debug_test_failures",
+          "tool": "catalog_get"
+        },
+        "created_at": "2026-07-09T09:47:49.972745+00:00"
+      },
+      {
+        "usage_type": "model_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "debug_test_failures",
+          "turn": 5,
+          "model": "deepseek-v4-pro"
+        },
+        "created_at": "2026-07-09T09:47:49.976140+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "debug_test_failures",
+          "tool": "catalog_get"
+        },
+        "created_at": "2026-07-09T09:47:52.460524+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "debug_test_failures",
+          "tool": "catalog_get"
+        },
+        "created_at": "2026-07-09T09:47:52.470321+00:00"
+      },
+      {
+        "usage_type": "model_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "turn": 32,
+          "model": "deepseek-v4-pro"
+        },
+        "created_at": "2026-07-09T09:47:52.483583+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "draft_update_node"
+        },
+        "created_at": "2026-07-09T09:48:02.681342+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "draft_update_node"
+        },
+        "created_at": "2026-07-09T09:48:02.691480+00:00"
+      },
+      {
+        "usage_type": "model_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "turn": 33,
+          "model": "deepseek-v4-pro"
+        },
+        "created_at": "2026-07-09T09:48:02.700279+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "test_run"
+        },
+        "created_at": "2026-07-09T09:48:08.666520+00:00"
+      },
+      {
+        "usage_type": "model_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "turn": 34,
+          "model": "deepseek-v4-pro"
+        },
+        "created_at": "2026-07-09T09:50:18.560861+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "draft_update_node"
+        },
+        "created_at": "2026-07-09T09:50:37.410743+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "draft_update_node"
+        },
+        "created_at": "2026-07-09T09:50:37.421484+00:00"
+      },
+      {
+        "usage_type": "model_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "turn": 35,
+          "model": "deepseek-v4-pro"
+        },
+        "created_at": "2026-07-09T09:50:37.431323+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "draft_inspect"
+        },
+        "created_at": "2026-07-09T09:50:41.008369+00:00"
+      },
+      {
+        "usage_type": "model_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "turn": 36,
+          "model": "deepseek-v4-pro"
+        },
+        "created_at": "2026-07-09T09:50:41.016739+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "draft_update_node"
+        },
+        "created_at": "2026-07-09T09:50:46.887004+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "draft_update_node"
+        },
+        "created_at": "2026-07-09T09:50:46.893269+00:00"
+      }
+    ],
+    "error": "builder stopped before mandatory tests passed",
+    "worker_id": null,
+    "lease_expires_at": null,
+    "lease_version": 0,
+    "created_at": "2026-07-09T09:40:29.270802+00:00",
+    "updated_at": "2026-07-09T09:53:05.930515+00:00",
+    "finished_at": "2026-07-09T09:53:05.930515+00:00"
+  },
+  "benchmark_task": {
+    "id": "f46bccc5-264b-481b-a9a8-3541104a9a94",
+    "kind": "benchmark",
+    "owner_id": "builder-benchmark-suite",
+    "resource_id": "paid builder complex research brief",
+    "status": "succeeded",
+    "parent_task_id": null,
+    "metadata": {
+      "suite": "paid builder complex research brief",
+      "case_count": 1,
+      "minimum_score": 0.8,
+      "minimum_pass_rate": 1.0,
+      "score": 0.85,
+      "pass_rate": 1.0,
+      "failed_cases": []
+    },
+    "usage_counts": {
+      "node_execution": 1
+    },
+    "usage": [
+      {
+        "usage_type": "node_execution",
+        "amount": 1,
+        "metadata": {
+          "operation": "builder_benchmark_suite",
+          "case_count": 1
+        },
+        "created_at": "2026-07-09T09:53:06.075861+00:00"
+      }
+    ],
+    "error": "",
+    "worker_id": null,
+    "lease_expires_at": null,
+    "lease_version": 0,
+    "created_at": "2026-07-09T09:53:06.074139+00:00",
+    "updated_at": "2026-07-09T09:53:06.076978+00:00",
+    "finished_at": "2026-07-09T09:53:06.076978+00:00"
+  },
+  "benchmark_report": {
+    "name": "paid builder complex research brief",
+    "passed": true,
+    "score": 0.85,
+    "pass_rate": 1.0,
+    "case_count": 1,
+    "failed_cases": [],
+    "reports": [
+      {
+        "name": "complex research brief blockflow",
+        "passed": true,
+        "score": 0.85,
+        "metrics": {
+          "node_type_coverage": 1.0,
+          "tool_node_coverage": 1.0,
+          "harness_coverage": 1.0,
+          "edge_similarity": 0.0,
+          "test_frame_coverage": 1.0,
+          "candidate_node_count": 9,
+          "reference_node_count": 8,
+          "node_type_equivalences": {
+            "end": [
+              "answer"
+            ],
+            "model_turn": [
+              "llm"
+            ]
+          }
+        },
+        "missing": {
+          "node_types": [],
+          "tool_nodes": [],
+          "harness_nodes": []
+        }
+      }
+    ],
+    "metrics": {
+      "average": {
+        "candidate_node_count": 9.0,
+        "edge_similarity": 0.0,
+        "harness_coverage": 1.0,
+        "node_type_coverage": 1.0,
+        "reference_node_count": 8.0,
+        "test_frame_coverage": 1.0,
+        "tool_node_coverage": 1.0
+      },
+      "minimum_score": 0.8,
+      "minimum_pass_rate": 1.0
+    },
+    "trends": [
+      {
+        "name": "complex research brief blockflow",
+        "score": 0.85,
+        "baseline_score": null,
+        "delta": null,
+        "direction": "new"
+      }
+    ],
+    "cost": {
+      "model_calls": 41,
+      "tool_calls": 98,
+      "estimated_cost_usd": null,
+      "provider": "deepseek",
+      "model": "",
+      "notes": "model/tool call counts come from Platform Harness usage records"
+    }
+  },
+  "error": ""
+}

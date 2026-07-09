@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import asyncio
+import importlib.util
 import shlex
 import shutil
 import sys
@@ -27,6 +28,17 @@ from agent_platform.tools import Tool, ToolContext, ToolResult
 from agent_platform.worker_runner import PlatformHarnessWorkerRunner, build_platform_worker_handlers, run_worker_once
 from agent_platform.workflow_runtime import WorkflowRuntime
 from tests.test_runtime import ScriptedProvider
+
+
+def load_live_builder_benchmark_module() -> Any:
+    module_path = Path(__file__).resolve().parents[1] / "scripts" / "live_builder_benchmark_suite.py"
+    spec = importlib.util.spec_from_file_location("live_builder_benchmark_suite_under_test", module_path)
+    assert spec is not None
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 class IncrementalBuilderProvider(ModelProvider):
@@ -2290,6 +2302,31 @@ def test_builder_benchmark_treats_answer_as_terminal_end_equivalent(tmp_path: Pa
         assert report["missing"]["node_types"] == []
         assert report["metrics"]["node_type_coverage"] == 1.0
         assert report["metrics"]["node_type_equivalences"]["end"] == ["answer"]
+
+
+def test_live_builder_benchmark_case_registry_supports_complex_case() -> None:
+    module = load_live_builder_benchmark_module()
+
+    summary = module.get_benchmark_case("summary_smoke")
+    complex_case = module.get_benchmark_case("complex_research_brief")
+
+    assert summary.name == "summary_smoke"
+    assert summary.required_node_types == ["start", "model_turn", "end"]
+    assert complex_case.name == "complex_research_brief"
+    assert set(complex_case.required_node_types) == {
+        "start",
+        "parameter_extractor",
+        "question_classifier",
+        "context_assembler",
+        "model_turn",
+        "template_transform",
+        "event_recorder",
+        "end",
+    }
+    assert complex_case.required_harness_nodes == ["event_recorder"]
+    reference_types = {node["type"] for node in complex_case.reference["nodes"]}
+    assert set(complex_case.required_node_types).issubset(reference_types)
+    assert "复杂多模块研究简报 BlockFlow" in complex_case.requirement
 
 
 def test_natural_language_draft_patch_preview_is_non_destructive(tmp_path: Path) -> None:

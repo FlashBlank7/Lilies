@@ -1,0 +1,127 @@
+{
+  "status": "completed_inconclusive_for_release_readiness",
+  "created_at": "2026-07-09T09:56:11.574143+00:00",
+  "experiment": "E01 complex plan-first vs node-by-node A/B",
+  "case": "complex_research_brief",
+  "arms": {
+    "required": {
+      "path": "docs/experiment-status/evidence/experiment_v0.2.33_e01_complex_required_2026_07_09.json",
+      "planning_mode": "required",
+      "status": "build_failed_benchmark_evaluated",
+      "build_status": "needs_attention",
+      "build_error": "builder stopped before mandatory tests passed",
+      "duration_seconds": 756.9,
+      "score": 0.85,
+      "passed": true,
+      "pass_rate": 1.0,
+      "case_passed": true,
+      "case_score": 0.85,
+      "missing": {
+        "node_types": [],
+        "tool_nodes": [],
+        "harness_nodes": []
+      },
+      "metrics": {
+        "node_type_coverage": 1.0,
+        "tool_node_coverage": 1.0,
+        "harness_coverage": 1.0,
+        "edge_similarity": 0.0,
+        "test_frame_coverage": 1.0,
+        "candidate_node_count": 9,
+        "reference_node_count": 8,
+        "node_type_equivalences": {
+          "end": [
+            "answer"
+          ],
+          "model_turn": [
+            "llm"
+          ]
+        }
+      },
+      "draft_counts": {
+        "nodes": 9,
+        "edges": 8,
+        "tests": 3,
+        "node_types": [
+          "context_assembler",
+          "end",
+          "event_recorder",
+          "llm",
+          "parameter_extractor",
+          "question_classifier",
+          "start",
+          "template_transform",
+          "variable_aggregator"
+        ]
+      },
+      "model_calls": 41,
+      "tool_calls": 98,
+      "build_plan_calls": 2
+    },
+    "disabled": {
+      "path": "docs/experiment-status/evidence/experiment_v0.2.33_e01_complex_disabled_2026_07_09.json",
+      "planning_mode": "disabled",
+      "status": "build_failed_benchmark_evaluated",
+      "build_status": "needs_attention",
+      "build_error": "invalid tool input JSON for draft_add_node: Expecting ',' delimiter: line 1 column 1258 (char 1257)",
+      "duration_seconds": 120.5,
+      "score": 0.475,
+      "passed": false,
+      "pass_rate": 0.0,
+      "case_passed": false,
+      "case_score": 0.475,
+      "missing": {
+        "node_types": [
+          "context_assembler",
+          "end",
+          "event_recorder",
+          "template_transform"
+        ],
+        "tool_nodes": [],
+        "harness_nodes": [
+          "event_recorder"
+        ]
+      },
+      "metrics": {
+        "node_type_coverage": 0.5,
+        "tool_node_coverage": 1.0,
+        "harness_coverage": 0.0,
+        "edge_similarity": 0.0,
+        "test_frame_coverage": 1.0,
+        "candidate_node_count": 5,
+        "reference_node_count": 8,
+        "node_type_equivalences": {
+          "end": [
+            "answer"
+          ],
+          "model_turn": [
+            "llm"
+          ]
+        }
+      },
+      "draft_counts": {
+        "nodes": 5,
+        "edges": 0,
+        "tests": 0,
+        "node_types": [
+          "llm",
+          "parameter_extractor",
+          "question_classifier",
+          "start",
+          "variable_aggregator"
+        ]
+      },
+      "model_calls": 15,
+      "tool_calls": 52,
+      "build_plan_calls": 0
+    }
+  },
+  "verdict": {
+    "quality": "planning_mode=required produced full structural benchmark coverage; planning_mode=disabled did not.",
+    "release_readiness": "neither arm reached ready/published; original E01 remains open.",
+    "cost": "planning_mode=required used more model/tool calls and took longer.",
+    "engineering_note": "required arm failed Builder readiness because mandatory tests did not pass; disabled arm failed earlier on malformed tool input JSON and incomplete graph."
+  },
+  "e01_closure": "not_closed",
+  "next_action": "Investigate why the structurally complete required-mode complex BlockFlow fails mandatory tests, especially generated JSON-output expectations and model_turn/llm structured output behavior."
+}

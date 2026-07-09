@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import os
 import time
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -36,6 +37,22 @@ TIMEOUT_SECONDS = float(os.getenv("LIVE_BUILDER_BENCHMARK_TIMEOUT_SECONDS", "900
 RUNNER_MODE = os.getenv("LIVE_BUILDER_BENCHMARK_MODE", "inprocess")
 REUSE_RESULT = os.getenv("LIVE_BUILDER_BENCHMARK_REUSE_RESULT", "0") == "1"
 PLANNING_MODE = os.getenv("LIVE_BUILDER_BENCHMARK_PLANNING_MODE", "auto")
+BENCHMARK_CASE = os.getenv("LIVE_BUILDER_BENCHMARK_CASE", "summary_smoke")
+
+
+@dataclass(frozen=True)
+class BenchmarkCaseSpec:
+    name: str
+    application_name_prefix: str
+    suite_name: str
+    suite_description: str
+    case_name: str
+    requirement: str
+    reference: dict[str, Any]
+    required_node_types: list[str]
+    required_harness_nodes: list[str]
+    minimum_score: float = 0.8
+    minimum_pass_rate: float = 1.0
 
 
 def utc_now() -> str:
@@ -99,7 +116,7 @@ def task_from_event_log(task_id: str) -> dict[str, Any] | None:
     return latest
 
 
-def reference_workflow() -> dict[str, Any]:
+def summary_reference_workflow() -> dict[str, Any]:
     return {
         "nodes": [
             {
@@ -145,6 +162,181 @@ def reference_workflow() -> dict[str, Any]:
     }
 
 
+def complex_research_brief_reference_workflow() -> dict[str, Any]:
+    return {
+        "nodes": [
+            {
+                "id": "start",
+                "type": "start",
+                "title": "Research Inputs",
+                "config": {
+                    "inputs": [
+                        {"name": "question", "type": "string"},
+                        {"name": "source_notes", "type": "string"},
+                        {"name": "audience", "type": "string", "required": False},
+                    ],
+                },
+            },
+            {
+                "id": "extract_constraints",
+                "type": "parameter_extractor",
+                "title": "Extract Research Constraints",
+                "config": {
+                    "input": {"$ref": {"node_id": "start", "path": ["question"]}},
+                    "fields": [
+                        {"name": "topic", "type": "string", "description": "Main research topic"},
+                        {"name": "deliverable", "type": "string", "description": "Expected output format"},
+                        {"name": "constraints", "type": "array", "description": "Important constraints", "required": False},
+                    ],
+                    "instruction": "Extract a typed research brief request.",
+                },
+            },
+            {
+                "id": "classify_style",
+                "type": "question_classifier",
+                "title": "Classify Brief Style",
+                "config": {
+                    "input": {"$ref": {"node_id": "start", "path": ["question"]}},
+                    "classes": ["technical", "strategy", "mixed"],
+                    "instruction": "Classify the best research brief style.",
+                },
+            },
+            {
+                "id": "assemble_context",
+                "type": "context_assembler",
+                "title": "Assemble Evidence Context",
+                "config": {
+                    "input": {"$ref": {"node_id": "start", "path": ["source_notes"]}},
+                    "settings": {
+                        "include": [
+                            {"$ref": {"node_id": "extract_constraints", "path": ["output"]}},
+                            {"$ref": {"node_id": "classify_style", "path": ["class"]}},
+                        ],
+                    },
+                },
+            },
+            {
+                "id": "draft_brief",
+                "type": "model_turn",
+                "title": "Draft Structured Brief",
+                "config": {
+                    "input": {"$ref": {"node_id": "assemble_context", "path": ["output"]}},
+                    "settings": {
+                        "prompt": "Write a concise research brief with findings, risks, and next actions.",
+                    },
+                },
+            },
+            {
+                "id": "render_markdown",
+                "type": "template_transform",
+                "title": "Render Markdown",
+                "config": {
+                    "template": "# Brief\n\nAudience: {{ audience }}\n\n{{ brief }}",
+                    "variables": {
+                        "audience": {"$ref": {"node_id": "start", "path": ["audience"]}},
+                        "brief": {"$ref": {"node_id": "draft_brief", "path": ["output"]}},
+                    },
+                },
+            },
+            {
+                "id": "record_event",
+                "type": "event_recorder",
+                "title": "Record Brief Event",
+                "config": {
+                    "input": {"$ref": {"node_id": "render_markdown", "path": ["text"]}},
+                    "settings": {"event": "research_brief_generated"},
+                },
+            },
+            {
+                "id": "end",
+                "type": "end",
+                "title": "Return Brief",
+                "config": {
+                    "outputs": {
+                        "brief": {"$ref": {"node_id": "render_markdown", "path": ["text"]}},
+                        "style": {"$ref": {"node_id": "classify_style", "path": ["class"]}},
+                    },
+                },
+            },
+        ],
+        "edges": [
+            {"id": "a", "source": "start", "target": "extract_constraints", "source_port": "output", "target_port": "input"},
+            {"id": "b", "source": "start", "target": "classify_style", "source_port": "output", "target_port": "input"},
+            {"id": "c", "source": "extract_constraints", "target": "assemble_context", "source_port": "output", "target_port": "input"},
+            {"id": "d", "source": "classify_style", "target": "assemble_context", "source_port": "output", "target_port": "input"},
+            {"id": "e", "source": "assemble_context", "target": "draft_brief", "source_port": "output", "target_port": "input"},
+            {"id": "f", "source": "draft_brief", "target": "render_markdown", "source_port": "output", "target_port": "input"},
+            {"id": "g", "source": "render_markdown", "target": "record_event", "source_port": "text", "target_port": "input"},
+            {"id": "h", "source": "record_event", "target": "end", "source_port": "output", "target_port": "input"},
+        ],
+    }
+
+
+def benchmark_cases() -> dict[str, BenchmarkCaseSpec]:
+    summary_requirement = """
+搭建并验证一个可编辑的文章摘要 BlockFlow：
+1. Start 接收 text 字符串输入。
+2. 使用模型节点把 text 总结为三条简洁要点。
+3. End 返回 summary。
+4. 添加带 frame 的强制结构测试，至少断言 summary 存在并且类型为 string。
+5. auto_publish=false 时完成测试后停在 ready 状态。
+""".strip()
+    complex_requirement = """
+搭建并验证一个复杂多模块研究简报 BlockFlow：
+1. Start 接收 question、source_notes 和可选 audience。
+2. 用参数提取模块抽取 topic、deliverable、constraints 等结构化研究约束。
+3. 用问题分类模块判断 brief 风格，至少区分 technical、strategy、mixed。
+4. 组装 source_notes、提取结果和分类结果，形成模型可用上下文。
+5. 使用模型推理节点生成结构化研究简报，内容包含 findings、risks、next_actions。
+6. 使用模板转换节点渲染最终 Markdown brief。
+7. 加入 event_recorder 或等价 soft harness 节点，记录生成事件，方便测试和审计。
+8. End 返回 brief 和 style。
+9. 添加带 frame 的强制结构测试，测试必须包含 required_node_types，覆盖可审计架构。
+10. auto_publish=false 时完成测试后停在 ready 状态。
+""".strip()
+    return {
+        "summary_smoke": BenchmarkCaseSpec(
+            name="summary_smoke",
+            application_name_prefix="Live Benchmark Summary",
+            suite_name="paid builder summary smoke",
+            suite_description="One paid Builder-generated candidate evaluated by suite endpoint.",
+            case_name="summary blockflow smoke",
+            requirement=summary_requirement,
+            reference=summary_reference_workflow(),
+            required_node_types=["start", "model_turn", "end"],
+            required_harness_nodes=[],
+        ),
+        "complex_research_brief": BenchmarkCaseSpec(
+            name="complex_research_brief",
+            application_name_prefix="Live Benchmark Complex Brief",
+            suite_name="paid builder complex research brief",
+            suite_description="One paid Builder-generated complex multi-module candidate evaluated by suite endpoint.",
+            case_name="complex research brief blockflow",
+            requirement=complex_requirement,
+            reference=complex_research_brief_reference_workflow(),
+            required_node_types=[
+                "start",
+                "parameter_extractor",
+                "question_classifier",
+                "context_assembler",
+                "model_turn",
+                "template_transform",
+                "event_recorder",
+                "end",
+            ],
+            required_harness_nodes=["event_recorder"],
+        ),
+    }
+
+
+def get_benchmark_case(name: str) -> BenchmarkCaseSpec:
+    cases = benchmark_cases()
+    try:
+        return cases[name]
+    except KeyError as error:
+        raise RuntimeError(f"unknown LIVE_BUILDER_BENCHMARK_CASE={name!r}; expected one of {sorted(cases)}") from error
+
+
 def write_result(result: dict[str, Any]) -> None:
     RESULT_PATH.parent.mkdir(parents=True, exist_ok=True)
     RESULT_PATH.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -157,20 +349,15 @@ def main() -> None:
     if not api_token:
         raise RuntimeError("API_TOKEN is not configured")
 
-    requirement = """
-搭建并验证一个可编辑的文章摘要 BlockFlow：
-1. Start 接收 text 字符串输入。
-2. 使用模型节点把 text 总结为三条简洁要点。
-3. End 返回 summary。
-4. 添加带 frame 的强制结构测试，至少断言 summary 存在并且类型为 string。
-5. auto_publish=false 时完成测试后停在 ready 状态。
-""".strip()
+    benchmark_case = get_benchmark_case(BENCHMARK_CASE)
+    requirement = benchmark_case.requirement
     result: dict[str, Any] = {
         "status": "started",
         "started_at": utc_now(),
         "finished_at": None,
         "base_url": BASE_URL,
         "runner_mode": RUNNER_MODE,
+        "benchmark_case": benchmark_case.name,
         "planning_mode": PLANNING_MODE,
         "reuse_result": REUSE_RESULT,
         "reuse_source_path": str(REUSE_SOURCE_PATH) if REUSE_RESULT else "",
@@ -237,8 +424,8 @@ def main() -> None:
                     "POST",
                     "/api/v1/applications",
                     json={
-                        "name": f"Live Benchmark Summary {uuid4().hex[:6]}",
-                        "description": "v0.2.6 paid Builder benchmark experiment",
+                        "name": f"{benchmark_case.application_name_prefix} {uuid4().hex[:6]}",
+                        "description": f"paid Builder benchmark experiment: {benchmark_case.name}",
                         "requirement": requirement,
                         "mode": "workflow",
                     },
@@ -287,10 +474,10 @@ def main() -> None:
                 "POST",
                 "/api/v1/builder-benchmark/suites/evaluate",
                 json={
-                    "name": "paid builder summary smoke",
-                    "description": "One paid Builder-generated candidate evaluated by suite endpoint.",
-                    "minimum_score": 0.8,
-                    "minimum_pass_rate": 1.0,
+                    "name": benchmark_case.suite_name,
+                    "description": benchmark_case.suite_description,
+                    "minimum_score": benchmark_case.minimum_score,
+                    "minimum_pass_rate": benchmark_case.minimum_pass_rate,
                     "cost": {
                         "model_calls": model_calls,
                         "tool_calls": tool_calls,
@@ -300,11 +487,12 @@ def main() -> None:
                     },
                     "cases": [
                         {
-                            "name": "summary blockflow smoke",
+                            "name": benchmark_case.case_name,
                             "requirement": requirement,
-                            "reference": reference_workflow(),
+                            "reference": benchmark_case.reference,
                             "candidate": workflow,
-                            "required_node_types": ["start", "model_turn", "end"],
+                            "required_node_types": benchmark_case.required_node_types,
+                            "required_harness_nodes": benchmark_case.required_harness_nodes,
                             "tests": tests,
                         }
                     ],
