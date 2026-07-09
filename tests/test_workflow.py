@@ -2327,6 +2327,8 @@ def test_live_builder_benchmark_case_registry_supports_complex_case() -> None:
     reference_types = {node["type"] for node in complex_case.reference["nodes"]}
     assert set(complex_case.required_node_types).issubset(reference_types)
     assert "复杂多模块研究简报 BlockFlow" in complex_case.requirement
+    assert "context_assembler 是必需节点" in complex_case.requirement
+    assert "不能用 variable_aggregator" in complex_case.requirement
 
 
 def test_live_builder_benchmark_reads_max_repair_cycles_env(monkeypatch: pytest.MonkeyPatch) -> None:

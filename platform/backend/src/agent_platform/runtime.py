@@ -26,6 +26,9 @@ from .storage import Storage
 from .tools import ToolContext, ToolRegistry
 
 
+INVALID_TOOL_INPUT_JSON_KEY = "_invalid_tool_input_json"
+
+
 @dataclass(slots=True)
 class SessionRuntime:
     id: str
@@ -300,7 +303,20 @@ class AgentRuntime:
                     try:
                         block.input = json.loads(input_json[index])
                     except json.JSONDecodeError as error:
-                        raise RuntimeError(f"invalid tool input JSON for {block.name}: {error}") from error
+                        raw = input_json[index]
+                        block.input = {
+                            INVALID_TOOL_INPUT_JSON_KEY: {
+                                "error": str(error),
+                                "raw_preview": raw[:2_000],
+                                "raw_length": len(raw),
+                            }
+                        }
+                        await self.emit(stream_id, "tool.input_json.invalid", {
+                            "tool": block.name,
+                            "error": str(error),
+                            "raw_length": len(raw),
+                            "raw_preview": raw[:500],
+                        })
             elif event.type == "message_delta":
                 stop_reason = data.get("delta", {}).get("stop_reason", stop_reason)
                 usage.output_tokens = data.get("usage", {}).get("output_tokens", usage.output_tokens)
@@ -320,6 +336,17 @@ class AgentRuntime:
         tool_name = block.name or ""
         tool_input = block.input or {}
         try:
+            invalid_json = tool_input.get(INVALID_TOOL_INPUT_JSON_KEY)
+            if invalid_json is not None:
+                error = (
+                    invalid_json.get("error", "unknown parse error")
+                    if isinstance(invalid_json, dict)
+                    else "unknown parse error"
+                )
+                raise RuntimeError(
+                    f"invalid tool input JSON for {tool_name}: {error}. "
+                    "Re-emit this tool call with valid JSON arguments."
+                )
             tool = self.tools.get(tool_name)
             allowed = {definition.name for definition in self.tools.definitions_for(session.agent)}
             if tool_name not in allowed:

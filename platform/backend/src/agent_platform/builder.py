@@ -10,7 +10,7 @@ from .applications import ApplicationService
 from .blocks import BlockRegistry
 from .models import ChatMessage, ContentBlock, ToolDefinition
 from .providers import ModelProvider
-from .runtime import AgentRuntime
+from .runtime import AgentRuntime, INVALID_TOOL_INPUT_JSON_KEY
 from .storage import Storage
 from .models import AgentSpec
 from .platform_harness import PlatformHarness
@@ -401,6 +401,17 @@ class WorkflowBuilder:
                         "tool_call",
                         metadata={"actor": teammate or "coordinator", "tool": call.name or ""},
                     )
+                    invalid_json = (call.input or {}).get(INVALID_TOOL_INPUT_JSON_KEY)
+                    if invalid_json is not None:
+                        error = (
+                            invalid_json.get("error", "unknown parse error")
+                            if isinstance(invalid_json, dict)
+                            else "unknown parse error"
+                        )
+                        raise RuntimeError(
+                            f"invalid tool input JSON for {call.name or ''}: {error}. "
+                            "Re-emit this tool call with valid JSON arguments."
+                        )
                     value = await self._execute(
                         build_id,
                         application_id,

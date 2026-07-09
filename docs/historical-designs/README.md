@@ -44,6 +44,7 @@
 - `v0.2.32_*`：来自 `docs/stage-reports/v0.2.32_e01_plan_first_ab.md`。
 - `v0.2.33_*`：来自 `docs/stage-reports/v0.2.33_e01_complex_ab.md`。
 - `v0.2.34_*`：来自 `docs/stage-reports/v0.2.34_e01_required_readiness_repair.md`。
+- `v0.2.35_*`：来自 `docs/stage-reports/v0.2.35_e01_required_architecture_coverage.md`。
 
 Active workspace rule:
 

@@ -292,8 +292,10 @@ def benchmark_cases() -> dict[str, BenchmarkCaseSpec]:
 6. 使用模板转换节点渲染最终 Markdown brief。
 7. 加入 event_recorder 或等价 soft harness 节点，记录生成事件，方便测试和审计。
 8. End 返回 brief 和 style。
-9. 添加带 frame 的强制结构测试，测试必须包含 required_node_types，覆盖可审计架构。
-10. auto_publish=false 时完成测试后停在 ready 状态。
+9. 必须显式包含这些可审计节点类型：start、parameter_extractor、question_classifier、context_assembler、llm 或 model_turn、template_transform、event_recorder、end。
+10. context_assembler 是必需节点，不能用 variable_aggregator、直接 LLM prompt 拼接或其它节点替代。
+11. 添加带 frame 的强制结构测试，测试必须包含 required_node_types，并覆盖上面的可审计架构清单。
+12. auto_publish=false 时完成测试后停在 ready 状态。
 """.strip()
     return {
         "summary_smoke": BenchmarkCaseSpec(

@@ -1,0 +1,184 @@
+{
+  "experiment_id": "E01_required_architecture_coverage_v0.2.35",
+  "created_at": "2026-07-09T10:44:33.697834+00:00",
+  "question": "Can required planning mode produce a complex BlockFlow that is both ready and visibly auditable, especially with context_assembler present?",
+  "application_marker": "验证应用",
+  "runs": {
+    "v0.2.34_retry": {
+      "path": "docs/experiment-status/evidence/experiment_v0.2.34_e01_complex_required_repair_budget_retry_2026_07_09.json",
+      "status": "benchmark_failed",
+      "build_status": "ready",
+      "build_error": "",
+      "draft_counts": {
+        "nodes": 8,
+        "edges": 7,
+        "tests": 3,
+        "node_types": [
+          "end",
+          "event_recorder",
+          "llm",
+          "parameter_extractor",
+          "question_classifier",
+          "start",
+          "template_transform"
+        ]
+      },
+      "benchmark": {
+        "passed": false,
+        "score": 0.806,
+        "pass_rate": 0.0,
+        "failed_cases": [
+          "complex research brief blockflow"
+        ],
+        "missing": {
+          "node_types": [
+            "context_assembler"
+          ],
+          "tool_nodes": [],
+          "harness_nodes": []
+        }
+      },
+      "usage_counts": {
+        "model_call": 34,
+        "tool_call": 83
+      },
+      "model": "deepseek-v4-pro",
+      "max_turns": 60,
+      "max_repair_cycles": 3,
+      "started_at": "2026-07-09T10:03:27.150279+00:00",
+      "finished_at": "2026-07-09T10:09:37.607605+00:00"
+    },
+    "v0.2.35_first": {
+      "path": "docs/experiment-status/evidence/experiment_v0.2.35_e01_required_architecture_coverage_2026_07_09.json",
+      "status": "build_failed_benchmark_evaluated",
+      "build_status": "needs_attention",
+      "build_error": "invalid tool input JSON for draft_add_node: Expecting ',' delimiter: line 1 column 959 (char 958)",
+      "draft_counts": {
+        "nodes": 8,
+        "edges": 7,
+        "tests": 2,
+        "node_types": [
+          "context_assembler",
+          "end",
+          "event_recorder",
+          "model_turn",
+          "parameter_extractor",
+          "question_classifier",
+          "start",
+          "template_transform"
+        ]
+      },
+      "benchmark": {
+        "passed": true,
+        "score": 0.85,
+        "pass_rate": 1.0,
+        "failed_cases": [],
+        "missing": {
+          "node_types": [],
+          "tool_nodes": [],
+          "harness_nodes": []
+        }
+      },
+      "usage_counts": {
+        "model_call": 30,
+        "tool_call": 76
+      },
+      "model": "deepseek-v4-pro",
+      "max_turns": 60,
+      "max_repair_cycles": 3,
+      "started_at": "2026-07-09T10:14:31.854006+00:00",
+      "finished_at": "2026-07-09T10:23:54.878247+00:00"
+    },
+    "v0.2.35_retry": {
+      "path": "docs/experiment-status/evidence/experiment_v0.2.35_e01_required_architecture_coverage_retry_2026_07_09.json",
+      "status": "build_failed_benchmark_evaluated",
+      "build_status": "needs_attention",
+      "build_error": "invalid tool input JSON for draft_update_node: Expecting ',' delimiter: line 1 column 1083 (char 1082)",
+      "draft_counts": {
+        "nodes": 8,
+        "edges": 7,
+        "tests": 4,
+        "node_types": [
+          "context_assembler",
+          "end",
+          "event_recorder",
+          "model_turn",
+          "parameter_extractor",
+          "question_classifier",
+          "start",
+          "template_transform"
+        ]
+      },
+      "benchmark": {
+        "passed": true,
+        "score": 0.85,
+        "pass_rate": 1.0,
+        "failed_cases": [],
+        "missing": {
+          "node_types": [],
+          "tool_nodes": [],
+          "harness_nodes": []
+        }
+      },
+      "usage_counts": {
+        "model_call": 31,
+        "tool_call": 62
+      },
+      "model": "deepseek-v4-pro",
+      "max_turns": 60,
+      "max_repair_cycles": 3,
+      "started_at": "2026-07-09T10:24:12.662318+00:00",
+      "finished_at": "2026-07-09T10:32:41.552410+00:00"
+    },
+    "v0.2.35_after_json_recovery": {
+      "path": "docs/experiment-status/evidence/experiment_v0.2.35_e01_required_architecture_coverage_after_json_recovery_2026_07_09.json",
+      "status": "passed",
+      "build_status": "ready",
+      "build_error": "",
+      "draft_counts": {
+        "nodes": 8,
+        "edges": 7,
+        "tests": 4,
+        "node_types": [
+          "context_assembler",
+          "end",
+          "event_recorder",
+          "llm",
+          "parameter_extractor",
+          "question_classifier",
+          "start",
+          "template_transform"
+        ]
+      },
+      "benchmark": {
+        "passed": true,
+        "score": 0.85,
+        "pass_rate": 1.0,
+        "failed_cases": [],
+        "missing": {
+          "node_types": [],
+          "tool_nodes": [],
+          "harness_nodes": []
+        }
+      },
+      "usage_counts": {
+        "model_call": 30,
+        "tool_call": 64
+      },
+      "model": "deepseek-v4-pro",
+      "max_turns": 60,
+      "max_repair_cycles": 3,
+      "started_at": "2026-07-09T10:35:26.160155+00:00",
+      "finished_at": "2026-07-09T10:44:01.535143+00:00"
+    }
+  },
+  "conclusion": {
+    "closed_original_e01": false,
+    "complex_required_case_closed_for_current_slice": true,
+    "reason": "After explicit architecture contract plus recoverable invalid tool JSON handling, the fresh required-mode complex rerun reached ready and benchmark passed. Original E01 remains broader because disabled-mode complex comparison still failed and more cases are needed for product default decisions.",
+    "engineering_application": [
+      "Strengthened complex_research_brief requirement with explicit required node types.",
+      "Converted malformed tool input JSON from fatal model-stream failure into a recoverable tool_result in AgentRuntime and Builder loop."
+    ]
+  }
+}
