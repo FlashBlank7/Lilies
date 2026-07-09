@@ -36,6 +36,7 @@
 - `v0.2.24_*`：来自 `docs/stage-reports/v0.2.24_platform_harness_stdio_policy_controls.md`。
 - `v0.2.25_*`：来自 `docs/stage-reports/v0.2.25_platform_harness_secret_envelope.md`。
 - `v0.2.26_*`：来自 `docs/stage-reports/v0.2.26_platform_harness_worker_runner.md`。
+- `v0.2.27_*`：来自 `docs/stage-reports/v0.2.27_worker_runner_cli_and_handler.md`。
 
 Active workspace rule:
 

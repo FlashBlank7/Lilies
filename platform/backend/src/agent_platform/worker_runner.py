@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import argparse
+import asyncio
 import inspect
+import json
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from .platform_harness import PlatformHarness, PlatformTaskRecord
@@ -127,3 +130,101 @@ class PlatformHarnessWorkerRunner:
             error=error,
             metadata=metadata or {},
         )
+
+
+def scheduler_manual_trigger_handler(scheduler: Any) -> PlatformTaskHandler:
+    async def handler(task: PlatformTaskRecord) -> dict[str, Any]:
+        inputs = task.metadata.get("inputs", {})
+        if not isinstance(inputs, dict):
+            inputs = {}
+        created = await scheduler.trigger_now(
+            task.owner_id,
+            inputs=inputs,
+            harness_task_id=task.id,
+            manage_harness_task=False,
+        )
+        return {
+            "application_id": task.owner_id,
+            "run_id": created["run_id"],
+            "status": created.get("status", "queued"),
+        }
+
+    return handler
+
+
+def build_platform_worker_handlers(services: Any) -> dict[str, PlatformTaskHandler]:
+    return {
+        "scheduler_manual_trigger": scheduler_manual_trigger_handler(services.scheduler),
+    }
+
+
+async def create_platform_worker_runner(
+    *,
+    worker_id: str | None = None,
+    lease_seconds: float | None = None,
+) -> tuple[Any, PlatformHarnessWorkerRunner]:
+    from .api import build_services
+    from .config import get_settings
+
+    settings = get_settings()
+    settings.prepare()
+    services = build_services(settings)
+    await services.storage.initialize()
+    await services.workflow_store.initialize()
+    await services.workflow_store.fail_interrupted_runs()
+    runner = PlatformHarnessWorkerRunner(
+        harness=services.harness,
+        worker_id=worker_id or services.harness.worker_id,
+        lease_seconds=lease_seconds or max(services.harness.worker_lease_seconds, 60.0),
+        handlers=build_platform_worker_handlers(services),
+    )
+    return services, runner
+
+
+async def run_worker_once(
+    *,
+    worker_id: str | None = None,
+    lease_seconds: float | None = None,
+    kind: str | None = None,
+    owner_id: str | None = None,
+    limit: int = 10,
+) -> list[WorkerRunResult]:
+    services, runner = await create_platform_worker_runner(
+        worker_id=worker_id,
+        lease_seconds=lease_seconds,
+    )
+    try:
+        return await runner.run_once(kind=kind, owner_id=owner_id, limit=limit)
+    finally:
+        await services.sandboxes.close()
+
+
+async def _run_worker_from_args(args: argparse.Namespace) -> None:
+    services, runner = await create_platform_worker_runner(
+        worker_id=args.worker_id,
+        lease_seconds=args.lease_seconds,
+    )
+    try:
+        while True:
+            results = await runner.run_once(kind=args.kind, owner_id=args.owner_id, limit=args.limit)
+            print(json.dumps([asdict(result) for result in results], ensure_ascii=False))
+            if args.once:
+                return
+            await asyncio.sleep(args.poll_seconds)
+    finally:
+        await services.sandboxes.close()
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Run a Platform Harness worker.")
+    parser.add_argument("--worker-id", default=None)
+    parser.add_argument("--lease-seconds", type=float, default=None)
+    parser.add_argument("--kind", default=None)
+    parser.add_argument("--owner-id", default=None)
+    parser.add_argument("--limit", type=int, default=10)
+    parser.add_argument("--poll-seconds", type=float, default=5.0)
+    parser.add_argument("--once", action="store_true", help="Run one polling iteration and exit.")
+    args = parser.parse_args()
+    if not args.once:
+        args.once = False
+    asyncio.run(_run_worker_from_args(args))

@@ -24,7 +24,7 @@ from agent_platform.providers.base import ModelProvider, ProviderCapabilities
 from agent_platform.sandbox import CommandResult
 from agent_platform.storage import Storage
 from agent_platform.tools import Tool, ToolContext, ToolResult
-from agent_platform.worker_runner import PlatformHarnessWorkerRunner
+from agent_platform.worker_runner import PlatformHarnessWorkerRunner, build_platform_worker_handlers, run_worker_once
 from agent_platform.workflow_runtime import WorkflowRuntime
 from tests.test_runtime import ScriptedProvider
 
@@ -1548,6 +1548,90 @@ def test_platform_harness_worker_runner_skips_unsupported_task(tmp_path: Path) -
         assert fetched.lease_version == 2
 
     asyncio.run(scenario())
+
+
+def test_platform_worker_runner_helper_imports() -> None:
+    assert callable(run_worker_once)
+
+
+def test_platform_worker_scheduler_manual_trigger_handler_runs_workflow(tmp_path: Path) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+        scheduler_poll_seconds=3600,
+    )
+    app = create_app(settings, ScriptedProvider())
+    with TestClient(app) as client:
+        app_id = client.post(
+            "/api/v1/applications", headers=headers(),
+            json={"name": "Worker schedule", "requirement": "Run schedule through worker."},
+        ).json()["id"]
+        revision = 0
+        for node in [
+            {"id": "schedule", "type": "schedule_trigger", "title": "08:00 JST", "config": {
+                "timezone": "Asia/Tokyo", "hour": 8, "minute": 0, "inputs": {"topic": "idols"}
+            }},
+            {"id": "end", "type": "end", "title": "End", "config": {"outputs": {
+                "topic": {"$ref": {"node_id": "schedule", "path": ["topic"]}}
+            }}},
+        ]:
+            revision = mutate(client, app_id, revision, "add_node", {"node": node})
+        revision = mutate(client, app_id, revision, "add_edge", {"edge": {
+            "id": "scheduled-end", "source": "schedule", "target": "end",
+            "source_port": "output", "target_port": "input",
+        }})
+        revision = mutate(client, app_id, revision, "add_test", {"test": {
+            "name": "Scheduled inputs", "requirement": "Schedule defaults reach the result.",
+            "inputs": {},
+            "assertions": [{"path": ["topic"], "operator": "equals", "expected": "idols"}],
+        }})
+        assert client.post(f"/api/v1/applications/{app_id}/tests/run", headers=headers()).json()["passed"]
+        assert client.post(f"/api/v1/applications/{app_id}/versions", headers=headers()).status_code == 200
+
+        task_id = "worker-scheduler-manual-1"
+        harness = client.app.state.services.harness
+
+        async def queue_task() -> None:
+            await harness.start_task(
+                task_id,
+                kind="scheduler_manual_trigger",
+                owner_id=app_id,
+                resource_id=task_id,
+                metadata={"inputs": {"topic": "worker-topic"}},
+                worker_id="producer",
+                lease_seconds=60,
+            )
+            await harness.release_task_lease(
+                task_id,
+                worker_id="producer",
+                next_status="queued",
+            )
+
+        client.portal.call(queue_task)
+
+        runner = PlatformHarnessWorkerRunner(
+            harness=harness,
+            worker_id="worker-a",
+            lease_seconds=60,
+            handlers=build_platform_worker_handlers(client.app.state.services),
+        )
+
+        async def run_worker_once_for_test():
+            return await runner.run_once(limit=5)
+
+        results = client.portal.call(run_worker_once_for_test)
+        assert [(item.task_id, item.status) for item in results] == [(task_id, "succeeded")]
+
+        task = client.portal.call(harness.get_task, task_id)
+        run_id = task.metadata["worker_runner"]["result"]["run_id"]
+        for _ in range(100):
+            run = client.get(f"/api/v1/runs/{run_id}", headers=headers()).json()
+            if run["status"] == "succeeded":
+                break
+            time.sleep(0.01)
+        assert run["outputs"] == {"topic": "worker-topic"}
+        assert task.metadata["worker_runner"]["result"]["application_id"] == app_id
 
 
 def test_platform_harness_secret_policy_blocks_http_secret_headers(tmp_path: Path) -> None:

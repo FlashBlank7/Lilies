@@ -143,7 +143,12 @@ class WorkflowScheduler:
         return started
 
     async def trigger_now(
-        self, application_id: str, inputs: dict[str, Any] | None = None
+        self,
+        application_id: str,
+        inputs: dict[str, Any] | None = None,
+        *,
+        harness_task_id: str | None = None,
+        manage_harness_task: bool = True,
     ) -> dict[str, Any]:
         published = await self.workflow_store.get_version(application_id)
         node = next(
@@ -154,14 +159,17 @@ class WorkflowScheduler:
             raise ValueError("published application has no schedule_trigger node")
         config = ScheduleTriggerConfig.model_validate(node.config)
         now = datetime.now(timezone.utc)
-        task_id = f"scheduler-manual:{application_id}:{int(published['version'])}:{node.id}:{now.timestamp()}"
-        await self.harness.start_task(
-            task_id,
-            kind="scheduler_manual_trigger",
-            owner_id=application_id,
-            resource_id=task_id,
-            metadata={"version": published["version"], "node_id": node.id},
+        task_id = harness_task_id or (
+            f"scheduler-manual:{application_id}:{int(published['version'])}:{node.id}:{now.timestamp()}"
         )
+        if manage_harness_task:
+            await self.harness.start_task(
+                task_id,
+                kind="scheduler_manual_trigger",
+                owner_id=application_id,
+                resource_id=task_id,
+                metadata={"version": published["version"], "node_id": node.id},
+            )
         await self.harness.record_usage(
             task_id,
             "scheduler_fire",
@@ -189,8 +197,10 @@ class WorkflowScheduler:
             "version": published["version"],
             "node_id": node.id,
             "run_id": created["run_id"],
+            "task_id": task_id,
         })
-        await self.harness.finish_task(task_id, status="succeeded")
+        if manage_harness_task:
+            await self.harness.finish_task(task_id, status="succeeded")
         return created
 
     async def list_schedules(self) -> list[dict[str, Any]]:
