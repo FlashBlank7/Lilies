@@ -46,6 +46,7 @@
 - `v0.2.34_*`：来自 `docs/stage-reports/v0.2.34_e01_required_readiness_repair.md`。
 - `v0.2.35_*`：来自 `docs/stage-reports/v0.2.35_e01_required_architecture_coverage.md`。
 - `v0.2.36_*`：来自 `docs/stage-reports/v0.2.36_e02_readable_testframe_human_review.md`。
+- `v0.2.37_*`：来自 `docs/stage-reports/v0.2.37_e04_local_repair_vs_full_rebuild.md`。
 
 Active workspace rule:
 

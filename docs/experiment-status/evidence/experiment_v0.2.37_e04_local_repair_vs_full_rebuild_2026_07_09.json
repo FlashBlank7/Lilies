@@ -1,0 +1,734 @@
+{
+  "status": "completed",
+  "started_at": "2026-07-09T11:19:52.035644+00:00",
+  "finished_at": "2026-07-09T11:20:49.302676+00:00",
+  "experiment_id": "E04_local_repair_vs_full_rebuild_v0.2.37",
+  "question": "For a localized failing draft, is local repair cheaper/faster/more reliable than full Builder rebuild from the same requirement?",
+  "evidence_level": "deterministic_local_repair_plus_paid_full_rebuild",
+  "local_repair_arm": {
+    "application_id": "9e903426-d5f4-404e-a0c4-efe8c3c908a6",
+    "requirement": "Build a workflow that accepts input name and returns greeting exactly 'Hello {name}'. For name Ada the output must be exactly 'Hello Ada'. Include a mandatory acceptance test.",
+    "before_test_report": {
+      "passed": false,
+      "validation": {
+        "valid": true,
+        "errors": [],
+        "warnings": [],
+        "revision": 6,
+        "content_hash": "87b95c8dd9e3734b4945c9b9c61342445ecc368fa722d7f5778c2e8011ee0733",
+        "test_count": 1
+      },
+      "summary": {
+        "total": 1,
+        "passed": 0,
+        "failed": 1,
+        "mandatory_failed": 1,
+        "frames": [
+          {
+            "test_id": "d684dd18-5c24-4d6f-84a4-4d7f52908460",
+            "title": "Greeting output contract",
+            "category": "content",
+            "status": "failed"
+          }
+        ]
+      },
+      "tests": [
+        {
+          "test_id": "d684dd18-5c24-4d6f-84a4-4d7f52908460",
+          "name": "Greeting contract",
+          "mandatory": true,
+          "passed": false,
+          "run_id": "0e855419-8169-4a4b-be0a-096929156608",
+          "frame": {
+            "id": "8886840a-892a-4d5b-9833-83a193c85174",
+            "title": "Greeting output contract",
+            "category": "content",
+            "purpose": "Check that the template uses the exact required salutation.",
+            "reviewer_guidance": "If this fails, inspect the template text before rebuilding the whole workflow.",
+            "reference": "E04 fixture requirement",
+            "failure_target": "template node text"
+          },
+          "readable_report": {
+            "title": "Greeting output contract",
+            "category": "content",
+            "purpose": "Check that the template uses the exact required salutation.",
+            "status": "failed",
+            "mandatory": true,
+            "reviewer_guidance": "If this fails, inspect the template text before rebuilding the whole workflow.",
+            "reference": "E04 fixture requirement",
+            "failure_target": "template node text",
+            "failed_checks": [
+              "failed assertions: 1"
+            ],
+            "failed_assertions": [
+              {
+                "passed": false,
+                "actual": "Hi Ada",
+                "path": [
+                  "greeting"
+                ],
+                "operator": "equals",
+                "expected": "Hello Ada",
+                "structural": false
+              }
+            ],
+            "feedback_hints": [
+              "Patch the template text from Hi to Hello."
+            ]
+          },
+          "assertions": [
+            {
+              "passed": false,
+              "actual": "Hi Ada",
+              "path": [
+                "greeting"
+              ],
+              "operator": "equals",
+              "expected": "Hello Ada",
+              "structural": false
+            }
+          ],
+          "tool_evidence": {
+            "used_tools": [],
+            "required_tools": [],
+            "required_tools_passed": true,
+            "required_node_types": [
+              "start",
+              "template_transform",
+              "end"
+            ],
+            "node_types": [
+              "start",
+              "template_transform",
+              "end"
+            ],
+            "required_node_types_passed": true,
+            "required_tool_nodes": [],
+            "tool_node_names": [],
+            "required_tool_nodes_passed": true,
+            "minimum_tool_calls": 0,
+            "minimum_calls_passed": true,
+            "output_urls": [],
+            "cited_tool_urls": [],
+            "unverified_output_urls": [],
+            "citation_passed": true
+          }
+        }
+      ]
+    },
+    "after_test_report": {
+      "passed": true,
+      "validation": {
+        "valid": true,
+        "errors": [],
+        "warnings": [],
+        "revision": 7,
+        "content_hash": "ce1b0bec8d83082e94706763f658af7225dd10cf704a74f9fd1126b3ca785784",
+        "test_count": 1
+      },
+      "summary": {
+        "total": 1,
+        "passed": 1,
+        "failed": 0,
+        "mandatory_failed": 0,
+        "frames": [
+          {
+            "test_id": "d684dd18-5c24-4d6f-84a4-4d7f52908460",
+            "title": "Greeting output contract",
+            "category": "content",
+            "status": "passed"
+          }
+        ]
+      },
+      "tests": [
+        {
+          "test_id": "d684dd18-5c24-4d6f-84a4-4d7f52908460",
+          "name": "Greeting contract",
+          "mandatory": true,
+          "passed": true,
+          "run_id": "26c66002-f7da-447c-bda5-14d6e7efbcac",
+          "frame": {
+            "id": "8886840a-892a-4d5b-9833-83a193c85174",
+            "title": "Greeting output contract",
+            "category": "content",
+            "purpose": "Check that the template uses the exact required salutation.",
+            "reviewer_guidance": "If this fails, inspect the template text before rebuilding the whole workflow.",
+            "reference": "E04 fixture requirement",
+            "failure_target": "template node text"
+          },
+          "readable_report": {
+            "title": "Greeting output contract",
+            "category": "content",
+            "purpose": "Check that the template uses the exact required salutation.",
+            "status": "passed",
+            "mandatory": true,
+            "reviewer_guidance": "If this fails, inspect the template text before rebuilding the whole workflow.",
+            "reference": "E04 fixture requirement",
+            "failure_target": "template node text",
+            "failed_checks": [],
+            "failed_assertions": [],
+            "feedback_hints": [
+              "Patch the template text from Hi to Hello."
+            ]
+          },
+          "assertions": [
+            {
+              "passed": true,
+              "actual": "Hello Ada",
+              "path": [
+                "greeting"
+              ],
+              "operator": "equals",
+              "expected": "Hello Ada",
+              "structural": false
+            }
+          ],
+          "tool_evidence": {
+            "used_tools": [],
+            "required_tools": [],
+            "required_tools_passed": true,
+            "required_node_types": [
+              "start",
+              "template_transform",
+              "end"
+            ],
+            "node_types": [
+              "start",
+              "template_transform",
+              "end"
+            ],
+            "required_node_types_passed": true,
+            "required_tool_nodes": [],
+            "tool_node_names": [],
+            "required_tool_nodes_passed": true,
+            "minimum_tool_calls": 0,
+            "minimum_calls_passed": true,
+            "output_urls": [],
+            "cited_tool_urls": [],
+            "unverified_output_urls": [],
+            "citation_passed": true
+          }
+        }
+      ]
+    },
+    "local_repair": {
+      "status": "passed",
+      "operation_count": 1,
+      "operations": [
+        {
+          "op": "update_node",
+          "node_id": "template",
+          "field": "config.template"
+        }
+      ],
+      "elapsed_seconds": 0.0153,
+      "final_revision": 7
+    },
+    "draft_counts": {
+      "nodes": 3,
+      "edges": 2,
+      "tests": 1,
+      "node_types": [
+        "end",
+        "start",
+        "template_transform"
+      ]
+    }
+  },
+  "full_rebuild_arm": {
+    "status": "completed",
+    "application_id": "2f0a3fde-ad03-41b4-989a-2a1d51218c06",
+    "build_id": "55e790a4-acd8-40ba-a637-26511c2c48ac",
+    "build_status": "published",
+    "build_error": null,
+    "elapsed_seconds": 57.127,
+    "builder_task": {
+      "id": "55e790a4-acd8-40ba-a637-26511c2c48ac",
+      "kind": "builder_build",
+      "owner_id": "2f0a3fde-ad03-41b4-989a-2a1d51218c06",
+      "resource_id": "55e790a4-acd8-40ba-a637-26511c2c48ac",
+      "status": "succeeded",
+      "parent_task_id": null,
+      "metadata": {
+        "max_turns": 30,
+        "max_repair_cycles": 2,
+        "auto_publish": false
+      },
+      "usage_counts": {
+        "model_call": 15,
+        "tool_call": 22
+      },
+      "usage": [
+        {
+          "usage_type": "model_call",
+          "amount": 1,
+          "metadata": {
+            "actor": "coordinator",
+            "turn": 1,
+            "model": "deepseek-v4-pro"
+          },
+          "created_at": "2026-07-09T11:19:52.159898+00:00"
+        },
+        {
+          "usage_type": "tool_call",
+          "amount": 1,
+          "metadata": {
+            "actor": "coordinator",
+            "tool": "draft_inspect"
+          },
+          "created_at": "2026-07-09T11:19:56.699903+00:00"
+        },
+        {
+          "usage_type": "tool_call",
+          "amount": 1,
+          "metadata": {
+            "actor": "coordinator",
+            "tool": "catalog_search"
+          },
+          "created_at": "2026-07-09T11:19:56.702669+00:00"
+        },
+        {
+          "usage_type": "model_call",
+          "amount": 1,
+          "metadata": {
+            "actor": "coordinator",
+            "turn": 2,
+            "model": "deepseek-v4-pro"
+          },
+          "created_at": "2026-07-09T11:19:56.709164+00:00"
+        },
+        {
+          "usage_type": "tool_call",
+          "amount": 1,
+          "metadata": {
+            "actor": "coordinator",
+            "tool": "catalog_get"
+          },
+          "created_at": "2026-07-09T11:20:00.033517+00:00"
+        },
+        {
+          "usage_type": "tool_call",
+          "amount": 1,
+          "metadata": {
+            "actor": "coordinator",
+            "tool": "catalog_get"
+          },
+          "created_at": "2026-07-09T11:20:00.037975+00:00"
+        },
+        {
+          "usage_type": "tool_call",
+          "amount": 1,
+          "metadata": {
+            "actor": "coordinator",
+            "tool": "catalog_get"
+          },
+          "created_at": "2026-07-09T11:20:00.040350+00:00"
+        },
+        {
+          "usage_type": "model_call",
+          "amount": 1,
+          "metadata": {
+            "actor": "coordinator",
+            "turn": 3,
+            "model": "deepseek-v4-pro"
+          },
+          "created_at": "2026-07-09T11:20:00.043467+00:00"
+        },
+        {
+          "usage_type": "tool_call",
+          "amount": 1,
+          "metadata": {
+            "actor": "coordinator",
+            "tool": "task"
+          },
+          "created_at": "2026-07-09T11:20:07.289524+00:00"
+        },
+        {
+          "usage_type": "model_call",
+          "amount": 1,
+          "metadata": {
+            "actor": "coordinator",
+            "turn": 4,
+            "model": "deepseek-v4-pro"
+          },
+          "created_at": "2026-07-09T11:20:07.294896+00:00"
+        },
+        {
+          "usage_type": "tool_call",
+          "amount": 1,
+          "metadata": {
+            "actor": "coordinator",
+            "tool": "task"
+          },
+          "created_at": "2026-07-09T11:20:10.297974+00:00"
+        },
+        {
+          "usage_type": "tool_call",
+          "amount": 1,
+          "metadata": {
+            "actor": "coordinator",
+            "tool": "draft_add_node"
+          },
+          "created_at": "2026-07-09T11:20:10.301472+00:00"
+        },
+        {
+          "usage_type": "model_call",
+          "amount": 1,
+          "metadata": {
+            "actor": "coordinator",
+            "turn": 5,
+            "model": "deepseek-v4-pro"
+          },
+          "created_at": "2026-07-09T11:20:10.306430+00:00"
+        },
+        {
+          "usage_type": "tool_call",
+          "amount": 1,
+          "metadata": {
+            "actor": "coordinator",
+            "tool": "draft_add_node"
+          },
+          "created_at": "2026-07-09T11:20:12.882192+00:00"
+        },
+        {
+          "usage_type": "model_call",
+          "amount": 1,
+          "metadata": {
+            "actor": "coordinator",
+            "turn": 6,
+            "model": "deepseek-v4-pro"
+          },
+          "created_at": "2026-07-09T11:20:12.887160+00:00"
+        },
+        {
+          "usage_type": "tool_call",
+          "amount": 1,
+          "metadata": {
+            "actor": "coordinator",
+            "tool": "draft_add_node"
+          },
+          "created_at": "2026-07-09T11:20:15.081315+00:00"
+        },
+        {
+          "usage_type": "model_call",
+          "amount": 1,
+          "metadata": {
+            "actor": "coordinator",
+            "turn": 7,
+            "model": "deepseek-v4-pro"
+          },
+          "created_at": "2026-07-09T11:20:15.086078+00:00"
+        },
+        {
+          "usage_type": "tool_call",
+          "amount": 1,
+          "metadata": {
+            "actor": "coordinator",
+            "tool": "draft_connect"
+          },
+          "created_at": "2026-07-09T11:20:17.608817+00:00"
+        },
+        {
+          "usage_type": "tool_call",
+          "amount": 1,
+          "metadata": {
+            "actor": "coordinator",
+            "tool": "draft_connect"
+          },
+          "created_at": "2026-07-09T11:20:17.612522+00:00"
+        },
+        {
+          "usage_type": "model_call",
+          "amount": 1,
+          "metadata": {
+            "actor": "coordinator",
+            "turn": 8,
+            "model": "deepseek-v4-pro"
+          },
+          "created_at": "2026-07-09T11:20:17.618525+00:00"
+        },
+        {
+          "usage_type": "tool_call",
+          "amount": 1,
+          "metadata": {
+            "actor": "coordinator",
+            "tool": "draft_validate"
+          },
+          "created_at": "2026-07-09T11:20:23.175707+00:00"
+        },
+        {
+          "usage_type": "tool_call",
+          "amount": 1,
+          "metadata": {
+            "actor": "coordinator",
+            "tool": "test_add"
+          },
+          "created_at": "2026-07-09T11:20:23.183179+00:00"
+        },
+        {
+          "usage_type": "model_call",
+          "amount": 1,
+          "metadata": {
+            "actor": "coordinator",
+            "turn": 9,
+            "model": "deepseek-v4-pro"
+          },
+          "created_at": "2026-07-09T11:20:23.187974+00:00"
+        },
+        {
+          "usage_type": "tool_call",
+          "amount": 1,
+          "metadata": {
+            "actor": "coordinator",
+            "tool": "draft_validate"
+          },
+          "created_at": "2026-07-09T11:20:24.630963+00:00"
+        },
+        {
+          "usage_type": "model_call",
+          "amount": 1,
+          "metadata": {
+            "actor": "coordinator",
+            "turn": 10,
+            "model": "deepseek-v4-pro"
+          },
+          "created_at": "2026-07-09T11:20:24.634797+00:00"
+        },
+        {
+          "usage_type": "tool_call",
+          "amount": 1,
+          "metadata": {
+            "actor": "coordinator",
+            "tool": "test_run"
+          },
+          "created_at": "2026-07-09T11:20:25.898404+00:00"
+        },
+        {
+          "usage_type": "model_call",
+          "amount": 1,
+          "metadata": {
+            "actor": "coordinator",
+            "turn": 11,
+            "model": "deepseek-v4-pro"
+          },
+          "created_at": "2026-07-09T11:20:25.915083+00:00"
+        },
+        {
+          "usage_type": "tool_call",
+          "amount": 1,
+          "metadata": {
+            "actor": "coordinator",
+            "tool": "draft_inspect"
+          },
+          "created_at": "2026-07-09T11:20:35.984266+00:00"
+        },
+        {
+          "usage_type": "model_call",
+          "amount": 1,
+          "metadata": {
+            "actor": "coordinator",
+            "turn": 12,
+            "model": "deepseek-v4-pro"
+          },
+          "created_at": "2026-07-09T11:20:35.989746+00:00"
+        },
+        {
+          "usage_type": "tool_call",
+          "amount": 1,
+          "metadata": {
+            "actor": "coordinator",
+            "tool": "test_remove"
+          },
+          "created_at": "2026-07-09T11:20:40.170729+00:00"
+        },
+        {
+          "usage_type": "model_call",
+          "amount": 1,
+          "metadata": {
+            "actor": "coordinator",
+            "turn": 13,
+            "model": "deepseek-v4-pro"
+          },
+          "created_at": "2026-07-09T11:20:40.178348+00:00"
+        },
+        {
+          "usage_type": "tool_call",
+          "amount": 1,
+          "metadata": {
+            "actor": "coordinator",
+            "tool": "test_add"
+          },
+          "created_at": "2026-07-09T11:20:43.628281+00:00"
+        },
+        {
+          "usage_type": "model_call",
+          "amount": 1,
+          "metadata": {
+            "actor": "coordinator",
+            "turn": 14,
+            "model": "deepseek-v4-pro"
+          },
+          "created_at": "2026-07-09T11:20:43.636529+00:00"
+        },
+        {
+          "usage_type": "tool_call",
+          "amount": 1,
+          "metadata": {
+            "actor": "coordinator",
+            "tool": "test_run"
+          },
+          "created_at": "2026-07-09T11:20:45.487227+00:00"
+        },
+        {
+          "usage_type": "model_call",
+          "amount": 1,
+          "metadata": {
+            "actor": "coordinator",
+            "turn": 15,
+            "model": "deepseek-v4-pro"
+          },
+          "created_at": "2026-07-09T11:20:45.514576+00:00"
+        },
+        {
+          "usage_type": "tool_call",
+          "amount": 1,
+          "metadata": {
+            "actor": "coordinator",
+            "tool": "draft_publish"
+          },
+          "created_at": "2026-07-09T11:20:48.681258+00:00"
+        },
+        {
+          "usage_type": "tool_call",
+          "amount": 1,
+          "metadata": {
+            "actor": "coordinator",
+            "tool": "task"
+          },
+          "created_at": "2026-07-09T11:20:48.685492+00:00"
+        }
+      ],
+      "error": "",
+      "worker_id": null,
+      "lease_expires_at": null,
+      "lease_version": 0,
+      "created_at": "2026-07-09T11:19:52.155016+00:00",
+      "updated_at": "2026-07-09T11:20:48.688424+00:00",
+      "finished_at": "2026-07-09T11:20:48.688424+00:00"
+    },
+    "test_report": {
+      "passed": true,
+      "validation": {
+        "valid": true,
+        "errors": [],
+        "warnings": [],
+        "revision": 8,
+        "content_hash": "7a79e7f23ca47b6f61f949513a31171368c63bdeacfc2f07f01e0f26b48e3d82",
+        "test_count": 1
+      },
+      "summary": {
+        "total": 1,
+        "passed": 1,
+        "failed": 0,
+        "mandatory_failed": 0,
+        "frames": [
+          {
+            "test_id": "test_greeting_ada",
+            "title": "Exact greeting output verification",
+            "category": "content",
+            "status": "passed"
+          }
+        ]
+      },
+      "tests": [
+        {
+          "test_id": "test_greeting_ada",
+          "name": "Greeting for Ada",
+          "mandatory": true,
+          "passed": true,
+          "run_id": "74051239-9de3-4ee9-8217-e83d3fd1d355",
+          "frame": {
+            "id": "71b94e75-bd5c-4ecc-afc6-5f5210cedf04",
+            "title": "Exact greeting output verification",
+            "category": "content",
+            "purpose": "Verify that the workflow produces the exact required greeting format 'Hello {name}'.",
+            "reviewer_guidance": "Check that the output is exactly 'Hello Ada' with no extra whitespace, punctuation, or formatting.",
+            "reference": "User requirement: 'For name Ada the output must be exactly Hello Ada'",
+            "failure_target": "template_transform node or answer node config"
+          },
+          "readable_report": {
+            "title": "Exact greeting output verification",
+            "category": "content",
+            "purpose": "Verify that the workflow produces the exact required greeting format 'Hello {name}'.",
+            "status": "passed",
+            "mandatory": true,
+            "reviewer_guidance": "Check that the output is exactly 'Hello Ada' with no extra whitespace, punctuation, or formatting.",
+            "reference": "User requirement: 'For name Ada the output must be exactly Hello Ada'",
+            "failure_target": "template_transform node or answer node config",
+            "failed_checks": [],
+            "failed_assertions": [],
+            "feedback_hints": []
+          },
+          "assertions": [
+            {
+              "passed": true,
+              "actual": "Hello Ada",
+              "path": [
+                "answer"
+              ],
+              "operator": "equals",
+              "expected": "Hello Ada",
+              "structural": false
+            }
+          ],
+          "tool_evidence": {
+            "used_tools": [],
+            "required_tools": [],
+            "required_tools_passed": true,
+            "required_node_types": [
+              "start",
+              "template_transform",
+              "answer"
+            ],
+            "node_types": [
+              "start",
+              "template_transform",
+              "answer"
+            ],
+            "required_node_types_passed": true,
+            "required_tool_nodes": [],
+            "tool_node_names": [],
+            "required_tool_nodes_passed": true,
+            "minimum_tool_calls": 0,
+            "minimum_calls_passed": true,
+            "output_urls": [],
+            "cited_tool_urls": [],
+            "unverified_output_urls": [],
+            "citation_passed": true
+          }
+        }
+      ]
+    },
+    "draft_counts": {
+      "nodes": 3,
+      "edges": 2,
+      "tests": 1,
+      "node_types": [
+        "answer",
+        "start",
+        "template_transform"
+      ]
+    }
+  },
+  "comparison": {
+    "local_success": true,
+    "full_rebuild_success": true,
+    "local_elapsed_seconds": 0.0153,
+    "full_rebuild_elapsed_seconds": 57.127,
+    "local_operation_count": 1,
+    "full_rebuild_model_calls": 15,
+    "full_rebuild_tool_calls": 22,
+    "narrow_conclusion": "Local repair is cheaper and sufficient for this localized template failure."
+  },
+  "conclusion_boundary": "This fixture covers a localized template failure in a mostly correct BlockFlow. It does not prove local repair is always better than full rebuild."
+}

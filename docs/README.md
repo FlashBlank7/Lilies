@@ -58,6 +58,7 @@
 - `stage-reports/v0.2.34_e01_required_readiness_repair.md`
 - `stage-reports/v0.2.35_e01_required_architecture_coverage.md`
 - `stage-reports/v0.2.36_e02_readable_testframe_human_review.md`
+- `stage-reports/v0.2.37_e04_local_repair_vs_full_rebuild.md`
 
 ## 使用原则
 

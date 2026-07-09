@@ -52,6 +52,17 @@ def load_e02_review_experiment_module() -> Any:
     return module
 
 
+def load_e04_repair_experiment_module() -> Any:
+    module_path = Path(__file__).resolve().parents[1] / "scripts" / "e04_local_repair_vs_full_rebuild_experiment.py"
+    spec = importlib.util.spec_from_file_location("e04_repair_experiment_under_test", module_path)
+    assert spec is not None
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
 class IncrementalBuilderProvider(ModelProvider):
     name = "deepseek"
 
@@ -2366,6 +2377,18 @@ def test_e02_review_experiment_builds_paired_packets(tmp_path: Path) -> None:
         artifacts["deterministic_metrics"]["readable_testframe"]["estimated_total_json_paths"]
         < artifacts["deterministic_metrics"]["raw_legacy_json"]["estimated_total_json_paths"]
     )
+
+
+def test_e04_repair_experiment_local_arm_repairs_fixed_draft(tmp_path: Path) -> None:
+    module = load_e04_repair_experiment_module()
+
+    artifacts = module.build_local_repair_artifacts(tmp_path)
+
+    assert artifacts["before_test_report"]["passed"] is False
+    assert artifacts["after_test_report"]["passed"] is True
+    assert artifacts["local_repair"]["operation_count"] == 1
+    assert artifacts["local_repair"]["operations"][0]["op"] == "update_node"
+    assert artifacts["draft_counts"]["node_types"] == ["end", "start", "template_transform"]
 
 
 def test_natural_language_draft_patch_preview_is_non_destructive(tmp_path: Path) -> None:
