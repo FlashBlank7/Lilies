@@ -1528,6 +1528,75 @@ def test_platform_harness_secret_store_api_redacts_values(tmp_path: Path) -> Non
         assert client.get("/api/v1/platform/secrets?owner_id=owner-a", headers=headers()).json() == []
 
 
+def test_platform_harness_secret_store_uses_envelope_at_rest(tmp_path: Path) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+        platform_harness_secret_envelope_key="unit-test-envelope-key",
+    )
+    app = create_app(settings, ScriptedProvider())
+    with TestClient(app) as client:
+        created = client.post(
+            "/api/v1/platform/secrets",
+            headers=headers(),
+            json={
+                "owner_id": "owner-a",
+                "name": "api_token",
+                "value": "sk-envelope-secret",
+                "description": "test secret",
+            },
+        )
+        assert created.status_code == 201, created.text
+        assert created.json()["storage_mode"] == "encrypted_v1"
+        assert created.json()["encrypted"] is True
+        assert "sk-envelope-secret" not in created.text
+
+        raw = asyncio.run(
+            app.state.services.storage.get_platform_secret(owner_id="owner-a", name="api_token")
+        )
+        assert raw["value"].startswith("secret-envelope:v1:")
+        assert "sk-envelope-secret" not in raw["value"]
+
+        injected = asyncio.run(
+            app.state.services.harness.inject_secret_references(
+                owner_id="owner-a",
+                payload={"Authorization": {"$secret": "api_token", "prefix": "Bearer "}},
+            )
+        )
+        assert injected == {"Authorization": "Bearer sk-envelope-secret"}
+
+
+def test_platform_harness_secret_envelope_reads_legacy_plaintext_rows(tmp_path: Path) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+        platform_harness_secret_envelope_key="unit-test-envelope-key",
+    )
+    app = create_app(settings, ScriptedProvider())
+    with TestClient(app):
+        asyncio.run(
+            app.state.services.storage.save_platform_secret(
+                owner_id="owner-a",
+                name="legacy_token",
+                value="sk-legacy-secret",
+                description="legacy row",
+            )
+        )
+        listed = asyncio.run(app.state.services.harness.list_secrets(owner_id="owner-a"))
+        assert listed[0]["storage_mode"] == "legacy_plaintext"
+        assert listed[0]["encrypted"] is False
+
+        injected = asyncio.run(
+            app.state.services.harness.inject_secret_references(
+                owner_id="owner-a",
+                payload={"Authorization": {"$secret": "legacy_token", "prefix": "Bearer "}},
+            )
+        )
+        assert injected == {"Authorization": "Bearer sk-legacy-secret"}
+
+
 def test_platform_harness_secret_reference_injects_http_headers(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

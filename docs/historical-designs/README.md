@@ -34,6 +34,7 @@
 - `v0.2.22_*`：来自 `docs/stage-reports/v0.2.22_platform_harness_stdio_sandbox_egress.md`。
 - `v0.2.23_*`：来自 `docs/stage-reports/v0.2.23_sandboxed_stdio_mcp_runner.md`。
 - `v0.2.24_*`：来自 `docs/stage-reports/v0.2.24_platform_harness_stdio_policy_controls.md`。
+- `v0.2.25_*`：来自 `docs/stage-reports/v0.2.25_platform_harness_secret_envelope.md`。
 
 Active workspace rule:
 

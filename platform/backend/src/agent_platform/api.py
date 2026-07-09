@@ -111,6 +111,7 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         max_node_executions_per_owner=settings.platform_harness_max_node_executions_per_owner,
         stale_active_task_seconds=settings.platform_harness_stale_active_task_seconds,
         secret_policy_enabled=settings.platform_harness_secret_policy_enabled,
+        secret_envelope_key=settings.platform_harness_secret_envelope_key or settings.api_token,
         network_egress_policy=settings.platform_harness_network_egress_policy,
         network_egress_allowlist=settings.platform_harness_network_egress_allowlist,
         worker_id=settings.platform_harness_worker_id or None,

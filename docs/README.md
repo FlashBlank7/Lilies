@@ -46,6 +46,7 @@
 - `stage-reports/v0.2.22_platform_harness_stdio_sandbox_egress.md`
 - `stage-reports/v0.2.23_sandboxed_stdio_mcp_runner.md`
 - `stage-reports/v0.2.24_platform_harness_stdio_policy_controls.md`
+- `stage-reports/v0.2.25_platform_harness_secret_envelope.md`
 
 ## 使用原则
 

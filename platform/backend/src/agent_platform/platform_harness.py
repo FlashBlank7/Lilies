@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import hashlib
+import hmac
+import json
 import os
 import socket
 from datetime import datetime, timedelta, timezone
@@ -40,6 +44,8 @@ SECRET_FIELD_MARKERS = (
     "cookie",
 )
 SECRET_REFERENCE_KEYS = ("$secret", "secret_ref")
+SECRET_ENVELOPE_PREFIX = "secret-envelope:v1:"
+SECRET_ENVELOPE_ITERATIONS = 200_000
 
 
 class PlatformHarnessViolation(RuntimeError):
@@ -94,6 +100,7 @@ class PlatformHarness:
         max_node_executions_per_owner: int = 0,
         stale_active_task_seconds: float = 0.0,
         secret_policy_enabled: bool = True,
+        secret_envelope_key: str = "",
         network_egress_policy: str = "full",
         network_egress_allowlist: list[str] | None = None,
         worker_id: str | None = None,
@@ -109,6 +116,7 @@ class PlatformHarness:
         self.max_node_executions_per_owner = max_node_executions_per_owner
         self.stale_active_task_seconds = stale_active_task_seconds
         self.secret_policy_enabled = secret_policy_enabled
+        self.secret_envelope_key = secret_envelope_key
         self.network_egress_policy = network_egress_policy
         self.network_egress_allowlist = network_egress_allowlist or []
         self.worker_id = worker_id or f"{socket.gethostname()}:{os.getpid()}"
@@ -617,10 +625,11 @@ class PlatformHarness:
         description: str = "",
     ) -> dict[str, Any]:
         self._validate_secret_identity(owner_id, name)
+        stored_value = self._encrypt_secret_value(value)
         row = await self.storage.save_platform_secret(
             owner_id=owner_id,
             name=name,
-            value=value,
+            value=stored_value,
             description=description,
         )
         await self.storage.append_event(
@@ -674,7 +683,91 @@ class PlatformHarness:
             raise PlatformHarnessViolation(str(error)) from error
         prefix = str(reference.get("prefix", ""))
         suffix = str(reference.get("suffix", ""))
-        return f"{prefix}{row['value']}{suffix}"
+        return f"{prefix}{self._decrypt_secret_value(str(row['value']))}{suffix}"
+
+    def _encrypt_secret_value(self, value: str) -> str:
+        if not self.secret_envelope_key:
+            return value
+        salt = os.urandom(16)
+        nonce = os.urandom(16)
+        enc_key, mac_key = self._derive_secret_envelope_keys(salt)
+        plaintext = value.encode("utf-8")
+        ciphertext = self._xor_bytes(plaintext, self._keystream(enc_key, nonce, len(plaintext)))
+        envelope = {
+            "algorithm": "hmac-sha256-xor-stream",
+            "ciphertext": self._b64(ciphertext),
+            "iterations": SECRET_ENVELOPE_ITERATIONS,
+            "kdf": "pbkdf2-hmac-sha256",
+            "nonce": self._b64(nonce),
+            "salt": self._b64(salt),
+            "version": 1,
+        }
+        mac_input = self._stable_json(envelope).encode("utf-8")
+        envelope["tag"] = self._b64(hmac.new(mac_key, mac_input, hashlib.sha256).digest())
+        return SECRET_ENVELOPE_PREFIX + self._b64(self._stable_json(envelope).encode("utf-8"))
+
+    def _decrypt_secret_value(self, stored_value: str) -> str:
+        if not stored_value.startswith(SECRET_ENVELOPE_PREFIX):
+            return stored_value
+        if not self.secret_envelope_key:
+            raise PlatformHarnessViolation("platform secret envelope key is not configured")
+        try:
+            raw = self._unb64(stored_value.removeprefix(SECRET_ENVELOPE_PREFIX))
+            envelope = json.loads(raw.decode("utf-8"))
+            tag = self._unb64(str(envelope.pop("tag")))
+            salt = self._unb64(str(envelope["salt"]))
+            nonce = self._unb64(str(envelope["nonce"]))
+            ciphertext = self._unb64(str(envelope["ciphertext"]))
+        except Exception as error:
+            raise PlatformHarnessViolation("platform secret envelope is invalid") from error
+        enc_key, mac_key = self._derive_secret_envelope_keys(salt)
+        mac_input = self._stable_json(envelope).encode("utf-8")
+        expected = hmac.new(mac_key, mac_input, hashlib.sha256).digest()
+        if not hmac.compare_digest(tag, expected):
+            raise PlatformHarnessViolation("platform secret envelope authentication failed")
+        plaintext = self._xor_bytes(ciphertext, self._keystream(enc_key, nonce, len(ciphertext)))
+        try:
+            return plaintext.decode("utf-8")
+        except UnicodeDecodeError as error:
+            raise PlatformHarnessViolation("platform secret envelope plaintext is invalid") from error
+
+    def _derive_secret_envelope_keys(self, salt: bytes) -> tuple[bytes, bytes]:
+        material = hashlib.pbkdf2_hmac(
+            "sha256",
+            self.secret_envelope_key.encode("utf-8"),
+            salt,
+            SECRET_ENVELOPE_ITERATIONS,
+            dklen=64,
+        )
+        return material[:32], material[32:]
+
+    def _keystream(self, key: bytes, nonce: bytes, length: int) -> bytes:
+        chunks: list[bytes] = []
+        counter = 0
+        produced = 0
+        while produced < length:
+            counter_bytes = counter.to_bytes(8, "big")
+            chunk = hmac.new(key, nonce + counter_bytes, hashlib.sha256).digest()
+            chunks.append(chunk)
+            produced += len(chunk)
+            counter += 1
+        return b"".join(chunks)[:length]
+
+    def _xor_bytes(self, left: bytes, right: bytes) -> bytes:
+        return bytes(a ^ b for a, b in zip(left, right, strict=True))
+
+    def _stable_json(self, value: dict[str, Any]) -> str:
+        return json.dumps(value, sort_keys=True, separators=(",", ":"))
+
+    def _b64(self, value: bytes) -> str:
+        return base64.urlsafe_b64encode(value).decode("ascii").rstrip("=")
+
+    def _unb64(self, value: str) -> bytes:
+        padded = value + "=" * (-len(value) % 4)
+        return base64.urlsafe_b64decode(padded.encode("ascii"))
+
+    def _secret_storage_mode(self, stored_value: str) -> str:
+        return "encrypted_v1" if stored_value.startswith(SECRET_ENVELOPE_PREFIX) else "legacy_plaintext"
 
     def _split_secret_reference(self, raw_ref: str, default_owner_id: str) -> tuple[str, str]:
         normalized = raw_ref.removeprefix("secret://").strip()
@@ -690,12 +783,15 @@ class PlatformHarness:
             raise PlatformHarnessViolation("invalid platform secret name")
 
     def _public_secret(self, row: dict[str, Any]) -> dict[str, Any]:
+        storage_mode = self._secret_storage_mode(str(row.get("value", "")))
         return {
             "id": row["id"],
             "owner_id": row["owner_id"],
             "name": row["name"],
             "description": row.get("description", ""),
             "secret_ref": f"secret://{row['owner_id']}/{row['name']}",
+            "storage_mode": storage_mode,
+            "encrypted": storage_mode.startswith("encrypted"),
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
             "redacted": True,
@@ -835,6 +931,10 @@ class PlatformHarness:
             "network_egress_policy": self._normalized_policy(self.network_egress_policy),
             "network_egress_allowlist": list(self.network_egress_allowlist),
             "secret_policy_enabled": self.secret_policy_enabled,
+            "secret_storage": {
+                "new_secret_mode": "encrypted_v1" if self.secret_envelope_key else "legacy_plaintext",
+                "envelope_configured": bool(self.secret_envelope_key),
+            },
             "worker_id": self.worker_id,
             "worker_lease_seconds": self.worker_lease_seconds,
             "limits": {
