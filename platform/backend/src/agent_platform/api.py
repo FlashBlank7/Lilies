@@ -983,6 +983,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             body.auto_publish,
             body.max_turns,
             body.max_repair_cycles,
+            body.planning_mode,
         )
         services.builder.start(build_id)
         return {"build_id": build_id, "application_id": application_id, "status": "queued"}

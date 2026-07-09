@@ -35,6 +35,7 @@ MAX_TURNS = int(os.getenv("LIVE_BUILDER_BENCHMARK_MAX_TURNS", "36"))
 TIMEOUT_SECONDS = float(os.getenv("LIVE_BUILDER_BENCHMARK_TIMEOUT_SECONDS", "900"))
 RUNNER_MODE = os.getenv("LIVE_BUILDER_BENCHMARK_MODE", "inprocess")
 REUSE_RESULT = os.getenv("LIVE_BUILDER_BENCHMARK_REUSE_RESULT", "0") == "1"
+PLANNING_MODE = os.getenv("LIVE_BUILDER_BENCHMARK_PLANNING_MODE", "auto")
 
 
 def utc_now() -> str:
@@ -170,6 +171,7 @@ def main() -> None:
         "finished_at": None,
         "base_url": BASE_URL,
         "runner_mode": RUNNER_MODE,
+        "planning_mode": PLANNING_MODE,
         "reuse_result": REUSE_RESULT,
         "reuse_source_path": str(REUSE_SOURCE_PATH) if REUSE_RESULT else "",
         "max_turns": MAX_TURNS,
@@ -251,6 +253,7 @@ def main() -> None:
                         "auto_publish": False,
                         "max_turns": MAX_TURNS,
                         "max_repair_cycles": 1,
+                        "planning_mode": PLANNING_MODE,
                     },
                 )
                 result["build_id"] = build["build_id"]

@@ -279,6 +279,7 @@ class BuildRequest(BaseModel):
     auto_publish: bool = True
     max_turns: int = Field(default=60, ge=5, le=200)
     max_repair_cycles: int = Field(default=8, ge=1, le=30)
+    planning_mode: Literal["auto", "required", "disabled"] = "auto"
 
 
 class WorkflowRunRequest(BaseModel):
@@ -359,3 +360,4 @@ class BuildTeamState(BaseModel):
     published_version: int | None = None
     repair_cycles: int = 0
     last_failed_test_revision: int | None = None
+    planning_mode: Literal["auto", "required", "disabled"] = "auto"

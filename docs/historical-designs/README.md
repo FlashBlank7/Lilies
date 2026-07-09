@@ -41,6 +41,7 @@
 - `v0.2.29_*`：来自 `docs/stage-reports/v0.2.29_formal_experiment_tranche.md`。
 - `v0.2.30_*`：来自 `docs/stage-reports/v0.2.30_builder_terminal_node_repair.md`。
 - `v0.2.31_*`：来自 `docs/stage-reports/v0.2.31_builder_repair_confirmation.md`。
+- `v0.2.32_*`：来自 `docs/stage-reports/v0.2.32_e01_plan_first_ab.md`。
 
 Active workspace rule:
 

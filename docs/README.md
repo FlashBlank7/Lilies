@@ -53,6 +53,7 @@
 - `stage-reports/v0.2.29_formal_experiment_tranche.md`
 - `stage-reports/v0.2.30_builder_terminal_node_repair.md`
 - `stage-reports/v0.2.31_builder_repair_confirmation.md`
+- `stage-reports/v0.2.32_e01_plan_first_ab.md`
 
 ## 使用原则
 

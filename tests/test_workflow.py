@@ -3360,6 +3360,86 @@ def test_builder_persists_plan_first_build_plan(tmp_path: Path) -> None:
         assert tools[0] == "build_plan"
 
 
+def test_builder_planning_mode_required_blocks_mutation_before_plan(tmp_path: Path) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+    )
+    app = create_app(settings, IncrementalBuilderProvider())
+    with TestClient(app) as client:
+        app_id = client.post(
+            "/api/v1/applications",
+            headers=headers(),
+            json={"name": "Plan required", "requirement": "Build a tested greeting workflow."},
+        ).json()["id"]
+        build_id = client.post(
+            f"/api/v1/applications/{app_id}/builds",
+            headers=headers(),
+            json={
+                "requirement": "Build a tested greeting workflow.",
+                "auto_publish": False,
+                "max_turns": 5,
+                "planning_mode": "required",
+            },
+        ).json()["build_id"]
+        for _ in range(100):
+            build = client.get(f"/api/v1/builds/{build_id}", headers=headers()).json()
+            if build["status"] == "needs_attention":
+                break
+            time.sleep(0.01)
+
+        assert build["status"] == "needs_attention", build
+        assert build["team_state"]["planning_mode"] == "required"
+        operation_events = client.get(f"/v1/streams/{build_id}", headers=headers()).json()
+        results = [
+            event["data"].get("result", "")
+            for event in operation_events
+            if event["type"] == "build.operation"
+        ]
+        assert any("build_plan required before draft_add_node" in result for result in results)
+
+
+def test_builder_planning_mode_disabled_rejects_build_plan_tool(tmp_path: Path) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+    )
+    app = create_app(settings, PlanFirstBuilderProvider())
+    with TestClient(app) as client:
+        app_id = client.post(
+            "/api/v1/applications",
+            headers=headers(),
+            json={"name": "Plan disabled", "requirement": "Build a modular workflow."},
+        ).json()["id"]
+        build_id = client.post(
+            f"/api/v1/applications/{app_id}/builds",
+            headers=headers(),
+            json={
+                "requirement": "Build a modular workflow.",
+                "auto_publish": False,
+                "max_turns": 5,
+                "planning_mode": "disabled",
+            },
+        ).json()["build_id"]
+        for _ in range(100):
+            build = client.get(f"/api/v1/builds/{build_id}", headers=headers()).json()
+            if build["status"] == "needs_attention":
+                break
+            time.sleep(0.01)
+
+        assert build["status"] == "needs_attention", build
+        assert build["team_state"]["planning_mode"] == "disabled"
+        operation_events = client.get(f"/v1/streams/{build_id}", headers=headers()).json()
+        results = [
+            event["data"].get("result", "")
+            for event in operation_events
+            if event["type"] == "build.operation"
+        ]
+        assert any("build_plan is disabled" in result for result in results)
+
+
 def test_builder_must_read_manual_before_agent_architecture_blocks(tmp_path: Path) -> None:
     settings = Settings(
         api_token="workflow-test",

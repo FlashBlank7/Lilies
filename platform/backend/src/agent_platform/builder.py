@@ -354,7 +354,10 @@ class WorkflowBuilder:
         tracker: DecisionTracker | None = None,
     ) -> str:
         final = ""
-        tools = self._definitions(allow_team=teammate is None)
+        tools = self._definitions(
+            allow_team=teammate is None,
+            planning_mode=state.planning_mode,
+        )
         for turn in range(1, max_turns + 1):
             await self.harness.record_usage(
                 build_id,
@@ -363,7 +366,7 @@ class WorkflowBuilder:
             )
             stream = self.provider.stream(
                 model=self.generator_model,
-                system=BUILDER_SYSTEM_PROMPT + (
+                system=BUILDER_SYSTEM_PROMPT + self._planning_mode_prompt(state.planning_mode) + (
                     f"\nYou are teammate {teammate}. Complete your assigned bounded task and report evidence."
                     if teammate else "\nYou are the coordinator. Delegate when useful and synthesize results."
                 ),
@@ -448,6 +451,8 @@ class WorkflowBuilder:
         auto_publish: bool,
         tracker: DecisionTracker | None = None,
     ) -> Any:
+        if state.planning_mode == "disabled" and tool == "build_plan":
+            raise RuntimeError("build_plan is disabled for this build planning_mode")
         if tool == "catalog_search":
             query = str(data.get("query", "")).casefold()
             definitions = [
@@ -565,6 +570,7 @@ class WorkflowBuilder:
                 for name in self.blocks.template_names()
             ]
         if tool == "template_expand":
+            self._enforce_planning_required(state, tool)
             template_name = str(data["name"])
             prefix = str(data.get("prefix") or template_name)
             position = data.get("position") if isinstance(data.get("position"), dict) else {}
@@ -620,6 +626,7 @@ class WorkflowBuilder:
             "draft_add_node", "draft_update_node", "draft_remove_node", "draft_connect",
             "draft_remove_edge", "draft_upsert_agent", "test_add", "test_remove",
         }:
+            self._enforce_planning_required(state, tool)
             draft = await self.workflow_store.get_draft(application_id)
             if tool == "draft_add_node":
                 node = NodeSpec.model_validate(data["node"])
@@ -787,7 +794,12 @@ class WorkflowBuilder:
             return {"name": name, "status": "idle", "result": result}
         raise KeyError(f"unknown builder tool: {tool}")
 
-    def _definitions(self, *, allow_team: bool) -> list[ToolDefinition]:
+    def _definitions(
+        self,
+        *,
+        allow_team: bool,
+        planning_mode: str = "auto",
+    ) -> list[ToolDefinition]:
         object_schema = {"type": "object", "additionalProperties": True}
         definitions = [
             ToolDefinition(name="catalog_search", description="Search available workflow bricks.", input_schema={"type": "object", "properties": {"query": {"type": "string"}}}),
@@ -810,15 +822,39 @@ class WorkflowBuilder:
             ToolDefinition(name="test_remove", description="Remove an incorrect test, never to hide a real failure.", input_schema={"type": "object", "properties": {"test_id": {"type": "string"}}, "required": ["test_id"]}),
             ToolDefinition(name="test_run", description="Run all mandatory tests against the exact current draft using real providers and tools.", input_schema={"type": "object", "properties": {}}),
             ToolDefinition(name="draft_publish", description="Publish an immutable version; fails unless current hash passed all mandatory tests.", input_schema={"type": "object", "properties": {"explicit": {"type": "boolean"}}}),
-            ToolDefinition(name="build_plan", description="Create, inspect, or update a module-level BuildPlan before building complex BlockFlows.", input_schema={"type": "object", "properties": {"action": {"enum": ["set", "get", "update_module"]}, "plan": BuildPlan.model_json_schema(), "module_id": {"type": "string"}, "changes": object_schema}, "required": ["action"]}),
             ToolDefinition(name="task", description="Create/list/update shared requirement tasks with owners and dependencies.", input_schema={"type": "object", "properties": {"action": {"enum": ["create", "list", "update"]}, "id": {"type": "integer"}, "subject": {"type": "string"}, "description": {"type": "string"}, "status": {"enum": ["pending", "in_progress", "completed", "blocked"]}, "owner": {"type": "string"}, "blocked_by": {"type": "array", "items": {"type": "integer"}}, "acceptance": {"type": "array", "items": {"type": "string"}}}, "required": ["action"]}),
         ]
+        if planning_mode != "disabled":
+            definitions.append(
+                ToolDefinition(name="build_plan", description="Create, inspect, or update a module-level BuildPlan before building complex BlockFlows.", input_schema={"type": "object", "properties": {"action": {"enum": ["set", "get", "update_module"]}, "plan": BuildPlan.model_json_schema(), "module_id": {"type": "string"}, "changes": object_schema}, "required": ["action"]})
+            )
         if allow_team:
             definitions.extend([
                 ToolDefinition(name="spawn_teammate", description="Create an isolated persistent teammate for a bounded task.", input_schema={"type": "object", "properties": {"name": {"type": "string"}, "task": {"type": "string"}, "max_turns": {"type": "integer"}}, "required": ["name", "task"]}),
                 ToolDefinition(name="send_message", description="Wake an existing teammate with a follow-up message while retaining its context.", input_schema={"type": "object", "properties": {"name": {"type": "string"}, "message": {"type": "string"}, "max_turns": {"type": "integer"}}, "required": ["name", "message"]}),
             ])
         return definitions
+
+    @staticmethod
+    def _planning_mode_prompt(planning_mode: str) -> str:
+        if planning_mode == "required":
+            return (
+                "\nPlanning mode is REQUIRED for this build: call build_plan with action=\"set\" "
+                "before any draft, template, or test mutation. Keep the plan updated as evidence changes."
+            )
+        if planning_mode == "disabled":
+            return (
+                "\nPlanning mode is DISABLED for this build: do not call build_plan. "
+                "Build incrementally node by node using draft and test tools only."
+            )
+        return ""
+
+    @staticmethod
+    def _enforce_planning_required(state: BuildTeamState, tool: str) -> None:
+        if state.planning_mode == "required" and state.build_plan is None:
+            raise RuntimeError(
+                f"build_plan required before {tool} when planning_mode=required"
+            )
 
     async def _emit(self, stream_id: str, kind: str, data: dict[str, Any]) -> None:
         await self.storage.append_event(stream_id, kind, data)

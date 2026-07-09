@@ -412,6 +412,7 @@ class WorkflowStorage:
         auto_publish: bool,
         max_turns: int,
         max_repair_cycles: int,
+        planning_mode: str = "auto",
     ) -> None:
         now = utc_now()
         async with self._lock:
@@ -426,7 +427,7 @@ class WorkflowStorage:
                     int(auto_publish),
                     max_turns,
                     max_repair_cycles,
-                    BuildTeamState().model_dump_json(),
+                    BuildTeamState(planning_mode=planning_mode).model_dump_json(),
                     None,
                     now,
                     now,

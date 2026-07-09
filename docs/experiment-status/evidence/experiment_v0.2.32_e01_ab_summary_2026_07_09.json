@@ -1,0 +1,69 @@
+{
+  "stage": "v0.2.32_e01_plan_first_ab",
+  "runs": {
+    "plan_first_required": {
+      "label": "plan_first_required",
+      "planning_mode": "required",
+      "status": "passed",
+      "build_status": "ready",
+      "duration_seconds": 183.7,
+      "score": 0.85,
+      "pass_rate": 1.0,
+      "missing": {
+        "node_types": [],
+        "tool_nodes": [],
+        "harness_nodes": []
+      },
+      "draft_counts": {
+        "nodes": 3,
+        "edges": 2,
+        "tests": 1,
+        "node_types": [
+          "end",
+          "llm",
+          "start"
+        ]
+      },
+      "model_calls": 21,
+      "tool_calls": 30,
+      "build_plan_calls": 6,
+      "operation_count": 30,
+      "raw_evidence": "docs/experiment-status/evidence/experiment_v0.2.32_e01_plan_first_required_2026_07_09.json"
+    },
+    "node_by_node_disabled": {
+      "label": "node_by_node_disabled",
+      "planning_mode": "disabled",
+      "status": "passed",
+      "build_status": "ready",
+      "duration_seconds": 87.4,
+      "score": 0.85,
+      "pass_rate": 1.0,
+      "missing": {
+        "node_types": [],
+        "tool_nodes": [],
+        "harness_nodes": []
+      },
+      "draft_counts": {
+        "nodes": 3,
+        "edges": 2,
+        "tests": 1,
+        "node_types": [
+          "end",
+          "llm",
+          "start"
+        ]
+      },
+      "model_calls": 18,
+      "tool_calls": 25,
+      "build_plan_calls": 0,
+      "operation_count": 25,
+      "raw_evidence": "docs/experiment-status/evidence/experiment_v0.2.32_e01_node_by_node_disabled_2026_07_09.json"
+    }
+  },
+  "conclusion": {
+    "quality_result": "Both modes reached ready and passed the benchmark with score 0.85 on the summary smoke task.",
+    "cost_result": "Node-by-node disabled mode was cheaper/faster in this first smoke A/B: fewer model calls, fewer tool calls, and shorter duration.",
+    "boundary": "This closes a first controlled paid/live smoke A/B tranche, not the original complex BlockFlow E01 question.",
+    "next_action": "Run a complex multi-module E01 A/B before promoting plan-first as a quality-improving strategy."
+  }
+}
