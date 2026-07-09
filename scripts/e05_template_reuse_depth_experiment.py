@@ -33,9 +33,15 @@ MAX_TURNS = int(os.getenv("E05_REUSE_DEPTH_MAX_TURNS", "42"))
 MAX_REPAIR_CYCLES = int(os.getenv("E05_REUSE_DEPTH_MAX_REPAIR_CYCLES", "2"))
 TIMEOUT_SECONDS = float(os.getenv("E05_REUSE_DEPTH_TIMEOUT_SECONDS", "900"))
 PROVIDER_TIMEOUT_SECONDS = float(os.getenv("E05_REUSE_DEPTH_PROVIDER_TIMEOUT_SECONDS", "120"))
+MAX_ELAPSED_SECONDS = (
+    float(os.environ["E05_REUSE_DEPTH_MAX_ELAPSED_SECONDS"])
+    if os.getenv("E05_REUSE_DEPTH_MAX_ELAPSED_SECONDS")
+    else None
+)
 SKIP_PAID = os.getenv("E05_REUSE_DEPTH_SKIP_PAID", "0") == "1"
 RUN_ID = os.getenv("E05_REUSE_DEPTH_RUN_ID") or datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 EXPERIMENT_VERSION = os.getenv("E05_REUSE_DEPTH_EXPERIMENT_VERSION", "v0.2.38")
+EXPERIMENT_CASE = os.getenv("E05_REUSE_DEPTH_CASE", "code_review")
 
 
 @dataclass(frozen=True)
@@ -43,6 +49,17 @@ class ReuseDepthArm:
     depth: str
     instruction: str
     expected_action: str
+
+
+@dataclass(frozen=True)
+class ExperimentCase:
+    name: str
+    title: str
+    template_name: str
+    preflight_query: str
+    base_requirement: str
+    benchmark_reference: dict[str, Any]
+    required_node_types: list[str]
 
 
 def utc_now() -> str:
@@ -106,29 +123,8 @@ def depth_arms() -> list[ReuseDepthArm]:
     ]
 
 
-def base_requirement() -> str:
-    return """
-Build and validate an editable code review and repair BlockFlow.
-
-The BlockFlow must:
-1. Start with inputs: task, repository_path, failing_test_output, and test_command.
-2. Analyze the code review task and failing test output.
-3. Produce a minimal repair plan and a reviewer-facing final report.
-4. Include an explicit tested output contract with a readable frame.
-5. Include required_node_types in the mandatory test so the workflow remains auditable.
-6. End with outputs: report, tests_passed, and repair_summary.
-
-This requirement is intentionally related to the built-in code_reviewer template
-and should expose whether Template reuse depth changes Builder behavior.
-""".strip()
-
-
-def requirement_for_arm(arm: ReuseDepthArm) -> str:
-    return f"{base_requirement()}\n\nE05 reuse-depth instruction:\n{arm.instruction}"
-
-
-def benchmark_reference() -> dict[str, Any]:
-    return {
+def code_review_case() -> ExperimentCase:
+    reference = {
         "nodes": [
             {
                 "id": "start",
@@ -187,6 +183,189 @@ def benchmark_reference() -> dict[str, Any]:
             },
         ],
     }
+    requirement = """
+Build and validate an editable code review and repair BlockFlow.
+
+The BlockFlow must:
+1. Start with inputs: task, repository_path, failing_test_output, and test_command.
+2. Analyze the code review task and failing test output.
+3. Produce a minimal repair plan and a reviewer-facing final report.
+4. Include an explicit tested output contract with a readable frame.
+5. Include required_node_types in the mandatory test so the workflow remains auditable.
+6. End with outputs: report, tests_passed, and repair_summary.
+
+This requirement is intentionally related to the built-in code_reviewer template
+and should expose whether Template reuse depth changes Builder behavior.
+""".strip()
+    return ExperimentCase(
+        name="code_review",
+        title="Code review and repair",
+        template_name="code_reviewer",
+        preflight_query="code review testing debugging quality",
+        base_requirement=requirement,
+        benchmark_reference=reference,
+        required_node_types=["start", "llm", "end"],
+    )
+
+
+def customer_support_router_case() -> ExperimentCase:
+    reference = {
+        "nodes": [
+            {
+                "id": "start",
+                "type": "start",
+                "title": "Customer Message",
+                "config": {
+                    "inputs": [
+                        {"name": "customer_message", "type": "string"},
+                        {"name": "customer_tier", "type": "string", "required": False},
+                    ],
+                },
+            },
+            {
+                "id": "classify",
+                "type": "question_classifier",
+                "title": "Classify Customer Intent",
+                "config": {
+                    "classes": ["complaint", "question", "feedback", "urgent"],
+                    "input": {"$ref": {"node_id": "start", "path": ["customer_message"]}},
+                },
+            },
+            {
+                "id": "route",
+                "type": "if_else",
+                "title": "Route By Intent",
+                "config": {
+                    "cases": [
+                        {
+                            "id": "urgent",
+                            "conditions": [
+                                {
+                                    "value": {"$ref": {"node_id": "classify", "path": ["branch"]}},
+                                    "operator": "equals",
+                                    "expected": "urgent",
+                                }
+                            ],
+                        }
+                    ],
+                    "default_branch": "standard",
+                },
+            },
+            {
+                "id": "format",
+                "type": "template_transform",
+                "title": "Format Support Response",
+                "config": {
+                    "template": "Intent: {{ intent }}\nPriority: {{ priority }}\nResponse: {{ response }}",
+                    "variables": {
+                        "intent": {"$ref": {"node_id": "classify", "path": ["branch"]}},
+                        "priority": "normal",
+                        "response": "Acknowledge the customer and route to the correct support queue.",
+                    },
+                },
+            },
+            {
+                "id": "end",
+                "type": "end",
+                "title": "Return Support Decision",
+                "config": {
+                    "outputs": {
+                        "intent": {"$ref": {"node_id": "classify", "path": ["branch"]}},
+                        "response": {"$ref": {"node_id": "format", "path": ["text"]}},
+                        "priority": "normal",
+                    }
+                },
+            },
+        ],
+        "edges": [
+            {
+                "id": "start-classify",
+                "source": "start",
+                "target": "classify",
+                "source_port": "output",
+                "target_port": "input",
+            },
+            {
+                "id": "classify-route",
+                "source": "classify",
+                "target": "route",
+                "source_port": "branch",
+                "target_port": "input",
+            },
+            {
+                "id": "route-format",
+                "source": "route",
+                "target": "format",
+                "source_port": "output",
+                "target_port": "input",
+            },
+            {
+                "id": "format-end",
+                "source": "format",
+                "target": "end",
+                "source_port": "text",
+                "target_port": "input",
+            },
+        ],
+    }
+    requirement = """
+Build and validate an editable customer support routing BlockFlow.
+
+The BlockFlow must:
+1. Start with inputs: customer_message and optional customer_tier.
+2. Classify the message into complaint, question, feedback, or urgent.
+3. Route urgent/complaint cases differently from standard questions.
+4. Produce a reviewer-facing support response with intent, priority, and response text.
+5. Include a mandatory test with required_node_types so the workflow remains auditable.
+6. End with outputs: intent, response, and priority.
+
+This requirement is intentionally related to the built-in customer_support_router template
+and should expose whether Template reuse depth generalizes beyond code-review workflows.
+""".strip()
+    return ExperimentCase(
+        name="customer_support_router",
+        title="Customer support routing",
+        template_name="customer_support_router",
+        preflight_query="customer support routing classification urgent complaint",
+        base_requirement=requirement,
+        benchmark_reference=reference,
+        required_node_types=["start", "question_classifier", "if_else", "template_transform", "end"],
+    )
+
+
+def experiment_case(name: str = EXPERIMENT_CASE) -> ExperimentCase:
+    normalized = name.strip().casefold().replace("-", "_")
+    if normalized in {"code_review", "code_reviewer"}:
+        return code_review_case()
+    if normalized in {"customer_support", "customer_support_router", "support_router"}:
+        return customer_support_router_case()
+    raise ValueError(f"unknown E05 experiment case: {name}")
+
+
+def base_requirement(case: ExperimentCase | None = None) -> str:
+    return (case or experiment_case()).base_requirement
+
+
+def requirement_for_arm(arm: ReuseDepthArm, case: ExperimentCase | None = None) -> str:
+    selected = case or experiment_case()
+    return f"{selected.base_requirement}\n\nE05 reuse-depth instruction:\n{arm.instruction}"
+
+
+def benchmark_reference(case: ExperimentCase | None = None) -> dict[str, Any]:
+    return (case or experiment_case()).benchmark_reference
+
+
+def build_request_payload(requirement: str) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "requirement": requirement,
+        "auto_publish": False,
+        "max_turns": MAX_TURNS,
+        "max_repair_cycles": MAX_REPAIR_CYCLES,
+        "planning_mode": "required",
+    }
+    if MAX_ELAPSED_SECONDS is not None:
+        payload["max_elapsed_seconds"] = MAX_ELAPSED_SECONDS
+    return payload
 
 
 def build_settings(api_token: str) -> Settings:
@@ -374,7 +553,8 @@ def draft_counts(draft: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def run_template_preflight(client: TestClient, token: str) -> dict[str, Any]:
+def run_template_preflight(client: TestClient, token: str, case: ExperimentCase | None = None) -> dict[str, Any]:
+    selected = case or experiment_case()
     templates = request(client, "GET", "/api/v1/templates", token)
     server_templates = request(client, "GET", "/api/v1/templates/categories", token)
     suggestions: dict[str, Any] = {}
@@ -384,12 +564,14 @@ def run_template_preflight(client: TestClient, token: str) -> dict[str, Any]:
             "GET",
             (
                 "/api/v1/templates/suggestions"
-                f"?requirement=code%20review%20testing%20debugging%20quality"
+                f"?requirement={selected.preflight_query.replace(' ', '%20')}"
                 f"&reuse_depth={arm.depth}"
             ),
             token,
         )
     return {
+        "case": selected.name,
+        "template_name": selected.template_name,
         "template_count": len(templates) if isinstance(templates, list) else 0,
         "templates": templates,
         "categories": server_templates,
@@ -397,8 +579,9 @@ def run_template_preflight(client: TestClient, token: str) -> dict[str, Any]:
     }
 
 
-def run_arm(client: TestClient, token: str, arm: ReuseDepthArm) -> dict[str, Any]:
-    requirement = requirement_for_arm(arm)
+def run_arm(client: TestClient, token: str, arm: ReuseDepthArm, case: ExperimentCase | None = None) -> dict[str, Any]:
+    selected = case or experiment_case()
+    requirement = requirement_for_arm(arm, selected)
     started = time.perf_counter()
     application = request(
         client,
@@ -412,18 +595,13 @@ def run_arm(client: TestClient, token: str, arm: ReuseDepthArm) -> dict[str, Any
             "mode": "workflow",
         },
     )
+    build_payload = build_request_payload(requirement)
     build = request(
         client,
         "POST",
         f"/api/v1/applications/{application['id']}/builds",
         token,
-        json={
-            "requirement": requirement,
-            "auto_publish": False,
-            "max_turns": MAX_TURNS,
-            "max_repair_cycles": MAX_REPAIR_CYCLES,
-            "planning_mode": "required",
-        },
+        json=build_payload,
     )
     completed = wait_build(client, build["build_id"], token)
     elapsed = round(time.perf_counter() - started, 3)
@@ -441,7 +619,7 @@ def run_arm(client: TestClient, token: str, arm: ReuseDepthArm) -> dict[str, Any
         "/api/v1/builder-benchmark/suites/evaluate",
         token,
         json={
-            "name": "E05 template reuse-depth code review comparison",
+            "name": f"E05 template reuse-depth {selected.name} comparison",
             "description": f"Benchmark arm for reuse_depth={arm.depth}.",
             "minimum_score": 0.45,
             "minimum_pass_rate": 0.0,
@@ -454,11 +632,11 @@ def run_arm(client: TestClient, token: str, arm: ReuseDepthArm) -> dict[str, Any
             },
             "cases": [
                 {
-                    "name": f"code review repair blockflow reuse_depth={arm.depth}",
+                    "name": f"{selected.name} blockflow reuse_depth={arm.depth}",
                     "requirement": requirement,
-                    "reference": benchmark_reference(),
+                    "reference": benchmark_reference(selected),
                     "candidate": workflow,
-                    "required_node_types": ["start", "llm", "end"],
+                    "required_node_types": selected.required_node_types,
                     "tests": tests,
                 }
             ],
@@ -470,6 +648,7 @@ def run_arm(client: TestClient, token: str, arm: ReuseDepthArm) -> dict[str, Any
     failure_summary = summarize_failure(completed, builder_task, event_summary)
     return {
         "depth": arm.depth,
+        "case": selected.name,
         "expected_action": arm.expected_action,
         "status": "completed",
         "elapsed_seconds": elapsed,
@@ -500,16 +679,24 @@ def main() -> None:
     token = os.getenv("E05_REUSE_DEPTH_API_TOKEN") or os.getenv("API_TOKEN") or "workflow-test"
     settings = build_settings(token)
     settings.prepare()
+    selected_case = experiment_case()
     result: dict[str, Any] = {
         "status": "started",
         "started_at": utc_now(),
         "finished_at": None,
         "experiment": "E05 template reuse-depth live comparison",
         "version": EXPERIMENT_VERSION,
+        "case": {
+            "name": selected_case.name,
+            "title": selected_case.title,
+            "template_name": selected_case.template_name,
+            "required_node_types": selected_case.required_node_types,
+        },
         "budget": {
             "arms": [arm.depth for arm in depth_arms()],
             "max_turns_per_arm": MAX_TURNS,
             "max_repair_cycles_per_arm": MAX_REPAIR_CYCLES,
+            "max_elapsed_seconds_per_arm": MAX_ELAPSED_SECONDS,
             "timeout_seconds_per_arm": TIMEOUT_SECONDS,
             "provider_timeout_seconds": PROVIDER_TIMEOUT_SECONDS,
             "skip_paid": SKIP_PAID,
@@ -536,7 +723,7 @@ def main() -> None:
                 "runtime_model": models.get("runtime_model"),
                 "configured_models": models.get("configured_models", []),
             }
-            result["preflight"] = run_template_preflight(client, token)
+            result["preflight"] = run_template_preflight(client, token, selected_case)
             if SKIP_PAID:
                 result["status"] = "skipped"
                 result["error"] = "E05_REUSE_DEPTH_SKIP_PAID=1"
@@ -547,7 +734,7 @@ def main() -> None:
                 return
             for arm in depth_arms():
                 try:
-                    result["arms"].append(run_arm(client, token, arm))
+                    result["arms"].append(run_arm(client, token, arm, selected_case))
                 except Exception as error:
                     result["arms"].append({
                         "depth": arm.depth,

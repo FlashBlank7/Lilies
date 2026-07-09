@@ -52,6 +52,7 @@
 - `v0.2.40_*`：来自 `docs/stage-reports/v0.2.40_builder_provider_timeout_boundary.md`。
 - `v0.2.41_*`：来自 `docs/stage-reports/v0.2.41_e05_success_condition_after_timeout_boundary.md`。
 - `v0.2.42_*`：来自 `docs/stage-reports/v0.2.42_builder_build_level_watchdog.md`。
+- `v0.2.43_*`：来自 `docs/stage-reports/v0.2.43_e05_multifamily_with_build_watchdog.md`。
 
 Active workspace rule:
 

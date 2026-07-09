@@ -62,6 +62,37 @@ def test_e05_template_preflight_distinguishes_depth_actions(tmp_path: Path) -> N
     assert any(item["name"] == "code_reviewer" for item in preflight["suggestions"]["shallow"])
 
 
+def test_e05_customer_support_case_has_distinct_requirement_and_reference() -> None:
+    module = load_e05_module()
+    case = module.experiment_case("customer_support_router")
+
+    requirement = module.requirement_for_arm(module.depth_arms()[1], case)
+    reference = module.benchmark_reference(case)
+
+    assert case.name == "customer_support_router"
+    assert case.template_name == "customer_support_router"
+    assert "customer support routing BlockFlow" in requirement
+    assert "code review and repair BlockFlow" not in requirement
+    assert "question_classifier" in case.required_node_types
+    assert any(node["type"] == "question_classifier" for node in reference["nodes"])
+    assert any(node["type"] == "template_transform" for node in reference["nodes"])
+
+
+def test_e05_build_payload_includes_optional_build_deadline() -> None:
+    module = load_e05_module()
+    original = module.MAX_ELAPSED_SECONDS
+    try:
+        module.MAX_ELAPSED_SECONDS = 12.5
+        payload = module.build_request_payload("Build a BlockFlow.")
+    finally:
+        module.MAX_ELAPSED_SECONDS = original
+
+    assert payload["max_elapsed_seconds"] == 12.5
+    assert payload["max_turns"] == module.MAX_TURNS
+    assert payload["max_repair_cycles"] == module.MAX_REPAIR_CYCLES
+    assert payload["planning_mode"] == "required"
+
+
 def test_e05_event_summary_extracts_template_metrics() -> None:
     module = load_e05_module()
     events = [
