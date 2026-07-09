@@ -57,6 +57,7 @@
 - `stage-reports/v0.2.33_e01_complex_ab.md`
 - `stage-reports/v0.2.34_e01_required_readiness_repair.md`
 - `stage-reports/v0.2.35_e01_required_architecture_coverage.md`
+- `stage-reports/v0.2.36_e02_readable_testframe_human_review.md`
 
 ## 使用原则
 

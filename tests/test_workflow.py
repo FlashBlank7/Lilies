@@ -41,6 +41,17 @@ def load_live_builder_benchmark_module() -> Any:
     return module
 
 
+def load_e02_review_experiment_module() -> Any:
+    module_path = Path(__file__).resolve().parents[1] / "scripts" / "e02_readable_testframe_review_experiment.py"
+    spec = importlib.util.spec_from_file_location("e02_review_experiment_under_test", module_path)
+    assert spec is not None
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
 class IncrementalBuilderProvider(ModelProvider):
     name = "deepseek"
 
@@ -2337,6 +2348,24 @@ def test_live_builder_benchmark_reads_max_repair_cycles_env(monkeypatch: pytest.
     module = load_live_builder_benchmark_module()
 
     assert module.MAX_REPAIR_CYCLES == 3
+
+
+def test_e02_review_experiment_builds_paired_packets(tmp_path: Path) -> None:
+    module = load_e02_review_experiment_module()
+
+    artifacts = module.build_review_artifacts(tmp_path)
+
+    assert artifacts["actual_report"]["passed"] is False
+    raw = artifacts["packets"]["raw_legacy_json"]
+    readable = artifacts["packets"]["readable_testframe"]
+    assert "frames" not in raw["summary"]
+    assert "readable_report" not in raw["tests"][0]
+    assert readable["summary"]["frames"]
+    assert readable["tests"][0]["readable_report"]["failure_target"]
+    assert (
+        artifacts["deterministic_metrics"]["readable_testframe"]["estimated_total_json_paths"]
+        < artifacts["deterministic_metrics"]["raw_legacy_json"]["estimated_total_json_paths"]
+    )
 
 
 def test_natural_language_draft_patch_preview_is_non_destructive(tmp_path: Path) -> None:

@@ -1,0 +1,577 @@
+{
+  "status": "completed",
+  "started_at": "2026-07-09T11:12:59.580965+00:00",
+  "finished_at": "2026-07-09T11:13:06.347499+00:00",
+  "experiment_id": "E02_readable_testframe_review_v0.2.36",
+  "question": "Does readable TestFrame/report output improve reviewer comprehension and repair targeting compared with raw JSON-style test output?",
+  "evidence_level": "deterministic_metrics_plus_paid_model_proxy",
+  "actual_report": {
+    "passed": false,
+    "validation": {
+      "valid": true,
+      "errors": [],
+      "warnings": [
+        "start: workflow inputs are not connected to downstream nodes: ['prompt']"
+      ],
+      "revision": 5,
+      "content_hash": "dd18bc2fbb3134938aba5ce79a44ffb197f888716d6e466a3fd32afb58ffc365",
+      "test_count": 2
+    },
+    "summary": {
+      "total": 2,
+      "passed": 0,
+      "failed": 2,
+      "mandatory_failed": 2,
+      "frames": [
+        {
+          "test_id": "09919033-ea5c-47fe-9c81-1913a4937ef8",
+          "title": "Outline and setting adherence",
+          "category": "content",
+          "status": "failed"
+        },
+        {
+          "test_id": "116ecb59-8db2-47b4-a4bf-15b885da4a03",
+          "title": "Visible context assembly gate",
+          "category": "structure",
+          "status": "failed"
+        }
+      ]
+    },
+    "tests": [
+      {
+        "test_id": "09919033-ea5c-47fe-9c81-1913a4937ef8",
+        "name": "Novel setting adherence",
+        "mandatory": true,
+        "passed": false,
+        "run_id": "0b66e32c-2dc2-4fdc-9a9f-3b31a71af86e",
+        "frame": {
+          "id": "16c4e02b-6bcc-44af-9c39-a38e03b9f0bf",
+          "title": "Outline and setting adherence",
+          "category": "content",
+          "purpose": "Check whether the generated novel outline follows the required setting contract.",
+          "reviewer_guidance": "Review this before style polishing; a failure means the generation prompt or template lost key setting constraints.",
+          "reference": "E02 fixture requirement: outline must mention the magic system.",
+          "failure_target": "template_transform or model_turn prompt"
+        },
+        "readable_report": {
+          "title": "Outline and setting adherence",
+          "category": "content",
+          "purpose": "Check whether the generated novel outline follows the required setting contract.",
+          "status": "failed",
+          "mandatory": true,
+          "reviewer_guidance": "Review this before style polishing; a failure means the generation prompt or template lost key setting constraints.",
+          "reference": "E02 fixture requirement: outline must mention the magic system.",
+          "failure_target": "template_transform or model_turn prompt",
+          "failed_checks": [
+            "failed assertions: 1"
+          ],
+          "failed_assertions": [
+            {
+              "passed": false,
+              "actual": "Act I: a detective enters the city. Act II: conflict. Act III: resolution.",
+              "path": [
+                "outline"
+              ],
+              "operator": "contains",
+              "expected": "magic system",
+              "structural": false
+            }
+          ],
+          "feedback_hints": [
+            "Inspect the generation prompt for missing setting constraints.",
+            "Check whether the final template dropped the user's required setting."
+          ]
+        },
+        "assertions": [
+          {
+            "passed": false,
+            "actual": "Act I: a detective enters the city. Act II: conflict. Act III: resolution.",
+            "path": [
+              "outline"
+            ],
+            "operator": "contains",
+            "expected": "magic system",
+            "structural": false
+          }
+        ],
+        "tool_evidence": {
+          "used_tools": [],
+          "required_tools": [],
+          "required_tools_passed": true,
+          "required_node_types": [
+            "start",
+            "end"
+          ],
+          "node_types": [
+            "start",
+            "end"
+          ],
+          "required_node_types_passed": true,
+          "required_tool_nodes": [],
+          "tool_node_names": [],
+          "required_tool_nodes_passed": true,
+          "minimum_tool_calls": 0,
+          "minimum_calls_passed": true,
+          "output_urls": [],
+          "cited_tool_urls": [],
+          "unverified_output_urls": [],
+          "citation_passed": true
+        }
+      },
+      {
+        "test_id": "116ecb59-8db2-47b4-a4bf-15b885da4a03",
+        "name": "Visible context assembly",
+        "mandatory": true,
+        "passed": false,
+        "run_id": "bd189bfd-2ce1-4358-8ff6-ea8c18577bbe",
+        "frame": {
+          "id": "ecf8627c-5302-4f8d-8b00-57ed8980f0ea",
+          "title": "Visible context assembly gate",
+          "category": "structure",
+          "purpose": "Check whether the BlockFlow exposes context assembly instead of hiding it inside one black-box prompt.",
+          "reviewer_guidance": "A failure points to workflow architecture, not content quality.",
+          "reference": "E02 fixture requirement: context assembly must be inspectable.",
+          "failure_target": "missing context_assembler node"
+        },
+        "readable_report": {
+          "title": "Visible context assembly gate",
+          "category": "structure",
+          "purpose": "Check whether the BlockFlow exposes context assembly instead of hiding it inside one black-box prompt.",
+          "status": "failed",
+          "mandatory": true,
+          "reviewer_guidance": "A failure points to workflow architecture, not content quality.",
+          "reference": "E02 fixture requirement: context assembly must be inspectable.",
+          "failure_target": "missing context_assembler node",
+          "failed_checks": [
+            "failed assertions: 1"
+          ],
+          "failed_assertions": [
+            {
+              "passed": false,
+              "error": "'assembled_context'",
+              "path": [
+                "assembled_context"
+              ],
+              "operator": "exists",
+              "expected": null,
+              "structural": false
+            }
+          ],
+          "feedback_hints": [
+            "Add a context_assembler node before the LLM or template stage.",
+            "Do not rely on direct prompt concatenation for context assembly."
+          ]
+        },
+        "assertions": [
+          {
+            "passed": false,
+            "error": "'assembled_context'",
+            "path": [
+              "assembled_context"
+            ],
+            "operator": "exists",
+            "expected": null,
+            "structural": false
+          }
+        ],
+        "tool_evidence": {
+          "used_tools": [],
+          "required_tools": [],
+          "required_tools_passed": true,
+          "required_node_types": [
+            "start",
+            "end"
+          ],
+          "node_types": [
+            "start",
+            "end"
+          ],
+          "required_node_types_passed": true,
+          "required_tool_nodes": [],
+          "tool_node_names": [],
+          "required_tool_nodes_passed": true,
+          "minimum_tool_calls": 0,
+          "minimum_calls_passed": true,
+          "output_urls": [],
+          "cited_tool_urls": [],
+          "unverified_output_urls": [],
+          "citation_passed": true
+        }
+      }
+    ]
+  },
+  "packets": {
+    "raw_legacy_json": {
+      "passed": false,
+      "summary": {
+        "total": 2,
+        "passed": 0,
+        "failed": 2,
+        "mandatory_failed": 2
+      },
+      "tests": [
+        {
+          "test_id": "09919033-ea5c-47fe-9c81-1913a4937ef8",
+          "name": "Novel setting adherence",
+          "mandatory": true,
+          "passed": false,
+          "run_id": "0b66e32c-2dc2-4fdc-9a9f-3b31a71af86e",
+          "assertions": [
+            {
+              "passed": false,
+              "actual": "Act I: a detective enters the city. Act II: conflict. Act III: resolution.",
+              "path": [
+                "outline"
+              ],
+              "operator": "contains",
+              "expected": "magic system",
+              "structural": false
+            }
+          ],
+          "tool_evidence": {
+            "used_tools": [],
+            "required_tools": [],
+            "required_tools_passed": true,
+            "required_node_types": [
+              "start",
+              "end"
+            ],
+            "node_types": [
+              "start",
+              "end"
+            ],
+            "required_node_types_passed": true,
+            "required_tool_nodes": [],
+            "tool_node_names": [],
+            "required_tool_nodes_passed": true,
+            "minimum_tool_calls": 0,
+            "minimum_calls_passed": true,
+            "output_urls": [],
+            "cited_tool_urls": [],
+            "unverified_output_urls": [],
+            "citation_passed": true
+          }
+        },
+        {
+          "test_id": "116ecb59-8db2-47b4-a4bf-15b885da4a03",
+          "name": "Visible context assembly",
+          "mandatory": true,
+          "passed": false,
+          "run_id": "bd189bfd-2ce1-4358-8ff6-ea8c18577bbe",
+          "assertions": [
+            {
+              "passed": false,
+              "error": "'assembled_context'",
+              "path": [
+                "assembled_context"
+              ],
+              "operator": "exists",
+              "expected": null,
+              "structural": false
+            }
+          ],
+          "tool_evidence": {
+            "used_tools": [],
+            "required_tools": [],
+            "required_tools_passed": true,
+            "required_node_types": [
+              "start",
+              "end"
+            ],
+            "node_types": [
+              "start",
+              "end"
+            ],
+            "required_node_types_passed": true,
+            "required_tool_nodes": [],
+            "tool_node_names": [],
+            "required_tool_nodes_passed": true,
+            "minimum_tool_calls": 0,
+            "minimum_calls_passed": true,
+            "output_urls": [],
+            "cited_tool_urls": [],
+            "unverified_output_urls": [],
+            "citation_passed": true
+          }
+        }
+      ]
+    },
+    "readable_testframe": {
+      "passed": false,
+      "summary": {
+        "total": 2,
+        "passed": 0,
+        "failed": 2,
+        "mandatory_failed": 2,
+        "frames": [
+          {
+            "test_id": "09919033-ea5c-47fe-9c81-1913a4937ef8",
+            "title": "Outline and setting adherence",
+            "category": "content",
+            "status": "failed"
+          },
+          {
+            "test_id": "116ecb59-8db2-47b4-a4bf-15b885da4a03",
+            "title": "Visible context assembly gate",
+            "category": "structure",
+            "status": "failed"
+          }
+        ]
+      },
+      "tests": [
+        {
+          "test_id": "09919033-ea5c-47fe-9c81-1913a4937ef8",
+          "name": "Novel setting adherence",
+          "mandatory": true,
+          "passed": false,
+          "frame": {
+            "id": "16c4e02b-6bcc-44af-9c39-a38e03b9f0bf",
+            "title": "Outline and setting adherence",
+            "category": "content",
+            "purpose": "Check whether the generated novel outline follows the required setting contract.",
+            "reviewer_guidance": "Review this before style polishing; a failure means the generation prompt or template lost key setting constraints.",
+            "reference": "E02 fixture requirement: outline must mention the magic system.",
+            "failure_target": "template_transform or model_turn prompt"
+          },
+          "readable_report": {
+            "title": "Outline and setting adherence",
+            "category": "content",
+            "purpose": "Check whether the generated novel outline follows the required setting contract.",
+            "status": "failed",
+            "mandatory": true,
+            "reviewer_guidance": "Review this before style polishing; a failure means the generation prompt or template lost key setting constraints.",
+            "reference": "E02 fixture requirement: outline must mention the magic system.",
+            "failure_target": "template_transform or model_turn prompt",
+            "failed_checks": [
+              "failed assertions: 1"
+            ],
+            "failed_assertions": [
+              {
+                "passed": false,
+                "actual": "Act I: a detective enters the city. Act II: conflict. Act III: resolution.",
+                "path": [
+                  "outline"
+                ],
+                "operator": "contains",
+                "expected": "magic system",
+                "structural": false
+              }
+            ],
+            "feedback_hints": [
+              "Inspect the generation prompt for missing setting constraints.",
+              "Check whether the final template dropped the user's required setting."
+            ]
+          },
+          "tool_evidence": {
+            "used_tools": [],
+            "required_tools": [],
+            "required_tools_passed": true,
+            "required_node_types": [
+              "start",
+              "end"
+            ],
+            "node_types": [
+              "start",
+              "end"
+            ],
+            "required_node_types_passed": true,
+            "required_tool_nodes": [],
+            "tool_node_names": [],
+            "required_tool_nodes_passed": true,
+            "minimum_tool_calls": 0,
+            "minimum_calls_passed": true,
+            "output_urls": [],
+            "cited_tool_urls": [],
+            "unverified_output_urls": [],
+            "citation_passed": true
+          }
+        },
+        {
+          "test_id": "116ecb59-8db2-47b4-a4bf-15b885da4a03",
+          "name": "Visible context assembly",
+          "mandatory": true,
+          "passed": false,
+          "frame": {
+            "id": "ecf8627c-5302-4f8d-8b00-57ed8980f0ea",
+            "title": "Visible context assembly gate",
+            "category": "structure",
+            "purpose": "Check whether the BlockFlow exposes context assembly instead of hiding it inside one black-box prompt.",
+            "reviewer_guidance": "A failure points to workflow architecture, not content quality.",
+            "reference": "E02 fixture requirement: context assembly must be inspectable.",
+            "failure_target": "missing context_assembler node"
+          },
+          "readable_report": {
+            "title": "Visible context assembly gate",
+            "category": "structure",
+            "purpose": "Check whether the BlockFlow exposes context assembly instead of hiding it inside one black-box prompt.",
+            "status": "failed",
+            "mandatory": true,
+            "reviewer_guidance": "A failure points to workflow architecture, not content quality.",
+            "reference": "E02 fixture requirement: context assembly must be inspectable.",
+            "failure_target": "missing context_assembler node",
+            "failed_checks": [
+              "failed assertions: 1"
+            ],
+            "failed_assertions": [
+              {
+                "passed": false,
+                "error": "'assembled_context'",
+                "path": [
+                  "assembled_context"
+                ],
+                "operator": "exists",
+                "expected": null,
+                "structural": false
+              }
+            ],
+            "feedback_hints": [
+              "Add a context_assembler node before the LLM or template stage.",
+              "Do not rely on direct prompt concatenation for context assembly."
+            ]
+          },
+          "tool_evidence": {
+            "used_tools": [],
+            "required_tools": [],
+            "required_tools_passed": true,
+            "required_node_types": [
+              "start",
+              "end"
+            ],
+            "node_types": [
+              "start",
+              "end"
+            ],
+            "required_node_types_passed": true,
+            "required_tool_nodes": [],
+            "tool_node_names": [],
+            "required_tool_nodes_passed": true,
+            "minimum_tool_calls": 0,
+            "minimum_calls_passed": true,
+            "output_urls": [],
+            "cited_tool_urls": [],
+            "unverified_output_urls": [],
+            "citation_passed": true
+          }
+        }
+      ]
+    }
+  },
+  "answer_key": [
+    {
+      "title": "Outline and setting adherence",
+      "category": "content",
+      "status": "failed",
+      "failure_target": "template_transform or model_turn prompt",
+      "first_repair": "inspect generation prompt/template for missing magic system constraints"
+    },
+    {
+      "title": "Visible context assembly gate",
+      "category": "structure",
+      "status": "failed",
+      "failure_target": "missing context_assembler node",
+      "first_repair": "add a context_assembler node before generation"
+    }
+  ],
+  "deterministic_metrics": {
+    "raw_legacy_json": {
+      "serialized_chars": 2433,
+      "test_count": 2,
+      "explicit_fields": {
+        "title": false,
+        "category": false,
+        "status": true,
+        "failure_target": false,
+        "feedback_hints": false
+      },
+      "estimated_json_paths_to_answer_per_test": 9,
+      "estimated_total_json_paths": 18
+    },
+    "readable_testframe": {
+      "serialized_chars": 5524,
+      "test_count": 2,
+      "explicit_fields": {
+        "title": true,
+        "category": true,
+        "status": true,
+        "failure_target": true,
+        "feedback_hints": true
+      },
+      "estimated_json_paths_to_answer_per_test": 5,
+      "estimated_total_json_paths": 10
+    }
+  },
+  "paid_reviewer_proxy": {
+    "status": "completed",
+    "provider": "deepseek",
+    "model": "deepseek-v4-pro",
+    "reviews": {
+      "raw_legacy_json": {
+        "condition": "raw_legacy_json",
+        "model": "deepseek-v4-pro",
+        "prompt_chars": 2804,
+        "duration_seconds": 3.164,
+        "raw_text": "{\n  \"tests\": [\n    {\n      \"title\": \"Novel setting adherence\",\n      \"category\": \"Content Validation\",\n      \"status\": \"failed\",\n      \"failure_target\": \"outline magic system mention\",\n      \"first_repair_action\": \"Add a magic system element to the outline\",\n      \"confidence\": 0.95\n    },\n    {\n      \"title\": \"Visible context assembly\",\n      \"category\": \"Structural Completeness\",\n      \"status\": \"failed\",\n      \"failure_target\": \"assembled_context key\",\n      \"first_repair_action\": \"Ensure assembled_context key exists in the output\",\n      \"confidence\": 0.9\n    }\n  ],\n  \"overall\": \"All mandatory tests failed due to missing magic system content and missing assembled_context key.\"\n}",
+        "parsed": {
+          "tests": [
+            {
+              "title": "Novel setting adherence",
+              "category": "Content Validation",
+              "status": "failed",
+              "failure_target": "outline magic system mention",
+              "first_repair_action": "Add a magic system element to the outline",
+              "confidence": 0.95
+            },
+            {
+              "title": "Visible context assembly",
+              "category": "Structural Completeness",
+              "status": "failed",
+              "failure_target": "assembled_context key",
+              "first_repair_action": "Ensure assembled_context key exists in the output",
+              "confidence": 0.9
+            }
+          ],
+          "overall": "All mandatory tests failed due to missing magic system content and missing assembled_context key."
+        },
+        "score": {
+          "score": 0.375,
+          "matched_fields": 3,
+          "total_fields": 8
+        }
+      },
+      "readable_testframe": {
+        "condition": "readable_testframe",
+        "model": "deepseek-v4-pro",
+        "prompt_chars": 5898,
+        "duration_seconds": 3.533,
+        "raw_text": "{\n  \"tests\": [\n    {\n      \"title\": \"Outline and setting adherence\",\n      \"category\": \"content\",\n      \"status\": \"failed\",\n      \"failure_target\": \"template_transform or model_turn prompt\",\n      \"first_repair_action\": \"Inspect the generation prompt for missing setting constraints.\",\n      \"confidence\": 0.95\n    },\n    {\n      \"title\": \"Visible context assembly gate\",\n      \"category\": \"structure\",\n      \"status\": \"failed\",\n      \"failure_target\": \"missing context_assembler node\",\n      \"first_repair_action\": \"Add a context_assembler node before the LLM or template stage.\",\n      \"confidence\": 0.95\n    }\n  ],\n  \"overall\": \"All 2 mandatory tests failed. Content test shows missing setting constraints in the prompt/template; structure test reveals a missing context_assembler node. Immediate fixes: audit the generation template for required setting elements and insert an explicit context_assembler node to replace opaque prompt concatenation.\"\n}",
+        "parsed": {
+          "tests": [
+            {
+              "title": "Outline and setting adherence",
+              "category": "content",
+              "status": "failed",
+              "failure_target": "template_transform or model_turn prompt",
+              "first_repair_action": "Inspect the generation prompt for missing setting constraints.",
+              "confidence": 0.95
+            },
+            {
+              "title": "Visible context assembly gate",
+              "category": "structure",
+              "status": "failed",
+              "failure_target": "missing context_assembler node",
+              "first_repair_action": "Add a context_assembler node before the LLM or template stage.",
+              "confidence": 0.95
+            }
+          ],
+          "overall": "All 2 mandatory tests failed. Content test shows missing setting constraints in the prompt/template; structure test reveals a missing context_assembler node. Immediate fixes: audit the generation template for required setting elements and insert an explicit context_assembler node to replace opaque prompt concatenation."
+        },
+        "score": {
+          "score": 1.0,
+          "matched_fields": 8,
+          "total_fields": 8
+        }
+      }
+    }
+  },
+  "conclusion_boundary": "This is not a real human panel. It can support engineering confidence in readable reports and provide a review packet protocol, but it must not be reported as measured human review time."
+}
