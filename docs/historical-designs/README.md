@@ -60,6 +60,7 @@
 - `v0.2.46_*`：来自 `docs/stage-reports/v0.2.46_deep_reuse_deadline_governance.md`。
 - `v0.2.47_*`：来自 `docs/stage-reports/v0.2.47_shallow_reuse_breadth_validation.md`。
 - `v0.2.48_*`：来自 `docs/stage-reports/v0.2.48_adaptive_reuse_depth_policy.md`。
+- `v0.2.49_*`：来自 `docs/stage-reports/v0.2.49_adaptive_policy_live_validation.md`。
 
 Active workspace rule:
 

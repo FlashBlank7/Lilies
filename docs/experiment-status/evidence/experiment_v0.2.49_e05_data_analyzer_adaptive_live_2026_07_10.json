@@ -1,0 +1,3439 @@
+{
+  "status": "completed",
+  "started_at": "2026-07-09T19:40:57.516020+00:00",
+  "finished_at": "2026-07-09T19:52:12.558321+00:00",
+  "experiment": "E05 template reuse-depth live comparison",
+  "version": "v0.2.49",
+  "case": {
+    "name": "data_analyzer",
+    "title": "Data analysis reporting",
+    "template_name": "data_analyzer",
+    "required_node_types": [
+      "start",
+      "llm",
+      "parameter_extractor",
+      "template_transform",
+      "end"
+    ]
+  },
+  "budget": {
+    "arms": [
+      "shallow",
+      "deep",
+      "adaptive"
+    ],
+    "max_turns_per_arm": 42,
+    "max_repair_cycles_per_arm": 2,
+    "max_elapsed_seconds_per_arm": 600.0,
+    "timeout_seconds_per_arm": 900.0,
+    "provider_timeout_seconds": 180.0,
+    "benchmark_minimum_pass_rate": 1.0,
+    "skip_paid": false,
+    "run_id": "v0.2.49_e05_data_analyzer_adaptive_live_20260710"
+  },
+  "health": {
+    "status": "ok",
+    "deepseek_configured": true
+  },
+  "models": {
+    "provider": "multi",
+    "generator_model": "deepseek-v4-pro",
+    "runtime_model": "deepseek-v4-pro",
+    "configured_models": [
+      "deepseek/deepseek-v4-pro"
+    ]
+  },
+  "preflight": {
+    "case": "data_analyzer",
+    "template_name": "data_analyzer",
+    "template_count": 10,
+    "templates": [
+      {
+        "name": "app_automation_workflow",
+        "title": "App 自动化决策流程",
+        "description": "从钉钉打卡自动化中提取的通用决策模式。任何'自动操作App X'的任务都应走这个流程：先检查API可用性→无API则检查急速模式→仍不行则模拟点击→都不行则人工介入。避免在错误方向上探索。",
+        "category": "task_management",
+        "icon": "workflow",
+        "tags": [
+          "automation",
+          "decision-tree",
+          "app",
+          "android"
+        ],
+        "expected_inputs": {
+          "app_name": "string",
+          "task_description": "string"
+        },
+        "expected_outputs": {
+          "solution_type": "string",
+          "deliverable": "string"
+        },
+        "author": "platform",
+        "version": 1,
+        "min_blocks_required": [
+          "llm",
+          "if_else",
+          "template_transform"
+        ],
+        "provenance": [
+          {
+            "source_type": "expert_manual",
+            "identifier": "platform:app_automation_workflow.json",
+            "created_at": "2026-06-26T00:00:00Z",
+            "user_id": null
+          }
+        ],
+        "confidence": 0.7,
+        "seed_template": true,
+        "usage_count": 0,
+        "pending_branches_count": 0,
+        "rating_sum": 0.0,
+        "rating_count": 0
+      },
+      {
+        "name": "long_form_writer",
+        "title": "万字长文生成器",
+        "description": "分章节并行生成长文并自动拼接润色。工作流化解决单次LLM输出长度限制：先生成大纲→迭代生成每章→聚合→全文润色。适用于技术文档、分析报告、教程等。",
+        "category": "content_creation",
+        "icon": "file-text",
+        "tags": [
+          "writing",
+          "long-form",
+          "content-generation",
+          "chapters"
+        ],
+        "expected_inputs": {
+          "topic": "string",
+          "target_sections": "number"
+        },
+        "expected_outputs": {
+          "full_text": "string",
+          "outline": "string",
+          "sections": "number"
+        },
+        "author": "platform",
+        "version": 1,
+        "min_blocks_required": [
+          "llm",
+          "iteration",
+          "variable_aggregator",
+          "template_transform"
+        ],
+        "provenance": [
+          {
+            "source_type": "expert_manual",
+            "identifier": "platform:long_form_writer.json",
+            "created_at": "2026-06-26T00:00:00Z",
+            "user_id": null
+          }
+        ],
+        "confidence": 0.7,
+        "seed_template": true,
+        "usage_count": 0,
+        "pending_branches_count": 0,
+        "rating_sum": 0.0,
+        "rating_count": 0
+      },
+      {
+        "name": "code_reviewer",
+        "title": "代码审查与修复",
+        "description": "标准代码审查工作流: 读取源码 → 运行测试 → 定位失败根因 → 最小修改 → 重新验证 → 生成报告。这是最核心的软件开发质量保证流程。",
+        "category": "code_engineering",
+        "icon": "bug",
+        "tags": [
+          "code-review",
+          "testing",
+          "debugging",
+          "quality"
+        ],
+        "expected_inputs": {
+          "workspace_path": "string",
+          "test_command": "string"
+        },
+        "expected_outputs": {
+          "report": "object",
+          "tests_passed": "boolean",
+          "bugs_found": "number"
+        },
+        "author": "platform",
+        "version": 1,
+        "min_blocks_required": [
+          "llm",
+          "tool"
+        ],
+        "provenance": [
+          {
+            "source_type": "expert_manual",
+            "identifier": "platform:code_reviewer.json",
+            "created_at": "2026-06-26T00:00:00Z",
+            "user_id": null
+          }
+        ],
+        "confidence": 0.85,
+        "seed_template": true,
+        "usage_count": 0,
+        "pending_branches_count": 0,
+        "rating_sum": 0.0,
+        "rating_count": 0
+      },
+      {
+        "name": "task_decomposer",
+        "title": "任务分解与规划",
+        "description": "将复杂任务分解为可执行的子任务并按依赖排序。输入任务描述→LLM拆解→提取子任务→依赖排序→生成格式化计划。",
+        "category": "task_management",
+        "icon": "list-checks",
+        "tags": [
+          "planning",
+          "decomposition",
+          "dependencies",
+          "project-management"
+        ],
+        "expected_inputs": {
+          "complex_task": "string"
+        },
+        "expected_outputs": {
+          "plan": "string",
+          "subtask_count": "number"
+        },
+        "author": "platform",
+        "version": 1,
+        "min_blocks_required": [
+          "llm",
+          "template_transform"
+        ],
+        "provenance": [
+          {
+            "source_type": "expert_manual",
+            "identifier": "platform:task_decomposer.json",
+            "created_at": "2026-06-26T00:00:00Z",
+            "user_id": null
+          }
+        ],
+        "confidence": 0.85,
+        "seed_template": true,
+        "usage_count": 0,
+        "pending_branches_count": 0,
+        "rating_sum": 0.0,
+        "rating_count": 0
+      },
+      {
+        "name": "data_analyzer",
+        "title": "数据分析流水线",
+        "description": "标准数据分析工作流：加载数据→统计摘要→异常检测→生成报告。适用于CSV/JSON数据的自动化分析场景。",
+        "category": "data_analysis",
+        "icon": "bar-chart",
+        "tags": [
+          "data",
+          "statistics",
+          "analysis",
+          "reporting"
+        ],
+        "expected_inputs": {
+          "data_description": "string"
+        },
+        "expected_outputs": {
+          "report": "string",
+          "statistics": "object"
+        },
+        "author": "platform",
+        "version": 1,
+        "min_blocks_required": [
+          "llm",
+          "parameter_extractor",
+          "template_transform"
+        ],
+        "provenance": [
+          {
+            "source_type": "expert_manual",
+            "identifier": "platform:data_analyzer.json",
+            "created_at": "2026-06-26T00:00:00Z",
+            "user_id": null
+          }
+        ],
+        "confidence": 0.85,
+        "seed_template": true,
+        "usage_count": 0,
+        "pending_branches_count": 0,
+        "rating_sum": 0.0,
+        "rating_count": 0
+      },
+      {
+        "name": "document_summarizer",
+        "title": "文档摘要生成器",
+        "description": "阅读文档并生成多层级摘要：一句话总结→三段要点→完整摘要。适用于合同、论文、长文等场景。",
+        "category": "content_creation",
+        "icon": "scroll-text",
+        "tags": [
+          "summarization",
+          "document",
+          "reading",
+          "digest"
+        ],
+        "expected_inputs": {
+          "document_text": "string"
+        },
+        "expected_outputs": {
+          "one_liner": "string",
+          "key_points": "string",
+          "full_summary": "string"
+        },
+        "author": "platform",
+        "version": 1,
+        "min_blocks_required": [
+          "llm",
+          "template_transform"
+        ],
+        "provenance": [
+          {
+            "source_type": "expert_manual",
+            "identifier": "platform:document_summarizer.json",
+            "created_at": "2026-06-26T00:00:00Z",
+            "user_id": null
+          }
+        ],
+        "confidence": 0.85,
+        "seed_template": true,
+        "usage_count": 0,
+        "pending_branches_count": 0,
+        "rating_sum": 0.0,
+        "rating_count": 0
+      },
+      {
+        "name": "customer_support_router",
+        "title": "智能客服路由",
+        "description": "客服消息智能分类与差异化响应。将客户消息分为投诉/咨询/反馈/紧急四类，每类返回差异化响应。",
+        "category": "customer_service",
+        "icon": "message-circle",
+        "tags": [
+          "customer-support",
+          "routing",
+          "classification"
+        ],
+        "expected_inputs": {
+          "customer_message": "string"
+        },
+        "expected_outputs": {
+          "intent": "string",
+          "response": "string"
+        },
+        "author": "platform",
+        "version": 1,
+        "min_blocks_required": [
+          "question_classifier",
+          "if_else",
+          "template_transform"
+        ],
+        "provenance": [
+          {
+            "source_type": "expert_manual",
+            "identifier": "platform:customer_support_router.json",
+            "created_at": "2026-06-26T00:00:00Z",
+            "user_id": null
+          }
+        ],
+        "confidence": 0.85,
+        "seed_template": true,
+        "usage_count": 0,
+        "pending_branches_count": 0,
+        "rating_sum": 0.0,
+        "rating_count": 0
+      },
+      {
+        "name": "dingtalk_checkin",
+        "title": "钉钉上班打卡 (8:45)",
+        "description": "每日8:45触发钉钉上班打卡。schedule_trigger 定时 → HTTP Request 调用钉钉考勤API → 模板格式化结果。",
+        "category": "task_management",
+        "icon": "clock",
+        "tags": [
+          "dingtalk",
+          "checkin",
+          "scheduled",
+          "attendance"
+        ],
+        "expected_inputs": {},
+        "expected_outputs": {
+          "result": "string",
+          "status": "number"
+        },
+        "author": "platform",
+        "version": 1,
+        "min_blocks_required": [
+          "schedule_trigger",
+          "http_request",
+          "template_transform"
+        ],
+        "provenance": [],
+        "confidence": 0.7,
+        "seed_template": false,
+        "usage_count": 0,
+        "pending_branches_count": 0,
+        "rating_sum": 0.0,
+        "rating_count": 0
+      },
+      {
+        "name": "dingtalk_checkout",
+        "title": "钉钉下班签退 (19:00)",
+        "description": "每日19:00触发钉钉下班签退。schedule_trigger 定时 → HTTP Request 调用钉钉考勤API → 模板格式化结果。",
+        "category": "task_management",
+        "icon": "clock",
+        "tags": [
+          "dingtalk",
+          "checkout",
+          "scheduled",
+          "attendance"
+        ],
+        "expected_inputs": {},
+        "expected_outputs": {
+          "result": "string",
+          "status": "number"
+        },
+        "author": "platform",
+        "version": 1,
+        "min_blocks_required": [
+          "schedule_trigger",
+          "http_request",
+          "template_transform"
+        ],
+        "provenance": [],
+        "confidence": 0.7,
+        "seed_template": false,
+        "usage_count": 0,
+        "pending_branches_count": 0,
+        "rating_sum": 0.0,
+        "rating_count": 0
+      },
+      {
+        "name": "dingtalk_smart_punch",
+        "title": "钉钉智能打卡（双策略降级）",
+        "description": "智能钉钉打卡工作流：Tier1 急速打卡（启动App自动触发）→ Tier2 input tap模拟点击 → Tier3 人工通知。支持上班打卡(8:45)和下班签退(19:00)，周一至周五自动运行，支持坐标校准。",
+        "category": "task_management",
+        "icon": "clock",
+        "tags": [
+          "dingtalk",
+          "checkin",
+          "automation",
+          "android",
+          "tap-simulation",
+          "scheduled"
+        ],
+        "expected_inputs": {
+          "checkin_x": "number",
+          "checkin_y": "number",
+          "checkout_x": "number",
+          "checkout_y": "number",
+          "entry_x": "number",
+          "entry_y": "number",
+          "punch_type": "string"
+        },
+        "expected_outputs": {
+          "result": "object",
+          "tier_used": "number",
+          "screenshot_path": "string",
+          "report": "string"
+        },
+        "author": "platform",
+        "version": 2,
+        "min_blocks_required": [
+          "schedule_trigger",
+          "tool",
+          "if_else",
+          "template_transform",
+          "variable_aggregator"
+        ],
+        "provenance": [],
+        "confidence": 0.7,
+        "seed_template": false,
+        "usage_count": 0,
+        "pending_branches_count": 0,
+        "rating_sum": 0.0,
+        "rating_count": 0
+      }
+    ],
+    "categories": [
+      "code_engineering",
+      "content_creation",
+      "customer_service",
+      "data_analysis",
+      "task_management"
+    ],
+    "suggestions": {
+      "shallow": [
+        {
+          "name": "data_analyzer",
+          "title": "数据分析流水线",
+          "description": "标准数据分析工作流：加载数据→统计摘要→异常检测→生成报告。适用于CSV/JSON数据的自动化分析场景。",
+          "category": "data_analysis",
+          "icon": "bar-chart",
+          "tags": [
+            "data",
+            "statistics",
+            "analysis",
+            "reporting"
+          ],
+          "expected_inputs": {
+            "data_description": "string"
+          },
+          "expected_outputs": {
+            "report": "string",
+            "statistics": "object"
+          },
+          "author": "platform",
+          "version": 1,
+          "min_blocks_required": [
+            "llm",
+            "parameter_extractor",
+            "template_transform"
+          ],
+          "provenance": [
+            {
+              "source_type": "expert_manual",
+              "identifier": "platform:data_analyzer.json",
+              "created_at": "2026-06-26T00:00:00Z",
+              "user_id": null
+            }
+          ],
+          "confidence": 0.85,
+          "seed_template": true,
+          "usage_count": 0,
+          "pending_branches_count": 0,
+          "rating_sum": 0.0,
+          "rating_count": 0,
+          "relevance_score": 1.547,
+          "reuse_depth": "shallow",
+          "effective_reuse_depth": "shallow",
+          "recommended_action": "expand_template",
+          "policy_reason": "explicit:shallow"
+        }
+      ],
+      "deep": [
+        {
+          "name": "data_analyzer",
+          "title": "数据分析流水线",
+          "description": "标准数据分析工作流：加载数据→统计摘要→异常检测→生成报告。适用于CSV/JSON数据的自动化分析场景。",
+          "category": "data_analysis",
+          "icon": "bar-chart",
+          "tags": [
+            "data",
+            "statistics",
+            "analysis",
+            "reporting"
+          ],
+          "expected_inputs": {
+            "data_description": "string"
+          },
+          "expected_outputs": {
+            "report": "string",
+            "statistics": "object"
+          },
+          "author": "platform",
+          "version": 1,
+          "min_blocks_required": [
+            "llm",
+            "parameter_extractor",
+            "template_transform"
+          ],
+          "provenance": [
+            {
+              "source_type": "expert_manual",
+              "identifier": "platform:data_analyzer.json",
+              "created_at": "2026-06-26T00:00:00Z",
+              "user_id": null
+            }
+          ],
+          "confidence": 0.85,
+          "seed_template": true,
+          "usage_count": 0,
+          "pending_branches_count": 0,
+          "rating_sum": 0.0,
+          "rating_count": 0,
+          "relevance_score": 1.547,
+          "reuse_depth": "deep",
+          "effective_reuse_depth": "deep",
+          "recommended_action": "compose_modules",
+          "policy_reason": "explicit:deep"
+        }
+      ],
+      "adaptive": [
+        {
+          "name": "data_analyzer",
+          "title": "数据分析流水线",
+          "description": "标准数据分析工作流：加载数据→统计摘要→异常检测→生成报告。适用于CSV/JSON数据的自动化分析场景。",
+          "category": "data_analysis",
+          "icon": "bar-chart",
+          "tags": [
+            "data",
+            "statistics",
+            "analysis",
+            "reporting"
+          ],
+          "expected_inputs": {
+            "data_description": "string"
+          },
+          "expected_outputs": {
+            "report": "string",
+            "statistics": "object"
+          },
+          "author": "platform",
+          "version": 1,
+          "min_blocks_required": [
+            "llm",
+            "parameter_extractor",
+            "template_transform"
+          ],
+          "provenance": [
+            {
+              "source_type": "expert_manual",
+              "identifier": "platform:data_analyzer.json",
+              "created_at": "2026-06-26T00:00:00Z",
+              "user_id": null
+            }
+          ],
+          "confidence": 0.85,
+          "seed_template": true,
+          "usage_count": 0,
+          "pending_branches_count": 0,
+          "rating_sum": 0.0,
+          "rating_count": 0,
+          "relevance_score": 1.547,
+          "reuse_depth": "adaptive",
+          "effective_reuse_depth": "deep",
+          "recommended_action": "compose_modules",
+          "policy_reason": "adaptive:complex_blocks:parameter_extractor"
+        }
+      ]
+    }
+  },
+  "arms": [
+    {
+      "depth": "shallow",
+      "case": "data_analyzer",
+      "expected_action": "expand_template",
+      "adaptive_resolution": null,
+      "status": "completed",
+      "elapsed_seconds": 213.959,
+      "application_id": "785c9880-e397-4d02-bc96-c2d0ff9cec11",
+      "build_id": "689e4016-c52f-4070-9015-30d09b30236e",
+      "build_status": "published",
+      "build_error": null,
+      "builder_task": {
+        "id": "689e4016-c52f-4070-9015-30d09b30236e",
+        "kind": "builder_build",
+        "owner_id": "785c9880-e397-4d02-bc96-c2d0ff9cec11",
+        "resource_id": "689e4016-c52f-4070-9015-30d09b30236e",
+        "status": "succeeded",
+        "parent_task_id": null,
+        "metadata": {
+          "max_turns": 42,
+          "max_repair_cycles": 2,
+          "auto_publish": false,
+          "max_elapsed_seconds": 600.0
+        },
+        "usage_counts": {
+          "model_call": 9,
+          "tool_call": 20
+        },
+        "usage": [
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 1,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T19:40:57.587009+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_inspect"
+            },
+            "created_at": "2026-07-09T19:41:05.276063+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "catalog_search"
+            },
+            "created_at": "2026-07-09T19:41:05.280300+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "build_plan"
+            },
+            "created_at": "2026-07-09T19:41:05.287741+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 2,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T19:41:05.292408+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "template_suggestions"
+            },
+            "created_at": "2026-07-09T19:41:08.771060+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 3,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T19:41:08.778390+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "template_expand"
+            },
+            "created_at": "2026-07-09T19:41:13.748046+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "task"
+            },
+            "created_at": "2026-07-09T19:41:13.769311+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 4,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T19:41:13.772128+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_inspect"
+            },
+            "created_at": "2026-07-09T19:41:16.847285+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "catalog_get"
+            },
+            "created_at": "2026-07-09T19:41:16.853583+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "catalog_get"
+            },
+            "created_at": "2026-07-09T19:41:16.857206+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "catalog_get"
+            },
+            "created_at": "2026-07-09T19:41:16.860406+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "catalog_get"
+            },
+            "created_at": "2026-07-09T19:41:16.865124+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "catalog_get"
+            },
+            "created_at": "2026-07-09T19:41:16.866932+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 5,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T19:41:16.869080+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_validate"
+            },
+            "created_at": "2026-07-09T19:41:24.810168+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 6,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T19:41:24.816773+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "test_add"
+            },
+            "created_at": "2026-07-09T19:41:35.765652+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 7,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T19:41:35.772199+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "test_run"
+            },
+            "created_at": "2026-07-09T19:41:37.658387+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 8,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T19:44:20.576848+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "build_plan"
+            },
+            "created_at": "2026-07-09T19:44:28.128471+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "build_plan"
+            },
+            "created_at": "2026-07-09T19:44:28.133552+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "build_plan"
+            },
+            "created_at": "2026-07-09T19:44:28.136671+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "task"
+            },
+            "created_at": "2026-07-09T19:44:28.139669+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 9,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T19:44:28.144236+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_publish"
+            },
+            "created_at": "2026-07-09T19:44:30.217320+00:00"
+          }
+        ],
+        "error": "",
+        "worker_id": null,
+        "lease_expires_at": null,
+        "lease_version": 0,
+        "created_at": "2026-07-09T19:40:57.579074+00:00",
+        "updated_at": "2026-07-09T19:44:30.224945+00:00",
+        "finished_at": "2026-07-09T19:44:30.224945+00:00"
+      },
+      "build_plan": {
+        "goal": "Build an editable data analysis BlockFlow with statistical summary, anomaly notes, and recommendations. Start with inputs data_description and optional analysis_goal. End with report and statistics outputs.",
+        "strategy": "Use template_suggestions with reuse_depth='shallow' to find a matching data_analyzer template. Lightly reuse its structure while keeping the final BlockFlow editable and tested. Map every requirement to a task, node, and mandatory test.",
+        "modules": [
+          {
+            "id": "m1",
+            "title": "Data Analysis Core",
+            "purpose": "Statistical summary, anomaly detection, key findings extraction from described dataset.",
+            "status": "done",
+            "depends_on": [],
+            "expected_blocks": [
+              "start",
+              "llm",
+              "template_transform",
+              "end"
+            ],
+            "draft_node_ids": [
+              "da_start",
+              "da_analyze",
+              "da_extract"
+            ],
+            "test_ids": [
+              "t1"
+            ],
+            "evidence": [
+              "LLM produces statistical summary with anomalies and recommendations",
+              "Parameter extractor yields record_count=600, anomalies_found=4, key_findings"
+            ]
+          },
+          {
+            "id": "m2",
+            "title": "Report Formatting",
+            "purpose": "Reviewer-facing formatted report output.",
+            "status": "done",
+            "depends_on": [],
+            "expected_blocks": [
+              "template_transform",
+              "answer"
+            ],
+            "draft_node_ids": [
+              "da_format",
+              "da_end"
+            ],
+            "test_ids": [
+              "t1"
+            ],
+            "evidence": [
+              "Template transform renders reviewer-facing markdown report",
+              "End node outputs report and statistics"
+            ]
+          },
+          {
+            "id": "m3",
+            "title": "Validation & Testing",
+            "purpose": "Mandatory test with required_node_types for auditability.",
+            "status": "done",
+            "depends_on": [],
+            "expected_blocks": [],
+            "draft_node_ids": [],
+            "test_ids": [
+              "t1"
+            ],
+            "evidence": [
+              "Mandatory test t1 passes all assertions and required_node_types gate"
+            ]
+          }
+        ],
+        "reuse_depth": "shallow",
+        "complexity": "medium",
+        "risks": [
+          "Template may not generalize beyond code-review/customer-support",
+          "LLM output variability may need structural assertions"
+        ]
+      },
+      "build_plan_reuse_depth": "shallow",
+      "usage_counts": {
+        "model_call": 9,
+        "tool_call": 20
+      },
+      "draft_counts": {
+        "nodes": 5,
+        "edges": 4,
+        "tests": 1,
+        "node_types": [
+          "end",
+          "llm",
+          "parameter_extractor",
+          "start",
+          "template_transform"
+        ]
+      },
+      "event_summary": {
+        "operation_counts": {
+          "draft_inspect": 2,
+          "catalog_search": 1,
+          "build_plan": 4,
+          "template_suggestions": 1,
+          "template_expand": 1,
+          "task": 2,
+          "catalog_get": 5,
+          "draft_validate": 1,
+          "test_add": 1,
+          "test_run": 1,
+          "draft_publish": 1
+        },
+        "template_suggestion_count": 1,
+        "template_expand_count": 1,
+        "template_suggestions": [
+          {
+            "input": {
+              "requirement": "Build an editable data analysis BlockFlow that takes data_description and optional analysis_goal inputs, produces statistical summary, anomaly notes, and recommendations, extracts structured statistics including key_findings, record_count, anomalies_found, and produces a reviewer-facing formatted report with outputs report and statistics.",
+              "reuse_depth": "shallow"
+            },
+            "success": true,
+            "reuse_depth": "shallow",
+            "effective_reuse_depth": "shallow",
+            "policy_reason": "explicit:shallow",
+            "recommended_action": "expand_template",
+            "templates": [
+              {
+                "name": "data_analyzer",
+                "title": "数据分析流水线",
+                "description": "标准数据分析工作流：加载数据→统计摘要→异常检测→生成报告。适用于CSV/JSON数据的自动化分析场景。",
+                "category": "data_analysis",
+                "icon": "bar-chart",
+                "tags": [
+                  "data",
+                  "statistics",
+                  "analysis",
+                  "reporting"
+                ],
+                "expected_inputs": {
+                  "data_description": "string"
+                },
+                "expected_outputs": {
+                  "report": "string",
+                  "statistics": "object"
+                },
+                "author": "platform",
+                "version": 1,
+                "min_blocks_required": [
+                  "llm",
+                  "parameter_extractor",
+                  "template_transform"
+                ],
+                "provenance": [
+                  {
+                    "source_type": "expert_manual",
+                    "identifier": "platform:data_analyzer.json",
+                    "created_at": "2026-06-26T00:00:00Z",
+                    "user_id": null
+                  }
+                ],
+                "confidence": 0.85,
+                "seed_template": true,
+                "usage_count": 1,
+                "pending_branches_count": 0,
+                "rating_sum": 0.0,
+                "rating_count": 0,
+                "relevance_score": 1.462,
+                "reuse_depth": "shallow",
+                "effective_reuse_depth": "shallow",
+                "recommended_action": "expand_template",
+                "policy_reason": "explicit:shallow",
+                "source": "marketplace",
+                "relevance": 1.462
+              },
+              {
+                "name": "dingtalk_smart_punch",
+                "title": "钉钉智能打卡（双策略降级）",
+                "description": "智能钉钉打卡工作流：Tier1 急速打卡（启动App自动触发）→ Tier2 input tap模拟点击 → Tier3 人工通知。支持上班打卡(8:45)和下班签退(19:00)，周一至周五自动运行，支持坐标校准。",
+                "category": "task_management",
+                "icon": "clock",
+                "tags": [
+                  "dingtalk",
+                  "checkin",
+                  "automation",
+                  "android",
+                  "tap-simulation",
+                  "scheduled"
+                ],
+                "expected_inputs": {
+                  "checkin_x": "number",
+                  "checkin_y": "number",
+                  "checkout_x": "number",
+                  "checkout_y": "number",
+                  "entry_x": "number",
+                  "entry_y": "number",
+                  "punch_type": "string"
+                },
+                "expected_outputs": {
+                  "result": "object",
+                  "tier_used": "number",
+                  "screenshot_path": "string",
+                  "report": "string"
+                },
+                "author": "platform",
+                "version": 2,
+                "min_blocks_required": [
+                  "schedule_trigger",
+                  "tool",
+                  "if_else",
+                  "template_transform",
+                  "variable_aggregator"
+                ],
+                "provenance": [],
+                "confidence": 0.7,
+                "seed_template": false,
+                "usage_count": 1,
+                "pending_branches_count": 0,
+                "rating_sum": 0.0,
+                "rating_count": 0,
+                "relevance_score": 0.326,
+                "reuse_depth": "shallow",
+                "effective_reuse_depth": "shallow",
+                "recommended_action": "expand_template",
+                "policy_reason": "explicit:shallow",
+                "source": "marketplace",
+                "relevance": 0.326
+              },
+              {
+                "name": "app_automation_workflow",
+                "title": "App 自动化决策流程",
+                "description": "从钉钉打卡自动化中提取的通用决策模式。任何'自动操作App X'的任务都应走这个流程：先检查API可用性→无API则检查急速模式→仍不行则模拟点击→都不行则人工介入。避免在错误方向上探索。",
+                "category": "task_management",
+                "icon": "workflow",
+                "tags": [
+                  "automation",
+                  "decision-tree",
+                  "app",
+                  "android"
+                ],
+                "expected_inputs": {
+                  "app_name": "string",
+                  "task_description": "string"
+                },
+                "expected_outputs": {
+                  "solution_type": "string",
+                  "deliverable": "string"
+                },
+                "author": "platform",
+                "version": 1,
+                "min_blocks_required": [
+                  "llm",
+                  "if_else",
+                  "template_transform"
+                ],
+                "provenance": [
+                  {
+                    "source_type": "expert_manual",
+                    "identifier": "platform:app_automation_workflow.json",
+                    "created_at": "2026-06-26T00:00:00Z",
+                    "user_id": null
+                  }
+                ],
+                "confidence": 0.7,
+                "seed_template": true,
+                "usage_count": 1,
+                "pending_branches_count": 0,
+                "rating_sum": 0.0,
+                "rating_count": 0,
+                "relevance_score": 0.326,
+                "reuse_depth": "shallow",
+                "effective_reuse_depth": "shallow",
+                "recommended_action": "expand_template",
+                "policy_reason": "explicit:shallow",
+                "source": "marketplace",
+                "relevance": 0.326
+              },
+              {
+                "name": "code_reviewer",
+                "title": "代码审查与修复",
+                "description": "标准代码审查工作流: 读取源码 → 运行测试 → 定位失败根因 → 最小修改 → 重新验证 → 生成报告。这是最核心的软件开发质量保证流程。",
+                "category": "code_engineering",
+                "icon": "bug",
+                "tags": [
+                  "code-review",
+                  "testing",
+                  "debugging",
+                  "quality"
+                ],
+                "expected_inputs": {
+                  "workspace_path": "string",
+                  "test_command": "string"
+                },
+                "expected_outputs": {
+                  "report": "object",
+                  "tests_passed": "boolean",
+                  "bugs_found": "number"
+                },
+                "author": "platform",
+                "version": 1,
+                "min_blocks_required": [
+                  "llm",
+                  "tool"
+                ],
+                "provenance": [
+                  {
+                    "source_type": "expert_manual",
+                    "identifier": "platform:code_reviewer.json",
+                    "created_at": "2026-06-26T00:00:00Z",
+                    "user_id": null
+                  }
+                ],
+                "confidence": 0.85,
+                "seed_template": true,
+                "usage_count": 0,
+                "pending_branches_count": 0,
+                "rating_sum": 0.0,
+                "rating_count": 0,
+                "relevance_score": 0.301,
+                "reuse_depth": "shallow",
+                "effective_reuse_depth": "shallow",
+                "recommended_action": "expand_template",
+                "policy_reason": "explicit:shallow",
+                "source": "marketplace",
+                "relevance": 0.301
+              }
+            ]
+          }
+        ],
+        "template_expands": [
+          {
+            "input": {
+              "name": "data_analyzer",
+              "prefix": "da"
+            },
+            "success": true,
+            "result": {
+              "template": "data_analyzer",
+              "source": "marketplace",
+              "revision": 9,
+              "nodes": [
+                "da_start",
+                "da_analyze",
+                "da_extract",
+                "da_format",
+                "da_end"
+              ],
+              "edges": [
+                "da_e1",
+                "da_e2",
+                "da_e3",
+                "da_e4"
+              ],
+              "node_types": [
+                "end",
+                "llm",
+                "parameter_extractor",
+                "start",
+                "template_transform"
+              ],
+              "edge_count": 4,
+              "validation": {
+                "valid": true,
+                "errors": []
+              },
+              "draft_validation": {
+                "valid": false,
+                "errors": [
+                  "at least one mandatory acceptance test is required"
+                ],
+                "warnings": [],
+                "revision": 9,
+                "test_count": 0
+              },
+              "template_contract": {
+                "name": "data_analyzer",
+                "title": "数据分析流水线",
+                "category": "data_analysis",
+                "expected_inputs": {
+                  "data_description": "string"
+                },
+                "expected_outputs": {
+                  "report": "string",
+                  "statistics": "object"
+                },
+                "min_blocks_required": [
+                  "llm",
+                  "parameter_extractor",
+                  "template_transform"
+                ],
+                "confidence": 0.85,
+                "tags": [
+                  "data",
+                  "statistics",
+                  "analysis",
+                  "reporting"
+                ]
+              }
+            }
+          }
+        ],
+        "failed_operations": [],
+        "provider_failure_events": [],
+        "model_timeout_events": [],
+        "needs_attention_events": []
+      },
+      "failure_summary": {
+        "build_status": "published",
+        "build_error": "",
+        "task_status": "succeeded",
+        "task_error": "",
+        "task_failure": null,
+        "event_failures": [],
+        "provider_failure_event_count": 0,
+        "model_timeout_event_count": 0,
+        "timeout_like": false
+      },
+      "benchmark_outcome": {
+        "suite_passed": true,
+        "suite_score": 0.85,
+        "suite_pass_rate": 1.0,
+        "case_count": 1,
+        "case_passed": true,
+        "case_score": 0.85,
+        "failed_cases": [],
+        "missing": {
+          "node_types": [],
+          "tool_nodes": [],
+          "harness_nodes": []
+        }
+      },
+      "benchmark_report": {
+        "name": "E05 template reuse-depth data_analyzer comparison",
+        "passed": true,
+        "score": 0.85,
+        "pass_rate": 1.0,
+        "case_count": 1,
+        "failed_cases": [],
+        "reports": [
+          {
+            "name": "data_analyzer blockflow reuse_depth=shallow",
+            "passed": true,
+            "score": 0.85,
+            "metrics": {
+              "node_type_coverage": 1.0,
+              "tool_node_coverage": 1.0,
+              "harness_coverage": 1.0,
+              "edge_similarity": 0.0,
+              "test_frame_coverage": 1.0,
+              "candidate_node_count": 5,
+              "reference_node_count": 5,
+              "node_type_equivalences": {
+                "end": [
+                  "answer"
+                ],
+                "model_turn": [
+                  "llm"
+                ]
+              }
+            },
+            "missing": {
+              "node_types": [],
+              "tool_nodes": [],
+              "harness_nodes": []
+            }
+          }
+        ],
+        "metrics": {
+          "average": {
+            "candidate_node_count": 5.0,
+            "edge_similarity": 0.0,
+            "harness_coverage": 1.0,
+            "node_type_coverage": 1.0,
+            "reference_node_count": 5.0,
+            "test_frame_coverage": 1.0,
+            "tool_node_coverage": 1.0
+          },
+          "minimum_score": 0.45,
+          "minimum_pass_rate": 1.0
+        },
+        "trends": [
+          {
+            "name": "data_analyzer blockflow reuse_depth=shallow",
+            "score": 0.85,
+            "baseline_score": null,
+            "delta": null,
+            "direction": "new"
+          }
+        ],
+        "cost": {
+          "model_calls": 9,
+          "tool_calls": 20,
+          "estimated_cost_usd": null,
+          "provider": "deepseek",
+          "model": "",
+          "notes": "Counts come from Platform Harness task usage when available."
+        }
+      }
+    },
+    {
+      "depth": "deep",
+      "case": "data_analyzer",
+      "expected_action": "compose_modules",
+      "adaptive_resolution": null,
+      "status": "completed",
+      "elapsed_seconds": 301.29,
+      "application_id": "6f69e685-dc09-40d9-906d-67d006ea680c",
+      "build_id": "1c78b398-e956-4773-8854-488ab038521e",
+      "build_status": "published",
+      "build_error": null,
+      "builder_task": {
+        "id": "1c78b398-e956-4773-8854-488ab038521e",
+        "kind": "builder_build",
+        "owner_id": "6f69e685-dc09-40d9-906d-67d006ea680c",
+        "resource_id": "1c78b398-e956-4773-8854-488ab038521e",
+        "status": "succeeded",
+        "parent_task_id": null,
+        "metadata": {
+          "max_turns": 42,
+          "max_repair_cycles": 2,
+          "auto_publish": false,
+          "max_elapsed_seconds": 600.0
+        },
+        "usage_counts": {
+          "model_call": 15,
+          "tool_call": 23
+        },
+        "usage": [
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 1,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T19:44:31.544026+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "build_plan"
+            },
+            "created_at": "2026-07-09T19:44:44.398265+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "template_suggestions"
+            },
+            "created_at": "2026-07-09T19:44:44.402745+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_inspect"
+            },
+            "created_at": "2026-07-09T19:44:44.406706+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 2,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T19:44:44.413922+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "build_plan"
+            },
+            "created_at": "2026-07-09T19:44:49.763227+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "template_expand"
+            },
+            "created_at": "2026-07-09T19:44:49.766572+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 3,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T19:44:49.783226+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_inspect"
+            },
+            "created_at": "2026-07-09T19:44:51.422401+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 4,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T19:44:51.429626+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_validate"
+            },
+            "created_at": "2026-07-09T19:45:03.239201+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 5,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T19:45:03.244833+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "test_add"
+            },
+            "created_at": "2026-07-09T19:45:26.207378+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "test_add"
+            },
+            "created_at": "2026-07-09T19:45:26.217334+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 6,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T19:45:26.224698+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "test_run"
+            },
+            "created_at": "2026-07-09T19:45:29.110454+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 7,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T19:46:25.332639+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "test_remove"
+            },
+            "created_at": "2026-07-09T19:46:34.427358+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 8,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T19:46:34.437446+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "test_add"
+            },
+            "created_at": "2026-07-09T19:46:40.144302+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 9,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T19:46:40.154934+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "test_run"
+            },
+            "created_at": "2026-07-09T19:46:41.650270+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 10,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T19:48:10.269361+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "test_remove"
+            },
+            "created_at": "2026-07-09T19:48:17.384961+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 11,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T19:48:17.396290+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "test_add"
+            },
+            "created_at": "2026-07-09T19:48:22.215331+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 12,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T19:48:22.226516+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "test_run"
+            },
+            "created_at": "2026-07-09T19:48:23.844469+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 13,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T19:49:10.171547+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_validate"
+            },
+            "created_at": "2026-07-09T19:49:20.714795+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "build_plan"
+            },
+            "created_at": "2026-07-09T19:49:20.721332+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 14,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T19:49:20.726884+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "build_plan"
+            },
+            "created_at": "2026-07-09T19:49:27.756574+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "build_plan"
+            },
+            "created_at": "2026-07-09T19:49:27.761444+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "build_plan"
+            },
+            "created_at": "2026-07-09T19:49:27.764694+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "build_plan"
+            },
+            "created_at": "2026-07-09T19:49:27.767516+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 15,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T19:49:27.772933+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_publish"
+            },
+            "created_at": "2026-07-09T19:49:30.372067+00:00"
+          }
+        ],
+        "error": "",
+        "worker_id": null,
+        "lease_expires_at": null,
+        "lease_version": 0,
+        "created_at": "2026-07-09T19:44:31.537900+00:00",
+        "updated_at": "2026-07-09T19:49:30.381620+00:00",
+        "finished_at": "2026-07-09T19:49:30.381620+00:00"
+      },
+      "build_plan": {
+        "goal": "Build an editable data analysis BlockFlow that takes data_description and optional analysis_goal, produces statistical summary, anomaly notes, recommendations, structured statistics, and a reviewer-facing formatted report. End outputs: report and statistics.",
+        "strategy": "Use reuse_depth='deep' — call template_suggestions first, then compose around reusable template modules. Prefer explicit bricks (Context, Model Turn, Tool, Template Transform, Variable Aggregator, etc.) over opaque Agent nodes.",
+        "modules": [
+          {
+            "id": "M1",
+            "title": "Template discovery and expansion",
+            "purpose": "Check for a matching data_analyzer template and expand it as the foundation.",
+            "status": "done",
+            "depends_on": [],
+            "expected_blocks": [
+              "template_expand"
+            ],
+            "draft_node_ids": [
+              "data_analyzer_start",
+              "data_analyzer_analyze",
+              "data_analyzer_extract",
+              "data_analyzer_format",
+              "data_analyzer_end"
+            ],
+            "test_ids": [],
+            "evidence": [
+              "Template expanded: data_analyzer (confidence 0.85)",
+              "Nodes: start, llm, parameter_extractor, template_transform, end",
+              "Edges: 4 connections forming linear pipeline"
+            ]
+          },
+          {
+            "id": "M2",
+            "title": "Core analysis pipeline",
+            "purpose": "Nodes that perform data analysis: statistical summary, anomaly detection, recommendations.",
+            "status": "done",
+            "depends_on": [],
+            "expected_blocks": [
+              "model_turn",
+              "tool",
+              "template_transform"
+            ],
+            "draft_node_ids": [
+              "data_analyzer_analyze"
+            ],
+            "test_ids": [],
+            "evidence": [
+              "LLM node (data_analyzer_analyze) performs statistical summary, anomaly notes, and recommendations from data_description + analysis_goal inputs"
+            ]
+          },
+          {
+            "id": "M3",
+            "title": "Structured statistics extraction",
+            "purpose": "Extract key_findings, record_count, anomalies_found into structured output.",
+            "status": "done",
+            "depends_on": [],
+            "expected_blocks": [
+              "template_transform",
+              "variable_aggregator"
+            ],
+            "draft_node_ids": [
+              "data_analyzer_extract"
+            ],
+            "test_ids": [],
+            "evidence": [
+              "parameter_extractor extracts key_findings (required), record_count (optional), anomalies_found (optional) from LLM output"
+            ]
+          },
+          {
+            "id": "M4",
+            "title": "Reviewer-facing report formatting",
+            "purpose": "Format final report from analysis results.",
+            "status": "done",
+            "depends_on": [],
+            "expected_blocks": [
+              "template_transform",
+              "answer"
+            ],
+            "draft_node_ids": [
+              "data_analyzer_format",
+              "data_analyzer_end"
+            ],
+            "test_ids": [],
+            "evidence": [
+              "template_transform (data_analyzer_format) produces reviewer-facing markdown report; end node outputs report and statistics"
+            ]
+          },
+          {
+            "id": "M5",
+            "title": "Mandatory acceptance tests",
+            "purpose": "Tests with required_node_types ensuring auditability. Verify report and statistics outputs.",
+            "status": "done",
+            "depends_on": [],
+            "expected_blocks": [],
+            "draft_node_ids": [],
+            "test_ids": [
+              "test_arch_gate",
+              "test_runtime_analysis"
+            ],
+            "evidence": [
+              "test_arch_gate: structural gate with required_node_types [start,llm,parameter_extractor,template_transform,end] — PASSED",
+              "test_runtime_analysis: end-to-end content test with real inputs verifying report and statistics — PASSED"
+            ]
+          }
+        ],
+        "reuse_depth": "deep",
+        "complexity": "medium",
+        "risks": [
+          "Template may not exactly match requirements; post-expand edits likely needed",
+          "Tool bricks for data analysis may need HTTP Request or specific Tool node types",
+          "Ensuring structured output extraction from LLM responses requires careful Template Transform config"
+        ]
+      },
+      "build_plan_reuse_depth": "deep",
+      "usage_counts": {
+        "model_call": 15,
+        "tool_call": 23
+      },
+      "draft_counts": {
+        "nodes": 5,
+        "edges": 4,
+        "tests": 2,
+        "node_types": [
+          "end",
+          "llm",
+          "parameter_extractor",
+          "start",
+          "template_transform"
+        ]
+      },
+      "event_summary": {
+        "operation_counts": {
+          "build_plan": 7,
+          "template_suggestions": 1,
+          "draft_inspect": 2,
+          "template_expand": 1,
+          "draft_validate": 2,
+          "test_add": 4,
+          "test_run": 3,
+          "test_remove": 2,
+          "draft_publish": 1
+        },
+        "template_suggestion_count": 1,
+        "template_expand_count": 1,
+        "template_suggestions": [
+          {
+            "input": {
+              "requirement": "Data analysis workflow that takes data_description and optional analysis_goal as inputs, produces statistical summary, anomaly notes, and recommendations. Extracts structured statistics including key_findings, record_count, anomalies_found. Produces a reviewer-facing formatted report. Ends with outputs: report and statistics.",
+              "reuse_depth": "deep"
+            },
+            "success": true,
+            "reuse_depth": "deep",
+            "effective_reuse_depth": "deep",
+            "policy_reason": "explicit:deep",
+            "recommended_action": "compose_modules",
+            "templates": [
+              {
+                "name": "data_analyzer",
+                "title": "数据分析流水线",
+                "description": "标准数据分析工作流：加载数据→统计摘要→异常检测→生成报告。适用于CSV/JSON数据的自动化分析场景。",
+                "category": "data_analysis",
+                "icon": "bar-chart",
+                "tags": [
+                  "data",
+                  "statistics",
+                  "analysis",
+                  "reporting"
+                ],
+                "expected_inputs": {
+                  "data_description": "string"
+                },
+                "expected_outputs": {
+                  "report": "string",
+                  "statistics": "object"
+                },
+                "author": "platform",
+                "version": 1,
+                "min_blocks_required": [
+                  "llm",
+                  "parameter_extractor",
+                  "template_transform"
+                ],
+                "provenance": [
+                  {
+                    "source_type": "expert_manual",
+                    "identifier": "platform:data_analyzer.json",
+                    "created_at": "2026-06-26T00:00:00Z",
+                    "user_id": null
+                  }
+                ],
+                "confidence": 0.85,
+                "seed_template": true,
+                "usage_count": 3,
+                "pending_branches_count": 0,
+                "rating_sum": 0.0,
+                "rating_count": 0,
+                "relevance_score": 1.463,
+                "reuse_depth": "deep",
+                "effective_reuse_depth": "deep",
+                "recommended_action": "compose_modules",
+                "policy_reason": "explicit:deep",
+                "source": "marketplace",
+                "relevance": 1.463
+              },
+              {
+                "name": "app_automation_workflow",
+                "title": "App 自动化决策流程",
+                "description": "从钉钉打卡自动化中提取的通用决策模式。任何'自动操作App X'的任务都应走这个流程：先检查API可用性→无API则检查急速模式→仍不行则模拟点击→都不行则人工介入。避免在错误方向上探索。",
+                "category": "task_management",
+                "icon": "workflow",
+                "tags": [
+                  "automation",
+                  "decision-tree",
+                  "app",
+                  "android"
+                ],
+                "expected_inputs": {
+                  "app_name": "string",
+                  "task_description": "string"
+                },
+                "expected_outputs": {
+                  "solution_type": "string",
+                  "deliverable": "string"
+                },
+                "author": "platform",
+                "version": 1,
+                "min_blocks_required": [
+                  "llm",
+                  "if_else",
+                  "template_transform"
+                ],
+                "provenance": [
+                  {
+                    "source_type": "expert_manual",
+                    "identifier": "platform:app_automation_workflow.json",
+                    "created_at": "2026-06-26T00:00:00Z",
+                    "user_id": null
+                  }
+                ],
+                "confidence": 0.7,
+                "seed_template": true,
+                "usage_count": 2,
+                "pending_branches_count": 0,
+                "rating_sum": 0.0,
+                "rating_count": 0,
+                "relevance_score": 0.572,
+                "reuse_depth": "deep",
+                "effective_reuse_depth": "deep",
+                "recommended_action": "compose_modules",
+                "policy_reason": "explicit:deep",
+                "source": "marketplace",
+                "relevance": 0.572
+              },
+              {
+                "name": "dingtalk_smart_punch",
+                "title": "钉钉智能打卡（双策略降级）",
+                "description": "智能钉钉打卡工作流：Tier1 急速打卡（启动App自动触发）→ Tier2 input tap模拟点击 → Tier3 人工通知。支持上班打卡(8:45)和下班签退(19:00)，周一至周五自动运行，支持坐标校准。",
+                "category": "task_management",
+                "icon": "clock",
+                "tags": [
+                  "dingtalk",
+                  "checkin",
+                  "automation",
+                  "android",
+                  "tap-simulation",
+                  "scheduled"
+                ],
+                "expected_inputs": {
+                  "checkin_x": "number",
+                  "checkin_y": "number",
+                  "checkout_x": "number",
+                  "checkout_y": "number",
+                  "entry_x": "number",
+                  "entry_y": "number",
+                  "punch_type": "string"
+                },
+                "expected_outputs": {
+                  "result": "object",
+                  "tier_used": "number",
+                  "screenshot_path": "string",
+                  "report": "string"
+                },
+                "author": "platform",
+                "version": 2,
+                "min_blocks_required": [
+                  "schedule_trigger",
+                  "tool",
+                  "if_else",
+                  "template_transform",
+                  "variable_aggregator"
+                ],
+                "provenance": [],
+                "confidence": 0.7,
+                "seed_template": false,
+                "usage_count": 2,
+                "pending_branches_count": 0,
+                "rating_sum": 0.0,
+                "rating_count": 0,
+                "relevance_score": 0.324,
+                "reuse_depth": "deep",
+                "effective_reuse_depth": "deep",
+                "recommended_action": "compose_modules",
+                "policy_reason": "explicit:deep",
+                "source": "marketplace",
+                "relevance": 0.324
+              },
+              {
+                "name": "code_reviewer",
+                "title": "代码审查与修复",
+                "description": "标准代码审查工作流: 读取源码 → 运行测试 → 定位失败根因 → 最小修改 → 重新验证 → 生成报告。这是最核心的软件开发质量保证流程。",
+                "category": "code_engineering",
+                "icon": "bug",
+                "tags": [
+                  "code-review",
+                  "testing",
+                  "debugging",
+                  "quality"
+                ],
+                "expected_inputs": {
+                  "workspace_path": "string",
+                  "test_command": "string"
+                },
+                "expected_outputs": {
+                  "report": "object",
+                  "tests_passed": "boolean",
+                  "bugs_found": "number"
+                },
+                "author": "platform",
+                "version": 1,
+                "min_blocks_required": [
+                  "llm",
+                  "tool"
+                ],
+                "provenance": [
+                  {
+                    "source_type": "expert_manual",
+                    "identifier": "platform:code_reviewer.json",
+                    "created_at": "2026-06-26T00:00:00Z",
+                    "user_id": null
+                  }
+                ],
+                "confidence": 0.85,
+                "seed_template": true,
+                "usage_count": 0,
+                "pending_branches_count": 0,
+                "rating_sum": 0.0,
+                "rating_count": 0,
+                "relevance_score": 0.301,
+                "reuse_depth": "deep",
+                "effective_reuse_depth": "deep",
+                "recommended_action": "compose_modules",
+                "policy_reason": "explicit:deep",
+                "source": "marketplace",
+                "relevance": 0.301
+              }
+            ]
+          }
+        ],
+        "template_expands": [
+          {
+            "input": {
+              "name": "data_analyzer"
+            },
+            "success": true,
+            "result": {
+              "template": "data_analyzer",
+              "source": "marketplace",
+              "revision": 9,
+              "nodes": [
+                "data_analyzer_start",
+                "data_analyzer_analyze",
+                "data_analyzer_extract",
+                "data_analyzer_format",
+                "data_analyzer_end"
+              ],
+              "edges": [
+                "data_analyzer_e1",
+                "data_analyzer_e2",
+                "data_analyzer_e3",
+                "data_analyzer_e4"
+              ],
+              "node_types": [
+                "end",
+                "llm",
+                "parameter_extractor",
+                "start",
+                "template_transform"
+              ],
+              "edge_count": 4,
+              "validation": {
+                "valid": true,
+                "errors": []
+              },
+              "draft_validation": {
+                "valid": false,
+                "errors": [
+                  "at least one mandatory acceptance test is required"
+                ],
+                "warnings": [],
+                "revision": 9,
+                "test_count": 0
+              },
+              "template_contract": {
+                "name": "data_analyzer",
+                "title": "数据分析流水线",
+                "category": "data_analysis",
+                "expected_inputs": {
+                  "data_description": "string"
+                },
+                "expected_outputs": {
+                  "report": "string",
+                  "statistics": "object"
+                },
+                "min_blocks_required": [
+                  "llm",
+                  "parameter_extractor",
+                  "template_transform"
+                ],
+                "confidence": 0.85,
+                "tags": [
+                  "data",
+                  "statistics",
+                  "analysis",
+                  "reporting"
+                ]
+              }
+            }
+          }
+        ],
+        "failed_operations": [],
+        "provider_failure_events": [],
+        "model_timeout_events": [],
+        "needs_attention_events": []
+      },
+      "failure_summary": {
+        "build_status": "published",
+        "build_error": "",
+        "task_status": "succeeded",
+        "task_error": "",
+        "task_failure": null,
+        "event_failures": [],
+        "provider_failure_event_count": 0,
+        "model_timeout_event_count": 0,
+        "timeout_like": false
+      },
+      "benchmark_outcome": {
+        "suite_passed": true,
+        "suite_score": 0.85,
+        "suite_pass_rate": 1.0,
+        "case_count": 1,
+        "case_passed": true,
+        "case_score": 0.85,
+        "failed_cases": [],
+        "missing": {
+          "node_types": [],
+          "tool_nodes": [],
+          "harness_nodes": []
+        }
+      },
+      "benchmark_report": {
+        "name": "E05 template reuse-depth data_analyzer comparison",
+        "passed": true,
+        "score": 0.85,
+        "pass_rate": 1.0,
+        "case_count": 1,
+        "failed_cases": [],
+        "reports": [
+          {
+            "name": "data_analyzer blockflow reuse_depth=deep",
+            "passed": true,
+            "score": 0.85,
+            "metrics": {
+              "node_type_coverage": 1.0,
+              "tool_node_coverage": 1.0,
+              "harness_coverage": 1.0,
+              "edge_similarity": 0.0,
+              "test_frame_coverage": 1.0,
+              "candidate_node_count": 5,
+              "reference_node_count": 5,
+              "node_type_equivalences": {
+                "end": [
+                  "answer"
+                ],
+                "model_turn": [
+                  "llm"
+                ]
+              }
+            },
+            "missing": {
+              "node_types": [],
+              "tool_nodes": [],
+              "harness_nodes": []
+            }
+          }
+        ],
+        "metrics": {
+          "average": {
+            "candidate_node_count": 5.0,
+            "edge_similarity": 0.0,
+            "harness_coverage": 1.0,
+            "node_type_coverage": 1.0,
+            "reference_node_count": 5.0,
+            "test_frame_coverage": 1.0,
+            "tool_node_coverage": 1.0
+          },
+          "minimum_score": 0.45,
+          "minimum_pass_rate": 1.0
+        },
+        "trends": [
+          {
+            "name": "data_analyzer blockflow reuse_depth=deep",
+            "score": 0.85,
+            "baseline_score": null,
+            "delta": null,
+            "direction": "new"
+          }
+        ],
+        "cost": {
+          "model_calls": 15,
+          "tool_calls": 23,
+          "estimated_cost_usd": null,
+          "provider": "deepseek",
+          "model": "",
+          "notes": "Counts come from Platform Harness task usage when available."
+        }
+      }
+    },
+    {
+      "depth": "adaptive",
+      "case": "data_analyzer",
+      "expected_action": "policy_selected",
+      "adaptive_resolution": {
+        "input": {
+          "requirement": "Build an editable data analysis BlockFlow that takes data_description and optional analysis_goal, produces statistical summary, anomaly notes, recommendations, structured statistics including key_findings, record_count, anomalies_found, and a reviewer-facing formatted report. End outputs: report and statistics.",
+          "reuse_depth": "adaptive"
+        },
+        "success": true,
+        "reuse_depth": "adaptive",
+        "effective_reuse_depth": "deep",
+        "policy_reason": "adaptive:complex_blocks:parameter_extractor",
+        "recommended_action": "compose_modules",
+        "templates": [
+          {
+            "name": "data_analyzer",
+            "title": "数据分析流水线",
+            "description": "标准数据分析工作流：加载数据→统计摘要→异常检测→生成报告。适用于CSV/JSON数据的自动化分析场景。",
+            "category": "data_analysis",
+            "icon": "bar-chart",
+            "tags": [
+              "data",
+              "statistics",
+              "analysis",
+              "reporting"
+            ],
+            "expected_inputs": {
+              "data_description": "string"
+            },
+            "expected_outputs": {
+              "report": "string",
+              "statistics": "object"
+            },
+            "author": "platform",
+            "version": 1,
+            "min_blocks_required": [
+              "llm",
+              "parameter_extractor",
+              "template_transform"
+            ],
+            "provenance": [
+              {
+                "source_type": "expert_manual",
+                "identifier": "platform:data_analyzer.json",
+                "created_at": "2026-06-26T00:00:00Z",
+                "user_id": null
+              }
+            ],
+            "confidence": 0.85,
+            "seed_template": true,
+            "usage_count": 5,
+            "pending_branches_count": 0,
+            "rating_sum": 0.0,
+            "rating_count": 0,
+            "relevance_score": 1.464,
+            "reuse_depth": "adaptive",
+            "effective_reuse_depth": "deep",
+            "recommended_action": "compose_modules",
+            "policy_reason": "adaptive:complex_blocks:parameter_extractor",
+            "source": "marketplace",
+            "relevance": 1.464
+          },
+          {
+            "name": "task_decomposer",
+            "title": "任务分解与规划",
+            "description": "将复杂任务分解为可执行的子任务并按依赖排序。输入任务描述→LLM拆解→提取子任务→依赖排序→生成格式化计划。",
+            "category": "task_management",
+            "icon": "list-checks",
+            "tags": [
+              "planning",
+              "decomposition",
+              "dependencies",
+              "project-management"
+            ],
+            "expected_inputs": {
+              "complex_task": "string"
+            },
+            "expected_outputs": {
+              "plan": "string",
+              "subtask_count": "number"
+            },
+            "author": "platform",
+            "version": 1,
+            "min_blocks_required": [
+              "llm",
+              "template_transform"
+            ],
+            "provenance": [
+              {
+                "source_type": "expert_manual",
+                "identifier": "platform:task_decomposer.json",
+                "created_at": "2026-06-26T00:00:00Z",
+                "user_id": null
+              }
+            ],
+            "confidence": 0.85,
+            "seed_template": true,
+            "usage_count": 1,
+            "pending_branches_count": 0,
+            "rating_sum": 0.0,
+            "rating_count": 0,
+            "relevance_score": 0.386,
+            "reuse_depth": "adaptive",
+            "effective_reuse_depth": "shallow",
+            "recommended_action": "expand_template",
+            "policy_reason": "adaptive:template_match:task_decomposer",
+            "source": "marketplace",
+            "relevance": 0.386
+          },
+          {
+            "name": "dingtalk_smart_punch",
+            "title": "钉钉智能打卡（双策略降级）",
+            "description": "智能钉钉打卡工作流：Tier1 急速打卡（启动App自动触发）→ Tier2 input tap模拟点击 → Tier3 人工通知。支持上班打卡(8:45)和下班签退(19:00)，周一至周五自动运行，支持坐标校准。",
+            "category": "task_management",
+            "icon": "clock",
+            "tags": [
+              "dingtalk",
+              "checkin",
+              "automation",
+              "android",
+              "tap-simulation",
+              "scheduled"
+            ],
+            "expected_inputs": {
+              "checkin_x": "number",
+              "checkin_y": "number",
+              "checkout_x": "number",
+              "checkout_y": "number",
+              "entry_x": "number",
+              "entry_y": "number",
+              "punch_type": "string"
+            },
+            "expected_outputs": {
+              "result": "object",
+              "tier_used": "number",
+              "screenshot_path": "string",
+              "report": "string"
+            },
+            "author": "platform",
+            "version": 2,
+            "min_blocks_required": [
+              "schedule_trigger",
+              "tool",
+              "if_else",
+              "template_transform",
+              "variable_aggregator"
+            ],
+            "provenance": [],
+            "confidence": 0.7,
+            "seed_template": false,
+            "usage_count": 3,
+            "pending_branches_count": 0,
+            "rating_sum": 0.0,
+            "rating_count": 0,
+            "relevance_score": 0.325,
+            "reuse_depth": "adaptive",
+            "effective_reuse_depth": "deep",
+            "recommended_action": "compose_modules",
+            "policy_reason": "adaptive:complex_blocks:variable_aggregator",
+            "source": "marketplace",
+            "relevance": 0.325
+          },
+          {
+            "name": "app_automation_workflow",
+            "title": "App 自动化决策流程",
+            "description": "从钉钉打卡自动化中提取的通用决策模式。任何'自动操作App X'的任务都应走这个流程：先检查API可用性→无API则检查急速模式→仍不行则模拟点击→都不行则人工介入。避免在错误方向上探索。",
+            "category": "task_management",
+            "icon": "workflow",
+            "tags": [
+              "automation",
+              "decision-tree",
+              "app",
+              "android"
+            ],
+            "expected_inputs": {
+              "app_name": "string",
+              "task_description": "string"
+            },
+            "expected_outputs": {
+              "solution_type": "string",
+              "deliverable": "string"
+            },
+            "author": "platform",
+            "version": 1,
+            "min_blocks_required": [
+              "llm",
+              "if_else",
+              "template_transform"
+            ],
+            "provenance": [
+              {
+                "source_type": "expert_manual",
+                "identifier": "platform:app_automation_workflow.json",
+                "created_at": "2026-06-26T00:00:00Z",
+                "user_id": null
+              }
+            ],
+            "confidence": 0.7,
+            "seed_template": true,
+            "usage_count": 2,
+            "pending_branches_count": 0,
+            "rating_sum": 0.0,
+            "rating_count": 0,
+            "relevance_score": 0.325,
+            "reuse_depth": "adaptive",
+            "effective_reuse_depth": "shallow",
+            "recommended_action": "expand_template",
+            "policy_reason": "adaptive:template_match:app_automation_workflow",
+            "source": "marketplace",
+            "relevance": 0.325
+          },
+          {
+            "name": "dingtalk_checkout",
+            "title": "钉钉下班签退 (19:00)",
+            "description": "每日19:00触发钉钉下班签退。schedule_trigger 定时 → HTTP Request 调用钉钉考勤API → 模板格式化结果。",
+            "category": "task_management",
+            "icon": "clock",
+            "tags": [
+              "dingtalk",
+              "checkout",
+              "scheduled",
+              "attendance"
+            ],
+            "expected_inputs": {},
+            "expected_outputs": {
+              "result": "string",
+              "status": "number"
+            },
+            "author": "platform",
+            "version": 1,
+            "min_blocks_required": [
+              "schedule_trigger",
+              "http_request",
+              "template_transform"
+            ],
+            "provenance": [],
+            "confidence": 0.7,
+            "seed_template": false,
+            "usage_count": 0,
+            "pending_branches_count": 0,
+            "rating_sum": 0.0,
+            "rating_count": 0,
+            "relevance_score": 0.318,
+            "reuse_depth": "adaptive",
+            "effective_reuse_depth": "shallow",
+            "recommended_action": "expand_template",
+            "policy_reason": "adaptive:template_match:dingtalk_checkout",
+            "source": "marketplace",
+            "relevance": 0.318
+          }
+        ]
+      },
+      "status": "completed",
+      "elapsed_seconds": 159.669,
+      "application_id": "865368f1-4bbf-48a4-b479-f993172b4f97",
+      "build_id": "e644f319-61ea-4ed2-a514-8b119ddbcf3e",
+      "build_status": "published",
+      "build_error": null,
+      "builder_task": {
+        "id": "e644f319-61ea-4ed2-a514-8b119ddbcf3e",
+        "kind": "builder_build",
+        "owner_id": "865368f1-4bbf-48a4-b479-f993172b4f97",
+        "resource_id": "e644f319-61ea-4ed2-a514-8b119ddbcf3e",
+        "status": "succeeded",
+        "parent_task_id": null,
+        "metadata": {
+          "max_turns": 42,
+          "max_repair_cycles": 2,
+          "auto_publish": false,
+          "max_elapsed_seconds": 600.0
+        },
+        "usage_counts": {
+          "model_call": 11,
+          "tool_call": 17
+        },
+        "usage": [
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 1,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T19:49:32.868268+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_inspect"
+            },
+            "created_at": "2026-07-09T19:49:39.089945+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "build_plan"
+            },
+            "created_at": "2026-07-09T19:49:39.094589+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 2,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T19:49:39.098738+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "build_plan"
+            },
+            "created_at": "2026-07-09T19:49:44.313152+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "template_suggestions"
+            },
+            "created_at": "2026-07-09T19:49:44.317931+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 3,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T19:49:44.323836+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "build_plan"
+            },
+            "created_at": "2026-07-09T19:49:53.600568+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "template_expand"
+            },
+            "created_at": "2026-07-09T19:49:53.604624+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 4,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T19:49:53.616367+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_inspect"
+            },
+            "created_at": "2026-07-09T19:49:56.947114+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 5,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T19:49:56.954345+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_validate"
+            },
+            "created_at": "2026-07-09T19:50:08.941011+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 6,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T19:50:08.950177+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "test_add"
+            },
+            "created_at": "2026-07-09T19:50:18.739605+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 7,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T19:50:18.752062+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_validate"
+            },
+            "created_at": "2026-07-09T19:50:20.631365+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 8,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T19:50:20.637836+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "test_run"
+            },
+            "created_at": "2026-07-09T19:50:22.493992+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 9,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T19:51:44.289831+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "build_plan"
+            },
+            "created_at": "2026-07-09T19:52:05.132027+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "build_plan"
+            },
+            "created_at": "2026-07-09T19:52:05.135497+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 10,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T19:52:05.138817+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "build_plan"
+            },
+            "created_at": "2026-07-09T19:52:09.253336+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "build_plan"
+            },
+            "created_at": "2026-07-09T19:52:09.258329+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "build_plan"
+            },
+            "created_at": "2026-07-09T19:52:09.261629+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 11,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T19:52:09.266304+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_publish"
+            },
+            "created_at": "2026-07-09T19:52:11.149670+00:00"
+          }
+        ],
+        "error": "",
+        "worker_id": null,
+        "lease_expires_at": null,
+        "lease_version": 0,
+        "created_at": "2026-07-09T19:49:32.862099+00:00",
+        "updated_at": "2026-07-09T19:52:11.159109+00:00",
+        "finished_at": "2026-07-09T19:52:11.159109+00:00"
+      },
+      "build_plan": {
+        "goal": "Build an editable data analysis BlockFlow: data_description + optional analysis_goal → statistical summary, anomaly notes, recommendations, structured statistics, reviewer report.",
+        "strategy": "Deep reuse via data_analyzer template (confidence 0.85). Expand template, validate, add tests with required_node_types, repair if needed.",
+        "modules": [
+          {
+            "id": "m1",
+            "title": "Template Expansion",
+            "purpose": "Expand data_analyzer template and inspect resulting nodes.",
+            "status": "done",
+            "depends_on": [],
+            "expected_blocks": [
+              "llm",
+              "parameter_extractor",
+              "template_transform"
+            ],
+            "draft_node_ids": [
+              "data_analyzer_start",
+              "data_analyzer_analyze",
+              "data_analyzer_extract",
+              "data_analyzer_format",
+              "data_analyzer_end"
+            ],
+            "test_ids": [],
+            "evidence": [
+              "Template expanded with 5 nodes: start, llm, parameter_extractor, template_transform, end"
+            ]
+          },
+          {
+            "id": "m2",
+            "title": "Input/Output Alignment",
+            "purpose": "Ensure Start inputs match data_description and optional analysis_goal, and End outputs are report and statistics.",
+            "status": "done",
+            "depends_on": [],
+            "expected_blocks": [],
+            "draft_node_ids": [],
+            "test_ids": [],
+            "evidence": [
+              "Start inputs: data_description (required), analysis_goal (optional, default=全面的统计分析和异常检测). End outputs: report and statistics."
+            ]
+          },
+          {
+            "id": "m3",
+            "title": "Structured Extraction",
+            "purpose": "Ensure parameter_extractor pulls key_findings, record_count, anomalies_found from LLM output.",
+            "status": "done",
+            "depends_on": [],
+            "expected_blocks": [
+              "parameter_extractor"
+            ],
+            "draft_node_ids": [],
+            "test_ids": [],
+            "evidence": [
+              "parameter_extractor fields: key_findings (required), record_count (optional), anomalies_found (optional)"
+            ]
+          },
+          {
+            "id": "m4",
+            "title": "Report Formatting",
+            "purpose": "Template_transform produces reviewer-facing formatted report.",
+            "status": "done",
+            "depends_on": [],
+            "expected_blocks": [
+              "template_transform"
+            ],
+            "draft_node_ids": [],
+            "test_ids": [],
+            "evidence": [
+              "template_transform produces markdown report with findings, record count, anomalies count, and full analysis"
+            ]
+          },
+          {
+            "id": "m5",
+            "title": "Validation and Testing",
+            "purpose": "draft_validate, add mandatory tests with required_node_types, test_run, repair.",
+            "status": "done",
+            "depends_on": [],
+            "expected_blocks": [],
+            "draft_node_ids": [],
+            "test_ids": [
+              "t1"
+            ],
+            "evidence": [
+              "draft_validate passed, test_run passed (1/1), required_node_types: start, llm, parameter_extractor, template_transform, end"
+            ]
+          }
+        ],
+        "reuse_depth": "deep",
+        "complexity": "medium",
+        "risks": [
+          "Template min_blocks_required: llm, parameter_extractor, template_transform",
+          "Must preserve template_contract after expansion",
+          "required_node_types in tests for auditability"
+        ]
+      },
+      "build_plan_reuse_depth": "deep",
+      "usage_counts": {
+        "model_call": 11,
+        "tool_call": 17
+      },
+      "draft_counts": {
+        "nodes": 5,
+        "edges": 4,
+        "tests": 1,
+        "node_types": [
+          "end",
+          "llm",
+          "parameter_extractor",
+          "start",
+          "template_transform"
+        ]
+      },
+      "event_summary": {
+        "operation_counts": {
+          "draft_inspect": 2,
+          "build_plan": 8,
+          "template_suggestions": 1,
+          "template_expand": 1,
+          "draft_validate": 2,
+          "test_add": 1,
+          "test_run": 1,
+          "draft_publish": 1
+        },
+        "template_suggestion_count": 1,
+        "template_expand_count": 1,
+        "template_suggestions": [
+          {
+            "input": {
+              "requirement": "Build an editable data analysis BlockFlow that takes data_description and optional analysis_goal, produces statistical summary, anomaly notes, recommendations, structured statistics including key_findings, record_count, anomalies_found, and a reviewer-facing formatted report. End outputs: report and statistics.",
+              "reuse_depth": "adaptive"
+            },
+            "success": true,
+            "reuse_depth": "adaptive",
+            "effective_reuse_depth": "deep",
+            "policy_reason": "adaptive:complex_blocks:parameter_extractor",
+            "recommended_action": "compose_modules",
+            "templates": [
+              {
+                "name": "data_analyzer",
+                "title": "数据分析流水线",
+                "description": "标准数据分析工作流：加载数据→统计摘要→异常检测→生成报告。适用于CSV/JSON数据的自动化分析场景。",
+                "category": "data_analysis",
+                "icon": "bar-chart",
+                "tags": [
+                  "data",
+                  "statistics",
+                  "analysis",
+                  "reporting"
+                ],
+                "expected_inputs": {
+                  "data_description": "string"
+                },
+                "expected_outputs": {
+                  "report": "string",
+                  "statistics": "object"
+                },
+                "author": "platform",
+                "version": 1,
+                "min_blocks_required": [
+                  "llm",
+                  "parameter_extractor",
+                  "template_transform"
+                ],
+                "provenance": [
+                  {
+                    "source_type": "expert_manual",
+                    "identifier": "platform:data_analyzer.json",
+                    "created_at": "2026-06-26T00:00:00Z",
+                    "user_id": null
+                  }
+                ],
+                "confidence": 0.85,
+                "seed_template": true,
+                "usage_count": 5,
+                "pending_branches_count": 0,
+                "rating_sum": 0.0,
+                "rating_count": 0,
+                "relevance_score": 1.464,
+                "reuse_depth": "adaptive",
+                "effective_reuse_depth": "deep",
+                "recommended_action": "compose_modules",
+                "policy_reason": "adaptive:complex_blocks:parameter_extractor",
+                "source": "marketplace",
+                "relevance": 1.464
+              },
+              {
+                "name": "task_decomposer",
+                "title": "任务分解与规划",
+                "description": "将复杂任务分解为可执行的子任务并按依赖排序。输入任务描述→LLM拆解→提取子任务→依赖排序→生成格式化计划。",
+                "category": "task_management",
+                "icon": "list-checks",
+                "tags": [
+                  "planning",
+                  "decomposition",
+                  "dependencies",
+                  "project-management"
+                ],
+                "expected_inputs": {
+                  "complex_task": "string"
+                },
+                "expected_outputs": {
+                  "plan": "string",
+                  "subtask_count": "number"
+                },
+                "author": "platform",
+                "version": 1,
+                "min_blocks_required": [
+                  "llm",
+                  "template_transform"
+                ],
+                "provenance": [
+                  {
+                    "source_type": "expert_manual",
+                    "identifier": "platform:task_decomposer.json",
+                    "created_at": "2026-06-26T00:00:00Z",
+                    "user_id": null
+                  }
+                ],
+                "confidence": 0.85,
+                "seed_template": true,
+                "usage_count": 1,
+                "pending_branches_count": 0,
+                "rating_sum": 0.0,
+                "rating_count": 0,
+                "relevance_score": 0.386,
+                "reuse_depth": "adaptive",
+                "effective_reuse_depth": "shallow",
+                "recommended_action": "expand_template",
+                "policy_reason": "adaptive:template_match:task_decomposer",
+                "source": "marketplace",
+                "relevance": 0.386
+              },
+              {
+                "name": "dingtalk_smart_punch",
+                "title": "钉钉智能打卡（双策略降级）",
+                "description": "智能钉钉打卡工作流：Tier1 急速打卡（启动App自动触发）→ Tier2 input tap模拟点击 → Tier3 人工通知。支持上班打卡(8:45)和下班签退(19:00)，周一至周五自动运行，支持坐标校准。",
+                "category": "task_management",
+                "icon": "clock",
+                "tags": [
+                  "dingtalk",
+                  "checkin",
+                  "automation",
+                  "android",
+                  "tap-simulation",
+                  "scheduled"
+                ],
+                "expected_inputs": {
+                  "checkin_x": "number",
+                  "checkin_y": "number",
+                  "checkout_x": "number",
+                  "checkout_y": "number",
+                  "entry_x": "number",
+                  "entry_y": "number",
+                  "punch_type": "string"
+                },
+                "expected_outputs": {
+                  "result": "object",
+                  "tier_used": "number",
+                  "screenshot_path": "string",
+                  "report": "string"
+                },
+                "author": "platform",
+                "version": 2,
+                "min_blocks_required": [
+                  "schedule_trigger",
+                  "tool",
+                  "if_else",
+                  "template_transform",
+                  "variable_aggregator"
+                ],
+                "provenance": [],
+                "confidence": 0.7,
+                "seed_template": false,
+                "usage_count": 3,
+                "pending_branches_count": 0,
+                "rating_sum": 0.0,
+                "rating_count": 0,
+                "relevance_score": 0.325,
+                "reuse_depth": "adaptive",
+                "effective_reuse_depth": "deep",
+                "recommended_action": "compose_modules",
+                "policy_reason": "adaptive:complex_blocks:variable_aggregator",
+                "source": "marketplace",
+                "relevance": 0.325
+              },
+              {
+                "name": "app_automation_workflow",
+                "title": "App 自动化决策流程",
+                "description": "从钉钉打卡自动化中提取的通用决策模式。任何'自动操作App X'的任务都应走这个流程：先检查API可用性→无API则检查急速模式→仍不行则模拟点击→都不行则人工介入。避免在错误方向上探索。",
+                "category": "task_management",
+                "icon": "workflow",
+                "tags": [
+                  "automation",
+                  "decision-tree",
+                  "app",
+                  "android"
+                ],
+                "expected_inputs": {
+                  "app_name": "string",
+                  "task_description": "string"
+                },
+                "expected_outputs": {
+                  "solution_type": "string",
+                  "deliverable": "string"
+                },
+                "author": "platform",
+                "version": 1,
+                "min_blocks_required": [
+                  "llm",
+                  "if_else",
+                  "template_transform"
+                ],
+                "provenance": [
+                  {
+                    "source_type": "expert_manual",
+                    "identifier": "platform:app_automation_workflow.json",
+                    "created_at": "2026-06-26T00:00:00Z",
+                    "user_id": null
+                  }
+                ],
+                "confidence": 0.7,
+                "seed_template": true,
+                "usage_count": 2,
+                "pending_branches_count": 0,
+                "rating_sum": 0.0,
+                "rating_count": 0,
+                "relevance_score": 0.325,
+                "reuse_depth": "adaptive",
+                "effective_reuse_depth": "shallow",
+                "recommended_action": "expand_template",
+                "policy_reason": "adaptive:template_match:app_automation_workflow",
+                "source": "marketplace",
+                "relevance": 0.325
+              },
+              {
+                "name": "dingtalk_checkout",
+                "title": "钉钉下班签退 (19:00)",
+                "description": "每日19:00触发钉钉下班签退。schedule_trigger 定时 → HTTP Request 调用钉钉考勤API → 模板格式化结果。",
+                "category": "task_management",
+                "icon": "clock",
+                "tags": [
+                  "dingtalk",
+                  "checkout",
+                  "scheduled",
+                  "attendance"
+                ],
+                "expected_inputs": {},
+                "expected_outputs": {
+                  "result": "string",
+                  "status": "number"
+                },
+                "author": "platform",
+                "version": 1,
+                "min_blocks_required": [
+                  "schedule_trigger",
+                  "http_request",
+                  "template_transform"
+                ],
+                "provenance": [],
+                "confidence": 0.7,
+                "seed_template": false,
+                "usage_count": 0,
+                "pending_branches_count": 0,
+                "rating_sum": 0.0,
+                "rating_count": 0,
+                "relevance_score": 0.318,
+                "reuse_depth": "adaptive",
+                "effective_reuse_depth": "shallow",
+                "recommended_action": "expand_template",
+                "policy_reason": "adaptive:template_match:dingtalk_checkout",
+                "source": "marketplace",
+                "relevance": 0.318
+              }
+            ]
+          }
+        ],
+        "template_expands": [
+          {
+            "input": {
+              "name": "data_analyzer"
+            },
+            "success": true,
+            "result": {
+              "template": "data_analyzer",
+              "source": "marketplace",
+              "revision": 9,
+              "nodes": [
+                "data_analyzer_start",
+                "data_analyzer_analyze",
+                "data_analyzer_extract",
+                "data_analyzer_format",
+                "data_analyzer_end"
+              ],
+              "edges": [
+                "data_analyzer_e1",
+                "data_analyzer_e2",
+                "data_analyzer_e3",
+                "data_analyzer_e4"
+              ],
+              "node_types": [
+                "end",
+                "llm",
+                "parameter_extractor",
+                "start",
+                "template_transform"
+              ],
+              "edge_count": 4,
+              "validation": {
+                "valid": true,
+                "errors": []
+              },
+              "draft_validation": {
+                "valid": false,
+                "errors": [
+                  "at least one mandatory acceptance test is required"
+                ],
+                "warnings": [],
+                "revision": 9,
+                "test_count": 0
+              },
+              "template_contract": {
+                "name": "data_analyzer",
+                "title": "数据分析流水线",
+                "category": "data_analysis",
+                "expected_inputs": {
+                  "data_description": "string"
+                },
+                "expected_outputs": {
+                  "report": "string",
+                  "statistics": "object"
+                },
+                "min_blocks_required": [
+                  "llm",
+                  "parameter_extractor",
+                  "template_transform"
+                ],
+                "confidence": 0.85,
+                "tags": [
+                  "data",
+                  "statistics",
+                  "analysis",
+                  "reporting"
+                ]
+              }
+            }
+          }
+        ],
+        "failed_operations": [
+          {
+            "tool": "build_plan",
+            "input": {
+              "action": "set",
+              "plan": {
+                "goal": "Build an editable data analysis BlockFlow that takes data_description and optional analysis_goal, produces statistical summary, anomaly notes, recommendations, structured statistics, and a reviewer-facing formatted report. End outputs: report and statistics.",
+                "strategy": "E05 adaptive reuse: call template_suggestions with reuse_depth='adaptive', read effective_reuse_depth and policy_reason, update plan, then follow that concrete strategy.",
+                "modules": [],
+                "reuse_depth": "adaptive",
+                "complexity": "medium",
+                "risks": [
+                  "Template may or may not exist for data_analyzer",
+                  "Adaptive reuse may return shallow or deep depending on template match",
+                  "Must ensure required_node_types test is present"
+                ]
+              }
+            },
+            "result": "ValidationError: 1 validation error for BuildPlan\nreuse_depth\n  Input should be 'none', 'shallow' or 'deep' [type=literal_error, input_value='adaptive', input_type=str]\n    For further information visit https://errors.pydantic.dev/2.13/v/literal_error"
+          }
+        ],
+        "provider_failure_events": [],
+        "model_timeout_events": [],
+        "needs_attention_events": []
+      },
+      "failure_summary": {
+        "build_status": "published",
+        "build_error": "",
+        "task_status": "succeeded",
+        "task_error": "",
+        "task_failure": null,
+        "event_failures": [],
+        "provider_failure_event_count": 0,
+        "model_timeout_event_count": 0,
+        "timeout_like": false
+      },
+      "benchmark_outcome": {
+        "suite_passed": true,
+        "suite_score": 0.85,
+        "suite_pass_rate": 1.0,
+        "case_count": 1,
+        "case_passed": true,
+        "case_score": 0.85,
+        "failed_cases": [],
+        "missing": {
+          "node_types": [],
+          "tool_nodes": [],
+          "harness_nodes": []
+        }
+      },
+      "benchmark_report": {
+        "name": "E05 template reuse-depth data_analyzer comparison",
+        "passed": true,
+        "score": 0.85,
+        "pass_rate": 1.0,
+        "case_count": 1,
+        "failed_cases": [],
+        "reports": [
+          {
+            "name": "data_analyzer blockflow reuse_depth=adaptive",
+            "passed": true,
+            "score": 0.85,
+            "metrics": {
+              "node_type_coverage": 1.0,
+              "tool_node_coverage": 1.0,
+              "harness_coverage": 1.0,
+              "edge_similarity": 0.0,
+              "test_frame_coverage": 1.0,
+              "candidate_node_count": 5,
+              "reference_node_count": 5,
+              "node_type_equivalences": {
+                "end": [
+                  "answer"
+                ],
+                "model_turn": [
+                  "llm"
+                ]
+              }
+            },
+            "missing": {
+              "node_types": [],
+              "tool_nodes": [],
+              "harness_nodes": []
+            }
+          }
+        ],
+        "metrics": {
+          "average": {
+            "candidate_node_count": 5.0,
+            "edge_similarity": 0.0,
+            "harness_coverage": 1.0,
+            "node_type_coverage": 1.0,
+            "reference_node_count": 5.0,
+            "test_frame_coverage": 1.0,
+            "tool_node_coverage": 1.0
+          },
+          "minimum_score": 0.45,
+          "minimum_pass_rate": 1.0
+        },
+        "trends": [
+          {
+            "name": "data_analyzer blockflow reuse_depth=adaptive",
+            "score": 0.85,
+            "baseline_score": null,
+            "delta": null,
+            "direction": "new"
+          }
+        ],
+        "cost": {
+          "model_calls": 11,
+          "tool_calls": 17,
+          "estimated_cost_usd": null,
+          "provider": "deepseek",
+          "model": "",
+          "notes": "Counts come from Platform Harness task usage when available."
+        }
+      }
+    }
+  ],
+  "error": ""
+}

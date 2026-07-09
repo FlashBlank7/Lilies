@@ -31,11 +31,12 @@ def test_e05_depth_arms_and_requirements_are_explicit() -> None:
     module = load_e05_module()
 
     arms = module.depth_arms()
-    assert [arm.depth for arm in arms] == ["none", "shallow", "deep"]
+    assert [arm.depth for arm in arms] == ["none", "shallow", "deep", "adaptive"]
     assert [arm.expected_action for arm in arms] == [
         "build_from_scratch",
         "expand_template",
         "compose_modules",
+        "policy_selected",
     ]
     for arm in arms:
         requirement = module.requirement_for_arm(arm)
@@ -46,8 +47,8 @@ def test_e05_depth_arms_and_requirements_are_explicit() -> None:
 def test_e05_selected_arms_defaults_to_all() -> None:
     module = load_e05_module()
 
-    assert module.selected_arm_depths() == ["none", "shallow", "deep"]
-    assert [arm.depth for arm in module.selected_arms()] == ["none", "shallow", "deep"]
+    assert module.selected_arm_depths() == ["none", "shallow", "deep", "adaptive"]
+    assert [arm.depth for arm in module.selected_arms()] == ["none", "shallow", "deep", "adaptive"]
 
 
 def test_e05_selected_arms_accepts_deep_only(monkeypatch) -> None:
@@ -89,6 +90,7 @@ def test_e05_template_preflight_distinguishes_depth_actions(tmp_path: Path) -> N
     assert preflight["suggestions"]["none"] == []
     assert preflight["suggestions"]["shallow"][0]["recommended_action"] == "expand_template"
     assert preflight["suggestions"]["deep"][0]["recommended_action"] == "compose_modules"
+    assert preflight["suggestions"]["adaptive"][0]["effective_reuse_depth"] == "shallow"
     assert any(item["name"] == "code_reviewer" for item in preflight["suggestions"]["shallow"])
 
 
@@ -122,6 +124,26 @@ def test_e05_data_analyzer_case_has_distinct_requirement_and_reference() -> None
     assert "parameter_extractor" in case.required_node_types
     assert any(node["type"] == "parameter_extractor" for node in reference["nodes"])
     assert any(node["type"] == "template_transform" for node in reference["nodes"])
+
+
+def test_e05_data_analyzer_preflight_adaptive_resolves_to_deep(tmp_path: Path) -> None:
+    module = load_e05_module()
+    case = module.experiment_case("data_analyzer")
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+        templates_dir=Path(__file__).resolve().parents[1] / "templates",
+    )
+    app = create_app(settings, ScriptedProvider())
+    with TestClient(app) as client:
+        preflight = module.run_template_preflight(client, "workflow-test", case)
+
+    adaptive = preflight["suggestions"]["adaptive"][0]
+    assert adaptive["name"] == "data_analyzer"
+    assert adaptive["effective_reuse_depth"] == "deep"
+    assert adaptive["recommended_action"] == "compose_modules"
+    assert "parameter_extractor" in adaptive["policy_reason"]
 
 
 def test_e05_build_payload_includes_optional_build_deadline() -> None:
@@ -174,9 +196,9 @@ def test_e05_event_summary_extracts_template_metrics() -> None:
             "type": "build.operation",
             "data": {
                 "tool": "template_suggestions",
-                "input": {"reuse_depth": "deep"},
+                "input": {"reuse_depth": "adaptive"},
                 "success": True,
-                "result": '{"reuse_depth":"deep","recommended_action":"compose_modules","templates":[{"name":"code_reviewer"}]}',
+                "result": '{"reuse_depth":"adaptive","effective_reuse_depth":"deep","policy_reason":"adaptive:complex_blocks:parameter_extractor","recommended_action":"compose_modules","templates":[{"name":"data_analyzer"}]}',
             },
         },
         {
@@ -194,6 +216,8 @@ def test_e05_event_summary_extracts_template_metrics() -> None:
 
     assert summary["template_suggestion_count"] == 1
     assert summary["template_expand_count"] == 1
+    assert summary["template_suggestions"][0]["effective_reuse_depth"] == "deep"
+    assert summary["template_suggestions"][0]["policy_reason"] == "adaptive:complex_blocks:parameter_extractor"
     assert summary["template_suggestions"][0]["recommended_action"] == "compose_modules"
     assert summary["template_expands"][0]["success"] is False
     assert summary["failed_operations"][0]["tool"] == "template_expand"

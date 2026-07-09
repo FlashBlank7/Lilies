@@ -122,6 +122,15 @@ def depth_arms() -> list[ReuseDepthArm]:
             ),
             expected_action="compose_modules",
         ),
+        ReuseDepthArm(
+            depth="adaptive",
+            instruction=(
+                "Set BuildPlan.reuse_depth to 'adaptive'. Call template_suggestions with reuse_depth='adaptive' "
+                "before draft mutations. Read the returned effective_reuse_depth and policy_reason, update the "
+                "BuildPlan to the concrete depth, then follow that concrete reuse strategy during the build."
+            ),
+            expected_action="policy_selected",
+        ),
     ]
 
 
@@ -611,6 +620,8 @@ def summarize_events(events: list[dict[str, Any]]) -> dict[str, Any]:
                 "input": data.get("input", {}),
                 "success": data.get("success"),
                 "reuse_depth": parsed.get("reuse_depth"),
+                "effective_reuse_depth": parsed.get("effective_reuse_depth"),
+                "policy_reason": parsed.get("policy_reason"),
                 "recommended_action": parsed.get("recommended_action"),
                 "templates": parsed.get("templates", []),
             })
@@ -831,10 +842,14 @@ def run_arm(client: TestClient, token: str, arm: ReuseDepthArm, case: Experiment
     event_summary = summarize_events(events)
     failure_summary = summarize_failure(completed, builder_task, event_summary)
     benchmark_report = suite.get("report")
+    adaptive_resolution = None
+    if arm.depth == "adaptive" and event_summary.get("template_suggestions"):
+        adaptive_resolution = event_summary["template_suggestions"][-1]
     return {
         "depth": arm.depth,
         "case": selected.name,
         "expected_action": arm.expected_action,
+        "adaptive_resolution": adaptive_resolution,
         "status": "completed",
         "elapsed_seconds": elapsed,
         "application_id": application["id"],
