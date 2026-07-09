@@ -67,6 +67,11 @@
 - `stage-reports/v0.2.43_e05_multifamily_with_build_watchdog.md`
 - `stage-reports/v0.2.44_customer_support_template_reuse_repair.md`
 - `stage-reports/v0.2.45_customer_support_e05_repair_rerun.md`
+- `stage-reports/v0.2.46_deep_reuse_deadline_governance.md`
+- `stage-reports/v0.2.47_shallow_reuse_breadth_validation.md`
+- `stage-reports/v0.2.48_adaptive_reuse_depth_policy.md`
+- `stage-reports/v0.2.49_adaptive_policy_live_validation.md`
+- `stage-reports/v0.2.50_builder_deadline_visibility.md`
 
 ## 使用原则
 

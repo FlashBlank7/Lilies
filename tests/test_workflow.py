@@ -3974,7 +3974,10 @@ def test_builder_build_level_watchdog_records_harness_metadata(tmp_path: Path) -
             },
         )
         assert response.status_code == 202, response.text
-        build_id = response.json()["build_id"]
+        created = response.json()
+        assert created["max_elapsed_seconds"] == 0.01
+        assert created["deadline"] == {"enabled": True, "max_elapsed_seconds": 0.01}
+        build_id = created["build_id"]
         for _ in range(100):
             build = client.get(f"/api/v1/builds/{build_id}", headers=headers()).json()
             if build["status"] == "needs_attention":
@@ -3984,6 +3987,10 @@ def test_builder_build_level_watchdog_records_harness_metadata(tmp_path: Path) -
         assert build["status"] in {"ready", "needs_attention"}, build
         assert "builder build timed out after 0.01s" in build["error"]
         assert build["max_elapsed_seconds"] == 0.01
+        assert build["deadline"] == {"enabled": True, "max_elapsed_seconds": 0.01}
+
+        builds = client.get(f"/api/v1/applications/{app_id}/builds", headers=headers()).json()
+        assert builds[0]["deadline"] == {"enabled": True, "max_elapsed_seconds": 0.01}
 
         task = client.get(f"/api/v1/platform/harness/tasks/{build_id}", headers=headers()).json()
         assert task["status"] == "failed"

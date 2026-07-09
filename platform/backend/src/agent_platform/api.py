@@ -95,6 +95,18 @@ class PlatformSecretCreateRequest(BaseModel):
     description: str = ""
 
 
+def deadline_summary(max_elapsed_seconds: float | None) -> dict[str, Any]:
+    return {
+        "enabled": max_elapsed_seconds is not None,
+        "max_elapsed_seconds": max_elapsed_seconds,
+    }
+
+
+def annotate_build_deadline(build: dict[str, Any]) -> dict[str, Any]:
+    build["deadline"] = deadline_summary(build.get("max_elapsed_seconds"))
+    return build
+
+
 def build_services(settings: Settings, provider: ModelProvider | None = None) -> Services:
     storage = Storage(settings.data_dir)
     tools = build_core_registry()
@@ -967,7 +979,13 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             body.planning_mode,
         )
         services.builder.start(build_id)
-        return {"build_id": build_id, "application_id": application_id, "status": "queued"}
+        return {
+            "build_id": build_id,
+            "application_id": application_id,
+            "status": "queued",
+            "max_elapsed_seconds": body.max_elapsed_seconds,
+            "deadline": deadline_summary(body.max_elapsed_seconds),
+        }
 
     @app.get(
         "/api/v1/applications/{application_id}/builds",
@@ -977,6 +995,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         builds = await services.workflow_store.list_builds(application_id)
         for build in builds:
             build["team_state"] = build["team_state"].model_dump(mode="json")
+            annotate_build_deadline(build)
         return builds
 
     @app.get("/api/v1/builds/{build_id}", dependencies=[Depends(require_token)])
@@ -984,7 +1003,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         try:
             build = await services.workflow_store.get_build(build_id)
             build["team_state"] = build["team_state"].model_dump(mode="json")
-            return build
+            return annotate_build_deadline(build)
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
 

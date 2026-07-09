@@ -42,7 +42,14 @@ type Copy = (typeof messages)[Locale]
 type StudioTab = 'build' | 'edit' | 'test' | 'run' | 'monitor'
 type MonitorFilter = 'related' | 'failed' | 'all'
 type Version = { version: number; content_hash: string; created_at: string; validation_report: Record<string, unknown> }
-type Build = { id: string; status: string; error?: string; team_state: { tasks: Array<Record<string, unknown>>; teammates: Record<string, Record<string, unknown>>; repair_cycles: number } }
+type Build = {
+  id: string
+  status: string
+  error?: string
+  max_elapsed_seconds?: number | null
+  deadline?: { enabled: boolean; max_elapsed_seconds?: number | null }
+  team_state: { tasks: Array<Record<string, unknown>>; teammates: Record<string, Record<string, unknown>>; repair_cycles: number }
+}
 type Run = { id: string; status: string; outputs: Record<string, unknown>; error?: string; state: { waiting_node_id?: string | null } }
 type StoredEvent = { id: number; type: string; data: Record<string, unknown> }
 type PermissionRequest = { session_id: string; request_id: string; tool?: string; input?: unknown; node_id?: string }
@@ -398,6 +405,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   const [events, setEvents] = useState<Array<{ type: string; data: Record<string, unknown> }>>([])
   const [tab, setTab] = useState<StudioTab>('build')
   const [requirement, setRequirement] = useState('')
+  const [buildDeadlineSeconds, setBuildDeadlineSeconds] = useState('')
   const [runFields, setRunFields] = useState<RunInputFieldState[]>([])
   const [run, setRun] = useState<Run | null>(null)
   const [runEvents, setRunEvents] = useState<StoredEvent[]>([])
@@ -803,8 +811,22 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   }
 
   async function startBuild() {
+    const trimmedDeadline = buildDeadlineSeconds.trim()
+    let maxElapsedSeconds: number | undefined
+    if (trimmedDeadline) {
+      maxElapsedSeconds = Number(trimmedDeadline)
+      if (Number.isNaN(maxElapsedSeconds) || maxElapsedSeconds <= 0) {
+        setNotice(t.buildDeadlineInvalid)
+        return
+      }
+    }
     const result = await api<{ build_id: string }>(`/api/v1/applications/${id}/builds`, {
-      method: 'POST', body: JSON.stringify({ requirement, auto_publish: true }),
+      method: 'POST',
+      body: JSON.stringify({
+        requirement,
+        auto_publish: true,
+        ...(maxElapsedSeconds ? { max_elapsed_seconds: maxElapsedSeconds } : {}),
+      }),
     })
     history.replaceState(null, '', `?build=${result.build_id}`)
     void refreshMonitorTasks().catch(error => setNotice(String(error)))
@@ -1008,8 +1030,12 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
         {tab === 'build' && <div className="panel-body">
           <div className="panel-kicker">{t.builderTeam}</div><h2>{t.continueBuild}</h2>
           <textarea className="requirement-input" value={requirement} onChange={event => setRequirement(event.target.value)} />
+          <label className="run-field">
+            <span>{t.buildDeadlineLabel}<em>{t.buildDeadlineHelp}</em></span>
+            <input type="number" min="0.001" step="0.1" value={buildDeadlineSeconds} onChange={event => setBuildDeadlineSeconds(event.target.value)} />
+          </label>
           <button className="wide" onClick={startBuild}>{t.startTeam}</button>
-          {build && <div className="build-status"><b>{build.status}</b><span>{Object.keys(build.team_state.teammates).length} teammates · {build.team_state.tasks.length} tasks · {build.team_state.repair_cycles} repairs</span>{build.error && <p>{build.error}</p>}</div>}
+          {build && <div className="build-status"><b>{build.status}</b><span>{Object.keys(build.team_state.teammates).length} teammates · {build.team_state.tasks.length} tasks · {build.team_state.repair_cycles} repairs</span><span>{build.deadline?.enabled && build.deadline.max_elapsed_seconds ? t.buildDeadlineActive(build.deadline.max_elapsed_seconds) : t.buildDeadlineInactive}</span>{build.error && <p>{build.error}</p>}</div>}
           <h3>{t.tasksTitle}</h3>
           <div className="test-list">{build?.team_state.tasks.map((task, index) => <pre key={index}>{JSON.stringify(task, null, 2)}</pre>) || <p className="muted">{t.tasksEmpty}</p>}</div>
           <h3>{t.architectureTitle}</h3>
