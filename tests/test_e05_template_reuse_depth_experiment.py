@@ -44,6 +44,8 @@ def test_e05_depth_arms_and_requirements_are_explicit() -> None:
         if arm.depth == "policy_default":
             assert "without a reuse_depth parameter" in requirement
             assert "policy-defaulted" in requirement
+            assert "Immediately set BuildPlan.reuse_depth" in requirement
+            assert "execution_contract" in requirement
         else:
             assert f"reuse_depth='{arm.depth}'" in requirement
         assert "code review and repair BlockFlow" in requirement
@@ -161,6 +163,12 @@ def test_e05_data_analyzer_preflight_adaptive_resolves_to_deep(tmp_path: Path) -
     assert policy_default["defaulted_by_policy"] is True
     assert policy_default["effective_reuse_depth"] == "deep"
     assert policy_default["recommended_action"] == "compose_modules"
+    assert policy_default["execution_contract"] == {
+        "next_step": "set_build_plan_reuse_depth",
+        "reuse_depth_to_record": "deep",
+        "then": "compose_modules",
+        "preserve_reuse_depth_source": "policy_default",
+    }
 
 
 def test_e05_build_payload_includes_optional_build_deadline() -> None:
@@ -215,7 +223,7 @@ def test_e05_event_summary_extracts_template_metrics() -> None:
                 "tool": "template_suggestions",
                 "input": {},
                 "success": True,
-                "result": '{"reuse_depth":"adaptive","reuse_depth_source":"policy_default","defaulted_by_policy":true,"default_policy_version":"v0.2.52_adaptive_default_productization","available_overrides":["adaptive","deep","none","shallow"],"effective_reuse_depth":"deep","policy_reason":"adaptive:complex_blocks:parameter_extractor","recommended_action":"compose_modules","templates":[{"name":"data_analyzer"}]}',
+                "result": '{"reuse_depth":"adaptive","reuse_depth_source":"policy_default","defaulted_by_policy":true,"default_policy_version":"v0.2.52_adaptive_default_productization","available_overrides":["adaptive","deep","none","shallow"],"effective_reuse_depth":"deep","policy_reason":"adaptive:complex_blocks:parameter_extractor","recommended_action":"compose_modules","execution_contract":{"next_step":"set_build_plan_reuse_depth","reuse_depth_to_record":"deep","then":"compose_modules","preserve_reuse_depth_source":"policy_default"},"templates":[{"name":"data_analyzer"}]}',
             },
         },
         {
@@ -240,6 +248,7 @@ def test_e05_event_summary_extracts_template_metrics() -> None:
     assert summary["template_suggestions"][0]["available_overrides"] == ["adaptive", "deep", "none", "shallow"]
     assert summary["template_suggestions"][0]["policy_reason"] == "adaptive:complex_blocks:parameter_extractor"
     assert summary["template_suggestions"][0]["recommended_action"] == "compose_modules"
+    assert summary["template_suggestions"][0]["execution_contract"]["reuse_depth_to_record"] == "deep"
     assert summary["template_expands"][0]["success"] is False
     assert summary["failed_operations"][0]["tool"] == "template_expand"
 

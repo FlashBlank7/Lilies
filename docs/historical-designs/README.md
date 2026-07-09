@@ -65,6 +65,7 @@
 - `v0.2.51_*`：来自 `docs/stage-reports/v0.2.51_e05_second_family_adaptive_validation.md`。
 - `v0.2.52_*`：来自 `docs/stage-reports/v0.2.52_adaptive_default_productization.md`。
 - `v0.2.53_*`：来自 `docs/stage-reports/v0.2.53_adaptive_default_live_acceptance.md`。
+- `v0.2.54_*`：来自 `docs/stage-reports/v0.2.54_policy_default_live_reliability.md`。
 
 Active workspace rule:
 

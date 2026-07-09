@@ -1,10 +1,10 @@
 # E05 Template Reuse Depth Ledger
 
-状态：多轮 paid/live 完成并触发工程修复；adaptive reuse-depth policy 已完成双 family live validation 并已产品化；policy-default live acceptance 已完成但暴露默认路径可靠性缺口
+状态：多轮 paid/live 完成并触发工程修复；adaptive reuse-depth policy 已完成双 family live validation 并已产品化；policy-default live reliability 已完成一轮工程修复与 bounded live closure
 
 ## 当前结论
 
-Template reuse 已证明会改变 Builder 行为，也证明 marketplace expandability contract、timeout boundary、build deadline 和 customer-support guardrails 是必要工程边界。当前证据不支持“reuse depth 越深越好”，但已经足以回答更重要的问题：固定 `shallow` 不是跨任务族都稳定的默认候选，而 adaptive 已经拥有足够的 paid/live 证据成为默认 Builder suggestion mode 的候选。`v0.2.49` 的 `data_analyzer` slice 给出 deep-resolving live evidence；`v0.2.51` 的 `code_review` slice 给出 shallow-resolving live evidence；`v0.2.53` 则进一步证明 omitted `reuse_depth` 的 product-default 路径确实会走到 `policy_default -> adaptive -> deep`。因此，E05 关于“默认建议应该怎么定”的核心问题已经闭环；当前剩余问题不再是默认策略是否正确，而是默认策略在 live Builder 链路里的可靠性是否足够稳定。
+Template reuse 已证明会改变 Builder 行为，也证明 marketplace expandability contract、timeout boundary、build deadline 和 customer-support guardrails 是必要工程边界。当前证据不支持“reuse depth 越深越好”，但已经足以回答更重要的问题：固定 `shallow` 不是跨任务族都稳定的默认候选，而 adaptive 已经拥有足够的 paid/live 证据成为默认 Builder suggestion mode 的候选。`v0.2.49` 的 `data_analyzer` slice 给出 deep-resolving live evidence；`v0.2.51` 的 `code_review` slice 给出 shallow-resolving live evidence；`v0.2.53` 进一步证明 omitted `reuse_depth` 的 product-default 路径确实会走到 `policy_default -> adaptive -> deep`；`v0.2.54` 则把默认路径的执行契约显式化，并用一轮 bounded live run 证明该路径可以进入 BuildPlan、template_expand、mandatory test 和 publish closure。因此，E05 关于“默认建议应该怎么定”和“默认路径能否完成一条真实闭环”的核心问题已经闭环；当前剩余问题转为长期监控和更多任务族退化信号，而不是回退到 fixed-depth 默认争论。
 
 ## 关键证据
 
@@ -22,6 +22,7 @@ Template reuse 已证明会改变 Builder 行为，也证明 marketplace expanda
 | adaptive live validation (`data_analyzer`) | 验证应用 | `../reports/2026-07-10_0452_E05_adaptive_live_validation_data_analyzer.docx` | `../evidence/experiment_v0.2.49_e05_data_analyzer_adaptive_live_2026_07_10_summary.md` |
 | adaptive live validation (`code_review`) | 验证应用 / 默认化门槛通过 | `../reports/2026-07-10_0530_E05_code_review_adaptive_live_validation.docx` | `../evidence/experiment_v0.2.51_e05_code_review_adaptive_live_2026_07_10_summary.md` |
 | adaptive default live acceptance (`data_analyzer`) | 验证应用 / 暴露可靠性缺口 | `../reports/2026-07-10_0720_E05_policy_default_live_acceptance.docx` | `../evidence/experiment_v0.2.53_e05_data_analyzer_policy_default_live_2026_07_10_summary.md` |
+| policy-default reliability closure (`data_analyzer`) | 验证应用 / 默认路径闭环 | `../reports/2026-07-10_0749_E05_policy_default_reliability_closure.docx` | `../evidence/experiment_v0.2.54_e05_data_analyzer_policy_default_reliability_2026_07_10_summary.md` |
 
 ## 已应用工程
 
@@ -34,6 +35,7 @@ Template reuse 已证明会改变 Builder 行为，也证明 marketplace expanda
 - v0.2.49：canonical E05 runner 原生支持 `adaptive` 臂；首个 live validation 显示 adaptive 在 `data_analyzer` family 中解析为 `deep` 且比 explicit `shallow`/`deep` 更快 `published`。
 - v0.2.51：`code_review` second-family live validation 显示 adaptive 在 shallow-resolving family 中正确解析为 `shallow`，并以 `published`、`313.696s`、`38 / 46` model/tool calls 优于显式 `shallow` (`ready`, `388.427s`) 与显式 `deep` (`needs_attention`, `382.777s`, `44 / 70`)；由此形成 Builder 默认建议门槛。
 - v0.2.52：API 与 Builder 在 omitted-depth 路径上正式默认到 `adaptive`；结果显式返回 `reuse_depth_source`、`defaulted_by_policy`、`default_policy_version` 与 `available_overrides`，把产品化默认与显式 override 清楚地区分开。
+- v0.2.54：policy-default suggestion payload 新增 `execution_contract`，Builder 工具结果顶层也返回同一契约；Builder 和 E05 runner 明确要求将 `effective_reuse_depth` 立即写入 BuildPlan 后再继续 recommended action。bounded live run 证明默认路径可 `published`，且记录 `build_plan_reuse_depth=deep`、`template_expand=1`、`test_run=4`、`draft_publish=1`。
 
 ## 关键结果
 
@@ -47,7 +49,8 @@ Template reuse 已证明会改变 Builder 行为，也证明 marketplace expanda
 - v0.2.49：在 `data_analyzer` 的 bounded paid/live rerun 中，`shallow`、`deep`、`adaptive` 全部 `published`，但 adaptive 解析为 `deep` 后以 `159.669s`、`11/17` model/tool calls 收敛，快于 `shallow` (`213.959s`, `9/20`) 与 `deep` (`301.290s`, `15/23`)。
 - v0.2.51：在 `code_review` 的 bounded paid/live run 中，`shallow` 为 `ready`、`deep` 为 `needs_attention`、`adaptive` 为 `published`；adaptive 解析为 `shallow`，并以 `313.696s`、`38/46` model/tool calls 获得该 family 的最优 operational outcome。
 - v0.2.53：省略 `reuse_depth` 的 live acceptance 中，`policy_default` arm 明确返回 `reuse_depth_source=policy_default`、`defaulted_by_policy=true`、`effective_reuse_depth=deep`，证明产品默认路径接线正确；但该 arm 在 `186.714s` 时因 `model stream timed out after 180s` 进入 `needs_attention`，说明默认路径的 live reliability 仍需工程修复。
+- v0.2.54：同一 `data_analyzer` policy-default 单臂 bounded live run 在 `322.364s` 内 `published`，`24/31` model/tool calls，benchmark `case_passed=true`、`case_score=0.85`，且无 provider/model timeout events；这验证了 execution contract 对默认路径可靠性的工程修复。
 
 ## 下一步
 
-E05 的原始 backlog 问题已经从“该不该上 adaptive”转移到“adaptive 产品化后的 live reliability 与长期观测”。因此下一步不是再回到 fixed-depth 争论，而是优先修复 policy-default 路径在真实运行中暴露出的 timeout / mandatory-test 收口缺口，并继续保留 fixed-depth 显式选项与后续 family 监测。
+E05 的原始 backlog 问题已经从“该不该上 adaptive”转移到“adaptive 产品化后的长期观测”。因此下一步不是再回到 fixed-depth 争论，而是保留 fixed-depth 显式选项、增加 family 退化/override 使用监测，并把 E08 sidecar/passmode 作为独立 Harness 对照继续推进。

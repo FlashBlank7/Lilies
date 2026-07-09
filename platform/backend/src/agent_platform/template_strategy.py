@@ -91,6 +91,15 @@ def recommended_action_for_depth(depth: str) -> str:
     return "expand_template"
 
 
+def policy_default_execution_contract(effective_reuse_depth: str) -> dict[str, str]:
+    return {
+        "next_step": "set_build_plan_reuse_depth",
+        "reuse_depth_to_record": effective_reuse_depth,
+        "then": recommended_action_for_depth(effective_reuse_depth),
+        "preserve_reuse_depth_source": "policy_default",
+    }
+
+
 def suggestion_default_metadata(
     requested_reuse_depth: str | None,
     *,
@@ -142,4 +151,6 @@ def build_suggestion_payload(
     }
     if default_metadata:
         payload.update(default_metadata)
+        if default_metadata.get("reuse_depth_source") == "policy_default":
+            payload["execution_contract"] = policy_default_execution_contract(resolved_depth)
     return payload

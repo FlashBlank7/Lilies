@@ -18,6 +18,7 @@ from .platform_harness import PlatformHarness
 from .template_strategy import (
     ALLOWED_REUSE_DEPTHS,
     build_suggestion_payload,
+    policy_default_execution_contract,
     recommended_action_for_depth,
     resolve_effective_reuse_depth,
     score_template_matches,
@@ -63,6 +64,10 @@ Core rules:
   template_suggestions with reuse_depth="adaptive" as the default suggestion mode.
   If it returns effective_reuse_depth and policy_reason, update the BuildPlan to that concrete depth
   before mutating the draft.
+- If template_suggestions returns reuse_depth_source="policy_default", treat that result exactly as a
+  resolved adaptive policy decision: immediately set or update BuildPlan.reuse_depth to
+  effective_reuse_depth, preserve that the source was policy-defaulted in the plan strategy or evidence,
+  and perform the returned recommended_action before more broad search.
 - For agent architecture bricks, call manual_search or manual_get first, then add one brick at a time.
 - Use architecture_blueprint when reconstructing a Claude-like agent loop from explicit bricks.
 - Use template_list and template_expand when a known Claude-like subgraph template fits; the expanded graph is
@@ -706,7 +711,7 @@ class WorkflowBuilder:
                     meta.usage_count += 1  # recommendation flywheel: template was chosen
             top_meta = scored[0][1] if scored else None
             effective_reuse_depth, policy_reason = resolve_effective_reuse_depth(reuse_depth, top_meta)
-            return {
+            result = {
                 "reuse_depth": reuse_depth,
                 "effective_reuse_depth": effective_reuse_depth,
                 "recommended_action": recommended_action_for_depth(effective_reuse_depth),
@@ -726,6 +731,9 @@ class WorkflowBuilder:
                     for s, m in scored[:5]
                 ],
             }
+            if default_metadata.get("reuse_depth_source") == "policy_default":
+                result["execution_contract"] = policy_default_execution_contract(effective_reuse_depth)
+            return result
         if tool == "template_list":
             templates = [
                 {

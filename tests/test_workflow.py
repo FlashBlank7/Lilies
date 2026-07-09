@@ -4549,7 +4549,14 @@ def test_builder_template_suggestions_default_to_adaptive_when_omitted(tmp_path:
         assert result["defaulted_by_policy"] is True
         assert result["default_policy_version"] == "v0.2.52_adaptive_default_productization"
         assert result["effective_reuse_depth"] == "deep"
+        assert result["execution_contract"] == {
+            "next_step": "set_build_plan_reuse_depth",
+            "reuse_depth_to_record": "deep",
+            "then": "compose_modules",
+            "preserve_reuse_depth_source": "policy_default",
+        }
         assert result["templates"][0]["defaulted_by_policy"] is True
+        assert result["templates"][0]["execution_contract"]["then"] == "compose_modules"
 
 
 def test_builder_can_expand_marketplace_template_into_editable_draft(tmp_path: Path) -> None:

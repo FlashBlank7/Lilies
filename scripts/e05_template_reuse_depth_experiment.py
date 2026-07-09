@@ -136,8 +136,10 @@ def depth_arms() -> list[ReuseDepthArm]:
             instruction=(
                 "Do not set BuildPlan.reuse_depth explicitly. Call template_suggestions without a reuse_depth "
                 "parameter before draft mutations so the product policy default applies. Read the returned "
-                "reuse_depth_source, effective_reuse_depth, and policy_reason, then follow that concrete reuse "
-                "strategy during the build while preserving the evidence that the path was policy-defaulted."
+                "reuse_depth_source, effective_reuse_depth, policy_reason, and execution_contract. Immediately "
+                "set BuildPlan.reuse_depth to the concrete effective_reuse_depth while preserving evidence that "
+                "the path was policy-defaulted, then perform the returned recommended_action before more broad "
+                "search or draft mutation."
             ),
             expected_action="policy_default",
         ),
@@ -644,6 +646,7 @@ def summarize_events(events: list[dict[str, Any]]) -> dict[str, Any]:
                 "effective_reuse_depth": parsed.get("effective_reuse_depth"),
                 "policy_reason": parsed.get("policy_reason"),
                 "recommended_action": parsed.get("recommended_action"),
+                "execution_contract": parsed.get("execution_contract"),
                 "templates": parsed.get("templates", []),
             })
         if tool == "template_expand":
