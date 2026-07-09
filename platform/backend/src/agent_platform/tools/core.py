@@ -309,7 +309,7 @@ class MCPTool(Tool):
         if not server:
             return ToolResult(f"unknown MCP server: {args.server}", True)
         try:
-            result = await self.client.call_tool(server, args.tool, args.arguments)
+            result = await self.client.call_tool(server, args.tool, args.arguments, sandbox=context.sandbox)
             return ToolResult(json.dumps(result, ensure_ascii=False, indent=2))
         except Exception as error:
             return ToolResult(f"MCP call failed: {error}", True)

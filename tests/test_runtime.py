@@ -22,6 +22,7 @@ from agent_platform.runtime import AgentRuntime
 from agent_platform.sandbox import CommandResult
 from agent_platform.storage import Storage
 from agent_platform.tools import build_core_registry
+from agent_platform.tools.mcp import MCPClient
 
 
 class ScriptedProvider(ModelProvider):
@@ -99,6 +100,28 @@ class FakeSandboxes:
         return self.sandbox
 
 
+class FakeMCPSandbox:
+    def __init__(self) -> None:
+        self.payloads: list[dict[str, Any]] = []
+
+    async def run(self, argv: list[str], *, stdin: str | None = None, **_: Any) -> CommandResult:
+        assert argv[:2] == ["python", "-c"]
+        assert stdin
+        payload = __import__("json").loads(stdin)
+        self.payloads.append(payload)
+        call_id = payload["requests"][-1]["id"]
+        response = {
+            "responses": {
+                str(call_id): {
+                    "jsonrpc": "2.0",
+                    "id": call_id,
+                    "result": {"ok": True, "tool": payload["requests"][-1]["params"]["name"]},
+                }
+            }
+        }
+        return CommandResult(stdout=__import__("json").dumps(response), stderr="", exit_code=0)
+
+
 async def _runtime_for_stdio_mcp_policy(
     tmp_path: Path,
     *,
@@ -120,6 +143,7 @@ async def _runtime_for_stdio_mcp_policy(
 
 
 def _stdio_mcp_agent(*, network_policy: NetworkPolicy) -> AgentSpec:
+    allowlist = ["example.test"] if network_policy == NetworkPolicy.allowlist else []
     return AgentSpec(
         name="stdio mcp",
         description="tests stdio MCP policy",
@@ -128,6 +152,7 @@ def _stdio_mcp_agent(*, network_policy: NetworkPolicy) -> AgentSpec:
         mcp_servers=[MCPServerSpec(name="local", transport="stdio", command="python")],
         permission_mode=PermissionMode.bypass,
         network_policy=network_policy,
+        network_allowlist=allowlist,
     )
 
 
@@ -155,6 +180,43 @@ async def test_runtime_allows_stdio_mcp_guard_with_full_network_policies(tmp_pat
     agent = _stdio_mcp_agent(network_policy=NetworkPolicy.full)
 
     runtime._enforce_tool_network_policy(agent, "MCP", {"server": "local"})
+
+
+@pytest.mark.asyncio
+async def test_runtime_allows_sandboxed_stdio_mcp_with_no_network_policy(tmp_path: Path) -> None:
+    runtime = await _runtime_for_stdio_mcp_policy(tmp_path, platform_policy="none")
+    agent = _stdio_mcp_agent(network_policy=NetworkPolicy.none)
+
+    runtime._enforce_tool_network_policy(
+        agent,
+        "MCP",
+        {"server": "local"},
+        sandboxed_stdio=True,
+    )
+
+
+@pytest.mark.asyncio
+async def test_runtime_blocks_sandboxed_stdio_mcp_with_allowlist_policy(tmp_path: Path) -> None:
+    runtime = await _runtime_for_stdio_mcp_policy(tmp_path, platform_policy="allowlist")
+    agent = _stdio_mcp_agent(network_policy=NetworkPolicy.allowlist)
+
+    with pytest.raises(PlatformHarnessViolation, match="stdio MCP egress policy blocked"):
+        runtime._enforce_tool_network_policy(
+            agent,
+            "MCP",
+            {"server": "local"},
+            sandboxed_stdio=True,
+        )
+
+
+@pytest.mark.asyncio
+async def test_mcp_client_runs_stdio_bridge_inside_sandbox() -> None:
+    sandbox = FakeMCPSandbox()
+    server = MCPServerSpec(name="local", transport="stdio", command="python", args=["server.py"])
+    result = await MCPClient().call_tool(server, "lookup", {"q": "x"}, sandbox=sandbox)
+
+    assert result == {"ok": True, "tool": "lookup"}
+    assert sandbox.payloads[0]["command"] == ["python", "server.py"]
 
 
 @pytest.mark.asyncio

@@ -725,10 +725,18 @@ class PlatformHarness:
         surface: str,
         server_name: str,
         agent_network_policy: Any,
+        sandbox_network_policy: Any | None = None,
     ) -> None:
         platform_policy = self.network_egress_policy.casefold()
         agent_policy = str(getattr(agent_network_policy, "value", agent_network_policy)).casefold()
         if platform_policy == "full" and agent_policy == "full":
+            return
+        sandbox_policy = (
+            str(getattr(sandbox_network_policy, "value", sandbox_network_policy)).casefold()
+            if sandbox_network_policy is not None
+            else ""
+        )
+        if sandbox_policy == "none" and platform_policy in {"full", "none"} and agent_policy == "none":
             return
         raise PlatformHarnessViolation(
             "stdio MCP egress policy blocked "

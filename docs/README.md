@@ -44,6 +44,7 @@
 - `stage-reports/v0.2.20_platform_harness_worker_lease.md`
 - `stage-reports/v0.2.21_platform_harness_secret_references.md`
 - `stage-reports/v0.2.22_platform_harness_stdio_sandbox_egress.md`
+- `stage-reports/v0.2.23_sandboxed_stdio_mcp_runner.md`
 
 ## 使用原则
 

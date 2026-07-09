@@ -324,7 +324,12 @@ class AgentRuntime:
             allowed = {definition.name for definition in self.tools.definitions_for(session.agent)}
             if tool_name not in allowed:
                 raise PermissionError(f"tool is not enabled: {tool_name}")
-            self._enforce_tool_network_policy(session.agent, tool_name, tool_input)
+            self._enforce_tool_network_policy(
+                session.agent,
+                tool_name,
+                tool_input,
+                sandboxed_stdio=True,
+            )
             self.harness.enforce_secret_policy(
                 surface=f"agent_tool:{tool_name}",
                 payload=tool_input,
@@ -382,7 +387,12 @@ class AgentRuntime:
             )
 
     def _enforce_tool_network_policy(
-        self, agent: AgentSpec, tool_name: str, tool_input: dict[str, Any]
+        self,
+        agent: AgentSpec,
+        tool_name: str,
+        tool_input: dict[str, Any],
+        *,
+        sandboxed_stdio: bool = False,
     ) -> None:
         if tool_name == "WebSearch":
             self.harness.enforce_network_egress_policy(
@@ -401,6 +411,7 @@ class AgentRuntime:
                 surface="agent_tool:MCP",
                 server_name=server.name,
                 agent_network_policy=agent.network_policy,
+                sandbox_network_policy=agent.network_policy if sandboxed_stdio else None,
             )
             return
         if not server.url:

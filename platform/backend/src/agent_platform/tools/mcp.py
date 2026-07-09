@@ -22,10 +22,12 @@ class MCPClient:
         self._ids = count(1)
 
     async def call_tool(
-        self, server: MCPServerSpec, tool_name: str, arguments: dict[str, Any]
+        self, server: MCPServerSpec, tool_name: str, arguments: dict[str, Any], *, sandbox: Any | None = None
     ) -> dict[str, Any]:
         if server.transport == "http":
             return await self._call_http(server, tool_name, arguments)
+        if sandbox is not None:
+            return await self._call_stdio_sandbox(server, tool_name, arguments, sandbox)
         return await self._call_stdio(server, tool_name, arguments)
 
     async def _call_http(
@@ -79,6 +81,78 @@ class MCPClient:
                 await asyncio.wait_for(process.wait(), 5)
             except TimeoutError:
                 process.kill()
+
+    async def _call_stdio_sandbox(
+        self,
+        server: MCPServerSpec,
+        tool_name: str,
+        arguments: dict[str, Any],
+        sandbox: Any,
+    ) -> dict[str, Any]:
+        initialize = self._request("initialize", {
+            "protocolVersion": "2025-03-26",
+            "capabilities": {},
+            "clientInfo": {"name": "agent-platform", "version": "0.1.0"},
+        })
+        initialized = {"jsonrpc": "2.0", "method": "notifications/initialized"}
+        call = self._request("tools/call", {"name": tool_name, "arguments": arguments})
+        payload = {
+            "command": [server.command or "", *server.args],
+            "env": server.env,
+            "requests": [initialize, initialized, call],
+            "response_ids": [initialize["id"], call["id"]],
+        }
+        script = r"""
+import json, os, subprocess, sys, time
+
+payload = json.loads(sys.stdin.read())
+env = os.environ.copy()
+env.update(payload.get("env") or {})
+process = subprocess.Popen(
+    payload["command"],
+    stdin=subprocess.PIPE,
+    stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE,
+    text=True,
+    env=env,
+)
+assert process.stdin and process.stdout
+responses = {}
+try:
+    for request in payload["requests"]:
+        process.stdin.write(json.dumps(request, separators=(",", ":")) + "\n")
+        process.stdin.flush()
+        request_id = request.get("id")
+        if request_id is None:
+            continue
+        deadline = time.monotonic() + 120
+        while time.monotonic() < deadline:
+            line = process.stdout.readline()
+            if not line:
+                raise SystemExit("MCP stdio server closed unexpectedly")
+            message = json.loads(line)
+            if message.get("id") == request_id:
+                responses[str(request_id)] = message
+                break
+        else:
+            raise SystemExit(f"MCP stdio response timed out: {request_id}")
+    print(json.dumps({"responses": responses}, separators=(",", ":")))
+finally:
+    process.terminate()
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        process.kill()
+"""
+        result = await sandbox.run(
+            ["python", "-c", script],
+            stdin=json.dumps(payload, ensure_ascii=False),
+            timeout=130,
+        )
+        if result.exit_code != 0:
+            raise MCPError(result.stderr or result.stdout)
+        data = json.loads(result.stdout)
+        return self._unwrap(data["responses"][str(call["id"])])
 
     async def _stdio_exchange(
         self, process: asyncio.subprocess.Process, request: dict[str, Any]

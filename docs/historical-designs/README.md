@@ -32,6 +32,7 @@
 - `v0.2.20_*`：来自 `docs/stage-reports/v0.2.20_platform_harness_worker_lease.md`。
 - `v0.2.21_*`：来自 `docs/stage-reports/v0.2.21_platform_harness_secret_references.md`。
 - `v0.2.22_*`：来自 `docs/stage-reports/v0.2.22_platform_harness_stdio_sandbox_egress.md`。
+- `v0.2.23_*`：来自 `docs/stage-reports/v0.2.23_sandboxed_stdio_mcp_runner.md`。
 
 Active workspace rule:
 

@@ -1613,7 +1613,12 @@ class WorkflowRuntime:
 
         try:
             resolved_input = self._resolve(config.input, context)
-            self._enforce_tool_network_policy(config.tool_name, resolved_input, agent)
+            self._enforce_tool_network_policy(
+                config.tool_name,
+                resolved_input,
+                agent,
+                sandboxed_stdio=sandbox is not None,
+            )
             self.harness.enforce_secret_policy(
                 surface=f"workflow_tool:{config.tool_name}",
                 payload=resolved_input,
@@ -1663,7 +1668,12 @@ class WorkflowRuntime:
                 await self.sandboxes.remove(session_id)
 
     def _enforce_tool_network_policy(
-        self, tool_name: str, tool_input: dict[str, Any], agent: AgentSpec
+        self,
+        tool_name: str,
+        tool_input: dict[str, Any],
+        agent: AgentSpec,
+        *,
+        sandboxed_stdio: bool = False,
     ) -> None:
         if tool_name == "WebSearch":
             self.harness.enforce_network_egress_policy(
@@ -1682,6 +1692,7 @@ class WorkflowRuntime:
                 surface="workflow_tool:MCP",
                 server_name=server.name,
                 agent_network_policy=agent.network_policy,
+                sandbox_network_policy=agent.network_policy if sandboxed_stdio else None,
             )
             return
         if not server.url:
