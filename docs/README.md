@@ -41,6 +41,7 @@
 - `stage-reports/v0.2.17_platform_harness_tool_egress_policy.md`
 - `stage-reports/v0.2.18_evolution_governance_and_workspace_archive.md`
 - `stage-reports/v0.2.19_full_task_set_product_visibility.md`
+- `stage-reports/v0.2.20_platform_harness_worker_lease.md`
 
 ## 使用原则
 

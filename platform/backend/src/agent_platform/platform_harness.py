@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import socket
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
 
@@ -61,6 +63,9 @@ class PlatformTaskRecord(BaseModel):
     usage_counts: dict[str, int] = Field(default_factory=dict)
     usage: list[PlatformUsageRecord] = Field(default_factory=list)
     error: str = ""
+    worker_id: str | None = None
+    lease_expires_at: str | None = None
+    lease_version: int = 0
     created_at: str = Field(default_factory=utc_now)
     updated_at: str = Field(default_factory=utc_now)
     finished_at: str | None = None
@@ -90,6 +95,8 @@ class PlatformHarness:
         secret_policy_enabled: bool = True,
         network_egress_policy: str = "full",
         network_egress_allowlist: list[str] | None = None,
+        worker_id: str | None = None,
+        worker_lease_seconds: float = 0.0,
     ) -> None:
         self.storage = storage
         self.max_active_tasks = max_active_tasks
@@ -103,6 +110,8 @@ class PlatformHarness:
         self.secret_policy_enabled = secret_policy_enabled
         self.network_egress_policy = network_egress_policy
         self.network_egress_allowlist = network_egress_allowlist or []
+        self.worker_id = worker_id or f"{socket.gethostname()}:{os.getpid()}"
+        self.worker_lease_seconds = max(0.0, worker_lease_seconds)
         self._tasks: dict[str, PlatformTaskRecord] = {}
         self._lock = asyncio.Lock()
 
@@ -115,8 +124,13 @@ class PlatformHarness:
         resource_id: str,
         parent_task_id: str | None = None,
         metadata: dict[str, Any] | None = None,
+        worker_id: str | None = None,
+        lease_seconds: float | None = None,
     ) -> PlatformTaskRecord:
+        await self.reconcile_expired_task_leases()
         await self.reconcile_stale_tasks()
+        effective_lease_seconds = self._effective_lease_seconds(lease_seconds)
+        effective_worker_id = self._effective_worker_id(worker_id)
         existing = await self._cached_or_persisted_task(task_id)
         if existing:
             should_emit = False
@@ -126,6 +140,13 @@ class PlatformHarness:
                     record.status = "running"
                     record.updated_at = utc_now()
                     record.finished_at = None
+                    if effective_lease_seconds > 0:
+                        self._assign_lease(
+                            record,
+                            worker_id=effective_worker_id,
+                            lease_seconds=effective_lease_seconds,
+                            reason="resume",
+                        )
                     should_emit = True
             if should_emit:
                 await self._persist(record)
@@ -149,6 +170,13 @@ class PlatformHarness:
                 parent_task_id=parent_task_id,
                 metadata=metadata or {},
             )
+            if effective_lease_seconds > 0:
+                self._assign_lease(
+                    record,
+                    worker_id=effective_worker_id,
+                    lease_seconds=effective_lease_seconds,
+                    reason="start",
+                )
             self._tasks[task_id] = record
         await self._persist(record)
         await self._emit(record, "platform_harness.task.started")
@@ -183,19 +211,32 @@ class PlatformHarness:
                 raise PlatformHarnessViolation(
                     f"platform task is not running: {task_id} status={record.status}"
                 )
-            usage = PlatformUsageRecord(
-                usage_type=usage_type,
-                amount=amount,
-                metadata=metadata or {},
-            )
-            record.usage.append(usage)
-            record.usage_counts[usage_type] = record.usage_counts.get(usage_type, 0) + amount
-            record.updated_at = utc_now()
-            violation = self._violation(record, usage_type) or owner_violation
-            if violation:
-                record.status = "failed"
-                record.error = violation
-                record.finished_at = record.updated_at
+            lease_error = self._lease_expired_error(record)
+            if lease_error:
+                violation = lease_error
+                usage = PlatformUsageRecord(
+                    usage_type=usage_type,
+                    amount=amount,
+                    metadata=metadata or {},
+                )
+                record.usage.append(usage)
+                record.usage_counts[usage_type] = record.usage_counts.get(usage_type, 0) + amount
+                record.updated_at = utc_now()
+                self._fail_for_expired_lease(record, lease_error)
+            else:
+                usage = PlatformUsageRecord(
+                    usage_type=usage_type,
+                    amount=amount,
+                    metadata=metadata or {},
+                )
+                record.usage.append(usage)
+                record.usage_counts[usage_type] = record.usage_counts.get(usage_type, 0) + amount
+                record.updated_at = utc_now()
+                violation = self._violation(record, usage_type) or owner_violation
+                if violation:
+                    record.status = "failed"
+                    record.error = violation
+                    record.finished_at = record.updated_at
         await self._persist(record)
         await self._emit(record, "platform_harness.usage.recorded", usage.model_dump(mode="json"))
         if violation:
@@ -216,14 +257,23 @@ class PlatformHarness:
             record = self._tasks.get(task_id)
             if record is None:
                 return None
-            record.status = status
-            record.error = error
-            record.updated_at = utc_now()
-            record.finished_at = record.updated_at
-            if metadata:
-                record.metadata.update(metadata)
+            lease_error = self._lease_expired_error(record)
+            if status == "succeeded" and lease_error:
+                record.updated_at = utc_now()
+                self._fail_for_expired_lease(record, lease_error)
+                event_status = "failed"
+            else:
+                record.status = status
+                record.error = error
+                record.updated_at = utc_now()
+                record.finished_at = record.updated_at
+                if metadata:
+                    record.metadata.update(metadata)
+                event_status = status
         await self._persist(record)
-        await self._emit(record, f"platform_harness.task.{status}")
+        await self._emit(record, f"platform_harness.task.{event_status}")
+        if event_status == "failed" and status == "succeeded" and lease_error:
+            await self._emit(record, "platform_harness.violation", {"error": lease_error})
         return record
 
     async def get_task(self, task_id: str) -> PlatformTaskRecord:
@@ -240,6 +290,8 @@ class PlatformHarness:
         owner_id: str | None = None,
         limit: int = 100,
     ) -> list[PlatformTaskRecord]:
+        await self.reconcile_expired_task_leases()
+        await self.reconcile_stale_tasks()
         rows = await self.storage.list_platform_tasks(
             kind=kind,
             status=status,
@@ -252,6 +304,96 @@ class PlatformHarness:
                 self._tasks.setdefault(task.id, task)
         tasks.sort(key=lambda item: item.created_at, reverse=True)
         return [item.model_copy(deep=True) for item in tasks[:limit]]
+
+    async def claim_task_lease(
+        self,
+        task_id: str,
+        *,
+        worker_id: str | None = None,
+        lease_seconds: float | None = None,
+    ) -> PlatformTaskRecord:
+        await self.reconcile_expired_task_leases()
+        record = await self._change_task_lease(
+            task_id,
+            worker_id=worker_id,
+            lease_seconds=lease_seconds,
+            action="claimed",
+        )
+        await self._emit(record, "platform_harness.task.lease_claimed")
+        return record
+
+    async def renew_task_lease(
+        self,
+        task_id: str,
+        *,
+        worker_id: str | None = None,
+        lease_seconds: float | None = None,
+    ) -> PlatformTaskRecord:
+        await self.reconcile_expired_task_leases()
+        record = await self._change_task_lease(
+            task_id,
+            worker_id=worker_id,
+            lease_seconds=lease_seconds,
+            action="renewed",
+            require_existing_worker=True,
+        )
+        await self._emit(record, "platform_harness.task.lease_renewed")
+        return record
+
+    async def release_task_lease(
+        self,
+        task_id: str,
+        *,
+        worker_id: str | None = None,
+        next_status: Literal["queued", "running"] = "queued",
+    ) -> PlatformTaskRecord:
+        await self.reconcile_expired_task_leases()
+        await self._cached_or_persisted_task(task_id)
+        effective_worker_id = self._effective_worker_id(worker_id)
+        async with self._lock:
+            record = self._tasks.get(task_id)
+            if record is None:
+                raise KeyError(f"platform task not found: {task_id}") from None
+            if record.status not in {"queued", "running"}:
+                raise PlatformHarnessViolation(
+                    f"platform task cannot release lease: {task_id} status={record.status}"
+                )
+            if (
+                record.worker_id
+                and record.worker_id != effective_worker_id
+                and not self._lease_expired_error(record)
+            ):
+                raise PlatformHarnessViolation(
+                    f"platform task lease held by {record.worker_id}; {effective_worker_id} cannot release it"
+                )
+            record.worker_id = None
+            record.lease_expires_at = None
+            record.lease_version += 1
+            record.status = next_status
+            record.updated_at = utc_now()
+            metadata = record.metadata.setdefault("worker_lease", {})
+            metadata.update({
+                "released_at": record.updated_at,
+                "released_by": effective_worker_id,
+                "next_status": next_status,
+            })
+        await self._persist(record)
+        await self._emit(record, "platform_harness.task.lease_released")
+        return record.model_copy(deep=True)
+
+    async def reconcile_expired_task_leases(self) -> list[PlatformTaskRecord]:
+        cutoff = datetime.now(timezone.utc).isoformat()
+        error = "platform harness worker lease expired"
+        records = [
+            PlatformTaskRecord.model_validate(item)
+            for item in await self.storage.fail_expired_platform_task_leases(cutoff=cutoff, error=error)
+        ]
+        async with self._lock:
+            for record in records:
+                self._tasks[record.id] = record
+        for record in records:
+            await self._emit(record, "platform_harness.task.failed", {"reason": "worker_lease_expired"})
+        return [record.model_copy(deep=True) for record in records]
 
     async def reconcile_stale_tasks(self) -> list[PlatformTaskRecord]:
         if self.stale_active_task_seconds <= 0:
@@ -270,6 +412,54 @@ class PlatformHarness:
         for record in records:
             await self._emit(record, "platform_harness.task.failed", {"reason": "stale_reconciled"})
         return [record.model_copy(deep=True) for record in records]
+
+    async def _change_task_lease(
+        self,
+        task_id: str,
+        *,
+        worker_id: str | None,
+        lease_seconds: float | None,
+        action: str,
+        require_existing_worker: bool = False,
+    ) -> PlatformTaskRecord:
+        await self._cached_or_persisted_task(task_id)
+        effective_lease_seconds = self._effective_lease_seconds(lease_seconds)
+        if effective_lease_seconds <= 0:
+            raise PlatformHarnessViolation("platform task worker lease seconds must be greater than 0")
+        effective_worker_id = self._effective_worker_id(worker_id)
+        async with self._lock:
+            record = self._tasks.get(task_id)
+            if record is None:
+                raise KeyError(f"platform task not found: {task_id}") from None
+            if record.status not in {"queued", "running"}:
+                raise PlatformHarnessViolation(
+                    f"platform task cannot change lease: {task_id} status={record.status}"
+                )
+            if require_existing_worker and not record.worker_id:
+                raise PlatformHarnessViolation(f"platform task has no active worker lease: {task_id}")
+            if require_existing_worker and record.worker_id and record.worker_id != effective_worker_id:
+                raise PlatformHarnessViolation(
+                    f"platform task lease held by {record.worker_id}; {effective_worker_id} cannot renew it"
+                )
+            if (
+                not require_existing_worker
+                and record.worker_id
+                and record.worker_id != effective_worker_id
+                and not self._lease_expired_error(record)
+            ):
+                raise PlatformHarnessViolation(
+                    f"platform task lease held by {record.worker_id}; {effective_worker_id} cannot claim it"
+                )
+            self._assign_lease(
+                record,
+                worker_id=effective_worker_id,
+                lease_seconds=effective_lease_seconds,
+                reason=action,
+            )
+            if record.status == "queued":
+                record.status = "running"
+        await self._persist(record)
+        return record.model_copy(deep=True)
 
     def _violation(self, record: PlatformTaskRecord, usage_type: UsageType) -> str:
         counts = record.usage_counts
@@ -319,6 +509,71 @@ class PlatformHarness:
         if usage_type == "node_execution":
             return self.max_node_executions_per_owner
         return 0
+
+    def _effective_worker_id(self, worker_id: str | None) -> str:
+        return worker_id or self.worker_id
+
+    def _effective_lease_seconds(self, lease_seconds: float | None) -> float:
+        if lease_seconds is None:
+            return self.worker_lease_seconds
+        return max(0.0, float(lease_seconds))
+
+    def _assign_lease(
+        self,
+        record: PlatformTaskRecord,
+        *,
+        worker_id: str,
+        lease_seconds: float,
+        reason: str,
+    ) -> None:
+        now = datetime.now(timezone.utc)
+        record.worker_id = worker_id
+        record.lease_expires_at = (now + timedelta(seconds=lease_seconds)).isoformat()
+        record.lease_version += 1
+        record.updated_at = now.isoformat()
+        metadata = record.metadata.setdefault("worker_lease", {})
+        metadata.update({
+            "worker_id": worker_id,
+            "lease_seconds": lease_seconds,
+            "last_action": reason,
+            "updated_at": record.updated_at,
+            "lease_version": record.lease_version,
+        })
+
+    def _lease_expired_error(self, record: PlatformTaskRecord) -> str:
+        if not record.lease_expires_at:
+            return ""
+        expires_at = self._parse_datetime(record.lease_expires_at)
+        if not expires_at:
+            return ""
+        if expires_at > datetime.now(timezone.utc):
+            return ""
+        return (
+            "platform harness worker lease expired"
+            f": task={record.id} worker={record.worker_id or 'unknown'}"
+            f" lease_expires_at={record.lease_expires_at}"
+        )
+
+    def _fail_for_expired_lease(self, record: PlatformTaskRecord, error: str) -> None:
+        record.status = "failed"
+        record.error = error
+        record.finished_at = record.updated_at
+        metadata = record.metadata.setdefault("worker_lease", {})
+        metadata.update({
+            "expired": True,
+            "expired_worker_id": record.worker_id,
+            "expired_at": record.updated_at,
+            "lease_expires_at": record.lease_expires_at,
+        })
+
+    def _parse_datetime(self, value: str) -> datetime | None:
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
 
     def enforce_secret_policy(self, *, surface: str, payload: Any) -> None:
         if not self.secret_policy_enabled:

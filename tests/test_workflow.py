@@ -1259,6 +1259,189 @@ def test_platform_harness_reconciles_stale_active_tasks(tmp_path: Path) -> None:
     asyncio.run(scenario())
 
 
+def test_platform_harness_worker_lease_conflicts_and_persists(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        storage = Storage(data_dir)
+        await storage.initialize()
+        harness = PlatformHarness(
+            storage=storage,
+            worker_id="worker-a",
+            worker_lease_seconds=60,
+        )
+
+        started = await harness.start_task(
+            "lease-conflict-1",
+            kind="benchmark",
+            owner_id="owner-a",
+            resource_id="case-1",
+        )
+        assert started.worker_id == "worker-a"
+        assert started.lease_expires_at
+        assert started.lease_version == 1
+
+        with pytest.raises(PlatformHarnessViolation, match="lease held by worker-a"):
+            await harness.claim_task_lease(
+                "lease-conflict-1",
+                worker_id="worker-b",
+                lease_seconds=60,
+            )
+
+        renewed = await harness.renew_task_lease(
+            "lease-conflict-1",
+            worker_id="worker-a",
+            lease_seconds=120,
+        )
+        assert renewed.worker_id == "worker-a"
+        assert renewed.lease_version == 2
+
+        restarted_storage = Storage(data_dir)
+        await restarted_storage.initialize()
+        restarted = PlatformHarness(storage=restarted_storage, worker_id="worker-b")
+        persisted = await restarted.get_task("lease-conflict-1")
+        assert persisted.worker_id == "worker-a"
+        assert persisted.lease_version == 2
+
+        released = await restarted.release_task_lease(
+            "lease-conflict-1",
+            worker_id="worker-a",
+        )
+        assert released.worker_id is None
+        assert released.lease_expires_at is None
+        assert released.status == "queued"
+        assert released.lease_version == 3
+
+        with pytest.raises(PlatformHarnessViolation, match="no active worker lease"):
+            await restarted.renew_task_lease(
+                "lease-conflict-1",
+                worker_id="worker-a",
+                lease_seconds=60,
+            )
+
+    asyncio.run(scenario())
+
+
+def test_platform_harness_reconciles_expired_worker_leases(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        data_dir = tmp_path / "data"
+        data_dir.mkdir()
+        storage = Storage(data_dir)
+        await storage.initialize()
+        harness = PlatformHarness(storage=storage, worker_id="worker-a")
+
+        await harness.start_task(
+            "lease-expired-1",
+            kind="benchmark",
+            owner_id="owner-a",
+            resource_id="case-1",
+            lease_seconds=0.001,
+        )
+        await asyncio.sleep(0.01)
+        reconciled = await harness.reconcile_expired_task_leases()
+        assert [item.id for item in reconciled] == ["lease-expired-1"]
+        failed = await harness.get_task("lease-expired-1")
+        assert failed.status == "failed"
+        assert failed.metadata["worker_lease"]["expired"] is True
+        assert "worker lease expired" in failed.error
+
+        await harness.start_task(
+            "lease-late-success-1",
+            kind="benchmark",
+            owner_id="owner-a",
+            resource_id="case-2",
+            lease_seconds=0.001,
+        )
+        await asyncio.sleep(0.01)
+        late = await harness.finish_task("lease-late-success-1", status="succeeded")
+        assert late is not None
+        assert late.status == "failed"
+        assert "worker lease expired" in late.error
+
+        restarted_storage = Storage(data_dir)
+        await restarted_storage.initialize()
+        restarted = PlatformHarness(storage=restarted_storage)
+        persisted = await restarted.get_task("lease-late-success-1")
+        assert persisted.status == "failed"
+        assert persisted.metadata["worker_lease"]["expired"] is True
+
+    asyncio.run(scenario())
+
+
+def test_platform_harness_worker_lease_api(tmp_path: Path) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+    )
+    app = create_app(settings, ScriptedProvider())
+    with TestClient(app) as client:
+        asyncio.run(app.state.services.harness.start_task(
+            "api-lease-1",
+            kind="benchmark",
+            owner_id="owner-a",
+            resource_id="case-1",
+        ))
+
+        claimed = client.post(
+            "/api/v1/platform/harness/tasks/api-lease-1/lease",
+            headers=headers(),
+            json={"worker_id": "api-worker-a", "lease_seconds": 60},
+        )
+        assert claimed.status_code == 200
+        assert claimed.json()["worker_id"] == "api-worker-a"
+        assert claimed.json()["lease_version"] == 1
+
+        conflict = client.post(
+            "/api/v1/platform/harness/tasks/api-lease-1/lease",
+            headers=headers(),
+            json={"worker_id": "api-worker-b", "lease_seconds": 60},
+        )
+        assert conflict.status_code == 409
+        assert "lease held by api-worker-a" in conflict.text
+
+        renewed = client.post(
+            "/api/v1/platform/harness/tasks/api-lease-1/lease/renew",
+            headers=headers(),
+            json={"worker_id": "api-worker-a", "lease_seconds": 120},
+        )
+        assert renewed.status_code == 200
+        assert renewed.json()["lease_version"] == 2
+
+        released = client.post(
+            "/api/v1/platform/harness/tasks/api-lease-1/lease/release",
+            headers=headers(),
+            json={"worker_id": "api-worker-a", "next_status": "queued"},
+        )
+        assert released.status_code == 200
+        assert released.json()["worker_id"] is None
+        assert released.json()["status"] == "queued"
+
+        renew_without_lease = client.post(
+            "/api/v1/platform/harness/tasks/api-lease-1/lease/renew",
+            headers=headers(),
+            json={"worker_id": "api-worker-a", "lease_seconds": 60},
+        )
+        assert renew_without_lease.status_code == 409
+        assert "no active worker lease" in renew_without_lease.text
+
+        asyncio.run(app.state.services.harness.start_task(
+            "api-lease-expired-1",
+            kind="benchmark",
+            owner_id="owner-a",
+            resource_id="case-2",
+            lease_seconds=0.001,
+        ))
+        time.sleep(0.01)
+        reconciled = client.post(
+            "/api/v1/platform/harness/leases/reconcile",
+            headers=headers(),
+        )
+        assert reconciled.status_code == 200
+        assert reconciled.json()[0]["id"] == "api-lease-expired-1"
+        assert reconciled.json()[0]["status"] == "failed"
+
+
 def test_platform_harness_secret_policy_blocks_http_secret_headers(tmp_path: Path) -> None:
     settings = Settings(
         api_token="workflow-test",

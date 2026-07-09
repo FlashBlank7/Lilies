@@ -4,6 +4,7 @@ import asyncio
 import json
 import sqlite3
 from collections import defaultdict
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, AsyncIterator
 
@@ -429,6 +430,69 @@ class Storage:
                 )
                 records.append(record)
         return records
+
+    async def fail_expired_platform_task_leases(
+        self, *, cutoff: str, error: str
+    ) -> list[dict[str, Any]]:
+        async with self._lock:
+            return await asyncio.to_thread(
+                self._fail_expired_platform_task_leases_sync,
+                cutoff,
+                error,
+            )
+
+    def _fail_expired_platform_task_leases_sync(self, cutoff: str, error: str) -> list[dict[str, Any]]:
+        now = utc_now()
+        cutoff_dt = self._parse_iso_datetime(cutoff)
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT record_json FROM platform_harness_tasks
+                WHERE status IN ('queued', 'running')
+                ORDER BY updated_at
+                """
+            ).fetchall()
+            records: list[dict[str, Any]] = []
+            for row in rows:
+                record = json.loads(row["record_json"])
+                lease_expires_at = record.get("lease_expires_at")
+                if not lease_expires_at:
+                    continue
+                expires_dt = self._parse_iso_datetime(str(lease_expires_at))
+                if not expires_dt or expires_dt > cutoff_dt:
+                    continue
+                detailed_error = (
+                    f"{error}: task={record.get('id')} worker={record.get('worker_id') or 'unknown'} "
+                    f"lease_expires_at={lease_expires_at}"
+                )
+                record["status"] = "failed"
+                record["error"] = detailed_error
+                record["updated_at"] = now
+                record["finished_at"] = now
+                metadata = record.setdefault("metadata", {})
+                lease_metadata = metadata.setdefault("worker_lease", {})
+                lease_metadata["expired"] = True
+                lease_metadata["expired_worker_id"] = record.get("worker_id")
+                lease_metadata["lease_expires_at"] = lease_expires_at
+                lease_metadata["expired_at"] = now
+                lease_metadata["cutoff"] = cutoff
+                encoded = json.dumps(record, ensure_ascii=False, separators=(",", ":"))
+                conn.execute(
+                    """
+                    UPDATE platform_harness_tasks
+                    SET status=?, record_json=?, updated_at=?, finished_at=?
+                    WHERE id=?
+                    """,
+                    ("failed", encoded, now, now, record["id"]),
+                )
+                records.append(record)
+        return records
+
+    def _parse_iso_datetime(self, value: str) -> datetime:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
 
     async def append_event(self, stream_id: str, event_type: str, data: dict[str, Any]) -> EventRecord:
         async with self._lock:

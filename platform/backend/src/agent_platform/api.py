@@ -6,12 +6,13 @@ import shutil
 from contextlib import asynccontextmanager
 from pathlib import Path
 from dataclasses import asdict, dataclass
-from typing import Any, AsyncIterator
+from typing import Any, AsyncIterator, Literal
 from uuid import uuid4
 
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from pydantic import BaseModel, Field
 
 from .config import Settings, get_settings
 from .applications import ApplicationService
@@ -27,7 +28,7 @@ from .models import (
     SessionCreateRequest,
 )
 from .permissions import PermissionBroker
-from .platform_harness import PlatformHarness
+from .platform_harness import PlatformHarness, PlatformHarnessViolation
 from .providers import ModelProvider
 from .providers.multi import MultiProvider
 from .runtime import AgentRuntime
@@ -72,6 +73,16 @@ class Services:
     background_tasks: set[asyncio.Task[Any]]
 
 
+class PlatformTaskLeaseRequest(BaseModel):
+    worker_id: str | None = None
+    lease_seconds: float | None = Field(default=None, gt=0)
+
+
+class PlatformTaskLeaseReleaseRequest(BaseModel):
+    worker_id: str | None = None
+    next_status: Literal["queued", "running"] = "queued"
+
+
 def build_services(settings: Settings, provider: ModelProvider | None = None) -> Services:
     storage = Storage(settings.data_dir)
     tools = build_core_registry()
@@ -95,6 +106,8 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         secret_policy_enabled=settings.platform_harness_secret_policy_enabled,
         network_egress_policy=settings.platform_harness_network_egress_policy,
         network_egress_allowlist=settings.platform_harness_network_egress_allowlist,
+        worker_id=settings.platform_harness_worker_id or None,
+        worker_lease_seconds=settings.platform_harness_worker_lease_seconds,
     )
     runtime = AgentRuntime(
         settings=settings,
@@ -253,6 +266,59 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             return task.model_dump(mode="json")
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
+
+    @app.post("/api/v1/platform/harness/tasks/{task_id}/lease", dependencies=[Depends(require_token)])
+    async def claim_platform_harness_task_lease(
+        task_id: str, body: PlatformTaskLeaseRequest
+    ) -> dict[str, Any]:
+        try:
+            task = await services.harness.claim_task_lease(
+                task_id,
+                worker_id=body.worker_id,
+                lease_seconds=body.lease_seconds,
+            )
+            return task.model_dump(mode="json")
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+        except PlatformHarnessViolation as error:
+            raise HTTPException(409, str(error)) from error
+
+    @app.post("/api/v1/platform/harness/tasks/{task_id}/lease/renew", dependencies=[Depends(require_token)])
+    async def renew_platform_harness_task_lease(
+        task_id: str, body: PlatformTaskLeaseRequest
+    ) -> dict[str, Any]:
+        try:
+            task = await services.harness.renew_task_lease(
+                task_id,
+                worker_id=body.worker_id,
+                lease_seconds=body.lease_seconds,
+            )
+            return task.model_dump(mode="json")
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+        except PlatformHarnessViolation as error:
+            raise HTTPException(409, str(error)) from error
+
+    @app.post("/api/v1/platform/harness/tasks/{task_id}/lease/release", dependencies=[Depends(require_token)])
+    async def release_platform_harness_task_lease(
+        task_id: str, body: PlatformTaskLeaseReleaseRequest
+    ) -> dict[str, Any]:
+        try:
+            task = await services.harness.release_task_lease(
+                task_id,
+                worker_id=body.worker_id,
+                next_status=body.next_status,
+            )
+            return task.model_dump(mode="json")
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+        except PlatformHarnessViolation as error:
+            raise HTTPException(409, str(error)) from error
+
+    @app.post("/api/v1/platform/harness/leases/reconcile", dependencies=[Depends(require_token)])
+    async def reconcile_platform_harness_task_leases() -> list[dict[str, Any]]:
+        tasks = await services.harness.reconcile_expired_task_leases()
+        return [task.model_dump(mode="json") for task in tasks]
 
     @app.get("/api/v1/builder-benchmark/history", dependencies=[Depends(require_token)])
     async def list_builder_benchmark_history(

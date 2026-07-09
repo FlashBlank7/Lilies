@@ -88,6 +88,9 @@ export type PlatformTaskRecord = {
   usage_counts: Record<string, number>
   usage: PlatformUsageRecord[]
   error: string
+  worker_id?: string | null
+  lease_expires_at?: string | null
+  lease_version?: number
   created_at: string
   updated_at: string
   finished_at?: string | null

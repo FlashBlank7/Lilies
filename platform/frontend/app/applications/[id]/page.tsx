@@ -1080,7 +1080,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
               <div className="monitor-meta"><code>{task.owner_id}</code><code>{task.resource_id}</code></div>
               <div className="monitor-counts">{usageEntries.length ? usageEntries.map(([name, amount]) => <span key={name}>{name.replaceAll('_', ' ')} <b>{amount}</b></span>) : <span>{t.monitorNoUsage}</span>}</div>
               {task.error && <p className="monitor-error">{task.error}</p>}
-              <div className="monitor-times"><span>{t.monitorCreated}: {shortTime(task.created_at)}</span><span>{t.monitorUpdated}: {shortTime(task.updated_at)}</span></div>
+              <div className="monitor-times"><span>{t.monitorCreated}: {shortTime(task.created_at)}</span><span>{t.monitorUpdated}: {shortTime(task.updated_at)}</span>{task.worker_id && <span>{t.monitorWorker}: {task.worker_id}</span>}{task.lease_expires_at && <span>{t.monitorLeaseExpires}: {shortTime(task.lease_expires_at)} · v{task.lease_version || 0}</span>}</div>
               {latestUsage.length > 0 && <details><summary>{t.monitorLatestUsage}</summary><pre>{JSON.stringify(latestUsage, null, 2)}</pre></details>}
             </section>
           }) : <p className="muted">{t.monitorEmpty}</p>}</div>

@@ -29,6 +29,7 @@
 - `v0.2.17_*`：来自 `docs/stage-reports/v0.2.17_platform_harness_tool_egress_policy.md`。
 - `v0.2.18_*`：来自 `docs/stage-reports/v0.2.18_evolution_governance_and_workspace_archive.md`。
 - `v0.2.19_*`：来自 `docs/stage-reports/v0.2.19_full_task_set_product_visibility.md`。
+- `v0.2.20_*`：来自 `docs/stage-reports/v0.2.20_platform_harness_worker_lease.md`。
 
 Active workspace rule:
 

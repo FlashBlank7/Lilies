@@ -48,6 +48,8 @@ class Settings(BaseSettings):
     platform_harness_secret_policy_enabled: bool = True
     platform_harness_network_egress_policy: str = "full"
     platform_harness_network_egress_allowlist: list[str] = Field(default_factory=list)
+    platform_harness_worker_id: str = ""
+    platform_harness_worker_lease_seconds: float = 0.0
 
     def prepare(self) -> None:
         self.data_dir.mkdir(parents=True, exist_ok=True)
