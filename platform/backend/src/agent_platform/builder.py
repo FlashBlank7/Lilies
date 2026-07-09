@@ -21,6 +21,7 @@ from .template_strategy import (
     recommended_action_for_depth,
     resolve_effective_reuse_depth,
     score_template_matches,
+    suggestion_default_metadata,
 )
 from .workflow_models import (
     BuildPlan,
@@ -58,7 +59,8 @@ Core rules:
   with confidence >= 0.7 matches the requirement, prefer expanding it via
   template_expand instead of building from scratch. This saves time and reuses
   proven patterns.
-- When the correct reuse depth is unclear, call template_suggestions with reuse_depth="adaptive".
+- Unless the requirement or an experiment explicitly asks for a fixed reuse depth, prefer
+  template_suggestions with reuse_depth="adaptive" as the default suggestion mode.
   If it returns effective_reuse_depth and policy_reason, update the BuildPlan to that concrete depth
   before mutating the draft.
 - For agent architecture bricks, call manual_search or manual_get first, then add one brick at a time.
@@ -680,9 +682,10 @@ class WorkflowBuilder:
             return blueprint
         if tool == "template_suggestions":
             requirement = str(data.get("requirement", ""))
-            reuse_depth = str(data.get("reuse_depth") or (
-                state.build_plan.reuse_depth if state.build_plan else "shallow"
-            ))
+            reuse_depth, default_metadata = suggestion_default_metadata(
+                data.get("reuse_depth"),
+                build_plan_reuse_depth=state.build_plan.reuse_depth if state.build_plan else None,
+            )
             if reuse_depth not in ALLOWED_REUSE_DEPTHS:
                 allowed = ", ".join(sorted(ALLOWED_REUSE_DEPTHS))
                 raise RuntimeError(f"reuse_depth must be one of: {allowed}")
@@ -692,6 +695,7 @@ class WorkflowBuilder:
                     "effective_reuse_depth": "none",
                     "recommended_action": "build_from_scratch",
                     "policy_reason": "explicit:none",
+                    **default_metadata,
                     "templates": [],
                 }
             templates = self.template_store.list() if self.template_store else []
@@ -707,12 +711,14 @@ class WorkflowBuilder:
                 "effective_reuse_depth": effective_reuse_depth,
                 "recommended_action": recommended_action_for_depth(effective_reuse_depth),
                 "policy_reason": policy_reason,
+                **default_metadata,
                 "templates": [
                     {
                         **build_suggestion_payload(
                             m,
                             s,
                             reuse_depth,
+                            default_metadata=default_metadata,
                         ),
                         "source": "marketplace",
                         "relevance": round(s, 3),

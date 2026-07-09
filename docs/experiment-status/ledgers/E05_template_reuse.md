@@ -32,6 +32,7 @@ Template reuse 已证明会改变 Builder 行为，也证明 marketplace expanda
 - v0.2.48：新增共享 adaptive template strategy helper；API/Builder `template_suggestions` 支持 `reuse_depth=adaptive`，并返回 `effective_reuse_depth`、`recommended_action`、`policy_reason`；确定性 backtest 产出作为首轮策略验证。
 - v0.2.49：canonical E05 runner 原生支持 `adaptive` 臂；首个 live validation 显示 adaptive 在 `data_analyzer` family 中解析为 `deep` 且比 explicit `shallow`/`deep` 更快 `published`。
 - v0.2.51：`code_review` second-family live validation 显示 adaptive 在 shallow-resolving family 中正确解析为 `shallow`，并以 `published`、`313.696s`、`38 / 46` model/tool calls 优于显式 `shallow` (`ready`, `388.427s`) 与显式 `deep` (`needs_attention`, `382.777s`, `44 / 70`)；由此形成 Builder 默认建议门槛。
+- v0.2.52：API 与 Builder 在 omitted-depth 路径上正式默认到 `adaptive`；结果显式返回 `reuse_depth_source`、`defaulted_by_policy`、`default_policy_version` 与 `available_overrides`，把产品化默认与显式 override 清楚地区分开。
 
 ## 关键结果
 
@@ -47,4 +48,4 @@ Template reuse 已证明会改变 Builder 行为，也证明 marketplace expanda
 
 ## 下一步
 
-E05 的原始 backlog 问题已经从“该不该上 adaptive”转移到“如何把 adaptive 产品化且保持可观测、可回退”。因此下一步不是再做同类证明，而是把 adaptive 默认建议门槛落实到产品行为，同时保留 fixed-depth 显式选项与后续 family 监测。
+E05 的原始 backlog 问题已经从“该不该上 adaptive”转移到“adaptive 产品化后的 live acceptance 与长期观测”。因此下一步不是再回到 fixed-depth 争论，而是验证 policy-default 路径在真实运行中的表现，并继续保留 fixed-depth 显式选项与后续 family 监测。

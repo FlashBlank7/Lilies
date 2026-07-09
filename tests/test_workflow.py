@@ -719,8 +719,9 @@ class TemplateListBuilderProvider(ModelProvider):
 class AdaptiveTemplateSuggestionBuilderProvider(ModelProvider):
     name = "deepseek"
 
-    def __init__(self) -> None:
+    def __init__(self, *, include_reuse_depth: bool = True) -> None:
         self.calls = 0
+        self.include_reuse_depth = include_reuse_depth
 
     def capabilities(self, model: str) -> ProviderCapabilities:
         return ProviderCapabilities(True, True, True, False, False, 100_000, 10_000)
@@ -743,8 +744,9 @@ class AdaptiveTemplateSuggestionBuilderProvider(ModelProvider):
         if self.calls == 1:
             value = {
                 "requirement": "Analyze CSV statistics and anomaly report.",
-                "reuse_depth": "adaptive",
             }
+            if self.include_reuse_depth:
+                value["reuse_depth"] = "adaptive"
             yield StreamEvent(type="content_block_start", data={
                 "index": 0,
                 "content_block": {
@@ -1367,6 +1369,8 @@ def test_template_suggestions_include_reuse_depth_actions(tmp_path: Path) -> Non
         assert deep.status_code == 200, deep.text
         body = deep.json()
         assert body[0]["reuse_depth"] == "deep"
+        assert body[0]["reuse_depth_source"] == "explicit"
+        assert body[0]["defaulted_by_policy"] is False
         assert body[0]["recommended_action"] == "compose_modules"
 
         none = client.get(
@@ -1383,9 +1387,24 @@ def test_template_suggestions_include_reuse_depth_actions(tmp_path: Path) -> Non
         adaptive_body = adaptive.json()
         assert adaptive_body[0]["name"] == "data_analyzer"
         assert adaptive_body[0]["reuse_depth"] == "adaptive"
+        assert adaptive_body[0]["reuse_depth_source"] == "explicit"
+        assert adaptive_body[0]["defaulted_by_policy"] is False
         assert adaptive_body[0]["effective_reuse_depth"] == "deep"
         assert adaptive_body[0]["recommended_action"] == "compose_modules"
         assert "parameter_extractor" in adaptive_body[0]["policy_reason"]
+
+        defaulted = client.get(
+            "/api/v1/templates/suggestions?requirement=data%20analysis%20statistics%20anomalies%20report",
+            headers=headers(),
+        )
+        assert defaulted.status_code == 200, defaulted.text
+        defaulted_body = defaulted.json()
+        assert defaulted_body[0]["reuse_depth"] == "adaptive"
+        assert defaulted_body[0]["reuse_depth_source"] == "policy_default"
+        assert defaulted_body[0]["defaulted_by_policy"] is True
+        assert defaulted_body[0]["default_policy_version"] == "v0.2.52_adaptive_default_productization"
+        assert defaulted_body[0]["available_overrides"] == ["adaptive", "deep", "none", "shallow"]
+        assert defaulted_body[0]["effective_reuse_depth"] == "deep"
 
 
 def test_platform_harness_tracks_test_suite_and_workflow_usage(tmp_path: Path) -> None:
@@ -4480,11 +4499,57 @@ def test_builder_template_suggestions_adaptive_returns_effective_depth(tmp_path:
         assert suggestion_events and suggestion_events[0]["data"]["success"] is True
         result = json.loads(suggestion_events[0]["data"]["result"])
         assert result["reuse_depth"] == "adaptive"
+        assert result["reuse_depth_source"] == "explicit"
+        assert result["defaulted_by_policy"] is False
         assert result["effective_reuse_depth"] == "deep"
         assert result["recommended_action"] == "compose_modules"
         assert "parameter_extractor" in result["policy_reason"]
         assert result["templates"][0]["name"] == "data_analyzer"
         assert result["templates"][0]["effective_reuse_depth"] == "deep"
+
+
+def test_builder_template_suggestions_default_to_adaptive_when_omitted(tmp_path: Path) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+        templates_dir=Path(__file__).resolve().parents[1] / "templates",
+    )
+    app = create_app(settings, AdaptiveTemplateSuggestionBuilderProvider(include_reuse_depth=False))
+    with TestClient(app) as client:
+        app_id = client.post(
+            "/api/v1/applications",
+            headers=headers(),
+            json={"name": "Adaptive Default", "requirement": "Inspect default template suggestions."},
+        ).json()["id"]
+        build_id = client.post(
+            f"/api/v1/applications/{app_id}/builds",
+            headers=headers(),
+            json={
+                "requirement": "Inspect default template suggestions.",
+                "auto_publish": False,
+                "max_turns": 5,
+            },
+        ).json()["build_id"]
+        for _ in range(100):
+            build = client.get(f"/api/v1/builds/{build_id}", headers=headers()).json()
+            if build["status"] in {"ready", "needs_attention", "published", "cancelled"}:
+                break
+            time.sleep(0.01)
+
+        operation_events = client.get(f"/v1/streams/{build_id}", headers=headers()).json()
+        suggestion_events = [
+            event for event in operation_events
+            if event["type"] == "build.operation" and event["data"].get("tool") == "template_suggestions"
+        ]
+        assert suggestion_events and suggestion_events[0]["data"]["success"] is True
+        result = json.loads(suggestion_events[0]["data"]["result"])
+        assert result["reuse_depth"] == "adaptive"
+        assert result["reuse_depth_source"] == "policy_default"
+        assert result["defaulted_by_policy"] is True
+        assert result["default_policy_version"] == "v0.2.52_adaptive_default_productization"
+        assert result["effective_reuse_depth"] == "deep"
+        assert result["templates"][0]["defaulted_by_policy"] is True
 
 
 def test_builder_can_expand_marketplace_template_into_editable_draft(tmp_path: Path) -> None:

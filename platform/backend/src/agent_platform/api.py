@@ -40,6 +40,7 @@ from .template_strategy import (
     ALLOWED_REUSE_DEPTHS,
     build_suggestion_payload,
     score_template_matches,
+    suggestion_default_metadata,
 )
 from .template_store import TemplateStore
 from .tools import ToolRegistry, build_core_registry
@@ -530,17 +531,18 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         }
 
     @app.get("/api/v1/templates/suggestions", dependencies=[Depends(require_token)])
-    async def suggest_templates(requirement: str = "", reuse_depth: str = "shallow") -> list[dict[str, Any]]:
+    async def suggest_templates(requirement: str = "", reuse_depth: str | None = None) -> list[dict[str, Any]]:
         """Suggest matching templates for a requirement, sorted by relevance."""
         if not requirement:
             return []
+        reuse_depth, default_metadata = suggestion_default_metadata(reuse_depth)
         if reuse_depth not in ALLOWED_REUSE_DEPTHS:
             raise HTTPException(422, "reuse_depth must be one of: adaptive, deep, none, shallow")
         if reuse_depth == "none":
             return []
         scored = score_template_matches(requirement, services.templates.list())
         return [
-            build_suggestion_payload(meta, score, reuse_depth)
+            build_suggestion_payload(meta, score, reuse_depth, default_metadata=default_metadata)
             for score, meta in scored[:5]
         ]
 

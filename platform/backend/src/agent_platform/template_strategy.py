@@ -7,6 +7,8 @@ from .template_models import TemplateMeta
 
 
 ALLOWED_REUSE_DEPTHS = {"none", "shallow", "deep", "adaptive"}
+DEFAULT_TEMPLATE_SUGGESTION_REUSE_DEPTH = "adaptive"
+DEFAULT_TEMPLATE_SUGGESTION_POLICY_VERSION = "v0.2.52_adaptive_default_productization"
 ADAPTIVE_DEEP_BLOCK_HINTS = {
     "iteration",
     "loop",
@@ -89,6 +91,34 @@ def recommended_action_for_depth(depth: str) -> str:
     return "expand_template"
 
 
+def suggestion_default_metadata(
+    requested_reuse_depth: str | None,
+    *,
+    build_plan_reuse_depth: str | None = None,
+) -> tuple[str, dict[str, Any]]:
+    requested = str(requested_reuse_depth or "").strip()
+    if requested:
+        return requested, {
+            "reuse_depth_source": "explicit",
+            "defaulted_by_policy": False,
+            "default_policy_version": None,
+            "available_overrides": sorted(ALLOWED_REUSE_DEPTHS),
+        }
+    if build_plan_reuse_depth:
+        return build_plan_reuse_depth, {
+            "reuse_depth_source": "build_plan",
+            "defaulted_by_policy": False,
+            "default_policy_version": None,
+            "available_overrides": sorted(ALLOWED_REUSE_DEPTHS),
+        }
+    return DEFAULT_TEMPLATE_SUGGESTION_REUSE_DEPTH, {
+        "reuse_depth_source": "policy_default",
+        "defaulted_by_policy": True,
+        "default_policy_version": DEFAULT_TEMPLATE_SUGGESTION_POLICY_VERSION,
+        "available_overrides": sorted(ALLOWED_REUSE_DEPTHS),
+    }
+
+
 def build_suggestion_payload(
     meta: TemplateMeta,
     score: float,
@@ -96,12 +126,13 @@ def build_suggestion_payload(
     *,
     effective_reuse_depth: str | None = None,
     policy_reason: str | None = None,
+    default_metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     resolved_depth = effective_reuse_depth
     resolved_reason = policy_reason
     if resolved_depth is None or resolved_reason is None:
         resolved_depth, resolved_reason = resolve_effective_reuse_depth(reuse_depth, meta)
-    return {
+    payload = {
         **meta.model_dump(mode="json"),
         "relevance_score": round(score, 3),
         "reuse_depth": reuse_depth,
@@ -109,3 +140,6 @@ def build_suggestion_payload(
         "recommended_action": recommended_action_for_depth(resolved_depth),
         "policy_reason": resolved_reason,
     }
+    if default_metadata:
+        payload.update(default_metadata)
+    return payload

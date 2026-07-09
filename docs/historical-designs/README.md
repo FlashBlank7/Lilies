@@ -63,6 +63,7 @@
 - `v0.2.49_*`：来自 `docs/stage-reports/v0.2.49_adaptive_policy_live_validation.md`。
 - `v0.2.50_*`：来自 `docs/stage-reports/v0.2.50_builder_deadline_visibility.md`。
 - `v0.2.51_*`：来自 `docs/stage-reports/v0.2.51_e05_second_family_adaptive_validation.md`。
+- `v0.2.52_*`：来自 `docs/stage-reports/v0.2.52_adaptive_default_productization.md`。
 
 Active workspace rule:
 

@@ -74,6 +74,7 @@
 - `stage-reports/v0.2.49_adaptive_policy_live_validation.md`
 - `stage-reports/v0.2.50_builder_deadline_visibility.md`
 - `stage-reports/v0.2.51_e05_second_family_adaptive_validation.md`
+- `stage-reports/v0.2.52_adaptive_default_productization.md`
 
 ## 使用原则
 
