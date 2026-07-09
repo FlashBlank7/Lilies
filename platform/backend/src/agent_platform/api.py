@@ -83,6 +83,13 @@ class PlatformTaskLeaseReleaseRequest(BaseModel):
     next_status: Literal["queued", "running"] = "queued"
 
 
+class PlatformSecretCreateRequest(BaseModel):
+    owner_id: str
+    name: str
+    value: str = Field(min_length=1, repr=False)
+    description: str = ""
+
+
 def build_services(settings: Settings, provider: ModelProvider | None = None) -> Services:
     storage = Storage(settings.data_dir)
     tools = build_core_registry()
@@ -319,6 +326,32 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
     async def reconcile_platform_harness_task_leases() -> list[dict[str, Any]]:
         tasks = await services.harness.reconcile_expired_task_leases()
         return [task.model_dump(mode="json") for task in tasks]
+
+    @app.post("/api/v1/platform/secrets", status_code=201, dependencies=[Depends(require_token)])
+    async def create_platform_secret(body: PlatformSecretCreateRequest) -> dict[str, Any]:
+        try:
+            return await services.harness.save_secret(
+                owner_id=body.owner_id,
+                name=body.name,
+                value=body.value,
+                description=body.description,
+            )
+        except PlatformHarnessViolation as error:
+            raise HTTPException(422, str(error)) from error
+
+    @app.get("/api/v1/platform/secrets", dependencies=[Depends(require_token)])
+    async def list_platform_secrets(owner_id: str | None = None) -> list[dict[str, Any]]:
+        return await services.harness.list_secrets(owner_id=owner_id)
+
+    @app.delete("/api/v1/platform/secrets/{owner_id}/{name}", dependencies=[Depends(require_token)])
+    async def delete_platform_secret(owner_id: str, name: str) -> dict[str, Any]:
+        try:
+            deleted = await services.harness.delete_secret(owner_id=owner_id, name=name)
+            if not deleted:
+                raise HTTPException(404, f"platform secret not found: {owner_id}/{name}")
+            return {"owner_id": owner_id, "name": name, "deleted": True}
+        except PlatformHarnessViolation as error:
+            raise HTTPException(422, str(error)) from error
 
     @app.get("/api/v1/builder-benchmark/history", dependencies=[Depends(require_token)])
     async def list_builder_benchmark_history(

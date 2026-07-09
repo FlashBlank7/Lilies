@@ -102,12 +102,24 @@ class Storage:
                   updated_at TEXT NOT NULL,
                   finished_at TEXT
                 );
+                CREATE TABLE IF NOT EXISTS platform_secrets (
+                  id TEXT PRIMARY KEY,
+                  owner_id TEXT NOT NULL,
+                  name TEXT NOT NULL,
+                  description TEXT NOT NULL,
+                  value TEXT NOT NULL,
+                  created_at TEXT NOT NULL,
+                  updated_at TEXT NOT NULL,
+                  UNIQUE(owner_id, name)
+                );
                 CREATE INDEX IF NOT EXISTS idx_generations_agent ON generations(agent_id);
                 CREATE INDEX IF NOT EXISTS idx_sessions_agent ON sessions(agent_id);
                 CREATE INDEX IF NOT EXISTS idx_platform_harness_tasks_kind_status
                   ON platform_harness_tasks(kind, status);
                 CREATE INDEX IF NOT EXISTS idx_platform_harness_tasks_owner
                   ON platform_harness_tasks(owner_id);
+                CREATE INDEX IF NOT EXISTS idx_platform_secrets_owner
+                  ON platform_secrets(owner_id);
                 """
             )
 
@@ -493,6 +505,93 @@ class Storage:
         if parsed.tzinfo is None:
             return parsed.replace(tzinfo=timezone.utc)
         return parsed.astimezone(timezone.utc)
+
+    async def save_platform_secret(
+        self,
+        *,
+        owner_id: str,
+        name: str,
+        value: str,
+        description: str = "",
+    ) -> dict[str, Any]:
+        async with self._lock:
+            return await asyncio.to_thread(
+                self._save_platform_secret_sync,
+                owner_id,
+                name,
+                value,
+                description,
+            )
+
+    def _save_platform_secret_sync(
+        self,
+        owner_id: str,
+        name: str,
+        value: str,
+        description: str,
+    ) -> dict[str, Any]:
+        now = utc_now()
+        with self._connect() as conn:
+            existing = conn.execute(
+                "SELECT id,created_at FROM platform_secrets WHERE owner_id=? AND name=?",
+                (owner_id, name),
+            ).fetchone()
+            secret_id = str(existing["id"]) if existing else f"{owner_id}:{name}"
+            created_at = str(existing["created_at"]) if existing else now
+            conn.execute(
+                """
+                INSERT INTO platform_secrets(id, owner_id, name, description, value, created_at, updated_at)
+                VALUES(?,?,?,?,?,?,?)
+                ON CONFLICT(owner_id, name) DO UPDATE SET
+                  description=excluded.description,
+                  value=excluded.value,
+                  updated_at=excluded.updated_at
+                """,
+                (secret_id, owner_id, name, description, value, created_at, now),
+            )
+            row = conn.execute(
+                "SELECT * FROM platform_secrets WHERE owner_id=? AND name=?",
+                (owner_id, name),
+            ).fetchone()
+        return dict(row)
+
+    async def get_platform_secret(self, *, owner_id: str, name: str) -> dict[str, Any]:
+        return await asyncio.to_thread(self._get_platform_secret_sync, owner_id, name)
+
+    def _get_platform_secret_sync(self, owner_id: str, name: str) -> dict[str, Any]:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM platform_secrets WHERE owner_id=? AND name=?",
+                (owner_id, name),
+            ).fetchone()
+        if not row:
+            raise KeyError(f"platform secret not found: {owner_id}/{name}")
+        return dict(row)
+
+    async def list_platform_secrets(self, *, owner_id: str | None = None) -> list[dict[str, Any]]:
+        return await asyncio.to_thread(self._list_platform_secrets_sync, owner_id)
+
+    def _list_platform_secrets_sync(self, owner_id: str | None) -> list[dict[str, Any]]:
+        if owner_id:
+            rows = self._get_all(
+                "SELECT * FROM platform_secrets WHERE owner_id=? ORDER BY updated_at DESC",
+                (owner_id,),
+            )
+        else:
+            rows = self._get_all("SELECT * FROM platform_secrets ORDER BY updated_at DESC", ())
+        return rows
+
+    async def delete_platform_secret(self, *, owner_id: str, name: str) -> bool:
+        async with self._lock:
+            return await asyncio.to_thread(self._delete_platform_secret_sync, owner_id, name)
+
+    def _delete_platform_secret_sync(self, owner_id: str, name: str) -> bool:
+        with self._connect() as conn:
+            cursor = conn.execute(
+                "DELETE FROM platform_secrets WHERE owner_id=? AND name=?",
+                (owner_id, name),
+            )
+        return cursor.rowcount > 0
 
     async def append_event(self, stream_id: str, event_type: str, data: dict[str, Any]) -> EventRecord:
         async with self._lock:

@@ -39,6 +39,7 @@ SECRET_FIELD_MARKERS = (
     "authorization",
     "cookie",
 )
+SECRET_REFERENCE_KEYS = ("$secret", "secret_ref")
 
 
 class PlatformHarnessViolation(RuntimeError):
@@ -586,11 +587,15 @@ class PlatformHarness:
         )
 
     def _find_secret_field(self, value: Any, path: str = "$") -> str:
+        if self.is_secret_reference(value):
+            return ""
         if isinstance(value, dict):
             for key, item in value.items():
                 key_text = str(key)
                 key_folded = key_text.casefold().replace("-", "_")
                 item_path = f"{path}.{key_text}"
+                if self.is_secret_reference(item):
+                    continue
                 if any(marker in key_folded for marker in SECRET_FIELD_MARKERS) and item not in (None, ""):
                     return item_path
                 nested = self._find_secret_field(item, item_path)
@@ -602,6 +607,99 @@ class PlatformHarness:
                 if nested:
                     return nested
         return ""
+
+    async def save_secret(
+        self,
+        *,
+        owner_id: str,
+        name: str,
+        value: str,
+        description: str = "",
+    ) -> dict[str, Any]:
+        self._validate_secret_identity(owner_id, name)
+        row = await self.storage.save_platform_secret(
+            owner_id=owner_id,
+            name=name,
+            value=value,
+            description=description,
+        )
+        await self.storage.append_event(
+            owner_id,
+            "platform_harness.secret.saved",
+            {"secret": self._public_secret(row)},
+        )
+        return self._public_secret(row)
+
+    async def list_secrets(self, *, owner_id: str | None = None) -> list[dict[str, Any]]:
+        rows = await self.storage.list_platform_secrets(owner_id=owner_id)
+        return [self._public_secret(row) for row in rows]
+
+    async def delete_secret(self, *, owner_id: str, name: str) -> bool:
+        self._validate_secret_identity(owner_id, name)
+        deleted = await self.storage.delete_platform_secret(owner_id=owner_id, name=name)
+        await self.storage.append_event(
+            owner_id,
+            "platform_harness.secret.deleted",
+            {"owner_id": owner_id, "name": name, "deleted": deleted},
+        )
+        return deleted
+
+    def is_secret_reference(self, value: Any) -> bool:
+        return isinstance(value, dict) and any(key in value for key in SECRET_REFERENCE_KEYS)
+
+    async def inject_secret_references(self, *, owner_id: str, payload: Any) -> Any:
+        if self.is_secret_reference(payload):
+            return await self._resolve_secret_reference(owner_id=owner_id, reference=payload)
+        if isinstance(payload, dict):
+            return {
+                key: await self.inject_secret_references(owner_id=owner_id, payload=value)
+                for key, value in payload.items()
+            }
+        if isinstance(payload, list):
+            return [
+                await self.inject_secret_references(owner_id=owner_id, payload=value)
+                for value in payload
+            ]
+        return payload
+
+    async def _resolve_secret_reference(self, *, owner_id: str, reference: dict[str, Any]) -> str:
+        raw_ref = next((reference.get(key) for key in SECRET_REFERENCE_KEYS if reference.get(key)), "")
+        ref_owner, name = self._split_secret_reference(str(raw_ref), owner_id)
+        if reference.get("owner_id"):
+            ref_owner = str(reference["owner_id"])
+        self._validate_secret_identity(ref_owner, name)
+        try:
+            row = await self.storage.get_platform_secret(owner_id=ref_owner, name=name)
+        except KeyError as error:
+            raise PlatformHarnessViolation(str(error)) from error
+        prefix = str(reference.get("prefix", ""))
+        suffix = str(reference.get("suffix", ""))
+        return f"{prefix}{row['value']}{suffix}"
+
+    def _split_secret_reference(self, raw_ref: str, default_owner_id: str) -> tuple[str, str]:
+        normalized = raw_ref.removeprefix("secret://").strip()
+        if "/" in normalized:
+            owner_id, name = normalized.split("/", 1)
+            return owner_id, name
+        return default_owner_id, normalized
+
+    def _validate_secret_identity(self, owner_id: str, name: str) -> None:
+        if not owner_id or "/" in owner_id or owner_id.strip() != owner_id:
+            raise PlatformHarnessViolation("invalid platform secret owner_id")
+        if not name or "/" in name or name.strip() != name:
+            raise PlatformHarnessViolation("invalid platform secret name")
+
+    def _public_secret(self, row: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "id": row["id"],
+            "owner_id": row["owner_id"],
+            "name": row["name"],
+            "description": row.get("description", ""),
+            "secret_ref": f"secret://{row['owner_id']}/{row['name']}",
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+            "redacted": True,
+        }
 
     def enforce_network_egress_policy(self, *, surface: str, hostname: str) -> None:
         policy = self.network_egress_policy.casefold()

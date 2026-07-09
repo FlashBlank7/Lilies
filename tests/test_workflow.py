@@ -1493,6 +1493,180 @@ def test_platform_harness_secret_policy_blocks_http_secret_headers(tmp_path: Pat
         assert "headers.Authorization" in run["error"]
 
 
+def test_platform_harness_secret_store_api_redacts_values(tmp_path: Path) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+    )
+    app = create_app(settings, ScriptedProvider())
+    with TestClient(app) as client:
+        created = client.post(
+            "/api/v1/platform/secrets",
+            headers=headers(),
+            json={
+                "owner_id": "owner-a",
+                "name": "api_token",
+                "value": "sk-live-secret",
+                "description": "test token",
+            },
+        )
+        assert created.status_code == 201, created.text
+        assert created.json()["secret_ref"] == "secret://owner-a/api_token"
+        assert created.json()["redacted"] is True
+        assert "sk-live-secret" not in created.text
+        assert "value" not in created.json()
+
+        listed = client.get("/api/v1/platform/secrets?owner_id=owner-a", headers=headers())
+        assert listed.status_code == 200
+        assert listed.json()[0]["name"] == "api_token"
+        assert "sk-live-secret" not in listed.text
+
+        deleted = client.delete("/api/v1/platform/secrets/owner-a/api_token", headers=headers())
+        assert deleted.status_code == 200
+        assert deleted.json()["deleted"] is True
+        assert client.get("/api/v1/platform/secrets?owner_id=owner-a", headers=headers()).json() == []
+
+
+def test_platform_harness_secret_reference_injects_http_headers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    requests: list[dict[str, Any]] = []
+
+    class FakeResponse:
+        status_code = 200
+        is_error = False
+        headers = {"content-type": "application/json"}
+        text = '{"ok": true}'
+
+        def json(self) -> dict[str, Any]:
+            return {"ok": True}
+
+    class FakeAsyncClient:
+        def __init__(self, **_: Any) -> None:
+            pass
+
+        async def __aenter__(self) -> "FakeAsyncClient":
+            return self
+
+        async def __aexit__(self, *_: Any) -> None:
+            return None
+
+        async def request(self, method: str, url: str, **kwargs: Any) -> FakeResponse:
+            requests.append({"method": method, "url": url, **kwargs})
+            assert kwargs["headers"]["Authorization"] == "Bearer sk-http-secret"
+            return FakeResponse()
+
+    monkeypatch.setattr("agent_platform.workflow_runtime.httpx.AsyncClient", FakeAsyncClient)
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+    )
+    app = create_app(settings, ScriptedProvider())
+    with TestClient(app) as client:
+        app_id = client.post(
+            "/api/v1/applications",
+            headers=headers(),
+            json={"name": "Secret reference", "requirement": "Use secret references safely."},
+        ).json()["id"]
+        secret = client.post(
+            "/api/v1/platform/secrets",
+            headers=headers(),
+            json={"owner_id": app_id, "name": "api_token", "value": "sk-http-secret"},
+        )
+        assert secret.status_code == 201, secret.text
+        assert "sk-http-secret" not in secret.text
+
+        revision = 0
+        for node in [
+            {"id": "start", "type": "start", "title": "Start", "config": {"inputs": []}},
+            {"id": "http", "type": "http_request", "title": "HTTP", "config": {
+                "method": "GET",
+                "url": "https://example.test/secret-ref",
+                "headers": {"Authorization": {"$secret": "api_token", "prefix": "Bearer "}},
+            }},
+            {"id": "end", "type": "end", "title": "End", "config": {"outputs": {"ok": "{{nodes.http.output.ok}}"}}},
+        ]:
+            revision = mutate(client, app_id, revision, "add_node", {"node": node})
+        revision = mutate(client, app_id, revision, "add_edge", {"edge": {
+            "id": "start-http", "source": "start", "target": "http",
+            "source_port": "output", "target_port": "input",
+        }})
+        mutate(client, app_id, revision, "add_edge", {"edge": {
+            "id": "http-end", "source": "http", "target": "end",
+            "source_port": "output", "target_port": "input",
+        }})
+
+        created = client.post(
+            f"/api/v1/applications/{app_id}/runs",
+            headers=headers(),
+            json={"inputs": {}, "use_draft": True},
+        )
+        assert created.status_code == 202, created.text
+        run_id = created.json()["run_id"]
+        for _ in range(100):
+            run = client.get(f"/api/v1/runs/{run_id}", headers=headers()).json()
+            if run["status"] == "succeeded":
+                break
+            time.sleep(0.01)
+
+        assert run["status"] == "succeeded", run
+        assert requests and requests[0]["headers"]["Authorization"] == "Bearer sk-http-secret"
+        events = client.get(f"/v1/streams/{run_id}", headers=headers()).text
+        assert "sk-http-secret" not in events
+
+
+def test_platform_harness_missing_secret_reference_fails(tmp_path: Path) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+    )
+    app = create_app(settings, ScriptedProvider())
+    with TestClient(app) as client:
+        app_id = client.post(
+            "/api/v1/applications",
+            headers=headers(),
+            json={"name": "Missing secret reference", "requirement": "Fail missing secrets."},
+        ).json()["id"]
+        revision = 0
+        for node in [
+            {"id": "start", "type": "start", "title": "Start", "config": {"inputs": []}},
+            {"id": "http", "type": "http_request", "title": "HTTP", "config": {
+                "method": "GET",
+                "url": "https://example.test/missing-secret",
+                "headers": {"Authorization": {"$secret": "missing", "prefix": "Bearer "}},
+            }},
+            {"id": "end", "type": "end", "title": "End", "config": {"outputs": {"ok": True}}},
+        ]:
+            revision = mutate(client, app_id, revision, "add_node", {"node": node})
+        revision = mutate(client, app_id, revision, "add_edge", {"edge": {
+            "id": "start-http", "source": "start", "target": "http",
+            "source_port": "output", "target_port": "input",
+        }})
+        mutate(client, app_id, revision, "add_edge", {"edge": {
+            "id": "http-end", "source": "http", "target": "end",
+            "source_port": "output", "target_port": "input",
+        }})
+
+        created = client.post(
+            f"/api/v1/applications/{app_id}/runs",
+            headers=headers(),
+            json={"inputs": {}, "use_draft": True},
+        )
+        assert created.status_code == 202, created.text
+        run_id = created.json()["run_id"]
+        for _ in range(100):
+            run = client.get(f"/api/v1/runs/{run_id}", headers=headers()).json()
+            if run["status"] == "failed":
+                break
+            time.sleep(0.01)
+
+        assert run["status"] == "failed", run
+        assert "platform secret not found" in run["error"]
+
+
 def test_platform_harness_network_egress_policy_blocks_http_requests(tmp_path: Path) -> None:
     settings = Settings(
         api_token="workflow-test",

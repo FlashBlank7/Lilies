@@ -338,8 +338,16 @@ class AgentRuntime:
                 mutating=tool.mutating,
                 emit=lambda kind, data: self.emit(session.id, kind, data),
             )
+            self.harness.enforce_secret_policy(
+                surface=f"agent_tool:{tool_name}",
+                payload=tool_input,
+            )
+            tool_input = await self.harness.inject_secret_references(
+                owner_id=session.agent.id,
+                payload=tool_input,
+            )
             await self.emit(session.id, "tool.started", {
-                "tool_use_id": block.id, "tool": tool_name, "input": tool_input
+                "tool_use_id": block.id, "tool": tool_name, "input": self._redact(tool_input)
             })
 
             async def spawn(task: str, role: str | None) -> str:
@@ -493,6 +501,20 @@ class AgentRuntime:
         if not session or not session.active_task or session.active_task.done():
             raise KeyError("active turn not found")
         session.active_task.cancel()
+
+    @staticmethod
+    def _redact(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {
+                key: "***" if any(
+                    token in key.casefold()
+                    for token in ("key", "secret", "token", "password", "authorization", "cookie", "credential")
+                ) else AgentRuntime._redact(item)
+                for key, item in value.items()
+            }
+        if isinstance(value, list):
+            return [AgentRuntime._redact(item) for item in value]
+        return value
 
     @staticmethod
     def _consume_background_exception(task: asyncio.Task[None]) -> None:

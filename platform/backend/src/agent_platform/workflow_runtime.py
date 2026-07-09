@@ -430,7 +430,15 @@ class WorkflowRuntime:
                 "usage": session.usage.model_dump(mode="json"),
             }
         if isinstance(config, ToolConfig):
-            return await self._execute_tool(config, snapshot, context, workspace_path, run_id, scoped_id)
+            return await self._execute_tool(
+                config,
+                snapshot,
+                context,
+                workspace_path,
+                run_id,
+                scoped_id,
+                owner_id=state.application_id if state else "",
+            )
         if isinstance(config, AgentArchitectureConfig):
             return await self._execute_agent_architecture_block(
                 config, snapshot, node, context, workspace_path, run_id, scoped_id, state
@@ -484,7 +492,7 @@ class WorkflowRuntime:
                 value = next((item for item in values if item is not None), None)
             return {"output": value}
         if isinstance(config, HTTPConfig):
-            return await self._http(config, context)
+            return await self._http(config, context, owner_id=state.application_id if state else "")
         if isinstance(config, IterationConfig):
             items = self._resolve(config.items, context)
             if not isinstance(items, list):
@@ -786,6 +794,7 @@ class WorkflowRuntime:
                 effective_workspace,
                 run_id,
                 scoped_id,
+                owner_id=state.application_id if state else "",
             )
             return {"output": result["output"], "state": {"mechanism": node.type, "tool_name": tool_name}}
 
@@ -1564,6 +1573,7 @@ class WorkflowRuntime:
         workspace_path: str,
         run_id: str,
         node_id: str,
+        owner_id: str,
     ) -> dict[str, Any]:
         if config.tool_name.startswith("workflow:"):
             application_id = config.tool_name.split(":", 1)[1]
@@ -1608,16 +1618,20 @@ class WorkflowRuntime:
                 surface=f"workflow_tool:{config.tool_name}",
                 payload=resolved_input,
             )
+            injected_input = await self.harness.inject_secret_references(
+                owner_id=owner_id,
+                payload=resolved_input,
+            )
             await self.harness.record_usage(
                 run_id,
                 "tool_call",
                 metadata={"node_id": node_id, "tool": config.tool_name},
             )
             await self._emit(run_id, f"node.{node_id}.tool.started", {
-                "tool": config.tool_name, "input": self._redact(resolved_input)
+                "tool": config.tool_name, "input": self._redact(injected_input)
             })
             result = await tool.execute(
-                resolved_input,
+                injected_input,
                 ToolContext(
                     session_id=session_id,
                     agent=agent,
@@ -1670,7 +1684,7 @@ class WorkflowRuntime:
                 hostname=parsed.hostname,
             )
 
-    async def _http(self, config: HTTPConfig, context: dict[str, Any]) -> dict[str, Any]:
+    async def _http(self, config: HTTPConfig, context: dict[str, Any], *, owner_id: str) -> dict[str, Any]:
         url = str(self._resolve(config.url, context))
         parsed = urlparse(url)
         if parsed.scheme not in {"http", "https"} or not parsed.hostname:
@@ -1686,12 +1700,25 @@ class WorkflowRuntime:
             surface="http_request",
             hostname=parsed.hostname,
         )
-        headers = {key: str(self._resolve(value, context)) for key, value in config.headers.items()}
+        header_values = {key: self._resolve(value, context) for key, value in config.headers.items()}
         query = {key: self._resolve(value, context) for key, value in config.query.items()}
         body = self._resolve(config.body, context)
         self.harness.enforce_secret_policy(
             surface=f"http:{parsed.hostname}",
-            payload={"headers": headers, "query": query, "body": body},
+            payload={"headers": header_values, "query": query, "body": body},
+        )
+        injected_headers = await self.harness.inject_secret_references(
+            owner_id=owner_id,
+            payload=header_values,
+        )
+        headers = {key: str(value) for key, value in injected_headers.items()}
+        query = await self.harness.inject_secret_references(
+            owner_id=owner_id,
+            payload=query,
+        )
+        body = await self.harness.inject_secret_references(
+            owner_id=owner_id,
+            payload=body,
         )
         async with httpx.AsyncClient(timeout=config.timeout_seconds, follow_redirects=True) as client:
             response = await client.request(
@@ -2065,7 +2092,10 @@ class WorkflowRuntime:
     def _redact(value: Any) -> Any:
         if isinstance(value, dict):
             return {
-                key: "***" if any(token in key.casefold() for token in ("key", "secret", "token", "password")) else WorkflowRuntime._redact(item)
+                key: "***" if any(
+                    token in key.casefold()
+                    for token in ("key", "secret", "token", "password", "authorization", "cookie", "credential")
+                ) else WorkflowRuntime._redact(item)
                 for key, item in value.items()
             }
         if isinstance(value, list):
