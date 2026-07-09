@@ -28,6 +28,7 @@
 - `v0.2.16_*`：来自 `docs/stage-reports/v0.2.16_platform_harness_network_egress_policy.md`。
 - `v0.2.17_*`：来自 `docs/stage-reports/v0.2.17_platform_harness_tool_egress_policy.md`。
 - `v0.2.18_*`：来自 `docs/stage-reports/v0.2.18_evolution_governance_and_workspace_archive.md`。
+- `v0.2.19_*`：来自 `docs/stage-reports/v0.2.19_full_task_set_product_visibility.md`。
 
 Active workspace rule:
 

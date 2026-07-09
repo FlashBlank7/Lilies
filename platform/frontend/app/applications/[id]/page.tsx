@@ -26,8 +26,10 @@ import {
   idempotency,
   isAuthError,
   saveClientToken,
+  type BuilderBenchmarkHistoryRecord,
   type Block,
   type Draft,
+  type DraftPatchPreview,
   type PlatformTaskRecord,
   type WorkflowNode,
   withFrontendToken,
@@ -403,6 +405,13 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   const [monitorFilter, setMonitorFilter] = useState<MonitorFilter>('related')
   const [monitorLoading, setMonitorLoading] = useState(false)
   const [monitorError, setMonitorError] = useState('')
+  const [benchmarkHistory, setBenchmarkHistory] = useState<BuilderBenchmarkHistoryRecord[]>([])
+  const [benchmarkHistoryLoading, setBenchmarkHistoryLoading] = useState(false)
+  const [benchmarkHistoryError, setBenchmarkHistoryError] = useState('')
+  const [patchInstruction, setPatchInstruction] = useState('')
+  const [patchPreview, setPatchPreview] = useState<DraftPatchPreview | null>(null)
+  const [patchPreviewLoading, setPatchPreviewLoading] = useState(false)
+  const [patchApplyLoading, setPatchApplyLoading] = useState(false)
   const [humanValues, setHumanValues] = useState('{}')
   const [notice, setNotice] = useState('')
   const [authRequired, setAuthRequired] = useState(false)
@@ -542,13 +551,31 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     }
   }, [])
 
+  const refreshBenchmarkHistory = useCallback(async () => {
+    setBenchmarkHistoryLoading(true)
+    setBenchmarkHistoryError('')
+    try {
+      const records = await api<BuilderBenchmarkHistoryRecord[]>('/api/v1/builder-benchmark/history?limit=50')
+      setBenchmarkHistory(records)
+      setAuthRequired(false)
+      return records
+    } catch (error) {
+      if (isAuthError(error)) setAuthRequired(true)
+      setBenchmarkHistoryError(String(error))
+      throw error
+    } finally {
+      setBenchmarkHistoryLoading(false)
+    }
+  }, [])
+
   useEffect(() => {
     const stored = globalThis.localStorage?.getItem('foundry.locale')
     if (isLocale(stored)) setLocale(stored)
     setTokenInput(getClientToken())
     refresh().catch(error => setNotice(String(error)))
     refreshMonitorTasks().catch(error => setNotice(String(error)))
-  }, [refresh, refreshMonitorTasks])
+    refreshBenchmarkHistory().catch(error => setNotice(String(error)))
+  }, [refresh, refreshBenchmarkHistory, refreshMonitorTasks])
   useEffect(() => {
     const buildId = new URLSearchParams(window.location.search).get('build')
     if (buildId) watchBuild(buildId)
@@ -637,6 +664,58 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
       const next = await mutation('update_node', { node_id: selected.id, changes: { config }, merge_config: false })
       await reconcileIncomingEdges(selected.id, config, next)
     } catch (error) { setNotice(t.invalidJson(String(error))) }
+  }
+
+  async function previewDraftPatch() {
+    const instruction = patchInstruction.trim()
+    if (!instruction) {
+      setNotice(t.patchPreviewEmpty)
+      return
+    }
+    setPatchPreviewLoading(true)
+    setPatchPreview(null)
+    try {
+      const result = await api<DraftPatchPreview>(`/api/v1/applications/${id}/draft/preview-patch`, {
+        method: 'POST',
+        body: JSON.stringify({ instruction }),
+      })
+      setPatchPreview(result)
+      setNotice(result.supported ? t.patchPreviewReady : t.patchPreviewUnsupported)
+      await refreshMonitorTasks().catch(error => setNotice(String(error)))
+    } catch (error) {
+      setNotice(String(error))
+    } finally {
+      setPatchPreviewLoading(false)
+    }
+  }
+
+  async function applyDraftPatch() {
+    if (!patchPreview?.supported || !patchPreview.operations.length) return
+    setPatchApplyLoading(true)
+    try {
+      let current = draftRef.current
+      for (const operation of patchPreview.operations) {
+        await api(`/api/v1/applications/${id}/draft`, {
+          method: 'POST',
+          body: JSON.stringify({
+            expected_revision: current?.revision ?? operation.expected_revision,
+            idempotency_key: idempotency(),
+            op: operation.op,
+            data: operation.data,
+          }),
+        })
+        current = await refresh()
+      }
+      setPatchPreview(null)
+      setPatchInstruction('')
+      setNotice(t.patchApplied)
+      await refreshMonitorTasks().catch(error => setNotice(String(error)))
+    } catch (error) {
+      setNotice(String(error))
+      await refresh().catch(() => undefined)
+    } finally {
+      setPatchApplyLoading(false)
+    }
   }
 
   async function reconcileIncomingEdges(nodeId: string, config: Record<string, unknown>, next: Draft | null) {
@@ -917,6 +996,18 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
         </div>}
         {tab === 'edit' && <div className="panel-body">
           <div className="panel-kicker">{t.nodeInspector}</div><h2>{selected?.title || t.selectBrick}</h2>
+          <section className="patch-panel">
+            <div className="patch-panel-head"><strong>{t.patchPreviewTitle}</strong><small>{t.patchPreviewHelp}</small></div>
+            <textarea className="patch-input" value={patchInstruction} placeholder={t.patchPreviewPlaceholder} onChange={event => setPatchInstruction(event.target.value)} />
+            <div className="run-actions"><button className="wide" onClick={previewDraftPatch} disabled={patchPreviewLoading}>{patchPreviewLoading ? t.patchPreviewing : t.patchPreviewButton}</button><button className="wide secondary" onClick={applyDraftPatch} disabled={!patchPreview?.supported || patchPreview.operations.length === 0 || patchApplyLoading}>{patchApplyLoading ? t.patchApplying : t.patchApplyButton}</button></div>
+            {patchPreview && <div className={`patch-result ${patchPreview.supported ? 'supported' : 'unsupported'}`}>
+              <div><b>{patchPreview.intent.replaceAll('_', ' ')}</b><span>{patchPreview.supported ? t.patchSupported : t.patchUnsupported}</span></div>
+              <p>{patchPreview.message}</p>
+              <p>{t.patchTaskId}: <code>{patchPreview.task_id}</code></p>
+              {patchPreview.warnings.length > 0 && <ul>{patchPreview.warnings.map(item => <li key={item}>{item}</li>)}</ul>}
+              {patchPreview.operations.length > 0 && <details open><summary>{t.patchOperations}</summary><pre>{JSON.stringify(patchPreview.operations, null, 2)}</pre></details>}
+            </div>}
+          </section>
           {selected ? <><label>{t.configLabel}</label><textarea className="json-editor" value={configText} onChange={event => setConfigText(event.target.value)} /><button className="wide" onClick={saveConfig}>{t.saveConfig}</button><button className="danger-link" onClick={deleteSelectedNode}>{t.deleteNode}</button></> : <p className="muted">{selectedEdge ? t.edgeSelectedHint : t.nodeHelp}</p>}
         </div>}
         {tab === 'test' && <div className="panel-body">
@@ -959,9 +1050,24 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
           </div>
           <div className="monitor-toolbar">
             {(['related', 'failed', 'all'] as const).map(filter => <button className={monitorFilter === filter ? 'active' : ''} onClick={() => setMonitorFilter(filter)} key={filter}>{filter === 'related' ? t.monitorFilterRelated : filter === 'failed' ? t.monitorFilterFailed : t.monitorFilterAll}</button>)}
-            <button className="refresh" onClick={() => refreshMonitorTasks().catch(error => setNotice(String(error)))} disabled={monitorLoading}>{monitorLoading ? t.monitorRefreshing : t.monitorRefresh}</button>
+            <button className="refresh" onClick={() => { refreshMonitorTasks().catch(error => setNotice(String(error))); refreshBenchmarkHistory().catch(error => setNotice(String(error))) }} disabled={monitorLoading || benchmarkHistoryLoading}>{monitorLoading || benchmarkHistoryLoading ? t.monitorRefreshing : t.monitorRefresh}</button>
           </div>
           {monitorError && <p className="error-banner">{monitorError}</p>}
+          <section className="benchmark-history">
+            <div className="benchmark-history-head"><strong>{t.benchmarkHistoryTitle}</strong><small>{t.benchmarkHistoryHelp}</small></div>
+            {benchmarkHistoryError && <p className="error-banner">{benchmarkHistoryError}</p>}
+            <div className="benchmark-history-list">{benchmarkHistory.length ? benchmarkHistory.map(record => {
+              const score = record.metadata.score
+              const passRate = record.metadata.pass_rate
+              return <article className="benchmark-history-card" key={record.id}>
+                <div><strong>{record.resource_id}</strong><span className={record.status}>{record.status}</span></div>
+                <small>{record.owner_id} · {shortTime(record.updated_at)}</small>
+                <div className="monitor-counts">{score !== undefined && <span>{t.benchmarkScore} <b>{String(score)}</b></span>}{passRate !== undefined && <span>{t.benchmarkPassRate} <b>{String(passRate)}</b></span>}{Object.entries(record.usage_counts).map(([name, amount]) => <span key={name}>{name.replaceAll('_', ' ')} <b>{amount}</b></span>)}</div>
+                {record.error && <p className="monitor-error">{record.error}</p>}
+                <details><summary>{t.engineeringDetails}</summary><pre>{JSON.stringify(record.metadata, null, 2)}</pre></details>
+              </article>
+            }) : <p className="muted">{benchmarkHistoryLoading ? t.monitorRefreshing : t.benchmarkHistoryEmpty}</p>}</div>
+          </section>
           <div className="monitor-list">{visibleMonitorTasks.length ? visibleMonitorTasks.map(task => {
             const related = taskIsRelated(task, id, build, run)
             const usageEntries = Object.entries(task.usage_counts)

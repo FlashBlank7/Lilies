@@ -93,6 +93,34 @@ export type PlatformTaskRecord = {
   finished_at?: string | null
 }
 
+export type DraftPatchOperation = {
+  expected_revision?: number
+  op: string
+  data: Record<string, unknown>
+}
+
+export type DraftPatchPreview = {
+  task_id: string
+  supported: boolean
+  intent: 'rename_node' | 'update_node_description' | 'remove_disconnected_node' | 'unsupported'
+  message: string
+  operations: DraftPatchOperation[]
+  warnings: string[]
+}
+
+export type BuilderBenchmarkHistoryRecord = {
+  id: string
+  status: string
+  owner_id: string
+  resource_id: string
+  created_at: string
+  updated_at: string
+  finished_at?: string | null
+  metadata: Record<string, unknown>
+  usage_counts: Record<string, number>
+  error: string
+}
+
 const root = '/api/platform'
 const tokenKey = 'foundry.apiToken'
 
