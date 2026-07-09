@@ -1,6 +1,6 @@
 # E05 Template Reuse Depth Ledger
 
-状态：多轮 paid/live 完成并触发工程修复；adaptive reuse-depth policy 已完成双 family live validation 并已产品化；policy-default live reliability 已完成一轮工程修复与 bounded live closure
+状态：多轮 paid/live 完成并触发工程修复；adaptive reuse-depth policy 已完成双 family live validation 并已产品化；policy-default live reliability 已完成一轮工程修复与 bounded live closure；首轮 monitoring snapshot 已建立
 
 ## 当前结论
 
@@ -23,6 +23,7 @@ Template reuse 已证明会改变 Builder 行为，也证明 marketplace expanda
 | adaptive live validation (`code_review`) | 验证应用 / 默认化门槛通过 | `../reports/2026-07-10_0530_E05_code_review_adaptive_live_validation.docx` | `../evidence/experiment_v0.2.51_e05_code_review_adaptive_live_2026_07_10_summary.md` |
 | adaptive default live acceptance (`data_analyzer`) | 验证应用 / 暴露可靠性缺口 | `../reports/2026-07-10_0720_E05_policy_default_live_acceptance.docx` | `../evidence/experiment_v0.2.53_e05_data_analyzer_policy_default_live_2026_07_10_summary.md` |
 | policy-default reliability closure (`data_analyzer`) | 验证应用 / 默认路径闭环 | `../reports/2026-07-10_0749_E05_policy_default_reliability_closure.docx` | `../evidence/experiment_v0.2.54_e05_data_analyzer_policy_default_reliability_2026_07_10_summary.md` |
+| adaptive policy monitoring snapshot | 验证应用 / 监测基线 | `../reports/2026-07-10_0805_E05_adaptive_policy_monitoring_snapshot.docx` | `../evidence/monitor_v0.2.56_e05_adaptive_policy_2026_07_10_summary.md` |
 
 ## 已应用工程
 
@@ -36,6 +37,7 @@ Template reuse 已证明会改变 Builder 行为，也证明 marketplace expanda
 - v0.2.51：`code_review` second-family live validation 显示 adaptive 在 shallow-resolving family 中正确解析为 `shallow`，并以 `published`、`313.696s`、`38 / 46` model/tool calls 优于显式 `shallow` (`ready`, `388.427s`) 与显式 `deep` (`needs_attention`, `382.777s`, `44 / 70`)；由此形成 Builder 默认建议门槛。
 - v0.2.52：API 与 Builder 在 omitted-depth 路径上正式默认到 `adaptive`；结果显式返回 `reuse_depth_source`、`defaulted_by_policy`、`default_policy_version` 与 `available_overrides`，把产品化默认与显式 override 清楚地区分开。
 - v0.2.54：policy-default suggestion payload 新增 `execution_contract`，Builder 工具结果顶层也返回同一契约；Builder 和 E05 runner 明确要求将 `effective_reuse_depth` 立即写入 BuildPlan 后再继续 recommended action。bounded live run 证明默认路径可 `published`，且记录 `build_plan_reuse_depth=deep`、`template_expand=1`、`test_run=4`、`draft_publish=1`。
+- v0.2.56：新增 deterministic monitoring snapshot，把现有 adaptive explicit 与 policy-default evidence 汇总成 family/status/timeout/override 可读矩阵；当前 `critical_alerts=0`，fixed-depth override options 仍可见。
 
 ## 关键结果
 

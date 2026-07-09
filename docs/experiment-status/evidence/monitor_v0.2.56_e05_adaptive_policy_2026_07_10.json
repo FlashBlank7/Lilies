@@ -1,0 +1,62 @@
+{
+  "monitor": "E05 adaptive policy monitoring snapshot",
+  "version": "v0.2.56",
+  "status": "completed",
+  "generated_at": "2026-07-09T22:58:26.071780+00:00",
+  "cases": [
+    {
+      "family": "data_analyzer",
+      "mode": "adaptive_explicit",
+      "source": "docs/experiment-status/evidence/experiment_v0.2.49_e05_data_analyzer_adaptive_live_2026_07_10.json",
+      "arm": "adaptive",
+      "build_status": "published",
+      "elapsed_seconds": 159.669,
+      "reuse_depth_source": "explicit",
+      "requested_depth": "adaptive",
+      "effective_depth": "deep",
+      "recommended_action": "compose_modules",
+      "benchmark_passed": true,
+      "timeout_like": false,
+      "available_overrides": []
+    },
+    {
+      "family": "code_review",
+      "mode": "adaptive_explicit",
+      "source": "docs/experiment-status/evidence/experiment_v0.2.51_e05_code_review_adaptive_live_2026_07_10.json",
+      "arm": "adaptive",
+      "build_status": "published",
+      "elapsed_seconds": 313.696,
+      "reuse_depth_source": "explicit",
+      "requested_depth": "adaptive",
+      "effective_depth": "shallow",
+      "recommended_action": "expand_template",
+      "benchmark_passed": true,
+      "timeout_like": false,
+      "available_overrides": []
+    },
+    {
+      "family": "data_analyzer",
+      "mode": "policy_default",
+      "source": "docs/experiment-status/evidence/experiment_v0.2.54_e05_data_analyzer_policy_default_reliability_2026_07_10.json",
+      "arm": "policy_default",
+      "build_status": "published",
+      "elapsed_seconds": 322.364,
+      "reuse_depth_source": "policy_default",
+      "requested_depth": "adaptive",
+      "effective_depth": "deep",
+      "recommended_action": "compose_modules",
+      "benchmark_passed": true,
+      "timeout_like": false,
+      "available_overrides": [
+        "adaptive",
+        "deep",
+        "none",
+        "shallow"
+      ]
+    }
+  ],
+  "alerts": [],
+  "critical_alerts": [],
+  "override_options_visible": true,
+  "conclusion": "Current monitored evidence has no critical adaptive/default-path alert; fixed-depth overrides remain visible and should stay as rollback controls."
+}
