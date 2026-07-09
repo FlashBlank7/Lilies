@@ -1,0 +1,176 @@
+{
+  "status": "repair_budget_helped_readiness_but_not_benchmark_closure",
+  "created_at": "2026-07-09T10:10:07.581056+00:00",
+  "experiment": "E01 required-mode repair budget rerun",
+  "case": "complex_research_brief",
+  "runs": {
+    "v0.2.33_required": {
+      "path": "docs/experiment-status/evidence/experiment_v0.2.33_e01_complex_required_2026_07_09.json",
+      "status": "build_failed_benchmark_evaluated",
+      "build_status": "needs_attention",
+      "build_error": "builder stopped before mandatory tests passed",
+      "max_turns": 36,
+      "max_repair_cycles": null,
+      "duration_seconds": 756.9,
+      "score": 0.85,
+      "passed": true,
+      "pass_rate": 1.0,
+      "missing": {
+        "node_types": [],
+        "tool_nodes": [],
+        "harness_nodes": []
+      },
+      "metrics": {
+        "node_type_coverage": 1.0,
+        "tool_node_coverage": 1.0,
+        "harness_coverage": 1.0,
+        "edge_similarity": 0.0,
+        "test_frame_coverage": 1.0,
+        "candidate_node_count": 9,
+        "reference_node_count": 8,
+        "node_type_equivalences": {
+          "end": [
+            "answer"
+          ],
+          "model_turn": [
+            "llm"
+          ]
+        }
+      },
+      "draft_counts": {
+        "nodes": 9,
+        "edges": 8,
+        "tests": 3,
+        "node_types": [
+          "context_assembler",
+          "end",
+          "event_recorder",
+          "llm",
+          "parameter_extractor",
+          "question_classifier",
+          "start",
+          "template_transform",
+          "variable_aggregator"
+        ]
+      },
+      "model_calls": 41,
+      "tool_calls": 98,
+      "build_plan_calls": 2
+    },
+    "v0.2.34_first": {
+      "path": "docs/experiment-status/evidence/experiment_v0.2.34_e01_complex_required_repair_budget_2026_07_09.json",
+      "status": "build_failed_benchmark_evaluated",
+      "build_status": "needs_attention",
+      "build_error": "DeepSeek network error: ",
+      "max_turns": 60,
+      "max_repair_cycles": 3,
+      "duration_seconds": 138.6,
+      "score": 0.3,
+      "passed": false,
+      "pass_rate": 0.0,
+      "missing": {
+        "node_types": [
+          "context_assembler",
+          "end",
+          "event_recorder",
+          "model_turn",
+          "parameter_extractor",
+          "question_classifier",
+          "start",
+          "template_transform"
+        ],
+        "tool_nodes": [],
+        "harness_nodes": [
+          "event_recorder"
+        ]
+      },
+      "metrics": {
+        "node_type_coverage": 0.0,
+        "tool_node_coverage": 1.0,
+        "harness_coverage": 0.0,
+        "edge_similarity": 0.0,
+        "test_frame_coverage": 1.0,
+        "candidate_node_count": 0,
+        "reference_node_count": 8,
+        "node_type_equivalences": {
+          "end": [
+            "answer"
+          ],
+          "model_turn": [
+            "llm"
+          ]
+        }
+      },
+      "draft_counts": {
+        "nodes": 0,
+        "edges": 0,
+        "tests": 0,
+        "node_types": []
+      },
+      "model_calls": 11,
+      "tool_calls": 39,
+      "build_plan_calls": 1
+    },
+    "v0.2.34_retry": {
+      "path": "docs/experiment-status/evidence/experiment_v0.2.34_e01_complex_required_repair_budget_retry_2026_07_09.json",
+      "status": "benchmark_failed",
+      "build_status": "ready",
+      "build_error": null,
+      "max_turns": 60,
+      "max_repair_cycles": 3,
+      "duration_seconds": 370.5,
+      "score": 0.806,
+      "passed": false,
+      "pass_rate": 0.0,
+      "missing": {
+        "node_types": [
+          "context_assembler"
+        ],
+        "tool_nodes": [],
+        "harness_nodes": []
+      },
+      "metrics": {
+        "node_type_coverage": 0.875,
+        "tool_node_coverage": 1.0,
+        "harness_coverage": 1.0,
+        "edge_similarity": 0.0,
+        "test_frame_coverage": 1.0,
+        "candidate_node_count": 8,
+        "reference_node_count": 8,
+        "node_type_equivalences": {
+          "end": [
+            "answer"
+          ],
+          "model_turn": [
+            "llm"
+          ]
+        }
+      },
+      "draft_counts": {
+        "nodes": 8,
+        "edges": 7,
+        "tests": 3,
+        "node_types": [
+          "end",
+          "event_recorder",
+          "llm",
+          "parameter_extractor",
+          "question_classifier",
+          "start",
+          "template_transform"
+        ]
+      },
+      "model_calls": 34,
+      "tool_calls": 83,
+      "build_plan_calls": 17
+    }
+  },
+  "verdict": {
+    "readiness": "max_repair_cycles=3 retry reached build_status=ready, unlike v0.2.33 required.",
+    "benchmark": "retry still failed benchmark because context_assembler was missing.",
+    "network": "first v0.2.34 rerun failed early with DeepSeek network error and is not used as quality evidence.",
+    "closure": "E01 remains open; next step is preserving both readiness and required visible architecture."
+  },
+  "applied_marker": "验证应用: experiment method now records max_repair_cycles; no Builder product capability change applied.",
+  "next_action": "Require or repair context_assembler presence in complex research brief while keeping mandatory tests passing."
+}

@@ -2329,6 +2329,14 @@ def test_live_builder_benchmark_case_registry_supports_complex_case() -> None:
     assert "复杂多模块研究简报 BlockFlow" in complex_case.requirement
 
 
+def test_live_builder_benchmark_reads_max_repair_cycles_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("LIVE_BUILDER_BENCHMARK_MAX_REPAIR_CYCLES", "3")
+
+    module = load_live_builder_benchmark_module()
+
+    assert module.MAX_REPAIR_CYCLES == 3
+
+
 def test_natural_language_draft_patch_preview_is_non_destructive(tmp_path: Path) -> None:
     settings = Settings(
         api_token="workflow-test",

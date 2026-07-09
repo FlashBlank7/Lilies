@@ -33,6 +33,7 @@ REUSE_SOURCE_PATH = (
 )
 BASE_URL = os.getenv("AGENT_PLATFORM_URL", "http://127.0.0.1:8001")
 MAX_TURNS = int(os.getenv("LIVE_BUILDER_BENCHMARK_MAX_TURNS", "36"))
+MAX_REPAIR_CYCLES = int(os.getenv("LIVE_BUILDER_BENCHMARK_MAX_REPAIR_CYCLES", "1"))
 TIMEOUT_SECONDS = float(os.getenv("LIVE_BUILDER_BENCHMARK_TIMEOUT_SECONDS", "900"))
 RUNNER_MODE = os.getenv("LIVE_BUILDER_BENCHMARK_MODE", "inprocess")
 REUSE_RESULT = os.getenv("LIVE_BUILDER_BENCHMARK_REUSE_RESULT", "0") == "1"
@@ -362,6 +363,7 @@ def main() -> None:
         "reuse_result": REUSE_RESULT,
         "reuse_source_path": str(REUSE_SOURCE_PATH) if REUSE_RESULT else "",
         "max_turns": MAX_TURNS,
+        "max_repair_cycles": MAX_REPAIR_CYCLES,
         "requirement": requirement,
         "application_id": None,
         "build_id": None,
@@ -439,7 +441,7 @@ def main() -> None:
                         "requirement": requirement,
                         "auto_publish": False,
                         "max_turns": MAX_TURNS,
-                        "max_repair_cycles": 1,
+                        "max_repair_cycles": MAX_REPAIR_CYCLES,
                         "planning_mode": PLANNING_MODE,
                     },
                 )

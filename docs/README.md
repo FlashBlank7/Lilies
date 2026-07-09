@@ -55,6 +55,7 @@
 - `stage-reports/v0.2.31_builder_repair_confirmation.md`
 - `stage-reports/v0.2.32_e01_plan_first_ab.md`
 - `stage-reports/v0.2.33_e01_complex_ab.md`
+- `stage-reports/v0.2.34_e01_required_readiness_repair.md`
 
 ## 使用原则
 

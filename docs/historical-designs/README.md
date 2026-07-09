@@ -43,6 +43,7 @@
 - `v0.2.31_*`：来自 `docs/stage-reports/v0.2.31_builder_repair_confirmation.md`。
 - `v0.2.32_*`：来自 `docs/stage-reports/v0.2.32_e01_plan_first_ab.md`。
 - `v0.2.33_*`：来自 `docs/stage-reports/v0.2.33_e01_complex_ab.md`。
+- `v0.2.34_*`：来自 `docs/stage-reports/v0.2.34_e01_required_readiness_repair.md`。
 
 Active workspace rule:
 
