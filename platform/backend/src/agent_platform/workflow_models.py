@@ -358,3 +358,4 @@ class BuildTeamState(BaseModel):
     revision: int = 0
     published_version: int | None = None
     repair_cycles: int = 0
+    last_failed_test_revision: int | None = None

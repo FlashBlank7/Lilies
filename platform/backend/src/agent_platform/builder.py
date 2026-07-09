@@ -679,11 +679,18 @@ class WorkflowBuilder:
         if tool == "draft_validate":
             return await self.applications.validate_draft(application_id)
         if tool == "test_run":
-            if state.repair_cycles >= max_repair_cycles:
+            if state.repair_cycles > max_repair_cycles or (
+                state.repair_cycles == max_repair_cycles
+                and state.last_failed_test_revision == state.revision
+            ):
                 raise RuntimeError(f"maximum repair cycles reached ({max_repair_cycles})")
             report = await self.runtime.run_test_suite(application_id)
             if not report["passed"]:
-                state.repair_cycles += 1
+                if state.last_failed_test_revision != state.revision:
+                    state.repair_cycles += 1
+                    state.last_failed_test_revision = state.revision
+            else:
+                state.last_failed_test_revision = None
             return report
         if tool == "draft_publish":
             if not auto_publish and not data.get("explicit", False):

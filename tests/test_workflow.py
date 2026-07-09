@@ -304,6 +304,87 @@ class InvalidRequiredNodeTestBuilderProvider(ModelProvider):
         yield StreamEvent(type="message_delta", data={"delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 1}})
 
 
+class RepairConfirmationBuilderProvider(ModelProvider):
+    name = "deepseek"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def capabilities(self, model: str) -> ProviderCapabilities:
+        return ProviderCapabilities(True, True, True, False, False, 100_000, 10_000)
+
+    async def stream(
+        self,
+        *,
+        model: str,
+        system: str,
+        messages: list[ChatMessage],
+        tools: list[ToolDefinition],
+        max_output_tokens: int,
+        thinking_enabled: bool,
+        effort: str,
+        tool_choice: dict[str, str] | None = None,
+        user_id: str | None = None,
+    ) -> AsyncIterator[StreamEvent]:
+        operations = [
+            ("draft_add_node", {"node": {
+                "id": "start", "type": "start", "title": "Input",
+                "config": {"inputs": [{"name": "text", "type": "string"}]},
+            }}),
+            ("draft_add_node", {"node": {
+                "id": "answer", "type": "answer", "title": "Answer",
+                "config": {"answer": {"$ref": {"node_id": "start", "path": ["text"]}}},
+            }}),
+            ("draft_connect", {"edge": {
+                "id": "start-answer", "source": "start", "target": "answer",
+                "source_port": "output", "target_port": "input",
+            }}),
+            ("test_add", {"test": {
+                "id": "summary_missing",
+                "name": "Wrong summary path",
+                "requirement": "This first test intentionally points at the wrong output path.",
+                "inputs": {"text": "hello"},
+                "assertions": [{"path": ["summary"], "operator": "exists"}],
+                "required_node_types": ["start", "answer"],
+                "mandatory": True,
+            }}),
+            ("draft_validate", {}),
+            ("test_run", {}),
+            ("test_remove", {"test_id": "summary_missing"}),
+            ("test_add", {"test": {
+                "id": "answer_exists",
+                "name": "Answer output exists",
+                "requirement": "The repaired test points at the actual answer output.",
+                "inputs": {"text": "hello"},
+                "assertions": [{"path": ["answer"], "operator": "type", "expected": "string"}],
+                "required_node_types": ["start", "answer"],
+                "mandatory": True,
+            }}),
+            ("test_run", {}),
+        ]
+        self.calls += 1
+        yield StreamEvent(type="message_start", data={"message": {"usage": {"input_tokens": 1}}})
+        if self.calls <= len(operations):
+            name, value = operations[self.calls - 1]
+            yield StreamEvent(type="content_block_start", data={
+                "index": 0,
+                "content_block": {"type": "tool_use", "id": f"repair-confirm-{self.calls}", "name": name, "input": {}},
+            })
+            yield StreamEvent(type="content_block_delta", data={
+                "index": 0, "delta": {"type": "input_json_delta", "partial_json": json.dumps(value)},
+            })
+            yield StreamEvent(type="content_block_stop", data={"index": 0})
+            yield StreamEvent(type="message_delta", data={"delta": {"stop_reason": "tool_use"}, "usage": {"output_tokens": 1}})
+            return
+        yield StreamEvent(type="content_block_start", data={
+            "index": 0, "content_block": {"type": "text", "text": "done"}
+        })
+        yield StreamEvent(type="content_block_delta", data={
+            "index": 0, "delta": {"type": "text_delta", "text": "done"}
+        })
+        yield StreamEvent(type="message_delta", data={"delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 1}})
+
+
 class TemplateExpandBuilderProvider(ModelProvider):
     name = "deepseek"
 
@@ -3354,6 +3435,50 @@ def test_builder_rejects_tests_requiring_unavailable_node_types(tmp_path: Path) 
         test_ids = [test["id"] for test in draft["snapshot"]["tests"]]
         assert "bad_required_node" not in test_ids
         assert "auto_smoke_acceptance" in test_ids
+
+
+def test_builder_allows_confirmation_test_after_repair_revision(tmp_path: Path) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+    )
+    app = create_app(settings, RepairConfirmationBuilderProvider())
+    with TestClient(app) as client:
+        app_id = client.post(
+            "/api/v1/applications",
+            headers=headers(),
+            json={"name": "Repair confirmation", "requirement": "Repair a failing test then confirm."},
+        ).json()["id"]
+        build_id = client.post(
+            f"/api/v1/applications/{app_id}/builds",
+            headers=headers(),
+            json={
+                "requirement": "Repair a failing test then confirm.",
+                "auto_publish": False,
+                "max_turns": 12,
+                "max_repair_cycles": 1,
+            },
+        ).json()["build_id"]
+        for _ in range(300):
+            build = client.get(f"/api/v1/builds/{build_id}", headers=headers()).json()
+            if build["status"] in {"ready", "needs_attention"}:
+                break
+            time.sleep(0.01)
+
+        assert build["status"] == "ready", build
+        assert build["team_state"]["repair_cycles"] == 1
+        assert build["team_state"]["last_failed_test_revision"] is None
+
+        operation_events = client.get(f"/v1/streams/{build_id}", headers=headers()).json()
+        test_runs = [
+            event for event in operation_events
+            if event["type"] == "build.operation"
+            and event["data"].get("tool") == "test_run"
+        ]
+        assert len(test_runs) >= 2
+        assert '"passed": false' in test_runs[0]["data"]["result"]
+        assert '"passed": true' in test_runs[-1]["data"]["result"]
 
 
 def test_claude_like_coding_agent_template_is_valid_and_covers_architecture() -> None:

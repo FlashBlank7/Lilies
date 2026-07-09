@@ -1,0 +1,49 @@
+{
+  "stage": "v0.2.31_builder_repair_confirmation",
+  "raw_evidence": "docs/experiment-status/evidence/experiment_v0.2.31_paid_builder_repair_confirmation_2026_07_09.json",
+  "application": "E01 paid/live Builder baseline applied as repair-cycle confirmation boundary fix",
+  "code_changes": [
+    "platform/backend/src/agent_platform/workflow_models.py",
+    "platform/backend/src/agent_platform/builder.py",
+    "tests/test_workflow.py"
+  ],
+  "deterministic_verification": {
+    "focused": "3 passed, 1 warning",
+    "full_backend": "87 passed, 1 warning",
+    "compileall": "passed"
+  },
+  "paid_live_rerun": {
+    "status": "passed",
+    "build_status": "ready",
+    "build_id": "70d4356c-4006-43e6-bf1c-71bbb60dbf66",
+    "draft_counts": {
+      "nodes": 3,
+      "edges": 2,
+      "tests": 1,
+      "node_types": [
+        "end",
+        "llm",
+        "start"
+      ]
+    },
+    "benchmark_passed": true,
+    "score": 0.85,
+    "pass_rate": 1.0,
+    "missing": {
+      "node_types": [],
+      "tool_nodes": [],
+      "harness_nodes": []
+    },
+    "equivalences": {
+      "end": [
+        "answer"
+      ],
+      "model_turn": [
+        "llm"
+      ]
+    },
+    "model_calls": 20,
+    "tool_calls": 44
+  },
+  "boundary": "This validates the repair-confirmation boundary and same smoke requirement, but it still does not close E01 plan-first vs node-by-node A/B."
+}
