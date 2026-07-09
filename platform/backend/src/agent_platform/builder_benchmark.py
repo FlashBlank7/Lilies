@@ -8,6 +8,7 @@ from .workflow_models import WorkflowSpec, WorkflowTestCase
 
 
 DEFAULT_NODE_TYPE_EQUIVALENCE: dict[str, list[str]] = {
+    "end": ["answer"],
     "model_turn": ["llm"],
 }
 

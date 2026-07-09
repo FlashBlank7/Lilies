@@ -2156,6 +2156,61 @@ def test_builder_benchmark_treats_llm_as_model_turn_equivalent(tmp_path: Path) -
         assert report["metrics"]["node_type_equivalences"]["model_turn"] == ["llm"]
 
 
+def test_builder_benchmark_treats_answer_as_terminal_end_equivalent(tmp_path: Path) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+    )
+    app = create_app(settings, ScriptedProvider())
+    reference = {
+        "nodes": [
+            {"id": "start", "type": "start", "title": "Start", "config": {"inputs": []}},
+            {"id": "model", "type": "model_turn", "title": "Model", "config": {
+                "input": {"$ref": {"node_id": "start", "path": ["output"]}},
+                "settings": {"prompt": "Summarize."},
+            }},
+            {"id": "terminal", "type": "end", "title": "End", "config": {
+                "outputs": {"summary": {"$ref": {"node_id": "model", "path": ["output"]}}},
+            }},
+        ],
+        "edges": [
+            {"id": "a", "source": "start", "target": "model", "source_port": "output", "target_port": "input"},
+            {"id": "b", "source": "model", "target": "terminal", "source_port": "output", "target_port": "input"},
+        ],
+    }
+    candidate = {
+        **reference,
+        "nodes": [
+            {"id": "start", "type": "start", "title": "Start", "config": {"inputs": []}},
+            {"id": "model", "type": "model_turn", "title": "Model", "config": {
+                "input": {"$ref": {"node_id": "start", "path": ["output"]}},
+                "settings": {"prompt": "Summarize."},
+            }},
+            {"id": "terminal", "type": "answer", "title": "Answer", "config": {
+                "answer": {"$ref": {"node_id": "model", "path": ["output"]}},
+            }},
+        ],
+    }
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/builder-benchmark/evaluate",
+            headers=headers(),
+            json={
+                "name": "answer terminal equivalent",
+                "reference": reference,
+                "candidate": candidate,
+                "required_node_types": ["start", "model_turn", "end"],
+            },
+        )
+        assert response.status_code == 200, response.text
+        report = response.json()["report"]
+        assert report["passed"] is True
+        assert report["missing"]["node_types"] == []
+        assert report["metrics"]["node_type_coverage"] == 1.0
+        assert report["metrics"]["node_type_equivalences"]["end"] == ["answer"]
+
+
 def test_natural_language_draft_patch_preview_is_non_destructive(tmp_path: Path) -> None:
     settings = Settings(
         api_token="workflow-test",

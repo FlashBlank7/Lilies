@@ -51,6 +51,7 @@
 - `stage-reports/v0.2.27_worker_runner_cli_and_handler.md`
 - `stage-reports/v0.2.28_worker_heartbeat_and_renewal.md`
 - `stage-reports/v0.2.29_formal_experiment_tranche.md`
+- `stage-reports/v0.2.30_builder_terminal_node_repair.md`
 
 ## 使用原则
 
