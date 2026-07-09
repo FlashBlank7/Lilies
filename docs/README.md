@@ -50,6 +50,7 @@
 - `stage-reports/v0.2.26_platform_harness_worker_runner.md`
 - `stage-reports/v0.2.27_worker_runner_cli_and_handler.md`
 - `stage-reports/v0.2.28_worker_heartbeat_and_renewal.md`
+- `stage-reports/v0.2.29_formal_experiment_tranche.md`
 
 ## 使用原则
 

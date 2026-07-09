@@ -1,0 +1,61 @@
+{
+  "stage": "v0.2.29_formal_experiment_tranche",
+  "raw_evidence": "docs/experiment-status/evidence/experiment_v0.2.29_paid_builder_tranche_2026_07_09.json",
+  "paid_builder": {
+    "status": "build_failed_benchmark_evaluated",
+    "build_status": "needs_attention",
+    "build_error": "builder stopped before mandatory tests passed",
+    "started_at": "2026-07-09T09:04:35.962583+00:00",
+    "finished_at": "2026-07-09T09:07:18.708569+00:00",
+    "runner_mode": "inprocess",
+    "requirement": "搭建并验证一个可编辑的文章摘要 BlockFlow：\n1. Start 接收 text 字符串输入。\n2. 使用模型节点把 text 总结为三条简洁要点。\n3. End 返回 summary。\n4. 添加带 frame 的强制结构测试，至少断言 summary 存在并且类型为 string。\n5. auto_publish=false 时完成测试后停在 ready 状态。",
+    "draft_counts": {
+      "nodes": 3,
+      "edges": 2,
+      "tests": 1,
+      "node_types": [
+        "answer",
+        "model_turn",
+        "start"
+      ]
+    },
+    "provider": "deepseek",
+    "model": "deepseek-v4-pro from Platform Harness usage metadata",
+    "model_calls": 24,
+    "tool_calls": 47,
+    "budget_boundary": "LIVE_BUILDER_BENCHMARK_MAX_TURNS=24; LIVE_BUILDER_BENCHMARK_TIMEOUT_SECONDS=900"
+  },
+  "benchmark": {
+    "passed": false,
+    "score": 0.733,
+    "pass_rate": 0.0,
+    "minimum_score": 0.8,
+    "minimum_pass_rate": 1.0,
+    "missing_node_types": [
+      "end"
+    ],
+    "missing_tool_nodes": [],
+    "harness_coverage": 1.0,
+    "tool_node_coverage": 1.0,
+    "edge_similarity": 0.0,
+    "node_type_coverage": 0.667
+  },
+  "deterministic_verification": {
+    "command": ".venv/bin/python -m pytest tests/test_workflow.py::test_run_suite_returns_readable_test_frame_report tests/test_workflow.py::test_template_suggestions_include_reuse_depth_actions tests/test_workflow.py::test_platform_harness_tracks_test_suite_and_workflow_usage tests/test_workflow.py::test_platform_harness_worker_runner_renews_lease_for_long_handler -q",
+    "result": "4 passed, 1 warning"
+  },
+  "experiment_classification": {
+    "E01": "formal paid/live first-pass evidence completed; original plan-first vs node-by-node A/B is still open",
+    "E02": "readable TestFrame artifact review completed with deterministic test evidence; human review-cost comparison is still open",
+    "E04": "local repair evidence review completed from prior paid failure/fix chain; full rebuild control is still open",
+    "E05": "reuse_depth implementation evidence review completed with deterministic test evidence; none/shallow/deep live quality comparison is still open",
+    "E08": "sidecar/task-monitor engineering evidence review completed with deterministic test evidence; workflow-internal gate vs sidecar monitor comparison is still open"
+  },
+  "reports": [
+    "docs/experiment-status/reports/2026-07-09_1809_E01_plan_first_paid_builder_baseline.docx",
+    "docs/experiment-status/reports/2026-07-09_1809_E02_readable_testframe_artifact_review.docx",
+    "docs/experiment-status/reports/2026-07-09_1809_E04_local_repair_vs_rebuild_evidence_review.docx",
+    "docs/experiment-status/reports/2026-07-09_1809_E05_template_reuse_depth_artifact_review.docx",
+    "docs/experiment-status/reports/2026-07-09_1809_E08_harness_sidecar_passmode_evidence_review.docx"
+  ]
+}
