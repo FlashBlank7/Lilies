@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from collections.abc import Awaitable, Callable
 from typing import Any
 from uuid import uuid4
@@ -95,6 +96,16 @@ Core rules:
 """
 
 
+class BuildDeadlineExceeded(RuntimeError):
+    def __init__(self, max_elapsed_seconds: float, elapsed_seconds: float) -> None:
+        super().__init__(
+            f"builder build timed out after {max_elapsed_seconds:g}s "
+            f"(elapsed {elapsed_seconds:.3f}s)"
+        )
+        self.max_elapsed_seconds = max_elapsed_seconds
+        self.elapsed_seconds = elapsed_seconds
+
+
 class WorkflowBuilder:
     def __init__(
         self,
@@ -143,21 +154,30 @@ class WorkflowBuilder:
     async def _run(self, build_id: str) -> None:
         build = await self.workflow_store.get_build(build_id)
         state: BuildTeamState = build["team_state"]
+        build_started_at = time.monotonic()
+        max_elapsed_seconds = self._coerce_max_elapsed_seconds(build.get("max_elapsed_seconds"))
+        task_metadata: dict[str, Any] = {
+            "max_turns": build["max_turns"],
+            "max_repair_cycles": build["max_repair_cycles"],
+            "auto_publish": build["auto_publish"],
+        }
+        if max_elapsed_seconds is not None:
+            task_metadata["max_elapsed_seconds"] = max_elapsed_seconds
         await self.harness.start_task(
             build_id,
             kind="builder_build",
             owner_id=build["application_id"],
             resource_id=build_id,
-            metadata={
-                "max_turns": build["max_turns"],
-                "max_repair_cycles": build["max_repair_cycles"],
-                "auto_publish": build["auto_publish"],
-            },
+            metadata=task_metadata,
         )
         await self.workflow_store.update_build(build_id, status="building", team_state=state)
         await self._emit(build_id, "build.started", {
             "application_id": build["application_id"], "requirement": build["requirement"]
         })
+        if max_elapsed_seconds is not None:
+            await self._emit(build_id, "build.deadline.configured", {
+                "max_elapsed_seconds": max_elapsed_seconds,
+            })
         if state.coordinator_messages:
             messages = [ChatMessage.model_validate(item) for item in state.coordinator_messages]
             messages.append(ChatMessage(role="user", content=[ContentBlock(
@@ -175,17 +195,44 @@ class WorkflowBuilder:
         # Create a DecisionTracker to record the Builder's choices
         tracker = DecisionTracker(f"Build-{build_id[:8]}")
         try:
-            await self._agent_loop(
-                build_id,
-                build["application_id"],
-                state,
-                messages,
-                max_turns=int(build["max_turns"]),
-                max_repair_cycles=int(build["max_repair_cycles"]),
-                auto_publish=bool(build["auto_publish"]),
-                teammate=None,
-                tracker=tracker,
-            )
+            try:
+                if max_elapsed_seconds is not None:
+                    async with asyncio.timeout(max_elapsed_seconds):
+                        await self._agent_loop(
+                            build_id,
+                            build["application_id"],
+                            state,
+                            messages,
+                            max_turns=int(build["max_turns"]),
+                            max_repair_cycles=int(build["max_repair_cycles"]),
+                            auto_publish=bool(build["auto_publish"]),
+                            teammate=None,
+                            tracker=tracker,
+                            build_started_at=build_started_at,
+                            max_elapsed_seconds=max_elapsed_seconds,
+                        )
+                else:
+                    await self._agent_loop(
+                        build_id,
+                        build["application_id"],
+                        state,
+                        messages,
+                        max_turns=int(build["max_turns"]),
+                        max_repair_cycles=int(build["max_repair_cycles"]),
+                        auto_publish=bool(build["auto_publish"]),
+                        teammate=None,
+                        tracker=tracker,
+                    )
+            except asyncio.TimeoutError as error:
+                elapsed_seconds = time.monotonic() - build_started_at
+                await self._emit(build_id, "build.deadline.exceeded", {
+                    "max_elapsed_seconds": max_elapsed_seconds,
+                    "elapsed_seconds": round(elapsed_seconds, 3),
+                })
+                raise BuildDeadlineExceeded(
+                    max_elapsed_seconds or 0,
+                    elapsed_seconds,
+                ) from error
             self._trackers[build_id] = tracker
             if state.published_version is not None:
                 status = "published"
@@ -360,6 +407,8 @@ class WorkflowBuilder:
         auto_publish: bool,
         teammate: str | None,
         tracker: DecisionTracker | None = None,
+        build_started_at: float | None = None,
+        max_elapsed_seconds: float | None = None,
     ) -> str:
         final = ""
         tools = self._definitions(
@@ -453,9 +502,16 @@ class WorkflowBuilder:
             await self.workflow_store.update_build(build_id, team_state=state)
             if state.published_version is not None:
                 break
-            await self._emit(build_id, "build.turn.completed", {
-                "actor": teammate or "coordinator", "turn": turn, "draft_revision": state.revision
-            })
+            turn_completed = {
+                "actor": teammate or "coordinator",
+                "turn": turn,
+                "draft_revision": state.revision,
+            }
+            if build_started_at is not None:
+                turn_completed["elapsed_seconds"] = round(time.monotonic() - build_started_at, 3)
+            if max_elapsed_seconds is not None:
+                turn_completed["max_elapsed_seconds"] = max_elapsed_seconds
+            await self._emit(build_id, "build.turn.completed", turn_completed)
         return final
 
     async def _execute(
@@ -909,10 +965,30 @@ class WorkflowBuilder:
         await self.storage.append_event(stream_id, kind, data)
 
     @staticmethod
+    def _coerce_max_elapsed_seconds(value: Any) -> float | None:
+        if value is None:
+            return None
+        try:
+            seconds = float(value)
+        except (TypeError, ValueError):
+            return None
+        return seconds if seconds > 0 else None
+
+    @staticmethod
     def _failure_metadata(error: Exception) -> dict[str, Any]:
         message = str(error)
         timeout_like = "timeout" in message.casefold() or "timed out" in message.casefold()
-        if isinstance(error, ProviderError):
+        if isinstance(error, BuildDeadlineExceeded):
+            failure = {
+                "type": "build_timeout",
+                "error_type": type(error).__name__,
+                "retryable": True,
+                "status_code": None,
+                "timeout_like": True,
+                "max_elapsed_seconds": error.max_elapsed_seconds,
+                "elapsed_seconds": round(error.elapsed_seconds, 3),
+            }
+        elif isinstance(error, ProviderError):
             failure = {
                 "type": "model_provider",
                 "error_type": type(error).__name__,

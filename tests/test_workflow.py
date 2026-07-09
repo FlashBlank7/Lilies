@@ -244,6 +244,29 @@ class TimeoutBuilderProvider(ModelProvider):
         yield StreamEvent(type="message_start", data={"message": {"usage": {"input_tokens": 1}}})
 
 
+class SlowBuilderProvider(ModelProvider):
+    name = "deepseek"
+
+    def capabilities(self, model: str) -> ProviderCapabilities:
+        return ProviderCapabilities(True, True, True, False, False, 100_000, 10_000)
+
+    async def stream(
+        self,
+        *,
+        model: str,
+        system: str,
+        messages: list[ChatMessage],
+        tools: list[ToolDefinition],
+        max_output_tokens: int,
+        thinking_enabled: bool,
+        effort: str,
+        tool_choice: dict[str, str] | None = None,
+        user_id: str | None = None,
+    ) -> AsyncIterator[StreamEvent]:
+        await asyncio.sleep(1)
+        yield StreamEvent(type="message_start", data={"message": {"usage": {"input_tokens": 1}}})
+
+
 class ManualSkippingBuilderProvider(ModelProvider):
     name = "deepseek"
 
@@ -3602,6 +3625,68 @@ def test_builder_records_provider_timeout_in_harness_metadata(tmp_path: Path) ->
         assert needs_attention
         assert needs_attention[0]["data"]["failure"]["type"] == "model_provider"
         assert needs_attention[0]["data"]["failure"]["timeout_like"] is True
+
+
+def test_builder_build_level_watchdog_records_harness_metadata(tmp_path: Path) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+        deepseek_timeout_seconds=60,
+    )
+    app = create_app(settings, SlowBuilderProvider())
+    with TestClient(app) as client:
+        app_id = client.post(
+            "/api/v1/applications",
+            headers=headers(),
+            json={"name": "Build deadline", "requirement": "Build a workflow slowly."},
+        ).json()["id"]
+        response = client.post(
+            f"/api/v1/applications/{app_id}/builds",
+            headers=headers(),
+            json={
+                "requirement": "Build a workflow slowly.",
+                "auto_publish": False,
+                "max_turns": 5,
+                "max_elapsed_seconds": 0.01,
+            },
+        )
+        assert response.status_code == 202, response.text
+        build_id = response.json()["build_id"]
+        for _ in range(100):
+            build = client.get(f"/api/v1/builds/{build_id}", headers=headers()).json()
+            if build["status"] == "needs_attention":
+                break
+            time.sleep(0.01)
+
+        assert build["status"] == "needs_attention", build
+        assert "builder build timed out after 0.01s" in build["error"]
+        assert build["max_elapsed_seconds"] == 0.01
+
+        task = client.get(f"/api/v1/platform/harness/tasks/{build_id}", headers=headers()).json()
+        assert task["status"] == "failed"
+        assert task["metadata"]["max_elapsed_seconds"] == 0.01
+        failure = task["metadata"]["failure"]
+        assert failure["type"] == "build_timeout"
+        assert failure["error_type"] == "BuildDeadlineExceeded"
+        assert failure["retryable"] is True
+        assert failure["timeout_like"] is True
+        assert failure["max_elapsed_seconds"] == 0.01
+        assert failure["elapsed_seconds"] >= 0.01
+
+        for _ in range(100):
+            events = client.get(f"/v1/streams/{build_id}", headers=headers()).json()
+            if any(event["type"] == "build.needs_attention" for event in events):
+                break
+            time.sleep(0.01)
+        assert any(event["type"] == "build.deadline.configured" for event in events)
+        exceeded = [event for event in events if event["type"] == "build.deadline.exceeded"]
+        assert exceeded
+        assert exceeded[0]["data"]["max_elapsed_seconds"] == 0.01
+        needs_attention = [
+            event for event in events if event["type"] == "build.needs_attention"
+        ]
+        assert needs_attention[0]["data"]["failure"]["type"] == "build_timeout"
 
 
 def test_builder_persists_plan_first_build_plan(tmp_path: Path) -> None:

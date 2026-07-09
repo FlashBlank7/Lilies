@@ -146,6 +146,12 @@ class WorkflowStorage:
                 CREATE INDEX IF NOT EXISTS idx_workflow_runs_app ON workflow_runs(application_id, created_at DESC);
                 """
             )
+            columns = {
+                row["name"]
+                for row in conn.execute("PRAGMA table_info(builds)").fetchall()
+            }
+            if "max_elapsed_seconds" not in columns:
+                conn.execute("ALTER TABLE builds ADD COLUMN max_elapsed_seconds REAL")
 
     async def create_application(self, request: ApplicationCreateRequest) -> dict[str, Any]:
         application_id = str(uuid4())
@@ -412,13 +418,29 @@ class WorkflowStorage:
         auto_publish: bool,
         max_turns: int,
         max_repair_cycles: int,
+        max_elapsed_seconds: float | None = None,
         planning_mode: str = "auto",
     ) -> None:
         now = utc_now()
         async with self._lock:
             await asyncio.to_thread(
                 self.storage._execute,
-                "INSERT INTO builds VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                """
+                INSERT INTO builds (
+                  id,
+                  application_id,
+                  requirement,
+                  status,
+                  auto_publish,
+                  max_turns,
+                  max_repair_cycles,
+                  team_state_json,
+                  error,
+                  created_at,
+                  updated_at,
+                  max_elapsed_seconds
+                ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
                 (
                     build_id,
                     application_id,
@@ -431,6 +453,7 @@ class WorkflowStorage:
                     None,
                     now,
                     now,
+                    max_elapsed_seconds,
                 ),
             )
 

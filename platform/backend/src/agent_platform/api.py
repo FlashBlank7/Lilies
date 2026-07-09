@@ -983,6 +983,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             body.auto_publish,
             body.max_turns,
             body.max_repair_cycles,
+            body.max_elapsed_seconds,
             body.planning_mode,
         )
         services.builder.start(build_id)

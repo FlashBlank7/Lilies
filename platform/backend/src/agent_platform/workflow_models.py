@@ -279,6 +279,7 @@ class BuildRequest(BaseModel):
     auto_publish: bool = True
     max_turns: int = Field(default=60, ge=5, le=200)
     max_repair_cycles: int = Field(default=8, ge=1, le=30)
+    max_elapsed_seconds: float | None = Field(default=None, ge=0.001, le=86_400)
     planning_mode: Literal["auto", "required", "disabled"] = "auto"
 
 
