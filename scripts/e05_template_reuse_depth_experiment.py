@@ -238,10 +238,35 @@ def summarize_events(events: list[dict[str, Any]]) -> dict[str, Any]:
     template_suggestions: list[dict[str, Any]] = []
     template_expands: list[dict[str, Any]] = []
     failed_operations: list[dict[str, Any]] = []
+    provider_failure_events: list[dict[str, Any]] = []
+    model_timeout_events: list[dict[str, Any]] = []
+    needs_attention_events: list[dict[str, Any]] = []
     for event in events:
-        if event.get("type") != "build.operation":
-            continue
+        event_type = str(event.get("type") or "")
         data = event.get("data", {})
+        if event_type.endswith(".model.failed") and isinstance(data, dict):
+            provider_failure_events.append({
+                "type": event_type,
+                "model": data.get("model"),
+                "error": data.get("error"),
+                "error_type": data.get("error_type"),
+                "retryable": data.get("retryable"),
+                "status_code": data.get("status_code"),
+            })
+        if event_type.endswith(".model.timeout") and isinstance(data, dict):
+            model_timeout_events.append({
+                "type": event_type,
+                "model": data.get("model"),
+                "timeout_seconds": data.get("timeout_seconds"),
+            })
+        if event_type == "build.needs_attention" and isinstance(data, dict):
+            needs_attention_events.append({
+                "error": data.get("error"),
+                "error_type": data.get("error_type"),
+                "failure": data.get("failure"),
+            })
+        if event_type != "build.operation":
+            continue
         tool = str(data.get("tool") or "")
         operation_counts[tool] = operation_counts.get(tool, 0) + 1
         parsed = parse_operation_result(event)
@@ -272,6 +297,46 @@ def summarize_events(events: list[dict[str, Any]]) -> dict[str, Any]:
         "template_suggestions": template_suggestions,
         "template_expands": template_expands,
         "failed_operations": failed_operations,
+        "provider_failure_events": provider_failure_events,
+        "model_timeout_events": model_timeout_events,
+        "needs_attention_events": needs_attention_events,
+    }
+
+
+def summarize_failure(
+    completed: dict[str, Any],
+    builder_task: dict[str, Any] | None,
+    event_summary: dict[str, Any],
+) -> dict[str, Any]:
+    build_error = str(completed.get("error") or "")
+    task_failure = None
+    if isinstance(builder_task, dict):
+        metadata = builder_task.get("metadata")
+        if isinstance(metadata, dict):
+            task_failure = metadata.get("failure")
+    event_failures = [
+        event.get("failure")
+        for event in event_summary.get("needs_attention_events", [])
+        if isinstance(event, dict) and event.get("failure") is not None
+    ]
+    provider_failures = event_summary.get("provider_failure_events", [])
+    timeout_events = event_summary.get("model_timeout_events", [])
+    timeout_like = "timeout" in build_error.casefold() or "timed out" in build_error.casefold()
+    for candidate in [task_failure, *event_failures, *provider_failures, *timeout_events]:
+        if isinstance(candidate, dict):
+            timeout_like = timeout_like or bool(candidate.get("timeout_like"))
+            timeout_like = timeout_like or "timeout" in str(candidate.get("error", "")).casefold()
+            timeout_like = timeout_like or "timed out" in str(candidate.get("error", "")).casefold()
+    return {
+        "build_status": completed.get("status"),
+        "build_error": build_error,
+        "task_status": builder_task.get("status") if isinstance(builder_task, dict) else None,
+        "task_error": builder_task.get("error") if isinstance(builder_task, dict) else None,
+        "task_failure": task_failure,
+        "event_failures": event_failures,
+        "provider_failure_event_count": len(provider_failures),
+        "model_timeout_event_count": len(timeout_events),
+        "timeout_like": timeout_like,
     }
 
 
@@ -402,6 +467,7 @@ def run_arm(client: TestClient, token: str, arm: ReuseDepthArm) -> dict[str, Any
     team_state = completed.get("team_state") or {}
     build_plan = team_state.get("build_plan") if isinstance(team_state, dict) else None
     event_summary = summarize_events(events)
+    failure_summary = summarize_failure(completed, builder_task, event_summary)
     return {
         "depth": arm.depth,
         "expected_action": arm.expected_action,
@@ -417,6 +483,7 @@ def run_arm(client: TestClient, token: str, arm: ReuseDepthArm) -> dict[str, Any
         "usage_counts": usage_counts,
         "draft_counts": draft_counts(draft),
         "event_summary": event_summary,
+        "failure_summary": failure_summary,
         "benchmark_report": suite.get("report"),
     }
 

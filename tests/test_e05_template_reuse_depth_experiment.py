@@ -92,3 +92,67 @@ def test_e05_event_summary_extracts_template_metrics() -> None:
     assert summary["template_suggestions"][0]["recommended_action"] == "compose_modules"
     assert summary["template_expands"][0]["success"] is False
     assert summary["failed_operations"][0]["tool"] == "template_expand"
+
+
+def test_e05_event_summary_extracts_timeout_failure_metadata() -> None:
+    module = load_e05_module()
+    events = [
+        {
+            "type": "build.coordinator.model.failed",
+            "data": {
+                "model": "deepseek/deepseek-v4-pro",
+                "error": "DeepSeek request timed out",
+                "error_type": "ProviderError",
+                "retryable": True,
+                "status_code": None,
+            },
+        },
+        {
+            "type": "build.coordinator.model.timeout",
+            "data": {
+                "model": "deepseek/deepseek-v4-pro",
+                "timeout_seconds": 180,
+            },
+        },
+        {
+            "type": "build.needs_attention",
+            "data": {
+                "error": "DeepSeek request timed out",
+                "error_type": "ProviderError",
+                "failure": {
+                    "type": "model_provider",
+                    "error_type": "ProviderError",
+                    "retryable": True,
+                    "status_code": None,
+                    "timeout_like": True,
+                },
+            },
+        },
+    ]
+
+    summary = module.summarize_events(events)
+    failure = module.summarize_failure(
+        {"status": "needs_attention", "error": "DeepSeek request timed out"},
+        {
+            "status": "failed",
+            "error": "DeepSeek request timed out",
+            "metadata": {
+                "failure": {
+                    "type": "model_provider",
+                    "error_type": "ProviderError",
+                    "retryable": True,
+                    "status_code": None,
+                    "timeout_like": True,
+                }
+            },
+        },
+        summary,
+    )
+
+    assert summary["provider_failure_events"][0]["retryable"] is True
+    assert summary["model_timeout_events"][0]["timeout_seconds"] == 180
+    assert summary["needs_attention_events"][0]["failure"]["type"] == "model_provider"
+    assert failure["task_status"] == "failed"
+    assert failure["provider_failure_event_count"] == 1
+    assert failure["model_timeout_event_count"] == 1
+    assert failure["timeout_like"] is True

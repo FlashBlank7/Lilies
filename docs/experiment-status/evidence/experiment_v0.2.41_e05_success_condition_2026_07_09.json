@@ -1,0 +1,3597 @@
+{
+  "status": "completed",
+  "started_at": "2026-07-09T13:44:27.292140+00:00",
+  "finished_at": "2026-07-09T14:11:26.944302+00:00",
+  "experiment": "E05 template reuse-depth live comparison",
+  "version": "v0.2.41",
+  "budget": {
+    "arms": [
+      "none",
+      "shallow",
+      "deep"
+    ],
+    "max_turns_per_arm": 42,
+    "max_repair_cycles_per_arm": 2,
+    "timeout_seconds_per_arm": 900.0,
+    "provider_timeout_seconds": 180.0,
+    "skip_paid": false,
+    "run_id": "v0.2.41_e05_success_condition_20260709"
+  },
+  "health": {
+    "status": "ok",
+    "deepseek_configured": true
+  },
+  "models": {
+    "provider": "multi",
+    "generator_model": "deepseek-v4-pro",
+    "runtime_model": "deepseek-v4-pro",
+    "configured_models": [
+      "deepseek/deepseek-v4-pro"
+    ]
+  },
+  "preflight": {
+    "template_count": 10,
+    "templates": [
+      {
+        "name": "app_automation_workflow",
+        "title": "App 自动化决策流程",
+        "description": "从钉钉打卡自动化中提取的通用决策模式。任何'自动操作App X'的任务都应走这个流程：先检查API可用性→无API则检查急速模式→仍不行则模拟点击→都不行则人工介入。避免在错误方向上探索。",
+        "category": "task_management",
+        "icon": "workflow",
+        "tags": [
+          "automation",
+          "decision-tree",
+          "app",
+          "android"
+        ],
+        "expected_inputs": {
+          "app_name": "string",
+          "task_description": "string"
+        },
+        "expected_outputs": {
+          "solution_type": "string",
+          "deliverable": "string"
+        },
+        "author": "platform",
+        "version": 1,
+        "min_blocks_required": [
+          "llm",
+          "if_else",
+          "template_transform"
+        ],
+        "provenance": [
+          {
+            "source_type": "expert_manual",
+            "identifier": "platform:app_automation_workflow.json",
+            "created_at": "2026-06-26T00:00:00Z",
+            "user_id": null
+          }
+        ],
+        "confidence": 0.7,
+        "seed_template": true,
+        "usage_count": 0,
+        "pending_branches_count": 0,
+        "rating_sum": 0.0,
+        "rating_count": 0
+      },
+      {
+        "name": "long_form_writer",
+        "title": "万字长文生成器",
+        "description": "分章节并行生成长文并自动拼接润色。工作流化解决单次LLM输出长度限制：先生成大纲→迭代生成每章→聚合→全文润色。适用于技术文档、分析报告、教程等。",
+        "category": "content_creation",
+        "icon": "file-text",
+        "tags": [
+          "writing",
+          "long-form",
+          "content-generation",
+          "chapters"
+        ],
+        "expected_inputs": {
+          "topic": "string",
+          "target_sections": "number"
+        },
+        "expected_outputs": {
+          "full_text": "string",
+          "outline": "string",
+          "sections": "number"
+        },
+        "author": "platform",
+        "version": 1,
+        "min_blocks_required": [
+          "llm",
+          "iteration",
+          "variable_aggregator",
+          "template_transform"
+        ],
+        "provenance": [
+          {
+            "source_type": "expert_manual",
+            "identifier": "platform:long_form_writer.json",
+            "created_at": "2026-06-26T00:00:00Z",
+            "user_id": null
+          }
+        ],
+        "confidence": 0.7,
+        "seed_template": true,
+        "usage_count": 0,
+        "pending_branches_count": 0,
+        "rating_sum": 0.0,
+        "rating_count": 0
+      },
+      {
+        "name": "code_reviewer",
+        "title": "代码审查与修复",
+        "description": "标准代码审查工作流: 读取源码 → 运行测试 → 定位失败根因 → 最小修改 → 重新验证 → 生成报告。这是最核心的软件开发质量保证流程。",
+        "category": "code_engineering",
+        "icon": "bug",
+        "tags": [
+          "code-review",
+          "testing",
+          "debugging",
+          "quality"
+        ],
+        "expected_inputs": {
+          "workspace_path": "string",
+          "test_command": "string"
+        },
+        "expected_outputs": {
+          "report": "object",
+          "tests_passed": "boolean",
+          "bugs_found": "number"
+        },
+        "author": "platform",
+        "version": 1,
+        "min_blocks_required": [
+          "llm",
+          "tool"
+        ],
+        "provenance": [
+          {
+            "source_type": "expert_manual",
+            "identifier": "platform:code_reviewer.json",
+            "created_at": "2026-06-26T00:00:00Z",
+            "user_id": null
+          }
+        ],
+        "confidence": 0.85,
+        "seed_template": true,
+        "usage_count": 0,
+        "pending_branches_count": 0,
+        "rating_sum": 0.0,
+        "rating_count": 0
+      },
+      {
+        "name": "task_decomposer",
+        "title": "任务分解与规划",
+        "description": "将复杂任务分解为可执行的子任务并按依赖排序。输入任务描述→LLM拆解→提取子任务→依赖排序→生成格式化计划。",
+        "category": "task_management",
+        "icon": "list-checks",
+        "tags": [
+          "planning",
+          "decomposition",
+          "dependencies",
+          "project-management"
+        ],
+        "expected_inputs": {
+          "complex_task": "string"
+        },
+        "expected_outputs": {
+          "plan": "string",
+          "subtask_count": "number"
+        },
+        "author": "platform",
+        "version": 1,
+        "min_blocks_required": [
+          "llm",
+          "template_transform"
+        ],
+        "provenance": [
+          {
+            "source_type": "expert_manual",
+            "identifier": "platform:task_decomposer.json",
+            "created_at": "2026-06-26T00:00:00Z",
+            "user_id": null
+          }
+        ],
+        "confidence": 0.85,
+        "seed_template": true,
+        "usage_count": 0,
+        "pending_branches_count": 0,
+        "rating_sum": 0.0,
+        "rating_count": 0
+      },
+      {
+        "name": "data_analyzer",
+        "title": "数据分析流水线",
+        "description": "标准数据分析工作流：加载数据→统计摘要→异常检测→生成报告。适用于CSV/JSON数据的自动化分析场景。",
+        "category": "data_analysis",
+        "icon": "bar-chart",
+        "tags": [
+          "data",
+          "statistics",
+          "analysis",
+          "reporting"
+        ],
+        "expected_inputs": {
+          "data_description": "string"
+        },
+        "expected_outputs": {
+          "report": "string",
+          "statistics": "object"
+        },
+        "author": "platform",
+        "version": 1,
+        "min_blocks_required": [
+          "llm",
+          "parameter_extractor",
+          "template_transform"
+        ],
+        "provenance": [
+          {
+            "source_type": "expert_manual",
+            "identifier": "platform:data_analyzer.json",
+            "created_at": "2026-06-26T00:00:00Z",
+            "user_id": null
+          }
+        ],
+        "confidence": 0.85,
+        "seed_template": true,
+        "usage_count": 0,
+        "pending_branches_count": 0,
+        "rating_sum": 0.0,
+        "rating_count": 0
+      },
+      {
+        "name": "document_summarizer",
+        "title": "文档摘要生成器",
+        "description": "阅读文档并生成多层级摘要：一句话总结→三段要点→完整摘要。适用于合同、论文、长文等场景。",
+        "category": "content_creation",
+        "icon": "scroll-text",
+        "tags": [
+          "summarization",
+          "document",
+          "reading",
+          "digest"
+        ],
+        "expected_inputs": {
+          "document_text": "string"
+        },
+        "expected_outputs": {
+          "one_liner": "string",
+          "key_points": "string",
+          "full_summary": "string"
+        },
+        "author": "platform",
+        "version": 1,
+        "min_blocks_required": [
+          "llm",
+          "template_transform"
+        ],
+        "provenance": [
+          {
+            "source_type": "expert_manual",
+            "identifier": "platform:document_summarizer.json",
+            "created_at": "2026-06-26T00:00:00Z",
+            "user_id": null
+          }
+        ],
+        "confidence": 0.85,
+        "seed_template": true,
+        "usage_count": 0,
+        "pending_branches_count": 0,
+        "rating_sum": 0.0,
+        "rating_count": 0
+      },
+      {
+        "name": "customer_support_router",
+        "title": "智能客服路由",
+        "description": "客服消息智能分类与差异化响应。将客户消息分为投诉/咨询/反馈/紧急四类，每类返回差异化响应。",
+        "category": "customer_service",
+        "icon": "message-circle",
+        "tags": [
+          "customer-support",
+          "routing",
+          "classification"
+        ],
+        "expected_inputs": {
+          "customer_message": "string"
+        },
+        "expected_outputs": {
+          "intent": "string",
+          "response": "string"
+        },
+        "author": "platform",
+        "version": 1,
+        "min_blocks_required": [
+          "question_classifier",
+          "if_else",
+          "template_transform"
+        ],
+        "provenance": [
+          {
+            "source_type": "expert_manual",
+            "identifier": "platform:customer_support_router.json",
+            "created_at": "2026-06-26T00:00:00Z",
+            "user_id": null
+          }
+        ],
+        "confidence": 0.85,
+        "seed_template": true,
+        "usage_count": 0,
+        "pending_branches_count": 0,
+        "rating_sum": 0.0,
+        "rating_count": 0
+      },
+      {
+        "name": "dingtalk_checkin",
+        "title": "钉钉上班打卡 (8:45)",
+        "description": "每日8:45触发钉钉上班打卡。schedule_trigger 定时 → HTTP Request 调用钉钉考勤API → 模板格式化结果。",
+        "category": "task_management",
+        "icon": "clock",
+        "tags": [
+          "dingtalk",
+          "checkin",
+          "scheduled",
+          "attendance"
+        ],
+        "expected_inputs": {},
+        "expected_outputs": {
+          "result": "string",
+          "status": "number"
+        },
+        "author": "platform",
+        "version": 1,
+        "min_blocks_required": [
+          "schedule_trigger",
+          "http_request",
+          "template_transform"
+        ],
+        "provenance": [],
+        "confidence": 0.7,
+        "seed_template": false,
+        "usage_count": 0,
+        "pending_branches_count": 0,
+        "rating_sum": 0.0,
+        "rating_count": 0
+      },
+      {
+        "name": "dingtalk_checkout",
+        "title": "钉钉下班签退 (19:00)",
+        "description": "每日19:00触发钉钉下班签退。schedule_trigger 定时 → HTTP Request 调用钉钉考勤API → 模板格式化结果。",
+        "category": "task_management",
+        "icon": "clock",
+        "tags": [
+          "dingtalk",
+          "checkout",
+          "scheduled",
+          "attendance"
+        ],
+        "expected_inputs": {},
+        "expected_outputs": {
+          "result": "string",
+          "status": "number"
+        },
+        "author": "platform",
+        "version": 1,
+        "min_blocks_required": [
+          "schedule_trigger",
+          "http_request",
+          "template_transform"
+        ],
+        "provenance": [],
+        "confidence": 0.7,
+        "seed_template": false,
+        "usage_count": 0,
+        "pending_branches_count": 0,
+        "rating_sum": 0.0,
+        "rating_count": 0
+      },
+      {
+        "name": "dingtalk_smart_punch",
+        "title": "钉钉智能打卡（双策略降级）",
+        "description": "智能钉钉打卡工作流：Tier1 急速打卡（启动App自动触发）→ Tier2 input tap模拟点击 → Tier3 人工通知。支持上班打卡(8:45)和下班签退(19:00)，周一至周五自动运行，支持坐标校准。",
+        "category": "task_management",
+        "icon": "clock",
+        "tags": [
+          "dingtalk",
+          "checkin",
+          "automation",
+          "android",
+          "tap-simulation",
+          "scheduled"
+        ],
+        "expected_inputs": {
+          "checkin_x": "number",
+          "checkin_y": "number",
+          "checkout_x": "number",
+          "checkout_y": "number",
+          "entry_x": "number",
+          "entry_y": "number",
+          "punch_type": "string"
+        },
+        "expected_outputs": {
+          "result": "object",
+          "tier_used": "number",
+          "screenshot_path": "string",
+          "report": "string"
+        },
+        "author": "platform",
+        "version": 2,
+        "min_blocks_required": [
+          "schedule_trigger",
+          "tool",
+          "if_else",
+          "template_transform",
+          "variable_aggregator"
+        ],
+        "provenance": [],
+        "confidence": 0.7,
+        "seed_template": false,
+        "usage_count": 0,
+        "pending_branches_count": 0,
+        "rating_sum": 0.0,
+        "rating_count": 0
+      }
+    ],
+    "categories": [
+      "code_engineering",
+      "content_creation",
+      "customer_service",
+      "data_analysis",
+      "task_management"
+    ],
+    "suggestions": {
+      "none": [],
+      "shallow": [
+        {
+          "name": "code_reviewer",
+          "title": "代码审查与修复",
+          "description": "标准代码审查工作流: 读取源码 → 运行测试 → 定位失败根因 → 最小修改 → 重新验证 → 生成报告。这是最核心的软件开发质量保证流程。",
+          "category": "code_engineering",
+          "icon": "bug",
+          "tags": [
+            "code-review",
+            "testing",
+            "debugging",
+            "quality"
+          ],
+          "expected_inputs": {
+            "workspace_path": "string",
+            "test_command": "string"
+          },
+          "expected_outputs": {
+            "report": "object",
+            "tests_passed": "boolean",
+            "bugs_found": "number"
+          },
+          "author": "platform",
+          "version": 1,
+          "min_blocks_required": [
+            "llm",
+            "tool"
+          ],
+          "provenance": [
+            {
+              "source_type": "expert_manual",
+              "identifier": "platform:code_reviewer.json",
+              "created_at": "2026-06-26T00:00:00Z",
+              "user_id": null
+            }
+          ],
+          "confidence": 0.85,
+          "seed_template": true,
+          "usage_count": 0,
+          "pending_branches_count": 0,
+          "rating_sum": 0.0,
+          "rating_count": 0,
+          "relevance_score": 2.125,
+          "reuse_depth": "shallow",
+          "recommended_action": "expand_template"
+        }
+      ],
+      "deep": [
+        {
+          "name": "code_reviewer",
+          "title": "代码审查与修复",
+          "description": "标准代码审查工作流: 读取源码 → 运行测试 → 定位失败根因 → 最小修改 → 重新验证 → 生成报告。这是最核心的软件开发质量保证流程。",
+          "category": "code_engineering",
+          "icon": "bug",
+          "tags": [
+            "code-review",
+            "testing",
+            "debugging",
+            "quality"
+          ],
+          "expected_inputs": {
+            "workspace_path": "string",
+            "test_command": "string"
+          },
+          "expected_outputs": {
+            "report": "object",
+            "tests_passed": "boolean",
+            "bugs_found": "number"
+          },
+          "author": "platform",
+          "version": 1,
+          "min_blocks_required": [
+            "llm",
+            "tool"
+          ],
+          "provenance": [
+            {
+              "source_type": "expert_manual",
+              "identifier": "platform:code_reviewer.json",
+              "created_at": "2026-06-26T00:00:00Z",
+              "user_id": null
+            }
+          ],
+          "confidence": 0.85,
+          "seed_template": true,
+          "usage_count": 0,
+          "pending_branches_count": 0,
+          "rating_sum": 0.0,
+          "rating_count": 0,
+          "relevance_score": 2.125,
+          "reuse_depth": "deep",
+          "recommended_action": "compose_modules"
+        }
+      ]
+    }
+  },
+  "arms": [
+    {
+      "depth": "none",
+      "expected_action": "build_from_scratch",
+      "status": "completed",
+      "elapsed_seconds": 437.063,
+      "application_id": "f3e6570b-4084-45c6-bc6d-bdce1dc2be4a",
+      "build_id": "882c69c1-3ea2-45b4-a6da-d29d56f062bb",
+      "build_status": "needs_attention",
+      "build_error": "model stream timed out after 180s",
+      "builder_task": {
+        "id": "882c69c1-3ea2-45b4-a6da-d29d56f062bb",
+        "kind": "builder_build",
+        "owner_id": "f3e6570b-4084-45c6-bc6d-bdce1dc2be4a",
+        "resource_id": "882c69c1-3ea2-45b4-a6da-d29d56f062bb",
+        "status": "failed",
+        "parent_task_id": null,
+        "metadata": {
+          "max_turns": 42,
+          "max_repair_cycles": 2,
+          "auto_publish": false,
+          "failure": {
+            "type": "model_provider",
+            "error_type": "ProviderError",
+            "retryable": true,
+            "status_code": null,
+            "timeout_like": true
+          }
+        },
+        "usage_counts": {
+          "model_call": 27,
+          "tool_call": 45
+        },
+        "usage": [
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 1,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T13:44:27.346993+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_inspect"
+            },
+            "created_at": "2026-07-09T13:44:31.004902+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 2,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T13:44:31.009193+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "build_plan"
+            },
+            "created_at": "2026-07-09T13:44:39.173354+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "template_suggestions"
+            },
+            "created_at": "2026-07-09T13:44:39.176655+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 3,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T13:44:39.178603+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "catalog_search"
+            },
+            "created_at": "2026-07-09T13:44:44.543281+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "catalog_search"
+            },
+            "created_at": "2026-07-09T13:44:44.551181+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "catalog_search"
+            },
+            "created_at": "2026-07-09T13:44:44.555444+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "catalog_search"
+            },
+            "created_at": "2026-07-09T13:44:44.559957+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 4,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T13:44:44.563663+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "catalog_search"
+            },
+            "created_at": "2026-07-09T13:44:47.838724+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "catalog_search"
+            },
+            "created_at": "2026-07-09T13:44:47.847225+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "catalog_search"
+            },
+            "created_at": "2026-07-09T13:44:47.852422+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "catalog_search"
+            },
+            "created_at": "2026-07-09T13:44:47.857083+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 5,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T13:44:47.861894+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "catalog_get"
+            },
+            "created_at": "2026-07-09T13:44:51.766016+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "catalog_get"
+            },
+            "created_at": "2026-07-09T13:44:51.768741+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "catalog_get"
+            },
+            "created_at": "2026-07-09T13:44:51.770195+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "catalog_get"
+            },
+            "created_at": "2026-07-09T13:44:51.771763+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "catalog_get"
+            },
+            "created_at": "2026-07-09T13:44:51.773022+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "catalog_get"
+            },
+            "created_at": "2026-07-09T13:44:51.774281+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 6,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T13:44:51.776270+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "manual_get"
+            },
+            "created_at": "2026-07-09T13:45:08.484653+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "manual_get"
+            },
+            "created_at": "2026-07-09T13:45:08.490353+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "manual_get"
+            },
+            "created_at": "2026-07-09T13:45:08.492500+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 7,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T13:45:08.495558+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_add_node"
+            },
+            "created_at": "2026-07-09T13:45:26.988852+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 8,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T13:45:26.995348+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_add_node"
+            },
+            "created_at": "2026-07-09T13:45:32.165058+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 9,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T13:45:32.170537+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_add_node"
+            },
+            "created_at": "2026-07-09T13:45:36.561764+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 10,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T13:45:36.565946+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_add_node"
+            },
+            "created_at": "2026-07-09T13:45:38.668586+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 11,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T13:45:38.675228+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_connect"
+            },
+            "created_at": "2026-07-09T13:45:44.013385+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_connect"
+            },
+            "created_at": "2026-07-09T13:45:44.020247+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_connect"
+            },
+            "created_at": "2026-07-09T13:45:44.023580+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 12,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T13:45:44.027739+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_validate"
+            },
+            "created_at": "2026-07-09T13:45:45.779826+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 13,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T13:45:45.783416+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "build_plan"
+            },
+            "created_at": "2026-07-09T13:45:52.373484+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "build_plan"
+            },
+            "created_at": "2026-07-09T13:45:52.377017+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "build_plan"
+            },
+            "created_at": "2026-07-09T13:45:52.378829+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 14,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T13:45:52.381489+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "test_add"
+            },
+            "created_at": "2026-07-09T13:46:05.726695+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 15,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T13:46:05.732433+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_validate"
+            },
+            "created_at": "2026-07-09T13:46:07.497654+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 16,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T13:46:07.501163+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "test_run"
+            },
+            "created_at": "2026-07-09T13:46:09.160171+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 17,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T13:46:48.920151+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_inspect"
+            },
+            "created_at": "2026-07-09T13:46:58.482715+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 18,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T13:46:58.489984+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "test_remove"
+            },
+            "created_at": "2026-07-09T13:47:06.050068+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 19,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T13:47:06.057228+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "test_add"
+            },
+            "created_at": "2026-07-09T13:47:20.687455+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 20,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T13:47:20.703793+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "test_run"
+            },
+            "created_at": "2026-07-09T13:47:22.650198+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 21,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T13:47:56.319694+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "test_remove"
+            },
+            "created_at": "2026-07-09T13:48:05.971469+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 22,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T13:48:05.979695+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_update_node"
+            },
+            "created_at": "2026-07-09T13:48:21.498091+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 23,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T13:48:21.505009+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_inspect"
+            },
+            "created_at": "2026-07-09T13:48:25.977367+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 24,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T13:48:25.980640+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_update_node"
+            },
+            "created_at": "2026-07-09T13:48:31.260140+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 25,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T13:48:31.264721+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_update_node"
+            },
+            "created_at": "2026-07-09T13:48:41.464652+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_remove_edge"
+            },
+            "created_at": "2026-07-09T13:48:41.468692+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 26,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T13:48:41.472225+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_connect"
+            },
+            "created_at": "2026-07-09T13:48:43.450834+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 27,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T13:48:43.455690+00:00"
+          }
+        ],
+        "error": "model stream timed out after 180s",
+        "worker_id": null,
+        "lease_expires_at": null,
+        "lease_version": 0,
+        "created_at": "2026-07-09T13:44:27.341644+00:00",
+        "updated_at": "2026-07-09T14:03:51.410548+00:00",
+        "finished_at": "2026-07-09T14:03:51.410548+00:00"
+      },
+      "build_plan": {
+        "goal": "Build and validate an editable code review and repair BlockFlow from scratch with reuse_depth=none.",
+        "strategy": "Build a modular BlockFlow using Start, Prompt (for analysis), Model Turn (for LLM calls), Template Transform (for report formatting), Answer/End for outputs. No templates will be used. Each requirement maps to explicit nodes.",
+        "modules": [
+          {
+            "id": "input_parsing",
+            "title": "Input Parsing & Contract",
+            "purpose": "Declare Start inputs and validate the output contract via a Variable Aggregator or Template Transform.",
+            "status": "tested",
+            "depends_on": [],
+            "expected_blocks": [
+              "start",
+              "variable_aggregator"
+            ],
+            "draft_node_ids": [
+              "start"
+            ],
+            "test_ids": [],
+            "evidence": [
+              "start node declares 4 inputs: task, repository_path, failing_test_output, test_command"
+            ]
+          },
+          {
+            "id": "analysis",
+            "title": "Code Review & Repair Analysis",
+            "purpose": "Analyze the task, repository_path, failing_test_output, and test_command to produce a repair plan.",
+            "status": "tested",
+            "depends_on": [],
+            "expected_blocks": [
+              "model_turn",
+              "prompt"
+            ],
+            "draft_node_ids": [
+              "prompt_composer",
+              "analyzer_llm"
+            ],
+            "test_ids": [],
+            "evidence": [
+              "prompt_composer composes all 4 inputs into analysis prompt",
+              "analyzer_llm with structured_output schema for report, tests_passed, repair_summary"
+            ]
+          },
+          {
+            "id": "reporting",
+            "title": "Report Generation",
+            "purpose": "Format the final report, tests_passed boolean, and repair_summary from analysis output.",
+            "status": "tested",
+            "depends_on": [],
+            "expected_blocks": [
+              "template_transform",
+              "answer"
+            ],
+            "draft_node_ids": [
+              "final_answer"
+            ],
+            "test_ids": [],
+            "evidence": [
+              "final_answer returns structured LLM output as answer"
+            ]
+          },
+          {
+            "id": "test_validation",
+            "title": "Mandatory Test Suite",
+            "purpose": "Add mandatory tests with required_node_types, readable frame, and explicit output contract.",
+            "status": "planned",
+            "depends_on": [],
+            "expected_blocks": [],
+            "draft_node_ids": [],
+            "test_ids": [],
+            "evidence": []
+          }
+        ],
+        "reuse_depth": "none",
+        "complexity": "medium",
+        "risks": [
+          "LLM output variability requires structural_only assertions",
+          "Need to ensure all Start inputs are actually used by downstream nodes",
+          "Must avoid using code_reviewer template despite its relevance"
+        ]
+      },
+      "build_plan_reuse_depth": "none",
+      "usage_counts": {
+        "model_call": 27,
+        "tool_call": 45
+      },
+      "draft_counts": {
+        "nodes": 4,
+        "edges": 3,
+        "tests": 0,
+        "node_types": [
+          "answer",
+          "llm",
+          "start",
+          "template_transform"
+        ]
+      },
+      "event_summary": {
+        "operation_counts": {
+          "draft_inspect": 3,
+          "build_plan": 4,
+          "template_suggestions": 1,
+          "catalog_search": 8,
+          "catalog_get": 6,
+          "manual_get": 3,
+          "draft_add_node": 4,
+          "draft_connect": 4,
+          "draft_validate": 2,
+          "test_add": 2,
+          "test_run": 2,
+          "test_remove": 2,
+          "draft_update_node": 3,
+          "draft_remove_edge": 1
+        },
+        "template_suggestion_count": 1,
+        "template_expand_count": 0,
+        "template_suggestions": [
+          {
+            "input": {
+              "requirement": "Build and validate an editable code review and repair BlockFlow. Start with inputs: task, repository_path, failing_test_output, and test_command. Analyze the code review task and failing test output. Produce a minimal repair plan and a reviewer-facing final report.",
+              "reuse_depth": "none"
+            },
+            "success": true,
+            "reuse_depth": "none",
+            "recommended_action": "build_from_scratch",
+            "templates": []
+          }
+        ],
+        "template_expands": [],
+        "failed_operations": [],
+        "provider_failure_events": [],
+        "model_timeout_events": [
+          {
+            "type": "build.coordinator.model.timeout",
+            "model": "deepseek-v4-pro",
+            "timeout_seconds": 180.0
+          }
+        ],
+        "needs_attention_events": [
+          {
+            "error": "model stream timed out after 180s",
+            "error_type": "ProviderError",
+            "failure": {
+              "type": "model_provider",
+              "error_type": "ProviderError",
+              "retryable": true,
+              "status_code": null,
+              "timeout_like": true
+            }
+          }
+        ]
+      },
+      "failure_summary": {
+        "build_status": "needs_attention",
+        "build_error": "model stream timed out after 180s",
+        "task_status": "failed",
+        "task_error": "model stream timed out after 180s",
+        "task_failure": {
+          "type": "model_provider",
+          "error_type": "ProviderError",
+          "retryable": true,
+          "status_code": null,
+          "timeout_like": true
+        },
+        "event_failures": [
+          {
+            "type": "model_provider",
+            "error_type": "ProviderError",
+            "retryable": true,
+            "status_code": null,
+            "timeout_like": true
+          }
+        ],
+        "provider_failure_event_count": 0,
+        "model_timeout_event_count": 1,
+        "timeout_like": true
+      },
+      "benchmark_report": {
+        "name": "E05 template reuse-depth code review comparison",
+        "passed": true,
+        "score": 0.85,
+        "pass_rate": 1.0,
+        "case_count": 1,
+        "failed_cases": [],
+        "reports": [
+          {
+            "name": "code review repair blockflow reuse_depth=none",
+            "passed": true,
+            "score": 0.85,
+            "metrics": {
+              "node_type_coverage": 1.0,
+              "tool_node_coverage": 1.0,
+              "harness_coverage": 1.0,
+              "edge_similarity": 0.0,
+              "test_frame_coverage": 1.0,
+              "candidate_node_count": 4,
+              "reference_node_count": 3,
+              "node_type_equivalences": {
+                "end": [
+                  "answer"
+                ],
+                "model_turn": [
+                  "llm"
+                ]
+              }
+            },
+            "missing": {
+              "node_types": [],
+              "tool_nodes": [],
+              "harness_nodes": []
+            }
+          }
+        ],
+        "metrics": {
+          "average": {
+            "candidate_node_count": 4.0,
+            "edge_similarity": 0.0,
+            "harness_coverage": 1.0,
+            "node_type_coverage": 1.0,
+            "reference_node_count": 3.0,
+            "test_frame_coverage": 1.0,
+            "tool_node_coverage": 1.0
+          },
+          "minimum_score": 0.45,
+          "minimum_pass_rate": 0.0
+        },
+        "trends": [
+          {
+            "name": "code review repair blockflow reuse_depth=none",
+            "score": 0.85,
+            "baseline_score": null,
+            "delta": null,
+            "direction": "new"
+          }
+        ],
+        "cost": {
+          "model_calls": 27,
+          "tool_calls": 45,
+          "estimated_cost_usd": null,
+          "provider": "deepseek",
+          "model": "",
+          "notes": "Counts come from Platform Harness task usage when available."
+        }
+      }
+    },
+    {
+      "depth": "shallow",
+      "expected_action": "expand_template",
+      "status": "completed",
+      "elapsed_seconds": 123.267,
+      "application_id": "ae4fc6af-793b-4f84-bb0c-4d35bcbdfb96",
+      "build_id": "d7e5fcd7-d54f-4ae9-931a-f2943e335ec7",
+      "build_status": "published",
+      "build_error": null,
+      "builder_task": {
+        "id": "d7e5fcd7-d54f-4ae9-931a-f2943e335ec7",
+        "kind": "builder_build",
+        "owner_id": "ae4fc6af-793b-4f84-bb0c-4d35bcbdfb96",
+        "resource_id": "d7e5fcd7-d54f-4ae9-931a-f2943e335ec7",
+        "status": "succeeded",
+        "parent_task_id": null,
+        "metadata": {
+          "max_turns": 42,
+          "max_repair_cycles": 2,
+          "auto_publish": false
+        },
+        "usage_counts": {
+          "model_call": 20,
+          "tool_call": 30
+        },
+        "usage": [
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 1,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:03:52.387674+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "build_plan"
+            },
+            "created_at": "2026-07-09T14:04:01.547250+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 2,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:04:01.554469+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_inspect"
+            },
+            "created_at": "2026-07-09T14:04:04.966288+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "template_suggestions"
+            },
+            "created_at": "2026-07-09T14:04:04.970699+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 3,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:04:04.973766+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "template_expand"
+            },
+            "created_at": "2026-07-09T14:04:08.179160+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 4,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:04:08.195622+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_inspect"
+            },
+            "created_at": "2026-07-09T14:04:09.944737+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 5,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:04:09.948454+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "catalog_search"
+            },
+            "created_at": "2026-07-09T14:04:20.307653+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "catalog_search"
+            },
+            "created_at": "2026-07-09T14:04:20.315485+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 6,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:04:20.319867+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "catalog_search"
+            },
+            "created_at": "2026-07-09T14:04:22.484447+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "catalog_search"
+            },
+            "created_at": "2026-07-09T14:04:22.488481+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "catalog_search"
+            },
+            "created_at": "2026-07-09T14:04:22.491086+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 7,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:04:22.495168+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "catalog_get"
+            },
+            "created_at": "2026-07-09T14:04:24.919051+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "catalog_get"
+            },
+            "created_at": "2026-07-09T14:04:24.922981+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "catalog_get"
+            },
+            "created_at": "2026-07-09T14:04:24.924903+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "catalog_get"
+            },
+            "created_at": "2026-07-09T14:04:24.926833+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 8,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:04:24.929894+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "build_plan"
+            },
+            "created_at": "2026-07-09T14:04:50.214974+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_update_node"
+            },
+            "created_at": "2026-07-09T14:04:50.221049+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 9,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:04:50.225510+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_add_node"
+            },
+            "created_at": "2026-07-09T14:04:55.609468+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 10,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:04:55.612687+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_add_node"
+            },
+            "created_at": "2026-07-09T14:04:59.641200+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 11,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:04:59.648554+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_connect"
+            },
+            "created_at": "2026-07-09T14:05:03.474961+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_remove_edge"
+            },
+            "created_at": "2026-07-09T14:05:03.477850+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 12,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:05:03.480541+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_connect"
+            },
+            "created_at": "2026-07-09T14:05:06.923042+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_update_node"
+            },
+            "created_at": "2026-07-09T14:05:06.928063+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 13,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:05:06.932286+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_update_node"
+            },
+            "created_at": "2026-07-09T14:05:09.762547+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 14,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:05:09.773423+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_update_node"
+            },
+            "created_at": "2026-07-09T14:05:12.828430+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 15,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:05:12.842206+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_validate"
+            },
+            "created_at": "2026-07-09T14:05:18.140724+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 16,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:05:18.144319+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_inspect"
+            },
+            "created_at": "2026-07-09T14:05:20.952449+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 17,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:05:20.957591+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "test_add"
+            },
+            "created_at": "2026-07-09T14:05:30.902755+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 18,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:05:30.910280+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "test_run"
+            },
+            "created_at": "2026-07-09T14:05:32.912320+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 19,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:05:51.399896+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_validate"
+            },
+            "created_at": "2026-07-09T14:05:53.292347+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 20,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:05:53.297723+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_publish"
+            },
+            "created_at": "2026-07-09T14:05:55.041812+00:00"
+          }
+        ],
+        "error": "",
+        "worker_id": null,
+        "lease_expires_at": null,
+        "lease_version": 0,
+        "created_at": "2026-07-09T14:03:52.378389+00:00",
+        "updated_at": "2026-07-09T14:05:55.046168+00:00",
+        "finished_at": "2026-07-09T14:05:55.046168+00:00"
+      },
+      "build_plan": {
+        "goal": "Build and validate an editable code review and repair BlockFlow with Start inputs (task, repository_path, failing_test_output, test_command), analysis, repair plan, and final report. Outputs: report, tests_passed, repair_summary.",
+        "strategy": "Check for matching templates with reuse_depth='shallow', lightly reuse structure if found. Compose explicit bricks: Start, Prompt/Template for analysis, LLM/Model Turn for reasoning, Template Transform for final report, Answer/End for outputs. Keep the graph auditable with required_node_types in tests.",
+        "modules": [
+          {
+            "id": "template_check",
+            "title": "Check and expand relevant templates",
+            "purpose": "Call template_suggestions with reuse_depth='shallow', inspect and expand any matching template",
+            "status": "planned",
+            "depends_on": [],
+            "expected_blocks": [],
+            "draft_node_ids": [],
+            "test_ids": [],
+            "evidence": []
+          },
+          {
+            "id": "workflow_compose",
+            "title": "Compose the code review and repair workflow",
+            "purpose": "Build nodes: Start, analysis, repair plan generation, report formatting, Answer. Wire edges.",
+            "status": "building",
+            "depends_on": [],
+            "expected_blocks": [
+              "start",
+              "template_transform",
+              "model_turn",
+              "answer"
+            ],
+            "draft_node_ids": [],
+            "test_ids": [],
+            "evidence": []
+          },
+          {
+            "id": "tests",
+            "title": "Add and run mandatory acceptance tests",
+            "purpose": "Structural tests covering output contract, required_node_types, and input usage",
+            "status": "planned",
+            "depends_on": [],
+            "expected_blocks": [],
+            "draft_node_ids": [],
+            "test_ids": [],
+            "evidence": []
+          }
+        ],
+        "reuse_depth": "shallow",
+        "complexity": "medium",
+        "risks": [
+          "Template not matching exactly may need heavy editing",
+          "LLM output variability requires structural-only assertions",
+          "Must ensure required_node_types gating works"
+        ]
+      },
+      "build_plan_reuse_depth": "shallow",
+      "usage_counts": {
+        "model_call": 20,
+        "tool_call": 30
+      },
+      "draft_counts": {
+        "nodes": 4,
+        "edges": 3,
+        "tests": 1,
+        "node_types": [
+          "end",
+          "llm",
+          "start",
+          "template_transform"
+        ]
+      },
+      "event_summary": {
+        "operation_counts": {
+          "build_plan": 2,
+          "draft_inspect": 3,
+          "template_suggestions": 1,
+          "template_expand": 1,
+          "catalog_search": 5,
+          "catalog_get": 4,
+          "draft_update_node": 4,
+          "draft_add_node": 2,
+          "draft_connect": 2,
+          "draft_remove_edge": 1,
+          "draft_validate": 2,
+          "test_add": 1,
+          "test_run": 1,
+          "draft_publish": 1
+        },
+        "template_suggestion_count": 1,
+        "template_expand_count": 1,
+        "template_suggestions": [
+          {
+            "input": {
+              "requirement": "code review and repair workflow that takes task, repository_path, failing_test_output, and test_command as inputs, analyzes the code, produces a minimal repair plan and final report, outputs report, tests_passed, and repair_summary",
+              "reuse_depth": "shallow"
+            },
+            "success": true,
+            "reuse_depth": "shallow",
+            "recommended_action": "expand_template",
+            "templates": [
+              {
+                "name": "code_reviewer",
+                "title": "代码审查与修复",
+                "source": "marketplace",
+                "confidence": 0.85,
+                "relevance": 0.425,
+                "tags": [
+                  "code-review",
+                  "testing",
+                  "debugging",
+                  "quality"
+                ],
+                "recommended_action": "expand_template"
+              },
+              {
+                "name": "task_decomposer",
+                "title": "任务分解与规划",
+                "source": "marketplace",
+                "confidence": 0.85,
+                "relevance": 0.425,
+                "tags": [
+                  "planning",
+                  "decomposition",
+                  "dependencies",
+                  "project-management"
+                ],
+                "recommended_action": "expand_template"
+              },
+              {
+                "name": "app_automation_workflow",
+                "title": "App 自动化决策流程",
+                "source": "marketplace",
+                "confidence": 0.7,
+                "relevance": 0.35,
+                "tags": [
+                  "automation",
+                  "decision-tree",
+                  "app",
+                  "android"
+                ],
+                "recommended_action": "expand_template"
+              }
+            ]
+          }
+        ],
+        "template_expands": [
+          {
+            "input": {
+              "name": "code_reviewer",
+              "prefix": "cr_"
+            },
+            "success": true,
+            "result": {
+              "template": "code_reviewer",
+              "source": "marketplace",
+              "revision": 5,
+              "nodes": [
+                "cr__start",
+                "cr__analyze",
+                "cr__end"
+              ],
+              "edges": [
+                "cr__e1",
+                "cr__e2"
+              ]
+            }
+          }
+        ],
+        "failed_operations": [
+          {
+            "tool": "draft_add_node",
+            "input": {
+              "_invalid_tool_input_json": {
+                "error": "Expecting ',' delimiter: line 1 column 1154 (char 1153)",
+                "raw_preview": "{\"node\": {\"id\":\"cr__build_prompt\",\"type\":\"template_transform\",\"title\":\"构建分析提示\",\"description\":\"Compose the analysis prompt from task, repository path, failing test output, and test command.\",\"config\":{\"template\":\"Code Review Task: {{ task }}\\n\\nRepository Path: {{ repository_path }}\\n\\nFailing Test Output:\\n{{ failing_test_output }}\\n\\nTest Command: {{ test_command }}\\n\\nPlease analyze the code, identify root causes of the test failure, and produce:\\n1. A minimal repair plan with specific code changes\\n2. A reviewer-facing final report summarizing findings and recommendations\\n\\nFormat your response as JSON with the following fields:\\n- \\\"report\\\": the full reviewer-facing report (string)\\n- \\\"tests_passed\\\": whether the proposed fix should make tests pass (boolean)\\n- \\\"repair_summary\\\": a concise summary of the repair plan (string)\",\"variables\":{\"task\":{\"$ref\":{\"node_id\":\"cr__start\",\"path\":[\"task\"]}},\"repository_path\":{\"$ref\":{\"node_id\":\"cr__start\",\"path\":[\"repository_path\"]}},\"failing_test_output\":{\"$ref\":{\"node_id\":\"cr__start\",\"path\":[\"failing_test_output\"]}},\"test_command\":{\"$ref\":{\"node_id\":\"cr__start\",\"path\":[\"test_command\"]}}}}}",
+                "raw_length": 1153
+              }
+            },
+            "result": "RuntimeError: invalid tool input JSON for draft_add_node: Expecting ',' delimiter: line 1 column 1154 (char 1153). Re-emit this tool call with valid JSON arguments."
+          },
+          {
+            "tool": "draft_update_node",
+            "input": {
+              "_invalid_tool_input_json": {
+                "error": "Expecting ',' delimiter: line 1 column 312 (char 311)",
+                "raw_preview": "{\"node_id\": \"cr__end\", \"changes\": {\"config\":{\"outputs\":{\"report\":{\"$ref\":{\"node_id\":\"cr__analyze\",\"path\":[\"structured\",\"report\"]}},\"tests_passed\":{\"$ref\":{\"node_id\":\"cr__analyze\",\"path\":[\"structured\",\"tests_passed\"]}},\"repair_summary\":{\"$ref\":{\"node_id\":\"cr__analyze\",\"path\":[\"structured\",\"repair_summary\"]}}}}}",
+                "raw_length": 311
+              }
+            },
+            "result": "RuntimeError: invalid tool input JSON for draft_update_node: Expecting ',' delimiter: line 1 column 312 (char 311). Re-emit this tool call with valid JSON arguments."
+          }
+        ],
+        "provider_failure_events": [],
+        "model_timeout_events": [],
+        "needs_attention_events": []
+      },
+      "failure_summary": {
+        "build_status": "published",
+        "build_error": "",
+        "task_status": "succeeded",
+        "task_error": "",
+        "task_failure": null,
+        "event_failures": [],
+        "provider_failure_event_count": 0,
+        "model_timeout_event_count": 0,
+        "timeout_like": false
+      },
+      "benchmark_report": {
+        "name": "E05 template reuse-depth code review comparison",
+        "passed": true,
+        "score": 0.85,
+        "pass_rate": 1.0,
+        "case_count": 1,
+        "failed_cases": [],
+        "reports": [
+          {
+            "name": "code review repair blockflow reuse_depth=shallow",
+            "passed": true,
+            "score": 0.85,
+            "metrics": {
+              "node_type_coverage": 1.0,
+              "tool_node_coverage": 1.0,
+              "harness_coverage": 1.0,
+              "edge_similarity": 0.0,
+              "test_frame_coverage": 1.0,
+              "candidate_node_count": 4,
+              "reference_node_count": 3,
+              "node_type_equivalences": {
+                "end": [
+                  "answer"
+                ],
+                "model_turn": [
+                  "llm"
+                ]
+              }
+            },
+            "missing": {
+              "node_types": [],
+              "tool_nodes": [],
+              "harness_nodes": []
+            }
+          }
+        ],
+        "metrics": {
+          "average": {
+            "candidate_node_count": 4.0,
+            "edge_similarity": 0.0,
+            "harness_coverage": 1.0,
+            "node_type_coverage": 1.0,
+            "reference_node_count": 3.0,
+            "test_frame_coverage": 1.0,
+            "tool_node_coverage": 1.0
+          },
+          "minimum_score": 0.45,
+          "minimum_pass_rate": 0.0
+        },
+        "trends": [
+          {
+            "name": "code review repair blockflow reuse_depth=shallow",
+            "score": 0.85,
+            "baseline_score": null,
+            "delta": null,
+            "direction": "new"
+          }
+        ],
+        "cost": {
+          "model_calls": 20,
+          "tool_calls": 30,
+          "estimated_cost_usd": null,
+          "provider": "deepseek",
+          "model": "",
+          "notes": "Counts come from Platform Harness task usage when available."
+        }
+      }
+    },
+    {
+      "depth": "deep",
+      "expected_action": "compose_modules",
+      "status": "completed",
+      "elapsed_seconds": 331.196,
+      "application_id": "c155d5a2-4424-45a9-bc8d-1455d3fc8263",
+      "build_id": "8d071c71-8446-4400-beb1-d7d825663531",
+      "build_status": "ready",
+      "build_error": null,
+      "builder_task": {
+        "id": "8d071c71-8446-4400-beb1-d7d825663531",
+        "kind": "builder_build",
+        "owner_id": "c155d5a2-4424-45a9-bc8d-1455d3fc8263",
+        "resource_id": "8d071c71-8446-4400-beb1-d7d825663531",
+        "status": "succeeded",
+        "parent_task_id": null,
+        "metadata": {
+          "max_turns": 42,
+          "max_repair_cycles": 2,
+          "auto_publish": false
+        },
+        "usage_counts": {
+          "model_call": 47,
+          "tool_call": 57
+        },
+        "usage": [
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 1,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:05:55.681559+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "build_plan"
+            },
+            "created_at": "2026-07-09T14:06:03.710707+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "template_suggestions"
+            },
+            "created_at": "2026-07-09T14:06:03.715212+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_inspect"
+            },
+            "created_at": "2026-07-09T14:06:03.717845+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 2,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:06:03.721018+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "template_expand"
+            },
+            "created_at": "2026-07-09T14:06:07.927097+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "catalog_search"
+            },
+            "created_at": "2026-07-09T14:06:07.932605+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 3,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:06:07.937047+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_inspect"
+            },
+            "created_at": "2026-07-09T14:06:09.850506+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 4,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:06:09.853128+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "build_plan"
+            },
+            "created_at": "2026-07-09T14:06:20.558500+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 5,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:06:20.563448+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "build_plan"
+            },
+            "created_at": "2026-07-09T14:06:27.750146+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 6,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:06:27.759223+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_update_node"
+            },
+            "created_at": "2026-07-09T14:06:31.292966+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 7,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:06:31.299943+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_update_node"
+            },
+            "created_at": "2026-07-09T14:06:39.974108+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 8,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:06:39.982904+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "catalog_search"
+            },
+            "created_at": "2026-07-09T14:06:47.036457+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 9,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:06:47.041417+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "catalog_get"
+            },
+            "created_at": "2026-07-09T14:06:48.801387+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 10,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:06:48.806034+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "catalog_get"
+            },
+            "created_at": "2026-07-09T14:06:55.042932+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "catalog_get"
+            },
+            "created_at": "2026-07-09T14:06:55.045386+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 11,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:06:55.048084+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_update_node"
+            },
+            "created_at": "2026-07-09T14:07:03.071065+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 12,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:07:03.077182+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_update_node"
+            },
+            "created_at": "2026-07-09T14:07:08.810807+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 13,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:07:08.819364+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_validate"
+            },
+            "created_at": "2026-07-09T14:07:14.059850+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 14,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:07:14.063212+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "test_add"
+            },
+            "created_at": "2026-07-09T14:07:24.748254+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 15,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:07:24.756733+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_validate"
+            },
+            "created_at": "2026-07-09T14:07:26.429896+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 16,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:07:26.433719+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "test_run"
+            },
+            "created_at": "2026-07-09T14:07:28.053776+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 17,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:07:47.285977+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_add_node"
+            },
+            "created_at": "2026-07-09T14:08:07.290526+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 18,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:08:07.298884+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_remove_edge"
+            },
+            "created_at": "2026-07-09T14:08:10.101076+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 19,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:08:10.106457+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_connect"
+            },
+            "created_at": "2026-07-09T14:08:12.910247+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_connect"
+            },
+            "created_at": "2026-07-09T14:08:12.916609+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 20,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:08:12.923768+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_update_node"
+            },
+            "created_at": "2026-07-09T14:08:16.973119+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 21,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:08:16.978322+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_validate"
+            },
+            "created_at": "2026-07-09T14:08:18.664581+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 22,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:08:18.672342+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "test_run"
+            },
+            "created_at": "2026-07-09T14:08:20.378488+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 23,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:08:36.982759+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_update_node"
+            },
+            "created_at": "2026-07-09T14:08:49.895876+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 24,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:08:49.904058+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_update_node"
+            },
+            "created_at": "2026-07-09T14:08:52.921745+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 25,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:08:52.929278+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_validate"
+            },
+            "created_at": "2026-07-09T14:08:55.232141+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 26,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:08:55.237703+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "test_run"
+            },
+            "created_at": "2026-07-09T14:08:57.086632+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 27,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:09:19.210003+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_update_node"
+            },
+            "created_at": "2026-07-09T14:09:27.017100+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 28,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:09:27.022909+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_remove_edge"
+            },
+            "created_at": "2026-07-09T14:09:29.560451+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_remove_edge"
+            },
+            "created_at": "2026-07-09T14:09:29.575458+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 29,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:09:29.585286+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_connect"
+            },
+            "created_at": "2026-07-09T14:09:32.342028+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 30,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:09:32.349186+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_validate"
+            },
+            "created_at": "2026-07-09T14:09:34.106148+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 31,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:09:34.111337+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_remove_node"
+            },
+            "created_at": "2026-07-09T14:09:36.351335+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 32,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:09:36.360389+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_validate"
+            },
+            "created_at": "2026-07-09T14:09:38.161038+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 33,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:09:38.166498+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "test_run"
+            },
+            "created_at": "2026-07-09T14:09:39.923918+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 34,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:09:39.929982+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "test_run"
+            },
+            "created_at": "2026-07-09T14:09:43.417962+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 35,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:09:43.421677+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_inspect"
+            },
+            "created_at": "2026-07-09T14:09:46.210632+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 36,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:09:46.214833+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_update_node"
+            },
+            "created_at": "2026-07-09T14:09:53.403230+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_update_node"
+            },
+            "created_at": "2026-07-09T14:09:53.407514+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 37,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:09:53.411427+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_validate"
+            },
+            "created_at": "2026-07-09T14:09:56.179348+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 38,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:09:56.188473+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "test_run"
+            },
+            "created_at": "2026-07-09T14:09:58.188198+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 39,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:09:58.192127+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "spawn_teammate"
+            },
+            "created_at": "2026-07-09T14:10:04.423492+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "debug_test_runner",
+              "turn": 1,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:10:04.430140+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "debug_test_runner",
+              "tool": "draft_inspect"
+            },
+            "created_at": "2026-07-09T14:10:06.520494+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "debug_test_runner",
+              "turn": 2,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:10:06.525338+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "debug_test_runner",
+              "tool": "test_run"
+            },
+            "created_at": "2026-07-09T14:10:11.459307+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "debug_test_runner",
+              "turn": 3,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:10:11.462939+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "debug_test_runner",
+              "tool": "draft_validate"
+            },
+            "created_at": "2026-07-09T14:10:18.096312+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "debug_test_runner",
+              "turn": 4,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:10:18.101335+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "debug_test_runner",
+              "tool": "catalog_get"
+            },
+            "created_at": "2026-07-09T14:10:30.437478+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "debug_test_runner",
+              "tool": "catalog_get"
+            },
+            "created_at": "2026-07-09T14:10:30.440205+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "debug_test_runner",
+              "tool": "catalog_get"
+            },
+            "created_at": "2026-07-09T14:10:30.441925+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "debug_test_runner",
+              "turn": 5,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:10:30.445978+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "debug_test_runner",
+              "tool": "build_plan"
+            },
+            "created_at": "2026-07-09T14:10:53.642303+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "debug_test_runner",
+              "tool": "task"
+            },
+            "created_at": "2026-07-09T14:10:53.647460+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 40,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:10:53.654301+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "test_remove"
+            },
+            "created_at": "2026-07-09T14:10:57.122340+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 41,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:10:57.129354+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "test_add"
+            },
+            "created_at": "2026-07-09T14:11:02.193499+00:00"
+          },
+          {
+            "usage_type": "model_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "turn": 42,
+              "model": "deepseek-v4-pro"
+            },
+            "created_at": "2026-07-09T14:11:02.200772+00:00"
+          },
+          {
+            "usage_type": "tool_call",
+            "amount": 1,
+            "metadata": {
+              "actor": "coordinator",
+              "tool": "draft_validate"
+            },
+            "created_at": "2026-07-09T14:11:03.919918+00:00"
+          }
+        ],
+        "error": "",
+        "worker_id": null,
+        "lease_expires_at": null,
+        "lease_version": 0,
+        "created_at": "2026-07-09T14:05:55.676302+00:00",
+        "updated_at": "2026-07-09T14:11:25.978388+00:00",
+        "finished_at": "2026-07-09T14:11:25.978388+00:00"
+      },
+      "build_plan": {
+        "goal": "Build an editable code review and repair BlockFlow that takes task, repository_path, failing_test_output, and test_command as inputs, analyzes them, produces a minimal repair plan and reviewer-facing final report, and ends with outputs: report, tests_passed, repair_summary.",
+        "strategy": "Used deep reuse: template_suggestions returned code_reviewer at confidence 0.85. Expanded and adapting the template.",
+        "modules": [
+          {
+            "id": "m1_template_reuse",
+            "title": "Template Reuse: code_reviewer",
+            "purpose": "Expanded the marketplace code_reviewer template (confidence 0.85) and adapt it with additional inputs, structured outputs, and contracts.",
+            "status": "building",
+            "depends_on": [],
+            "expected_blocks": [
+              "start",
+              "llm",
+              "end"
+            ],
+            "draft_node_ids": [
+              "code_reviewer_start",
+              "code_reviewer_analyze",
+              "code_reviewer_end"
+            ],
+            "test_ids": [],
+            "evidence": [
+              "template_suggestions returned code_reviewer with confidence 0.85",
+              "template_expand added 3 nodes and 2 edges"
+            ]
+          }
+        ],
+        "reuse_depth": "deep",
+        "complexity": "medium",
+        "risks": [
+          "Template may not match exactly; will need adaptation",
+          "Output contract must be explicit and testable",
+          "LLM variability requires structural-only assertions"
+        ]
+      },
+      "build_plan_reuse_depth": "deep",
+      "usage_counts": {
+        "model_call": 47,
+        "tool_call": 57
+      },
+      "draft_counts": {
+        "nodes": 3,
+        "edges": 2,
+        "tests": 1,
+        "node_types": [
+          "end",
+          "llm",
+          "start"
+        ]
+      },
+      "event_summary": {
+        "operation_counts": {
+          "build_plan": 4,
+          "template_suggestions": 1,
+          "draft_inspect": 4,
+          "template_expand": 1,
+          "catalog_search": 2,
+          "draft_update_node": 10,
+          "catalog_get": 6,
+          "draft_validate": 9,
+          "test_add": 2,
+          "test_run": 7,
+          "draft_add_node": 1,
+          "draft_remove_edge": 3,
+          "draft_connect": 3,
+          "draft_remove_node": 1,
+          "task": 1,
+          "spawn_teammate": 1,
+          "test_remove": 1
+        },
+        "template_suggestion_count": 1,
+        "template_expand_count": 1,
+        "template_suggestions": [
+          {
+            "input": {
+              "requirement": "code review and repair workflow that takes task, repository_path, failing_test_output, and test_command as inputs, analyzes the failing test, produces a repair plan and final report with outputs report, tests_passed, repair_summary",
+              "reuse_depth": "deep"
+            },
+            "success": true,
+            "reuse_depth": "deep",
+            "recommended_action": "compose_modules",
+            "templates": [
+              {
+                "name": "code_reviewer",
+                "title": "代码审查与修复",
+                "source": "marketplace",
+                "confidence": 0.85,
+                "relevance": 0.425,
+                "tags": [
+                  "code-review",
+                  "testing",
+                  "debugging",
+                  "quality"
+                ],
+                "recommended_action": "compose_modules"
+              },
+              {
+                "name": "task_decomposer",
+                "title": "任务分解与规划",
+                "source": "marketplace",
+                "confidence": 0.85,
+                "relevance": 0.425,
+                "tags": [
+                  "planning",
+                  "decomposition",
+                  "dependencies",
+                  "project-management"
+                ],
+                "recommended_action": "compose_modules"
+              },
+              {
+                "name": "data_analyzer",
+                "title": "数据分析流水线",
+                "source": "marketplace",
+                "confidence": 0.85,
+                "relevance": 0.425,
+                "tags": [
+                  "data",
+                  "statistics",
+                  "analysis",
+                  "reporting"
+                ],
+                "recommended_action": "compose_modules"
+              },
+              {
+                "name": "app_automation_workflow",
+                "title": "App 自动化决策流程",
+                "source": "marketplace",
+                "confidence": 0.7,
+                "relevance": 0.35,
+                "tags": [
+                  "automation",
+                  "decision-tree",
+                  "app",
+                  "android"
+                ],
+                "recommended_action": "compose_modules"
+              }
+            ]
+          }
+        ],
+        "template_expands": [
+          {
+            "input": {
+              "name": "code_reviewer"
+            },
+            "success": true,
+            "result": {
+              "template": "code_reviewer",
+              "source": "marketplace",
+              "revision": 5,
+              "nodes": [
+                "code_reviewer_start",
+                "code_reviewer_analyze",
+                "code_reviewer_end"
+              ],
+              "edges": [
+                "code_reviewer_e1",
+                "code_reviewer_e2"
+              ]
+            }
+          }
+        ],
+        "failed_operations": [
+          {
+            "tool": "build_plan",
+            "input": {
+              "action": "update_module",
+              "module_id": "m1_template_reuse",
+              "changes": {
+                "id": "m1_template_reuse",
+                "title": "Template Reuse: code_reviewer",
+                "purpose": "Expanded the marketplace code_reviewer template (confidence 0.85) and adapt it with additional inputs, structured outputs, and contracts.",
+                "status": "building",
+                "depends_on": [],
+                "expected_blocks": [
+                  "start",
+                  "llm",
+                  "end"
+                ],
+                "draft_node_ids": [
+                  "code_reviewer_start",
+                  "code_reviewer_analyze",
+                  "code_reviewer_end"
+                ],
+                "test_ids": [],
+                "evidence": [
+                  "template_suggestions returned code_reviewer with confidence 0.85",
+                  "template_expand added 3 nodes and 2 edges"
+                ]
+              }
+            },
+            "result": "KeyError: 'unknown build plan module: m1_template_reuse'"
+          },
+          {
+            "tool": "test_run",
+            "input": {},
+            "result": "RuntimeError: maximum repair cycles reached (2)"
+          },
+          {
+            "tool": "test_run",
+            "input": {},
+            "result": "RuntimeError: maximum repair cycles reached (2)"
+          },
+          {
+            "tool": "test_run",
+            "input": {},
+            "result": "RuntimeError: maximum repair cycles reached (2)"
+          },
+          {
+            "tool": "test_run",
+            "input": {},
+            "result": "RuntimeError: maximum repair cycles reached (2)"
+          }
+        ],
+        "provider_failure_events": [],
+        "model_timeout_events": [],
+        "needs_attention_events": []
+      },
+      "failure_summary": {
+        "build_status": "ready",
+        "build_error": "",
+        "task_status": "succeeded",
+        "task_error": "",
+        "task_failure": null,
+        "event_failures": [],
+        "provider_failure_event_count": 0,
+        "model_timeout_event_count": 0,
+        "timeout_like": false
+      },
+      "benchmark_report": {
+        "name": "E05 template reuse-depth code review comparison",
+        "passed": true,
+        "score": 0.85,
+        "pass_rate": 1.0,
+        "case_count": 1,
+        "failed_cases": [],
+        "reports": [
+          {
+            "name": "code review repair blockflow reuse_depth=deep",
+            "passed": true,
+            "score": 0.85,
+            "metrics": {
+              "node_type_coverage": 1.0,
+              "tool_node_coverage": 1.0,
+              "harness_coverage": 1.0,
+              "edge_similarity": 0.0,
+              "test_frame_coverage": 1.0,
+              "candidate_node_count": 3,
+              "reference_node_count": 3,
+              "node_type_equivalences": {
+                "end": [
+                  "answer"
+                ],
+                "model_turn": [
+                  "llm"
+                ]
+              }
+            },
+            "missing": {
+              "node_types": [],
+              "tool_nodes": [],
+              "harness_nodes": []
+            }
+          }
+        ],
+        "metrics": {
+          "average": {
+            "candidate_node_count": 3.0,
+            "edge_similarity": 0.0,
+            "harness_coverage": 1.0,
+            "node_type_coverage": 1.0,
+            "reference_node_count": 3.0,
+            "test_frame_coverage": 1.0,
+            "tool_node_coverage": 1.0
+          },
+          "minimum_score": 0.45,
+          "minimum_pass_rate": 0.0
+        },
+        "trends": [
+          {
+            "name": "code review repair blockflow reuse_depth=deep",
+            "score": 0.85,
+            "baseline_score": null,
+            "delta": null,
+            "direction": "new"
+          }
+        ],
+        "cost": {
+          "model_calls": 47,
+          "tool_calls": 57,
+          "estimated_cost_usd": null,
+          "provider": "deepseek",
+          "model": "",
+          "notes": "Counts come from Platform Harness task usage when available."
+        }
+      }
+    }
+  ],
+  "error": ""
+}
