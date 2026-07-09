@@ -5,11 +5,13 @@
 1. `PROJECT_EVOLUTION_STRATEGY.md`：文档分层、阶段归档和智力资产筛选规范。
 2. `stage-reports/`：小版本阶段报告，说明每个 stage 完成了什么、留下什么任务。
 3. `intellectual-assets/`：少而精的可复用结论，供后续 design 和 plan 引用。
-4. `workingon/`：当前 stage 的任务级 plan、中间实验和临时结果。
-5. `current-design/`：当前任务的具体设计和实现报告。
-6. `historical-designs/`：已经具备明确版本 state 的历史 design。
-7. `phase-reports/`：大版本完成后的总复盘和路线转向。
-8. `source-materials/`：早期长报告、会议材料、论文草稿和历史证据链。
+4. `experiment-status/`：当前版本实验闭环、已应用标记和原始实验 backlog 关闭状态。
+5. `workingon/`：当前 stage 的 active 中间结果工作区，归档后只保留 README。
+6. `workingon-archives/`：已归档的小版本 workingon 中间材料。
+7. `current-design/`：当前 stage 的 active design 工作区，归档后只保留 README。
+8. `historical-designs/`：已经具备明确版本 state 的历史 design。
+9. `phase-reports/`：大版本完成后的总复盘和路线转向。
+10. `source-materials/`：早期长报告、会议材料、论文草稿和历史证据链。
 
 ## 当前稳定资产
 
@@ -37,7 +39,12 @@
 - `stage-reports/v0.2.15_platform_harness_secret_policy.md`
 - `stage-reports/v0.2.16_platform_harness_network_egress_policy.md`
 - `stage-reports/v0.2.17_platform_harness_tool_egress_policy.md`
+- `stage-reports/v0.2.18_evolution_governance_and_workspace_archive.md`
 
 ## 使用原则
 
-新任务先进入未来的 `workingon/` task plan；需要审阅的实现细节进入未来的 `current-design/`；只有已经具备明确版本 state 的 design 才归入 `historical-designs/`；阶段结束后归档到 `stage-reports/`；只有经过筛选的复杂结论才进入 `intellectual-assets/`。
+新任务先由最新 `stage-reports/` 的 next-stage task set 确定；当前执行中间材料进入 `workingon/`；需要展开的具体实现计划进入 `current-design/`；只有已经具备明确版本 state 的 design 才归入 `historical-designs/`；阶段结束后归档到 `stage-reports/`；只有经过筛选的复杂结论才进入 `intellectual-assets/`。
+
+实验状态必须维护在 `experiment-status/`。active `workingon/experiment-*` 只保存进行中的实验过程；完成后的 DOCX 报告和 raw evidence 进入 `experiment-status/`，不能替代实验闭环台账。已经用于工程改进的实验必须标记 `已应用` 或 `验证应用`，并补充证据链。
+
+归档后，`current-design/` 和 `workingon/` 必须只保留 README。旧 design 与中间材料分别进入 `historical-designs/` 和 `workingon-archives/`。

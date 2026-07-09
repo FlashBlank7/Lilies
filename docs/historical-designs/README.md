@@ -27,3 +27,9 @@
 - `v0.2.15_*`：来自 `docs/stage-reports/v0.2.15_platform_harness_secret_policy.md`。
 - `v0.2.16_*`：来自 `docs/stage-reports/v0.2.16_platform_harness_network_egress_policy.md`。
 - `v0.2.17_*`：来自 `docs/stage-reports/v0.2.17_platform_harness_tool_egress_policy.md`。
+- `v0.2.18_*`：来自 `docs/stage-reports/v0.2.18_evolution_governance_and_workspace_archive.md`。
+
+Active workspace rule:
+
+- `docs/current-design/` must be empty except README after every stage archive.
+- Historical design files live here, not in the active design workspace.

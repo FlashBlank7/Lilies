@@ -12,7 +12,7 @@ Lilies 的开发流程要从“做完一个需求后留下零散记录”转向�
 
 1. 区分已完成任务和未完成任务，避免阶段交接时靠记忆判断。
 2. 把已完成任务总结成可复用的项目知识，而不是只留下代码 diff。
-3. 把未完成任务整理为下一阶段可执行的 plan。
+3. 把未完成任务整理为下一阶段 stage report 的 next-stage task set。
 4. 把复杂实验、架构演进和深度研究提炼为少而精的智力资产。
 
 ## 2. 文档层级
@@ -21,9 +21,9 @@ Lilies 的文档分为五个层级。层级越高，越像稳定结论；层级�
 
 ```text
 phase-reports/          大版本报告：v0.2.0 -> v0.3.0 级别的阶段主线复盘
-  └─ stage-reports/     小版本报告：v0.2.1、v0.2.2 级别的阶段总结
-      └─ workingon/     当前 stage 的任务 plan、中间实验、细节完成记录
-          └─ current-design/  某个任务 plan 下的具体设计和实现报告
+  └─ stage-reports/     小版本报告：唯一的下一阶段任务来源
+      ├─ workingon/     当前 stage 的中间结果和执行证据
+      └─ current-design/  当前 stage accepted task 的具体设计
 
 intellectual-assets/    跨阶段可复用的高价值智力资产
 ```
@@ -34,8 +34,11 @@ intellectual-assets/    跨阶段可复用的高价值智力资产
 | --- | --- | --- |
 | `docs/phase-reports/` | 大版本 | 巨大版本更新完成后的总复盘、路线转向和下一大版本目标。 |
 | `docs/stage-reports/` | 小版本 | 大版本内一个阶段完成后的阶段报告。 |
-| `docs/workingon/` | 当前工作区 | 当前 stage 的任务级 plan、中间实验报告、细节完成情况和临时判断。 |
-| `docs/current-design/` | 具体设计 | 服务于某个任务 plan 的详细设计和实现报告，可被审阅、实现和回溯。 |
+| `docs/workingon/` | 当前工作区 | 当前 stage 的中间实验、实现证据、细节完成情况和临时判断；不具备下一阶段指导权。 |
+| `docs/current-design/` | 具体设计 | 服务于某个 accepted task 的详细设计和实现计划；不具备下一阶段指导权。 |
+| `docs/historical-designs/` | 历史设计 | 已经具备版本 state 的历史 design，按版本归档。 |
+| `docs/workingon-archives/` | 历史中间结果 | 已完成小版本的 workingon 中间材料，按版本归档。 |
+| `docs/experiment-status/` | 实验台账 | 实验 backlog、完成状态、DOCX 报告、raw evidence 和已应用标记。 |
 | `docs/intellectual-assets/` | 智力资产 | 经过复杂过程才获得、跨阶段可复用的高价值结论。 |
 
 本规范不要求立即创建这些目录；执行对应工作或归档时再创建。
@@ -64,7 +67,7 @@ phase 代表一次方向明确的大演进，例如：
 
 `stage` 是 phase 中的小阶段，对应 `v0.2.1`、`v0.2.2`、`v0.2.3` 这样的版本。它代表一组相关任务完成后的可交接节点。
 
-一个 stage 可以包含很多中间工作。每个中间工作都应该至少有一个任务级 plan；复杂任务还要展开为具体设计文档。
+一个 stage 可以包含多个问题。上一份 stage report 的 next-stage task set 必须先完整处置：每个任务标记为 accepted、blocked、deferred 或 superseded；每个 accepted task 都要展开为一个或多个具体设计文档。
 
 一个 stage 完成后，必须生成 `stage-report`。它回答：
 
@@ -75,15 +78,17 @@ phase 代表一次方向明确的大演进，例如：
 - 哪些任务进入下一 stage？
 - 是否产生智力资产候选？
 
-### 3.3 Task Plan：任务级计划
+### 3.3 Workingon：当前执行记录
 
-任务级 plan 是 `workingon` 的基本工作单元。只要一个中间工作需要独立判断目标、范围、实现路径或验收方式，就需要写 plan。
+`workingon` 是当前 stage 的执行记录。它可以写清楚本 stage 的目标、范围、任务处置、实现证据和实验过程，但它不能决定下一阶段做什么。
 
-任务级 plan 不等同于聊天里的计划。它应该固化在 repo 中，方便后续审阅、复盘和归档。
+下一阶段指导权只属于最新 stage report。`workingon` 中可以记录“当前设计是否继续、修正或阻塞”，但不能写成新的路线图。
 
 ### 3.4 Current Design：具体设计
 
-某个任务 plan 下的具体细节，如果需要被实现者反复参照，就应该展开为 `current-design`。
+某个 accepted task 下的具体细节，如果需要被实现者反复参照，就应该展开为 `current-design`。
+
+`current-design` 只把一个任务展开成具体实现计划和验收标准。它不能选择下一版本、排序下一阶段任务或承担路线图功能。
 
 设计文档可以向上引用 `intellectual-assets`，例如：
 
@@ -95,11 +100,11 @@ phase 代表一次方向明确的大演进，例如：
 
 ### 4.1 `docs/workingon/`
 
-`workingon` 是当前 stage 的工作区。它保存尚未归档的计划、实验、实现细节和阶段性证据。
+`workingon` 是当前 stage 的工作区。它保存尚未归档的实验、实现细节、阶段性证据和任务处置表。
 
 可以放：
 
-- `plan_<task-topic>.md`
+- `work_<task-topic>.md`
 - `experiment_<topic>.md`
 - `result_<topic>.md`
 - `implementation_<topic>.md`
@@ -111,12 +116,14 @@ phase 代表一次方向明确的大演进，例如：
 - 已经完成归档的 stage report
 - 精炼后的智力资产
 - 与当前 stage 无关的长期设计基线
+- 下一阶段任务路线图
+- 已完成小版本的历史中间文件
 
 当用户说“归档 workingon 文件夹”时，`workingon` 是主要输入。
 
 ### 4.2 `docs/current-design/`
 
-`current-design` 保存当前开发内容的具体设计与实现报告。它比 task plan 更细，面向审阅和实现。
+`current-design` 保存当前开发内容的具体设计与实现计划。它面向审阅和实现，但不是路线图。
 
 可以放：
 
@@ -130,19 +137,20 @@ phase 代表一次方向明确的大演进，例如：
 - 普通阶段总结
 - 未验证的灵感碎片
 - 已经被大阶段吸收且不再需要独立维护的旧设计
+- 下一阶段任务池或版本推进指令
 
-过期设计不一定删除，但必须在对应 stage report 中说明状态：已实现、部分实现、废弃、被新设计替代。
+过期设计归档到 `docs/historical-designs/`，并在对应 stage report 中说明状态：已实现、部分实现、废弃、被新设计替代、阻塞或延期。小版本归档后，active `current-design/` 必须只剩 README。
 
 ### 4.3 `docs/stage-reports/`
 
 `stage-reports` 保存小版本报告。每个 stage report 是一个阶段的归档出口。
 
-它必须把 `workingon` 中分散的 plan、实验和结果整理为：
+它必须把 `workingon` 中分散的任务处置、实验和结果整理为：
 
 - 完成事项
 - 证据
 - 未完成事项
-- 下一阶段任务
+- 下一阶段任务。只有 stage report 具备下一阶段指导权。
 - 智力资产候选
 
 stage report 不应该复制所有中间材料。它应该总结、筛选和链接。
@@ -194,18 +202,20 @@ phase report 是团队判断“项目已经从 `v0.2.0` 进入 `v0.3.0`”这类
 | --- | --- | --- |
 | Phase report | `v0.<minor>.0_<theme>.md` | `v0.3.0_document_driven_development.md` |
 | Stage report | `v0.<minor>.<patch>_<stage-topic>.md` | `v0.2.3_platform_harness_boundary.md` |
-| Task plan | `plan_<task-topic>.md` | `plan_builder_benchmark_v1.md` |
+| Workingon execution record | `work_<task-topic>.md` | `work_builder_benchmark_v1.md` |
 | Experiment report | `experiment_<topic>.md` | `experiment_graph_similarity_eval.md` |
 | Result report | `result_<topic>.md` | `result_scheduler_token_boundary.md` |
 | Implementation note | `implementation_<topic>.md` | `implementation_run_cancel_path.md` |
 | Current design | `design_<component-or-flow>.md` | `design_platform_harness_budget.md` |
+| Historical design | `v0.<minor>.<patch>_design_<topic>.md` | `v0.2.18_design_archive_cleanup_v1.md` |
 | Intellectual asset | `asset_<stable-topic>.md` | `asset_task_monitor_boundary.md` |
 
 命名要求：
 
 - 使用英文小写、数字和下划线。
-- 版本号只用于 `phase-reports` 和 `stage-reports`。
-- `workingon` 中的文件不带版本号，归档时由 stage report 接管版本语义。
+- 版本号用于 `phase-reports`、`stage-reports`、`historical-designs` 和 `workingon-archives`。
+- active `workingon` 中的文件不带版本号，归档时进入 `workingon-archives/v<version>/`。
+- historical design 必须使用版本/state 命名，不用日期作为主文件名。
 - 智力资产文件名必须稳定，不跟随某个短期任务命名。
 
 ## 6. 归档规则
@@ -217,14 +227,14 @@ phase report 是团队判断“项目已经从 `v0.2.0` 进入 `v0.3.0`”这类
 也可以在以下场景主动建议归档：
 
 - 一个 stage 的主要任务已经完成。
-- `workingon` 中积累了多个 plan 和实验，已经影响后续检索。
+- `workingon` 中积累了多个任务处置记录和实验，已经影响后续检索。
 - 项目方向准备切换，需要把当前工作变成下一阶段输入。
 
 ### 6.2 输入
 
 归档输入包括：
 
-- `docs/workingon/` 中的 task plan、实验报告、结果报告、实现记录。
+- `docs/workingon/` 中的任务处置、实验过程、结果报告、实现记录。
 - `docs/current-design/` 中与当前 stage 相关的具体设计。
 - 已完成的代码、测试、运行结果、Word 报告或其他证据。
 - 相关的 `LANGUAGE_SYSTEM.md`、既有设计文档和外部研究报告。
@@ -233,21 +243,28 @@ phase report 是团队判断“项目已经从 `v0.2.0` 进入 `v0.3.0`”这类
 
 归档时按以下顺序处理：
 
-1. 列出当前 stage 的所有任务级 plan。
-2. 对每个任务标记状态：已完成、部分完成、未完成、废弃、转入下一 stage。
+1. 列出上一份 stage report 的完整 next-stage task set。
+2. 对每个任务标记状态：accepted、blocked、deferred、superseded。
+3. 对每个 accepted task 检查是否已经展开为 current-design 并切实完成。
 3. 收集完成证据：代码路径、测试结果、报告、截图、实验输出、运行记录。
 4. 把完成内容总结为 stage report。
 5. 把未完成内容整理为下一 stage 任务池。
-6. 筛选智力资产候选。
-7. 判断是否已完成一个 phase；如果是，再生成 phase report。
+6. 把 active current-design 回收到 `historical-designs/`。
+7. 把 active workingon 中间材料回收到 `workingon-archives/v<version>/` 或 `experiment-status/`。
+8. 确认 active `current-design/` 和 `workingon/` 只剩 README。
+9. 筛选智力资产候选。
+10. 判断是否已完成一个 phase；如果是，再生成 phase report。
 
 ### 6.4 输出
 
 一次归档最多产生三类稳定输出：
 
 1. 一个新的 stage report。
-2. 一个新的 phase report，如果大版本确实完成。
-3. 少量 intellectual assets，如果存在高价值可复用结论。
+2. 一组版本化 historical design，如果本 stage 有 design。
+3. 一组版本化 workingon archive，如果本 stage 有中间材料。
+4. 更新后的 experiment-status，如果涉及实验。
+5. 一个新的 phase report，如果大版本确实完成。
+6. 少量 intellectual assets，如果存在高价值可复用结论。
 
 普通中间材料不应直接复制到稳定目录。稳定目录应该保存总结、证据链接和可复用结论。
 
@@ -329,41 +346,53 @@ v0.(x+1).0 应该完成什么。
 - task 1
 - task 2
 
+本 section 是下一阶段唯一的任务来源。下一次演进必须先完整处置这里的所有任务，不能只挑一个方便任务开始实现。
+
 ## 6. 智力资产候选
 
 | 候选 | 是否进入 intellectual-assets | 理由 |
 | --- | --- | --- |
 ```
 
-### 7.3 Task plan 模板
+### 7.3 Workingon 执行记录模板
 
 ```md
-# plan_<task-topic>
+# work_<task-topic>
 
 ## 1. 目标
 
-这个任务要完成什么。
+本 stage 要完成什么。
 
 ## 2. 范围
 
 包含什么，不包含什么。
 
-## 3. 关键决策
+## 3. 全量任务处置
 
-- decision 1
-- decision 2
+来源 stage report：
 
-## 4. 实现路径
+| 下一阶段任务 | 处置 | 对应 current-design | 理由 |
+| --- | --- | --- | --- |
 
-步骤、模块、数据流或文档流。
+必须列出来源 stage report 的每个 next-stage task。
 
-## 5. 依赖设计
+## 4. 执行证据
 
-引用哪些 `current-design` 或 `intellectual-assets`。
+- 代码路径
+- 测试结果
+- 实验记录
 
-## 6. 验收标准
+## 5. 设计执行状态
 
-如何判断完成。
+| Design | 状态 | 证据 | 是否可进入下一个 design |
+| --- | --- | --- | --- |
+
+## 6. 归档前检查
+
+- 所有任务已处置：yes/no
+- 所有 accepted task 已展开成 design：yes/no
+- 所有 accepted design 已完成或明确阻塞/延期：yes/no
+- 本文件只记录当前 stage 证据，不指导下一阶段：yes/no
 ```
 
 ### 7.4 Current design 模板
@@ -389,7 +418,8 @@ v0.(x+1).0 应该完成什么。
 
 ## 5. 实现方案
 
-具体结构、接口、状态、错误处理。
+- 步骤、模块、数据流或文档流。
+- 状态、错误处理、权限、预算、观测和回滚边界。
 
 ## 6. 引用的智力资产
 
@@ -401,7 +431,11 @@ v0.(x+1).0 应该完成什么。
 
 ## 8. 验收标准
 
-实现后如何验证。
+如何判断完成。
+
+## 9. 无下一阶段指导权
+
+本 design 只展开一个 accepted task，不能选择、排序或指导下一阶段任务。
 ```
 
 ### 7.5 Intellectual asset 模板
@@ -477,13 +511,15 @@ source materials 保存原文和证据链；stage report 说明阶段完成了�
 
 ## 9. 运行纪律
 
-1. 开始一个复杂任务前，先在 `workingon` 写 task plan。
-2. 任务需要细节审阅时，再写 `current-design`。
-3. 设计文档需要引用稳定原则时，优先引用 `intellectual-assets`，不要在每个设计里重复长篇理论。
-4. 完成一个小阶段时，归档为 `stage-report`。
-5. 完成一个大版本时，汇总为 `phase-report`。
-6. 智力资产必须经筛选，不以数量为目标。
-7. 阶段报告负责承接过程，智力资产负责承接可复用结论。
+1. 开始一个复杂 stage 前，先读取最新 `stage-report` 的完整 next-stage task set。
+2. 在 `workingon` 写当前 stage 的任务处置和执行证据，但不要把它写成下一阶段路线图。
+3. 每个 accepted task 都要展开为 `current-design`，并逐个完成或明确阻塞/延期。
+4. `current-design` 只负责具体设计，不负责下一步任务选择。
+5. 设计文档需要引用稳定原则时，优先引用 `intellectual-assets`，不要在每个设计里重复长篇理论。
+6. 完成一个小阶段时，归档为 `stage-report`，并回收 current-design 与 workingon。
+7. 完成一个大版本时，汇总为 `phase-report`。
+8. 智力资产必须经筛选，不以数量为目标。
+9. 阶段报告负责承接过程和下一阶段任务，智力资产负责承接可复用结论。
 
 ## 10. 验收标准
 
@@ -493,5 +529,6 @@ source materials 保存原文和证据链；stage report 说明阶段完成了�
 2. 当用户说“归档 workingon 文件夹”时，执行者知道输入、处理顺序和输出位置。
 3. 一个大版本是否完成，不靠口头感觉，而靠 `phase-report`。
 4. 一个小阶段是否完成，不靠聊天记录，而靠 `stage-report`。
-5. 一个具体设计为什么这么做，可以向上追溯到 task plan 和必要的 intellectual asset。
-6. 智力资产数量少，但每一份都能支撑后续多个设计或阶段决策。
+5. 一个具体设计为什么这么做，可以向上追溯到 stage report、workingon 任务处置和必要的 intellectual asset。
+6. 每次小版本归档后，active `current-design/` 和 `workingon/` 只剩 README。
+7. 智力资产数量少，但每一份都能支撑后续多个设计或阶段决策。

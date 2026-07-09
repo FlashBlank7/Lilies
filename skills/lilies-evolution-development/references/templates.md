@@ -14,24 +14,43 @@
 | Plan | Current design | Status | Acceptance |
 | --- | --- | --- | --- |
 
-## 4. Evidence
+## 4. Full Task Set Disposition
 
-## 5. Design Execution Decisions
+Source stage report:
+
+| Next-stage task | Disposition | Current-version design(s) | Reason |
+| --- | --- | --- | --- |
+
+Every next-stage task must be listed. Do not start implementation if any task is missing from this table.
+
+## 5. Evidence
+
+## 6. Design Execution Decisions
 
 | Design | Decision | Reason | Next action |
 | --- | --- | --- | --- |
 
-## 6. Review Before Archive
+## 7. Review Before Archive
 
 - Completion summary:
 - Files changed:
 - Verification:
 - Remaining risk:
+- All next-stage tasks dispositioned: yes/no
+- All accepted tasks expanded into designs: yes/no
+- Every accepted design completed or explicitly blocked/deferred: yes/no
+- Engineering closure level claimed:
+- Engineering closure actually achieved:
+- Partial slices carried forward:
+- Active current-design will be cleared after archive: yes/no
+- Active workingon will be cleared after archive: yes/no
+- Minor version target closure: completed / partial / blocked / deferred
+- Experiment deliverables, if any:
 - Awaiting user review before archive: yes
 
-## 7. Archive Conditions
+## 8. Archive Conditions
 
-## 8. Automatic Evolution
+## 9. Automatic Evolution
 
 - Automatic Evolution Mode active: yes/no
 - Current version:
@@ -56,6 +75,13 @@
 ## 5. Acceptance Criteria
 
 ## 6. Referenced Intellectual Assets
+
+## 7. No Next-stage Authority
+
+- This design expands one accepted task only.
+- It must not select, rank, or guide next-stage work.
+- It must not contain "next version" instructions.
+- Next-stage guidance belongs in the stage report only.
 ```
 
 ## Experiment Record
@@ -71,7 +97,14 @@
 
 ## 4. Decision Impact
 
-## 5. Follow-up
+## 5. Application Status
+
+- Application marker: not applied / 已应用 / 验证应用
+- Engineering change, if applied:
+- Evidence chain:
+- Report supplement updated: yes/no
+
+## 6. Follow-up
 ```
 
 ## Implementation Evidence
@@ -98,9 +131,77 @@
 
 ## 6. Next Design Decision
 
-- Decision: continue current design / revise current design / update workingon direction / proceed to next design
-- Reason:
-- Next action:
+- Current design status: completed / revise current design / blocked
+- Evidence:
+- Next-stage guidance: prohibited here; record it in the stage report only.
+```
+
+## Rapid Result Report
+
+```markdown
+# result_<topic>
+
+## 1. Overall Verdict
+
+## 2. Source Scope
+
+- Target baseline or question:
+- Documents read:
+- Latest authoritative stage:
+
+## 3. Item Status
+
+| Item | Status | Evidence | Gap / Next Action |
+| --- | --- | --- | --- |
+
+## 4. Cross-cutting Findings
+
+## 5. Recommended Next Actions
+
+## 6. Confidence / Caveats
+```
+
+## Experiment Status Ledger
+
+```markdown
+# v0.x Experiment Status
+
+更新时间:
+当前最新 stage:
+
+## 1. Overall Verdict
+
+## 2. Original Backlog Status
+
+| ID | Topic | Status | Evidence | Next Step |
+| --- | --- | --- | --- | --- |
+
+## 3. Completed Experiment Reports
+
+| Experiment | Application Marker | Report | Raw Evidence | Engineering Application |
+| --- | --- | --- | --- | --- |
+
+## 4. Applied Evidence Chains
+
+### <experiment> -> <engineering change>
+
+- Application marker:
+- Experiment stage:
+- Result:
+- Engineering change:
+- Code anchors:
+- Verification:
+- Remaining caveat:
+
+## 5. Current Version Open Items
+
+## 6. Stage Archive Gate
+
+- Stage created/changed experiments:
+- Stage used experiment results for engineering:
+- Ledger updated:
+- Original backlog items closed:
+- Items carried forward:
 ```
 
 ## Stage Report
@@ -120,14 +221,40 @@
 | Item | Reason | Next Step |
 | --- | --- | --- |
 
-## 4. Next-stage Tasks
+## 4. Minor Version Completion Gate
 
-## 5. Intellectual Asset Candidates
+- Original version target:
+- Full next-stage task set source:
+- Full next-stage task set listed in workingon: yes/no
+- Every task dispositioned as accepted/blocked/deferred/superseded: yes/no
+- Stage report next-task set fully expanded into designs: yes/no
+- Unexpanded next-stage tasks and reasons:
+- Engineering closure level claimed: backend slice / vertical slice / platform boundary / product capability / research experiment
+- Engineering closure actually achieved:
+- Backend/code closure: yes/no
+- UI/API closure: yes/no/not applicable
+- Harness/operations closure: yes/no/not applicable
+- Verification closure: yes/no
+- Evidence closure: yes/no
+- Completed as claimed: yes/no
+- Only prerequisite completed: yes/no
+- Experiment deliverables required: yes/no
+- Experiment reports produced:
+- Experiment status ledger updated: yes/no
+- Experiments applied to engineering:
+- Applied markers recorded: yes/no
+- Experiment reports supplemented with evidence chain: yes/no
+- Current-design acceptance fully met: yes/no
+- Carry-forward reason, if any:
+
+## 5. Next-stage Tasks
+
+## 6. Intellectual Asset Candidates
 
 | Candidate | Evidence Chain | Decision |
 | --- | --- | --- |
 
-## 6. Historical Designs
+## 7. Historical Designs
 
 Archive readiness:
 
@@ -138,19 +265,34 @@ Archive readiness:
 | Historical design path | Source current-design | Final status | Evidence |
 | --- | --- | --- | --- |
 
-## 7. Archive Commit
+## 8. Workingon Archive
+
+| Archive path | Source path | Contents | Evidence |
+| --- | --- | --- | --- |
+
+Active `docs/workingon/` after archive:
+
+- Only README remains: yes/no
+
+Active `docs/current-design/` after archive:
+
+- Only README remains: yes/no
+
+## 9. Archive Commit
 
 - Auto commit required: yes
 - Staged paths verified with `git diff --cached --name-status`: yes/no
 - Commit message:
 - Commit hash:
 
-## 8. Automatic Evolution Handoff
+## 10. Automatic Evolution Handoff
 
 - Automatic Evolution Mode active: yes/no
 - Continue to next version: yes/no
 - Next version:
-- Next task source:
+- Authoritative next task source: this stage report only
+- Next-stage task set:
+- Required first action in next version: expand the full next-stage task set into workingon and current-design files before implementation
 - First workingon file to create/update:
 ```
 
