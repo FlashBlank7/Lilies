@@ -54,6 +54,7 @@
 - `v0.2.42_*`：来自 `docs/stage-reports/v0.2.42_builder_build_level_watchdog.md`。
 - `v0.2.43_*`：来自 `docs/stage-reports/v0.2.43_e05_multifamily_with_build_watchdog.md`。
 - `v0.2.44_*`：来自 `docs/stage-reports/v0.2.44_customer_support_template_reuse_repair.md`。
+- `v0.2.45_*`：来自 `docs/stage-reports/v0.2.45_customer_support_e05_repair_rerun.md`。
 
 Active workspace rule:
 
