@@ -1,0 +1,39 @@
+# E05 Template Reuse Depth Ledger
+
+状态：多轮 paid/live 完成并触发工程修复；deep customer-support deadline slice 已闭环，原始质量收益未关闭
+
+## 当前结论
+
+Template reuse 已证明会改变 Builder 行为，也证明 marketplace expandability contract、timeout boundary、build deadline 和 customer-support guardrails 是必要工程边界。当前证据仍不支持“reuse depth 越深越好”，但可以给出更窄也更准确的结论：在 customer-support family 中，deep path 经过 teammate deadline/repair-budget governance 后已能在同预算下回到 `ready`；下一步真正未回答的是 shallow/default 策略是否能在更多任务族中保持稳定。
+
+## 关键证据
+
+| 切片 | 标记 | 报告 | 默认摘要 |
+| --- | --- | --- | --- |
+| artifact review | 未关闭 | `../reports/2026-07-09_1809_E05_template_reuse_depth_artifact_review.docx` | `../evidence/experiment_v0.2.29_formal_tranche_summary_2026_07_09.json` |
+| first live comparison | 已应用窄修复 | `../reports/2026-07-09_2051_E05_template_reuse_depth_live_comparison.docx` | `../evidence/experiment_v0.2.38_e05_template_reuse_depth_2026_07_09_summary.md` |
+| expandability fix validation | 验证应用 | `../reports/2026-07-09_2305_E05_after_expandability_fix_validation.docx` | `../evidence/experiment_v0.2.39_e05_after_expandability_fix_2026_07_09_summary.md` |
+| timeout success condition | 验证应用 | `../reports/2026-07-09_2311_E05_success_condition_after_timeout_boundary.docx` | `../evidence/experiment_v0.2.41_e05_success_condition_2026_07_09_summary.md` |
+| customer-support second family | 验证应用 | `../reports/2026-07-10_0024_E05_customer_support_reuse_depth.docx` | `../evidence/experiment_v0.2.43_e05_customer_support_2026_07_09_summary.md` |
+| customer-support rerun | 验证应用 | `../reports/2026-07-10_0103_E05_customer_support_rerun_after_guardrails.docx` | `../evidence/experiment_v0.2.45_e05_customer_support_rerun_2026_07_10_summary.md` |
+| customer-support deep governance closure | 已应用/验证应用 | `../reports/2026-07-10_0302_E05_customer_support_deep_teammate_governance.docx` | `../evidence/experiment_v0.2.46_e05_customer_support_deep_only_teammate_governance_2026_07_10_summary.md` |
+
+## 已应用工程
+
+- v0.2.39：Builder `template_list`/`template_expand` 支持 marketplace Template，并返回 `source`。
+- v0.2.40：provider timeout 能被 runtime event、Builder event、Platform Harness metadata 记录。
+- v0.2.42：Builder build request 支持 whole-build deadline。
+- v0.2.44：E05 result JSON 语义拆分，`template_expand` 返回合同/验证摘要，Builder 阻止删除 mandatory test 仍依赖的唯一 required node type。
+- v0.2.46：Builder teammate work受 repair budget 和剩余 build deadline 共同约束；teammate-side `test_run` 达到 `maximum repair cycles reached` 后不再继续长尾 debug。
+
+## 关键结果
+
+- v0.2.38：`none` published 且最低成本；`shallow/deep` 因 mandatory tests 失败，触发 expandability contract 修复。
+- v0.2.39：`deep` published，`shallow/deep` 均成功展开 marketplace `code_reviewer`。
+- v0.2.41：`shallow` published 且成本最低；`deep` ready 但更贵；`none` 失败来自 provider timeout。
+- v0.2.45：`none` published 且 benchmark pass；`shallow` ready；`deep` benchmark-clean 但 hit `BuildDeadlineExceeded`。
+- v0.2.46：customer-support `deep` 在相同预算族下回到 `ready`，耗时从 `602.071s` 降到 `482.221s`；full-suite breadth 仍需独立关闭。
+
+## 下一步
+
+关闭 E05 前需要更多任务族，以及更清楚的默认策略判断：何时 `shallow` 足够、何时允许 `deep`、何时要拆成模块化复用或更强预算门控。

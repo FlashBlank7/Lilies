@@ -30,7 +30,19 @@
 | `阻塞` | 缺模型、数据、工具、权限或成本边界，不能继续。 |
 | `替代` | 被更新、更准确的实验设计取代。 |
 
-## 3. 每阶段维护规则
+## 3. 读取与维护结构
+
+当前采用“索引 + 单实验 ledger + raw summary”结构：
+
+- `v0.2_experiment_status.md`：只保留总览、状态表、关键证据链接和下一步。
+- `ledgers/<experiment>.md`：保存单个实验的状态、证据链、应用标记和关闭边界。
+- `evidence/*_summary.md`：raw JSON 的小摘要，保留 arm、status、calls、failure、benchmark、结论等日常字段。
+- `evidence/*.json`：完整原始证据，只在争议、字段缺失或需要复盘完整事件轨迹时读取。
+- `scripts/summarize_experiment_evidence.py`：为 evidence 目录中的 raw JSON 批量生成或刷新 `*_summary.md`。
+
+常规自动演进默认读取索引、ledger 和 summary，不直接读取 raw JSON。
+
+## 4. 每阶段维护规则
 
 每个 stage 结束前必须更新当前版本实验状态文件，例如：
 
@@ -47,7 +59,7 @@
 
 如果 stage 目标包含实验，但实验报告没有产生，stage report 不能把该实验写成完成，只能写成 `部分实现`、`延期` 或 `阻塞`。
 
-## 4. 已应用标记
+## 5. 已应用标记
 
 当实验结果被用于工程改进时，必须记录：
 

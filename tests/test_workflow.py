@@ -16,6 +16,11 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
+from agent_platform.builder import (
+    TEAMMATE_MIN_REMAINING_SECONDS,
+    TEAMMATE_REPAIR_BUDGET_EXHAUSTED_REASON,
+    WorkflowBuilder,
+)
 from agent_platform.api import create_app
 from agent_platform.blocks import build_block_registry
 from agent_platform.config import Settings
@@ -26,6 +31,7 @@ from agent_platform.sandbox import CommandResult
 from agent_platform.storage import Storage
 from agent_platform.tools import Tool, ToolContext, ToolResult
 from agent_platform.worker_runner import PlatformHarnessWorkerRunner, build_platform_worker_handlers, run_worker_once
+from agent_platform.workflow_models import BuildTeamState
 from agent_platform.workflow_runtime import WorkflowRuntime
 from tests.test_runtime import ScriptedProvider
 
@@ -265,6 +271,149 @@ class SlowBuilderProvider(ModelProvider):
     ) -> AsyncIterator[StreamEvent]:
         await asyncio.sleep(1)
         yield StreamEvent(type="message_start", data={"message": {"usage": {"input_tokens": 1}}})
+
+
+class TeammateRepairBudgetBuilderProvider(ModelProvider):
+    name = "deepseek"
+
+    def __init__(self) -> None:
+        self.calls_by_user_id: dict[str, int] = {}
+
+    def capabilities(self, model: str) -> ProviderCapabilities:
+        return ProviderCapabilities(True, True, True, False, False, 100_000, 10_000)
+
+    async def stream(
+        self,
+        *,
+        model: str,
+        system: str,
+        messages: list[ChatMessage],
+        tools: list[ToolDefinition],
+        max_output_tokens: int,
+        thinking_enabled: bool,
+        effort: str,
+        tool_choice: dict[str, str] | None = None,
+        user_id: str | None = None,
+    ) -> AsyncIterator[StreamEvent]:
+        assert user_id is not None
+        self.calls_by_user_id[user_id] = self.calls_by_user_id.get(user_id, 0) + 1
+        call_number = self.calls_by_user_id[user_id]
+        yield StreamEvent(type="message_start", data={"message": {"usage": {"input_tokens": 1}}})
+
+        if user_id.endswith("-coordinator"):
+            operations = [
+                ("draft_add_node", {"node": {
+                    "id": "start",
+                    "type": "start",
+                    "title": "Input",
+                    "config": {"inputs": [{"name": "name", "type": "string"}]},
+                }}),
+                ("draft_add_node", {"node": {
+                    "id": "template",
+                    "type": "template_transform",
+                    "title": "Greeting",
+                    "config": {
+                        "template": "Hello {{ name }}",
+                        "variables": {"name": {"$ref": {"node_id": "start", "path": ["name"]}}},
+                    },
+                }}),
+                ("draft_add_node", {"node": {
+                    "id": "end",
+                    "type": "end",
+                    "title": "End",
+                    "config": {"outputs": {"greeting": {"$ref": {"node_id": "template", "path": ["text"]}}}},
+                }}),
+                ("draft_connect", {"edge": {
+                    "id": "a",
+                    "source": "start",
+                    "target": "template",
+                    "source_port": "output",
+                    "target_port": "input",
+                }}),
+                ("draft_connect", {"edge": {
+                    "id": "b",
+                    "source": "template",
+                    "target": "end",
+                    "source_port": "text",
+                    "target_port": "input",
+                }}),
+                ("test_add", {"test": {
+                    "id": "failing_greeting",
+                    "name": "Failing greeting",
+                    "requirement": "The workflow still fails and needs teammate debugging.",
+                    "inputs": {"name": "Ada"},
+                    "assertions": [{"path": ["greeting"], "operator": "equals", "expected": "Goodbye Ada"}],
+                    "required_node_types": ["start", "template_transform", "end"],
+                }}),
+                ("spawn_teammate", {
+                    "name": "debug-runner",
+                    "task": "Investigate the failing test without rebuilding the draft from scratch.",
+                    "max_turns": 6,
+                }),
+            ]
+            if call_number <= len(operations):
+                name, value = operations[call_number - 1]
+                yield StreamEvent(type="content_block_start", data={
+                    "index": 0,
+                    "content_block": {"type": "tool_use", "id": f"coord-{call_number}", "name": name, "input": {}},
+                })
+                yield StreamEvent(type="content_block_delta", data={
+                    "index": 0,
+                    "delta": {"type": "input_json_delta", "partial_json": json.dumps(value)},
+                })
+                yield StreamEvent(type="content_block_stop", data={"index": 0})
+                yield StreamEvent(type="message_delta", data={
+                    "delta": {"stop_reason": "tool_use"},
+                    "usage": {"output_tokens": 1},
+                })
+                return
+            yield StreamEvent(type="content_block_start", data={
+                "index": 0,
+                "content_block": {"type": "text", "text": "done"},
+            })
+            yield StreamEvent(type="content_block_delta", data={
+                "index": 0,
+                "delta": {"type": "text_delta", "text": "done"},
+            })
+            yield StreamEvent(type="message_delta", data={
+                "delta": {"stop_reason": "end_turn"},
+                "usage": {"output_tokens": 1},
+            })
+            return
+
+        operations = [
+            ("test_run", {}),
+            ("test_run", {}),
+            ("draft_inspect", {}),
+        ]
+        if call_number <= len(operations):
+            name, value = operations[call_number - 1]
+            yield StreamEvent(type="content_block_start", data={
+                "index": 0,
+                "content_block": {"type": "tool_use", "id": f"mate-{call_number}", "name": name, "input": {}},
+            })
+            yield StreamEvent(type="content_block_delta", data={
+                "index": 0,
+                "delta": {"type": "input_json_delta", "partial_json": json.dumps(value)},
+            })
+            yield StreamEvent(type="content_block_stop", data={"index": 0})
+            yield StreamEvent(type="message_delta", data={
+                "delta": {"stop_reason": "tool_use"},
+                "usage": {"output_tokens": 1},
+            })
+            return
+        yield StreamEvent(type="content_block_start", data={
+            "index": 0,
+            "content_block": {"type": "text", "text": "teammate done"},
+        })
+        yield StreamEvent(type="content_block_delta", data={
+            "index": 0,
+            "delta": {"type": "text_delta", "text": "teammate done"},
+        })
+        yield StreamEvent(type="message_delta", data={
+            "delta": {"stop_reason": "end_turn"},
+            "usage": {"output_tokens": 1},
+        })
 
 
 class ManualSkippingBuilderProvider(ModelProvider):
@@ -3791,6 +3940,85 @@ def test_builder_build_level_watchdog_records_harness_metadata(tmp_path: Path) -
             event for event in events if event["type"] == "build.needs_attention"
         ]
         assert needs_attention[0]["data"]["failure"]["type"] == "build_timeout"
+
+
+def test_builder_teammate_guard_reason_blocks_repair_budget_exhaustion() -> None:
+    state = BuildTeamState(
+        revision=7,
+        repair_cycles=2,
+        last_failed_test_revision=7,
+    )
+
+    reason = WorkflowBuilder._teammate_guard_reason(
+        state,
+        max_repair_cycles=2,
+        build_started_at=None,
+        max_elapsed_seconds=None,
+    )
+
+    assert reason is not None
+    assert "repair budget exhausted" in reason
+
+
+def test_builder_teammate_guard_reason_blocks_low_deadline_budget(monkeypatch: pytest.MonkeyPatch) -> None:
+    state = BuildTeamState(revision=1)
+    monkeypatch.setattr("agent_platform.builder.time.monotonic", lambda: 195.0)
+
+    reason = WorkflowBuilder._teammate_guard_reason(
+        state,
+        max_repair_cycles=2,
+        build_started_at=100.0,
+        max_elapsed_seconds=180.0,
+    )
+
+    assert reason is not None
+    assert "remaining build deadline" in reason
+    assert f"{TEAMMATE_MIN_REMAINING_SECONDS:g}s" in reason
+
+
+def test_builder_stops_teammate_after_repair_budget_exhaustion(tmp_path: Path) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+    )
+    provider = TeammateRepairBudgetBuilderProvider()
+    app = create_app(settings, provider)
+    with TestClient(app) as client:
+        app_id = client.post(
+            "/api/v1/applications",
+            headers=headers(),
+            json={"name": "Teammate repair stop", "requirement": "Stop teammate work after repair budget exhaustion."},
+        ).json()["id"]
+        build_id = client.post(
+            f"/api/v1/applications/{app_id}/builds",
+            headers=headers(),
+            json={
+                "requirement": "Stop teammate work after repair budget exhaustion.",
+                "auto_publish": False,
+                "max_turns": 12,
+                "max_repair_cycles": 1,
+            },
+        ).json()["build_id"]
+        for _ in range(200):
+            build = client.get(f"/api/v1/builds/{build_id}", headers=headers()).json()
+            if build["status"] in {"needs_attention", "ready", "published"}:
+                break
+            time.sleep(0.01)
+
+        assert build["status"] == "needs_attention", build
+        events = client.get(f"/v1/streams/{build_id}", headers=headers()).json()
+        stopped = [event for event in events if event["type"] == "team.teammate.stopped"]
+        assert stopped
+        assert stopped[0]["data"]["reason"] == TEAMMATE_REPAIR_BUDGET_EXHAUSTED_REASON
+
+        spawn_events = [
+            event for event in events
+            if event["type"] == "build.operation" and event["data"].get("tool") == "spawn_teammate"
+        ]
+        assert spawn_events
+        assert "Stopped teammate work after test_run exhausted the repair budget" in spawn_events[0]["data"]["result"]
+        assert provider.calls_by_user_id.get(f"{build_id}-debug-runner") == 2
 
 
 def test_builder_persists_plan_first_build_plan(tmp_path: Path) -> None:

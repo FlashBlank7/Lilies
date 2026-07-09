@@ -8,6 +8,8 @@
 - 文件名必须以版本或明确 state 为主，例如 `v0.2.2_design_<topic>.md`。
 - 不使用日期作为 historical design 的主文件名。
 - 日期、归档时间、执行人等信息可以写入 manifest 或文件内容，但不能替代版本/state。
+- historical design 只保存最终设计契约：问题、边界、最终方案、验收、最终状态和证据链接。
+- historical design 不重复实验结果、stage 总结、命令转录或 workingon 长记录。
 
 当前已归档：
 

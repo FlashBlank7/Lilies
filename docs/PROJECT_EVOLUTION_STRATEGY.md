@@ -38,7 +38,7 @@ intellectual-assets/    跨阶段可复用的高价值智力资产
 | `docs/current-design/` | 具体设计 | 服务于某个 accepted task 的详细设计和实现计划；不具备下一阶段指导权。 |
 | `docs/historical-designs/` | 历史设计 | 已经具备版本 state 的历史 design，按版本归档。 |
 | `docs/workingon-archives/` | 历史中间结果 | 已完成小版本的 workingon 中间材料，按版本归档。 |
-| `docs/experiment-status/` | 实验台账 | 实验 backlog、完成状态、DOCX 报告、raw evidence 和已应用标记。 |
+| `docs/experiment-status/` | 实验台账 | 实验 backlog、完成状态、单实验 ledger、DOCX 报告、raw summary/evidence 和已应用标记。 |
 | `docs/intellectual-assets/` | 智力资产 | 经过复杂过程才获得、跨阶段可复用的高价值结论。 |
 
 本规范不要求立即创建这些目录；执行对应工作或归档时再创建。
@@ -143,7 +143,7 @@ phase 代表一次方向明确的大演进，例如：
 
 ### 4.3 `docs/stage-reports/`
 
-`stage-reports` 保存小版本报告。每个 stage report 是一个阶段的归档出口。
+`stage-reports` 保存小版本报告。每个 stage report 是一个阶段的归档出口，并采用 compact factsheet 形式。
 
 它必须把 `workingon` 中分散的任务处置、实验和结果整理为：
 
@@ -153,7 +153,7 @@ phase 代表一次方向明确的大演进，例如：
 - 下一阶段任务。只有 stage report 具备下一阶段指导权。
 - 智力资产候选
 
-stage report 不应该复制所有中间材料。它应该总结、筛选和链接。
+stage report 不应该复制所有中间材料、命令转录、raw JSON 或实验长结论。它应该总结、筛选和链接；命令细节留在 `workingon-archives/`，实验细节留在 `experiment-status/ledgers/` 和 `evidence/*_summary.md`。
 
 ### 4.4 `docs/phase-reports/`
 
@@ -316,43 +316,66 @@ phase report 是团队判断“项目已经从 `v0.2.0` 进入 `v0.3.0`”这类
 v0.(x+1).0 应该完成什么。
 ```
 
-### 7.2 Stage report 模板
+### 7.2 Stage report compact factsheet 模板
 
 ```md
 # v0.x.y <阶段主题>
 
-## 1. 阶段目标
+## 1. Goal
 
 本 stage 要完成什么，属于哪个 phase。
 
-## 2. 完成任务
+## 2. Completed
 
-| 任务 | 状态 | 证据 | 备注 |
-| --- | --- | --- | --- |
+| Item | Status | Evidence |
+| --- | --- | --- |
 
-## 3. 未完成任务
+## 3. Verification
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+
+## 4. Unfinished / Carried Forward
 
 | 任务 | 原因 | 下一步 |
 | --- | --- | --- |
 
-## 4. 关键证据
+## 5. Historical Designs
 
-- 代码路径
-- 测试结果
-- 报告或实验输出
+| Historical design | Final status | Evidence |
+| --- | --- | --- |
 
-## 5. 下一 stage 任务池
+## 6. Workingon Archive
 
-- task 1
-- task 2
+| Archive | Contents |
+| --- | --- |
+
+## 7. Next-stage Tasks
+
+| Task | Why now | Closure target |
+| --- | --- | --- |
 
 本 section 是下一阶段唯一的任务来源。下一次演进必须先完整处置这里的所有任务，不能只挑一个方便任务开始实现。
 
-## 6. 智力资产候选
+## 8. Archive Commit
 
-| 候选 | 是否进入 intellectual-assets | 理由 |
+- Commit:
+- Active current-design clean:
+- Active workingon clean:
+
+## 9. Automatic Evolution Handoff
+
+- Continue:
+- Next version:
+- First workingon:
+
+## 10. Intellectual Asset Candidates
+
+| Candidate | Decision | Reason |
 | --- | --- | --- |
 ```
+
+stage report 必须简洁。详细命令、实验过程和 raw 输出放在 workingon archive、experiment ledger 或 summary evidence 中。
 
 ### 7.3 Workingon 执行记录模板
 
@@ -438,7 +461,60 @@ v0.(x+1).0 应该完成什么。
 本 design 只展开一个 accepted task，不能选择、排序或指导下一阶段任务。
 ```
 
-### 7.5 Intellectual asset 模板
+### 7.5 Historical design final contract 模板
+
+```md
+# v0.x.y_design_<topic>_v<n>
+
+## 1. Source
+
+- Stage:
+- Original design:
+- Final status:
+
+## 2. Problem
+
+## 3. Boundary
+
+## 4. Final Design
+
+## 5. Acceptance
+
+## 6. Evidence
+
+## 7. Remaining Risk
+```
+
+historical design 只保存最终设计契约，不重复实验结果、stage 总结或命令细节。
+
+### 7.6 Experiment status ledger 模板
+
+```md
+# E##_topic Ledger
+
+状态:
+
+## Current Conclusion
+
+## Evidence
+
+| Item | Path |
+| --- | --- |
+
+## Application Marker
+
+- Not applied / 已应用 / 验证应用:
+- Engineering change:
+- Stage:
+
+## Boundary
+
+## Next Step
+```
+
+实验入口文件 `v0.x_experiment_status.md` 只保留总览、状态表和下一步。单实验细节进入 `experiment-status/ledgers/`；raw JSON 默认生成 `*_summary.md`，只有争议时读取 raw JSON。
+
+### 7.7 Intellectual asset 模板
 
 ```md
 # asset_<stable-topic>

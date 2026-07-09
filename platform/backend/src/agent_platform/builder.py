@@ -99,6 +99,10 @@ Core rules:
 """
 
 
+TEAMMATE_MIN_REMAINING_SECONDS = 90.0
+TEAMMATE_REPAIR_BUDGET_EXHAUSTED_REASON = "repair_budget_exhausted"
+
+
 class BuildDeadlineExceeded(RuntimeError):
     def __init__(self, max_elapsed_seconds: float, elapsed_seconds: float) -> None:
         super().__init__(
@@ -467,6 +471,7 @@ class WorkflowBuilder:
             planning_mode=state.planning_mode,
         )
         for turn in range(1, max_turns + 1):
+            teammate_stop_reason: str | None = None
             await self.harness.record_usage(
                 build_id,
                 "model_call",
@@ -529,12 +534,20 @@ class WorkflowBuilder:
                         max_repair_cycles=max_repair_cycles,
                         auto_publish=auto_publish,
                         tracker=tracker,
+                        build_started_at=build_started_at,
+                        max_elapsed_seconds=max_elapsed_seconds,
                     )
                     content = json.dumps(value, ensure_ascii=False, default=str)
                     is_error = False
                 except Exception as error:
                     content = f"{type(error).__name__}: {error}"
                     is_error = True
+                    if (
+                        teammate is not None
+                        and (call.name or "") == "test_run"
+                        and self._is_repair_budget_exhausted_message(str(error))
+                    ):
+                        teammate_stop_reason = TEAMMATE_REPAIR_BUDGET_EXHAUSTED_REASON
                 results.append(ContentBlock(
                     type="tool_result", tool_use_id=call.id, content=content, is_error=is_error
                 ))
@@ -551,6 +564,18 @@ class WorkflowBuilder:
                     message.model_dump(mode="json") for message in messages
                 ]
             await self.workflow_store.update_build(build_id, team_state=state)
+            if teammate is not None and teammate_stop_reason is not None:
+                final = (
+                    "Stopped teammate work after test_run exhausted the repair budget at the current draft "
+                    "revision. Return the current findings to the coordinator instead of continuing "
+                    "long-tail debugging in this branch."
+                )
+                await self._emit(build_id, "team.teammate.stopped", {
+                    "name": teammate,
+                    "reason": teammate_stop_reason,
+                    "draft_revision": state.revision,
+                })
+                break
             if state.published_version is not None:
                 break
             turn_completed = {
@@ -576,6 +601,8 @@ class WorkflowBuilder:
         max_repair_cycles: int,
         auto_publish: bool,
         tracker: DecisionTracker | None = None,
+        build_started_at: float | None = None,
+        max_elapsed_seconds: float | None = None,
     ) -> Any:
         if state.planning_mode == "disabled" and tool == "build_plan":
             raise RuntimeError("build_plan is disabled for this build planning_mode")
@@ -921,6 +948,19 @@ class WorkflowBuilder:
             name = str(data["name"])
             if name in state.teammates:
                 raise ValueError(f"teammate already exists: {name}")
+            blocked_reason = self._teammate_guard_reason(
+                state,
+                max_repair_cycles=max_repair_cycles,
+                build_started_at=build_started_at,
+                max_elapsed_seconds=max_elapsed_seconds,
+            )
+            if blocked_reason is not None:
+                await self._emit(build_id, "team.teammate.blocked", {
+                    "name": name,
+                    "reason": blocked_reason,
+                    "draft_revision": state.revision,
+                })
+                raise RuntimeError(blocked_reason)
             teammate = TeammateState(name=name, purpose=str(data["task"]))
             state.teammates[name] = teammate
             await self._emit(build_id, "team.teammate.spawned", teammate.model_dump(mode="json"))
@@ -934,6 +974,8 @@ class WorkflowBuilder:
                 max_repair_cycles=max_repair_cycles,
                 auto_publish=auto_publish,
                 teammate=name,
+                build_started_at=build_started_at,
+                max_elapsed_seconds=max_elapsed_seconds,
             )
             teammate.messages = [message.model_dump(mode="json") for message in messages]
             teammate.status = "idle"
@@ -941,6 +983,19 @@ class WorkflowBuilder:
             return {"name": name, "status": "idle", "result": result}
         if tool == "send_message":
             name = str(data["name"])
+            blocked_reason = self._teammate_guard_reason(
+                state,
+                max_repair_cycles=max_repair_cycles,
+                build_started_at=build_started_at,
+                max_elapsed_seconds=max_elapsed_seconds,
+            )
+            if blocked_reason is not None:
+                await self._emit(build_id, "team.teammate.blocked", {
+                    "name": name,
+                    "reason": blocked_reason,
+                    "draft_revision": state.revision,
+                })
+                raise RuntimeError(blocked_reason)
             teammate = state.teammates[name]
             teammate.mailbox.append(str(data["message"]))
             teammate.status = "working"
@@ -955,6 +1010,8 @@ class WorkflowBuilder:
                 max_repair_cycles=max_repair_cycles,
                 auto_publish=auto_publish,
                 teammate=name,
+                build_started_at=build_started_at,
+                max_elapsed_seconds=max_elapsed_seconds,
             )
             teammate.messages = [message.model_dump(mode="json") for message in messages]
             teammate.mailbox.clear()
@@ -1036,6 +1093,45 @@ class WorkflowBuilder:
         except (TypeError, ValueError):
             return None
         return seconds if seconds > 0 else None
+
+    @staticmethod
+    def _remaining_build_seconds(
+        build_started_at: float | None,
+        max_elapsed_seconds: float | None,
+    ) -> float | None:
+        if build_started_at is None or max_elapsed_seconds is None:
+            return None
+        return max_elapsed_seconds - (time.monotonic() - build_started_at)
+
+    @staticmethod
+    def _is_repair_budget_exhausted_message(message: str) -> bool:
+        return "maximum repair cycles reached" in message.casefold()
+
+    @classmethod
+    def _teammate_guard_reason(
+        cls,
+        state: BuildTeamState,
+        *,
+        max_repair_cycles: int,
+        build_started_at: float | None,
+        max_elapsed_seconds: float | None,
+    ) -> str | None:
+        if (
+            state.last_failed_test_revision == state.revision
+            and state.repair_cycles >= max_repair_cycles
+        ):
+            return (
+                "teammate work blocked: repair budget exhausted at the current draft revision; "
+                "the coordinator must mutate the draft before delegating more test-driven debugging"
+            )
+        remaining_seconds = cls._remaining_build_seconds(build_started_at, max_elapsed_seconds)
+        if remaining_seconds is not None and remaining_seconds < TEAMMATE_MIN_REMAINING_SECONDS:
+            return (
+                "teammate work blocked: remaining build deadline "
+                f"{remaining_seconds:.3f}s is below the minimum teammate budget "
+                f"{TEAMMATE_MIN_REMAINING_SECONDS:g}s"
+            )
+        return None
 
     @staticmethod
     def _failure_metadata(error: Exception) -> dict[str, Any]:
