@@ -24,6 +24,7 @@ from agent_platform.providers.base import ModelProvider, ProviderCapabilities
 from agent_platform.sandbox import CommandResult
 from agent_platform.storage import Storage
 from agent_platform.tools import Tool, ToolContext, ToolResult
+from agent_platform.worker_runner import PlatformHarnessWorkerRunner
 from agent_platform.workflow_runtime import WorkflowRuntime
 from tests.test_runtime import ScriptedProvider
 
@@ -1440,6 +1441,113 @@ def test_platform_harness_worker_lease_api(tmp_path: Path) -> None:
         assert reconciled.status_code == 200
         assert reconciled.json()[0]["id"] == "api-lease-expired-1"
         assert reconciled.json()[0]["status"] == "failed"
+
+
+def test_platform_harness_worker_runner_completes_queued_task(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        storage = Storage(tmp_path / "data")
+        await storage.initialize()
+        harness = PlatformHarness(storage=storage, worker_lease_seconds=60)
+        await harness.start_task(
+            "runner-success-1",
+            kind="scheduler_manual_trigger",
+            owner_id="owner-a",
+            resource_id="schedule-a",
+            worker_id="producer",
+            lease_seconds=60,
+        )
+        await harness.release_task_lease("runner-success-1", worker_id="producer", next_status="queued")
+
+        async def handler(record):
+            assert record.id == "runner-success-1"
+            assert record.status == "running"
+            return {"handled": True, "resource_id": record.resource_id}
+
+        runner = PlatformHarnessWorkerRunner(
+            harness=harness,
+            worker_id="worker-a",
+            lease_seconds=60,
+            handlers={"scheduler_manual_trigger": handler},
+        )
+        results = await runner.run_once(limit=5)
+
+        assert [(item.task_id, item.status) for item in results] == [("runner-success-1", "succeeded")]
+        finished = await harness.get_task("runner-success-1")
+        assert finished.status == "succeeded"
+        assert finished.worker_id == "worker-a"
+        assert finished.metadata["worker_runner"]["result"]["handled"] is True
+        assert finished.lease_version == 3
+
+    asyncio.run(scenario())
+
+
+def test_platform_harness_worker_runner_marks_handler_failure(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        storage = Storage(tmp_path / "data")
+        await storage.initialize()
+        harness = PlatformHarness(storage=storage, worker_lease_seconds=60)
+        await harness.start_task(
+            "runner-failure-1",
+            kind="scheduler_manual_trigger",
+            owner_id="owner-a",
+            resource_id="schedule-a",
+            worker_id="producer",
+            lease_seconds=60,
+        )
+        await harness.release_task_lease("runner-failure-1", worker_id="producer", next_status="queued")
+
+        async def handler(_record):
+            raise RuntimeError("handler failed deliberately")
+
+        runner = PlatformHarnessWorkerRunner(
+            harness=harness,
+            worker_id="worker-a",
+            lease_seconds=60,
+            handlers={"scheduler_manual_trigger": handler},
+        )
+        results = await runner.run_once(limit=5)
+
+        assert [(item.task_id, item.status) for item in results] == [("runner-failure-1", "failed")]
+        assert "handler failed deliberately" in results[0].error
+        finished = await harness.get_task("runner-failure-1")
+        assert finished.status == "failed"
+        assert "handler failed deliberately" in finished.error
+        assert finished.metadata["worker_runner"]["status"] == "failed"
+
+    asyncio.run(scenario())
+
+
+def test_platform_harness_worker_runner_skips_unsupported_task(tmp_path: Path) -> None:
+    async def scenario() -> None:
+        storage = Storage(tmp_path / "data")
+        await storage.initialize()
+        harness = PlatformHarness(storage=storage, worker_lease_seconds=60)
+        await harness.start_task(
+            "runner-skip-1",
+            kind="benchmark",
+            owner_id="owner-a",
+            resource_id="case-a",
+            worker_id="producer",
+            lease_seconds=60,
+        )
+        await harness.release_task_lease("runner-skip-1", worker_id="producer", next_status="queued")
+
+        runner = PlatformHarnessWorkerRunner(
+            harness=harness,
+            worker_id="worker-a",
+            lease_seconds=60,
+            handlers={},
+        )
+        results = await runner.run_once(limit=5)
+
+        assert [(item.task_id, item.status) for item in results] == [("runner-skip-1", "skipped")]
+        assert "no handler" in results[0].error
+        fetched = await harness.get_task("runner-skip-1")
+        assert fetched.status == "queued"
+        assert fetched.worker_id is None
+        assert fetched.lease_version == 2
+
+    asyncio.run(scenario())
 
 
 def test_platform_harness_secret_policy_blocks_http_secret_headers(tmp_path: Path) -> None:
