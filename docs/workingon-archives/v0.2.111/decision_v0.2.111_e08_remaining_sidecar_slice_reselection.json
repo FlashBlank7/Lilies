@@ -1,0 +1,110 @@
+{
+  "version": "v0.2.111",
+  "decision_id": "e08_remaining_sidecar_slice_reselection_after_handler_catalog",
+  "source_stage_report": "docs/stage-reports/v0.2.110_e08_complete_handler_catalog.md",
+  "status": "completed",
+  "completed_slices": [
+    {
+      "slice_id": "stdio_container_egress_allowlist_contract",
+      "evidence": "docs/workingon-archives/v0.2.106/evidence_v0.2.106_e08_stdio_container_egress_allowlist_contract_summary.md"
+    },
+    {
+      "slice_id": "secret_kms_rotation_contract",
+      "evidence": "docs/workingon-archives/v0.2.108/evidence_v0.2.108_e08_secret_kms_rotation_contract_summary.md"
+    },
+    {
+      "slice_id": "complete_handler_catalog",
+      "evidence": "docs/workingon-archives/v0.2.110/evidence_v0.2.110_e08_complete_handler_catalog_summary.md"
+    },
+    {
+      "slice_id": "editable_policy_controls_api",
+      "evidence": "docs/workingon-archives/v0.2.96/evidence_v0.2.96_e08_editable_policy_controls_api_summary.md"
+    },
+    {
+      "slice_id": "studio_editable_policy_controls",
+      "evidence": "docs/workingon-archives/v0.2.98/evidence_v0.2.98_e08_studio_editable_policy_controls_summary.md"
+    },
+    {
+      "slice_id": "operator_runbook_lifecycle",
+      "evidence": "docs/workingon-archives/v0.2.100/evidence_v0.2.100_e08_operator_runbook_lifecycle_summary.md"
+    }
+  ],
+  "remaining_candidates": [
+    {
+      "slice_id": "distributed_heartbeat_registry",
+      "label": "Distributed worker heartbeat registry",
+      "sidecar_criticality": 31,
+      "readiness": 22,
+      "product_value": 25,
+      "testability": 23,
+      "scope_risk": 18,
+      "existing_evidence": "docs/stage-reports/v0.2.28_worker_heartbeat_and_renewal.md",
+      "next_version": "v0.2.112_e08_distributed_heartbeat_registry",
+      "first_design": "docs/current-design/design_v0_2_112_e08_distributed_heartbeat_registry.md",
+      "score": 83
+    },
+    {
+      "slice_id": "real_worker_offload_handlers",
+      "label": "Real worker-owned handlers for selected non-scheduler task kinds",
+      "sidecar_criticality": 26,
+      "readiness": 18,
+      "product_value": 24,
+      "testability": 18,
+      "scope_risk": 27,
+      "existing_evidence": "docs/stage-reports/v0.2.110_e08_complete_handler_catalog.md",
+      "next_version": "v0.2.112_e08_real_worker_offload_handlers",
+      "first_design": "docs/current-design/design_v0_2_112_e08_real_worker_offload_handlers.md",
+      "score": 59
+    },
+    {
+      "slice_id": "long_running_sidecar_operations_beyond_policy_controls",
+      "label": "Long-running sidecar operations beyond policy controls",
+      "sidecar_criticality": 19,
+      "readiness": 16,
+      "product_value": 16,
+      "testability": 12,
+      "scope_risk": 14,
+      "existing_evidence": "docs/operator-runbooks/e08_policy_controls_operator_runbook.md",
+      "next_version": "v0.2.112_e08_long_running_sidecar_operations",
+      "first_design": "docs/current-design/design_v0_2_112_e08_long_running_sidecar_operations.md",
+      "score": 49
+    },
+    {
+      "slice_id": "external_kms_provider_integration",
+      "label": "External KMS provider integration",
+      "sidecar_criticality": 24,
+      "readiness": 11,
+      "product_value": 24,
+      "testability": 14,
+      "scope_risk": 30,
+      "existing_evidence": "docs/stage-reports/v0.2.108_e08_secret_kms_rotation_contract.md",
+      "next_version": "v0.2.112_e08_external_kms_provider_integration",
+      "first_design": "docs/current-design/design_v0_2_112_e08_external_kms_provider_integration.md",
+      "score": 43
+    }
+  ],
+  "selected_slice": {
+    "slice_id": "distributed_heartbeat_registry",
+    "label": "Distributed worker heartbeat registry",
+    "sidecar_criticality": 31,
+    "readiness": 22,
+    "product_value": 25,
+    "testability": 23,
+    "scope_risk": 18,
+    "existing_evidence": "docs/stage-reports/v0.2.28_worker_heartbeat_and_renewal.md",
+    "next_version": "v0.2.112_e08_distributed_heartbeat_registry",
+    "first_design": "docs/current-design/design_v0_2_112_e08_distributed_heartbeat_registry.md",
+    "score": 83
+  },
+  "decision": "select_distributed_heartbeat_registry",
+  "next_version": "v0.2.112_e08_distributed_heartbeat_registry",
+  "first_design": "docs/current-design/design_v0_2_112_e08_distributed_heartbeat_registry.md",
+  "invariants": {
+    "completed_handler_catalog_excluded": true,
+    "completed_stdio_slice_excluded": true,
+    "completed_secret_slice_excluded": true,
+    "e08_full_sidecar_completion_claimed": false,
+    "workingon_is_not_task_source": true
+  },
+  "reason": "v0.2.110 closed handler catalog coverage. Among remaining E08 sidecar gaps, the distributed heartbeat registry is the highest-value next slice because worker lease renewal already exists, but worker liveness is still not externally queryable or durable as a registry."
+}
