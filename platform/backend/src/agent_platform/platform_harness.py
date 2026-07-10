@@ -45,6 +45,7 @@ SECRET_FIELD_MARKERS = (
 )
 SECRET_REFERENCE_KEYS = ("$secret", "secret_ref")
 SECRET_ENVELOPE_PREFIX = "secret-envelope:v1:"
+SECRET_ENVELOPE_V2_PREFIX = "secret-envelope:v2:"
 SECRET_ENVELOPE_ITERATIONS = 200_000
 
 
@@ -101,6 +102,8 @@ class PlatformHarness:
         stale_active_task_seconds: float = 0.0,
         secret_policy_enabled: bool = True,
         secret_envelope_key: str = "",
+        secret_envelope_key_id: str = "local",
+        secret_envelope_previous_keys: dict[str, str] | None = None,
         network_egress_policy: str = "full",
         network_egress_allowlist: list[str] | None = None,
         cancellation_policy: str = "enabled",
@@ -118,6 +121,12 @@ class PlatformHarness:
         self.stale_active_task_seconds = stale_active_task_seconds
         self.secret_policy_enabled = secret_policy_enabled
         self.secret_envelope_key = secret_envelope_key
+        self.secret_envelope_key_id = self._normalized_secret_key_id(secret_envelope_key_id)
+        self.secret_envelope_keyring = self._secret_envelope_keyring(
+            current_key_id=self.secret_envelope_key_id,
+            current_key=secret_envelope_key,
+            previous_keys=secret_envelope_previous_keys or {},
+        )
         self.network_egress_policy = network_egress_policy
         self.network_egress_allowlist = network_egress_allowlist or []
         self.cancellation_policy = self._normalized_cancellation_policy(cancellation_policy)
@@ -692,29 +701,31 @@ class PlatformHarness:
             return value
         salt = os.urandom(16)
         nonce = os.urandom(16)
-        enc_key, mac_key = self._derive_secret_envelope_keys(salt)
+        enc_key, mac_key = self._derive_secret_envelope_keys(self.secret_envelope_key, salt)
         plaintext = value.encode("utf-8")
         ciphertext = self._xor_bytes(plaintext, self._keystream(enc_key, nonce, len(plaintext)))
         envelope = {
             "algorithm": "hmac-sha256-xor-stream",
             "ciphertext": self._b64(ciphertext),
             "iterations": SECRET_ENVELOPE_ITERATIONS,
+            "key_id": self.secret_envelope_key_id,
             "kdf": "pbkdf2-hmac-sha256",
             "nonce": self._b64(nonce),
             "salt": self._b64(salt),
-            "version": 1,
+            "version": 2,
         }
         mac_input = self._stable_json(envelope).encode("utf-8")
         envelope["tag"] = self._b64(hmac.new(mac_key, mac_input, hashlib.sha256).digest())
-        return SECRET_ENVELOPE_PREFIX + self._b64(self._stable_json(envelope).encode("utf-8"))
+        return SECRET_ENVELOPE_V2_PREFIX + self._b64(self._stable_json(envelope).encode("utf-8"))
 
     def _decrypt_secret_value(self, stored_value: str) -> str:
-        if not stored_value.startswith(SECRET_ENVELOPE_PREFIX):
+        if not self._is_encrypted_secret_value(stored_value):
             return stored_value
-        if not self.secret_envelope_key:
+        if not self.secret_envelope_keyring:
             raise PlatformHarnessViolation("platform secret envelope key is not configured")
+        prefix = SECRET_ENVELOPE_V2_PREFIX if stored_value.startswith(SECRET_ENVELOPE_V2_PREFIX) else SECRET_ENVELOPE_PREFIX
         try:
-            raw = self._unb64(stored_value.removeprefix(SECRET_ENVELOPE_PREFIX))
+            raw = self._unb64(stored_value.removeprefix(prefix))
             envelope = json.loads(raw.decode("utf-8"))
             tag = self._unb64(str(envelope.pop("tag")))
             salt = self._unb64(str(envelope["salt"]))
@@ -722,7 +733,11 @@ class PlatformHarness:
             ciphertext = self._unb64(str(envelope["ciphertext"]))
         except Exception as error:
             raise PlatformHarnessViolation("platform secret envelope is invalid") from error
-        enc_key, mac_key = self._derive_secret_envelope_keys(salt)
+        key_id = str(envelope.get("key_id") or self.secret_envelope_key_id)
+        envelope_key = self.secret_envelope_keyring.get(key_id)
+        if not envelope_key:
+            raise PlatformHarnessViolation(f"platform secret envelope key is not configured: {key_id}")
+        enc_key, mac_key = self._derive_secret_envelope_keys(envelope_key, salt)
         mac_input = self._stable_json(envelope).encode("utf-8")
         expected = hmac.new(mac_key, mac_input, hashlib.sha256).digest()
         if not hmac.compare_digest(tag, expected):
@@ -733,10 +748,10 @@ class PlatformHarness:
         except UnicodeDecodeError as error:
             raise PlatformHarnessViolation("platform secret envelope plaintext is invalid") from error
 
-    def _derive_secret_envelope_keys(self, salt: bytes) -> tuple[bytes, bytes]:
+    def _derive_secret_envelope_keys(self, envelope_key: str, salt: bytes) -> tuple[bytes, bytes]:
         material = hashlib.pbkdf2_hmac(
             "sha256",
-            self.secret_envelope_key.encode("utf-8"),
+            envelope_key.encode("utf-8"),
             salt,
             SECRET_ENVELOPE_ITERATIONS,
             dklen=64,
@@ -769,7 +784,47 @@ class PlatformHarness:
         return base64.urlsafe_b64decode(padded.encode("ascii"))
 
     def _secret_storage_mode(self, stored_value: str) -> str:
-        return "encrypted_v1" if stored_value.startswith(SECRET_ENVELOPE_PREFIX) else "legacy_plaintext"
+        if stored_value.startswith(SECRET_ENVELOPE_V2_PREFIX):
+            key_id = self._secret_envelope_key_id(stored_value)
+            return f"encrypted_v2:{key_id}" if key_id else "encrypted_v2:unknown"
+        if stored_value.startswith(SECRET_ENVELOPE_PREFIX):
+            return "encrypted_v1"
+        return "legacy_plaintext"
+
+    def _secret_envelope_key_id(self, stored_value: str) -> str:
+        if not stored_value.startswith(SECRET_ENVELOPE_V2_PREFIX):
+            return ""
+        try:
+            raw = self._unb64(stored_value.removeprefix(SECRET_ENVELOPE_V2_PREFIX))
+            envelope = json.loads(raw.decode("utf-8"))
+        except Exception:
+            return ""
+        return str(envelope.get("key_id") or "")
+
+    def _is_encrypted_secret_value(self, stored_value: str) -> bool:
+        return stored_value.startswith(SECRET_ENVELOPE_PREFIX) or stored_value.startswith(SECRET_ENVELOPE_V2_PREFIX)
+
+    def _normalized_secret_key_id(self, key_id: str) -> str:
+        normalized = key_id.strip() or "local"
+        if "/" in normalized or ":" in normalized:
+            raise PlatformHarnessViolation("platform secret envelope key id must not contain / or :")
+        return normalized
+
+    def _secret_envelope_keyring(
+        self,
+        *,
+        current_key_id: str,
+        current_key: str,
+        previous_keys: dict[str, str],
+    ) -> dict[str, str]:
+        keyring: dict[str, str] = {}
+        for key_id, key in previous_keys.items():
+            normalized_id = self._normalized_secret_key_id(str(key_id))
+            if key:
+                keyring[normalized_id] = str(key)
+        if current_key:
+            keyring[current_key_id] = current_key
+        return keyring
 
     def _split_secret_reference(self, raw_ref: str, default_owner_id: str) -> tuple[str, str]:
         normalized = raw_ref.removeprefix("secret://").strip()
@@ -794,6 +849,7 @@ class PlatformHarness:
             "secret_ref": f"secret://{row['owner_id']}/{row['name']}",
             "storage_mode": storage_mode,
             "encrypted": storage_mode.startswith("encrypted"),
+            "key_id": storage_mode.split(":", 1)[1] if storage_mode.startswith("encrypted_v2:") else "",
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
             "redacted": True,
@@ -992,8 +1048,13 @@ class PlatformHarness:
             "network_egress_allowlist": list(self.network_egress_allowlist),
             "secret_policy_enabled": self.secret_policy_enabled,
             "secret_storage": {
-                "new_secret_mode": "encrypted_v1" if self.secret_envelope_key else "legacy_plaintext",
+                "new_secret_mode": f"encrypted_v2:{self.secret_envelope_key_id}" if self.secret_envelope_key else "legacy_plaintext",
                 "envelope_configured": bool(self.secret_envelope_key),
+                "current_key_id": self.secret_envelope_key_id if self.secret_envelope_key else "",
+                "keyring_size": len(self.secret_envelope_keyring),
+                "rotation_aware": bool(self.secret_envelope_keyring),
+                "legacy_v1_read_supported": True,
+                "legacy_plaintext_read_supported": True,
             },
             "cancellation_policy": self.cancellation_policy,
             "worker_id": self.worker_id,

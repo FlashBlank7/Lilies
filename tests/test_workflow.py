@@ -25,7 +25,11 @@ from agent_platform.api import create_app
 from agent_platform.blocks import build_block_registry
 from agent_platform.config import Settings
 from agent_platform.models import ChatMessage, StreamEvent, ToolDefinition
-from agent_platform.platform_harness import PlatformHarness, PlatformHarnessViolation
+from agent_platform.platform_harness import (
+    PlatformHarness,
+    PlatformHarnessViolation,
+    SECRET_ENVELOPE_V2_PREFIX,
+)
 from agent_platform.providers.base import ModelProvider, ProviderCapabilities, ProviderError
 from agent_platform.sandbox import CommandResult
 from agent_platform.storage import Storage
@@ -2375,6 +2379,7 @@ def test_platform_harness_secret_store_uses_envelope_at_rest(tmp_path: Path) -> 
         data_dir=tmp_path / "data",
         workspace_root=tmp_path / "workspaces",
         platform_harness_secret_envelope_key="unit-test-envelope-key",
+        platform_harness_secret_envelope_key_id="unit-test-key",
     )
     app = create_app(settings, ScriptedProvider())
     with TestClient(app) as client:
@@ -2389,14 +2394,15 @@ def test_platform_harness_secret_store_uses_envelope_at_rest(tmp_path: Path) -> 
             },
         )
         assert created.status_code == 201, created.text
-        assert created.json()["storage_mode"] == "encrypted_v1"
+        assert created.json()["storage_mode"] == "encrypted_v2:unit-test-key"
         assert created.json()["encrypted"] is True
+        assert created.json()["key_id"] == "unit-test-key"
         assert "sk-envelope-secret" not in created.text
 
         raw = asyncio.run(
             app.state.services.storage.get_platform_secret(owner_id="owner-a", name="api_token")
         )
-        assert raw["value"].startswith("secret-envelope:v1:")
+        assert raw["value"].startswith(SECRET_ENVELOPE_V2_PREFIX)
         assert "sk-envelope-secret" not in raw["value"]
 
         injected = asyncio.run(
