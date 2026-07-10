@@ -1,0 +1,358 @@
+{
+  "version": "v0.2.90",
+  "activation_id": "complexity_router_runtime_activation_path",
+  "source_stage_report": "docs/stage-reports/v0.2.89_complexity_router_limited_default_enablement_contract.md",
+  "status": "completed",
+  "checks": {
+    "default_inactive": true,
+    "simple_active": true,
+    "template_suggestion_routed": true,
+    "unknown_inactive": true,
+    "frontend_passed": true
+  },
+  "default_build": {
+    "build_id": "4defc780-a636-4aff-910b-715c9ad8dbe5",
+    "application_id": "53ee12d6-60f8-4dae-a2ce-f4d2997e250e",
+    "status": "queued",
+    "max_elapsed_seconds": null,
+    "deadline": {
+      "enabled": false,
+      "max_elapsed_seconds": null
+    },
+    "complexity_router": {
+      "activation_id": "complexity_router_runtime_activation",
+      "policy_version": "v0.2.90_complexity_router_runtime_activation_path",
+      "active": false,
+      "rollback_value": "disabled",
+      "requested_planning_mode": "auto",
+      "effective_planning_mode": "auto",
+      "planning_mode_source": "request_default",
+      "classification": {
+        "contract_id": "requirement_classification_contract",
+        "policy_version": "v0.2.72_complexity_router_requirement_classification_contract",
+        "requirement_class": "simple",
+        "effective_class": "simple",
+        "confidence": 0.55,
+        "signals": [
+          "fix",
+          "typo"
+        ],
+        "conservative_unknown": false,
+        "configured_default_mode": "disabled",
+        "limited_default_enabled": false,
+        "limited_default_eligible": false,
+        "default_router_enabled": false,
+        "builder_policy": {
+          "plan_first": false,
+          "reuse_depth": "shallow",
+          "model_tier": "standard"
+        },
+        "default_builder_policy": null
+      },
+      "runtime_builder_policy": null
+    }
+  },
+  "default_team_state": {
+    "tasks": [],
+    "build_plan": null,
+    "complexity_router": {
+      "activation_id": "complexity_router_runtime_activation",
+      "policy_version": "v0.2.90_complexity_router_runtime_activation_path",
+      "active": false,
+      "rollback_value": "disabled",
+      "requested_planning_mode": "auto",
+      "effective_planning_mode": "auto",
+      "planning_mode_source": "request_default",
+      "classification": {
+        "contract_id": "requirement_classification_contract",
+        "policy_version": "v0.2.72_complexity_router_requirement_classification_contract",
+        "requirement_class": "simple",
+        "effective_class": "simple",
+        "confidence": 0.55,
+        "signals": [
+          "fix",
+          "typo"
+        ],
+        "conservative_unknown": false,
+        "configured_default_mode": "disabled",
+        "limited_default_enabled": false,
+        "limited_default_eligible": false,
+        "default_router_enabled": false,
+        "builder_policy": {
+          "plan_first": false,
+          "reuse_depth": "shallow",
+          "model_tier": "standard"
+        },
+        "default_builder_policy": null
+      },
+      "runtime_builder_policy": null
+    },
+    "runtime_builder_policy": null,
+    "teammates": {},
+    "coordinator_messages": [],
+    "manual_lookups": [],
+    "revision": 0,
+    "published_version": null,
+    "repair_cycles": 0,
+    "last_failed_test_revision": null,
+    "planning_mode": "auto"
+  },
+  "simple_build": {
+    "build_id": "4e0e3713-6f7e-4a06-9e02-2f97bc1a289c",
+    "application_id": "56faf768-b406-46b9-8d61-204897042756",
+    "status": "queued",
+    "max_elapsed_seconds": null,
+    "deadline": {
+      "enabled": false,
+      "max_elapsed_seconds": null
+    },
+    "complexity_router": {
+      "activation_id": "complexity_router_runtime_activation",
+      "policy_version": "v0.2.90_complexity_router_runtime_activation_path",
+      "active": true,
+      "rollback_value": "disabled",
+      "requested_planning_mode": "auto",
+      "effective_planning_mode": "disabled",
+      "planning_mode_source": "complexity_router",
+      "classification": {
+        "contract_id": "requirement_classification_contract",
+        "policy_version": "v0.2.72_complexity_router_requirement_classification_contract",
+        "requirement_class": "simple",
+        "effective_class": "simple",
+        "confidence": 0.55,
+        "signals": [
+          "fix",
+          "typo"
+        ],
+        "conservative_unknown": false,
+        "configured_default_mode": "limited_default",
+        "limited_default_enabled": true,
+        "limited_default_eligible": true,
+        "default_router_enabled": true,
+        "builder_policy": {
+          "plan_first": false,
+          "reuse_depth": "shallow",
+          "model_tier": "standard"
+        },
+        "default_builder_policy": {
+          "plan_first": false,
+          "reuse_depth": "shallow",
+          "model_tier": "standard"
+        }
+      },
+      "runtime_builder_policy": {
+        "plan_first": false,
+        "reuse_depth": "shallow",
+        "model_tier": "standard"
+      }
+    }
+  },
+  "simple_team_state": {
+    "tasks": [],
+    "build_plan": null,
+    "complexity_router": {
+      "activation_id": "complexity_router_runtime_activation",
+      "policy_version": "v0.2.90_complexity_router_runtime_activation_path",
+      "active": true,
+      "rollback_value": "disabled",
+      "requested_planning_mode": "auto",
+      "effective_planning_mode": "disabled",
+      "planning_mode_source": "complexity_router",
+      "classification": {
+        "contract_id": "requirement_classification_contract",
+        "policy_version": "v0.2.72_complexity_router_requirement_classification_contract",
+        "requirement_class": "simple",
+        "effective_class": "simple",
+        "confidence": 0.55,
+        "signals": [
+          "fix",
+          "typo"
+        ],
+        "conservative_unknown": false,
+        "configured_default_mode": "limited_default",
+        "limited_default_enabled": true,
+        "limited_default_eligible": true,
+        "default_router_enabled": true,
+        "builder_policy": {
+          "plan_first": false,
+          "reuse_depth": "shallow",
+          "model_tier": "standard"
+        },
+        "default_builder_policy": {
+          "plan_first": false,
+          "reuse_depth": "shallow",
+          "model_tier": "standard"
+        }
+      },
+      "runtime_builder_policy": {
+        "plan_first": false,
+        "reuse_depth": "shallow",
+        "model_tier": "standard"
+      }
+    },
+    "runtime_builder_policy": {
+      "plan_first": false,
+      "reuse_depth": "shallow",
+      "model_tier": "standard"
+    },
+    "teammates": {},
+    "coordinator_messages": [],
+    "manual_lookups": [],
+    "revision": 0,
+    "published_version": null,
+    "repair_cycles": 0,
+    "last_failed_test_revision": null,
+    "planning_mode": "disabled"
+  },
+  "simple_template_suggestion_result": {
+    "reuse_depth": "shallow",
+    "effective_reuse_depth": "shallow",
+    "recommended_action": "expand_template",
+    "policy_reason": "explicit:shallow",
+    "reuse_depth_source": "complexity_router",
+    "defaulted_by_policy": true,
+    "default_policy_version": "v0.2.90_complexity_router_runtime_activation_path",
+    "available_overrides": [
+      "adaptive",
+      "deep",
+      "none",
+      "shallow"
+    ],
+    "templates": [],
+    "execution_contract": {
+      "next_step": "set_build_plan_reuse_depth",
+      "reuse_depth_to_record": "shallow",
+      "then": "expand_template",
+      "preserve_reuse_depth_source": "complexity_router"
+    }
+  },
+  "unknown_build": {
+    "build_id": "96701236-4ba3-45b2-b5d0-521af2668e0a",
+    "application_id": "aa1bd954-3876-4f2a-8491-e45527641253",
+    "status": "queued",
+    "max_elapsed_seconds": null,
+    "deadline": {
+      "enabled": false,
+      "max_elapsed_seconds": null
+    },
+    "complexity_router": {
+      "activation_id": "complexity_router_runtime_activation",
+      "policy_version": "v0.2.90_complexity_router_runtime_activation_path",
+      "active": false,
+      "rollback_value": "disabled",
+      "requested_planning_mode": "auto",
+      "effective_planning_mode": "auto",
+      "planning_mode_source": "request_default",
+      "classification": {
+        "contract_id": "requirement_classification_contract",
+        "policy_version": "v0.2.72_complexity_router_requirement_classification_contract",
+        "requirement_class": "unknown",
+        "effective_class": "complex",
+        "confidence": 0.0,
+        "signals": [
+          "empty_requirement"
+        ],
+        "conservative_unknown": true,
+        "configured_default_mode": "limited_default",
+        "limited_default_enabled": true,
+        "limited_default_eligible": false,
+        "default_router_enabled": false,
+        "builder_policy": {
+          "plan_first": true,
+          "reuse_depth": "adaptive",
+          "model_tier": "strong"
+        },
+        "default_builder_policy": null
+      },
+      "runtime_builder_policy": null
+    }
+  },
+  "unknown_team_state": {
+    "tasks": [],
+    "build_plan": null,
+    "complexity_router": {
+      "activation_id": "complexity_router_runtime_activation",
+      "policy_version": "v0.2.90_complexity_router_runtime_activation_path",
+      "active": false,
+      "rollback_value": "disabled",
+      "requested_planning_mode": "auto",
+      "effective_planning_mode": "auto",
+      "planning_mode_source": "request_default",
+      "classification": {
+        "contract_id": "requirement_classification_contract",
+        "policy_version": "v0.2.72_complexity_router_requirement_classification_contract",
+        "requirement_class": "unknown",
+        "effective_class": "complex",
+        "confidence": 0.0,
+        "signals": [
+          "empty_requirement"
+        ],
+        "conservative_unknown": true,
+        "configured_default_mode": "limited_default",
+        "limited_default_enabled": true,
+        "limited_default_eligible": false,
+        "default_router_enabled": false,
+        "builder_policy": {
+          "plan_first": true,
+          "reuse_depth": "adaptive",
+          "model_tier": "strong"
+        },
+        "default_builder_policy": null
+      },
+      "runtime_builder_policy": null
+    },
+    "runtime_builder_policy": null,
+    "teammates": {},
+    "coordinator_messages": [],
+    "manual_lookups": [],
+    "revision": 0,
+    "published_version": null,
+    "repair_cycles": 0,
+    "last_failed_test_revision": null,
+    "planning_mode": "auto"
+  },
+  "frontend_verification": {
+    "status": "completed",
+    "reason": "frontend verification passed",
+    "probe": {
+      "frontend_dir": "platform/frontend",
+      "package_json_present": true,
+      "package_lock_present": true,
+      "node_modules_present": true,
+      "selected_node_bin": "/Users/zhonghaoyang/.nvm/versions/node/v24.15.0/bin",
+      "node_available": true,
+      "npm_available": true,
+      "candidates": [
+        {
+          "node_bin": "/Users/zhonghaoyang/.nvm/versions/node/v24.15.0/bin",
+          "node_exists": true,
+          "npm_exists": true,
+          "usable": true
+        },
+        {
+          "node_bin": "/Users/zhonghaoyang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin",
+          "node_exists": true,
+          "npm_exists": false,
+          "usable": false
+        }
+      ]
+    },
+    "checks": [
+      {
+        "command": "npm run lint",
+        "returncode": 0,
+        "stdout": "\n> agent-platform-studio@0.1.0 lint\n> tsc --noEmit\n\n",
+        "stderr": "",
+        "passed": true
+      },
+      {
+        "command": "node_modules/.bin/tsc --noEmit",
+        "returncode": 0,
+        "stdout": "",
+        "stderr": "",
+        "passed": true
+      }
+    ],
+    "passed": true
+  }
+}

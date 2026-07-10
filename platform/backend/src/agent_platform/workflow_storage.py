@@ -420,8 +420,15 @@ class WorkflowStorage:
         max_repair_cycles: int,
         max_elapsed_seconds: float | None = None,
         planning_mode: str = "auto",
+        complexity_router: dict[str, Any] | None = None,
+        runtime_builder_policy: dict[str, Any] | None = None,
     ) -> None:
         now = utc_now()
+        team_state = BuildTeamState(
+            planning_mode=planning_mode,
+            complexity_router=complexity_router,
+            runtime_builder_policy=runtime_builder_policy,
+        )
         async with self._lock:
             await asyncio.to_thread(
                 self.storage._execute,
@@ -449,7 +456,7 @@ class WorkflowStorage:
                     int(auto_publish),
                     max_turns,
                     max_repair_cycles,
-                    BuildTeamState(planning_mode=planning_mode).model_dump_json(),
+                    team_state.model_dump_json(),
                     None,
                     now,
                     now,

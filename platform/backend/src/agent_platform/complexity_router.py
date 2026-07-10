@@ -334,6 +334,44 @@ def limited_default_enablement_plan_status(
     }
 
 
+def runtime_activation_for_build(
+    requirement: str,
+    *,
+    default_mode: str = "disabled",
+    limited_default_enabled: bool = False,
+    min_confidence: float = 0.55,
+    requested_planning_mode: str = "auto",
+) -> dict[str, Any]:
+    classification = classify_requirement(
+        requirement,
+        default_mode=default_mode,
+        limited_default_enabled=limited_default_enabled,
+        min_confidence=min_confidence,
+    )
+    policy = classification["default_builder_policy"] if classification["default_router_enabled"] else None
+    effective_planning_mode = requested_planning_mode
+    planning_mode_source = "request"
+    if policy is not None and requested_planning_mode == "auto":
+        effective_planning_mode = "required" if policy["plan_first"] else "disabled"
+        planning_mode_source = "complexity_router"
+    elif policy is None and requested_planning_mode == "auto":
+        planning_mode_source = "request_default"
+    elif policy is not None:
+        planning_mode_source = "request_override"
+
+    return {
+        "activation_id": "complexity_router_runtime_activation",
+        "policy_version": "v0.2.90_complexity_router_runtime_activation_path",
+        "active": policy is not None,
+        "rollback_value": "disabled",
+        "requested_planning_mode": requested_planning_mode,
+        "effective_planning_mode": effective_planning_mode,
+        "planning_mode_source": planning_mode_source,
+        "classification": classification,
+        "runtime_builder_policy": policy,
+    }
+
+
 def operator_override_plan_status() -> dict[str, Any]:
     return {
         "plan_id": "operator_override_plan",

@@ -690,6 +690,12 @@ class WorkflowBuilder:
             reuse_depth, default_metadata = suggestion_default_metadata(
                 data.get("reuse_depth"),
                 build_plan_reuse_depth=state.build_plan.reuse_depth if state.build_plan else None,
+                runtime_policy_reuse_depth=(state.runtime_builder_policy or {}).get("reuse_depth"),
+                runtime_policy_version=(
+                    (state.complexity_router or {}).get("policy_version")
+                    if state.complexity_router
+                    else None
+                ),
             )
             if reuse_depth not in ALLOWED_REUSE_DEPTHS:
                 allowed = ", ".join(sorted(ALLOWED_REUSE_DEPTHS))
@@ -731,8 +737,11 @@ class WorkflowBuilder:
                     for s, m in scored[:5]
                 ],
             }
-            if default_metadata.get("reuse_depth_source") == "policy_default":
-                result["execution_contract"] = policy_default_execution_contract(effective_reuse_depth)
+            if default_metadata.get("defaulted_by_policy"):
+                result["execution_contract"] = policy_default_execution_contract(
+                    effective_reuse_depth,
+                    reuse_depth_source=str(default_metadata.get("reuse_depth_source") or "policy_default"),
+                )
             return result
         if tool == "template_list":
             templates = [

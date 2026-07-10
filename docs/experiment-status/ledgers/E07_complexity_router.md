@@ -1,6 +1,6 @@
 # E07 Complexity Router Ledger
 
-状态：limited_default_contract_implemented；default settings disabled；explicit limited-default config supported
+状态：runtime_activation_path_implemented；default settings disabled；explicit limited-default runtime policy supported
 
 ## 实验问题
 
@@ -74,6 +74,13 @@ v0.2.89 limited default enablement contract 已完成：新增 backend settings�
 - `../../workingon-archives/v0.2.89/contract_v0.2.89_complexity_router_limited_default_enablement_summary.md`
 - `../../workingon-archives/v0.2.89/implementation_v0.2.89_complexity_router_limited_default_enablement_contract.md`
 
+v0.2.90 runtime activation path 已完成：创建 build 时会基于 settings 执行 complexity-router activation。默认 settings 不激活 runtime builder policy；显式 `limited_default + enabled` 的 simple build 会持久化 runtime builder policy、把 auto planning 解析为 `disabled`，并让 Builder omitted `template_suggestions` 使用 `reuse_depth=shallow`、`reuse_depth_source=complexity_router`。unknown 仍不激活 runtime policy，frontend verification 通过。
+
+证据：
+
+- `../../workingon-archives/v0.2.90/activation_v0.2.90_complexity_router_runtime_activation_path_summary.md`
+- `../../workingon-archives/v0.2.90/implementation_v0.2.90_complexity_router_runtime_activation_path.md`
+
 ## 初始设计方向
 
 - 定义 simple/medium/complex 三档需求。
@@ -82,4 +89,4 @@ v0.2.89 limited default enablement contract 已完成：新增 backend settings�
 
 ## 下一步
 
-下一步是把已实现的 limited-default contract 接入真实 runtime decision/activation path。默认 settings 仍不得自动启用，直到后续 stage report 明确选择、实现并验证 activation path。
+下一步是实现 runtime activation rollout observability，把 activated/bypassed/unknown/request-override 分类、success/failure、planning_mode 和 reuse_depth decision 记录成可审计 rollout metrics。默认 settings 仍不得自动启用；显式 limited-default runtime policy 已可用。

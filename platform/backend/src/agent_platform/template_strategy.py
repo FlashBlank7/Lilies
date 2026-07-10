@@ -91,12 +91,16 @@ def recommended_action_for_depth(depth: str) -> str:
     return "expand_template"
 
 
-def policy_default_execution_contract(effective_reuse_depth: str) -> dict[str, str]:
+def policy_default_execution_contract(
+    effective_reuse_depth: str,
+    *,
+    reuse_depth_source: str = "policy_default",
+) -> dict[str, str]:
     return {
         "next_step": "set_build_plan_reuse_depth",
         "reuse_depth_to_record": effective_reuse_depth,
         "then": recommended_action_for_depth(effective_reuse_depth),
-        "preserve_reuse_depth_source": "policy_default",
+        "preserve_reuse_depth_source": reuse_depth_source,
     }
 
 
@@ -104,6 +108,8 @@ def suggestion_default_metadata(
     requested_reuse_depth: str | None,
     *,
     build_plan_reuse_depth: str | None = None,
+    runtime_policy_reuse_depth: str | None = None,
+    runtime_policy_version: str | None = None,
 ) -> tuple[str, dict[str, Any]]:
     requested = str(requested_reuse_depth or "").strip()
     if requested:
@@ -118,6 +124,14 @@ def suggestion_default_metadata(
             "reuse_depth_source": "build_plan",
             "defaulted_by_policy": False,
             "default_policy_version": None,
+            "available_overrides": sorted(ALLOWED_REUSE_DEPTHS),
+        }
+    runtime_policy_reuse_depth = str(runtime_policy_reuse_depth or "").strip()
+    if runtime_policy_reuse_depth:
+        return runtime_policy_reuse_depth, {
+            "reuse_depth_source": "complexity_router",
+            "defaulted_by_policy": True,
+            "default_policy_version": runtime_policy_version,
             "available_overrides": sorted(ALLOWED_REUSE_DEPTHS),
         }
     return DEFAULT_TEMPLATE_SUGGESTION_REUSE_DEPTH, {
@@ -151,6 +165,9 @@ def build_suggestion_payload(
     }
     if default_metadata:
         payload.update(default_metadata)
-        if default_metadata.get("reuse_depth_source") == "policy_default":
-            payload["execution_contract"] = policy_default_execution_contract(resolved_depth)
+        if default_metadata.get("defaulted_by_policy"):
+            payload["execution_contract"] = policy_default_execution_contract(
+                resolved_depth,
+                reuse_depth_source=str(default_metadata.get("reuse_depth_source") or "policy_default"),
+            )
     return payload

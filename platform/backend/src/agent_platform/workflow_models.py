@@ -354,6 +354,8 @@ class TeammateState(BaseModel):
 class BuildTeamState(BaseModel):
     tasks: list[BuildTask] = Field(default_factory=list)
     build_plan: BuildPlan | None = None
+    complexity_router: dict[str, Any] | None = None
+    runtime_builder_policy: dict[str, Any] | None = None
     teammates: dict[str, TeammateState] = Field(default_factory=dict)
     coordinator_messages: list[dict[str, Any]] = Field(default_factory=list)
     manual_lookups: list[str] = Field(default_factory=list)

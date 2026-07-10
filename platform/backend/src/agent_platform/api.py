@@ -32,6 +32,7 @@ from .complexity_router import (
     operator_override_plan_status,
     requirement_classification_contract_status,
     rollout_metrics_prerequisites_status,
+    runtime_activation_for_build,
     validate_operator_override,
 )
 from .factory import AgentFactory
@@ -1074,6 +1075,13 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
         build_id = str(uuid4())
+        router_activation = runtime_activation_for_build(
+            body.requirement,
+            default_mode=services.settings.complexity_router_default_mode,
+            limited_default_enabled=services.settings.complexity_router_limited_default_enabled,
+            min_confidence=services.settings.complexity_router_limited_default_min_confidence,
+            requested_planning_mode=body.planning_mode,
+        )
         await services.workflow_store.create_build(
             build_id,
             application_id,
@@ -1082,7 +1090,9 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             body.max_turns,
             body.max_repair_cycles,
             body.max_elapsed_seconds,
-            body.planning_mode,
+            router_activation["effective_planning_mode"],
+            complexity_router=router_activation,
+            runtime_builder_policy=router_activation["runtime_builder_policy"],
         )
         services.builder.start(build_id)
         return {
@@ -1091,6 +1101,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             "status": "queued",
             "max_elapsed_seconds": body.max_elapsed_seconds,
             "deadline": deadline_summary(body.max_elapsed_seconds),
+            "complexity_router": router_activation,
         }
 
     @app.get(
