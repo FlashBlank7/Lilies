@@ -113,6 +113,7 @@ export type PlatformPolicyDecision = {
 export type PlatformPolicyControls = {
   network_egress_policy: string
   network_egress_allowlist: string[]
+  cancellation_policy: 'enabled' | 'disabled'
   secret_policy_enabled: boolean
   worker_id: string
   worker_lease_seconds: number
@@ -145,6 +146,29 @@ export type PlatformPolicyControls = {
     sandboxed_no_network_supported: boolean
     allowlist_supported: boolean
     decisions: PlatformPolicyDecision[]
+  }
+}
+
+export type PlatformPolicyControlsUpdate = {
+  network_egress_policy?: 'full' | 'allowlist' | 'none'
+  network_egress_allowlist?: string[]
+  cancellation_policy?: 'enabled' | 'disabled'
+  secret_policy_enabled?: boolean
+  worker_lease_seconds?: number
+  limits?: Record<string, number>
+  reason: string
+}
+
+export type PlatformPolicyControlsUpdateResponse = {
+  before: PlatformPolicyControls
+  after: PlatformPolicyControls
+  audit: {
+    version: string
+    action: string
+    reason: string
+    changed_fields: string[]
+    not_persistent_across_restart: boolean
+    not_full_sidecar_completion: boolean
   }
 }
 

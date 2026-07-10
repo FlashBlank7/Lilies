@@ -121,6 +121,7 @@
 - `stage-reports/v0.2.95_e08_followup_controls_scope.md`
 - `stage-reports/v0.2.96_e08_editable_policy_controls_api.md`
 - `stage-reports/v0.2.97_e08_post_api_productization_decision.md`
+- `stage-reports/v0.2.98_e08_studio_editable_policy_controls.md`
 
 ## 使用原则
 

@@ -32,6 +32,8 @@ import {
   type Draft,
   type DraftPatchPreview,
   type PlatformPolicyControls,
+  type PlatformPolicyControlsUpdate,
+  type PlatformPolicyControlsUpdateResponse,
   type PlatformTaskRecord,
   type WorkflowNode,
   withFrontendToken,
@@ -81,6 +83,25 @@ type AcceptanceCaseView = {
   raw: Record<string, unknown>
   result?: AcceptanceResult
 }
+type PolicyControlsForm = {
+  network_egress_policy: 'full' | 'allowlist' | 'none'
+  network_egress_allowlist: string
+  cancellation_policy: 'enabled' | 'disabled'
+  secret_policy_enabled: boolean
+  worker_lease_seconds: string
+  reason: string
+  limits: Record<string, string>
+}
+
+const policyLimitKeys = [
+  'max_active_tasks',
+  'max_model_calls_per_task',
+  'max_tool_calls_per_task',
+  'max_node_executions_per_task',
+  'max_model_calls_per_owner',
+  'max_tool_calls_per_owner',
+  'max_node_executions_per_owner',
+]
 
 const accents: Record<string, string> = {
   start: '#8b5cf6', llm: '#3b82f6', claude_agent: '#f97316', tool: '#10b981',
@@ -236,6 +257,31 @@ function shortTime(value?: string | null) {
   if (!value) return '-'
   const date = new Date(value)
   return Number.isNaN(date.valueOf()) ? value : date.toLocaleString()
+}
+
+function policyFormFromControls(controls: PlatformPolicyControls): PolicyControlsForm {
+  return {
+    network_egress_policy: controls.network_egress_policy === 'allowlist' || controls.network_egress_policy === 'none'
+      ? controls.network_egress_policy
+      : 'full',
+    network_egress_allowlist: controls.network_egress_allowlist.join('\n'),
+    cancellation_policy: controls.cancellation_policy === 'disabled' ? 'disabled' : 'enabled',
+    secret_policy_enabled: controls.secret_policy_enabled,
+    worker_lease_seconds: String(controls.worker_lease_seconds || 0),
+    reason: '',
+    limits: Object.fromEntries(policyLimitKeys.map(key => [key, String(controls.limits[key] ?? 0)])),
+  }
+}
+
+function numericPolicyValue(value: string) {
+  const trimmed = value.trim()
+  if (!trimmed) return 0
+  const numeric = Number(trimmed)
+  return Number.isFinite(numeric) && numeric >= 0 ? numeric : 0
+}
+
+function integerPolicyValue(value: string) {
+  return Math.floor(numericPolicyValue(value))
 }
 
 function taskIsRelated(task: PlatformTaskRecord, applicationId: string, build: Build | null, run: Run | null) {
@@ -417,7 +463,10 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   const [monitorError, setMonitorError] = useState('')
   const [policyControls, setPolicyControls] = useState<PlatformPolicyControls | null>(null)
   const [policyControlsLoading, setPolicyControlsLoading] = useState(false)
+  const [policyControlsSaving, setPolicyControlsSaving] = useState(false)
   const [policyControlsError, setPolicyControlsError] = useState('')
+  const [policyControlsNotice, setPolicyControlsNotice] = useState('')
+  const [policyForm, setPolicyForm] = useState<PolicyControlsForm | null>(null)
   const [benchmarkHistory, setBenchmarkHistory] = useState<BuilderBenchmarkHistoryRecord[]>([])
   const [benchmarkHistoryLoading, setBenchmarkHistoryLoading] = useState(false)
   const [benchmarkHistoryError, setBenchmarkHistoryError] = useState('')
@@ -573,6 +622,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     try {
       const controls = await api<PlatformPolicyControls>('/api/v1/platform/harness/policy-controls')
       setPolicyControls(controls)
+      setPolicyForm(policyFormFromControls(controls))
       setAuthRequired(false)
       return controls
     } catch (error) {
@@ -583,6 +633,43 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
       setPolicyControlsLoading(false)
     }
   }, [])
+
+  const savePolicyControls = useCallback(async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!policyForm) return
+    setPolicyControlsSaving(true)
+    setPolicyControlsError('')
+    setPolicyControlsNotice('')
+    const limits = Object.fromEntries(policyLimitKeys.map(key => [key, integerPolicyValue(policyForm.limits[key] || '0')]))
+    const allowlist = policyForm.network_egress_allowlist
+      .split(/[\n,]/)
+      .map(item => item.trim())
+      .filter(Boolean)
+    const body: PlatformPolicyControlsUpdate = {
+      network_egress_policy: policyForm.network_egress_policy,
+      network_egress_allowlist: allowlist,
+      cancellation_policy: policyForm.cancellation_policy,
+      secret_policy_enabled: policyForm.secret_policy_enabled,
+      worker_lease_seconds: numericPolicyValue(policyForm.worker_lease_seconds),
+      limits,
+      reason: policyForm.reason.trim(),
+    }
+    try {
+      const result = await api<PlatformPolicyControlsUpdateResponse>('/api/v1/platform/harness/policy-controls', {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      })
+      setPolicyControls(result.after)
+      setPolicyForm(policyFormFromControls(result.after))
+      setPolicyControlsNotice(`${t.policySaved}: ${result.audit.changed_fields.join(', ')}`)
+      setAuthRequired(false)
+    } catch (error) {
+      if (isAuthError(error)) setAuthRequired(true)
+      setPolicyControlsError(String(error))
+    } finally {
+      setPolicyControlsSaving(false)
+    }
+  }, [policyForm, t.policySaved])
 
   const refreshBenchmarkHistory = useCallback(async () => {
     setBenchmarkHistoryLoading(true)
@@ -1180,6 +1267,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
             {policyControls ? <>
               <div className="policy-summary">
                 <span><b>{policyControls.network_egress_policy}</b>{t.policyNetwork}</span>
+                <span><b>{policyControls.cancellation_policy === 'enabled' ? t.policyEnabled : t.policyDisabled}</b>{t.policyCancellation}</span>
                 <span><b>{policyControls.secret_policy_enabled ? t.policyEnabled : t.policyDisabled}</b>{t.policySecrets}</span>
                 <span><b>{policyControls.worker_lease_seconds || 0}s</b>{t.policyWorkerLease}</span>
                 <span><b>{policyControls.stdio_mcp.allowlist_supported ? t.policyEnabled : t.policyDisabled}</b>stdio allowlist</span>
@@ -1188,6 +1276,49 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
                 <strong>{t.policyAllowlist}</strong>
                 <div>{policyControls.network_egress_allowlist.length ? policyControls.network_egress_allowlist.map(host => <code key={host}>{host}</code>) : <span>{t.policyNoAllowlist}</span>}</div>
               </div>
+              {policyControlsNotice && <p className="success-banner">{policyControlsNotice}</p>}
+              {policyForm && <form className="policy-edit-form" onSubmit={savePolicyControls}>
+                <label>
+                  {t.policyNetwork}
+                  <select value={policyForm.network_egress_policy} onChange={event => setPolicyForm({ ...policyForm, network_egress_policy: event.target.value as PolicyControlsForm['network_egress_policy'] })}>
+                    <option value="full">full</option>
+                    <option value="allowlist">allowlist</option>
+                    <option value="none">none</option>
+                  </select>
+                </label>
+                <label>
+                  {t.policyCancellation}
+                  <select value={policyForm.cancellation_policy} onChange={event => setPolicyForm({ ...policyForm, cancellation_policy: event.target.value as PolicyControlsForm['cancellation_policy'] })}>
+                    <option value="enabled">{t.policyEnabled}</option>
+                    <option value="disabled">{t.policyDisabled}</option>
+                  </select>
+                </label>
+                <label className="policy-toggle">
+                  <input type="checkbox" checked={policyForm.secret_policy_enabled} onChange={event => setPolicyForm({ ...policyForm, secret_policy_enabled: event.target.checked })} />
+                  {t.policySecrets}
+                </label>
+                <label>
+                  {t.policyWorkerLease}
+                  <input type="number" min="0" step="1" value={policyForm.worker_lease_seconds} onChange={event => setPolicyForm({ ...policyForm, worker_lease_seconds: event.target.value })} />
+                </label>
+                <label className="policy-wide">
+                  {t.policyAllowlist}
+                  <textarea value={policyForm.network_egress_allowlist} onChange={event => setPolicyForm({ ...policyForm, network_egress_allowlist: event.target.value })} />
+                </label>
+                <div className="policy-limit-grid">
+                  {policyLimitKeys.map(key => <label key={key}>
+                    {key.replaceAll('_', ' ')}
+                    <input type="number" min="0" step="1" value={policyForm.limits[key] || '0'} onChange={event => setPolicyForm({ ...policyForm, limits: { ...policyForm.limits, [key]: event.target.value } })} />
+                  </label>)}
+                </div>
+                <label className="policy-wide">
+                  {t.policyReason}
+                  <input value={policyForm.reason} onChange={event => setPolicyForm({ ...policyForm, reason: event.target.value })} required />
+                </label>
+                <div className="policy-actions">
+                  <button type="submit" disabled={policyControlsSaving || !policyForm.reason.trim()}>{policyControlsSaving ? t.policySaving : t.policySave}</button>
+                </div>
+              </form>}
               <div className="e08-boundary">
                 <div className="e08-boundary-head"><strong>{t.e08BoundaryTitle}</strong><span>{policyControls.e08_boundary.current_slice}</span></div>
                 <div className="e08-boundary-grid">
