@@ -165,3 +165,7 @@ v0.2.127 remaining sidecar architecture reselection 已排除 completed in-proce
 v0.2.128 已实现 storage-backed distributed queue semantics：新增 atomic claim-next 队列领取、expired lease requeue 语义、queue semantics snapshot 与 requeue API，并将 `PlatformHarnessWorkerRunner` 的消费路径改为 claim-next。该版本只关闭队列所有权/requeue semantics，不实现 external process manager、external KMS provider integration 或 full sidecar completion。
 
 证据：`../../workingon-archives/v0.2.128/evidence_v0.2.128_e08_distributed_queue_semantics_summary.md`
+
+v0.2.129 remaining sidecar architecture reselection 已排除 completed distributed queue semantics、in-process production worker supervision 和全部 required worker task-kind execution coverage 证据，并选择 `external_process_manager` 作为下一条 E08 architecture slice。该版本只选择下一 slice，不实现 external process management，也不声明 external KMS 或 full sidecar completion。
+
+证据：`../../workingon-archives/v0.2.129/decision_v0.2.129_e08_remaining_sidecar_architecture_reselection_summary.md`
