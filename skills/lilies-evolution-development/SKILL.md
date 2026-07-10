@@ -16,7 +16,7 @@ Before substantial work, read the smallest authoritative set first:
 1. `docs/PROJECT_EVOLUTION_STRATEGY.md`
 2. `docs/README.md`
 3. `docs/LANGUAGE_SYSTEM.md` if relevant
-4. latest relevant `docs/stage-reports/v*.md`
+4. latest relevant `docs/stage-reports/v*.md`, read previous 5 versions at most.
 5. relevant `docs/experiment-status/v*.md`
 6. relevant `docs/experiment-status/ledgers/*.md`
 7. relevant `docs/experiment-status/evidence/*_summary.md`
@@ -108,15 +108,16 @@ For detailed gates, read `references/operating-gates.md`, `references/archive-an
 
 ## Automatic Evolution Mode
 
-Automatic Evolution Mode is an execution loop: select the next version from the latest stage report, expand the full task set, write designs, implement them, verify, update experiment status, archive, commit, then inspect the new stage report and continue.
+Automatic Evolution Mode is an execution loop: select the next version from the latest stage report, expand the full task set, write designs, implement them, verify, update experiment status, archive, commit, then inspect the new stage report and continue until the user explicitly says to pause or stop.
 
-Do not final-answer in this mode merely because a stage was committed. A final answer is allowed only when:
+Do not final-answer in this mode merely because a stage was committed, a handoff did not preselect one implementation task, or the latest evidence says there is "no meaningful single next task". If the latest stage report contains lane-selection, phase-report, governance, cleanup, or other meta tasks, open the smallest next stage that resolves that decision and continue.
+
+A final answer is allowed only when:
 
 - the user explicitly pauses/stops or asks to stop after the current version,
-- no meaningful next task exists,
 - a real blocker exists: credentials/services missing, unbounded cost, destructive action needing consent, safety/privacy/legal risk, merge conflict, or no valid next-stage source.
 
-Before each final answer in this mode, ask: "Could I name the next version and first workingon file from the latest stage report?" If yes and the user did not ask to pause, keep going.
+Before each final answer in this mode, ask: "Could I name any safe next version and first workingon file from the latest stage report, including a selection or meta-planning stage?" If yes and the user did not ask to pause, keep going.
 
 Read `references/operating-gates.md` before using this mode.
 

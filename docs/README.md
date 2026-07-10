@@ -81,6 +81,7 @@
 - `stage-reports/v0.2.55_e08_harness_sidecar_passmode.md`
 - `stage-reports/v0.2.56_adaptive_long_term_monitoring.md`
 - `stage-reports/v0.2.57_full_backlog_closure.md`
+- `stage-reports/v0.2.58_continuous_auto_evolution.md`
 
 ## 使用原则
 
