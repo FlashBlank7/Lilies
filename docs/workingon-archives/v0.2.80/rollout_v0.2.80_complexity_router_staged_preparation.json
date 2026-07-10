@@ -1,0 +1,61 @@
+{
+  "version": "v0.2.80",
+  "plan_id": "complexity_router_staged_rollout_preparation",
+  "default_enabled": false,
+  "allowed_to_enable_default": true,
+  "rollout_stages": [
+    {
+      "stage_id": "stage_0_shadow_only",
+      "mode": "shadow_only",
+      "entry_criteria": [
+        "bounded live validation passed",
+        "metrics schema available"
+      ],
+      "exit_criteria": [
+        "classification distribution recorded",
+        "no accidental default enablement"
+      ],
+      "behavior_change": false
+    },
+    {
+      "stage_id": "stage_1_operator_opt_in",
+      "mode": "operator_opt_in",
+      "entry_criteria": [
+        "stage_0 exit criteria satisfied",
+        "operator reason capture available"
+      ],
+      "exit_criteria": [
+        "override reason coverage >= 0.95",
+        "unexpected classification rate <= 0.05"
+      ],
+      "behavior_change": false
+    },
+    {
+      "stage_id": "stage_2_limited_default_review",
+      "mode": "limited_default_review_ready",
+      "entry_criteria": [
+        "stage_1 exit criteria satisfied",
+        "frontend verification restored or explicitly waived"
+      ],
+      "exit_criteria": [
+        "separate stage report selects or rejects limited default enablement"
+      ],
+      "behavior_change": false
+    }
+  ],
+  "operator_controls": [
+    "opt_in_for_task",
+    "force_simple_with_reason",
+    "force_medium_with_reason",
+    "force_complex_with_reason",
+    "disable_routing_for_task",
+    "rollback_to_shadow_only"
+  ],
+  "rollback_criteria": [
+    "unexpected_classification_rate_above_0.05",
+    "missing_required_metrics",
+    "override_reason_coverage_below_0.95",
+    "any_accidental_default_enablement"
+  ],
+  "next_decision_boundary": "A later stage report must select limited default enablement, continue shadow/opt-in rollout, or defer enablement."
+}
