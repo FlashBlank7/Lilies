@@ -52,6 +52,7 @@ class MCPServerSpec(BaseModel):
     args: list[str] = Field(default_factory=list)
     env: dict[str, str] = Field(default_factory=dict)
     headers: dict[str, str] = Field(default_factory=dict)
+    egress_hosts: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def validate_transport(self) -> "MCPServerSpec":

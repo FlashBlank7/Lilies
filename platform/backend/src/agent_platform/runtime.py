@@ -472,6 +472,8 @@ class AgentRuntime:
                 server_name=server.name,
                 agent_network_policy=agent.network_policy,
                 sandbox_network_policy=agent.network_policy if sandboxed_stdio else None,
+                declared_egress_hosts=server.egress_hosts,
+                agent_network_allowlist=agent.network_allowlist,
             )
             return
         if not server.url:

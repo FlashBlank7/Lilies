@@ -2702,13 +2702,15 @@ def test_platform_harness_policy_controls_api_reports_stdio_mcp_decisions(tmp_pa
 
         stdio = body["stdio_mcp"]
         assert stdio["sandboxed_no_network_supported"] is True
-        assert stdio["allowlist_supported"] is False
+        assert stdio["allowlist_supported"] is True
+        assert stdio["allowlist_contract"]["requires_declared_egress_hosts"] is True
 
         decisions = {item["id"]: item for item in stdio["decisions"]}
         assert decisions["sandboxed_no_network"]["allowed"] is True
         assert decisions["sandboxed_no_network"]["mode"] == "sandboxed_no_network"
-        assert decisions["sandboxed_allowlist"]["allowed"] is False
-        assert "allowlist-grade enforcement" in decisions["sandboxed_allowlist"]["reason"]
+        assert decisions["sandboxed_allowlist"]["allowed"] is True
+        assert decisions["sandboxed_allowlist"]["mode"] == "sandboxed_allowlist"
+        assert decisions["sandboxed_allowlist"]["declared_egress_hosts"] == ["api.example.test"]
         assert decisions["sandboxed_allowlist"]["operator_action"]
         assert decisions["restricted_unsandboxed"]["allowed"] is False
 

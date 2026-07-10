@@ -1,0 +1,113 @@
+{
+  "version": "v0.2.106",
+  "evidence_id": "e08_stdio_container_egress_allowlist_contract",
+  "source_stage_report": "docs/stage-reports/v0.2.105_e08_broader_sidecar_scope_decomposition.md",
+  "status": "completed",
+  "checks": {
+    "covered_sandboxed_stdio_allowlist_allowed": true,
+    "missing_declared_hosts_blocked": true,
+    "platform_unlisted_host_blocked": true,
+    "unsandboxed_allowlist_blocked": true,
+    "blocked_before_external_action": true,
+    "policy_controls_allowlist_supported": true
+  },
+  "decisions": {
+    "allowed": {
+      "surface": "evidence",
+      "server_name": "declared-local",
+      "platform_policy": "allowlist",
+      "agent_network_policy": "allowlist",
+      "sandbox_network_policy": "allowlist",
+      "declared_egress_hosts": [
+        "api.example.test"
+      ],
+      "agent_network_allowlist": [
+        "example.test"
+      ],
+      "platform_network_allowlist": [
+        "example.test"
+      ],
+      "allowed": true,
+      "mode": "sandboxed_allowlist",
+      "reason": "stdio MCP allowed evidence:declared-local: sandboxed stdio declares egress_hosts covered by the active allowlist policy",
+      "operator_action": "Keep declared egress_hosts aligned with the sandbox/container firewall allowlist."
+    },
+    "missing_host": {
+      "surface": "evidence",
+      "server_name": "missing-hosts",
+      "platform_policy": "allowlist",
+      "agent_network_policy": "allowlist",
+      "sandbox_network_policy": "allowlist",
+      "declared_egress_hosts": [],
+      "agent_network_allowlist": [
+        "example.test"
+      ],
+      "platform_network_allowlist": [
+        "example.test"
+      ],
+      "allowed": false,
+      "mode": "blocked",
+      "reason": "stdio MCP egress policy blocked evidence:missing-hosts: allowlist-grade stdio requires declared egress_hosts",
+      "operator_action": "Add egress_hosts to the stdio MCP server spec or use sandboxed no-network mode."
+    },
+    "unlisted_host": {
+      "surface": "evidence",
+      "server_name": "unlisted-host",
+      "platform_policy": "allowlist",
+      "agent_network_policy": "allowlist",
+      "sandbox_network_policy": "allowlist",
+      "declared_egress_hosts": [
+        "api.other.test"
+      ],
+      "agent_network_allowlist": [
+        "other.test"
+      ],
+      "platform_network_allowlist": [
+        "example.test"
+      ],
+      "allowed": false,
+      "mode": "blocked",
+      "reason": "stdio MCP egress policy blocked evidence:unlisted-host: declared host(s) api.other.test are not in the platform allowlist",
+      "operator_action": "Add the declared host to the Platform Harness network egress allowlist."
+    },
+    "unsandboxed": {
+      "surface": "evidence",
+      "server_name": "unsandboxed",
+      "platform_policy": "allowlist",
+      "agent_network_policy": "allowlist",
+      "sandbox_network_policy": null,
+      "declared_egress_hosts": [
+        "api.example.test"
+      ],
+      "agent_network_allowlist": [
+        "example.test"
+      ],
+      "platform_network_allowlist": [
+        "example.test"
+      ],
+      "allowed": false,
+      "mode": "blocked",
+      "reason": "stdio MCP egress policy blocked evidence:unsandboxed: allowlist-grade stdio requires sandboxed execution with agent and sandbox allowlist policies",
+      "operator_action": "Run stdio MCP inside the sandbox runner with declared egress_hosts and allowlist policy."
+    }
+  },
+  "implementation_paths": [
+    "platform/backend/src/agent_platform/models.py",
+    "platform/backend/src/agent_platform/platform_harness.py",
+    "platform/backend/src/agent_platform/runtime.py",
+    "platform/backend/src/agent_platform/workflow_runtime.py",
+    "tests/test_v02_106_e08_stdio_container_egress_allowlist_contract.py",
+    "tests/test_runtime.py",
+    "tests/test_workflow.py"
+  ],
+  "existing_evidence_preserved": [
+    "docs/stage-reports/v0.2.22_platform_harness_stdio_sandbox_egress.md",
+    "docs/stage-reports/v0.2.24_platform_harness_stdio_policy_controls.md"
+  ],
+  "invariants": {
+    "e08_full_sidecar_completion_claimed": false,
+    "current_tranche_not_duplicated": true,
+    "workingon_is_not_task_source": true
+  },
+  "next_boundary": "This closes the stdio/container egress allowlist contract slice only; KMS/rotation, complete handler catalog, distributed heartbeat registry, and other sidecar slices remain open."
+}

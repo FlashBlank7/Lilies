@@ -73,3 +73,7 @@ v0.2.104 productization lane reselection 已在排除 completed E05 scheduled ho
 v0.2.105 E08 broader sidecar scope decomposition 已把 remaining full-sidecar gap 拆为 concrete slices，并选择 `stdio_container_egress_allowlist_contract` 作为第一条实现切片。当前 tranche 的 deterministic comparison、editable policy-controls API、Studio controls、operator runbook 已映射为 completed capabilities，不会重复实现；full sidecar completion 仍未声明完成。
 
 证据：`../../workingon-archives/v0.2.105/scope_v0.2.105_e08_broader_sidecar_decomposition_summary.md`
+
+v0.2.106 已实现 allowlist-grade stdio/container egress contract：`MCPServerSpec` 可声明 `egress_hosts`，Platform Harness 只允许 sandboxed stdio allowlist 且 declared hosts 被 agent/platform allowlist 覆盖的场景；missing hosts、unlisted hosts、unsandboxed allowlist stdio 会在外部动作前 hard-fail。Policy controls 现在展示 allowlist contract requirements。该版本只关闭 stdio/container egress allowlist slice，不声明 full sidecar completion。
+
+证据：`../../workingon-archives/v0.2.106/evidence_v0.2.106_e08_stdio_container_egress_allowlist_contract_summary.md`

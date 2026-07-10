@@ -824,12 +824,16 @@ class PlatformHarness:
         server_name: str,
         agent_network_policy: Any,
         sandbox_network_policy: Any | None = None,
+        declared_egress_hosts: list[str] | None = None,
+        agent_network_allowlist: list[str] | None = None,
     ) -> None:
         decision = self.explain_stdio_mcp_policy(
             surface=surface,
             server_name=server_name,
             agent_network_policy=agent_network_policy,
             sandbox_network_policy=sandbox_network_policy,
+            declared_egress_hosts=declared_egress_hosts,
+            agent_network_allowlist=agent_network_allowlist,
         )
         if decision["allowed"]:
             return
@@ -842,6 +846,8 @@ class PlatformHarness:
         server_name: str,
         agent_network_policy: Any,
         sandbox_network_policy: Any | None = None,
+        declared_egress_hosts: list[str] | None = None,
+        agent_network_allowlist: list[str] | None = None,
     ) -> dict[str, Any]:
         platform_policy = self._normalized_policy(self.network_egress_policy)
         agent_policy = self._normalized_policy(agent_network_policy)
@@ -850,12 +856,18 @@ class PlatformHarness:
             if sandbox_network_policy is not None
             else None
         )
+        normalized_declared_hosts = self._normalized_host_list(declared_egress_hosts or [])
+        normalized_agent_allowlist = self._normalized_host_list(agent_network_allowlist or [])
+        normalized_platform_allowlist = self._normalized_host_list(self.network_egress_allowlist)
         base = {
             "surface": surface,
             "server_name": server_name,
             "platform_policy": platform_policy,
             "agent_network_policy": agent_policy,
             "sandbox_network_policy": sandbox_policy,
+            "declared_egress_hosts": normalized_declared_hosts,
+            "agent_network_allowlist": normalized_agent_allowlist,
+            "platform_network_allowlist": normalized_platform_allowlist,
             "allowed": False,
             "mode": "blocked",
             "reason": "",
@@ -884,6 +896,57 @@ class PlatformHarness:
                 "operator_action": "Keep the stdio server inside the sandbox runner.",
             }
         if sandbox_policy == "allowlist" or platform_policy == "allowlist" or agent_policy == "allowlist":
+            if sandbox_policy != "allowlist" or agent_policy != "allowlist":
+                reason = (
+                    "stdio MCP egress policy blocked "
+                    f"{surface}:{server_name}: allowlist-grade stdio requires sandboxed execution "
+                    "with agent and sandbox allowlist policies"
+                )
+                action = "Run stdio MCP inside the sandbox runner with declared egress_hosts and allowlist policy."
+                return {**base, "reason": reason, "operator_action": action}
+            if not normalized_declared_hosts:
+                reason = (
+                    "stdio MCP egress policy blocked "
+                    f"{surface}:{server_name}: allowlist-grade stdio requires declared egress_hosts"
+                )
+                action = "Add egress_hosts to the stdio MCP server spec or use sandboxed no-network mode."
+                return {**base, "reason": reason, "operator_action": action}
+            agent_denied = [
+                host for host in normalized_declared_hosts
+                if not self._host_in_allowlist(host, normalized_agent_allowlist)
+            ]
+            if agent_denied:
+                denied = ", ".join(agent_denied)
+                reason = (
+                    "stdio MCP egress policy blocked "
+                    f"{surface}:{server_name}: declared host(s) {denied} are not in the agent allowlist"
+                )
+                action = "Add the declared host to the agent network_allowlist or remove it from egress_hosts."
+                return {**base, "reason": reason, "operator_action": action}
+            if platform_policy == "allowlist":
+                platform_denied = [
+                    host for host in normalized_declared_hosts
+                    if not self._host_in_allowlist(host, normalized_platform_allowlist)
+                ]
+                if platform_denied:
+                    denied = ", ".join(platform_denied)
+                    reason = (
+                        "stdio MCP egress policy blocked "
+                        f"{surface}:{server_name}: declared host(s) {denied} are not in the platform allowlist"
+                    )
+                    action = "Add the declared host to the Platform Harness network egress allowlist."
+                    return {**base, "reason": reason, "operator_action": action}
+            return {
+                **base,
+                "allowed": True,
+                "mode": "sandboxed_allowlist",
+                "reason": (
+                    f"stdio MCP allowed {surface}:{server_name}: sandboxed stdio declares egress_hosts "
+                    "covered by the active allowlist policy"
+                ),
+                "operator_action": "Keep declared egress_hosts aligned with the sandbox/container firewall allowlist.",
+            }
+        else:
             reason = (
                 "stdio MCP egress policy blocked "
                 f"{surface}:{server_name}: stdio servers do not declare hostnames, "
@@ -893,13 +956,6 @@ class PlatformHarness:
                 "Use an HTTP MCP server with a hostname allowlist, switch to a no-network "
                 "sandbox for local stdio, or add hard sandbox firewalling before enabling stdio allowlist."
             )
-        else:
-            reason = (
-                "stdio MCP egress policy blocked "
-                f"{surface}:{server_name}: stdio servers do not declare hostnames; "
-                "use full network policy or the sandboxed no-network stdio runner"
-            )
-            action = "Use full/full for trusted local stdio or sandboxed none/none for no-network stdio."
         return {**base, "reason": reason, "operator_action": action}
 
     def policy_controls(self) -> dict[str, Any]:
@@ -921,6 +977,8 @@ class PlatformHarness:
                 "Sandboxed allowlist stdio",
                 agent_policy="allowlist",
                 sandbox_policy="allowlist",
+                declared_egress_hosts=list(self.network_egress_allowlist),
+                agent_network_allowlist=list(self.network_egress_allowlist),
             ),
             self._stdio_policy_control_decision(
                 "restricted_unsandboxed",
@@ -951,7 +1009,13 @@ class PlatformHarness:
             },
             "stdio_mcp": {
                 "sandboxed_no_network_supported": True,
-                "allowlist_supported": False,
+                "allowlist_supported": True,
+                "allowlist_contract": {
+                    "requires_sandboxed_stdio": True,
+                    "requires_declared_egress_hosts": True,
+                    "requires_agent_allowlist_coverage": True,
+                    "requires_platform_allowlist_coverage_when_platform_policy_is_allowlist": True,
+                },
                 "decisions": decisions,
             },
             "e08_boundary": self._e08_boundary_summary(),
@@ -1033,15 +1097,33 @@ class PlatformHarness:
         normalized: list[str] = []
         seen: set[str] = set()
         for entry in entries:
-            value = entry.strip().casefold().rstrip(".")
+            value = self._normalized_host(entry)
             if not value:
                 raise PlatformHarnessViolation("network_egress_allowlist entries must be non-empty")
-            if "/" in value or ":" in value:
-                raise PlatformHarnessViolation("network_egress_allowlist entries must be host names")
             if value not in seen:
                 normalized.append(value)
                 seen.add(value)
         return normalized
+
+    def _normalized_host(self, value: str) -> str:
+        normalized = value.strip().casefold().rstrip(".")
+        if normalized and ("/" in normalized or ":" in normalized):
+            raise PlatformHarnessViolation("network_egress_allowlist entries must be host names")
+        return normalized
+
+    def _normalized_host_list(self, entries: list[str]) -> list[str]:
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for entry in entries:
+            value = self._normalized_host(str(entry))
+            if value and value not in seen:
+                normalized.append(value)
+                seen.add(value)
+        return normalized
+
+    def _host_in_allowlist(self, hostname: str, allowlist: list[str]) -> bool:
+        normalized = self._normalized_host(hostname)
+        return any(normalized == entry or normalized.endswith(f".{entry}") for entry in allowlist)
 
     def _normalized_cancellation_policy(self, policy: str) -> str:
         normalized = policy.strip().casefold()
@@ -1213,6 +1295,8 @@ class PlatformHarness:
         *,
         agent_policy: str,
         sandbox_policy: str | None,
+        declared_egress_hosts: list[str] | None = None,
+        agent_network_allowlist: list[str] | None = None,
     ) -> dict[str, Any]:
         return {
             "id": decision_id,
@@ -1222,6 +1306,8 @@ class PlatformHarness:
                 server_name=decision_id,
                 agent_network_policy=agent_policy,
                 sandbox_network_policy=sandbox_policy,
+                declared_egress_hosts=declared_egress_hosts,
+                agent_network_allowlist=agent_network_allowlist,
             ),
         }
 

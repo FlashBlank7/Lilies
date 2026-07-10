@@ -217,12 +217,20 @@ async def _runtime_for_stdio_mcp_policy(
 
 def _stdio_mcp_agent(*, network_policy: NetworkPolicy) -> AgentSpec:
     allowlist = ["example.test"] if network_policy == NetworkPolicy.allowlist else []
+    egress_hosts = ["api.example.test"] if network_policy == NetworkPolicy.allowlist else []
     return AgentSpec(
         name="stdio mcp",
         description="tests stdio MCP policy",
         system_prompt="Call the configured MCP server only when allowed by policy.",
         tools=["MCP"],
-        mcp_servers=[MCPServerSpec(name="local", transport="stdio", command="python")],
+        mcp_servers=[
+            MCPServerSpec(
+                name="local",
+                transport="stdio",
+                command="python",
+                egress_hosts=egress_hosts,
+            )
+        ],
         permission_mode=PermissionMode.bypass,
         network_policy=network_policy,
         network_allowlist=allowlist,
@@ -269,11 +277,43 @@ async def test_runtime_allows_sandboxed_stdio_mcp_with_no_network_policy(tmp_pat
 
 
 @pytest.mark.asyncio
-async def test_runtime_blocks_sandboxed_stdio_mcp_with_allowlist_policy(tmp_path: Path) -> None:
+async def test_runtime_allows_sandboxed_stdio_mcp_with_allowlist_policy(tmp_path: Path) -> None:
     runtime = await _runtime_for_stdio_mcp_policy(tmp_path, platform_policy="allowlist")
     agent = _stdio_mcp_agent(network_policy=NetworkPolicy.allowlist)
+    runtime.harness.network_egress_allowlist = ["example.test"]
 
-    with pytest.raises(PlatformHarnessViolation, match="stdio MCP egress policy blocked"):
+    runtime._enforce_tool_network_policy(
+        agent,
+        "MCP",
+        {"server": "local"},
+        sandboxed_stdio=True,
+    )
+
+
+@pytest.mark.asyncio
+async def test_runtime_blocks_sandboxed_stdio_mcp_with_missing_egress_hosts(tmp_path: Path) -> None:
+    runtime = await _runtime_for_stdio_mcp_policy(tmp_path, platform_policy="allowlist")
+    runtime.harness.network_egress_allowlist = ["example.test"]
+    agent = _stdio_mcp_agent(network_policy=NetworkPolicy.allowlist)
+    agent.mcp_servers[0].egress_hosts = []
+
+    with pytest.raises(PlatformHarnessViolation, match="requires declared egress_hosts"):
+        runtime._enforce_tool_network_policy(
+            agent,
+            "MCP",
+            {"server": "local"},
+            sandboxed_stdio=True,
+        )
+
+
+@pytest.mark.asyncio
+async def test_runtime_blocks_sandboxed_stdio_mcp_with_unlisted_declared_host(tmp_path: Path) -> None:
+    runtime = await _runtime_for_stdio_mcp_policy(tmp_path, platform_policy="allowlist")
+    runtime.harness.network_egress_allowlist = ["example.test"]
+    agent = _stdio_mcp_agent(network_policy=NetworkPolicy.allowlist)
+    agent.mcp_servers[0].egress_hosts = ["not-allowed.test"]
+
+    with pytest.raises(PlatformHarnessViolation, match="not in the agent allowlist"):
         runtime._enforce_tool_network_policy(
             agent,
             "MCP",

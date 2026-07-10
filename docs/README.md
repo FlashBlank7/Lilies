@@ -130,6 +130,7 @@
 - `stage-reports/v0.2.103_e05_scheduled_monitoring_hook.md`
 - `stage-reports/v0.2.104_productization_lane_reselection.md`
 - `stage-reports/v0.2.105_e08_broader_sidecar_scope_decomposition.md`
+- `stage-reports/v0.2.106_e08_stdio_container_egress_allowlist_contract.md`
 
 ## 使用原则
 
