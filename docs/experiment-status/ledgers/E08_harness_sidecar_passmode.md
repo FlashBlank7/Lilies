@@ -85,3 +85,7 @@ v0.2.107 remaining sidecar slice reselection 已排除 completed stdio/container
 v0.2.108 已实现 local KMS/rotation-grade secret envelope contract：新 secret 使用 `secret-envelope:v2:` 与 `key_id`，Platform Harness 支持 current key id 和 previous-key keyring 解密，v1 envelope 与 legacy plaintext rows 继续可读，public metadata 只暴露 storage mode/key id 且不泄露 secret value。该版本只关闭 local secret envelope rotation slice；external KMS、complete handler catalog、distributed heartbeat registry 和 full sidecar completion 仍未完成。
 
 证据：`../../workingon-archives/v0.2.108/evidence_v0.2.108_e08_secret_kms_rotation_contract_summary.md`
+
+v0.2.109 remaining sidecar slice reselection 已排除 completed stdio/container egress allowlist slice、completed secret KMS/rotation slice、policy-controls API、Studio controls 和 operator runbook lifecycle，并选择 `complete_handler_catalog` 作为下一条 E08 实现切片。该版本只选择下一 slice，不实现 handler catalog，也不声明 full sidecar completion。
+
+证据：`../../workingon-archives/v0.2.109/decision_v0.2.109_e08_remaining_sidecar_slice_reselection_summary.md`

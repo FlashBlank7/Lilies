@@ -133,6 +133,7 @@
 - `stage-reports/v0.2.106_e08_stdio_container_egress_allowlist_contract.md`
 - `stage-reports/v0.2.107_e08_remaining_sidecar_slice_reselection.md`
 - `stage-reports/v0.2.108_e08_secret_kms_rotation_contract.md`
+- `stage-reports/v0.2.109_e08_remaining_sidecar_slice_reselection.md`
 
 ## 使用原则
 
