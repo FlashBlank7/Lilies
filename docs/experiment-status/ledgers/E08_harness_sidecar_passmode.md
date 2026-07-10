@@ -89,3 +89,7 @@ v0.2.108 已实现 local KMS/rotation-grade secret envelope contract：新 secre
 v0.2.109 remaining sidecar slice reselection 已排除 completed stdio/container egress allowlist slice、completed secret KMS/rotation slice、policy-controls API、Studio controls 和 operator runbook lifecycle，并选择 `complete_handler_catalog` 作为下一条 E08 实现切片。该版本只选择下一 slice，不实现 handler catalog，也不声明 full sidecar completion。
 
 证据：`../../workingon-archives/v0.2.109/decision_v0.2.109_e08_remaining_sidecar_slice_reselection_summary.md`
+
+v0.2.110 已实现 complete handler catalog coverage：所有 Platform Harness `TaskKind` 都有 worker handler catalog entry，`scheduler_manual_trigger` 仍是当前唯一真实实现的 worker-owned handler，其他 task kinds 通过 deterministic unavailable handler 明确失败并给出 operator action。新增 `GET /api/v1/platform/harness/worker-handler-catalog` 暴露 catalog/registry/full-execution coverage。该版本只关闭 handler catalog visibility 和 deterministic gap failure slice，不声明 full execution coverage 或 full sidecar completion。
+
+证据：`../../workingon-archives/v0.2.110/evidence_v0.2.110_e08_complete_handler_catalog_summary.md`

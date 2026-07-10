@@ -134,6 +134,7 @@
 - `stage-reports/v0.2.107_e08_remaining_sidecar_slice_reselection.md`
 - `stage-reports/v0.2.108_e08_secret_kms_rotation_contract.md`
 - `stage-reports/v0.2.109_e08_remaining_sidecar_slice_reselection.md`
+- `stage-reports/v0.2.110_e08_complete_handler_catalog.md`
 
 ## 使用原则
 

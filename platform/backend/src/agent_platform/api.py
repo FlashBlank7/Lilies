@@ -347,6 +347,12 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
     async def get_platform_harness_policy_controls() -> dict[str, Any]:
         return services.harness.policy_controls()
 
+    @app.get("/api/v1/platform/harness/worker-handler-catalog", dependencies=[Depends(require_token)])
+    async def get_platform_harness_worker_handler_catalog() -> dict[str, Any]:
+        from .worker_runner import build_platform_worker_handlers, platform_worker_handler_catalog
+
+        return platform_worker_handler_catalog(build_platform_worker_handlers(services))
+
     @app.patch("/api/v1/platform/harness/policy-controls", dependencies=[Depends(require_token)])
     async def patch_platform_harness_policy_controls(
         body: PlatformPolicyControlsUpdateRequest,

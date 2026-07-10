@@ -11,7 +11,63 @@ from typing import Any
 from .platform_harness import PlatformHarness, PlatformTaskRecord
 
 
+PLATFORM_WORKER_TASK_KINDS = (
+    "workflow_run",
+    "builder_build",
+    "test_suite",
+    "scheduler_trigger",
+    "scheduler_manual_trigger",
+    "benchmark",
+    "draft_patch_preview",
+)
+
+IMPLEMENTED_WORKER_HANDLERS: dict[str, dict[str, str]] = {
+    "scheduler_manual_trigger": {
+        "label": "Scheduler manual trigger",
+        "implementation": "scheduler_manual_trigger_handler",
+        "evidence": "docs/stage-reports/v0.2.27_worker_runner_cli_and_handler.md",
+    },
+}
+
+UNAVAILABLE_WORKER_HANDLERS: dict[str, dict[str, str]] = {
+    "workflow_run": {
+        "label": "Workflow run",
+        "reason": "workflow runs are currently managed by the API/runtime path, not the external worker catalog",
+        "operator_action": "Keep workflow runs on the runtime path until a worker-owned workflow handler is implemented.",
+    },
+    "builder_build": {
+        "label": "Builder build",
+        "reason": "builder builds are currently managed by the builder service path",
+        "operator_action": "Keep builder builds on the builder service path until a worker-owned build handler is implemented.",
+    },
+    "test_suite": {
+        "label": "Test suite",
+        "reason": "test suites are currently managed by the workflow runtime test path",
+        "operator_action": "Keep test suites on the runtime test path until a worker-owned test handler is implemented.",
+    },
+    "scheduler_trigger": {
+        "label": "Scheduler automatic trigger",
+        "reason": "automatic scheduler triggers are currently managed by the scheduler loop",
+        "operator_action": "Use scheduler_manual_trigger for worker-owned manual runs until automatic scheduler offload is implemented.",
+    },
+    "benchmark": {
+        "label": "Benchmark",
+        "reason": "benchmark tasks are currently recorded by benchmark APIs and scripts, not executed by the worker catalog",
+        "operator_action": "Keep benchmark execution on the benchmark path until a worker-owned benchmark handler is implemented.",
+    },
+    "draft_patch_preview": {
+        "label": "Draft patch preview",
+        "reason": "draft patch previews are currently managed by the API preview path",
+        "operator_action": "Keep draft previews on the API path until a worker-owned preview handler is implemented.",
+    },
+}
+
+
 PlatformTaskHandler = Callable[[PlatformTaskRecord], Awaitable[dict[str, Any] | None] | dict[str, Any] | None]
+
+
+class PlatformWorkerHandlerUnavailable(RuntimeError):
+    pass
 
 
 @dataclass(slots=True)
@@ -23,6 +79,20 @@ class WorkerRunResult:
     lease_version: int = 0
     error: str = ""
     metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
+class WorkerHandlerCatalogEntry:
+    kind: str
+    label: str
+    required: bool
+    status: str
+    handler_registered: bool
+    executable: bool
+    implementation: str
+    evidence: str
+    reason: str
+    operator_action: str
 
 
 class PlatformHarnessWorkerRunner:
@@ -199,10 +269,98 @@ def scheduler_manual_trigger_handler(scheduler: Any) -> PlatformTaskHandler:
     return handler
 
 
+def unavailable_worker_handler(kind: str) -> PlatformTaskHandler:
+    spec = UNAVAILABLE_WORKER_HANDLERS[kind]
+
+    async def handler(_task: PlatformTaskRecord) -> dict[str, Any]:
+        raise PlatformWorkerHandlerUnavailable(
+            f"worker handler unavailable: {kind}; {spec['reason']}; action: {spec['operator_action']}"
+        )
+
+    return handler
+
+
 def build_platform_worker_handlers(services: Any) -> dict[str, PlatformTaskHandler]:
-    return {
+    handlers: dict[str, PlatformTaskHandler] = {
         "scheduler_manual_trigger": scheduler_manual_trigger_handler(services.scheduler),
     }
+    for kind in UNAVAILABLE_WORKER_HANDLERS:
+        handlers[kind] = unavailable_worker_handler(kind)
+    assert_complete_platform_worker_handler_catalog(handlers)
+    return handlers
+
+
+def platform_worker_handler_catalog(
+    handlers: dict[str, PlatformTaskHandler] | None = None,
+) -> dict[str, Any]:
+    registered = set(handlers or {})
+    entries: list[WorkerHandlerCatalogEntry] = []
+    for kind in PLATFORM_WORKER_TASK_KINDS:
+        if kind in IMPLEMENTED_WORKER_HANDLERS:
+            spec = IMPLEMENTED_WORKER_HANDLERS[kind]
+            entries.append(
+                WorkerHandlerCatalogEntry(
+                    kind=kind,
+                    label=spec["label"],
+                    required=True,
+                    status="implemented",
+                    handler_registered=kind in registered,
+                    executable=True,
+                    implementation=spec["implementation"],
+                    evidence=spec["evidence"],
+                    reason="",
+                    operator_action="Monitor worker-runner results and lease renewals.",
+                )
+            )
+            continue
+        spec = UNAVAILABLE_WORKER_HANDLERS[kind]
+        entries.append(
+            WorkerHandlerCatalogEntry(
+                kind=kind,
+                label=spec["label"],
+                required=True,
+                status="unavailable",
+                handler_registered=kind in registered,
+                executable=False,
+                implementation="unavailable_worker_handler",
+                evidence="docs/stage-reports/v0.2.110_e08_complete_handler_catalog.md",
+                reason=spec["reason"],
+                operator_action=spec["operator_action"],
+            )
+        )
+    entry_dicts = [asdict(entry) for entry in entries]
+    required = {entry.kind for entry in entries if entry.required}
+    cataloged = {entry.kind for entry in entries}
+    missing = sorted(required - cataloged)
+    unregistered = sorted(kind for kind in required if kind not in registered)
+    implemented = [entry.kind for entry in entries if entry.status == "implemented"]
+    unavailable = [entry.kind for entry in entries if entry.status == "unavailable"]
+    return {
+        "version": "v0.2.110",
+        "source": "docs/stage-reports/v0.2.109_e08_remaining_sidecar_slice_reselection.md",
+        "required_count": len(required),
+        "cataloged_count": len(cataloged),
+        "implemented_count": len(implemented),
+        "unavailable_count": len(unavailable),
+        "missing_required_kinds": missing,
+        "unregistered_required_kinds": unregistered,
+        "catalog_complete": not missing,
+        "registered_catalog_complete": not missing and not unregistered,
+        "full_execution_coverage": len(unavailable) == 0 and not missing and not unregistered,
+        "deterministic_gap_failure": not missing and not unregistered,
+        "not_full_sidecar_completion": True,
+        "entries": entry_dicts,
+    }
+
+
+def assert_complete_platform_worker_handler_catalog(handlers: dict[str, PlatformTaskHandler]) -> None:
+    catalog = platform_worker_handler_catalog(handlers)
+    if not catalog["catalog_complete"]:
+        missing = ", ".join(catalog["missing_required_kinds"])
+        raise ValueError(f"platform worker handler catalog is missing task kind(s): {missing}")
+    if not catalog["registered_catalog_complete"]:
+        missing = ", ".join(catalog["unregistered_required_kinds"])
+        raise ValueError(f"platform worker handler registry is missing task kind(s): {missing}")
 
 
 async def create_platform_worker_runner(

@@ -1,0 +1,136 @@
+{
+  "version": "v0.2.110",
+  "evidence_id": "e08_complete_handler_catalog",
+  "source_stage_report": "docs/stage-reports/v0.2.109_e08_remaining_sidecar_slice_reselection.md",
+  "status": "completed",
+  "checks": {
+    "catalog_covers_all_task_kinds": true,
+    "catalog_registry_complete": true,
+    "scheduler_manual_trigger_implemented": true,
+    "unimplemented_kinds_are_deterministic_unavailable": true,
+    "unavailable_handler_fails_task_deterministically": true,
+    "coverage_exposed_without_full_execution_claim": true
+  },
+  "catalog_summary": {
+    "required_count": 7,
+    "cataloged_count": 7,
+    "implemented_count": 1,
+    "unavailable_count": 6,
+    "catalog_complete": true,
+    "registered_catalog_complete": true,
+    "full_execution_coverage": false,
+    "deterministic_gap_failure": true,
+    "not_full_sidecar_completion": true
+  },
+  "catalog_entries": [
+    {
+      "kind": "workflow_run",
+      "label": "Workflow run",
+      "required": true,
+      "status": "unavailable",
+      "handler_registered": true,
+      "executable": false,
+      "implementation": "unavailable_worker_handler",
+      "evidence": "docs/stage-reports/v0.2.110_e08_complete_handler_catalog.md",
+      "reason": "workflow runs are currently managed by the API/runtime path, not the external worker catalog",
+      "operator_action": "Keep workflow runs on the runtime path until a worker-owned workflow handler is implemented."
+    },
+    {
+      "kind": "builder_build",
+      "label": "Builder build",
+      "required": true,
+      "status": "unavailable",
+      "handler_registered": true,
+      "executable": false,
+      "implementation": "unavailable_worker_handler",
+      "evidence": "docs/stage-reports/v0.2.110_e08_complete_handler_catalog.md",
+      "reason": "builder builds are currently managed by the builder service path",
+      "operator_action": "Keep builder builds on the builder service path until a worker-owned build handler is implemented."
+    },
+    {
+      "kind": "test_suite",
+      "label": "Test suite",
+      "required": true,
+      "status": "unavailable",
+      "handler_registered": true,
+      "executable": false,
+      "implementation": "unavailable_worker_handler",
+      "evidence": "docs/stage-reports/v0.2.110_e08_complete_handler_catalog.md",
+      "reason": "test suites are currently managed by the workflow runtime test path",
+      "operator_action": "Keep test suites on the runtime test path until a worker-owned test handler is implemented."
+    },
+    {
+      "kind": "scheduler_trigger",
+      "label": "Scheduler automatic trigger",
+      "required": true,
+      "status": "unavailable",
+      "handler_registered": true,
+      "executable": false,
+      "implementation": "unavailable_worker_handler",
+      "evidence": "docs/stage-reports/v0.2.110_e08_complete_handler_catalog.md",
+      "reason": "automatic scheduler triggers are currently managed by the scheduler loop",
+      "operator_action": "Use scheduler_manual_trigger for worker-owned manual runs until automatic scheduler offload is implemented."
+    },
+    {
+      "kind": "scheduler_manual_trigger",
+      "label": "Scheduler manual trigger",
+      "required": true,
+      "status": "implemented",
+      "handler_registered": true,
+      "executable": true,
+      "implementation": "scheduler_manual_trigger_handler",
+      "evidence": "docs/stage-reports/v0.2.27_worker_runner_cli_and_handler.md",
+      "reason": "",
+      "operator_action": "Monitor worker-runner results and lease renewals."
+    },
+    {
+      "kind": "benchmark",
+      "label": "Benchmark",
+      "required": true,
+      "status": "unavailable",
+      "handler_registered": true,
+      "executable": false,
+      "implementation": "unavailable_worker_handler",
+      "evidence": "docs/stage-reports/v0.2.110_e08_complete_handler_catalog.md",
+      "reason": "benchmark tasks are currently recorded by benchmark APIs and scripts, not executed by the worker catalog",
+      "operator_action": "Keep benchmark execution on the benchmark path until a worker-owned benchmark handler is implemented."
+    },
+    {
+      "kind": "draft_patch_preview",
+      "label": "Draft patch preview",
+      "required": true,
+      "status": "unavailable",
+      "handler_registered": true,
+      "executable": false,
+      "implementation": "unavailable_worker_handler",
+      "evidence": "docs/stage-reports/v0.2.110_e08_complete_handler_catalog.md",
+      "reason": "draft patch previews are currently managed by the API preview path",
+      "operator_action": "Keep draft previews on the API path until a worker-owned preview handler is implemented."
+    }
+  ],
+  "unavailable_failure": {
+    "task_id": "handler-catalog-benchmark-1",
+    "status": "failed",
+    "error": "worker handler unavailable: benchmark; benchmark tasks are currently recorded by benchmark APIs and scripts, not executed by the worker catalog; action: Keep benchmark execution on the benchmark path until a worker-owned benchmark handler is implemented.",
+    "finished_status": "failed"
+  },
+  "completed_slices_preserved": [
+    "docs/workingon-archives/v0.2.106/evidence_v0.2.106_e08_stdio_container_egress_allowlist_contract_summary.md",
+    "docs/workingon-archives/v0.2.108/evidence_v0.2.108_e08_secret_kms_rotation_contract_summary.md",
+    "docs/workingon-archives/v0.2.96/evidence_v0.2.96_e08_editable_policy_controls_api_summary.md",
+    "docs/workingon-archives/v0.2.98/evidence_v0.2.98_e08_studio_editable_policy_controls_summary.md",
+    "docs/workingon-archives/v0.2.100/evidence_v0.2.100_e08_operator_runbook_lifecycle_summary.md"
+  ],
+  "implementation_paths": [
+    "platform/backend/src/agent_platform/worker_runner.py",
+    "platform/backend/src/agent_platform/api.py",
+    "tests/test_v02_110_e08_complete_handler_catalog.py"
+  ],
+  "invariants": {
+    "e08_full_sidecar_completion_claimed": false,
+    "distributed_heartbeat_registry_implemented": false,
+    "external_kms_provider_integrated": false,
+    "workingon_is_not_task_source": true
+  },
+  "next_boundary": "This closes complete handler catalog coverage and deterministic gap failure only; real handlers for non-scheduler task kinds, distributed heartbeat registry, and external KMS provider integration remain open."
+}

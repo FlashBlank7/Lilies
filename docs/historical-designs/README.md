@@ -121,6 +121,7 @@
 - `v0.2.107_*`：来自 `docs/stage-reports/v0.2.107_e08_remaining_sidecar_slice_reselection.md`。
 - `v0.2.108_*`：来自 `docs/stage-reports/v0.2.108_e08_secret_kms_rotation_contract.md`。
 - `v0.2.109_*`：来自 `docs/stage-reports/v0.2.109_e08_remaining_sidecar_slice_reselection.md`。
+- `v0.2.110_*`：来自 `docs/stage-reports/v0.2.110_e08_complete_handler_catalog.md`。
 
 Active workspace rule:
 
