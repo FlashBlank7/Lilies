@@ -4,8 +4,12 @@ import argparse
 import asyncio
 import inspect
 import json
+import os
+import signal
+import subprocess
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 from typing import Any
 
 from .platform_harness import PlatformHarness, PlatformTaskRecord, WorkerHeartbeatStatus
@@ -518,6 +522,120 @@ def _utc_now() -> str:
     from datetime import datetime, timezone
 
     return datetime.now(timezone.utc).isoformat()
+
+
+class ExternalWorkerProcessManager:
+    """Local subprocess lifecycle manager for an external worker process."""
+
+    def __init__(
+        self,
+        *,
+        command: list[str] | None = None,
+        cwd: str | Path | None = None,
+        env: dict[str, str] | None = None,
+        stop_timeout_seconds: float = 5.0,
+    ) -> None:
+        if stop_timeout_seconds <= 0:
+            raise ValueError("stop_timeout_seconds must be greater than 0")
+        self.command = [item for item in (command or []) if item]
+        self.cwd = str(cwd) if cwd else ""
+        self.env = env or {}
+        self.stop_timeout_seconds = stop_timeout_seconds
+        self.process: subprocess.Popen[Any] | None = None
+        self.desired_state = "stopped"
+        self.started_at = ""
+        self.stopped_at = ""
+        self.restart_count = 0
+        self.last_error = ""
+        self.last_returncode: int | None = None
+
+    def start(self) -> dict[str, Any]:
+        if self.is_running:
+            return self.snapshot()
+        if not self.command:
+            raise ValueError("external worker process command is not configured")
+        env = os.environ.copy()
+        env.update(self.env)
+        try:
+            self.process = subprocess.Popen(  # noqa: S603 - command is operator-configured.
+                self.command,
+                cwd=self.cwd or None,
+                env=env,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+        except Exception as error:
+            self.last_error = str(error)
+            self.desired_state = "stopped"
+            raise
+        self.desired_state = "running"
+        self.started_at = _utc_now()
+        self.stopped_at = ""
+        self.last_error = ""
+        self.last_returncode = None
+        return self.snapshot()
+
+    def stop(self) -> dict[str, Any]:
+        self.desired_state = "stopped"
+        if self.process is None:
+            self.stopped_at = _utc_now()
+            return self.snapshot()
+        process = self.process
+        if process.poll() is None:
+            try:
+                if process.pid:
+                    os.killpg(process.pid, signal.SIGTERM)
+                process.wait(timeout=self.stop_timeout_seconds)
+            except subprocess.TimeoutExpired:
+                if process.pid:
+                    os.killpg(process.pid, signal.SIGKILL)
+                process.wait(timeout=self.stop_timeout_seconds)
+        self.last_returncode = process.poll()
+        self.stopped_at = _utc_now()
+        self.process = None
+        return self.snapshot()
+
+    def restart(self) -> dict[str, Any]:
+        self.stop()
+        self.restart_count += 1
+        return self.start()
+
+    @property
+    def is_running(self) -> bool:
+        return self.process is not None and self.process.poll() is None
+
+    def snapshot(self) -> dict[str, Any]:
+        returncode = self.process.poll() if self.process is not None else self.last_returncode
+        observed_state = "running" if self.is_running else "stopped"
+        if self.process is not None and returncode is not None and self.desired_state == "running":
+            observed_state = "exited"
+            self.last_returncode = returncode
+        return {
+            "version": "v0.2.130",
+            "source": "docs/stage-reports/v0.2.129_e08_remaining_sidecar_architecture_reselection.md",
+            "process_manager_mode": "local_subprocess",
+            "configured": bool(self.command),
+            "command": self.command,
+            "cwd": self.cwd,
+            "pid": self.process.pid if self.process is not None and self.is_running else None,
+            "desired_state": self.desired_state,
+            "observed_state": observed_state,
+            "returncode": returncode,
+            "started_at": self.started_at,
+            "stopped_at": self.stopped_at,
+            "restart_count": self.restart_count,
+            "last_error": self.last_error,
+            "supports_start": True,
+            "supports_stop": True,
+            "supports_restart": True,
+            "boundaries": {
+                "distributed_queue_semantics_preserved": True,
+                "external_kms_provider_integration": False,
+                "full_sidecar_completion_claimed": False,
+            },
+        }
 
 
 def scheduler_manual_trigger_handler(scheduler: Any) -> PlatformTaskHandler:

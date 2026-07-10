@@ -94,6 +94,7 @@ class Services:
     benchmark: BuilderBenchmark
     draft_patcher: DraftPatchPreviewer
     worker_supervisor: Any | None
+    worker_process_manager: Any | None
     background_tasks: set[asyncio.Task[Any]]
 
 
@@ -110,6 +111,11 @@ class PlatformTaskLeaseReleaseRequest(BaseModel):
 class PlatformWorkerSupervisionStartRequest(BaseModel):
     poll_seconds: float | None = Field(default=None, gt=0)
     limit: int | None = Field(default=None, ge=1, le=500)
+
+
+class PlatformWorkerProcessStartRequest(BaseModel):
+    command: list[str] | None = None
+    cwd: str | None = None
 
 
 class PlatformSecretCreateRequest(BaseModel):
@@ -261,9 +267,11 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         benchmark=benchmark,
         draft_patcher=draft_patcher,
         worker_supervisor=None,
+        worker_process_manager=None,
         background_tasks=set(),
     )
     from .worker_runner import (  # pylint: disable=import-outside-toplevel
+        ExternalWorkerProcessManager,
         PlatformHarnessWorkerRunner,
         PlatformWorkerSupervisor,
         build_platform_worker_handlers,
@@ -280,6 +288,11 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         poll_seconds=max(settings.platform_harness_worker_supervision_poll_seconds, 0.001),
         limit=max(settings.platform_harness_worker_supervision_limit, 1),
         background_tasks=services.background_tasks,
+    )
+    services.worker_process_manager = ExternalWorkerProcessManager(
+        command=list(settings.platform_harness_worker_process_command),
+        cwd=settings.platform_harness_worker_process_cwd,
+        stop_timeout_seconds=max(settings.platform_harness_worker_process_stop_timeout_seconds, 0.001),
     )
     return services
 
@@ -306,6 +319,8 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             )
             services.background_tasks.add(adaptive_refresh_task)
         yield
+        if services.worker_process_manager is not None and services.worker_process_manager.is_running:
+            services.worker_process_manager.stop()
         if services.worker_supervisor is not None and services.worker_supervisor.loop_running:
             await services.worker_supervisor.stop()
         await services.scheduler.stop()
@@ -545,6 +560,50 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         if services.worker_supervisor is None:
             raise HTTPException(503, "platform worker supervisor unavailable")
         return await services.worker_supervisor.stop()
+
+    @app.get("/api/v1/platform/harness/worker-process-manager", dependencies=[Depends(require_token)])
+    async def get_platform_harness_worker_process_manager() -> dict[str, Any]:
+        if services.worker_process_manager is None:
+            raise HTTPException(503, "platform worker process manager unavailable")
+        return services.worker_process_manager.snapshot()
+
+    @app.post("/api/v1/platform/harness/worker-process-manager/start", dependencies=[Depends(require_token)])
+    async def start_platform_harness_worker_process_manager(
+        body: PlatformWorkerProcessStartRequest | None = None,
+    ) -> dict[str, Any]:
+        if services.worker_process_manager is None:
+            raise HTTPException(503, "platform worker process manager unavailable")
+        body = body or PlatformWorkerProcessStartRequest()
+        if body.command is not None:
+            services.worker_process_manager.command = [item for item in body.command if item]
+        if body.cwd is not None:
+            services.worker_process_manager.cwd = body.cwd
+        try:
+            return services.worker_process_manager.start()
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from error
+
+    @app.post("/api/v1/platform/harness/worker-process-manager/stop", dependencies=[Depends(require_token)])
+    async def stop_platform_harness_worker_process_manager() -> dict[str, Any]:
+        if services.worker_process_manager is None:
+            raise HTTPException(503, "platform worker process manager unavailable")
+        return services.worker_process_manager.stop()
+
+    @app.post("/api/v1/platform/harness/worker-process-manager/restart", dependencies=[Depends(require_token)])
+    async def restart_platform_harness_worker_process_manager(
+        body: PlatformWorkerProcessStartRequest | None = None,
+    ) -> dict[str, Any]:
+        if services.worker_process_manager is None:
+            raise HTTPException(503, "platform worker process manager unavailable")
+        body = body or PlatformWorkerProcessStartRequest()
+        if body.command is not None:
+            services.worker_process_manager.command = [item for item in body.command if item]
+        if body.cwd is not None:
+            services.worker_process_manager.cwd = body.cwd
+        try:
+            return services.worker_process_manager.restart()
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from error
 
     @app.post("/api/v1/platform/secrets", status_code=201, dependencies=[Depends(require_token)])
     async def create_platform_secret(body: PlatformSecretCreateRequest) -> dict[str, Any]:

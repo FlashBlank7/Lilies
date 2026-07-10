@@ -1,0 +1,215 @@
+{
+  "version": "v0.2.130",
+  "source_stage_report": "docs/stage-reports/v0.2.129_e08_remaining_sidecar_architecture_reselection.md",
+  "status": "completed",
+  "direct_process_manager": {
+    "started": {
+      "version": "v0.2.130",
+      "source": "docs/stage-reports/v0.2.129_e08_remaining_sidecar_architecture_reselection.md",
+      "process_manager_mode": "local_subprocess",
+      "configured": true,
+      "command": [
+        "/Users/zhonghaoyang/Code/agent/Lilies/.venv/bin/python",
+        "-c",
+        "import time; time.sleep(30)"
+      ],
+      "cwd": "",
+      "pid": 82148,
+      "desired_state": "running",
+      "observed_state": "running",
+      "returncode": null,
+      "started_at": "2026-07-10T12:47:13.830758+00:00",
+      "stopped_at": "",
+      "restart_count": 0,
+      "last_error": "",
+      "supports_start": true,
+      "supports_stop": true,
+      "supports_restart": true,
+      "boundaries": {
+        "distributed_queue_semantics_preserved": true,
+        "external_kms_provider_integration": false,
+        "full_sidecar_completion_claimed": false
+      }
+    },
+    "restarted": {
+      "version": "v0.2.130",
+      "source": "docs/stage-reports/v0.2.129_e08_remaining_sidecar_architecture_reselection.md",
+      "process_manager_mode": "local_subprocess",
+      "configured": true,
+      "command": [
+        "/Users/zhonghaoyang/Code/agent/Lilies/.venv/bin/python",
+        "-c",
+        "import time; time.sleep(30)"
+      ],
+      "cwd": "",
+      "pid": 82149,
+      "desired_state": "running",
+      "observed_state": "running",
+      "returncode": null,
+      "started_at": "2026-07-10T12:47:13.833573+00:00",
+      "stopped_at": "",
+      "restart_count": 1,
+      "last_error": "",
+      "supports_start": true,
+      "supports_stop": true,
+      "supports_restart": true,
+      "boundaries": {
+        "distributed_queue_semantics_preserved": true,
+        "external_kms_provider_integration": false,
+        "full_sidecar_completion_claimed": false
+      }
+    },
+    "stopped": {
+      "version": "v0.2.130",
+      "source": "docs/stage-reports/v0.2.129_e08_remaining_sidecar_architecture_reselection.md",
+      "process_manager_mode": "local_subprocess",
+      "configured": true,
+      "command": [
+        "/Users/zhonghaoyang/Code/agent/Lilies/.venv/bin/python",
+        "-c",
+        "import time; time.sleep(30)"
+      ],
+      "cwd": "",
+      "pid": null,
+      "desired_state": "stopped",
+      "observed_state": "stopped",
+      "returncode": -15,
+      "started_at": "2026-07-10T12:47:13.833573+00:00",
+      "stopped_at": "2026-07-10T12:47:13.835166+00:00",
+      "restart_count": 1,
+      "last_error": "",
+      "supports_start": true,
+      "supports_stop": true,
+      "supports_restart": true,
+      "boundaries": {
+        "distributed_queue_semantics_preserved": true,
+        "external_kms_provider_integration": false,
+        "full_sidecar_completion_claimed": false
+      }
+    }
+  },
+  "api_process_manager": {
+    "initial": {
+      "version": "v0.2.130",
+      "source": "docs/stage-reports/v0.2.129_e08_remaining_sidecar_architecture_reselection.md",
+      "process_manager_mode": "local_subprocess",
+      "configured": true,
+      "command": [
+        "/Users/zhonghaoyang/Code/agent/Lilies/.venv/bin/python",
+        "-c",
+        "import time; time.sleep(30)"
+      ],
+      "cwd": "",
+      "pid": null,
+      "desired_state": "stopped",
+      "observed_state": "stopped",
+      "returncode": null,
+      "started_at": "",
+      "stopped_at": "",
+      "restart_count": 0,
+      "last_error": "",
+      "supports_start": true,
+      "supports_stop": true,
+      "supports_restart": true,
+      "boundaries": {
+        "distributed_queue_semantics_preserved": true,
+        "external_kms_provider_integration": false,
+        "full_sidecar_completion_claimed": false
+      }
+    },
+    "started": {
+      "version": "v0.2.130",
+      "source": "docs/stage-reports/v0.2.129_e08_remaining_sidecar_architecture_reselection.md",
+      "process_manager_mode": "local_subprocess",
+      "configured": true,
+      "command": [
+        "/Users/zhonghaoyang/Code/agent/Lilies/.venv/bin/python",
+        "-c",
+        "import time; time.sleep(30)"
+      ],
+      "cwd": "",
+      "pid": 82150,
+      "desired_state": "running",
+      "observed_state": "running",
+      "returncode": null,
+      "started_at": "2026-07-10T12:47:14.089864+00:00",
+      "stopped_at": "",
+      "restart_count": 0,
+      "last_error": "",
+      "supports_start": true,
+      "supports_stop": true,
+      "supports_restart": true,
+      "boundaries": {
+        "distributed_queue_semantics_preserved": true,
+        "external_kms_provider_integration": false,
+        "full_sidecar_completion_claimed": false
+      }
+    },
+    "restarted": {
+      "version": "v0.2.130",
+      "source": "docs/stage-reports/v0.2.129_e08_remaining_sidecar_architecture_reselection.md",
+      "process_manager_mode": "local_subprocess",
+      "configured": true,
+      "command": [
+        "/Users/zhonghaoyang/Code/agent/Lilies/.venv/bin/python",
+        "-c",
+        "import time; time.sleep(30)"
+      ],
+      "cwd": "",
+      "pid": 82151,
+      "desired_state": "running",
+      "observed_state": "running",
+      "returncode": null,
+      "started_at": "2026-07-10T12:47:14.094029+00:00",
+      "stopped_at": "",
+      "restart_count": 1,
+      "last_error": "",
+      "supports_start": true,
+      "supports_stop": true,
+      "supports_restart": true,
+      "boundaries": {
+        "distributed_queue_semantics_preserved": true,
+        "external_kms_provider_integration": false,
+        "full_sidecar_completion_claimed": false
+      }
+    },
+    "stopped": {
+      "version": "v0.2.130",
+      "source": "docs/stage-reports/v0.2.129_e08_remaining_sidecar_architecture_reselection.md",
+      "process_manager_mode": "local_subprocess",
+      "configured": true,
+      "command": [
+        "/Users/zhonghaoyang/Code/agent/Lilies/.venv/bin/python",
+        "-c",
+        "import time; time.sleep(30)"
+      ],
+      "cwd": "",
+      "pid": null,
+      "desired_state": "stopped",
+      "observed_state": "stopped",
+      "returncode": -15,
+      "started_at": "2026-07-10T12:47:14.094029+00:00",
+      "stopped_at": "2026-07-10T12:47:14.096589+00:00",
+      "restart_count": 1,
+      "last_error": "",
+      "supports_start": true,
+      "supports_stop": true,
+      "supports_restart": true,
+      "boundaries": {
+        "distributed_queue_semantics_preserved": true,
+        "external_kms_provider_integration": false,
+        "full_sidecar_completion_claimed": false
+      }
+    }
+  },
+  "invariants": {
+    "direct_start_observe_stop": true,
+    "direct_restart_changes_pid": true,
+    "api_start_observe_stop": true,
+    "api_restart_changes_pid": true,
+    "distributed_queue_semantics_preserved": true,
+    "external_kms_provider_integration_claimed": false,
+    "e08_full_sidecar_completion_claimed": false
+  },
+  "next_boundary": "External process manager now provides local subprocess start/observe/stop/restart. External KMS provider integration and full sidecar completion remain open."
+}
