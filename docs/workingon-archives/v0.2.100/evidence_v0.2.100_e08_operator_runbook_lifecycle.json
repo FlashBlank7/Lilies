@@ -1,0 +1,24 @@
+{
+  "version": "v0.2.100",
+  "source_stage_report": "docs/stage-reports/v0.2.99_e08_post_studio_controls_decision.md",
+  "runbook": "docs/operator-runbooks/e08_policy_controls_operator_runbook.md",
+  "status": "passed",
+  "missing_sections": [],
+  "missing_phrases": [],
+  "checklist_item_count": 6,
+  "required_sections": [
+    "Scope",
+    "Before-Change Checks",
+    "Apply-Change Procedure",
+    "Post-Change Verification",
+    "Rollback Procedure",
+    "Incident Escalation",
+    "Evidence Checklist",
+    "Product Boundary"
+  ],
+  "not_full_sidecar_completion": true,
+  "e07_invariant": {
+    "status": "preserved",
+    "no_e07_code_or_default_change": true
+  }
+}

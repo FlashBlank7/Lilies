@@ -1,6 +1,6 @@
 # E08 Harness Sidecar Passmode Ledger
 
-状态：post_Studio_path_selected；operator runbook lifecycle next
+状态：operator runbook lifecycle completed；broader sidecar boundary still deferred
 
 ## 当前结论
 
@@ -53,3 +53,7 @@ v0.2.98 已将 editable policy-controls 暴露到 Studio monitor tab：包含 ne
 v0.2.99 已选择 `operator_runbook_lifecycle` 作为 Studio controls 之后的下一条 E08 产品化路径。broader sidecar boundary closure 仍因范围过大延后；暂停 E08 被拒绝，因为已有 API 与 Studio controls 后，操作员流程、回滚和升级边界是自然闭合步骤。
 
 证据：`../../workingon-archives/v0.2.99/decision_v0.2.99_e08_post_studio_controls_summary.md`
+
+v0.2.100 已新增稳定 runbook `docs/operator-runbooks/e08_policy_controls_operator_runbook.md`，覆盖 before-change checks、apply-change procedure、post-change verification、rollback、incident escalation 和 evidence checklist，并链接 v0.2.96 backend API 与 v0.2.98 Studio controls 证据。验证脚本确认必需章节、关键 API/UI 证据链接和 full-sidecar 边界声明均存在。broader sidecar boundary closure 仍未完成。
+
+证据：`../../workingon-archives/v0.2.100/evidence_v0.2.100_e08_operator_runbook_lifecycle_summary.md`

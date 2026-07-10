@@ -7,11 +7,12 @@
 3. `intellectual-assets/`：少而精的可复用结论，供后续 design 和 plan 引用。
 4. `experiment-status/`：当前版本实验闭环、已应用标记和原始实验 backlog 关闭状态。默认读取顺序是索引 -> ledger -> `*_summary.md` -> raw JSON。
 5. `workingon/`：当前 stage 的 active 中间结果工作区，归档后只保留 README。
-6. `workingon-archives/`：已归档的小版本 workingon 中间材料。
-7. `current-design/`：当前 stage 的 active design 工作区，归档后只保留 README。
-8. `historical-designs/`：已经具备明确版本 state 的历史 design，只保存最终设计契约。
-9. `phase-reports/`：大版本完成后的总复盘和路线转向。
-10. `source-materials/`：早期长报告、会议材料、论文草稿和历史证据链。
+6. `operator-runbooks/`：稳定的操作员流程与运行手册，必须由 stage report 归档引用。
+7. `workingon-archives/`：已归档的小版本 workingon 中间材料。
+8. `current-design/`：当前 stage 的 active design 工作区，归档后只保留 README。
+9. `historical-designs/`：已经具备明确版本 state 的历史 design，只保存最终设计契约。
+10. `phase-reports/`：大版本完成后的总复盘和路线转向。
+11. `source-materials/`：早期长报告、会议材料、论文草稿和历史证据链。
 
 ## 当前稳定资产
 
@@ -123,6 +124,7 @@
 - `stage-reports/v0.2.97_e08_post_api_productization_decision.md`
 - `stage-reports/v0.2.98_e08_studio_editable_policy_controls.md`
 - `stage-reports/v0.2.99_e08_post_studio_controls_decision.md`
+- `stage-reports/v0.2.100_e08_operator_runbook_lifecycle.md`
 
 ## 使用原则
 
