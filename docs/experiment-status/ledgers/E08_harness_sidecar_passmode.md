@@ -69,3 +69,7 @@ v0.2.102 productization lane reselection 未选择 E08 broader sidecar boundary 
 v0.2.104 productization lane reselection 已在排除 completed E05 scheduled hook、completed E07 guarded rollout 以及 blocked E02/E10 后，选择 `e08_broader_sidecar_scope_decomposition` 作为下一条 open lane。该选择只表示下一版要做 E08 broader sidecar scope decomposition，不表示 full Platform Harness sidecar 已完成。
 
 证据：`../../workingon-archives/v0.2.104/decision_v0.2.104_productization_lane_reselection_summary.md`
+
+v0.2.105 E08 broader sidecar scope decomposition 已把 remaining full-sidecar gap 拆为 concrete slices，并选择 `stdio_container_egress_allowlist_contract` 作为第一条实现切片。当前 tranche 的 deterministic comparison、editable policy-controls API、Studio controls、operator runbook 已映射为 completed capabilities，不会重复实现；full sidecar completion 仍未声明完成。
+
+证据：`../../workingon-archives/v0.2.105/scope_v0.2.105_e08_broader_sidecar_decomposition_summary.md`

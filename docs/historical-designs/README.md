@@ -116,6 +116,7 @@
 - `v0.2.102_*`：来自 `docs/stage-reports/v0.2.102_productization_lane_reselection.md`。
 - `v0.2.103_*`：来自 `docs/stage-reports/v0.2.103_e05_scheduled_monitoring_hook.md`。
 - `v0.2.104_*`：来自 `docs/stage-reports/v0.2.104_productization_lane_reselection.md`。
+- `v0.2.105_*`：来自 `docs/stage-reports/v0.2.105_e08_broader_sidecar_scope_decomposition.md`。
 
 Active workspace rule:
 
