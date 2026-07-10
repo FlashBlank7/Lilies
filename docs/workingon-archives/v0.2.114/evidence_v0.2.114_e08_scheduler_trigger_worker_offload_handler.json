@@ -1,0 +1,151 @@
+{
+  "version": "v0.2.114",
+  "evidence_id": "e08_scheduler_trigger_worker_offload_handler",
+  "source_stage_report": "docs/stage-reports/v0.2.113_e08_remaining_sidecar_slice_reselection.md",
+  "status": "completed",
+  "checks": {
+    "scheduler_trigger_catalog_implemented": true,
+    "scheduler_tick_queued_in_offload_mode": true,
+    "worker_completed_scheduler_trigger_task": true,
+    "worker_started_real_scheduled_workflow_run": true,
+    "scheduler_fire_usage_preserved": true,
+    "heartbeat_registry_preserved": true,
+    "remaining_catalog_gaps_still_unavailable": true,
+    "full_execution_coverage_not_claimed": true
+  },
+  "catalog_summary": {
+    "version": "v0.2.114",
+    "required_count": 7,
+    "cataloged_count": 7,
+    "implemented_count": 2,
+    "unavailable_count": 5,
+    "catalog_complete": true,
+    "registered_catalog_complete": true,
+    "full_execution_coverage": false,
+    "not_full_sidecar_completion": true
+  },
+  "scheduler_trigger_entry": {
+    "kind": "scheduler_trigger",
+    "label": "Scheduler automatic trigger",
+    "required": true,
+    "status": "implemented",
+    "handler_registered": true,
+    "executable": true,
+    "implementation": "scheduler_trigger_handler",
+    "evidence": "docs/stage-reports/v0.2.114_e08_scheduler_trigger_worker_offload_handler.md",
+    "reason": "",
+    "operator_action": "Monitor worker-runner results and lease renewals."
+  },
+  "remaining_unavailable": [
+    "workflow_run",
+    "builder_build",
+    "test_suite",
+    "benchmark",
+    "draft_patch_preview"
+  ],
+  "queued_event": {
+    "application_id": "64bacbba-b3fc-493c-bc76-d26f8cf82f4d",
+    "version": 1,
+    "node_id": "schedule",
+    "local_date": "2026-06-24",
+    "task_id": "scheduler:64bacbba-b3fc-493c-bc76-d26f8cf82f4d:1:schedule:2026-06-24",
+    "queued": true
+  },
+  "finished_task": {
+    "id": "scheduler:64bacbba-b3fc-493c-bc76-d26f8cf82f4d:1:schedule:2026-06-24",
+    "kind": "scheduler_trigger",
+    "owner_id": "64bacbba-b3fc-493c-bc76-d26f8cf82f4d",
+    "resource_id": "scheduler:64bacbba-b3fc-493c-bc76-d26f8cf82f4d:1:schedule:2026-06-24",
+    "status": "succeeded",
+    "parent_task_id": null,
+    "metadata": {
+      "version": 1,
+      "node_id": "schedule",
+      "local_date": "2026-06-24",
+      "timezone": "Asia/Tokyo",
+      "triggered_at": "2026-06-23T23:00:00+00:00",
+      "worker_offload": true,
+      "worker_lease": {
+        "worker_id": "v02-114-worker",
+        "lease_seconds": 60.0,
+        "last_action": "claimed",
+        "updated_at": "2026-07-10T11:23:07.286201+00:00",
+        "lease_version": 3,
+        "released_at": "2026-07-10T11:23:07.280907+00:00",
+        "released_by": "scheduler",
+        "next_status": "queued"
+      },
+      "worker_runner": {
+        "worker_id": "v02-114-worker",
+        "status": "succeeded",
+        "result": {
+          "application_id": "64bacbba-b3fc-493c-bc76-d26f8cf82f4d",
+          "run_id": "a098814c-54cb-45a1-be76-7f6489ae755f",
+          "version": 1,
+          "node_id": "schedule",
+          "local_date": "2026-06-24"
+        },
+        "renewal_count": 0
+      }
+    },
+    "usage_counts": {
+      "scheduler_fire": 1
+    },
+    "usage": [
+      {
+        "usage_type": "scheduler_fire",
+        "amount": 1,
+        "metadata": {
+          "node_id": "schedule",
+          "local_date": "2026-06-24"
+        },
+        "created_at": "2026-07-10T11:23:07.287703+00:00"
+      }
+    ],
+    "error": "",
+    "worker_id": "v02-114-worker",
+    "lease_expires_at": "2026-07-10T11:24:07.286201+00:00",
+    "lease_version": 3,
+    "created_at": "2026-07-10T11:23:07.279306+00:00",
+    "updated_at": "2026-07-10T11:23:07.291326+00:00",
+    "finished_at": "2026-07-10T11:23:07.291326+00:00"
+  },
+  "workflow_run": {
+    "id": "a098814c-54cb-45a1-be76-7f6489ae755f",
+    "status": "succeeded",
+    "outputs": {
+      "topic": "idols"
+    }
+  },
+  "heartbeats": {
+    "v02-114-worker": {
+      "worker_id": "v02-114-worker",
+      "status": "idle",
+      "active_task_id": "",
+      "last_seen_at": "2026-07-10T11:23:07.292170+00:00",
+      "stale_after_seconds": 120.0,
+      "liveness": "active",
+      "metadata": {
+        "phase": "task_finished",
+        "last_task_id": "scheduler:64bacbba-b3fc-493c-bc76-d26f8cf82f4d:1:schedule:2026-06-24",
+        "last_task_status": "succeeded"
+      },
+      "updated_at": "2026-07-10T11:23:07.292186+00:00"
+    }
+  },
+  "implementation_paths": [
+    "platform/backend/src/agent_platform/scheduler.py",
+    "platform/backend/src/agent_platform/worker_runner.py",
+    "platform/backend/src/agent_platform/config.py",
+    "platform/backend/src/agent_platform/api.py",
+    "tests/test_v02_114_e08_scheduler_trigger_worker_offload_handler.py"
+  ],
+  "invariants": {
+    "default_scheduler_direct_path_preserved": true,
+    "process_supervision_implemented": false,
+    "distributed_queue_implemented": false,
+    "e08_full_sidecar_completion_claimed": false,
+    "workingon_is_not_task_source": true
+  },
+  "next_boundary": "This closes the scheduler_trigger worker offload handler only. Full Platform Harness sidecar completion still needs remaining worker-owned handlers and production worker supervision."
+}

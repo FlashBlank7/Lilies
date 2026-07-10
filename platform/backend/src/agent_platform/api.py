@@ -233,6 +233,7 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         runtime=workflow_runtime,
         harness=harness,
         poll_seconds=settings.scheduler_poll_seconds,
+        worker_offload_enabled=settings.scheduler_worker_offload_enabled,
     )
     return Services(
         settings=settings,

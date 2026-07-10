@@ -105,3 +105,7 @@ v0.2.112 已实现 durable worker heartbeat/liveness registry：新增 `platform
 v0.2.113 remaining sidecar slice reselection 已排除 completed heartbeat registry、handler catalog、stdio/container egress、secret rotation、policy-controls API、Studio controls 和 operator runbook lifecycle，并选择 `scheduler_trigger_worker_offload_handler` 作为下一条 E08 实现切片。该版本只选择下一 slice，不实现 scheduler trigger worker handler，也不声明 full sidecar completion。
 
 证据：`../../workingon-archives/v0.2.113/decision_v0.2.113_e08_remaining_sidecar_slice_reselection_summary.md`
+
+v0.2.114 已实现 `scheduler_trigger` worker offload handler：worker catalog 将 `scheduler_trigger` 从 deterministic unavailable 迁移为 implemented，`WorkflowScheduler` 增加可选 offload mode，offload tick 会 claim schedule fire 并排队 `scheduler_trigger` task，`PlatformHarnessWorkerRunner` 可消费该 task、复用现有 scheduler/runtime 创建真实 workflow run，并保留 `scheduler_fire` usage 与 heartbeat registry 证据。该版本只关闭 scheduler_trigger worker handler slice，不声明 production worker supervision、distributed queue、剩余非 scheduler handlers 或 full sidecar completion。
+
+证据：`../../workingon-archives/v0.2.114/evidence_v0.2.114_e08_scheduler_trigger_worker_offload_handler_summary.md`

@@ -25,6 +25,7 @@ class WorkflowScheduler:
         runtime: WorkflowRuntime,
         harness: PlatformHarness,
         poll_seconds: float = 30,
+        worker_offload_enabled: bool = False,
     ) -> None:
         self.storage = storage
         self.workflow_store = workflow_store
@@ -32,6 +33,7 @@ class WorkflowScheduler:
         self.runtime = runtime
         self.harness = harness
         self.poll_seconds = poll_seconds
+        self.worker_offload_enabled = worker_offload_enabled
         self.task: asyncio.Task[None] | None = None
 
     def start(self) -> None:
@@ -83,64 +85,160 @@ class WorkflowScheduler:
                 if not claimed:
                     continue
                 task_id = f"scheduler:{application['id']}:{version}:{node.id}:{local_date}"
-                try:
-                    await self.harness.start_task(
-                        task_id,
-                        kind="scheduler_trigger",
-                        owner_id=application["id"],
-                        resource_id=task_id,
-                        metadata={
-                            "version": version,
-                            "node_id": node.id,
+                if self.worker_offload_enabled:
+                    started.append(
+                        await self.queue_claimed_schedule_fire(
+                            application["id"],
+                            version=version,
+                            node_id=node.id,
+                            local_date=local_date,
+                            triggered_at=now,
+                            timezone=config.timezone,
+                            task_id=task_id,
+                        )
+                    )
+                    continue
+                started.append(
+                    await self.execute_claimed_schedule_fire(
+                        application["id"],
+                        version=version,
+                        node_id=node.id,
+                        local_date=local_date,
+                        triggered_at=now,
+                        harness_task_id=task_id,
+                        manage_harness_task=True,
+                    )
+                )
+        return started
+
+    async def queue_claimed_schedule_fire(
+        self,
+        application_id: str,
+        *,
+        version: int,
+        node_id: str,
+        local_date: str,
+        triggered_at: datetime,
+        timezone: str,
+        task_id: str,
+    ) -> dict[str, Any]:
+        try:
+            await self.harness.start_task(
+                task_id,
+                kind="scheduler_trigger",
+                owner_id=application_id,
+                resource_id=task_id,
+                metadata={
+                    "version": version,
+                    "node_id": node_id,
+                    "local_date": local_date,
+                    "timezone": timezone,
+                    "triggered_at": triggered_at.isoformat(),
+                    "worker_offload": True,
+                },
+                worker_id="scheduler",
+                lease_seconds=max(self.harness.worker_lease_seconds, 60.0),
+            )
+            await self.harness.release_task_lease(
+                task_id,
+                worker_id="scheduler",
+                next_status="queued",
+            )
+            event = {
+                "application_id": application_id,
+                "version": version,
+                "node_id": node_id,
+                "local_date": local_date,
+                "task_id": task_id,
+                "queued": True,
+            }
+            await self.storage.append_event("scheduler", "scheduler.trigger_queued", event)
+            await self.storage.append_event(application_id, "scheduler.trigger_queued", event)
+            return event
+        except Exception:
+            await self.harness.finish_task(task_id, status="failed")
+            await self.workflow_store.release_schedule_fire(application_id, version, node_id, local_date)
+            raise
+
+    async def execute_claimed_schedule_fire(
+        self,
+        application_id: str,
+        *,
+        version: int,
+        node_id: str,
+        local_date: str,
+        triggered_at: datetime,
+        harness_task_id: str,
+        manage_harness_task: bool = False,
+    ) -> dict[str, Any]:
+        published = await self.workflow_store.get_version(application_id, version)
+        node = next(
+            (
+                item
+                for item in published["snapshot"].workflow.nodes
+                if item.id == node_id and item.type == "schedule_trigger"
+            ),
+            None,
+        )
+        if not node:
+            raise ValueError(f"published application has no schedule_trigger node: {node_id}")
+        config = ScheduleTriggerConfig.model_validate(node.config)
+        try:
+            if manage_harness_task:
+                await self.harness.start_task(
+                    harness_task_id,
+                    kind="scheduler_trigger",
+                    owner_id=application_id,
+                    resource_id=harness_task_id,
+                    metadata={
+                        "version": version,
+                        "node_id": node_id,
+                        "local_date": local_date,
+                        "timezone": config.timezone,
+                    },
+                )
+            await self.harness.record_usage(
+                harness_task_id,
+                "scheduler_fire",
+                metadata={"node_id": node_id, "local_date": local_date},
+            )
+            created = await self.runtime.create_run(
+                application_id,
+                WorkflowRunRequest(
+                    version=version,
+                    inputs={
+                        **config.inputs,
+                        "__schedule__": {
+                            "triggered_at": triggered_at.isoformat(),
                             "local_date": local_date,
                             "timezone": config.timezone,
+                            "manual": False,
                         },
-                    )
-                    await self.harness.record_usage(
-                        task_id,
-                        "scheduler_fire",
-                        metadata={"node_id": node.id, "local_date": local_date},
-                    )
-                    created = await self.runtime.create_run(
-                        application["id"],
-                        WorkflowRunRequest(
-                            version=version,
-                            inputs={
-                                **config.inputs,
-                                "__schedule__": {
-                                    "triggered_at": now.isoformat(),
-                                    "local_date": local_date,
-                                    "timezone": config.timezone,
-                                    "manual": False,
-                                },
-                            },
-                        ),
-                        parent_task_id=task_id,
-                        origin="scheduler",
-                    )
-                    await self.workflow_store.complete_schedule_fire(
-                        application["id"], version, node.id, local_date, created["run_id"]
-                    )
-                    event = {
-                        "application_id": application["id"],
-                        "version": version,
-                        "node_id": node.id,
-                        "local_date": local_date,
-                        "run_id": created["run_id"],
-                    }
-                    await self.storage.append_event("scheduler", "scheduler.triggered", event)
-                    await self.storage.append_event(
-                        application["id"], "scheduler.triggered", event
-                    )
-                    await self.harness.finish_task(task_id, status="succeeded")
-                    started.append(event)
-                except Exception:
-                    await self.harness.finish_task(task_id, status="failed")
-                    await self.workflow_store.release_schedule_fire(
-                        application["id"], version, node.id, local_date
-                    )
-                    raise
-        return started
+                    },
+                ),
+                parent_task_id=harness_task_id,
+                origin="scheduler",
+            )
+            await self.workflow_store.complete_schedule_fire(
+                application_id, version, node_id, local_date, created["run_id"]
+            )
+            event = {
+                "application_id": application_id,
+                "version": version,
+                "node_id": node_id,
+                "local_date": local_date,
+                "run_id": created["run_id"],
+            }
+            await self.storage.append_event("scheduler", "scheduler.triggered", event)
+            await self.storage.append_event(application_id, "scheduler.triggered", event)
+            if manage_harness_task:
+                await self.harness.finish_task(harness_task_id, status="succeeded")
+            return event
+        except Exception:
+            if manage_harness_task:
+                await self.harness.finish_task(harness_task_id, status="failed")
+            await self.workflow_store.release_schedule_fire(application_id, version, node_id, local_date)
+            raise
 
     async def trigger_now(
         self,

@@ -86,11 +86,13 @@ def verify_contract() -> dict[str, Any]:
             and catalog["unregistered_required_kinds"] == [],
             "scheduler_manual_trigger_implemented": entries["scheduler_manual_trigger"]["status"] == "implemented"
             and entries["scheduler_manual_trigger"]["executable"] is True,
+            "scheduler_trigger_implemented_by_v02_114": entries["scheduler_trigger"]["status"] == "implemented"
+            and entries["scheduler_trigger"]["executable"] is True,
             "unimplemented_kinds_are_deterministic_unavailable": all(
                 entries[kind]["status"] == "unavailable"
                 and entries[kind]["handler_registered"] is True
                 and entries[kind]["operator_action"]
-                for kind in set(PLATFORM_WORKER_TASK_KINDS) - {"scheduler_manual_trigger"}
+                for kind in set(PLATFORM_WORKER_TASK_KINDS) - {"scheduler_trigger", "scheduler_manual_trigger"}
             ),
             "unavailable_handler_fails_task_deterministically": len(results) == 1
             and results[0].status == "failed"
@@ -149,7 +151,7 @@ def verify_contract() -> dict[str, Any]:
         },
         "next_boundary": (
             "This closes complete handler catalog coverage and deterministic gap failure only; real handlers for "
-            "non-scheduler task kinds, distributed heartbeat registry, and external KMS provider integration remain open."
+            "non-scheduler task kinds, production worker supervision, and external KMS provider integration remain open."
         ),
     }
 

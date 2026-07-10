@@ -22,6 +22,11 @@ PLATFORM_WORKER_TASK_KINDS = (
 )
 
 IMPLEMENTED_WORKER_HANDLERS: dict[str, dict[str, str]] = {
+    "scheduler_trigger": {
+        "label": "Scheduler automatic trigger",
+        "implementation": "scheduler_trigger_handler",
+        "evidence": "docs/stage-reports/v0.2.114_e08_scheduler_trigger_worker_offload_handler.md",
+    },
     "scheduler_manual_trigger": {
         "label": "Scheduler manual trigger",
         "implementation": "scheduler_manual_trigger_handler",
@@ -44,11 +49,6 @@ UNAVAILABLE_WORKER_HANDLERS: dict[str, dict[str, str]] = {
         "label": "Test suite",
         "reason": "test suites are currently managed by the workflow runtime test path",
         "operator_action": "Keep test suites on the runtime test path until a worker-owned test handler is implemented.",
-    },
-    "scheduler_trigger": {
-        "label": "Scheduler automatic trigger",
-        "reason": "automatic scheduler triggers are currently managed by the scheduler loop",
-        "operator_action": "Use scheduler_manual_trigger for worker-owned manual runs until automatic scheduler offload is implemented.",
     },
     "benchmark": {
         "label": "Benchmark",
@@ -311,6 +311,62 @@ def scheduler_manual_trigger_handler(scheduler: Any) -> PlatformTaskHandler:
     return handler
 
 
+def scheduler_trigger_handler(scheduler: Any) -> PlatformTaskHandler:
+    async def handler(task: PlatformTaskRecord) -> dict[str, Any]:
+        version = _required_int_metadata(task, "version")
+        node_id = _required_str_metadata(task, "node_id")
+        local_date = _required_str_metadata(task, "local_date")
+        triggered_at = _metadata_datetime(task.metadata.get("triggered_at"))
+        event = await scheduler.execute_claimed_schedule_fire(
+            task.owner_id,
+            version=version,
+            node_id=node_id,
+            local_date=local_date,
+            triggered_at=triggered_at,
+            harness_task_id=task.id,
+            manage_harness_task=False,
+        )
+        return {
+            "application_id": task.owner_id,
+            "run_id": event["run_id"],
+            "version": version,
+            "node_id": node_id,
+            "local_date": local_date,
+        }
+
+    return handler
+
+
+def _required_str_metadata(task: PlatformTaskRecord, key: str) -> str:
+    value = task.metadata.get(key)
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"scheduler_trigger task metadata requires {key}")
+    return value
+
+
+def _required_int_metadata(task: PlatformTaskRecord, key: str) -> int:
+    value = task.metadata.get(key)
+    if isinstance(value, bool):
+        raise ValueError(f"scheduler_trigger task metadata requires integer {key}")
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.strip().isdigit():
+        return int(value)
+    raise ValueError(f"scheduler_trigger task metadata requires integer {key}")
+
+
+def _metadata_datetime(value: Any) -> Any:
+    from datetime import datetime, timezone
+
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str) and value.strip():
+        normalized = value.replace("Z", "+00:00")
+        parsed = datetime.fromisoformat(normalized)
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    return datetime.now(timezone.utc)
+
+
 def unavailable_worker_handler(kind: str) -> PlatformTaskHandler:
     spec = UNAVAILABLE_WORKER_HANDLERS[kind]
 
@@ -324,6 +380,7 @@ def unavailable_worker_handler(kind: str) -> PlatformTaskHandler:
 
 def build_platform_worker_handlers(services: Any) -> dict[str, PlatformTaskHandler]:
     handlers: dict[str, PlatformTaskHandler] = {
+        "scheduler_trigger": scheduler_trigger_handler(services.scheduler),
         "scheduler_manual_trigger": scheduler_manual_trigger_handler(services.scheduler),
     }
     for kind in UNAVAILABLE_WORKER_HANDLERS:
@@ -378,8 +435,8 @@ def platform_worker_handler_catalog(
     implemented = [entry.kind for entry in entries if entry.status == "implemented"]
     unavailable = [entry.kind for entry in entries if entry.status == "unavailable"]
     return {
-        "version": "v0.2.110",
-        "source": "docs/stage-reports/v0.2.109_e08_remaining_sidecar_slice_reselection.md",
+        "version": "v0.2.114",
+        "source": "docs/stage-reports/v0.2.113_e08_remaining_sidecar_slice_reselection.md",
         "required_count": len(required),
         "cataloged_count": len(cataloged),
         "implemented_count": len(implemented),

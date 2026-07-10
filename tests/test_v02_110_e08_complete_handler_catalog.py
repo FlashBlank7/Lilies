@@ -50,9 +50,11 @@ def test_v02_110_catalog_covers_all_platform_task_kinds() -> None:
     assert catalog["unregistered_required_kinds"] == []
 
     entries = {entry["kind"]: entry for entry in catalog["entries"]}
+    assert entries["scheduler_trigger"]["status"] == "implemented"
+    assert entries["scheduler_trigger"]["executable"] is True
     assert entries["scheduler_manual_trigger"]["status"] == "implemented"
     assert entries["scheduler_manual_trigger"]["executable"] is True
-    for kind in set(PLATFORM_WORKER_TASK_KINDS) - {"scheduler_manual_trigger"}:
+    for kind in set(PLATFORM_WORKER_TASK_KINDS) - {"scheduler_trigger", "scheduler_manual_trigger"}:
         assert entries[kind]["status"] == "unavailable"
         assert entries[kind]["handler_registered"] is True
         assert entries[kind]["executable"] is False
@@ -112,7 +114,7 @@ def test_v02_110_worker_handler_catalog_api_exposes_coverage(tmp_path: Path) -> 
 
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["version"] == "v0.2.110"
+    assert body["version"] == "v0.2.114"
     assert body["catalog_complete"] is True
     assert body["registered_catalog_complete"] is True
     assert body["full_execution_coverage"] is False
