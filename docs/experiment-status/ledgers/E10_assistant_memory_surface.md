@@ -1,6 +1,6 @@
 # E10 Assistant Memory Surface Ledger
 
-状态：blocked_until_governed_boundary
+状态：governed_boundary_defined_pending_surface_contract
 
 ## 实验问题
 
@@ -12,6 +12,10 @@ v0.2.2 曾明确延期该方向，原因是权限、审计、撤销、文件系�
 
 证据：`../evidence/experiment_v0.2.57_full_backlog_closure_2026_07_10_summary.md`
 
+v0.2.136 已接受受治理记忆的产品边界：permission scope、audit log、revoke、retention policy、source attribution 和 no unrestricted filesystem memory 均为强制控制。该版本只关闭“边界未定义”的 blocker，不声明 memory surface 已实现。
+
+证据：`../../workingon-archives/v0.2.136/boundary_v0.2.136_e10_governed_memory_summary.md`
+
 ## 下一步
 
-Implementation remains blocked until the governed boundary is accepted as product scope. 不得在缺少边界设计时直接接入长期监控或文件系统封装。
+进入 `v0.2.137_e10_governed_memory_surface_contract`：定义或实现 permission/audit/revoke/retention/source/no-unrestricted-filesystem-memory 的 surface contract。不得把 unrestricted memory、后台任意文件系统索引或无审计长期记忆作为产品路径。

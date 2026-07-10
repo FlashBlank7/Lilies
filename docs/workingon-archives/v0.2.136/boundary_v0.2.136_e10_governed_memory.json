@@ -1,0 +1,47 @@
+{
+  "version": "v0.2.136",
+  "boundary_id": "e10_governed_memory_boundary",
+  "source_stage_report": "docs/stage-reports/v0.2.135_blocked_experiment_resolution_selection.md",
+  "status": "completed",
+  "controls": {
+    "permission_scope": {
+      "required": true,
+      "rule": "Memory write/read requires explicit user or operator-scoped permission."
+    },
+    "audit_log": {
+      "required": true,
+      "rule": "Every create/read/update/revoke/expire operation records actor, source, reason, and timestamp."
+    },
+    "revoke": {
+      "required": true,
+      "rule": "A revoked memory item must be excluded from retrieval and retained only as redacted audit metadata."
+    },
+    "retention_policy": {
+      "required": true,
+      "rule": "Every memory item has a retention class and expires unless explicitly renewed under policy."
+    },
+    "source_attribution": {
+      "required": true,
+      "rule": "Every memory item stores source type, source id, captured_at, and evidence text/hash."
+    },
+    "no_unrestricted_filesystem_memory": {
+      "required": true,
+      "rule": "The surface must not index arbitrary filesystem paths or background activity without scoped permission."
+    }
+  },
+  "required_controls": [
+    "permission_scope",
+    "audit_log",
+    "revoke",
+    "retention_policy",
+    "source_attribution",
+    "no_unrestricted_filesystem_memory"
+  ],
+  "missing_controls": [],
+  "accepted_product_scope": true,
+  "unrestricted_memory_allowed": false,
+  "filesystem_wrapper_allowed": false,
+  "e02_true_human_panel_resolved": false,
+  "next_version": "v0.2.137_e10_governed_memory_surface_contract",
+  "first_design": "docs/current-design/design_v0_2_137_e10_governed_memory_surface_contract.md"
+}

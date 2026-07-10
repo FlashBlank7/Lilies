@@ -147,6 +147,7 @@
 - `v0.2.133_*`：来自 `docs/stage-reports/v0.2.133_e08_full_sidecar_completion_audit.md`。
 - `v0.2.134_*`：来自 `docs/stage-reports/v0.2.134_global_experiment_productization_completion_audit.md`。
 - `v0.2.135_*`：来自 `docs/stage-reports/v0.2.135_blocked_experiment_resolution_selection.md`。
+- `v0.2.136_*`：来自 `docs/stage-reports/v0.2.136_e10_governed_memory_boundary_definition.md`。
 
 Active workspace rule:
 
