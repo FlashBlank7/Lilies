@@ -1,0 +1,54 @@
+{
+  "version": "v0.2.139",
+  "evidence_id": "e10_studio_governed_memory_operator_ui",
+  "source_stage_report": "docs/stage-reports/v0.2.138_e10_runtime_memory_retrieval_integration.md",
+  "status": "completed",
+  "checks": {
+    "api_status_filtered_listing": true,
+    "ui_create_view_revoke_controls_present": true,
+    "audit_stream_visible": true,
+    "typed_frontend_contract_present": true,
+    "i18n_present": true,
+    "css_present": true,
+    "runtime_retrieval_still_active_only": true,
+    "e02_external_blocker_preserved": true,
+    "global_completion_boundary_preserved": true
+  },
+  "memory_ids": {
+    "active": "mem_4cb40137a3484f70ae707584542867d2",
+    "revoked": "mem_7975c0eea437461fba115fe45102b851",
+    "expired": "mem_a81df58ae10a448795dff724fc59e2cd"
+  },
+  "listed_counts": {
+    "active": 1,
+    "revoked": 1,
+    "expired": 1,
+    "all": 3
+  },
+  "audit_event_types": [
+    "governed_memory.create",
+    "governed_memory.create",
+    "governed_memory.create",
+    "governed_memory.revoke",
+    "governed_memory.expire"
+  ],
+  "implementation_paths": [
+    "platform/backend/src/agent_platform/governed_memory.py",
+    "platform/backend/src/agent_platform/api.py",
+    "platform/frontend/lib/platform.ts",
+    "platform/frontend/lib/i18n.ts",
+    "platform/frontend/app/applications/[id]/page.tsx",
+    "platform/frontend/app/globals.css",
+    "tests/test_v02_139_e10_studio_governed_memory_operator_ui.py"
+  ],
+  "boundaries": {
+    "studio_ui_productized": true,
+    "operator_can_create_view_revoke": true,
+    "status_filter_visible": true,
+    "audit_metadata_visible": true,
+    "runtime_retrieval_active_only": true,
+    "unrestricted_memory_allowed": false,
+    "e02_true_human_panel_resolved": false,
+    "global_completion_claimed": false
+  }
+}

@@ -240,6 +240,40 @@ export type AdaptiveMonitoringStatus = {
   history_path: string
 }
 
+export type GovernedMemoryStatus = 'active' | 'revoked' | 'expired'
+
+export type GovernedMemoryPermission = {
+  actor_id: string
+  owner_id: string
+  scope_id: string
+  purpose: string
+  allowed_operations: Array<'create' | 'read' | 'update' | 'revoke' | 'expire'>
+  expires_at?: string | null
+}
+
+export type GovernedMemorySource = {
+  source_type: string
+  source_id: string
+  captured_at?: string
+  evidence_text: string
+  evidence_hash?: string
+}
+
+export type GovernedMemoryItem = {
+  id: string
+  owner_id: string
+  scope_id: string
+  content: string
+  source: GovernedMemorySource
+  retention_class: 'session' | 'project' | 'user_renewable'
+  expires_at: string
+  status: GovernedMemoryStatus
+  created_at: string
+  updated_at: string
+  revoked_at?: string | null
+  revoked_reason: string
+}
+
 const root = '/api/platform'
 const tokenKey = 'foundry.apiToken'
 

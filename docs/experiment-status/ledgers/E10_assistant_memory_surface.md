@@ -1,6 +1,6 @@
 # E10 Assistant Memory Surface Ledger
 
-状态：runtime_retrieval_integrated_pending_operator_ui_productization
+状态：governed_memory_product_surface_productized_unrestricted_memory_forbidden
 
 ## 实验问题
 
@@ -24,6 +24,10 @@ v0.2.138 已将 governed memory 接入 workflow runtime retrieval：run inputs �
 
 证据：`../../workingon-archives/v0.2.138/evidence_v0.2.138_e10_runtime_memory_retrieval_integration_summary.md`
 
+v0.2.139 已将 governed memory 暴露为 Studio/operator 产品面：monitor tab 可创建 scoped memory、按 active/revoked/expired/all 查看状态、撤销 active memory，并读取 `governed-memory:{owner_id}:{scope_id}` audit stream。后端 list API 增加受 read permission 保护的 status filter；runtime retrieval 仍保持显式 opt-in 且只检索 active records。该版本不允许 unrestricted memory、任意文件系统后台索引或无审计长期记忆。
+
+证据：`../../workingon-archives/v0.2.139/evidence_v0.2.139_e10_studio_governed_memory_operator_ui_summary.md`
+
 ## 下一步
 
-进入 `v0.2.139_e10_studio_governed_memory_operator_ui`：为 operator 提供 governed memory 的可见创建、查看、撤销和审计入口，或通过下一阶段选择证明 UI 不是当前产品化 blocker。不得把 unrestricted memory、后台任意文件系统索引或无审计长期记忆作为产品路径。
+E10 governed memory 当前可视为受治理产品面已产品化；下一步只允许做 completion audit、操作手册、长期监控或低风险体验 polish。不得把 unrestricted memory、后台任意文件系统索引或无审计长期记忆作为产品路径。

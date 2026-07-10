@@ -31,6 +31,7 @@ import {
   type Block,
   type Draft,
   type DraftPatchPreview,
+  type GovernedMemoryItem,
   type PlatformPolicyControls,
   type PlatformPolicyControlsUpdate,
   type PlatformPolicyControlsUpdateResponse,
@@ -44,6 +45,7 @@ type StudioNode = Node<{ title: string; blockType: string; description: string; 
 type Copy = (typeof messages)[Locale]
 type StudioTab = 'build' | 'edit' | 'test' | 'run' | 'monitor'
 type MonitorFilter = 'related' | 'failed' | 'all'
+type GovernedMemoryFilter = 'active' | 'revoked' | 'expired' | 'all'
 type Version = { version: number; content_hash: string; created_at: string; validation_report: Record<string, unknown> }
 type Build = {
   id: string
@@ -91,6 +93,18 @@ type PolicyControlsForm = {
   worker_lease_seconds: string
   reason: string
   limits: Record<string, string>
+}
+type GovernedMemoryForm = {
+  scope_id: string
+  actor_id: string
+  purpose: string
+  reason: string
+  content: string
+  source_type: string
+  source_id: string
+  evidence_text: string
+  retention_class: 'session' | 'project' | 'user_renewable'
+  expires_at: string
 }
 
 const policyLimitKeys = [
@@ -257,6 +271,18 @@ function shortTime(value?: string | null) {
   if (!value) return '-'
   const date = new Date(value)
   return Number.isNaN(date.valueOf()) ? value : date.toLocaleString()
+}
+
+function localDateTimeInDays(days: number) {
+  const date = new Date(Date.now() + days * 24 * 60 * 60 * 1000)
+  const offset = date.getTimezoneOffset() * 60 * 1000
+  return new Date(date.getTime() - offset).toISOString().slice(0, 16)
+}
+
+function governedMemoryExpiresAt(value: string) {
+  if (!value.trim()) return undefined
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.valueOf()) ? undefined : parsed.toISOString()
 }
 
 function policyFormFromControls(controls: PlatformPolicyControls): PolicyControlsForm {
@@ -473,6 +499,25 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   const [adaptiveMonitoring, setAdaptiveMonitoring] = useState<AdaptiveMonitoringStatus | null>(null)
   const [adaptiveMonitoringLoading, setAdaptiveMonitoringLoading] = useState(false)
   const [adaptiveMonitoringError, setAdaptiveMonitoringError] = useState('')
+  const [governedMemoryItems, setGovernedMemoryItems] = useState<GovernedMemoryItem[]>([])
+  const [governedMemoryAudit, setGovernedMemoryAudit] = useState<StoredEvent[]>([])
+  const [governedMemoryFilter, setGovernedMemoryFilter] = useState<GovernedMemoryFilter>('active')
+  const [governedMemoryLoading, setGovernedMemoryLoading] = useState(false)
+  const [governedMemorySaving, setGovernedMemorySaving] = useState(false)
+  const [governedMemoryError, setGovernedMemoryError] = useState('')
+  const [governedMemoryNotice, setGovernedMemoryNotice] = useState('')
+  const [governedMemoryForm, setGovernedMemoryForm] = useState<GovernedMemoryForm>({
+    scope_id: 'project-alpha',
+    actor_id: 'studio-operator',
+    purpose: 'studio governed memory operator',
+    reason: 'operator-managed scoped memory',
+    content: '',
+    source_type: 'operator_note',
+    source_id: 'studio-note',
+    evidence_text: '',
+    retention_class: 'project',
+    expires_at: localDateTimeInDays(30),
+  })
   const [patchInstruction, setPatchInstruction] = useState('')
   const [patchPreview, setPatchPreview] = useState<DraftPatchPreview | null>(null)
   const [patchPreviewLoading, setPatchPreviewLoading] = useState(false)
@@ -721,6 +766,125 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
       setAdaptiveMonitoringLoading(false)
     }
   }, [])
+
+  const governedMemoryPermission = useCallback((operations: Array<'create' | 'read' | 'update' | 'revoke' | 'expire'>) => ({
+    actor_id: governedMemoryForm.actor_id.trim(),
+    owner_id: id,
+    scope_id: governedMemoryForm.scope_id.trim(),
+    purpose: governedMemoryForm.purpose.trim(),
+    allowed_operations: operations,
+  }), [governedMemoryForm.actor_id, governedMemoryForm.purpose, governedMemoryForm.scope_id, id])
+
+  const refreshGovernedMemoryAudit = useCallback(async () => {
+    const scope = governedMemoryForm.scope_id.trim()
+    if (!scope) return []
+    const streamId = `governed-memory:${id}:${scope}`
+    const events = await api<StoredEvent[]>(`/v1/streams/${encodeURIComponent(streamId)}`)
+    setGovernedMemoryAudit(events)
+    return events
+  }, [governedMemoryForm.scope_id, id])
+
+  const refreshGovernedMemoryItems = useCallback(async () => {
+    const scope = governedMemoryForm.scope_id.trim()
+    const actor = governedMemoryForm.actor_id.trim()
+    const purpose = governedMemoryForm.purpose.trim()
+    const reason = governedMemoryForm.reason.trim()
+    if (!scope || !actor || !purpose || !reason) {
+      setGovernedMemoryError(t.governedMemoryMissingScope)
+      return []
+    }
+    setGovernedMemoryLoading(true)
+    setGovernedMemoryError('')
+    const query = new URLSearchParams({
+      owner_id: id,
+      scope_id: scope,
+      actor_id: actor,
+      purpose,
+      reason,
+      status_filter: governedMemoryFilter,
+      limit: '100',
+    })
+    try {
+      const items = await api<GovernedMemoryItem[]>(`/api/v1/platform/governed-memory?${query.toString()}`)
+      setGovernedMemoryItems(items)
+      await refreshGovernedMemoryAudit()
+      setAuthRequired(false)
+      return items
+    } catch (error) {
+      if (isAuthError(error)) setAuthRequired(true)
+      setGovernedMemoryError(String(error))
+      throw error
+    } finally {
+      setGovernedMemoryLoading(false)
+    }
+  }, [governedMemoryFilter, governedMemoryForm.actor_id, governedMemoryForm.purpose, governedMemoryForm.reason, governedMemoryForm.scope_id, id, refreshGovernedMemoryAudit, t.governedMemoryMissingScope])
+
+  const createGovernedMemory = useCallback(async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const content = governedMemoryForm.content.trim()
+    const reason = governedMemoryForm.reason.trim()
+    if (!content || !reason) {
+      setGovernedMemoryError(t.governedMemoryMissingContent)
+      return
+    }
+    setGovernedMemorySaving(true)
+    setGovernedMemoryError('')
+    setGovernedMemoryNotice('')
+    try {
+      const created = await api<GovernedMemoryItem>('/api/v1/platform/governed-memory', {
+        method: 'POST',
+        body: JSON.stringify({
+          permission: governedMemoryPermission(['create']),
+          content,
+          source: {
+            source_type: governedMemoryForm.source_type.trim(),
+            source_id: governedMemoryForm.source_id.trim(),
+            evidence_text: governedMemoryForm.evidence_text.trim() || content,
+          },
+          retention_class: governedMemoryForm.retention_class,
+          expires_at: governedMemoryExpiresAt(governedMemoryForm.expires_at),
+          reason,
+        }),
+      })
+      setGovernedMemoryNotice(`${t.governedMemoryCreated}: ${created.id}`)
+      setGovernedMemoryForm(current => ({ ...current, content: '', evidence_text: '' }))
+      await refreshGovernedMemoryItems()
+      setAuthRequired(false)
+    } catch (error) {
+      if (isAuthError(error)) setAuthRequired(true)
+      setGovernedMemoryError(String(error))
+    } finally {
+      setGovernedMemorySaving(false)
+    }
+  }, [governedMemoryForm, governedMemoryPermission, refreshGovernedMemoryItems, t.governedMemoryCreated, t.governedMemoryMissingContent])
+
+  const revokeGovernedMemory = useCallback(async (memoryId: string) => {
+    const reason = governedMemoryForm.reason.trim()
+    if (!reason) {
+      setGovernedMemoryError(t.governedMemoryMissingReason)
+      return
+    }
+    setGovernedMemoryLoading(true)
+    setGovernedMemoryError('')
+    setGovernedMemoryNotice('')
+    try {
+      const revoked = await api<GovernedMemoryItem>(`/api/v1/platform/governed-memory/${memoryId}/revoke`, {
+        method: 'POST',
+        body: JSON.stringify({
+          permission: governedMemoryPermission(['revoke']),
+          reason,
+        }),
+      })
+      setGovernedMemoryNotice(`${t.governedMemoryRevoked}: ${revoked.id}`)
+      await refreshGovernedMemoryItems()
+      setAuthRequired(false)
+    } catch (error) {
+      if (isAuthError(error)) setAuthRequired(true)
+      setGovernedMemoryError(String(error))
+    } finally {
+      setGovernedMemoryLoading(false)
+    }
+  }, [governedMemoryForm.reason, governedMemoryPermission, refreshGovernedMemoryItems, t.governedMemoryMissingReason, t.governedMemoryRevoked])
 
   useEffect(() => {
     const stored = globalThis.localStorage?.getItem('foundry.locale')
@@ -1224,9 +1388,85 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
           </div>
           <div className="monitor-toolbar">
             {(['related', 'failed', 'all'] as const).map(filter => <button className={monitorFilter === filter ? 'active' : ''} onClick={() => setMonitorFilter(filter)} key={filter}>{filter === 'related' ? t.monitorFilterRelated : filter === 'failed' ? t.monitorFilterFailed : t.monitorFilterAll}</button>)}
-            <button className="refresh" onClick={() => { refreshMonitorTasks().catch(error => setNotice(String(error))); refreshPolicyControls().catch(error => setNotice(String(error))); refreshBenchmarkHistory().catch(error => setNotice(String(error))); refreshAdaptiveMonitoring().catch(error => setNotice(String(error))) }} disabled={monitorLoading || policyControlsLoading || benchmarkHistoryLoading || adaptiveMonitoringLoading}>{monitorLoading || policyControlsLoading || benchmarkHistoryLoading || adaptiveMonitoringLoading ? t.monitorRefreshing : t.monitorRefresh}</button>
+            <button className="refresh" onClick={() => { refreshMonitorTasks().catch(error => setNotice(String(error))); refreshPolicyControls().catch(error => setNotice(String(error))); refreshBenchmarkHistory().catch(error => setNotice(String(error))); refreshAdaptiveMonitoring().catch(error => setNotice(String(error))); refreshGovernedMemoryItems().catch(error => setNotice(String(error))) }} disabled={monitorLoading || policyControlsLoading || benchmarkHistoryLoading || adaptiveMonitoringLoading || governedMemoryLoading}>{monitorLoading || policyControlsLoading || benchmarkHistoryLoading || adaptiveMonitoringLoading || governedMemoryLoading ? t.monitorRefreshing : t.monitorRefresh}</button>
           </div>
           {monitorError && <p className="error-banner">{monitorError}</p>}
+          <section className="governed-memory-panel">
+            <div className="governed-memory-head">
+              <div><strong>{t.governedMemoryTitle}</strong><small>{t.governedMemoryHelp}</small></div>
+              <button onClick={() => { refreshGovernedMemoryItems().catch(error => setNotice(String(error))) }} disabled={governedMemoryLoading}>{governedMemoryLoading ? t.monitorRefreshing : t.monitorRefresh}</button>
+            </div>
+            {governedMemoryError && <p className="error-banner">{governedMemoryError}</p>}
+            {governedMemoryNotice && <p className="success-banner">{governedMemoryNotice}</p>}
+            <form className="governed-memory-form" onSubmit={createGovernedMemory}>
+              <label>
+                {t.governedMemoryScope}
+                <input value={governedMemoryForm.scope_id} onChange={event => setGovernedMemoryForm({ ...governedMemoryForm, scope_id: event.target.value })} required />
+              </label>
+              <label>
+                {t.governedMemoryActor}
+                <input value={governedMemoryForm.actor_id} onChange={event => setGovernedMemoryForm({ ...governedMemoryForm, actor_id: event.target.value })} required />
+              </label>
+              <label className="policy-wide">
+                {t.governedMemoryPurpose}
+                <input value={governedMemoryForm.purpose} onChange={event => setGovernedMemoryForm({ ...governedMemoryForm, purpose: event.target.value })} required />
+              </label>
+              <label className="policy-wide">
+                {t.policyReason}
+                <input value={governedMemoryForm.reason} onChange={event => setGovernedMemoryForm({ ...governedMemoryForm, reason: event.target.value })} required />
+              </label>
+              <label className="policy-wide">
+                {t.governedMemoryContent}
+                <textarea value={governedMemoryForm.content} onChange={event => setGovernedMemoryForm({ ...governedMemoryForm, content: event.target.value })} />
+              </label>
+              <label>
+                {t.governedMemorySourceType}
+                <input value={governedMemoryForm.source_type} onChange={event => setGovernedMemoryForm({ ...governedMemoryForm, source_type: event.target.value })} required />
+              </label>
+              <label>
+                {t.governedMemorySourceId}
+                <input value={governedMemoryForm.source_id} onChange={event => setGovernedMemoryForm({ ...governedMemoryForm, source_id: event.target.value })} required />
+              </label>
+              <label>
+                {t.governedMemoryRetention}
+                <select value={governedMemoryForm.retention_class} onChange={event => setGovernedMemoryForm({ ...governedMemoryForm, retention_class: event.target.value as GovernedMemoryForm['retention_class'] })}>
+                  <option value="session">session</option>
+                  <option value="project">project</option>
+                  <option value="user_renewable">user_renewable</option>
+                </select>
+              </label>
+              <label>
+                {t.governedMemoryExpires}
+                <input type="datetime-local" value={governedMemoryForm.expires_at} onChange={event => setGovernedMemoryForm({ ...governedMemoryForm, expires_at: event.target.value })} />
+              </label>
+              <label className="policy-wide">
+                {t.governedMemoryEvidence}
+                <textarea value={governedMemoryForm.evidence_text} onChange={event => setGovernedMemoryForm({ ...governedMemoryForm, evidence_text: event.target.value })} />
+              </label>
+              <div className="policy-actions">
+                <button type="submit" disabled={governedMemorySaving || !governedMemoryForm.content.trim()}>{governedMemorySaving ? t.policySaving : t.governedMemoryCreate}</button>
+              </div>
+            </form>
+            <div className="governed-memory-toolbar">
+              {(['active', 'revoked', 'expired', 'all'] as const).map(filter => <button className={governedMemoryFilter === filter ? 'active' : ''} onClick={() => setGovernedMemoryFilter(filter)} key={filter}>{filter === 'active' ? t.governedMemoryActive : filter === 'revoked' ? t.governedMemoryRevokedStatus : filter === 'expired' ? t.governedMemoryExpired : t.monitorFilterAll}</button>)}
+            </div>
+            <div className="governed-memory-list">{governedMemoryItems.length ? governedMemoryItems.map(item => <article className={`governed-memory-card ${item.status}`} key={item.id}>
+              <div className="governed-memory-card-head">
+                <div><strong>{item.source.source_id}</strong><small>{item.id}</small></div>
+                <span>{item.status}</span>
+              </div>
+              <p>{item.status === 'active' ? item.content : t.governedMemoryInactiveContent}</p>
+              <div className="monitor-counts"><span>{item.retention_class}</span><span>{t.governedMemoryExpires} <b>{shortTime(item.expires_at)}</b></span><span>{item.source.source_type}</span></div>
+              <div className="monitor-times"><span>{t.monitorCreated}: {shortTime(item.created_at)}</span><span>{t.monitorUpdated}: {shortTime(item.updated_at)}</span>{item.revoked_at && <span>{t.governedMemoryRevokedAt}: {shortTime(item.revoked_at)}</span>}</div>
+              {item.revoked_reason && <p className="monitor-error">{item.revoked_reason}</p>}
+              <details><summary>{t.governedMemoryAuditMetadata}</summary><pre>{JSON.stringify({ source: item.source, owner_id: item.owner_id, scope_id: item.scope_id }, null, 2)}</pre></details>
+              {item.status === 'active' && <button className="danger-link" onClick={() => { revokeGovernedMemory(item.id).catch(error => setNotice(String(error))) }} disabled={governedMemoryLoading}>{t.governedMemoryRevoke}</button>}
+            </article>) : <p className="muted">{governedMemoryLoading ? t.monitorRefreshing : t.governedMemoryEmpty}</p>}</div>
+            <details className="governed-memory-audit" open>
+              <summary>{t.governedMemoryAudit}</summary>
+              {governedMemoryAudit.length ? <pre>{JSON.stringify(governedMemoryAudit.slice(-12).reverse(), null, 2)}</pre> : <p className="muted">{t.governedMemoryAuditEmpty}</p>}
+            </details>
+          </section>
           <section className={`adaptive-monitoring ${adaptiveMonitoring?.status || ''}`}>
             <div className="adaptive-monitoring-head">
               <div><strong>{t.adaptiveMonitoringTitle}</strong><small>{t.adaptiveMonitoringHelp}</small></div>

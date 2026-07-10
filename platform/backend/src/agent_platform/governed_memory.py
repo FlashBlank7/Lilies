@@ -202,6 +202,32 @@ class GovernedMemorySurface:
         items = [GovernedMemoryItem.model_validate(raw) for raw in raw_items]
         return [item for item in items if self._parse_time(item.expires_at) > self._parse_time(utc_now())]
 
+    async def list_for_operator(
+        self,
+        *,
+        owner_id: str,
+        scope_id: str,
+        permission: GovernedMemoryPermission,
+        reason: str,
+        status_filter: MemoryStatus | Literal["all"] = "active",
+        limit: int = 100,
+    ) -> list[GovernedMemoryItem]:
+        self._authorize(permission, "read", owner_id=owner_id, scope_id=scope_id, reason=reason)
+        statuses: set[str] | None = None
+        if status_filter != "all":
+            statuses = {status_filter}
+        raw_items = await self.storage.list_governed_memory_items(
+            owner_id=owner_id,
+            scope_id=scope_id,
+            statuses=statuses,
+            limit=limit,
+        )
+        items = [GovernedMemoryItem.model_validate(raw) for raw in raw_items]
+        if status_filter == "active":
+            now = self._parse_time(utc_now())
+            return [item for item in items if self._parse_time(item.expires_at) > now]
+        return items
+
     async def _load(self, memory_id: str) -> GovernedMemoryItem:
         try:
             raw = await self.storage.get_governed_memory_item(memory_id)

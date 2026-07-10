@@ -43,6 +43,7 @@ from .governed_memory import (
     GovernedMemorySource,
     GovernedMemorySurface,
     GovernedMemoryViolation,
+    MemoryStatus,
     RetentionClass,
 )
 from .models import (
@@ -701,6 +702,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         actor_id: str,
         purpose: str,
         reason: str,
+        status_filter: MemoryStatus | Literal["all"] = "active",
         limit: int = 100,
     ) -> list[dict[str, Any]]:
         permission = GovernedMemoryPermission(
@@ -711,11 +713,12 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             allowed_operations=["read"],
         )
         try:
-            items = await services.governed_memory.list_active(
+            items = await services.governed_memory.list_for_operator(
                 owner_id=owner_id,
                 scope_id=scope_id,
                 permission=permission,
                 reason=reason,
+                status_filter=status_filter,
                 limit=limit,
             )
             return [item.model_dump(mode="json") for item in items]

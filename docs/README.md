@@ -163,6 +163,7 @@
 - `stage-reports/v0.2.136_e10_governed_memory_boundary_definition.md`
 - `stage-reports/v0.2.137_e10_governed_memory_surface_contract.md`
 - `stage-reports/v0.2.138_e10_runtime_memory_retrieval_integration.md`
+- `stage-reports/v0.2.139_e10_studio_governed_memory_operator_ui.md`
 
 ## 使用原则
 

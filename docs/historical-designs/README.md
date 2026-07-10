@@ -150,6 +150,7 @@
 - `v0.2.136_*`：来自 `docs/stage-reports/v0.2.136_e10_governed_memory_boundary_definition.md`。
 - `v0.2.137_*`：来自 `docs/stage-reports/v0.2.137_e10_governed_memory_surface_contract.md`。
 - `v0.2.138_*`：来自 `docs/stage-reports/v0.2.138_e10_runtime_memory_retrieval_integration.md`。
+- `v0.2.139_*`：来自 `docs/stage-reports/v0.2.139_e10_studio_governed_memory_operator_ui.md`。
 
 Active workspace rule:
 
