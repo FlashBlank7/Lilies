@@ -1,0 +1,39 @@
+{
+  "version": "v0.2.143",
+  "evidence_id": "e02_participant_task_packets",
+  "source_stage_report": "docs/stage-reports/v0.2.142_e02_panel_result_validator_analyzer.md",
+  "status": "completed",
+  "checks": {
+    "packet_directory_present": true,
+    "required_files_present": true,
+    "source_evidence_present": true,
+    "source_has_raw_and_readable_packets": true,
+    "raw_packet_has_prompt_and_capture_id": true,
+    "readable_packet_has_prompt_and_capture_id": true,
+    "manifest_counterbalances_order": true,
+    "answer_key_facilitator_only": true,
+    "participant_packets_do_not_embed_answer_key": true,
+    "global_completion_not_claimed": true,
+    "unrestricted_memory_forbidden": true
+  },
+  "packet_files": {
+    "README.md": "docs/experiment-status/e02-human-panel/packets/README.md",
+    "facilitator_packet_manifest.md": "docs/experiment-status/e02-human-panel/packets/facilitator_packet_manifest.md",
+    "task_packet_raw_json.md": "docs/experiment-status/e02-human-panel/packets/task_packet_raw_json.md",
+    "task_packet_readable_testframe.md": "docs/experiment-status/e02-human-panel/packets/task_packet_readable_testframe.md",
+    "post_task_questionnaire.md": "docs/experiment-status/e02-human-panel/packets/post_task_questionnaire.md",
+    "answer_key.md": "docs/experiment-status/e02-human-panel/packets/answer_key.md"
+  },
+  "source_evidence": "docs/experiment-status/evidence/experiment_v0.2.36_e02_readable_testframe_review_2026_07_09.json",
+  "external_participant_rows_captured": 0,
+  "e02_true_human_panel_completed": false,
+  "global_completion_claimed": false,
+  "unrestricted_memory_forbidden": true,
+  "next_closure_requires": [
+    "at least 5 real participant ids",
+    "paired raw_json and readable_testframe rows per included participant",
+    "analyzer output",
+    "analysis summary",
+    "E02 ledger update"
+  ]
+}

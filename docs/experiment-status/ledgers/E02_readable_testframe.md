@@ -39,3 +39,7 @@ v0.2.141 已准备真实 human panel execution package，包含 participant prot
 v0.2.142 已补充 E02 panel result validator/analyzer：可校验 captured CSV schema、paired raw/readable participant rows、minimum participant gate，并生成 timing/correctness analysis summary。该版本只关闭“结果校验与分析工具缺失”，不关闭 E02 blocker；当前 repo baseline 仍为 participant rows `0`。
 
 证据：`../../workingon-archives/v0.2.142/evidence_v0.2.142_e02_panel_result_validator_analyzer_summary.md`
+
+v0.2.143 已补充 participant-facing raw/readable task packet materials：包含 facilitator manifest、raw JSON packet、readable TestFrame packet、post-task questionnaire 和 facilitator-only answer key。该版本只关闭“协议要求 packet 但目录缺 packet 文件”的执行材料缺口，不关闭 E02 blocker；当前 repo baseline 仍为 participant rows `0`。
+
+证据：`../../workingon-archives/v0.2.143/evidence_v0.2.143_e02_participant_task_packets_summary.md`

@@ -7,6 +7,7 @@ Status: prepared_pending_external_execution
 - Confirm raw and readable packets are matched for difficulty.
 - Confirm packets contain no secrets or personal data.
 - Confirm facilitator can explain the task without leading the participant.
+- Confirm `packets/answer_key.md` is withheld from participant-facing material.
 - Prepare participant ids and counterbalance assignment.
 - Prepare a copy of `blank_results.csv`.
 

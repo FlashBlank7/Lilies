@@ -15,11 +15,13 @@ Measure whether the readable TestFrame report reduces true human review time and
 
 ## Materials
 
-- Raw evidence packet
-- Readable TestFrame packet
-- Task prompt
-- Timing capture sheet
-- Post-task confidence questions
+- Raw evidence packet: `packets/task_packet_raw_json.md`
+- Readable TestFrame packet: `packets/task_packet_readable_testframe.md`
+- Task prompt and output fields embedded in each packet
+- Timing capture sheet: `blank_results.csv`
+- Post-task confidence questions: `packets/post_task_questionnaire.md`
+- Facilitator manifest: `packets/facilitator_packet_manifest.md`
+- Facilitator-only answer key: `packets/answer_key.md`
 
 ## Design
 
