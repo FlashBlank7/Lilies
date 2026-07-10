@@ -27,6 +27,11 @@ IMPLEMENTED_WORKER_HANDLERS: dict[str, dict[str, str]] = {
         "implementation": "workflow_run_handler",
         "evidence": "docs/stage-reports/v0.2.116_e08_workflow_run_worker_offload_handler.md",
     },
+    "test_suite": {
+        "label": "Test suite",
+        "implementation": "test_suite_handler",
+        "evidence": "docs/stage-reports/v0.2.118_e08_test_suite_worker_offload_handler.md",
+    },
     "scheduler_trigger": {
         "label": "Scheduler automatic trigger",
         "implementation": "scheduler_trigger_handler",
@@ -44,11 +49,6 @@ UNAVAILABLE_WORKER_HANDLERS: dict[str, dict[str, str]] = {
         "label": "Builder build",
         "reason": "builder builds are currently managed by the builder service path",
         "operator_action": "Keep builder builds on the builder service path until a worker-owned build handler is implemented.",
-    },
-    "test_suite": {
-        "label": "Test suite",
-        "reason": "test suites are currently managed by the workflow runtime test path",
-        "operator_action": "Keep test suites on the runtime test path until a worker-owned test handler is implemented.",
     },
     "benchmark": {
         "label": "Benchmark",
@@ -351,6 +351,31 @@ def workflow_run_handler(workflow_runtime: Any) -> PlatformTaskHandler:
     return handler
 
 
+def test_suite_handler(workflow_runtime: Any) -> PlatformTaskHandler:
+    async def handler(task: PlatformTaskRecord) -> dict[str, Any]:
+        report = await workflow_runtime.run_test_suite(
+            task.owner_id,
+            harness_task_id=task.id,
+            manage_harness_task=False,
+            origin="test_suite",
+        )
+        summary = report.get("summary", {})
+        return {
+            "application_id": task.owner_id,
+            "passed": report.get("passed", False),
+            "total": summary.get("total", 0),
+            "failed": summary.get("failed", 0),
+            "mandatory_failed": summary.get("mandatory_failed", 0),
+            "test_run_ids": [
+                item.get("run_id")
+                for item in report.get("tests", [])
+                if item.get("run_id")
+            ],
+        }
+
+    return handler
+
+
 def scheduler_trigger_handler(scheduler: Any) -> PlatformTaskHandler:
     async def handler(task: PlatformTaskRecord) -> dict[str, Any]:
         version = _required_int_metadata(task, "version")
@@ -421,6 +446,7 @@ def unavailable_worker_handler(kind: str) -> PlatformTaskHandler:
 def build_platform_worker_handlers(services: Any) -> dict[str, PlatformTaskHandler]:
     handlers: dict[str, PlatformTaskHandler] = {
         "workflow_run": workflow_run_handler(services.workflow_runtime),
+        "test_suite": test_suite_handler(services.workflow_runtime),
         "scheduler_trigger": scheduler_trigger_handler(services.scheduler),
         "scheduler_manual_trigger": scheduler_manual_trigger_handler(services.scheduler),
     }
@@ -476,7 +502,7 @@ def platform_worker_handler_catalog(
     implemented = [entry.kind for entry in entries if entry.status == "implemented"]
     unavailable = [entry.kind for entry in entries if entry.status == "unavailable"]
     return {
-        "version": "v0.2.116",
+        "version": "v0.2.118",
         "source": "docs/stage-reports/v0.2.113_e08_remaining_sidecar_slice_reselection.md",
         "required_count": len(required),
         "cataloged_count": len(cataloged),

@@ -18,11 +18,11 @@ from tests.test_runtime import ScriptedProvider
 from tests.test_workflow import headers, mutate
 
 
-def _create_simple_workflow(client: TestClient) -> str:
+def _create_tested_workflow(client: TestClient) -> str:
     app_id = client.post(
         "/api/v1/applications",
         headers=headers(),
-        json={"name": "Worker workflow run", "requirement": "Run a simple workflow through worker."},
+        json={"name": "Worker test suite", "requirement": "Run tests through worker."},
     ).json()["id"]
     revision = 0
     for node in [
@@ -30,7 +30,7 @@ def _create_simple_workflow(client: TestClient) -> str:
         {"id": "end", "type": "end", "title": "End", "config": {"outputs": {"ok": True}}},
     ]:
         revision = mutate(client, app_id, revision, "add_node", {"node": node})
-    mutate(
+    revision = mutate(
         client,
         app_id,
         revision,
@@ -42,6 +42,20 @@ def _create_simple_workflow(client: TestClient) -> str:
                 "target": "end",
                 "source_port": "output",
                 "target_port": "input",
+            },
+        },
+    )
+    mutate(
+        client,
+        app_id,
+        revision,
+        "add_test",
+        {
+            "test": {
+                "name": "Ok",
+                "requirement": "Workflow returns ok.",
+                "inputs": {},
+                "assertions": [{"path": ["ok"], "operator": "equals", "expected": True}],
             },
         },
     )
@@ -58,7 +72,7 @@ def _wait_for_run(client: TestClient, run_id: str) -> dict[str, Any]:
     return run
 
 
-def test_v02_116_catalog_marks_workflow_run_implemented() -> None:
+def test_v02_118_catalog_marks_test_suite_implemented() -> None:
     settings = Settings(api_token="workflow-test")
     app = create_app(settings, ScriptedProvider())
     with TestClient(app) as client:
@@ -70,9 +84,9 @@ def test_v02_116_catalog_marks_workflow_run_implemented() -> None:
     assert catalog["catalog_complete"] is True
     assert catalog["registered_catalog_complete"] is True
     assert catalog["full_execution_coverage"] is False
-    assert entries["workflow_run"]["status"] == "implemented"
-    assert entries["workflow_run"]["implementation"] == "workflow_run_handler"
-    assert entries["workflow_run"]["executable"] is True
+    assert entries["test_suite"]["status"] == "implemented"
+    assert entries["test_suite"]["implementation"] == "test_suite_handler"
+    assert entries["test_suite"]["executable"] is True
     remaining_unavailable = set(PLATFORM_WORKER_TASK_KINDS) - {
         "workflow_run",
         "test_suite",
@@ -83,7 +97,7 @@ def test_v02_116_catalog_marks_workflow_run_implemented() -> None:
         assert entries[kind]["status"] == "unavailable"
 
 
-def test_v02_116_workflow_run_worker_handler_creates_real_run(tmp_path: Path) -> None:
+def test_v02_118_test_suite_worker_handler_runs_existing_test_suite(tmp_path: Path) -> None:
     settings = Settings(
         api_token="workflow-test",
         data_dir=tmp_path / "data",
@@ -91,20 +105,20 @@ def test_v02_116_workflow_run_worker_handler_creates_real_run(tmp_path: Path) ->
     )
     app = create_app(settings, ScriptedProvider())
     with TestClient(app) as client:
-        app_id = _create_simple_workflow(client)
+        app_id = _create_tested_workflow(client)
         harness = client.app.state.services.harness
 
         async def queue_task() -> None:
             await harness.start_task(
-                "worker-workflow-run-1",
-                kind="workflow_run",
+                "worker-test-suite-1",
+                kind="test_suite",
                 owner_id=app_id,
-                resource_id="worker-workflow-run-1",
-                metadata={"inputs": {}, "use_draft": True, "workspace_path": "."},
+                resource_id=app_id,
+                metadata={},
                 worker_id="producer",
                 lease_seconds=60,
             )
-            await harness.release_task_lease("worker-workflow-run-1", worker_id="producer", next_status="queued")
+            await harness.release_task_lease("worker-test-suite-1", worker_id="producer", next_status="queued")
 
         client.portal.call(queue_task)
         runner = PlatformHarnessWorkerRunner(
@@ -115,29 +129,32 @@ def test_v02_116_workflow_run_worker_handler_creates_real_run(tmp_path: Path) ->
         )
 
         async def run_worker_once_for_test():
-            return await runner.run_once(kind="workflow_run", limit=5)
+            return await runner.run_once(kind="test_suite", limit=5)
 
         results = client.portal.call(run_worker_once_for_test)
-        assert [(item.task_id, item.status) for item in results] == [("worker-workflow-run-1", "succeeded")]
+        assert [(item.task_id, item.status) for item in results] == [("worker-test-suite-1", "succeeded")]
 
-        worker_task = client.portal.call(harness.get_task, "worker-workflow-run-1")
-        run_id = worker_task.metadata["worker_runner"]["result"]["run_id"]
+        worker_task = client.portal.call(harness.get_task, "worker-test-suite-1")
+        result = worker_task.metadata["worker_runner"]["result"]
+        assert result["passed"] is True
+        assert result["total"] == 1
+        assert result["mandatory_failed"] == 0
+        assert len(result["test_run_ids"]) == 1
+
+        run_id = result["test_run_ids"][0]
         run = _wait_for_run(client, run_id)
         assert run["status"] == "succeeded", run
         assert run["outputs"] == {"ok": True}
-
         run_task = client.portal.call(harness.get_task, run_id)
-        assert run_task.kind == "workflow_run"
-        assert run_task.parent_task_id == "worker-workflow-run-1"
-        assert run_task.metadata["origin"] == "worker"
-        assert isinstance(worker_task.metadata["worker_runner"]["result"]["draft_revision"], int)
+        assert run_task.parent_task_id == "worker-test-suite-1"
+        assert run_task.metadata["origin"] == "test_suite"
 
         heartbeats = {row.worker_id: row for row in client.portal.call(harness.list_worker_heartbeats)}
         assert heartbeats["worker-a"].status == "idle"
-        assert heartbeats["worker-a"].metadata["last_task_id"] == "worker-workflow-run-1"
+        assert heartbeats["worker-a"].metadata["last_task_id"] == "worker-test-suite-1"
 
 
-def test_v02_116_existing_api_workflow_run_path_still_uses_api_origin(tmp_path: Path) -> None:
+def test_v02_118_existing_api_test_suite_path_still_manages_task(tmp_path: Path) -> None:
     settings = Settings(
         api_token="workflow-test",
         data_dir=tmp_path / "data",
@@ -145,16 +162,14 @@ def test_v02_116_existing_api_workflow_run_path_still_uses_api_origin(tmp_path: 
     )
     app = create_app(settings, ScriptedProvider())
     with TestClient(app) as client:
-        app_id = _create_simple_workflow(client)
-        created = client.post(
-            f"/api/v1/applications/{app_id}/runs",
+        app_id = _create_tested_workflow(client)
+        report = client.post(f"/api/v1/applications/{app_id}/tests/run", headers=headers())
+        assert report.status_code == 200, report.text
+        assert report.json()["passed"] is True
+        tasks = client.get(
+            f"/api/v1/platform/harness/tasks?kind=test_suite&owner_id={app_id}",
             headers=headers(),
-            json={"inputs": {}, "use_draft": True},
-        )
-        assert created.status_code == 202, created.text
-        run_id = created.json()["run_id"]
-        run = _wait_for_run(client, run_id)
-        assert run["status"] == "succeeded", run
-        task = client.get(f"/api/v1/platform/harness/tasks/{run_id}", headers=headers()).json()
-        assert task["metadata"]["origin"] == "api"
-        assert task["parent_task_id"] is None
+        ).json()
+        assert len(tasks) == 1
+        assert tasks[0]["status"] == "succeeded"
+        assert tasks[0]["metadata"]["origin"] == "test_suite"

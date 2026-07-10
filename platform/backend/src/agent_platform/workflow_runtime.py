@@ -1752,7 +1752,14 @@ class WorkflowRuntime:
             raise RuntimeError(f"HTTP {response.status_code}: {str(value)[:1000]}")
         return {"output": value, "status": response.status_code, "headers": dict(response.headers)}
 
-    async def run_test_suite(self, application_id: str) -> dict[str, Any]:
+    async def run_test_suite(
+        self,
+        application_id: str,
+        *,
+        harness_task_id: str | None = None,
+        manage_harness_task: bool = True,
+        origin: str = "test_suite",
+    ) -> dict[str, Any]:
         validation = await self.applications.validate_draft(application_id)
         if not validation["valid"]:
             return {
@@ -1763,21 +1770,26 @@ class WorkflowRuntime:
             }
         draft = await self.workflow_store.get_draft(application_id)
         snapshot: ApplicationSnapshot = draft["snapshot"]
-        test_task_id = f"test-suite:{uuid4()}"
-        await self.harness.start_task(
-            test_task_id,
-            kind="test_suite",
-            owner_id=application_id,
-            resource_id=application_id,
-            metadata={"draft_revision": draft["revision"], "content_hash": draft["content_hash"]},
-        )
+        test_task_id = harness_task_id or f"test-suite:{uuid4()}"
+        if manage_harness_task:
+            await self.harness.start_task(
+                test_task_id,
+                kind="test_suite",
+                owner_id=application_id,
+                resource_id=application_id,
+                metadata={
+                    "draft_revision": draft["revision"],
+                    "content_hash": draft["content_hash"],
+                    "origin": origin,
+                },
+            )
         results: list[dict[str, Any]] = []
         for test in snapshot.tests:
             created = await self.create_run(
                 application_id,
                 WorkflowRunRequest(inputs=test.inputs, use_draft=True, workspace_path="."),
                 parent_task_id=test_task_id,
-                origin="test_suite",
+                origin=origin,
             )
             run_id = created["run_id"]
             task = self.active_tasks[run_id]
@@ -1950,7 +1962,8 @@ class WorkflowRuntime:
             await self.workflow_store.mark_tested(
                 application_id, draft["revision"], draft["content_hash"], report
             )
-        await self.harness.finish_task(test_task_id, status="succeeded" if passed else "failed")
+        if manage_harness_task:
+            await self.harness.finish_task(test_task_id, status="succeeded" if passed else "failed")
         await self._emit(application_id, "tests.completed", report)
         return report
 

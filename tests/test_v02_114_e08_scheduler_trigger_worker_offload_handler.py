@@ -38,6 +38,9 @@ class FakeWorkflowRuntime:
     async def create_run(self, *_: Any, **__: Any) -> dict[str, Any]:
         return {"run_id": "fake-workflow-run", "status": "queued", "version": 1, "draft_revision": None}
 
+    async def run_test_suite(self, *_: Any, **__: Any) -> dict[str, Any]:
+        return {"passed": True, "summary": {"total": 1, "failed": 0, "mandatory_failed": 0}, "tests": []}
+
 
 class FakeServices:
     scheduler = FakeScheduler()
@@ -124,7 +127,7 @@ def test_v02_114_catalog_marks_scheduler_trigger_implemented() -> None:
     catalog = platform_worker_handler_catalog(handlers)
     entries = {entry["kind"]: entry for entry in catalog["entries"]}
 
-    assert catalog["version"] == "v0.2.116"
+    assert catalog["version"] == "v0.2.118"
     assert catalog["catalog_complete"] is True
     assert catalog["registered_catalog_complete"] is True
     assert catalog["full_execution_coverage"] is False
@@ -136,6 +139,7 @@ def test_v02_114_catalog_marks_scheduler_trigger_implemented() -> None:
 
     remaining_unavailable = set(PLATFORM_WORKER_TASK_KINDS) - {
         "workflow_run",
+        "test_suite",
         "scheduler_trigger",
         "scheduler_manual_trigger",
     }
