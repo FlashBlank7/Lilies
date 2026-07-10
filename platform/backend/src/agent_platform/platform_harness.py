@@ -354,6 +354,33 @@ class PlatformHarness:
         await self._emit(record, "platform_harness.task.lease_claimed")
         return record
 
+    async def claim_next_queued_task(
+        self,
+        *,
+        worker_id: str | None = None,
+        lease_seconds: float | None = None,
+        kind: str | None = None,
+        owner_id: str | None = None,
+    ) -> PlatformTaskRecord | None:
+        await self.requeue_expired_task_leases()
+        effective_lease_seconds = self._effective_lease_seconds(lease_seconds)
+        if effective_lease_seconds <= 0:
+            raise PlatformHarnessViolation("platform queue claim lease seconds must be greater than 0")
+        effective_worker_id = self._effective_worker_id(worker_id)
+        claimed = await self.storage.claim_next_platform_task(
+            worker_id=effective_worker_id,
+            lease_seconds=effective_lease_seconds,
+            kind=kind,
+            owner_id=owner_id,
+        )
+        if claimed is None:
+            return None
+        record = PlatformTaskRecord.model_validate(claimed)
+        async with self._lock:
+            self._tasks[record.id] = record
+        await self._emit(record, "platform_harness.queue.task_claimed")
+        return record.model_copy(deep=True)
+
     async def renew_task_lease(
         self,
         task_id: str,
@@ -426,6 +453,58 @@ class PlatformHarness:
         for record in records:
             await self._emit(record, "platform_harness.task.failed", {"reason": "worker_lease_expired"})
         return [record.model_copy(deep=True) for record in records]
+
+    async def requeue_expired_task_leases(self) -> list[PlatformTaskRecord]:
+        cutoff = datetime.now(timezone.utc).isoformat()
+        records = [
+            PlatformTaskRecord.model_validate(item)
+            for item in await self.storage.requeue_expired_platform_task_leases(cutoff=cutoff)
+        ]
+        async with self._lock:
+            for record in records:
+                self._tasks[record.id] = record
+        for record in records:
+            await self._emit(record, "platform_harness.queue.task_requeued", {"reason": "worker_lease_expired"})
+        return [record.model_copy(deep=True) for record in records]
+
+    async def queue_semantics_snapshot(self, *, limit: int = 100) -> dict[str, Any]:
+        await self.requeue_expired_task_leases()
+        tasks = await self.list_tasks(limit=max(1, min(limit, 500)))
+        heartbeats = await self.list_worker_heartbeats(limit=max(1, min(limit, 500)))
+        counts = {
+            "queued": 0,
+            "running": 0,
+            "paused": 0,
+            "succeeded": 0,
+            "failed": 0,
+            "cancelled": 0,
+        }
+        leased_workers: dict[str, int] = {}
+        for task in tasks:
+            counts[task.status] = counts.get(task.status, 0) + 1
+            if task.worker_id:
+                leased_workers[task.worker_id] = leased_workers.get(task.worker_id, 0) + 1
+        return {
+            "version": "v0.2.128",
+            "source": "docs/stage-reports/v0.2.127_e08_remaining_sidecar_architecture_reselection.md",
+            "queue_mode": "storage_backed_claim_next_with_requeue",
+            "claim_next_atomic": True,
+            "expired_lease_requeue": True,
+            "task_counts": counts,
+            "active_task_count": counts.get("queued", 0) + counts.get("running", 0),
+            "leased_workers": leased_workers,
+            "active_workers": [
+                row.worker_id for row in heartbeats if row.liveness == "active"
+            ],
+            "stale_workers": [
+                row.worker_id for row in heartbeats if row.liveness == "stale"
+            ],
+            "boundaries": {
+                "external_process_manager": False,
+                "external_kms_provider_integration": False,
+                "full_sidecar_completion_claimed": False,
+            },
+        }
 
     async def reconcile_stale_tasks(self) -> list[PlatformTaskRecord]:
         if self.stale_active_task_seconds <= 0:

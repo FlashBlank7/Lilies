@@ -505,6 +505,15 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         tasks = await services.harness.reconcile_expired_task_leases()
         return [task.model_dump(mode="json") for task in tasks]
 
+    @app.get("/api/v1/platform/harness/queue-semantics", dependencies=[Depends(require_token)])
+    async def get_platform_harness_queue_semantics(limit: int = 100) -> dict[str, Any]:
+        return await services.harness.queue_semantics_snapshot(limit=max(1, min(limit, 500)))
+
+    @app.post("/api/v1/platform/harness/queue/requeue-expired", dependencies=[Depends(require_token)])
+    async def requeue_platform_harness_expired_queue_tasks() -> list[dict[str, Any]]:
+        tasks = await services.harness.requeue_expired_task_leases()
+        return [task.model_dump(mode="json") for task in tasks]
+
     @app.get("/api/v1/platform/harness/worker-heartbeats", dependencies=[Depends(require_token)])
     async def list_platform_harness_worker_heartbeats(limit: int = 100) -> list[dict[str, Any]]:
         rows = await services.harness.list_worker_heartbeats(limit=max(1, min(limit, 500)))

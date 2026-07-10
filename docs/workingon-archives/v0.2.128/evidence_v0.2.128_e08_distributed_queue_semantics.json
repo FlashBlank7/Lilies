@@ -1,0 +1,249 @@
+{
+  "version": "v0.2.128",
+  "source_stage_report": "docs/stage-reports/v0.2.127_e08_remaining_sidecar_architecture_reselection.md",
+  "status": "completed",
+  "direct_queue": {
+    "atomic_claims": [
+      {
+        "id": "v02-128-queue-1",
+        "kind": "scheduler_manual_trigger",
+        "owner_id": "owner-a",
+        "resource_id": "schedule-v02-128-queue-1",
+        "status": "running",
+        "parent_task_id": null,
+        "metadata": {
+          "worker_lease": {
+            "worker_id": "worker-a",
+            "lease_seconds": 60.0,
+            "last_action": "queue_claimed",
+            "updated_at": "2026-07-10T12:36:49.326053+00:00",
+            "lease_version": 3,
+            "released_at": "2026-07-10T12:36:49.321674+00:00",
+            "released_by": "producer",
+            "next_status": "queued",
+            "queue_claimed": true
+          }
+        },
+        "usage_counts": {},
+        "usage": [],
+        "error": "",
+        "worker_id": "worker-a",
+        "lease_expires_at": "2026-07-10T12:37:49.326053+00:00",
+        "lease_version": 3,
+        "created_at": "2026-07-10T12:36:49.319135+00:00",
+        "updated_at": "2026-07-10T12:36:49.326053+00:00",
+        "finished_at": null
+      },
+      {
+        "id": "v02-128-queue-2",
+        "kind": "scheduler_manual_trigger",
+        "owner_id": "owner-a",
+        "resource_id": "schedule-v02-128-queue-2",
+        "status": "running",
+        "parent_task_id": null,
+        "metadata": {
+          "worker_lease": {
+            "worker_id": "worker-b",
+            "lease_seconds": 60.0,
+            "last_action": "queue_claimed",
+            "updated_at": "2026-07-10T12:36:49.326319+00:00",
+            "lease_version": 3,
+            "released_at": "2026-07-10T12:36:49.324763+00:00",
+            "released_by": "producer",
+            "next_status": "queued",
+            "queue_claimed": true
+          }
+        },
+        "usage_counts": {},
+        "usage": [],
+        "error": "",
+        "worker_id": "worker-b",
+        "lease_expires_at": "2026-07-10T12:37:49.326319+00:00",
+        "lease_version": 3,
+        "created_at": "2026-07-10T12:36:49.323741+00:00",
+        "updated_at": "2026-07-10T12:36:49.326319+00:00",
+        "finished_at": null
+      },
+      null
+    ],
+    "requeued": [
+      {
+        "id": "v02-128-requeue-1",
+        "kind": "scheduler_manual_trigger",
+        "owner_id": "owner-a",
+        "resource_id": "schedule-v02-128-requeue-1",
+        "status": "queued",
+        "parent_task_id": null,
+        "metadata": {
+          "worker_lease": {
+            "worker_id": "worker-expired",
+            "lease_seconds": 0.001,
+            "last_action": "queue_requeued",
+            "updated_at": "2026-07-10T12:36:49.332516+00:00",
+            "lease_version": 4,
+            "released_at": "2026-07-10T12:36:49.331493+00:00",
+            "released_by": "producer",
+            "next_status": "queued",
+            "queue_claimed": true,
+            "requeued": true,
+            "requeued_at": "2026-07-10T12:36:49.344457+00:00",
+            "requeued_from_worker_id": "worker-expired",
+            "expired_lease_expires_at": "2026-07-10T12:36:49.333516+00:00",
+            "cutoff": "2026-07-10T12:36:49.344413+00:00"
+          }
+        },
+        "usage_counts": {},
+        "usage": [],
+        "error": "",
+        "worker_id": null,
+        "lease_expires_at": null,
+        "lease_version": 4,
+        "created_at": "2026-07-10T12:36:49.330452+00:00",
+        "updated_at": "2026-07-10T12:36:49.344457+00:00",
+        "finished_at": null
+      }
+    ],
+    "runner_results": [
+      {
+        "task_id": "v02-128-requeue-1",
+        "kind": "scheduler_manual_trigger",
+        "status": "succeeded",
+        "worker_id": "runner-worker",
+        "lease_version": 5,
+        "error": "",
+        "metadata": {
+          "worker_runner": {
+            "worker_id": "runner-worker",
+            "status": "succeeded",
+            "result": {
+              "handled_task_id": "v02-128-requeue-1"
+            },
+            "renewal_count": 0
+          }
+        }
+      },
+      {
+        "task_id": "v02-128-runner-1",
+        "kind": "scheduler_manual_trigger",
+        "status": "succeeded",
+        "worker_id": "runner-worker",
+        "lease_version": 3,
+        "error": "",
+        "metadata": {
+          "worker_runner": {
+            "worker_id": "runner-worker",
+            "status": "succeeded",
+            "result": {
+              "handled_task_id": "v02-128-runner-1"
+            },
+            "renewal_count": 0
+          }
+        }
+      }
+    ],
+    "snapshot": {
+      "version": "v0.2.128",
+      "source": "docs/stage-reports/v0.2.127_e08_remaining_sidecar_architecture_reselection.md",
+      "queue_mode": "storage_backed_claim_next_with_requeue",
+      "claim_next_atomic": true,
+      "expired_lease_requeue": true,
+      "task_counts": {
+        "queued": 0,
+        "running": 0,
+        "paused": 0,
+        "succeeded": 4,
+        "failed": 0,
+        "cancelled": 0
+      },
+      "active_task_count": 0,
+      "leased_workers": {
+        "runner-worker": 2,
+        "worker-b": 1,
+        "worker-a": 1
+      },
+      "active_workers": [
+        "runner-worker"
+      ],
+      "stale_workers": [],
+      "boundaries": {
+        "external_process_manager": false,
+        "external_kms_provider_integration": false,
+        "full_sidecar_completion_claimed": false
+      }
+    }
+  },
+  "api_queue": {
+    "requeued": [
+      {
+        "id": "v02-128-api-requeue",
+        "kind": "scheduler_manual_trigger",
+        "owner_id": "owner-a",
+        "resource_id": "schedule-v02-128-api-requeue",
+        "status": "queued",
+        "parent_task_id": null,
+        "metadata": {
+          "worker_lease": {
+            "worker_id": "api-worker",
+            "lease_seconds": 0.001,
+            "last_action": "queue_requeued",
+            "updated_at": "2026-07-10T12:36:49.630532+00:00",
+            "lease_version": 4,
+            "released_at": "2026-07-10T12:36:49.629415+00:00",
+            "released_by": "producer",
+            "next_status": "queued",
+            "queue_claimed": true,
+            "requeued": true,
+            "requeued_at": "2026-07-10T12:36:49.644418+00:00",
+            "requeued_from_worker_id": "api-worker",
+            "expired_lease_expires_at": "2026-07-10T12:36:49.631532+00:00",
+            "cutoff": "2026-07-10T12:36:49.644387+00:00"
+          }
+        },
+        "usage_counts": {},
+        "usage": [],
+        "error": "",
+        "worker_id": null,
+        "lease_expires_at": null,
+        "lease_version": 4,
+        "created_at": "2026-07-10T12:36:49.628134+00:00",
+        "updated_at": "2026-07-10T12:36:49.644418+00:00",
+        "finished_at": null
+      }
+    ],
+    "snapshot": {
+      "version": "v0.2.128",
+      "source": "docs/stage-reports/v0.2.127_e08_remaining_sidecar_architecture_reselection.md",
+      "queue_mode": "storage_backed_claim_next_with_requeue",
+      "claim_next_atomic": true,
+      "expired_lease_requeue": true,
+      "task_counts": {
+        "queued": 1,
+        "running": 0,
+        "paused": 0,
+        "succeeded": 0,
+        "failed": 0,
+        "cancelled": 0
+      },
+      "active_task_count": 1,
+      "leased_workers": {},
+      "active_workers": [],
+      "stale_workers": [],
+      "boundaries": {
+        "external_process_manager": false,
+        "external_kms_provider_integration": false,
+        "full_sidecar_completion_claimed": false
+      }
+    }
+  },
+  "invariants": {
+    "claim_next_single_owner": true,
+    "expired_lease_requeue": true,
+    "runner_uses_queue_claim_next": true,
+    "api_snapshot_available": true,
+    "api_requeue_available": true,
+    "external_process_manager_claimed": false,
+    "external_kms_provider_integration_claimed": false,
+    "e08_full_sidecar_completion_claimed": false
+  },
+  "next_boundary": "Distributed queue semantics now have storage-backed claim-next and requeue behavior. External process management, external KMS provider integration, and full sidecar completion remain open."
+}

@@ -139,82 +139,85 @@ class PlatformHarnessWorkerRunner:
         limit: int = 10,
     ) -> list[WorkerRunResult]:
         await self._record_heartbeat(status="idle", metadata={"phase": "poll_start"})
-        tasks = await self.harness.list_tasks(
-            kind=kind,
-            status="queued",
-            owner_id=owner_id,
-            limit=max(1, limit),
-        )
         results: list[WorkerRunResult] = []
-        if not tasks:
-            await self._record_heartbeat(status="idle", metadata={"phase": "poll_empty"})
-            return results
-        for task in tasks:
-            handler = self.handlers.get(task.kind)
+        for _ in range(max(1, limit)):
+            claimed = await self.harness.claim_next_queued_task(
+                kind=kind,
+                owner_id=owner_id,
+                worker_id=self.worker_id,
+                lease_seconds=self.lease_seconds,
+            )
+            if claimed is None:
+                break
+            handler = self.handlers.get(claimed.kind)
             if handler is None:
-                results.append(self._result(task, "skipped", error=f"no handler for kind: {task.kind}"))
-                continue
-            try:
-                claimed = await self.harness.claim_task_lease(
-                    task.id,
-                    worker_id=self.worker_id,
-                    lease_seconds=self.lease_seconds,
-                )
-            except Exception as error:
-                results.append(self._result(task, "claim_failed", error=str(error)))
-                continue
-            await self._record_heartbeat(
-                status="running",
-                active_task_id=claimed.id,
-                metadata={"phase": "task_claimed", "kind": claimed.kind},
-            )
-            renewal_state: dict[str, Any] = {"count": 0}
-            renewal_task = asyncio.create_task(self._renew_lease_until_cancelled(claimed.id, renewal_state))
-            try:
-                output = handler(claimed)
-                if inspect.isawaitable(output):
-                    output = await output
-                result_metadata = output or {}
-            except Exception as error:
-                await self._stop_renewal_task(renewal_task)
-                await self._record_heartbeat(
-                    status="failed",
-                    active_task_id=claimed.id,
-                    metadata={"phase": "handler_failed", "kind": claimed.kind, "error": str(error)},
-                )
-                error_result = getattr(error, "result", {})
-                if not isinstance(error_result, dict):
-                    error_result = {}
-                metadata = self._worker_metadata(status="failed", result=error_result, renewal_state=renewal_state)
-                finished = await self.harness.finish_task(
+                await self.harness.release_task_lease(
                     claimed.id,
-                    status="failed",
-                    error=str(error),
-                    metadata=metadata,
+                    worker_id=self.worker_id,
+                    next_status="queued",
                 )
-                results.append(self._result(finished or claimed, "failed", error=str(error), metadata=metadata))
-                await self._record_heartbeat(
-                    status="idle",
-                    metadata={"phase": "task_finished", "last_task_id": claimed.id, "last_task_status": "failed"},
-                )
-                continue
+                results.append(self._result(claimed, "skipped", error=f"no handler for kind: {claimed.kind}"))
+                break
+            results.append(await self._run_claimed_task(claimed, handler))
+        if not results:
+            await self._record_heartbeat(status="idle", metadata={"phase": "poll_empty"})
+        return results
+
+    async def _run_claimed_task(
+        self,
+        claimed: PlatformTaskRecord,
+        handler: PlatformTaskHandler,
+    ) -> WorkerRunResult:
+        await self._record_heartbeat(
+            status="running",
+            active_task_id=claimed.id,
+            metadata={"phase": "task_claimed", "kind": claimed.kind, "queue_claim_next": True},
+        )
+        renewal_state: dict[str, Any] = {"count": 0}
+        renewal_task = asyncio.create_task(self._renew_lease_until_cancelled(claimed.id, renewal_state))
+        try:
+            output = handler(claimed)
+            if inspect.isawaitable(output):
+                output = await output
+            result_metadata = output or {}
+        except Exception as error:
             await self._stop_renewal_task(renewal_task)
-            metadata = self._worker_metadata(
-                status="succeeded",
-                result=result_metadata,
-                renewal_state=renewal_state,
+            await self._record_heartbeat(
+                status="failed",
+                active_task_id=claimed.id,
+                metadata={"phase": "handler_failed", "kind": claimed.kind, "error": str(error)},
             )
+            error_result = getattr(error, "result", {})
+            if not isinstance(error_result, dict):
+                error_result = {}
+            metadata = self._worker_metadata(status="failed", result=error_result, renewal_state=renewal_state)
             finished = await self.harness.finish_task(
                 claimed.id,
-                status="succeeded",
+                status="failed",
+                error=str(error),
                 metadata=metadata,
             )
-            results.append(self._result(finished or claimed, "succeeded", metadata=metadata))
             await self._record_heartbeat(
                 status="idle",
-                metadata={"phase": "task_finished", "last_task_id": claimed.id, "last_task_status": "succeeded"},
+                metadata={"phase": "task_finished", "last_task_id": claimed.id, "last_task_status": "failed"},
             )
-        return results
+            return self._result(finished or claimed, "failed", error=str(error), metadata=metadata)
+        await self._stop_renewal_task(renewal_task)
+        metadata = self._worker_metadata(
+            status="succeeded",
+            result=result_metadata,
+            renewal_state=renewal_state,
+        )
+        finished = await self.harness.finish_task(
+            claimed.id,
+            status="succeeded",
+            metadata=metadata,
+        )
+        await self._record_heartbeat(
+            status="idle",
+            metadata={"phase": "task_finished", "last_task_id": claimed.id, "last_task_status": "succeeded"},
+        )
+        return self._result(finished or claimed, "succeeded", metadata=metadata)
 
     async def _renew_lease_until_cancelled(self, task_id: str, state: dict[str, Any]) -> None:
         try:

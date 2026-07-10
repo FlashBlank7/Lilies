@@ -4,7 +4,7 @@ import asyncio
 import json
 import sqlite3
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, AsyncIterator
 
@@ -388,6 +388,88 @@ class Storage:
         rows = self._get_all(sql, tuple(params + [limit]))
         return [json.loads(row["record_json"]) for row in rows]
 
+    async def claim_next_platform_task(
+        self,
+        *,
+        worker_id: str,
+        lease_seconds: float,
+        kind: str | None = None,
+        owner_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        async with self._lock:
+            return await asyncio.to_thread(
+                self._claim_next_platform_task_sync,
+                worker_id,
+                lease_seconds,
+                kind,
+                owner_id,
+            )
+
+    def _claim_next_platform_task_sync(
+        self,
+        worker_id: str,
+        lease_seconds: float,
+        kind: str | None,
+        owner_id: str | None,
+    ) -> dict[str, Any] | None:
+        now = utc_now()
+        expires_at = (
+            self._parse_iso_datetime(now) + timedelta(seconds=lease_seconds)
+            if self._parse_iso_datetime(now)
+            else None
+        )
+        where = ["status='queued'"]
+        params: list[Any] = []
+        if kind:
+            where.append("kind=?")
+            params.append(kind)
+        if owner_id:
+            where.append("owner_id=?")
+            params.append(owner_id)
+        where_sql = " AND ".join(where)
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                f"""
+                SELECT id, record_json FROM platform_harness_tasks
+                WHERE {where_sql}
+                ORDER BY created_at ASC, id ASC
+                LIMIT 1
+                """,
+                tuple(params),
+            ).fetchone()
+            if row is None:
+                conn.execute("COMMIT")
+                return None
+            record = json.loads(row["record_json"])
+            record["status"] = "running"
+            record["worker_id"] = worker_id
+            record["lease_expires_at"] = expires_at.isoformat() if expires_at else None
+            record["lease_version"] = int(record.get("lease_version", 0)) + 1
+            record["updated_at"] = now
+            record["finished_at"] = None
+            metadata = record.setdefault("metadata", {})
+            lease_metadata = metadata.setdefault("worker_lease", {})
+            lease_metadata.update({
+                "worker_id": worker_id,
+                "lease_seconds": lease_seconds,
+                "last_action": "queue_claimed",
+                "updated_at": now,
+                "lease_version": record["lease_version"],
+                "queue_claimed": True,
+            })
+            encoded = json.dumps(record, ensure_ascii=False, separators=(",", ":"))
+            updated = conn.execute(
+                """
+                UPDATE platform_harness_tasks
+                SET status=?, record_json=?, updated_at=?, finished_at=?
+                WHERE id=? AND status='queued'
+                """,
+                ("running", encoded, now, None, record["id"]),
+            ).rowcount
+            conn.execute("COMMIT")
+        return record if updated == 1 else None
+
     async def count_platform_tasks(self, *, statuses: set[str]) -> int:
         if not statuses:
             return 0
@@ -506,6 +588,61 @@ class Storage:
                     WHERE id=?
                     """,
                     ("failed", encoded, now, now, record["id"]),
+                )
+                records.append(record)
+        return records
+
+    async def requeue_expired_platform_task_leases(self, *, cutoff: str) -> list[dict[str, Any]]:
+        async with self._lock:
+            return await asyncio.to_thread(self._requeue_expired_platform_task_leases_sync, cutoff)
+
+    def _requeue_expired_platform_task_leases_sync(self, cutoff: str) -> list[dict[str, Any]]:
+        now = utc_now()
+        cutoff_dt = self._parse_iso_datetime(cutoff)
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT record_json FROM platform_harness_tasks
+                WHERE status='running'
+                ORDER BY updated_at
+                """
+            ).fetchall()
+            records: list[dict[str, Any]] = []
+            for row in rows:
+                record = json.loads(row["record_json"])
+                lease_expires_at = record.get("lease_expires_at")
+                if not lease_expires_at:
+                    continue
+                expires_dt = self._parse_iso_datetime(str(lease_expires_at))
+                if not expires_dt or expires_dt > cutoff_dt:
+                    continue
+                previous_worker_id = record.get("worker_id")
+                record["status"] = "queued"
+                record["worker_id"] = None
+                record["lease_expires_at"] = None
+                record["updated_at"] = now
+                record["finished_at"] = None
+                record["error"] = ""
+                record["lease_version"] = int(record.get("lease_version", 0)) + 1
+                metadata = record.setdefault("metadata", {})
+                lease_metadata = metadata.setdefault("worker_lease", {})
+                lease_metadata.update({
+                    "requeued": True,
+                    "requeued_at": now,
+                    "requeued_from_worker_id": previous_worker_id,
+                    "expired_lease_expires_at": lease_expires_at,
+                    "cutoff": cutoff,
+                    "last_action": "queue_requeued",
+                    "lease_version": record["lease_version"],
+                })
+                encoded = json.dumps(record, ensure_ascii=False, separators=(",", ":"))
+                conn.execute(
+                    """
+                    UPDATE platform_harness_tasks
+                    SET status=?, record_json=?, updated_at=?, finished_at=?
+                    WHERE id=?
+                    """,
+                    ("queued", encoded, now, None, record["id"]),
                 )
                 records.append(record)
         return records
