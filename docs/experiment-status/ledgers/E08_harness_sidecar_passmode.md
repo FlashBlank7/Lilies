@@ -1,12 +1,12 @@
 # E08 Harness Sidecar Passmode Ledger
 
-状态：current tranche productized without full sidecar completion；paused for lane reselection
+状态：completed_full_sidecar_with_cloud_deployment_boundary
 
 ## 当前结论
 
-v0.2.3-v0.2.28 已推进多项 Platform Harness slice：task monitor、observability UI、durable storage、owner budget、stale reconciliation、secret policy、HTTP/stdio egress、worker lease/runner/CLI/renewal 等。它们是重要工程前置，但不等于 E08 sidecar/passmode 对照实验完成。
+v0.2.3-v0.2.28 已推进多项 Platform Harness slice：task monitor、observability UI、durable storage、owner budget、stale reconciliation、secret policy、HTTP/stdio egress、worker lease/runner/CLI/renewal 等。v0.2.55 补上首轮 sidecar/passmode 对照，v0.2.96-v0.2.133 继续完成 controls、runbook、egress、secret/KMS、handler catalog、heartbeat、worker offload、supervision、distributed queue、external process manager、external KMS provider contract 和 full-sidecar completion audit。
 
-v0.2.55 补上了第一轮 runnable deterministic comparison：`permission_gate` 的 `always_ask` 会让 workflow-internal soft gate 暂停，`auto_approve` 会让同类 soft gate 通过，而 Platform Harness network egress policy 会在外部动作前 hard-fail run。结论是：workflow-internal passmode 适合表达产品可见的暂停/恢复/审阅语义；Platform Harness sidecar 才是不可由 workflow 配置绕过的硬边界。
+v0.2.133 audit 结论为 `claim_e08_full_sidecar_completion`：18 个 required sidecar/passmode surfaces 均有版本化证据，`missing_required_gaps=0`。该结论不声明 cloud-specific KMS deployment；cloud provider clients 是可选 deployment follow-up，不阻塞当前 E08 full sidecar completion。
 
 ## 证据
 
@@ -20,11 +20,11 @@ v0.2.55 补上了第一轮 runnable deterministic comparison：`permission_gate`
 
 ## 边界
 
-当前 Platform Harness 仍有未闭环方向：allowlist-grade stdio/container egress、KMS/rotation、完整 handler catalog、分布式 heartbeat registry、policy controls 完整 UI/API、长时间运行 runbook。E08 首轮对照不等于完整 sidecar 产品实现。
+E08 full sidecar completion 已由 v0.2.133 审计关闭。剩余边界是 cloud-specific KMS deployment 和 production observability hardening，它们是 optional follow-up，不是当前 E08 completion blocker。
 
 ## 下一步
 
-扩展 E08 对照到 cancellation、budget、worker lease、UI/API controls，或将本轮结论沉淀为 Harness language/current design 规则。
+转入全局 experiment/productization completion audit，检查 E01-E10 是否只剩外部或治理阻塞边界。
 
 v0.2.57 final disposition：Workflow-internal passmode can pause/pass by config; Platform Harness sidecar hard-blocks before external action. Extended controls remain product follow-up.
 
@@ -181,3 +181,7 @@ v0.2.131 remaining sidecar architecture reselection 已排除 completed external
 v0.2.132 已实现 external KMS provider integration contract：新增 `SecretKMSProvider` protocol、deterministic local provider、v3 provider-backed secret envelope、provider-backed policy/status surface，并保留 v2/v1/plaintext compatibility。该版本声明 provider contract integration 已完成，但不声明 cloud provider deployment 或 full sidecar completion。
 
 证据：`../../workingon-archives/v0.2.132/evidence_v0.2.132_e08_external_kms_provider_integration_summary.md`
+
+v0.2.133 已完成 E08 full sidecar completion audit：18 个 required sidecar/passmode surfaces 均映射到已存在的版本化证据，`missing_required_gaps=0`，审计结论为 `claim_e08_full_sidecar_completion`。该结论保留 cloud-specific KMS deployment boundary：cloud provider deployment 未声明，且不作为当前 full sidecar completion blocker。
+
+证据：`../../workingon-archives/v0.2.133/audit_v0.2.133_e08_full_sidecar_completion_summary.md`
