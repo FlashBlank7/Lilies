@@ -77,3 +77,7 @@ v0.2.105 E08 broader sidecar scope decomposition 已把 remaining full-sidecar g
 v0.2.106 已实现 allowlist-grade stdio/container egress contract：`MCPServerSpec` 可声明 `egress_hosts`，Platform Harness 只允许 sandboxed stdio allowlist 且 declared hosts 被 agent/platform allowlist 覆盖的场景；missing hosts、unlisted hosts、unsandboxed allowlist stdio 会在外部动作前 hard-fail。Policy controls 现在展示 allowlist contract requirements。该版本只关闭 stdio/container egress allowlist slice，不声明 full sidecar completion。
 
 证据：`../../workingon-archives/v0.2.106/evidence_v0.2.106_e08_stdio_container_egress_allowlist_contract_summary.md`
+
+v0.2.107 remaining sidecar slice reselection 已排除 completed stdio/container egress allowlist slice，并选择 `secret_kms_rotation_contract` 作为下一条 E08 实现切片。该版本只选择下一 slice，不实现 KMS/rotation，也不声明 full sidecar completion。
+
+证据：`../../workingon-archives/v0.2.107/decision_v0.2.107_e08_remaining_sidecar_slice_reselection_summary.md`
