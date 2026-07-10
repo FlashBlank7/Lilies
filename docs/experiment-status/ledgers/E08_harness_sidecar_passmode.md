@@ -117,3 +117,7 @@ v0.2.115 remaining sidecar slice reselection 已排除 completed scheduler_trigg
 v0.2.116 已实现 `workflow_run` worker offload handler：worker catalog 将 `workflow_run` 从 deterministic unavailable 迁移为 implemented，`PlatformHarnessWorkerRunner` 可消费 queued `workflow_run` task，并通过现有 `WorkflowRuntime.create_run()` 创建真实 workflow run；created run 的 Platform Harness task 以 worker task 为 parent，worker-created run 使用 `origin=worker`，既有 API run 仍保持 `origin=api`。该版本只关闭 workflow_run worker handler slice，不声明 builder/test/benchmark/draft-preview handlers、production worker supervision、distributed queue 或 full sidecar completion。
 
 证据：`../../workingon-archives/v0.2.116/evidence_v0.2.116_e08_workflow_run_worker_offload_handler_summary.md`
+
+v0.2.117 remaining sidecar slice reselection 已排除 completed workflow_run worker offload handler、scheduler_trigger worker offload handler、heartbeat registry、handler catalog、stdio/container egress、secret rotation、policy-controls API、Studio controls 和 operator runbook lifecycle，并选择 `test_suite_worker_offload_handler` 作为下一条 E08 实现切片。该版本只选择下一 slice，不实现 test_suite worker handler，也不声明 full sidecar completion。
+
+证据：`../../workingon-archives/v0.2.117/decision_v0.2.117_e08_remaining_sidecar_slice_reselection_summary.md`
