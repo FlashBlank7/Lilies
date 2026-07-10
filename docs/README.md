@@ -112,6 +112,7 @@
 - `stage-reports/v0.2.86_frontend_verification_environment_repair.md`
 - `stage-reports/v0.2.87_complexity_router_default_enablement_review_decision.md`
 - `stage-reports/v0.2.88_complexity_router_limited_default_enablement_plan.md`
+- `stage-reports/v0.2.89_complexity_router_limited_default_enablement_contract.md`
 
 ## 使用原则
 

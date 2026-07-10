@@ -117,6 +117,13 @@ ROLLOUT_METRIC_DEFINITIONS = {
     "cost_latency_by_class": "Cost and latency distribution grouped by effective requirement class.",
 }
 
+COMPLEXITY_ROUTER_DEFAULT_MODES = {
+    "disabled",
+    "shadow_only",
+    "operator_opt_in",
+    "limited_default",
+}
+
 
 @dataclass(frozen=True)
 class DefaultSafetyInputs:
@@ -164,7 +171,13 @@ def requirement_classification_contract_status() -> dict[str, Any]:
     }
 
 
-def classify_requirement(requirement: str) -> dict[str, Any]:
+def classify_requirement(
+    requirement: str,
+    *,
+    default_mode: str = "disabled",
+    limited_default_enabled: bool = False,
+    min_confidence: float = 0.55,
+) -> dict[str, Any]:
     text = requirement.strip().casefold()
     if not text:
         return _classification_result(
@@ -173,6 +186,9 @@ def classify_requirement(requirement: str) -> dict[str, Any]:
             confidence=0.0,
             signals=["empty_requirement"],
             conservative_unknown=True,
+            default_mode=default_mode,
+            limited_default_enabled=limited_default_enabled,
+            min_confidence=min_confidence,
         )
 
     simple_hits = _signal_hits(text, SIMPLE_SIGNALS)
@@ -188,6 +204,9 @@ def classify_requirement(requirement: str) -> dict[str, Any]:
             confidence=0.2,
             signals=["underspecified_requirement"],
             conservative_unknown=True,
+            default_mode=default_mode,
+            limited_default_enabled=limited_default_enabled,
+            min_confidence=min_confidence,
         )
     if complex_hits:
         return _classification_result(
@@ -196,6 +215,9 @@ def classify_requirement(requirement: str) -> dict[str, Any]:
             confidence=min(0.95, 0.65 + 0.1 * len(complex_hits)),
             signals=complex_hits,
             conservative_unknown=False,
+            default_mode=default_mode,
+            limited_default_enabled=limited_default_enabled,
+            min_confidence=min_confidence,
         )
     if medium_hits:
         return _classification_result(
@@ -204,6 +226,9 @@ def classify_requirement(requirement: str) -> dict[str, Any]:
             confidence=min(0.9, 0.6 + 0.08 * len(medium_hits)),
             signals=medium_hits,
             conservative_unknown=False,
+            default_mode=default_mode,
+            limited_default_enabled=limited_default_enabled,
+            min_confidence=min_confidence,
         )
     return _classification_result(
         requirement_class="simple",
@@ -211,6 +236,9 @@ def classify_requirement(requirement: str) -> dict[str, Any]:
         confidence=0.55 if simple_hits else 0.45,
         signals=simple_hits or ["bounded_requirement"],
         conservative_unknown=False,
+        default_mode=default_mode,
+        limited_default_enabled=limited_default_enabled,
+        min_confidence=min_confidence,
     )
 
 
@@ -225,17 +253,84 @@ def _classification_result(
     confidence: float,
     signals: list[str],
     conservative_unknown: bool,
+    default_mode: str = "disabled",
+    limited_default_enabled: bool = False,
+    min_confidence: float = 0.55,
 ) -> dict[str, Any]:
+    normalized_mode = normalize_default_mode(default_mode)
+    confidence = round(confidence, 3)
+    eligible = (
+        normalized_mode == "limited_default"
+        and limited_default_enabled
+        and not conservative_unknown
+        and confidence >= min_confidence
+    )
     return {
         "contract_id": "requirement_classification_contract",
         "policy_version": "v0.2.72_complexity_router_requirement_classification_contract",
         "requirement_class": requirement_class,
         "effective_class": effective_class,
-        "confidence": round(confidence, 3),
+        "confidence": confidence,
         "signals": signals,
         "conservative_unknown": conservative_unknown,
-        "default_router_enabled": False,
+        "configured_default_mode": normalized_mode,
+        "limited_default_enabled": limited_default_enabled,
+        "limited_default_eligible": eligible,
+        "default_router_enabled": eligible,
         "builder_policy": REQUIREMENT_CLASS_DEFINITIONS[requirement_class]["default_builder_policy"],
+        "default_builder_policy": (
+            REQUIREMENT_CLASS_DEFINITIONS[requirement_class]["default_builder_policy"]
+            if eligible
+            else None
+        ),
+    }
+
+
+def normalize_default_mode(mode: str) -> str:
+    normalized = mode.strip().casefold()
+    return normalized if normalized in COMPLEXITY_ROUTER_DEFAULT_MODES else "disabled"
+
+
+def limited_default_enablement_plan_status(
+    *,
+    default_mode: str = "disabled",
+    limited_default_enabled: bool = False,
+    min_confidence: float = 0.55,
+) -> dict[str, Any]:
+    normalized_mode = normalize_default_mode(default_mode)
+    safety = complexity_router_default_safety_gate()
+    active = (
+        normalized_mode == "limited_default"
+        and limited_default_enabled
+        and safety["allowed_to_enable_default"]
+    )
+    return {
+        "plan_id": "complexity_router_limited_default_enablement_contract",
+        "policy_version": "v0.2.89_complexity_router_limited_default_enablement_contract",
+        "configured_default_mode": normalized_mode,
+        "limited_default_enabled": limited_default_enabled,
+        "limited_default_active": active,
+        "default_router_enabled": active,
+        "default_enabled": active,
+        "runtime_default": "limited_default" if active else "disabled",
+        "rollback_value": "disabled",
+        "min_confidence": min_confidence,
+        "eligible_requirement_classes": ["simple", "medium", "complex"],
+        "unknown_handling": "complex_equivalent_with_conservative_policy",
+        "operator_visible_controls": [
+            "disable_routing_for_task",
+            "force_simple_with_reason",
+            "force_medium_with_reason",
+            "force_complex_with_reason",
+            "rollback_to_disabled_default",
+        ],
+        "rollback_triggers": [
+            "unexpected_classification_rate_above_0.05",
+            "override_reason_coverage_below_0.95",
+            "frontend_verification_failure",
+            "any_accidental_default_enablement_outside_config",
+        ],
+        "default_safety": safety,
     }
 
 

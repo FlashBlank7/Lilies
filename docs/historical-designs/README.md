@@ -100,6 +100,7 @@
 - `v0.2.86_*`：来自 `docs/stage-reports/v0.2.86_frontend_verification_environment_repair.md`。
 - `v0.2.87_*`：来自 `docs/stage-reports/v0.2.87_complexity_router_default_enablement_review_decision.md`。
 - `v0.2.88_*`：来自 `docs/stage-reports/v0.2.88_complexity_router_limited_default_enablement_plan.md`。
+- `v0.2.89_*`：来自 `docs/stage-reports/v0.2.89_complexity_router_limited_default_enablement_contract.md`。
 
 Active workspace rule:
 

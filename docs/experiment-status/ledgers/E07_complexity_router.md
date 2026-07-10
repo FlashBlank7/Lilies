@@ -1,6 +1,6 @@
 # E07 Complexity Router Ledger
 
-状态：limited_default_enablement_plan_created；not enabled as default
+状态：limited_default_contract_implemented；default settings disabled；explicit limited-default config supported
 
 ## 实验问题
 
@@ -67,6 +67,13 @@ v0.2.88 limited default enablement plan 已完成：定义 limited default scope
 
 - `../../workingon-archives/v0.2.88/plan_v0.2.88_complexity_router_limited_default_enablement_summary.md`
 
+v0.2.89 limited default enablement contract 已完成：新增 backend settings、API/status surface、classification response fields 和 rollback-to-disabled status。默认 settings 仍为 `disabled` 且 `default_enabled=false`；显式配置 `limited_default + enabled` 时，eligible classification 可暴露 `default_builder_policy`；unknown 仍保持 complex-equivalent 且不启用 default router；frontend verification 通过。
+
+证据：
+
+- `../../workingon-archives/v0.2.89/contract_v0.2.89_complexity_router_limited_default_enablement_summary.md`
+- `../../workingon-archives/v0.2.89/implementation_v0.2.89_complexity_router_limited_default_enablement_contract.md`
+
 ## 初始设计方向
 
 - 定义 simple/medium/complex 三档需求。
@@ -75,4 +82,4 @@ v0.2.88 limited default enablement plan 已完成：定义 limited default scope
 
 ## 下一步
 
-下一步是实现 limited default enablement contract。默认行为仍不得自动启用，直到后续 stage report 明确选择实现并验证。
+下一步是把已实现的 limited-default contract 接入真实 runtime decision/activation path。默认 settings 仍不得自动启用，直到后续 stage report 明确选择、实现并验证 activation path。

@@ -1,0 +1,299 @@
+{
+  "version": "v0.2.89",
+  "contract_id": "complexity_router_limited_default_enablement_contract",
+  "source_stage_report": "docs/stage-reports/v0.2.88_complexity_router_limited_default_enablement_plan.md",
+  "status": "completed",
+  "default_settings_status": {
+    "plan_id": "complexity_router_limited_default_enablement_contract",
+    "policy_version": "v0.2.89_complexity_router_limited_default_enablement_contract",
+    "configured_default_mode": "disabled",
+    "limited_default_enabled": false,
+    "limited_default_active": false,
+    "default_router_enabled": false,
+    "default_enabled": false,
+    "runtime_default": "disabled",
+    "rollback_value": "disabled",
+    "min_confidence": 0.55,
+    "eligible_requirement_classes": [
+      "simple",
+      "medium",
+      "complex"
+    ],
+    "unknown_handling": "complex_equivalent_with_conservative_policy",
+    "operator_visible_controls": [
+      "disable_routing_for_task",
+      "force_simple_with_reason",
+      "force_medium_with_reason",
+      "force_complex_with_reason",
+      "rollback_to_disabled_default"
+    ],
+    "rollback_triggers": [
+      "unexpected_classification_rate_above_0.05",
+      "override_reason_coverage_below_0.95",
+      "frontend_verification_failure",
+      "any_accidental_default_enablement_outside_config"
+    ],
+    "default_safety": {
+      "router_id": "e07_complexity_router",
+      "gate_id": "default_safety_gate",
+      "policy_version": "v0.2.74_complexity_router_rollout_metrics_prerequisites",
+      "default_enabled": false,
+      "allowed_to_enable_default": true,
+      "router_ready_for_default": true,
+      "reason": "all required prerequisites are satisfied",
+      "missing_prerequisites": [],
+      "prerequisites": [
+        {
+          "id": "source_evidence",
+          "label": "Source evidence",
+          "satisfied": true,
+          "evidence": [
+            "docs/experiment-status/ledgers/E07_complexity_router.md",
+            "docs/workingon-archives/v0.2.70/selection_v0.2.70_complexity_router_guardrail_summary.md"
+          ],
+          "required_for_default": true
+        },
+        {
+          "id": "requirement_classification_contract",
+          "label": "Requirement classification contract",
+          "satisfied": true,
+          "evidence": [
+            "platform/backend/src/agent_platform/complexity_router.py",
+            "tests/test_complexity_router_default_safety.py"
+          ],
+          "required_for_default": true
+        },
+        {
+          "id": "operator_override_plan",
+          "label": "Operator override plan",
+          "satisfied": true,
+          "evidence": [
+            "platform/backend/src/agent_platform/complexity_router.py",
+            "tests/test_complexity_router_default_safety.py"
+          ],
+          "required_for_default": true
+        },
+        {
+          "id": "rollout_metrics_prerequisites",
+          "label": "Rollout metrics prerequisites",
+          "satisfied": true,
+          "evidence": [
+            "platform/backend/src/agent_platform/complexity_router.py",
+            "tests/test_complexity_router_default_safety.py"
+          ],
+          "required_for_default": true
+        }
+      ],
+      "supporting_guardrails": [
+        "requirement_classification_contract",
+        "operator_override_plan",
+        "rollout_metrics_prerequisites"
+      ]
+    }
+  },
+  "explicit_limited_default_status": {
+    "plan_id": "complexity_router_limited_default_enablement_contract",
+    "policy_version": "v0.2.89_complexity_router_limited_default_enablement_contract",
+    "configured_default_mode": "limited_default",
+    "limited_default_enabled": true,
+    "limited_default_active": true,
+    "default_router_enabled": true,
+    "default_enabled": true,
+    "runtime_default": "limited_default",
+    "rollback_value": "disabled",
+    "min_confidence": 0.55,
+    "eligible_requirement_classes": [
+      "simple",
+      "medium",
+      "complex"
+    ],
+    "unknown_handling": "complex_equivalent_with_conservative_policy",
+    "operator_visible_controls": [
+      "disable_routing_for_task",
+      "force_simple_with_reason",
+      "force_medium_with_reason",
+      "force_complex_with_reason",
+      "rollback_to_disabled_default"
+    ],
+    "rollback_triggers": [
+      "unexpected_classification_rate_above_0.05",
+      "override_reason_coverage_below_0.95",
+      "frontend_verification_failure",
+      "any_accidental_default_enablement_outside_config"
+    ],
+    "default_safety": {
+      "router_id": "e07_complexity_router",
+      "gate_id": "default_safety_gate",
+      "policy_version": "v0.2.74_complexity_router_rollout_metrics_prerequisites",
+      "default_enabled": false,
+      "allowed_to_enable_default": true,
+      "router_ready_for_default": true,
+      "reason": "all required prerequisites are satisfied",
+      "missing_prerequisites": [],
+      "prerequisites": [
+        {
+          "id": "source_evidence",
+          "label": "Source evidence",
+          "satisfied": true,
+          "evidence": [
+            "docs/experiment-status/ledgers/E07_complexity_router.md",
+            "docs/workingon-archives/v0.2.70/selection_v0.2.70_complexity_router_guardrail_summary.md"
+          ],
+          "required_for_default": true
+        },
+        {
+          "id": "requirement_classification_contract",
+          "label": "Requirement classification contract",
+          "satisfied": true,
+          "evidence": [
+            "platform/backend/src/agent_platform/complexity_router.py",
+            "tests/test_complexity_router_default_safety.py"
+          ],
+          "required_for_default": true
+        },
+        {
+          "id": "operator_override_plan",
+          "label": "Operator override plan",
+          "satisfied": true,
+          "evidence": [
+            "platform/backend/src/agent_platform/complexity_router.py",
+            "tests/test_complexity_router_default_safety.py"
+          ],
+          "required_for_default": true
+        },
+        {
+          "id": "rollout_metrics_prerequisites",
+          "label": "Rollout metrics prerequisites",
+          "satisfied": true,
+          "evidence": [
+            "platform/backend/src/agent_platform/complexity_router.py",
+            "tests/test_complexity_router_default_safety.py"
+          ],
+          "required_for_default": true
+        }
+      ],
+      "supporting_guardrails": [
+        "requirement_classification_contract",
+        "operator_override_plan",
+        "rollout_metrics_prerequisites"
+      ]
+    }
+  },
+  "default_settings_classification": {
+    "contract_id": "requirement_classification_contract",
+    "policy_version": "v0.2.72_complexity_router_requirement_classification_contract",
+    "requirement_class": "simple",
+    "effective_class": "simple",
+    "confidence": 0.55,
+    "signals": [
+      "fix",
+      "typo"
+    ],
+    "conservative_unknown": false,
+    "configured_default_mode": "disabled",
+    "limited_default_enabled": false,
+    "limited_default_eligible": false,
+    "default_router_enabled": false,
+    "builder_policy": {
+      "plan_first": false,
+      "reuse_depth": "shallow",
+      "model_tier": "standard"
+    },
+    "default_builder_policy": null
+  },
+  "explicit_limited_default_classification": {
+    "contract_id": "requirement_classification_contract",
+    "policy_version": "v0.2.72_complexity_router_requirement_classification_contract",
+    "requirement_class": "simple",
+    "effective_class": "simple",
+    "confidence": 0.55,
+    "signals": [
+      "fix",
+      "typo"
+    ],
+    "conservative_unknown": false,
+    "configured_default_mode": "limited_default",
+    "limited_default_enabled": true,
+    "limited_default_eligible": true,
+    "default_router_enabled": true,
+    "builder_policy": {
+      "plan_first": false,
+      "reuse_depth": "shallow",
+      "model_tier": "standard"
+    },
+    "default_builder_policy": {
+      "plan_first": false,
+      "reuse_depth": "shallow",
+      "model_tier": "standard"
+    }
+  },
+  "unknown_limited_default_classification": {
+    "contract_id": "requirement_classification_contract",
+    "policy_version": "v0.2.72_complexity_router_requirement_classification_contract",
+    "requirement_class": "unknown",
+    "effective_class": "complex",
+    "confidence": 0.0,
+    "signals": [
+      "empty_requirement"
+    ],
+    "conservative_unknown": true,
+    "configured_default_mode": "limited_default",
+    "limited_default_enabled": true,
+    "limited_default_eligible": false,
+    "default_router_enabled": false,
+    "builder_policy": {
+      "plan_first": true,
+      "reuse_depth": "adaptive",
+      "model_tier": "strong"
+    },
+    "default_builder_policy": null
+  },
+  "frontend_verification": {
+    "status": "completed",
+    "reason": "frontend verification passed",
+    "probe": {
+      "frontend_dir": "platform/frontend",
+      "package_json_present": true,
+      "package_lock_present": true,
+      "node_modules_present": true,
+      "selected_node_bin": "/Users/zhonghaoyang/.nvm/versions/node/v24.15.0/bin",
+      "node_available": true,
+      "npm_available": true,
+      "candidates": [
+        {
+          "node_bin": "/Users/zhonghaoyang/.nvm/versions/node/v24.15.0/bin",
+          "node_exists": true,
+          "npm_exists": true,
+          "usable": true
+        },
+        {
+          "node_bin": "/Users/zhonghaoyang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin",
+          "node_exists": true,
+          "npm_exists": false,
+          "usable": false
+        }
+      ]
+    },
+    "checks": [
+      {
+        "command": "npm run lint",
+        "returncode": 0,
+        "stdout": "\n> agent-platform-studio@0.1.0 lint\n> tsc --noEmit\n\n",
+        "stderr": "",
+        "passed": true
+      },
+      {
+        "command": "node_modules/.bin/tsc --noEmit",
+        "returncode": 0,
+        "stdout": "",
+        "stderr": "",
+        "passed": true
+      }
+    ],
+    "passed": true
+  },
+  "pass_fail": {
+    "passed": true,
+    "reason": "limited default contract implemented and default settings remain disabled"
+  }
+}

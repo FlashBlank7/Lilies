@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -52,6 +53,9 @@ class Settings(BaseSettings):
     platform_harness_network_egress_allowlist: list[str] = Field(default_factory=list)
     platform_harness_worker_id: str = ""
     platform_harness_worker_lease_seconds: float = 0.0
+    complexity_router_default_mode: Literal["disabled", "shadow_only", "operator_opt_in", "limited_default"] = "disabled"
+    complexity_router_limited_default_enabled: bool = False
+    complexity_router_limited_default_min_confidence: float = 0.55
 
     def prepare(self) -> None:
         self.data_dir.mkdir(parents=True, exist_ok=True)

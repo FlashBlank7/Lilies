@@ -28,6 +28,7 @@ from .builder_benchmark import BuilderBenchmark, BuilderBenchmarkCase, BuilderBe
 from .complexity_router import (
     classify_requirement,
     complexity_router_default_safety_gate,
+    limited_default_enablement_plan_status,
     operator_override_plan_status,
     requirement_classification_contract_status,
     rollout_metrics_prerequisites_status,
@@ -344,7 +345,20 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
     async def post_complexity_router_classify_requirement(
         body: RequirementClassificationRequest,
     ) -> dict[str, Any]:
-        return classify_requirement(body.requirement)
+        return classify_requirement(
+            body.requirement,
+            default_mode=services.settings.complexity_router_default_mode,
+            limited_default_enabled=services.settings.complexity_router_limited_default_enabled,
+            min_confidence=services.settings.complexity_router_limited_default_min_confidence,
+        )
+
+    @app.get("/api/v1/platform/complexity-router/default-enableable-plan", dependencies=[Depends(require_token)])
+    async def get_complexity_router_default_enableable_plan() -> dict[str, Any]:
+        return limited_default_enablement_plan_status(
+            default_mode=services.settings.complexity_router_default_mode,
+            limited_default_enabled=services.settings.complexity_router_limited_default_enabled,
+            min_confidence=services.settings.complexity_router_limited_default_min_confidence,
+        )
 
     @app.get("/api/v1/platform/complexity-router/operator-override-plan", dependencies=[Depends(require_token)])
     async def get_complexity_router_operator_override_plan() -> dict[str, Any]:
