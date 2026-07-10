@@ -1,0 +1,118 @@
+{
+  "version": "v0.2.87",
+  "decision_id": "complexity_router_default_enablement_review_decision",
+  "source_stage_report": "docs/stage-reports/v0.2.86_frontend_verification_environment_repair.md",
+  "source_shadow_evidence": "docs/workingon-archives/v0.2.82/rollout_v0.2.82_complexity_router_shadow_only.json",
+  "source_operator_opt_in_evidence": "docs/workingon-archives/v0.2.84/rollout_v0.2.84_complexity_router_operator_opt_in.json",
+  "source_frontend_repair_evidence": "docs/workingon-archives/v0.2.86/verification_v0.2.86_frontend_environment_repair.json",
+  "gates": {
+    "default_safety_allowed": true,
+    "shadow_rollout_passed": true,
+    "operator_opt_in_passed": true,
+    "frontend_repair_passed": true,
+    "fresh_frontend_verification_passed": true,
+    "no_default_enabled_yet": true
+  },
+  "all_gates_passed": true,
+  "fresh_frontend_verification": {
+    "status": "completed",
+    "reason": "frontend verification passed",
+    "probe": {
+      "frontend_dir": "platform/frontend",
+      "package_json_present": true,
+      "package_lock_present": true,
+      "node_modules_present": true,
+      "selected_node_bin": "/Users/zhonghaoyang/.nvm/versions/node/v24.15.0/bin",
+      "node_available": true,
+      "npm_available": true,
+      "candidates": [
+        {
+          "node_bin": "/Users/zhonghaoyang/.nvm/versions/node/v24.15.0/bin",
+          "node_exists": true,
+          "npm_exists": true,
+          "usable": true
+        },
+        {
+          "node_bin": "/Users/zhonghaoyang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin",
+          "node_exists": true,
+          "npm_exists": false,
+          "usable": false
+        }
+      ]
+    },
+    "checks": [
+      {
+        "command": "npm run lint",
+        "returncode": 0,
+        "stdout": "\n> agent-platform-studio@0.1.0 lint\n> tsc --noEmit\n\n",
+        "stderr": "",
+        "passed": true
+      },
+      {
+        "command": "node_modules/.bin/tsc --noEmit",
+        "returncode": 0,
+        "stdout": "",
+        "stderr": "",
+        "passed": true
+      }
+    ],
+    "passed": true
+  },
+  "decision": {
+    "option_id": "enter_default_enablement_review",
+    "label": "Enter default enablement review",
+    "score": 19,
+    "safety": 5,
+    "productization_value": 5,
+    "evidence_readiness": 5,
+    "verification_readiness": 5,
+    "behavior_change_risk": 1,
+    "disposition": "selected",
+    "next_version": "v0.2.88_complexity_router_limited_default_enablement_plan",
+    "first_design": "docs/current-design/design_complexity_router_limited_default_enablement_plan.md"
+  },
+  "options": [
+    {
+      "option_id": "enter_default_enablement_review",
+      "label": "Enter default enablement review",
+      "score": 19,
+      "safety": 5,
+      "productization_value": 5,
+      "evidence_readiness": 5,
+      "verification_readiness": 5,
+      "behavior_change_risk": 1,
+      "disposition": "selected",
+      "next_version": "v0.2.88_complexity_router_limited_default_enablement_plan",
+      "first_design": "docs/current-design/design_complexity_router_limited_default_enablement_plan.md"
+    },
+    {
+      "option_id": "continue_operator_opt_in_observation",
+      "label": "Continue operator opt-in observation",
+      "score": 16,
+      "safety": 5,
+      "productization_value": 2,
+      "evidence_readiness": 4,
+      "verification_readiness": 5,
+      "behavior_change_risk": 0,
+      "disposition": "rejected because stage-1 opt-in metrics and frontend verification are already satisfied",
+      "next_version": "v0.2.x_complexity_router_continued_operator_opt_in_observation",
+      "first_design": "docs/current-design/design_complexity_router_continued_operator_opt_in_observation.md"
+    },
+    {
+      "option_id": "explicit_default_review_deferral",
+      "label": "Explicitly defer default enablement review",
+      "score": 14,
+      "safety": 5,
+      "productization_value": 1,
+      "evidence_readiness": 3,
+      "verification_readiness": 5,
+      "behavior_change_risk": 0,
+      "disposition": "rejected because no current blocker remains after frontend verification repair",
+      "next_version": "v0.2.x_complexity_router_default_review_deferred",
+      "first_design": "docs/current-design/design_complexity_router_default_review_deferred.md"
+    }
+  ],
+  "default_enabled": false,
+  "allowed_to_enable_default": true,
+  "conclusion": "Enter default enablement review next. Defaults remain disabled in this version."
+}

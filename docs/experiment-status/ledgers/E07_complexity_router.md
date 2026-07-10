@@ -1,6 +1,6 @@
 # E07 Complexity Router Ledger
 
-状态：frontend_verification_restored；not enabled as default
+状态：default_enablement_review_selected；not enabled as default
 
 ## 实验问题
 
@@ -55,6 +55,12 @@ v0.2.86 frontend verification environment repair 已完成：repo-local runner �
 
 - `../../workingon-archives/v0.2.86/verification_v0.2.86_frontend_environment_repair_summary.md`
 
+v0.2.87 default enablement review decision 已完成：所有 gate 均通过，选择 `enter_default_enablement_review`，下一步进入 limited default enablement plan。当前版本仍保持 `default_enabled=false`。
+
+证据：
+
+- `../../workingon-archives/v0.2.87/decision_v0.2.87_complexity_router_default_enablement_review_summary.md`
+
 ## 初始设计方向
 
 - 定义 simple/medium/complex 三档需求。
@@ -63,4 +69,4 @@ v0.2.86 frontend verification environment repair 已完成：repo-local runner �
 
 ## 下一步
 
-下一步是显式决定 default enablement review。默认行为仍不得自动启用，必须由后续 stage report 明确选择。
+下一步是制定 limited default enablement plan，并继续保持默认行为不自动启用，直到后续 stage report 明确选择实现。
