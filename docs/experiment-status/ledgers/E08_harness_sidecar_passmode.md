@@ -133,3 +133,7 @@ v0.2.119 remaining sidecar slice reselection 已排除 completed test_suite、wo
 v0.2.120 已实现 `draft_patch_preview` worker offload handler：worker catalog 将 `draft_patch_preview` 从 deterministic unavailable 迁移为 implemented，`PlatformHarnessWorkerRunner` 可消费 queued `draft_patch_preview` task，并复用现有 deterministic `DraftPatchPreviewer.preview()` 产生 preview operations；worker path 和既有 API `/draft/preview-patch` path 均保持不修改 draft revision/content_hash。该版本只关闭 draft_patch_preview worker handler slice，不声明 builder_build/benchmark handlers、production worker supervision、distributed queue 或 full sidecar completion。
 
 证据：`../../workingon-archives/v0.2.120/evidence_v0.2.120_e08_draft_patch_preview_worker_offload_handler_summary.md`
+
+v0.2.121 remaining sidecar slice reselection 已排除 completed draft_patch_preview、test_suite、workflow_run、scheduler_trigger worker offload handlers 以及 heartbeat registry、handler catalog、stdio/container egress、secret rotation、policy-controls API、Studio controls 和 operator runbook lifecycle，并选择 `benchmark_worker_offload_handler` 作为下一条 E08 实现切片。该版本只选择下一 slice，不实现 benchmark worker handler，也不声明 full sidecar completion。
+
+证据：`../../workingon-archives/v0.2.121/decision_v0.2.121_e08_remaining_sidecar_slice_reselection_summary.md`
