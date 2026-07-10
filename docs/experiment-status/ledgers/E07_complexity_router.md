@@ -1,6 +1,6 @@
 # E07 Complexity Router Ledger
 
-状态：shadow_only_rollout_completed；not enabled as default
+状态：operator_opt_in_rollout_selected；not enabled as default
 
 ## 实验问题
 
@@ -31,6 +31,12 @@ v0.2.82 shadow-only rollout 已完成：复用三条 v0.2.76 validation cases，
 
 - `../../workingon-archives/v0.2.82/rollout_v0.2.82_complexity_router_shadow_only_summary.md`
 
+v0.2.83 post-shadow rollout decision 已完成：选择 `execute_operator_opt_in_rollout`，拒绝继续原地 shadow-only 和直接进入默认启用评审。原因是 stage_0 已满足退出标准，而默认启用仍缺 operator opt-in evidence 和 frontend verification。
+
+证据：
+
+- `../../workingon-archives/v0.2.83/decision_v0.2.83_complexity_router_post_shadow_rollout_summary.md`
+
 ## 初始设计方向
 
 - 定义 simple/medium/complex 三档需求。
@@ -39,4 +45,4 @@ v0.2.82 shadow-only rollout 已完成：复用三条 v0.2.76 validation cases，
 
 ## 下一步
 
-下一步只能由后续 stage report 显式选择：进入 operator opt-in rollout、继续 shadow-only 观测、或开启默认启用评审。默认行为仍不得自动启用。
+下一步是执行 stage_1 operator opt-in rollout，记录 override reason coverage 和 unexpected classification rate。默认行为仍不得自动启用。

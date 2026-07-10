@@ -1,0 +1,121 @@
+{
+  "version": "v0.2.83",
+  "decision_id": "complexity_router_post_shadow_rollout_decision",
+  "source_stage_report": "docs/stage-reports/v0.2.82_complexity_router_shadow_only_rollout.md",
+  "source_rollout_plan": "docs/workingon-archives/v0.2.80/rollout_v0.2.80_complexity_router_staged_preparation.json",
+  "source_shadow_evidence": "docs/workingon-archives/v0.2.82/rollout_v0.2.82_complexity_router_shadow_only.json",
+  "stage_0": {
+    "stage_id": "stage_0_shadow_only",
+    "mode": "shadow_only",
+    "entry_criteria": [
+      "bounded live validation passed",
+      "metrics schema available"
+    ],
+    "exit_criteria": [
+      "classification distribution recorded",
+      "no accidental default enablement"
+    ],
+    "behavior_change": false
+  },
+  "stage_1": {
+    "stage_id": "stage_1_operator_opt_in",
+    "mode": "operator_opt_in",
+    "entry_criteria": [
+      "stage_0 exit criteria satisfied",
+      "operator reason capture available"
+    ],
+    "exit_criteria": [
+      "override reason coverage >= 0.95",
+      "unexpected classification rate <= 0.05"
+    ],
+    "behavior_change": false
+  },
+  "stage_0_passed": true,
+  "shadow_metrics": {
+    "classification_distribution": {
+      "simple": 1,
+      "medium": 1,
+      "complex": 1
+    },
+    "override_rate": 0.0,
+    "override_reason_coverage": 1.0,
+    "fallback_unknown_rate": 0.0,
+    "unexpected_classification_rate": 0.0,
+    "success_rate_by_class": {
+      "simple": 1.0,
+      "medium": 1.0,
+      "complex": 1.0
+    },
+    "cost_latency_by_class": {
+      "simple": {
+        "avg_shadow_duration_seconds": 1.2e-05
+      },
+      "medium": {
+        "avg_shadow_duration_seconds": 7e-06
+      },
+      "complex": {
+        "avg_shadow_duration_seconds": 6e-06
+      }
+    },
+    "accidental_default_enablement_count": 0,
+    "behavior_change_count": 0
+  },
+  "decision": {
+    "option_id": "execute_operator_opt_in_rollout",
+    "label": "Execute stage_1 operator opt-in rollout",
+    "score": 15,
+    "safety": 5,
+    "productization_value": 5,
+    "evidence_readiness": 5,
+    "behavior_change_risk": 0,
+    "blocker_penalty": 0,
+    "disposition": "selected",
+    "next_version": "v0.2.84_complexity_router_operator_opt_in_rollout",
+    "first_design": "docs/current-design/design_complexity_router_operator_opt_in_rollout.md"
+  },
+  "options": [
+    {
+      "option_id": "execute_operator_opt_in_rollout",
+      "label": "Execute stage_1 operator opt-in rollout",
+      "score": 15,
+      "safety": 5,
+      "productization_value": 5,
+      "evidence_readiness": 5,
+      "behavior_change_risk": 0,
+      "blocker_penalty": 0,
+      "disposition": "selected",
+      "next_version": "v0.2.84_complexity_router_operator_opt_in_rollout",
+      "first_design": "docs/current-design/design_complexity_router_operator_opt_in_rollout.md"
+    },
+    {
+      "option_id": "continue_shadow_only_observation",
+      "label": "Continue shadow-only observation",
+      "score": 11,
+      "safety": 5,
+      "productization_value": 2,
+      "evidence_readiness": 4,
+      "behavior_change_risk": 0,
+      "blocker_penalty": 0,
+      "disposition": "rejected because stage_0 exit criteria are already satisfied and productization needs operator opt-in evidence",
+      "next_version": "v0.2.x_complexity_router_continued_shadow_observation",
+      "first_design": "docs/current-design/design_complexity_router_continued_shadow_observation.md"
+    },
+    {
+      "option_id": "begin_default_enablement_review",
+      "label": "Begin default enablement review",
+      "score": 4,
+      "safety": 2,
+      "productization_value": 5,
+      "evidence_readiness": 2,
+      "behavior_change_risk": 3,
+      "blocker_penalty": 2,
+      "disposition": "rejected because operator opt-in evidence and frontend verification are still missing",
+      "next_version": "v0.2.x_complexity_router_default_enablement_review",
+      "first_design": "docs/current-design/design_complexity_router_default_enablement_review.md"
+    }
+  ],
+  "default_enabled": false,
+  "allowed_to_enable_default": true,
+  "frontend_verification_required_before_default_review": true,
+  "conclusion": "Execute operator opt-in rollout next. Defaults remain disabled."
+}
