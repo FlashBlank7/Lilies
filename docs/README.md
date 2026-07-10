@@ -149,6 +149,7 @@
 - `stage-reports/v0.2.122_e08_benchmark_worker_offload_handler.md`
 - `stage-reports/v0.2.123_e08_remaining_sidecar_slice_reselection.md`
 - `stage-reports/v0.2.124_e08_builder_build_worker_offload_handler.md`
+- `stage-reports/v0.2.125_e08_remaining_sidecar_architecture_reselection.md`
 
 ## 使用原则
 

@@ -149,3 +149,7 @@ v0.2.123 remaining sidecar slice reselection 已排除 completed benchmark、dra
 v0.2.124 已实现 `builder_build` worker offload handler：worker catalog 将最后一个 required task kind 从 unavailable 迁移为 implemented，`PlatformHarnessWorkerRunner` 可消费 queued builder_build task，并复用现有 Builder lifecycle 执行 publish/needs_attention 状态转换；API build path 仍由 `Builder.start()` 管理自己的 harness task。该版本关闭 required worker task-kind execution coverage，但不声明 production worker supervision、distributed queue、external KMS 或 full sidecar completion。
 
 证据：`../../workingon-archives/v0.2.124/evidence_v0.2.124_e08_builder_build_worker_offload_handler_summary.md`
+
+v0.2.125 remaining sidecar architecture reselection 已排除 completed `builder_build` 和全部 required worker task-kind execution coverage 证据，并选择 `production_worker_supervision` 作为下一条 E08 architecture slice。该版本只选择下一 slice，不实现 production worker supervision，也不声明 distributed queue、external KMS 或 full sidecar completion。
+
+证据：`../../workingon-archives/v0.2.125/decision_v0.2.125_e08_remaining_sidecar_architecture_reselection_summary.md`
