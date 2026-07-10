@@ -2696,6 +2696,7 @@ def test_platform_harness_policy_controls_api_reports_stdio_mcp_decisions(tmp_pa
 
         assert body["network_egress_policy"] == "full"
         assert body["network_egress_allowlist"] == ["api.example.test"]
+        assert body["cancellation_policy"] == "enabled"
         assert body["secret_policy_enabled"] is True
         assert body["worker_lease_seconds"] == 60
 
@@ -2719,6 +2720,7 @@ def test_platform_harness_policy_controls_api_reports_stdio_mcp_decisions(tmp_pa
         assert e08["not_full_sidecar_completion"] is True
         controls = {item["id"]: item for item in e08["controls"]}
         assert controls["network_egress"]["value"] == "full"
+        assert controls["cancellation_policy"]["status"] == "enabled"
         assert controls["secret_policy"]["status"] == "enabled"
         assert controls["worker_lease"]["value"] == 60
         assert controls["workflow_passmode"]["layer"] == "workflow_internal"
@@ -2729,6 +2731,105 @@ def test_platform_harness_policy_controls_api_reports_stdio_mcp_decisions(tmp_pa
         assert matrix["worker_lease"]["status"] == "enabled"
         assert matrix["network_egress_policy"]["enforcement"] == "hard_boundary"
         assert matrix["secret_policy"]["enforcement"] == "hard_boundary"
+
+
+def test_platform_harness_policy_controls_api_updates_mutable_controls(tmp_path: Path) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+        platform_harness_network_egress_policy="full",
+        platform_harness_secret_policy_enabled=True,
+        platform_harness_worker_lease_seconds=0,
+    )
+    app = create_app(settings, ScriptedProvider())
+    with TestClient(app) as client:
+        response = client.patch(
+            "/api/v1/platform/harness/policy-controls",
+            headers=headers(),
+            json={
+                "network_egress_policy": "allowlist",
+                "network_egress_allowlist": ["Api.Example.Test.", "api.example.test"],
+                "cancellation_policy": "disabled",
+                "secret_policy_enabled": False,
+                "worker_lease_seconds": 45,
+                "limits": {
+                    "max_model_calls_per_task": 7,
+                    "max_tool_calls_per_owner": 3,
+                },
+                "reason": "v0.2.96 operator policy controls test",
+            },
+        )
+
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["before"]["network_egress_policy"] == "full"
+        assert body["after"]["network_egress_policy"] == "allowlist"
+        assert body["after"]["network_egress_allowlist"] == ["api.example.test"]
+        assert body["after"]["cancellation_policy"] == "disabled"
+        assert body["after"]["secret_policy_enabled"] is False
+        assert body["after"]["worker_lease_seconds"] == 45
+        assert body["after"]["limits"]["max_model_calls_per_task"] == 7
+        assert body["after"]["limits"]["max_tool_calls_per_owner"] == 3
+        assert body["audit"]["version"] == "v0.2.96"
+        assert body["audit"]["not_full_sidecar_completion"] is True
+        assert set(body["audit"]["changed_fields"]) == {
+            "network_egress_policy",
+            "network_egress_allowlist",
+            "cancellation_policy",
+            "secret_policy_enabled",
+            "worker_lease_seconds",
+            "limits.max_model_calls_per_task",
+            "limits.max_tool_calls_per_owner",
+        }
+
+        fetched = client.get("/api/v1/platform/harness/policy-controls", headers=headers()).json()
+        assert fetched["network_egress_policy"] == "allowlist"
+        assert fetched["cancellation_policy"] == "disabled"
+        assert fetched["limits"]["max_model_calls_per_task"] == 7
+
+        blocked_cancel = client.post("/api/v1/runs/not-active/cancel", headers=headers())
+        assert blocked_cancel.status_code == 409
+        assert "cancellation is disabled" in blocked_cancel.text
+
+
+def test_platform_harness_policy_controls_api_rejects_invalid_updates(tmp_path: Path) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+    )
+    app = create_app(settings, ScriptedProvider())
+    with TestClient(app) as client:
+        empty = client.patch(
+            "/api/v1/platform/harness/policy-controls",
+            headers=headers(),
+            json={"reason": "no mutable fields"},
+        )
+        assert empty.status_code == 422
+        assert "at least one mutable field" in empty.text
+
+        blank_host = client.patch(
+            "/api/v1/platform/harness/policy-controls",
+            headers=headers(),
+            json={
+                "network_egress_allowlist": [" "],
+                "reason": "blank host should fail",
+            },
+        )
+        assert blank_host.status_code == 422
+        assert "entries must be non-empty" in blank_host.text
+
+        negative_limit = client.patch(
+            "/api/v1/platform/harness/policy-controls",
+            headers=headers(),
+            json={
+                "limits": {"max_model_calls_per_task": -1},
+                "reason": "negative limit should fail",
+            },
+        )
+        assert negative_limit.status_code == 422
+        assert "non-negative integer" in negative_limit.text
 
 
 def test_builder_benchmark_treats_llm_as_model_turn_equivalent(tmp_path: Path) -> None:

@@ -113,6 +113,16 @@ class PlatformSecretCreateRequest(BaseModel):
     description: str = ""
 
 
+class PlatformPolicyControlsUpdateRequest(BaseModel):
+    network_egress_policy: Literal["full", "allowlist", "none"] | None = None
+    network_egress_allowlist: list[str] | None = None
+    cancellation_policy: Literal["enabled", "disabled"] | None = None
+    secret_policy_enabled: bool | None = None
+    worker_lease_seconds: float | None = Field(default=None, ge=0)
+    limits: dict[str, int] | None = None
+    reason: str = Field(min_length=1, max_length=1000)
+
+
 class RequirementClassificationRequest(BaseModel):
     requirement: str = Field(default="", max_length=4000)
 
@@ -334,6 +344,25 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
     @app.get("/api/v1/platform/harness/policy-controls", dependencies=[Depends(require_token)])
     async def get_platform_harness_policy_controls() -> dict[str, Any]:
         return services.harness.policy_controls()
+
+    @app.patch("/api/v1/platform/harness/policy-controls", dependencies=[Depends(require_token)])
+    async def patch_platform_harness_policy_controls(
+        body: PlatformPolicyControlsUpdateRequest,
+    ) -> dict[str, Any]:
+        patch_fields = {
+            "network_egress_policy": body.network_egress_policy,
+            "network_egress_allowlist": body.network_egress_allowlist,
+            "cancellation_policy": body.cancellation_policy,
+            "secret_policy_enabled": body.secret_policy_enabled,
+            "worker_lease_seconds": body.worker_lease_seconds,
+            "limits": body.limits,
+        }
+        if all(value is None for value in patch_fields.values()):
+            raise HTTPException(422, "policy controls update requires at least one mutable field")
+        try:
+            return services.harness.update_policy_controls(reason=body.reason, **patch_fields)
+        except PlatformHarnessViolation as error:
+            raise HTTPException(422, str(error)) from error
 
     @app.get("/api/v1/platform/complexity-router/default-safety", dependencies=[Depends(require_token)])
     async def get_complexity_router_default_safety() -> dict[str, Any]:
@@ -1245,10 +1274,13 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
     @app.post("/api/v1/runs/{run_id}/cancel", dependencies=[Depends(require_token)])
     async def cancel_workflow_run(run_id: str) -> dict[str, Any]:
         try:
+            services.harness.enforce_cancellation_policy()
             services.workflow_runtime.cancel(run_id)
             return {"run_id": run_id, "status": "cancelling"}
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
+        except PlatformHarnessViolation as error:
+            raise HTTPException(409, str(error)) from error
 
     @app.post("/v1/agent-generations", status_code=202, dependencies=[Depends(require_token)])
     async def generate_agent(body: GenerationRequest) -> dict[str, str]:

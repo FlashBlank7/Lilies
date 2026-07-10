@@ -1,0 +1,849 @@
+{
+  "version": "v0.2.96",
+  "source_stage_report": "docs/stage-reports/v0.2.95_e08_followup_controls_scope.md",
+  "status": "completed",
+  "endpoint": "PATCH /api/v1/platform/harness/policy-controls",
+  "before": {
+    "network_egress_policy": "full",
+    "network_egress_allowlist": [],
+    "secret_policy_enabled": true,
+    "secret_storage": {
+      "new_secret_mode": "encrypted_v1",
+      "envelope_configured": true
+    },
+    "cancellation_policy": "enabled",
+    "worker_id": "zhongdeMacBook-Air.local:67281",
+    "worker_lease_seconds": 0.0,
+    "limits": {
+      "max_active_tasks": 100,
+      "max_model_calls_per_task": 100,
+      "max_tool_calls_per_task": 200,
+      "max_node_executions_per_task": 1000,
+      "max_model_calls_per_owner": 0,
+      "max_tool_calls_per_owner": 0,
+      "max_node_executions_per_owner": 0
+    },
+    "stdio_mcp": {
+      "sandboxed_no_network_supported": true,
+      "allowlist_supported": false,
+      "decisions": [
+        {
+          "id": "trusted_full_network",
+          "label": "Trusted host or sandbox stdio",
+          "surface": "policy_controls",
+          "server_name": "trusted_full_network",
+          "platform_policy": "full",
+          "agent_network_policy": "full",
+          "sandbox_network_policy": null,
+          "allowed": true,
+          "mode": "host_or_sandbox_full_network",
+          "reason": "stdio MCP allowed policy_controls:trusted_full_network: platform and agent network policies are both full",
+          "operator_action": "Use only with trusted stdio MCP servers."
+        },
+        {
+          "id": "sandboxed_no_network",
+          "label": "Sandboxed no-network stdio",
+          "surface": "policy_controls",
+          "server_name": "sandboxed_no_network",
+          "platform_policy": "full",
+          "agent_network_policy": "none",
+          "sandbox_network_policy": "none",
+          "allowed": true,
+          "mode": "sandboxed_no_network",
+          "reason": "stdio MCP allowed policy_controls:sandboxed_no_network: execution is inside a no-network sandbox boundary",
+          "operator_action": "Keep the stdio server inside the sandbox runner."
+        },
+        {
+          "id": "sandboxed_allowlist",
+          "label": "Sandboxed allowlist stdio",
+          "surface": "policy_controls",
+          "server_name": "sandboxed_allowlist",
+          "platform_policy": "full",
+          "agent_network_policy": "allowlist",
+          "sandbox_network_policy": "allowlist",
+          "allowed": false,
+          "mode": "blocked",
+          "reason": "stdio MCP egress policy blocked policy_controls:sandboxed_allowlist: stdio servers do not declare hostnames, so allowlist-grade enforcement requires hard sandbox/container firewalling",
+          "operator_action": "Use an HTTP MCP server with a hostname allowlist, switch to a no-network sandbox for local stdio, or add hard sandbox firewalling before enabling stdio allowlist."
+        },
+        {
+          "id": "restricted_unsandboxed",
+          "label": "Restricted unsandboxed stdio",
+          "surface": "policy_controls",
+          "server_name": "restricted_unsandboxed",
+          "platform_policy": "full",
+          "agent_network_policy": "none",
+          "sandbox_network_policy": null,
+          "allowed": false,
+          "mode": "blocked",
+          "reason": "stdio MCP egress policy blocked policy_controls:restricted_unsandboxed: stdio servers do not declare hostnames; use full network policy or the sandboxed no-network stdio runner",
+          "operator_action": "Use full/full for trusted local stdio or sandboxed none/none for no-network stdio."
+        }
+      ]
+    },
+    "e08_boundary": {
+      "current_slice": "e08_policy_controls_surface",
+      "source": "docs/experiment-status/ledgers/E08_harness_sidecar_passmode.md",
+      "comparison_evidence": "docs/experiment-status/evidence/experiment_v0.2.55_e08_sidecar_passmode_2026_07_10_summary.md",
+      "soft_passmode": {
+        "layer": "workflow_internal",
+        "enforcement": "soft_configurable",
+        "statement": "workflow-internal passmode can pause or pass by workflow configuration"
+      },
+      "hard_boundary": {
+        "layer": "platform_harness",
+        "enforcement": "hard_boundary",
+        "statement": "Platform Harness policy is enforced before external actions"
+      },
+      "not_full_sidecar_completion": true,
+      "remaining_full_boundary": [
+        "complete cancellation policy closure",
+        "budget and owner-limit closure",
+        "worker lease operator lifecycle",
+        "editable policy controls",
+        "full Studio/API operational runbook"
+      ],
+      "controls": [
+        {
+          "id": "network_egress",
+          "label": "Network egress policy",
+          "layer": "platform_harness",
+          "status": "open",
+          "value": "full"
+        },
+        {
+          "id": "secret_policy",
+          "label": "Secret policy",
+          "layer": "platform_harness",
+          "status": "enabled",
+          "value": true
+        },
+        {
+          "id": "worker_lease",
+          "label": "Worker lease",
+          "layer": "platform_harness",
+          "status": "disabled",
+          "value": 0.0
+        },
+        {
+          "id": "cancellation_policy",
+          "label": "Cancellation policy",
+          "layer": "platform_harness",
+          "status": "enabled",
+          "value": "enabled"
+        },
+        {
+          "id": "budget_limits",
+          "label": "Task and owner budgets",
+          "layer": "platform_harness",
+          "status": "configured",
+          "value": {
+            "max_model_calls_per_task": 100,
+            "max_tool_calls_per_task": 200,
+            "max_node_executions_per_task": 1000,
+            "max_model_calls_per_owner": 0,
+            "max_tool_calls_per_owner": 0,
+            "max_node_executions_per_owner": 0
+          }
+        },
+        {
+          "id": "workflow_passmode",
+          "label": "Workflow passmode",
+          "layer": "workflow_internal",
+          "status": "soft_configurable",
+          "value": "permission_gate modes such as always_ask or auto_approve"
+        }
+      ],
+      "behavior_matrix": [
+        {
+          "id": "workflow_passmode",
+          "layer": "workflow_internal",
+          "enforcement": "soft_configurable",
+          "status": "available",
+          "signal": "permission_gate modes can pause or pass by workflow configuration",
+          "source": "docs/experiment-status/ledgers/E08_harness_sidecar_passmode.md"
+        },
+        {
+          "id": "cancellation_checkpoint",
+          "layer": "workflow_runtime",
+          "enforcement": "soft_checkpoint",
+          "status": "enabled",
+          "signal": "cancellation_point records a cancellable checkpoint and emits cancellation status",
+          "source": "platform/backend/src/agent_platform/workflow_runtime.py"
+        },
+        {
+          "id": "budget_limits",
+          "layer": "platform_harness",
+          "enforcement": "hard_counter",
+          "status": "configured",
+          "signal": "task and owner usage counters raise PlatformHarnessViolation when limits are exceeded",
+          "source": "platform/backend/src/agent_platform/platform_harness.py"
+        },
+        {
+          "id": "worker_lease",
+          "layer": "platform_harness",
+          "enforcement": "lease_coordination",
+          "status": "disabled",
+          "signal": "worker leases can expire, fail stale work, and be renewed by workers",
+          "source": "platform/backend/src/agent_platform/platform_harness.py"
+        },
+        {
+          "id": "network_egress_policy",
+          "layer": "platform_harness",
+          "enforcement": "hard_boundary",
+          "status": "open",
+          "signal": "network egress policy blocks disallowed external actions before execution",
+          "source": "platform/backend/src/agent_platform/platform_harness.py"
+        },
+        {
+          "id": "secret_policy",
+          "layer": "platform_harness",
+          "enforcement": "hard_boundary",
+          "status": "enabled",
+          "signal": "secret policy blocks leaked secret material on governed surfaces",
+          "source": "platform/backend/src/agent_platform/platform_harness.py"
+        }
+      ]
+    }
+  },
+  "patch_response": {
+    "before": {
+      "network_egress_policy": "full",
+      "network_egress_allowlist": [],
+      "secret_policy_enabled": true,
+      "secret_storage": {
+        "new_secret_mode": "encrypted_v1",
+        "envelope_configured": true
+      },
+      "cancellation_policy": "enabled",
+      "worker_id": "zhongdeMacBook-Air.local:67281",
+      "worker_lease_seconds": 0.0,
+      "limits": {
+        "max_active_tasks": 100,
+        "max_model_calls_per_task": 100,
+        "max_tool_calls_per_task": 200,
+        "max_node_executions_per_task": 1000,
+        "max_model_calls_per_owner": 0,
+        "max_tool_calls_per_owner": 0,
+        "max_node_executions_per_owner": 0
+      },
+      "stdio_mcp": {
+        "sandboxed_no_network_supported": true,
+        "allowlist_supported": false,
+        "decisions": [
+          {
+            "id": "trusted_full_network",
+            "label": "Trusted host or sandbox stdio",
+            "surface": "policy_controls",
+            "server_name": "trusted_full_network",
+            "platform_policy": "full",
+            "agent_network_policy": "full",
+            "sandbox_network_policy": null,
+            "allowed": true,
+            "mode": "host_or_sandbox_full_network",
+            "reason": "stdio MCP allowed policy_controls:trusted_full_network: platform and agent network policies are both full",
+            "operator_action": "Use only with trusted stdio MCP servers."
+          },
+          {
+            "id": "sandboxed_no_network",
+            "label": "Sandboxed no-network stdio",
+            "surface": "policy_controls",
+            "server_name": "sandboxed_no_network",
+            "platform_policy": "full",
+            "agent_network_policy": "none",
+            "sandbox_network_policy": "none",
+            "allowed": true,
+            "mode": "sandboxed_no_network",
+            "reason": "stdio MCP allowed policy_controls:sandboxed_no_network: execution is inside a no-network sandbox boundary",
+            "operator_action": "Keep the stdio server inside the sandbox runner."
+          },
+          {
+            "id": "sandboxed_allowlist",
+            "label": "Sandboxed allowlist stdio",
+            "surface": "policy_controls",
+            "server_name": "sandboxed_allowlist",
+            "platform_policy": "full",
+            "agent_network_policy": "allowlist",
+            "sandbox_network_policy": "allowlist",
+            "allowed": false,
+            "mode": "blocked",
+            "reason": "stdio MCP egress policy blocked policy_controls:sandboxed_allowlist: stdio servers do not declare hostnames, so allowlist-grade enforcement requires hard sandbox/container firewalling",
+            "operator_action": "Use an HTTP MCP server with a hostname allowlist, switch to a no-network sandbox for local stdio, or add hard sandbox firewalling before enabling stdio allowlist."
+          },
+          {
+            "id": "restricted_unsandboxed",
+            "label": "Restricted unsandboxed stdio",
+            "surface": "policy_controls",
+            "server_name": "restricted_unsandboxed",
+            "platform_policy": "full",
+            "agent_network_policy": "none",
+            "sandbox_network_policy": null,
+            "allowed": false,
+            "mode": "blocked",
+            "reason": "stdio MCP egress policy blocked policy_controls:restricted_unsandboxed: stdio servers do not declare hostnames; use full network policy or the sandboxed no-network stdio runner",
+            "operator_action": "Use full/full for trusted local stdio or sandboxed none/none for no-network stdio."
+          }
+        ]
+      },
+      "e08_boundary": {
+        "current_slice": "e08_policy_controls_surface",
+        "source": "docs/experiment-status/ledgers/E08_harness_sidecar_passmode.md",
+        "comparison_evidence": "docs/experiment-status/evidence/experiment_v0.2.55_e08_sidecar_passmode_2026_07_10_summary.md",
+        "soft_passmode": {
+          "layer": "workflow_internal",
+          "enforcement": "soft_configurable",
+          "statement": "workflow-internal passmode can pause or pass by workflow configuration"
+        },
+        "hard_boundary": {
+          "layer": "platform_harness",
+          "enforcement": "hard_boundary",
+          "statement": "Platform Harness policy is enforced before external actions"
+        },
+        "not_full_sidecar_completion": true,
+        "remaining_full_boundary": [
+          "complete cancellation policy closure",
+          "budget and owner-limit closure",
+          "worker lease operator lifecycle",
+          "editable policy controls",
+          "full Studio/API operational runbook"
+        ],
+        "controls": [
+          {
+            "id": "network_egress",
+            "label": "Network egress policy",
+            "layer": "platform_harness",
+            "status": "open",
+            "value": "full"
+          },
+          {
+            "id": "secret_policy",
+            "label": "Secret policy",
+            "layer": "platform_harness",
+            "status": "enabled",
+            "value": true
+          },
+          {
+            "id": "worker_lease",
+            "label": "Worker lease",
+            "layer": "platform_harness",
+            "status": "disabled",
+            "value": 0.0
+          },
+          {
+            "id": "cancellation_policy",
+            "label": "Cancellation policy",
+            "layer": "platform_harness",
+            "status": "enabled",
+            "value": "enabled"
+          },
+          {
+            "id": "budget_limits",
+            "label": "Task and owner budgets",
+            "layer": "platform_harness",
+            "status": "configured",
+            "value": {
+              "max_model_calls_per_task": 100,
+              "max_tool_calls_per_task": 200,
+              "max_node_executions_per_task": 1000,
+              "max_model_calls_per_owner": 0,
+              "max_tool_calls_per_owner": 0,
+              "max_node_executions_per_owner": 0
+            }
+          },
+          {
+            "id": "workflow_passmode",
+            "label": "Workflow passmode",
+            "layer": "workflow_internal",
+            "status": "soft_configurable",
+            "value": "permission_gate modes such as always_ask or auto_approve"
+          }
+        ],
+        "behavior_matrix": [
+          {
+            "id": "workflow_passmode",
+            "layer": "workflow_internal",
+            "enforcement": "soft_configurable",
+            "status": "available",
+            "signal": "permission_gate modes can pause or pass by workflow configuration",
+            "source": "docs/experiment-status/ledgers/E08_harness_sidecar_passmode.md"
+          },
+          {
+            "id": "cancellation_checkpoint",
+            "layer": "workflow_runtime",
+            "enforcement": "soft_checkpoint",
+            "status": "enabled",
+            "signal": "cancellation_point records a cancellable checkpoint and emits cancellation status",
+            "source": "platform/backend/src/agent_platform/workflow_runtime.py"
+          },
+          {
+            "id": "budget_limits",
+            "layer": "platform_harness",
+            "enforcement": "hard_counter",
+            "status": "configured",
+            "signal": "task and owner usage counters raise PlatformHarnessViolation when limits are exceeded",
+            "source": "platform/backend/src/agent_platform/platform_harness.py"
+          },
+          {
+            "id": "worker_lease",
+            "layer": "platform_harness",
+            "enforcement": "lease_coordination",
+            "status": "disabled",
+            "signal": "worker leases can expire, fail stale work, and be renewed by workers",
+            "source": "platform/backend/src/agent_platform/platform_harness.py"
+          },
+          {
+            "id": "network_egress_policy",
+            "layer": "platform_harness",
+            "enforcement": "hard_boundary",
+            "status": "open",
+            "signal": "network egress policy blocks disallowed external actions before execution",
+            "source": "platform/backend/src/agent_platform/platform_harness.py"
+          },
+          {
+            "id": "secret_policy",
+            "layer": "platform_harness",
+            "enforcement": "hard_boundary",
+            "status": "enabled",
+            "signal": "secret policy blocks leaked secret material on governed surfaces",
+            "source": "platform/backend/src/agent_platform/platform_harness.py"
+          }
+        ]
+      }
+    },
+    "after": {
+      "network_egress_policy": "allowlist",
+      "network_egress_allowlist": [
+        "api.example.test"
+      ],
+      "secret_policy_enabled": false,
+      "secret_storage": {
+        "new_secret_mode": "encrypted_v1",
+        "envelope_configured": true
+      },
+      "cancellation_policy": "disabled",
+      "worker_id": "zhongdeMacBook-Air.local:67281",
+      "worker_lease_seconds": 30.0,
+      "limits": {
+        "max_active_tasks": 100,
+        "max_model_calls_per_task": 5,
+        "max_tool_calls_per_task": 200,
+        "max_node_executions_per_task": 1000,
+        "max_model_calls_per_owner": 0,
+        "max_tool_calls_per_owner": 2,
+        "max_node_executions_per_owner": 0
+      },
+      "stdio_mcp": {
+        "sandboxed_no_network_supported": true,
+        "allowlist_supported": false,
+        "decisions": [
+          {
+            "id": "trusted_full_network",
+            "label": "Trusted host or sandbox stdio",
+            "surface": "policy_controls",
+            "server_name": "trusted_full_network",
+            "platform_policy": "allowlist",
+            "agent_network_policy": "full",
+            "sandbox_network_policy": null,
+            "allowed": false,
+            "mode": "blocked",
+            "reason": "stdio MCP egress policy blocked policy_controls:trusted_full_network: stdio servers do not declare hostnames, so allowlist-grade enforcement requires hard sandbox/container firewalling",
+            "operator_action": "Use an HTTP MCP server with a hostname allowlist, switch to a no-network sandbox for local stdio, or add hard sandbox firewalling before enabling stdio allowlist."
+          },
+          {
+            "id": "sandboxed_no_network",
+            "label": "Sandboxed no-network stdio",
+            "surface": "policy_controls",
+            "server_name": "sandboxed_no_network",
+            "platform_policy": "allowlist",
+            "agent_network_policy": "none",
+            "sandbox_network_policy": "none",
+            "allowed": false,
+            "mode": "blocked",
+            "reason": "stdio MCP egress policy blocked policy_controls:sandboxed_no_network: stdio servers do not declare hostnames, so allowlist-grade enforcement requires hard sandbox/container firewalling",
+            "operator_action": "Use an HTTP MCP server with a hostname allowlist, switch to a no-network sandbox for local stdio, or add hard sandbox firewalling before enabling stdio allowlist."
+          },
+          {
+            "id": "sandboxed_allowlist",
+            "label": "Sandboxed allowlist stdio",
+            "surface": "policy_controls",
+            "server_name": "sandboxed_allowlist",
+            "platform_policy": "allowlist",
+            "agent_network_policy": "allowlist",
+            "sandbox_network_policy": "allowlist",
+            "allowed": false,
+            "mode": "blocked",
+            "reason": "stdio MCP egress policy blocked policy_controls:sandboxed_allowlist: stdio servers do not declare hostnames, so allowlist-grade enforcement requires hard sandbox/container firewalling",
+            "operator_action": "Use an HTTP MCP server with a hostname allowlist, switch to a no-network sandbox for local stdio, or add hard sandbox firewalling before enabling stdio allowlist."
+          },
+          {
+            "id": "restricted_unsandboxed",
+            "label": "Restricted unsandboxed stdio",
+            "surface": "policy_controls",
+            "server_name": "restricted_unsandboxed",
+            "platform_policy": "allowlist",
+            "agent_network_policy": "none",
+            "sandbox_network_policy": null,
+            "allowed": false,
+            "mode": "blocked",
+            "reason": "stdio MCP egress policy blocked policy_controls:restricted_unsandboxed: stdio servers do not declare hostnames, so allowlist-grade enforcement requires hard sandbox/container firewalling",
+            "operator_action": "Use an HTTP MCP server with a hostname allowlist, switch to a no-network sandbox for local stdio, or add hard sandbox firewalling before enabling stdio allowlist."
+          }
+        ]
+      },
+      "e08_boundary": {
+        "current_slice": "e08_policy_controls_surface",
+        "source": "docs/experiment-status/ledgers/E08_harness_sidecar_passmode.md",
+        "comparison_evidence": "docs/experiment-status/evidence/experiment_v0.2.55_e08_sidecar_passmode_2026_07_10_summary.md",
+        "soft_passmode": {
+          "layer": "workflow_internal",
+          "enforcement": "soft_configurable",
+          "statement": "workflow-internal passmode can pause or pass by workflow configuration"
+        },
+        "hard_boundary": {
+          "layer": "platform_harness",
+          "enforcement": "hard_boundary",
+          "statement": "Platform Harness policy is enforced before external actions"
+        },
+        "not_full_sidecar_completion": true,
+        "remaining_full_boundary": [
+          "complete cancellation policy closure",
+          "budget and owner-limit closure",
+          "worker lease operator lifecycle",
+          "editable policy controls",
+          "full Studio/API operational runbook"
+        ],
+        "controls": [
+          {
+            "id": "network_egress",
+            "label": "Network egress policy",
+            "layer": "platform_harness",
+            "status": "restricted",
+            "value": "allowlist"
+          },
+          {
+            "id": "secret_policy",
+            "label": "Secret policy",
+            "layer": "platform_harness",
+            "status": "disabled",
+            "value": false
+          },
+          {
+            "id": "worker_lease",
+            "label": "Worker lease",
+            "layer": "platform_harness",
+            "status": "enabled",
+            "value": 30.0
+          },
+          {
+            "id": "cancellation_policy",
+            "label": "Cancellation policy",
+            "layer": "platform_harness",
+            "status": "disabled",
+            "value": "disabled"
+          },
+          {
+            "id": "budget_limits",
+            "label": "Task and owner budgets",
+            "layer": "platform_harness",
+            "status": "configured",
+            "value": {
+              "max_model_calls_per_task": 5,
+              "max_tool_calls_per_task": 200,
+              "max_node_executions_per_task": 1000,
+              "max_model_calls_per_owner": 0,
+              "max_tool_calls_per_owner": 2,
+              "max_node_executions_per_owner": 0
+            }
+          },
+          {
+            "id": "workflow_passmode",
+            "label": "Workflow passmode",
+            "layer": "workflow_internal",
+            "status": "soft_configurable",
+            "value": "permission_gate modes such as always_ask or auto_approve"
+          }
+        ],
+        "behavior_matrix": [
+          {
+            "id": "workflow_passmode",
+            "layer": "workflow_internal",
+            "enforcement": "soft_configurable",
+            "status": "available",
+            "signal": "permission_gate modes can pause or pass by workflow configuration",
+            "source": "docs/experiment-status/ledgers/E08_harness_sidecar_passmode.md"
+          },
+          {
+            "id": "cancellation_checkpoint",
+            "layer": "workflow_runtime",
+            "enforcement": "soft_checkpoint",
+            "status": "disabled",
+            "signal": "cancellation_point records a cancellable checkpoint and emits cancellation status",
+            "source": "platform/backend/src/agent_platform/workflow_runtime.py"
+          },
+          {
+            "id": "budget_limits",
+            "layer": "platform_harness",
+            "enforcement": "hard_counter",
+            "status": "configured",
+            "signal": "task and owner usage counters raise PlatformHarnessViolation when limits are exceeded",
+            "source": "platform/backend/src/agent_platform/platform_harness.py"
+          },
+          {
+            "id": "worker_lease",
+            "layer": "platform_harness",
+            "enforcement": "lease_coordination",
+            "status": "enabled",
+            "signal": "worker leases can expire, fail stale work, and be renewed by workers",
+            "source": "platform/backend/src/agent_platform/platform_harness.py"
+          },
+          {
+            "id": "network_egress_policy",
+            "layer": "platform_harness",
+            "enforcement": "hard_boundary",
+            "status": "restricted",
+            "signal": "network egress policy blocks disallowed external actions before execution",
+            "source": "platform/backend/src/agent_platform/platform_harness.py"
+          },
+          {
+            "id": "secret_policy",
+            "layer": "platform_harness",
+            "enforcement": "hard_boundary",
+            "status": "disabled",
+            "signal": "secret policy blocks leaked secret material on governed surfaces",
+            "source": "platform/backend/src/agent_platform/platform_harness.py"
+          }
+        ]
+      }
+    },
+    "audit": {
+      "version": "v0.2.96",
+      "action": "platform_harness.policy_controls.updated",
+      "reason": "v0.2.96 evidence generation",
+      "changed_fields": [
+        "network_egress_policy",
+        "network_egress_allowlist",
+        "cancellation_policy",
+        "secret_policy_enabled",
+        "worker_lease_seconds",
+        "limits.max_model_calls_per_task",
+        "limits.max_tool_calls_per_owner"
+      ],
+      "not_persistent_across_restart": true,
+      "not_full_sidecar_completion": true
+    }
+  },
+  "after": {
+    "network_egress_policy": "allowlist",
+    "network_egress_allowlist": [
+      "api.example.test"
+    ],
+    "secret_policy_enabled": false,
+    "secret_storage": {
+      "new_secret_mode": "encrypted_v1",
+      "envelope_configured": true
+    },
+    "cancellation_policy": "disabled",
+    "worker_id": "zhongdeMacBook-Air.local:67281",
+    "worker_lease_seconds": 30.0,
+    "limits": {
+      "max_active_tasks": 100,
+      "max_model_calls_per_task": 5,
+      "max_tool_calls_per_task": 200,
+      "max_node_executions_per_task": 1000,
+      "max_model_calls_per_owner": 0,
+      "max_tool_calls_per_owner": 2,
+      "max_node_executions_per_owner": 0
+    },
+    "stdio_mcp": {
+      "sandboxed_no_network_supported": true,
+      "allowlist_supported": false,
+      "decisions": [
+        {
+          "id": "trusted_full_network",
+          "label": "Trusted host or sandbox stdio",
+          "surface": "policy_controls",
+          "server_name": "trusted_full_network",
+          "platform_policy": "allowlist",
+          "agent_network_policy": "full",
+          "sandbox_network_policy": null,
+          "allowed": false,
+          "mode": "blocked",
+          "reason": "stdio MCP egress policy blocked policy_controls:trusted_full_network: stdio servers do not declare hostnames, so allowlist-grade enforcement requires hard sandbox/container firewalling",
+          "operator_action": "Use an HTTP MCP server with a hostname allowlist, switch to a no-network sandbox for local stdio, or add hard sandbox firewalling before enabling stdio allowlist."
+        },
+        {
+          "id": "sandboxed_no_network",
+          "label": "Sandboxed no-network stdio",
+          "surface": "policy_controls",
+          "server_name": "sandboxed_no_network",
+          "platform_policy": "allowlist",
+          "agent_network_policy": "none",
+          "sandbox_network_policy": "none",
+          "allowed": false,
+          "mode": "blocked",
+          "reason": "stdio MCP egress policy blocked policy_controls:sandboxed_no_network: stdio servers do not declare hostnames, so allowlist-grade enforcement requires hard sandbox/container firewalling",
+          "operator_action": "Use an HTTP MCP server with a hostname allowlist, switch to a no-network sandbox for local stdio, or add hard sandbox firewalling before enabling stdio allowlist."
+        },
+        {
+          "id": "sandboxed_allowlist",
+          "label": "Sandboxed allowlist stdio",
+          "surface": "policy_controls",
+          "server_name": "sandboxed_allowlist",
+          "platform_policy": "allowlist",
+          "agent_network_policy": "allowlist",
+          "sandbox_network_policy": "allowlist",
+          "allowed": false,
+          "mode": "blocked",
+          "reason": "stdio MCP egress policy blocked policy_controls:sandboxed_allowlist: stdio servers do not declare hostnames, so allowlist-grade enforcement requires hard sandbox/container firewalling",
+          "operator_action": "Use an HTTP MCP server with a hostname allowlist, switch to a no-network sandbox for local stdio, or add hard sandbox firewalling before enabling stdio allowlist."
+        },
+        {
+          "id": "restricted_unsandboxed",
+          "label": "Restricted unsandboxed stdio",
+          "surface": "policy_controls",
+          "server_name": "restricted_unsandboxed",
+          "platform_policy": "allowlist",
+          "agent_network_policy": "none",
+          "sandbox_network_policy": null,
+          "allowed": false,
+          "mode": "blocked",
+          "reason": "stdio MCP egress policy blocked policy_controls:restricted_unsandboxed: stdio servers do not declare hostnames, so allowlist-grade enforcement requires hard sandbox/container firewalling",
+          "operator_action": "Use an HTTP MCP server with a hostname allowlist, switch to a no-network sandbox for local stdio, or add hard sandbox firewalling before enabling stdio allowlist."
+        }
+      ]
+    },
+    "e08_boundary": {
+      "current_slice": "e08_policy_controls_surface",
+      "source": "docs/experiment-status/ledgers/E08_harness_sidecar_passmode.md",
+      "comparison_evidence": "docs/experiment-status/evidence/experiment_v0.2.55_e08_sidecar_passmode_2026_07_10_summary.md",
+      "soft_passmode": {
+        "layer": "workflow_internal",
+        "enforcement": "soft_configurable",
+        "statement": "workflow-internal passmode can pause or pass by workflow configuration"
+      },
+      "hard_boundary": {
+        "layer": "platform_harness",
+        "enforcement": "hard_boundary",
+        "statement": "Platform Harness policy is enforced before external actions"
+      },
+      "not_full_sidecar_completion": true,
+      "remaining_full_boundary": [
+        "complete cancellation policy closure",
+        "budget and owner-limit closure",
+        "worker lease operator lifecycle",
+        "editable policy controls",
+        "full Studio/API operational runbook"
+      ],
+      "controls": [
+        {
+          "id": "network_egress",
+          "label": "Network egress policy",
+          "layer": "platform_harness",
+          "status": "restricted",
+          "value": "allowlist"
+        },
+        {
+          "id": "secret_policy",
+          "label": "Secret policy",
+          "layer": "platform_harness",
+          "status": "disabled",
+          "value": false
+        },
+        {
+          "id": "worker_lease",
+          "label": "Worker lease",
+          "layer": "platform_harness",
+          "status": "enabled",
+          "value": 30.0
+        },
+        {
+          "id": "cancellation_policy",
+          "label": "Cancellation policy",
+          "layer": "platform_harness",
+          "status": "disabled",
+          "value": "disabled"
+        },
+        {
+          "id": "budget_limits",
+          "label": "Task and owner budgets",
+          "layer": "platform_harness",
+          "status": "configured",
+          "value": {
+            "max_model_calls_per_task": 5,
+            "max_tool_calls_per_task": 200,
+            "max_node_executions_per_task": 1000,
+            "max_model_calls_per_owner": 0,
+            "max_tool_calls_per_owner": 2,
+            "max_node_executions_per_owner": 0
+          }
+        },
+        {
+          "id": "workflow_passmode",
+          "label": "Workflow passmode",
+          "layer": "workflow_internal",
+          "status": "soft_configurable",
+          "value": "permission_gate modes such as always_ask or auto_approve"
+        }
+      ],
+      "behavior_matrix": [
+        {
+          "id": "workflow_passmode",
+          "layer": "workflow_internal",
+          "enforcement": "soft_configurable",
+          "status": "available",
+          "signal": "permission_gate modes can pause or pass by workflow configuration",
+          "source": "docs/experiment-status/ledgers/E08_harness_sidecar_passmode.md"
+        },
+        {
+          "id": "cancellation_checkpoint",
+          "layer": "workflow_runtime",
+          "enforcement": "soft_checkpoint",
+          "status": "disabled",
+          "signal": "cancellation_point records a cancellable checkpoint and emits cancellation status",
+          "source": "platform/backend/src/agent_platform/workflow_runtime.py"
+        },
+        {
+          "id": "budget_limits",
+          "layer": "platform_harness",
+          "enforcement": "hard_counter",
+          "status": "configured",
+          "signal": "task and owner usage counters raise PlatformHarnessViolation when limits are exceeded",
+          "source": "platform/backend/src/agent_platform/platform_harness.py"
+        },
+        {
+          "id": "worker_lease",
+          "layer": "platform_harness",
+          "enforcement": "lease_coordination",
+          "status": "enabled",
+          "signal": "worker leases can expire, fail stale work, and be renewed by workers",
+          "source": "platform/backend/src/agent_platform/platform_harness.py"
+        },
+        {
+          "id": "network_egress_policy",
+          "layer": "platform_harness",
+          "enforcement": "hard_boundary",
+          "status": "restricted",
+          "signal": "network egress policy blocks disallowed external actions before execution",
+          "source": "platform/backend/src/agent_platform/platform_harness.py"
+        },
+        {
+          "id": "secret_policy",
+          "layer": "platform_harness",
+          "enforcement": "hard_boundary",
+          "status": "disabled",
+          "signal": "secret policy blocks leaked secret material on governed surfaces",
+          "source": "platform/backend/src/agent_platform/platform_harness.py"
+        }
+      ]
+    }
+  },
+  "invalid_update_rejection": {
+    "status_code": 422,
+    "body": "{\"detail\":\"max_tool_calls_per_task must be a non-negative integer\"}"
+  },
+  "e07_invariant": {
+    "status": "preserved",
+    "no_e07_code_or_default_change": true
+  },
+  "not_full_sidecar_completion": true
+}

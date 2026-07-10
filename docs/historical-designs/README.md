@@ -107,6 +107,7 @@
 - `v0.2.93_*`：来自 `docs/stage-reports/v0.2.93_complexity_router_guarded_default_rollout.md`。
 - `v0.2.94_*`：来自 `docs/stage-reports/v0.2.94_productization_lane_reselection.md`。
 - `v0.2.95_*`：来自 `docs/stage-reports/v0.2.95_e08_followup_controls_scope.md`。
+- `v0.2.96_*`：来自 `docs/stage-reports/v0.2.96_e08_editable_policy_controls_api.md`。
 
 Active workspace rule:
 

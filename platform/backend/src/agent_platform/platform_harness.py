@@ -103,6 +103,7 @@ class PlatformHarness:
         secret_envelope_key: str = "",
         network_egress_policy: str = "full",
         network_egress_allowlist: list[str] | None = None,
+        cancellation_policy: str = "enabled",
         worker_id: str | None = None,
         worker_lease_seconds: float = 0.0,
     ) -> None:
@@ -119,6 +120,7 @@ class PlatformHarness:
         self.secret_envelope_key = secret_envelope_key
         self.network_egress_policy = network_egress_policy
         self.network_egress_allowlist = network_egress_allowlist or []
+        self.cancellation_policy = self._normalized_cancellation_policy(cancellation_policy)
         self.worker_id = worker_id or f"{socket.gethostname()}:{os.getpid()}"
         self.worker_lease_seconds = max(0.0, worker_lease_seconds)
         self._tasks: dict[str, PlatformTaskRecord] = {}
@@ -935,6 +937,7 @@ class PlatformHarness:
                 "new_secret_mode": "encrypted_v1" if self.secret_envelope_key else "legacy_plaintext",
                 "envelope_configured": bool(self.secret_envelope_key),
             },
+            "cancellation_policy": self.cancellation_policy,
             "worker_id": self.worker_id,
             "worker_lease_seconds": self.worker_lease_seconds,
             "limits": {
@@ -953,6 +956,123 @@ class PlatformHarness:
             },
             "e08_boundary": self._e08_boundary_summary(),
         }
+
+    def update_policy_controls(
+        self,
+        *,
+        network_egress_policy: str | None = None,
+        network_egress_allowlist: list[str] | None = None,
+        cancellation_policy: str | None = None,
+        secret_policy_enabled: bool | None = None,
+        worker_lease_seconds: float | None = None,
+        limits: dict[str, int] | None = None,
+        reason: str,
+    ) -> dict[str, Any]:
+        normalized_reason = reason.strip()
+        if not normalized_reason:
+            raise PlatformHarnessViolation("policy controls update requires a non-empty reason")
+
+        before = self.policy_controls()
+        changed_fields: list[str] = []
+
+        if network_egress_policy is not None:
+            normalized_policy = self._normalized_policy(network_egress_policy)
+            if normalized_policy not in {"full", "allowlist", "none"}:
+                raise PlatformHarnessViolation(
+                    "network_egress_policy must be one of: full, allowlist, none"
+                )
+            if normalized_policy != self._normalized_policy(self.network_egress_policy):
+                self.network_egress_policy = normalized_policy
+                changed_fields.append("network_egress_policy")
+
+        if network_egress_allowlist is not None:
+            normalized_allowlist = self._normalized_allowlist(network_egress_allowlist)
+            if normalized_allowlist != self.network_egress_allowlist:
+                self.network_egress_allowlist = normalized_allowlist
+                changed_fields.append("network_egress_allowlist")
+
+        if cancellation_policy is not None:
+            normalized_cancellation = self._normalized_cancellation_policy(cancellation_policy)
+            if normalized_cancellation != self.cancellation_policy:
+                self.cancellation_policy = normalized_cancellation
+                changed_fields.append("cancellation_policy")
+
+        if secret_policy_enabled is not None and secret_policy_enabled != self.secret_policy_enabled:
+            self.secret_policy_enabled = secret_policy_enabled
+            changed_fields.append("secret_policy_enabled")
+
+        if worker_lease_seconds is not None:
+            if worker_lease_seconds < 0:
+                raise PlatformHarnessViolation("worker_lease_seconds must be non-negative")
+            normalized_lease = float(worker_lease_seconds)
+            if normalized_lease != self.worker_lease_seconds:
+                self.worker_lease_seconds = normalized_lease
+                changed_fields.append("worker_lease_seconds")
+
+        if limits is not None:
+            changed_fields.extend(self._update_policy_limits(limits))
+
+        if not changed_fields:
+            raise PlatformHarnessViolation("policy controls update did not change any fields")
+
+        after = self.policy_controls()
+        return {
+            "before": before,
+            "after": after,
+            "audit": {
+                "version": "v0.2.96",
+                "action": "platform_harness.policy_controls.updated",
+                "reason": normalized_reason,
+                "changed_fields": changed_fields,
+                "not_persistent_across_restart": True,
+                "not_full_sidecar_completion": True,
+            },
+        }
+
+    def _normalized_allowlist(self, entries: list[str]) -> list[str]:
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for entry in entries:
+            value = entry.strip().casefold().rstrip(".")
+            if not value:
+                raise PlatformHarnessViolation("network_egress_allowlist entries must be non-empty")
+            if "/" in value or ":" in value:
+                raise PlatformHarnessViolation("network_egress_allowlist entries must be host names")
+            if value not in seen:
+                normalized.append(value)
+                seen.add(value)
+        return normalized
+
+    def _normalized_cancellation_policy(self, policy: str) -> str:
+        normalized = policy.strip().casefold()
+        if normalized not in {"enabled", "disabled"}:
+            raise PlatformHarnessViolation("cancellation_policy must be one of: enabled, disabled")
+        return normalized
+
+    def enforce_cancellation_policy(self) -> None:
+        if self.cancellation_policy == "disabled":
+            raise PlatformHarnessViolation("workflow cancellation is disabled by Platform Harness policy")
+
+    def _update_policy_limits(self, limits: dict[str, int]) -> list[str]:
+        allowed = {
+            "max_active_tasks",
+            "max_model_calls_per_task",
+            "max_tool_calls_per_task",
+            "max_node_executions_per_task",
+            "max_model_calls_per_owner",
+            "max_tool_calls_per_owner",
+            "max_node_executions_per_owner",
+        }
+        changed: list[str] = []
+        for key, value in limits.items():
+            if key not in allowed:
+                raise PlatformHarnessViolation(f"unknown policy limit: {key}")
+            if not isinstance(value, int) or value < 0:
+                raise PlatformHarnessViolation(f"{key} must be a non-negative integer")
+            if getattr(self, key) != value:
+                setattr(self, key, value)
+                changed.append(f"limits.{key}")
+        return changed
 
     def _e08_boundary_summary(self) -> dict[str, Any]:
         network_policy = self._normalized_policy(self.network_egress_policy)
@@ -1009,6 +1129,13 @@ class PlatformHarness:
                     "value": self.worker_lease_seconds,
                 },
                 {
+                    "id": "cancellation_policy",
+                    "label": "Cancellation policy",
+                    "layer": "platform_harness",
+                    "status": self.cancellation_policy,
+                    "value": self.cancellation_policy,
+                },
+                {
                     "id": "budget_limits",
                     "label": "Task and owner budgets",
                     "layer": "platform_harness",
@@ -1041,7 +1168,7 @@ class PlatformHarness:
                 "id": "cancellation_checkpoint",
                 "layer": "workflow_runtime",
                 "enforcement": "soft_checkpoint",
-                "status": "available",
+                "status": self.cancellation_policy,
                 "signal": "cancellation_point records a cancellable checkpoint and emits cancellation status",
                 "source": "platform/backend/src/agent_platform/workflow_runtime.py",
             },
