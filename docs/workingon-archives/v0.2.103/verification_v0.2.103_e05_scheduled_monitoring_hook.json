@@ -1,0 +1,214 @@
+{
+  "version": "v0.2.103",
+  "verification_id": "e05_scheduled_monitoring_hook",
+  "source_stage_report": "docs/stage-reports/v0.2.102_productization_lane_reselection.md",
+  "status": "verified_existing_product_capability",
+  "selected_lane_from_v0_2_102": "e05_scheduled_monitoring_hook",
+  "implementation_origin": "v0.2.63_adaptive_monitoring_schedule_and_report_audit",
+  "new_backend_implementation_required": false,
+  "implementation_paths": [
+    "platform/backend/src/agent_platform/adaptive_monitoring.py",
+    "platform/backend/src/agent_platform/api.py",
+    "platform/backend/src/agent_platform/config.py",
+    "tests/test_adaptive_monitoring_product_surface.py"
+  ],
+  "checks": {
+    "defaults_disabled": true,
+    "configured_interval_enabled": true,
+    "manual_schedule_run_persists_trigger": true,
+    "manual_refresh_history_visible": true,
+    "override_options_visible": true,
+    "critical_alerts_zero": true
+  },
+  "contract": {
+    "disabled_default": {
+      "enabled": false,
+      "interval_seconds": 0.0,
+      "running": false,
+      "trigger": "disabled",
+      "history_path": "/var/folders/ds/p7blqym963qbfwb2y7bn62zw0000gn/T/tmpz1kzx5sp/data/monitoring/adaptive_template_policy_history.jsonl",
+      "last_refresh": null
+    },
+    "enabled_configured": {
+      "enabled": true,
+      "interval_seconds": 3600.0,
+      "running": true,
+      "trigger": "scheduled",
+      "history_path": "/var/folders/ds/p7blqym963qbfwb2y7bn62zw0000gn/T/tmpz1kzx5sp/data/monitoring/adaptive_template_policy_history.jsonl",
+      "last_refresh": null
+    },
+    "manual_schedule_run": {
+      "status": "healthy",
+      "version": "v0.2.56",
+      "source": "docs/experiment-status/evidence/monitor_v0.2.56_e05_adaptive_policy_2026_07_10.json",
+      "generated_at": "2026-07-09T22:58:26.071780+00:00",
+      "critical_alert_count": 0,
+      "warning_alert_count": 0,
+      "override_options_visible": true,
+      "available_overrides": [
+        "adaptive",
+        "deep",
+        "none",
+        "shallow"
+      ],
+      "cases": [
+        {
+          "family": "data_analyzer",
+          "mode": "adaptive_explicit",
+          "build_status": "published",
+          "effective_depth": "deep",
+          "reuse_depth_source": "explicit",
+          "benchmark_passed": true,
+          "timeout_like": false,
+          "available_overrides": [],
+          "source": "docs/experiment-status/evidence/experiment_v0.2.49_e05_data_analyzer_adaptive_live_2026_07_10.json"
+        },
+        {
+          "family": "code_review",
+          "mode": "adaptive_explicit",
+          "build_status": "published",
+          "effective_depth": "shallow",
+          "reuse_depth_source": "explicit",
+          "benchmark_passed": true,
+          "timeout_like": false,
+          "available_overrides": [],
+          "source": "docs/experiment-status/evidence/experiment_v0.2.51_e05_code_review_adaptive_live_2026_07_10.json"
+        },
+        {
+          "family": "data_analyzer",
+          "mode": "policy_default",
+          "build_status": "published",
+          "effective_depth": "deep",
+          "reuse_depth_source": "policy_default",
+          "benchmark_passed": true,
+          "timeout_like": false,
+          "available_overrides": [
+            "adaptive",
+            "deep",
+            "none",
+            "shallow"
+          ],
+          "source": "docs/experiment-status/evidence/experiment_v0.2.54_e05_data_analyzer_policy_default_reliability_2026_07_10.json"
+        }
+      ],
+      "alerts": [],
+      "conclusion": "Current monitored evidence has no critical adaptive/default-path alert; fixed-depth overrides remain visible and should stay as rollback controls.",
+      "last_refresh": {
+        "refreshed_at": "2026-07-10T10:33:38.504040+00:00",
+        "trigger": "manual_schedule_run",
+        "status": "healthy",
+        "critical_alert_count": 0,
+        "warning_alert_count": 0,
+        "override_options_visible": true,
+        "source": "docs/experiment-status/evidence/monitor_v0.2.56_e05_adaptive_policy_2026_07_10.json",
+        "source_generated_at": "2026-07-09T22:58:26.071780+00:00"
+      },
+      "history": [
+        {
+          "refreshed_at": "2026-07-10T10:33:38.504040+00:00",
+          "trigger": "manual_schedule_run",
+          "status": "healthy",
+          "critical_alert_count": 0,
+          "warning_alert_count": 0,
+          "override_options_visible": true,
+          "source": "docs/experiment-status/evidence/monitor_v0.2.56_e05_adaptive_policy_2026_07_10.json",
+          "source_generated_at": "2026-07-09T22:58:26.071780+00:00"
+        }
+      ],
+      "history_count": 1,
+      "history_path": "/var/folders/ds/p7blqym963qbfwb2y7bn62zw0000gn/T/tmpz1kzx5sp/data/monitoring/adaptive_template_policy_history.jsonl"
+    },
+    "current_status_after_run": {
+      "status": "healthy",
+      "version": "v0.2.56",
+      "source": "docs/experiment-status/evidence/monitor_v0.2.56_e05_adaptive_policy_2026_07_10.json",
+      "generated_at": "2026-07-09T22:58:26.071780+00:00",
+      "critical_alert_count": 0,
+      "warning_alert_count": 0,
+      "override_options_visible": true,
+      "available_overrides": [
+        "adaptive",
+        "deep",
+        "none",
+        "shallow"
+      ],
+      "cases": [
+        {
+          "family": "data_analyzer",
+          "mode": "adaptive_explicit",
+          "build_status": "published",
+          "effective_depth": "deep",
+          "reuse_depth_source": "explicit",
+          "benchmark_passed": true,
+          "timeout_like": false,
+          "available_overrides": [],
+          "source": "docs/experiment-status/evidence/experiment_v0.2.49_e05_data_analyzer_adaptive_live_2026_07_10.json"
+        },
+        {
+          "family": "code_review",
+          "mode": "adaptive_explicit",
+          "build_status": "published",
+          "effective_depth": "shallow",
+          "reuse_depth_source": "explicit",
+          "benchmark_passed": true,
+          "timeout_like": false,
+          "available_overrides": [],
+          "source": "docs/experiment-status/evidence/experiment_v0.2.51_e05_code_review_adaptive_live_2026_07_10.json"
+        },
+        {
+          "family": "data_analyzer",
+          "mode": "policy_default",
+          "build_status": "published",
+          "effective_depth": "deep",
+          "reuse_depth_source": "policy_default",
+          "benchmark_passed": true,
+          "timeout_like": false,
+          "available_overrides": [
+            "adaptive",
+            "deep",
+            "none",
+            "shallow"
+          ],
+          "source": "docs/experiment-status/evidence/experiment_v0.2.54_e05_data_analyzer_policy_default_reliability_2026_07_10.json"
+        }
+      ],
+      "alerts": [],
+      "conclusion": "Current monitored evidence has no critical adaptive/default-path alert; fixed-depth overrides remain visible and should stay as rollback controls.",
+      "last_refresh": {
+        "refreshed_at": "2026-07-10T10:33:38.504040+00:00",
+        "trigger": "manual_schedule_run",
+        "status": "healthy",
+        "critical_alert_count": 0,
+        "warning_alert_count": 0,
+        "override_options_visible": true,
+        "source": "docs/experiment-status/evidence/monitor_v0.2.56_e05_adaptive_policy_2026_07_10.json",
+        "source_generated_at": "2026-07-09T22:58:26.071780+00:00"
+      },
+      "history": [
+        {
+          "refreshed_at": "2026-07-10T10:33:38.504040+00:00",
+          "trigger": "manual_schedule_run",
+          "status": "healthy",
+          "critical_alert_count": 0,
+          "warning_alert_count": 0,
+          "override_options_visible": true,
+          "source": "docs/experiment-status/evidence/monitor_v0.2.56_e05_adaptive_policy_2026_07_10.json",
+          "source_generated_at": "2026-07-09T22:58:26.071780+00:00"
+        }
+      ],
+      "history_count": 1,
+      "history_path": "/var/folders/ds/p7blqym963qbfwb2y7bn62zw0000gn/T/tmpz1kzx5sp/data/monitoring/adaptive_template_policy_history.jsonl"
+    },
+    "history_path_exists": true
+  },
+  "invariants": {
+    "manual_refresh_preserved": true,
+    "fixed_depth_overrides_visible": true,
+    "e07_guarded_default_preserved": true,
+    "e08_full_sidecar_completion_claimed": false,
+    "e02_true_human_panel_blocked": true,
+    "e10_governed_memory_blocked": true,
+    "workingon_is_not_task_source": true
+  },
+  "conclusion": "The E05 scheduled monitoring hook already exists in the current product code and is verified against disabled-by-default scheduling, configured schedule visibility, persisted run-once history, and override visibility. v0.2.103 reconciles status drift rather than duplicating the v0.2.63 implementation."
+}

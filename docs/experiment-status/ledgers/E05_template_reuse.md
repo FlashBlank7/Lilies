@@ -64,3 +64,7 @@ v0.2.57 final disposition：Adaptive default and policy-default reliability are 
 v0.2.102 productization lane reselection 已选择 `e05_scheduled_monitoring_hook` 作为下一条未阻塞产品化 lane。选择理由是：E05 已有 adaptive 默认、API/Studio/manual refresh/history 和 monitoring snapshot；剩余的 scheduled drift checks 是具体可实现的产品切片。此选择不表示 scheduled hook 已实现，下一版应从 `docs/stage-reports/v0.2.102_productization_lane_reselection.md` 的 Next-stage Task Set 展开设计。
 
 证据：`../../workingon-archives/v0.2.102/decision_v0.2.102_productization_lane_reselection_summary.md`
+
+v0.2.103 current-state verification 确认 scheduled monitoring hook 已在 v0.2.63 实现并在当前代码中可用：schedule status 默认关闭，配置 interval 后可见为 enabled/running，`schedule/run-once` 以 `manual_schedule_run` trigger 写入持久 history，manual refresh/history 和 fixed-depth overrides 仍可见。v0.2.102 选择该 lane 暴露的是状态索引漂移；v0.2.103 已将其纠正为已产品化/已验证，不应再作为 open implementation lane 反复选择。
+
+证据：`../../workingon-archives/v0.2.103/verification_v0.2.103_e05_scheduled_monitoring_hook_summary.md`

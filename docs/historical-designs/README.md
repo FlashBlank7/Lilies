@@ -114,6 +114,7 @@
 - `v0.2.100_*`：来自 `docs/stage-reports/v0.2.100_e08_operator_runbook_lifecycle.md`。
 - `v0.2.101_*`：来自 `docs/stage-reports/v0.2.101_e08_post_runbook_disposition.md`。
 - `v0.2.102_*`：来自 `docs/stage-reports/v0.2.102_productization_lane_reselection.md`。
+- `v0.2.103_*`：来自 `docs/stage-reports/v0.2.103_e05_scheduled_monitoring_hook.md`。
 
 Active workspace rule:
 
