@@ -126,6 +126,7 @@
 - `v0.2.112_*`：来自 `docs/stage-reports/v0.2.112_e08_distributed_heartbeat_registry.md`。
 - `v0.2.113_*`：来自 `docs/stage-reports/v0.2.113_e08_remaining_sidecar_slice_reselection.md`。
 - `v0.2.114_*`：来自 `docs/stage-reports/v0.2.114_e08_scheduler_trigger_worker_offload_handler.md`。
+- `v0.2.115_*`：来自 `docs/stage-reports/v0.2.115_e08_remaining_sidecar_slice_reselection.md`。
 
 Active workspace rule:
 
