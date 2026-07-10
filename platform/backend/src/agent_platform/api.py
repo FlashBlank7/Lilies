@@ -30,6 +30,7 @@ from .complexity_router import (
     complexity_router_default_safety_gate,
     operator_override_plan_status,
     requirement_classification_contract_status,
+    rollout_metrics_prerequisites_status,
     validate_operator_override,
 )
 from .factory import AgentFactory
@@ -354,6 +355,10 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         body: OperatorOverrideRequest,
     ) -> dict[str, Any]:
         return validate_operator_override(body.mode, body.reason)
+
+    @app.get("/api/v1/platform/complexity-router/rollout-metrics-prerequisites", dependencies=[Depends(require_token)])
+    async def get_complexity_router_rollout_metrics_prerequisites(sample_count: int = 0) -> dict[str, Any]:
+        return rollout_metrics_prerequisites_status(sample_count)
 
     @app.post("/api/v1/platform/harness/tasks/{task_id}/lease", dependencies=[Depends(require_token)])
     async def claim_platform_harness_task_lease(

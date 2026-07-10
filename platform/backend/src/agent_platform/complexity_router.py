@@ -108,6 +108,15 @@ OPERATOR_OVERRIDE_MODES = {
     },
 }
 
+ROLLOUT_METRIC_DEFINITIONS = {
+    "classification_distribution": "Count simple / medium / complex / unknown decisions over the rollout window.",
+    "override_rate": "Share of classified requirements with an operator override.",
+    "override_reason_coverage": "Share of force overrides with a non-empty operator-visible reason.",
+    "fallback_unknown_rate": "Share of requirements classified as unknown and handled as complex-equivalent.",
+    "success_rate_by_class": "Completion or acceptance rate grouped by effective requirement class.",
+    "cost_latency_by_class": "Cost and latency distribution grouped by effective requirement class.",
+}
+
 
 @dataclass(frozen=True)
 class DefaultSafetyInputs:
@@ -132,7 +141,7 @@ def current_default_safety_inputs(root: Path | None = None) -> DefaultSafetyInpu
         source_evidence_present=source_ready,
         requirement_classification_contract=True,
         operator_override_plan=True,
-        rollout_metrics_prerequisites=False,
+        rollout_metrics_prerequisites=True,
     )
 
 
@@ -288,6 +297,30 @@ def validate_operator_override(mode: str, reason: str = "") -> dict[str, Any]:
     }
 
 
+def rollout_metrics_prerequisites_status(sample_count: int = 0) -> dict[str, Any]:
+    normalized_count = max(0, int(sample_count))
+    return {
+        "metrics_id": "rollout_metrics_prerequisites",
+        "policy_version": "v0.2.74_complexity_router_rollout_metrics_prerequisites",
+        "satisfied": True,
+        "default_router_enabled": False,
+        "status": "ready_empty_state" if normalized_count == 0 else "ready_with_samples",
+        "sample_count": normalized_count,
+        "required_metrics": [
+            {"id": metric_id, "description": description}
+            for metric_id, description in ROLLOUT_METRIC_DEFINITIONS.items()
+        ],
+        "empty_state": {
+            "allowed": True,
+            "reason": "metrics schema is present before rollout samples exist",
+        },
+        "evidence": [
+            "platform/backend/src/agent_platform/complexity_router.py",
+            "tests/test_complexity_router_default_safety.py",
+        ],
+    }
+
+
 def complexity_router_default_safety_gate(
     inputs: DefaultSafetyInputs | None = None,
 ) -> dict[str, Any]:
@@ -324,7 +357,10 @@ def complexity_router_default_safety_gate(
             "id": "rollout_metrics_prerequisites",
             "label": "Rollout metrics prerequisites",
             "satisfied": resolved.rollout_metrics_prerequisites,
-            "evidence": [],
+            "evidence": [
+                "platform/backend/src/agent_platform/complexity_router.py",
+                "tests/test_complexity_router_default_safety.py",
+            ],
             "required_for_default": True,
         },
     ]
@@ -333,7 +369,7 @@ def complexity_router_default_safety_gate(
     return {
         "router_id": "e07_complexity_router",
         "gate_id": "default_safety_gate",
-        "policy_version": "v0.2.73_complexity_router_operator_override_plan",
+        "policy_version": "v0.2.74_complexity_router_rollout_metrics_prerequisites",
         "default_enabled": False,
         "allowed_to_enable_default": allowed,
         "router_ready_for_default": allowed,

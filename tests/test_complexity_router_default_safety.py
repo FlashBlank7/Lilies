@@ -12,6 +12,7 @@ from agent_platform.complexity_router import (
     current_default_safety_inputs,
     operator_override_plan_status,
     requirement_classification_contract_status,
+    rollout_metrics_prerequisites_status,
     validate_operator_override,
 )
 from agent_platform.config import Settings
@@ -22,17 +23,18 @@ def headers() -> dict[str, str]:
     return {"Authorization": "Bearer test-token"}
 
 
-def test_current_complexity_router_default_safety_gate_stays_disabled() -> None:
+def test_current_complexity_router_default_safety_gate_keeps_default_disabled() -> None:
     inputs = current_default_safety_inputs()
     status = complexity_router_default_safety_gate(inputs)
 
     assert status["default_enabled"] is False
-    assert status["allowed_to_enable_default"] is False
-    assert status["router_ready_for_default"] is False
+    assert status["allowed_to_enable_default"] is True
+    assert status["router_ready_for_default"] is True
     assert "source_evidence" not in status["missing_prerequisites"]
     assert "requirement_classification_contract" not in status["missing_prerequisites"]
     assert "operator_override_plan" not in status["missing_prerequisites"]
-    assert "rollout_metrics_prerequisites" in status["missing_prerequisites"]
+    assert "rollout_metrics_prerequisites" not in status["missing_prerequisites"]
+    assert status["allowed_to_enable_default"] is True
     assert "requirement_classification_contract" in status["supporting_guardrails"]
 
 
@@ -67,12 +69,12 @@ def test_complexity_router_default_safety_api_reports_current_gate(tmp_path: Pat
     assert response.status_code == 200
     body = response.json()
     assert body["gate_id"] == "default_safety_gate"
-    assert body["allowed_to_enable_default"] is False
+    assert body["allowed_to_enable_default"] is True
     assert body["default_enabled"] is False
-    assert body["router_ready_for_default"] is False
+    assert body["router_ready_for_default"] is True
     assert "requirement_classification_contract" not in body["missing_prerequisites"]
     assert "operator_override_plan" not in body["missing_prerequisites"]
-    assert "rollout_metrics_prerequisites" in body["missing_prerequisites"]
+    assert "rollout_metrics_prerequisites" not in body["missing_prerequisites"]
 
 
 def test_requirement_classification_contract_status_is_satisfied_without_enabling_default() -> None:
@@ -175,3 +177,38 @@ def test_operator_override_api_surfaces_plan_and_validation(tmp_path: Path) -> N
     assert validation["valid"] is True
     assert validation["target_class"] == "simple"
     assert validation["default_router_enabled"] is False
+
+
+def test_rollout_metrics_prerequisites_status_satisfies_gate_without_enabling_default() -> None:
+    status = rollout_metrics_prerequisites_status()
+
+    assert status["satisfied"] is True
+    assert status["default_router_enabled"] is False
+    assert status["status"] == "ready_empty_state"
+    assert status["sample_count"] == 0
+    metric_ids = {item["id"] for item in status["required_metrics"]}
+    assert metric_ids == {
+        "classification_distribution",
+        "override_rate",
+        "override_reason_coverage",
+        "fallback_unknown_rate",
+        "success_rate_by_class",
+        "cost_latency_by_class",
+    }
+
+
+def test_rollout_metrics_api_surfaces_empty_state(tmp_path: Path) -> None:
+    settings = Settings(api_token="test-token", data_dir=tmp_path / "data", workspace_root=tmp_path / "workspaces")
+    app = create_app(settings, ScriptedProvider())
+
+    with TestClient(app) as client:
+        response = client.get(
+            "/api/v1/platform/complexity-router/rollout-metrics-prerequisites",
+            headers=headers(),
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["satisfied"] is True
+    assert body["default_router_enabled"] is False
+    assert body["status"] == "ready_empty_state"
