@@ -94,6 +94,7 @@
 - `stage-reports/v0.2.68_e08_cancellation_budget_behavior.md`
 - `stage-reports/v0.2.69_e08_continuation_decision.md`
 - `stage-reports/v0.2.70_complexity_router_guardrail_selection.md`
+- `stage-reports/v0.2.71_complexity_router_default_safety_gate.md`
 
 ## 使用原则
 

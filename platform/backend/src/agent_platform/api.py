@@ -25,6 +25,7 @@ from .adaptive_monitoring import (
 from .blocks import BlockRegistry, build_block_registry
 from .builder import WorkflowBuilder
 from .builder_benchmark import BuilderBenchmark, BuilderBenchmarkCase, BuilderBenchmarkSuiteCase
+from .complexity_router import complexity_router_default_safety_gate
 from .factory import AgentFactory
 from .draft_patch_preview import DraftPatchPreviewer, DraftPatchPreviewRequest
 from .models import (
@@ -314,6 +315,10 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
     @app.get("/api/v1/platform/harness/policy-controls", dependencies=[Depends(require_token)])
     async def get_platform_harness_policy_controls() -> dict[str, Any]:
         return services.harness.policy_controls()
+
+    @app.get("/api/v1/platform/complexity-router/default-safety", dependencies=[Depends(require_token)])
+    async def get_complexity_router_default_safety() -> dict[str, Any]:
+        return complexity_router_default_safety_gate()
 
     @app.post("/api/v1/platform/harness/tasks/{task_id}/lease", dependencies=[Depends(require_token)])
     async def claim_platform_harness_task_lease(

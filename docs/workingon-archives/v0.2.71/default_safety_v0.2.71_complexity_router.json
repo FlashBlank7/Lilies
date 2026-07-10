@@ -1,0 +1,52 @@
+{
+  "router_id": "e07_complexity_router",
+  "gate_id": "default_safety_gate",
+  "policy_version": "v0.2.71_complexity_router_default_safety_gate",
+  "default_enabled": false,
+  "allowed_to_enable_default": false,
+  "router_ready_for_default": false,
+  "reason": "complexity-router default remains disabled until every default-safety prerequisite is satisfied",
+  "missing_prerequisites": [
+    "requirement_classification_contract",
+    "operator_override_plan",
+    "rollout_metrics_prerequisites"
+  ],
+  "prerequisites": [
+    {
+      "id": "source_evidence",
+      "label": "Source evidence",
+      "satisfied": true,
+      "evidence": [
+        "docs/experiment-status/ledgers/E07_complexity_router.md",
+        "docs/workingon-archives/v0.2.70/selection_v0.2.70_complexity_router_guardrail_summary.md"
+      ],
+      "required_for_default": true
+    },
+    {
+      "id": "requirement_classification_contract",
+      "label": "Requirement classification contract",
+      "satisfied": false,
+      "evidence": [],
+      "required_for_default": true
+    },
+    {
+      "id": "operator_override_plan",
+      "label": "Operator override plan",
+      "satisfied": false,
+      "evidence": [],
+      "required_for_default": true
+    },
+    {
+      "id": "rollout_metrics_prerequisites",
+      "label": "Rollout metrics prerequisites",
+      "satisfied": false,
+      "evidence": [],
+      "required_for_default": true
+    }
+  ],
+  "supporting_guardrails": [
+    "requirement_classification_contract",
+    "operator_override_plan",
+    "rollout_metrics_prerequisites"
+  ]
+}
