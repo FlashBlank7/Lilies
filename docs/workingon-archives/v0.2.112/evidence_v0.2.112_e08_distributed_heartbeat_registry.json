@@ -1,0 +1,96 @@
+{
+  "version": "v0.2.112",
+  "evidence_id": "e08_distributed_heartbeat_registry",
+  "source_stage_report": "docs/stage-reports/v0.2.111_e08_remaining_sidecar_slice_reselection.md",
+  "status": "completed",
+  "checks": {
+    "heartbeat_persisted_across_harness_instances": true,
+    "active_liveness_exposed": true,
+    "stale_liveness_exposed": true,
+    "runner_sets_running_active_task": true,
+    "runner_returns_to_idle_with_last_task_metadata": true,
+    "worker_runner_task_succeeded": true
+  },
+  "heartbeats": [
+    {
+      "worker_id": "worker-runner",
+      "status": "idle",
+      "active_task_id": "",
+      "last_seen_at": "2026-07-10T11:11:29.234176+00:00",
+      "stale_after_seconds": 120.0,
+      "liveness": "active",
+      "metadata": {
+        "phase": "task_finished",
+        "last_task_id": "heartbeat-evidence-task",
+        "last_task_status": "succeeded"
+      },
+      "updated_at": "2026-07-10T11:11:29.234199+00:00"
+    },
+    {
+      "worker_id": "worker-stale",
+      "status": "idle",
+      "active_task_id": "",
+      "last_seen_at": "2026-07-10T11:11:29.212891+00:00",
+      "stale_after_seconds": 0.001,
+      "liveness": "stale",
+      "metadata": {
+        "phase": "stale"
+      },
+      "updated_at": "2026-07-10T11:11:29.212917+00:00"
+    },
+    {
+      "worker_id": "worker-active",
+      "status": "idle",
+      "active_task_id": "",
+      "last_seen_at": "2026-07-10T11:11:29.211213+00:00",
+      "stale_after_seconds": 60.0,
+      "liveness": "active",
+      "metadata": {
+        "phase": "active"
+      },
+      "updated_at": "2026-07-10T11:11:29.211505+00:00"
+    }
+  ],
+  "runner_result": {
+    "task_id": "heartbeat-evidence-task",
+    "kind": "scheduler_manual_trigger",
+    "status": "succeeded",
+    "worker_id": "worker-runner",
+    "lease_version": 3,
+    "error": "",
+    "metadata": {
+      "worker_runner": {
+        "worker_id": "worker-runner",
+        "status": "succeeded",
+        "result": {
+          "handled": true,
+          "task_id": "heartbeat-evidence-task"
+        },
+        "renewal_count": 0
+      }
+    }
+  },
+  "completed_slices_preserved": [
+    "docs/workingon-archives/v0.2.110/evidence_v0.2.110_e08_complete_handler_catalog_summary.md",
+    "docs/workingon-archives/v0.2.106/evidence_v0.2.106_e08_stdio_container_egress_allowlist_contract_summary.md",
+    "docs/workingon-archives/v0.2.108/evidence_v0.2.108_e08_secret_kms_rotation_contract_summary.md",
+    "docs/workingon-archives/v0.2.96/evidence_v0.2.96_e08_editable_policy_controls_api_summary.md",
+    "docs/workingon-archives/v0.2.98/evidence_v0.2.98_e08_studio_editable_policy_controls_summary.md",
+    "docs/workingon-archives/v0.2.100/evidence_v0.2.100_e08_operator_runbook_lifecycle_summary.md"
+  ],
+  "implementation_paths": [
+    "platform/backend/src/agent_platform/storage.py",
+    "platform/backend/src/agent_platform/platform_harness.py",
+    "platform/backend/src/agent_platform/worker_runner.py",
+    "platform/backend/src/agent_platform/api.py",
+    "tests/test_v02_112_e08_distributed_heartbeat_registry.py"
+  ],
+  "invariants": {
+    "distributed_queue_implemented": false,
+    "process_supervision_implemented": false,
+    "external_alerting_implemented": false,
+    "e08_full_sidecar_completion_claimed": false,
+    "workingon_is_not_task_source": true
+  },
+  "next_boundary": "This closes durable worker heartbeat/liveness registry only; distributed queue semantics, process supervision, external alerting, real worker-offload handlers, and external KMS remain open."
+}

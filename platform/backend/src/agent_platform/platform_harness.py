@@ -26,6 +26,7 @@ TaskKind = Literal[
     "draft_patch_preview",
 ]
 TaskStatus = Literal["queued", "running", "paused", "succeeded", "failed", "cancelled"]
+WorkerHeartbeatStatus = Literal["idle", "running", "stopping", "failed"]
 UsageType = Literal[
     "node_execution",
     "model_call",
@@ -77,6 +78,17 @@ class PlatformTaskRecord(BaseModel):
     created_at: str = Field(default_factory=utc_now)
     updated_at: str = Field(default_factory=utc_now)
     finished_at: str | None = None
+
+
+class PlatformWorkerHeartbeatRecord(BaseModel):
+    worker_id: str
+    status: WorkerHeartbeatStatus = "idle"
+    active_task_id: str = ""
+    last_seen_at: str = Field(default_factory=utc_now)
+    stale_after_seconds: float = Field(default=120.0, gt=0)
+    liveness: Literal["active", "stale"] = "active"
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    updated_at: str = Field(default_factory=utc_now)
 
 
 class PlatformHarness:
@@ -432,6 +444,58 @@ class PlatformHarness:
         for record in records:
             await self._emit(record, "platform_harness.task.failed", {"reason": "stale_reconciled"})
         return [record.model_copy(deep=True) for record in records]
+
+    async def record_worker_heartbeat(
+        self,
+        *,
+        worker_id: str | None = None,
+        status: WorkerHeartbeatStatus = "idle",
+        active_task_id: str = "",
+        stale_after_seconds: float | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> PlatformWorkerHeartbeatRecord:
+        effective_worker_id = self._effective_worker_id(worker_id)
+        if not effective_worker_id.strip():
+            raise PlatformHarnessViolation("worker heartbeat requires a non-empty worker_id")
+        effective_stale_after = float(stale_after_seconds or max(self.worker_lease_seconds * 2, 120.0))
+        if effective_stale_after <= 0:
+            raise PlatformHarnessViolation("worker heartbeat stale_after_seconds must be greater than 0")
+        record = PlatformWorkerHeartbeatRecord(
+            worker_id=effective_worker_id,
+            status=status,
+            active_task_id=active_task_id,
+            stale_after_seconds=effective_stale_after,
+            metadata=metadata or {},
+        )
+        stored = await self.storage.save_platform_worker_heartbeat(record.model_dump(mode="json"))
+        hydrated = self._worker_heartbeat_with_liveness(PlatformWorkerHeartbeatRecord.model_validate(stored))
+        await self.storage.append_event(
+            "platform_harness",
+            "platform_harness.worker.heartbeat",
+            hydrated.model_dump(mode="json"),
+        )
+        return hydrated
+
+    async def list_worker_heartbeats(self, *, limit: int = 100) -> list[PlatformWorkerHeartbeatRecord]:
+        rows = await self.storage.list_platform_worker_heartbeats(limit=limit)
+        records = [
+            self._worker_heartbeat_with_liveness(PlatformWorkerHeartbeatRecord.model_validate(row))
+            for row in rows
+        ]
+        records.sort(key=lambda item: item.last_seen_at, reverse=True)
+        return [record.model_copy(deep=True) for record in records]
+
+    def _worker_heartbeat_with_liveness(
+        self,
+        record: PlatformWorkerHeartbeatRecord,
+    ) -> PlatformWorkerHeartbeatRecord:
+        seen_at = self._parse_datetime(record.last_seen_at)
+        liveness = "stale"
+        if seen_at is not None:
+            stale_at = seen_at + timedelta(seconds=record.stale_after_seconds)
+            if stale_at > datetime.now(timezone.utc):
+                liveness = "active"
+        return record.model_copy(update={"liveness": liveness})
 
     async def _change_task_lease(
         self,

@@ -8,7 +8,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from .platform_harness import PlatformHarness, PlatformTaskRecord
+from .platform_harness import PlatformHarness, PlatformTaskRecord, WorkerHeartbeatStatus
 
 
 PLATFORM_WORKER_TASK_KINDS = (
@@ -133,6 +133,7 @@ class PlatformHarnessWorkerRunner:
         owner_id: str | None = None,
         limit: int = 10,
     ) -> list[WorkerRunResult]:
+        await self._record_heartbeat(status="idle", metadata={"phase": "poll_start"})
         tasks = await self.harness.list_tasks(
             kind=kind,
             status="queued",
@@ -140,6 +141,9 @@ class PlatformHarnessWorkerRunner:
             limit=max(1, limit),
         )
         results: list[WorkerRunResult] = []
+        if not tasks:
+            await self._record_heartbeat(status="idle", metadata={"phase": "poll_empty"})
+            return results
         for task in tasks:
             handler = self.handlers.get(task.kind)
             if handler is None:
@@ -154,6 +158,11 @@ class PlatformHarnessWorkerRunner:
             except Exception as error:
                 results.append(self._result(task, "claim_failed", error=str(error)))
                 continue
+            await self._record_heartbeat(
+                status="running",
+                active_task_id=claimed.id,
+                metadata={"phase": "task_claimed", "kind": claimed.kind},
+            )
             renewal_state: dict[str, Any] = {"count": 0}
             renewal_task = asyncio.create_task(self._renew_lease_until_cancelled(claimed.id, renewal_state))
             try:
@@ -163,6 +172,11 @@ class PlatformHarnessWorkerRunner:
                 result_metadata = output or {}
             except Exception as error:
                 await self._stop_renewal_task(renewal_task)
+                await self._record_heartbeat(
+                    status="failed",
+                    active_task_id=claimed.id,
+                    metadata={"phase": "handler_failed", "kind": claimed.kind, "error": str(error)},
+                )
                 metadata = self._worker_metadata(status="failed", result={}, renewal_state=renewal_state)
                 finished = await self.harness.finish_task(
                     claimed.id,
@@ -171,6 +185,10 @@ class PlatformHarnessWorkerRunner:
                     metadata=metadata,
                 )
                 results.append(self._result(finished or claimed, "failed", error=str(error), metadata=metadata))
+                await self._record_heartbeat(
+                    status="idle",
+                    metadata={"phase": "task_finished", "last_task_id": claimed.id, "last_task_status": "failed"},
+                )
                 continue
             await self._stop_renewal_task(renewal_task)
             metadata = self._worker_metadata(
@@ -184,6 +202,10 @@ class PlatformHarnessWorkerRunner:
                 metadata=metadata,
             )
             results.append(self._result(finished or claimed, "succeeded", metadata=metadata))
+            await self._record_heartbeat(
+                status="idle",
+                metadata={"phase": "task_finished", "last_task_id": claimed.id, "last_task_status": "succeeded"},
+            )
         return results
 
     async def _renew_lease_until_cancelled(self, task_id: str, state: dict[str, Any]) -> None:
@@ -197,6 +219,11 @@ class PlatformHarnessWorkerRunner:
                 )
                 state["count"] = int(state.get("count", 0)) + 1
                 state["lease_version"] = record.lease_version
+                await self._record_heartbeat(
+                    status="running",
+                    active_task_id=task_id,
+                    metadata={"phase": "lease_renewed", "lease_version": record.lease_version},
+                )
         except asyncio.CancelledError:
             raise
         except Exception as error:
@@ -212,7 +239,7 @@ class PlatformHarnessWorkerRunner:
     def _worker_metadata(
         self,
         *,
-        status: str,
+        status: WorkerHeartbeatStatus,
         result: dict[str, Any],
         renewal_state: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
@@ -229,6 +256,21 @@ class PlatformHarnessWorkerRunner:
                 **worker_runner,
             }
         }
+
+    async def _record_heartbeat(
+        self,
+        *,
+        status: str,
+        active_task_id: str = "",
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        await self.harness.record_worker_heartbeat(
+            worker_id=self.worker_id,
+            status=status,
+            active_task_id=active_task_id,
+            stale_after_seconds=max(self.lease_seconds * 2, 1.0),
+            metadata=metadata or {},
+        )
 
     def _result(
         self,

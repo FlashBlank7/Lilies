@@ -476,6 +476,11 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         tasks = await services.harness.reconcile_expired_task_leases()
         return [task.model_dump(mode="json") for task in tasks]
 
+    @app.get("/api/v1/platform/harness/worker-heartbeats", dependencies=[Depends(require_token)])
+    async def list_platform_harness_worker_heartbeats(limit: int = 100) -> list[dict[str, Any]]:
+        rows = await services.harness.list_worker_heartbeats(limit=max(1, min(limit, 500)))
+        return [row.model_dump(mode="json") for row in rows]
+
     @app.post("/api/v1/platform/secrets", status_code=201, dependencies=[Depends(require_token)])
     async def create_platform_secret(body: PlatformSecretCreateRequest) -> dict[str, Any]:
         try:

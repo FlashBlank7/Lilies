@@ -112,6 +112,14 @@ class Storage:
                   updated_at TEXT NOT NULL,
                   UNIQUE(owner_id, name)
                 );
+                CREATE TABLE IF NOT EXISTS platform_worker_heartbeats (
+                  worker_id TEXT PRIMARY KEY,
+                  status TEXT NOT NULL,
+                  active_task_id TEXT NOT NULL,
+                  record_json TEXT NOT NULL,
+                  last_seen_at TEXT NOT NULL,
+                  updated_at TEXT NOT NULL
+                );
                 CREATE INDEX IF NOT EXISTS idx_generations_agent ON generations(agent_id);
                 CREATE INDEX IF NOT EXISTS idx_sessions_agent ON sessions(agent_id);
                 CREATE INDEX IF NOT EXISTS idx_platform_harness_tasks_kind_status
@@ -120,6 +128,8 @@ class Storage:
                   ON platform_harness_tasks(owner_id);
                 CREATE INDEX IF NOT EXISTS idx_platform_secrets_owner
                   ON platform_secrets(owner_id);
+                CREATE INDEX IF NOT EXISTS idx_platform_worker_heartbeats_status_seen
+                  ON platform_worker_heartbeats(status, last_seen_at);
                 """
             )
 
@@ -499,6 +509,50 @@ class Storage:
                 )
                 records.append(record)
         return records
+
+    async def save_platform_worker_heartbeat(self, record: dict[str, Any]) -> dict[str, Any]:
+        async with self._lock:
+            return await asyncio.to_thread(self._save_platform_worker_heartbeat_sync, record)
+
+    def _save_platform_worker_heartbeat_sync(self, record: dict[str, Any]) -> dict[str, Any]:
+        now = utc_now()
+        persisted = dict(record)
+        persisted["updated_at"] = now
+        encoded = json.dumps(persisted, ensure_ascii=False, separators=(",", ":"))
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO platform_worker_heartbeats(
+                  worker_id, status, active_task_id, record_json, last_seen_at, updated_at
+                )
+                VALUES(?,?,?,?,?,?)
+                ON CONFLICT(worker_id) DO UPDATE SET
+                  status=excluded.status,
+                  active_task_id=excluded.active_task_id,
+                  record_json=excluded.record_json,
+                  last_seen_at=excluded.last_seen_at,
+                  updated_at=excluded.updated_at
+                """,
+                (
+                    persisted["worker_id"],
+                    persisted["status"],
+                    persisted.get("active_task_id", ""),
+                    encoded,
+                    persisted["last_seen_at"],
+                    persisted["updated_at"],
+                ),
+            )
+        return persisted
+
+    async def list_platform_worker_heartbeats(self, *, limit: int = 100) -> list[dict[str, Any]]:
+        return await asyncio.to_thread(self._list_platform_worker_heartbeats_sync, max(1, min(limit, 500)))
+
+    def _list_platform_worker_heartbeats_sync(self, limit: int) -> list[dict[str, Any]]:
+        rows = self._get_all(
+            "SELECT record_json FROM platform_worker_heartbeats ORDER BY last_seen_at DESC LIMIT ?",
+            (limit,),
+        )
+        return [json.loads(row["record_json"]) for row in rows]
 
     def _parse_iso_datetime(self, value: str) -> datetime:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
