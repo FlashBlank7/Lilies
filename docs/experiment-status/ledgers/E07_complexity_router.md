@@ -1,6 +1,6 @@
 # E07 Complexity Router Ledger
 
-状态：runtime_activation_observability_implemented；default settings disabled；explicit limited-default runtime policy observable
+状态：limited_default_readiness_passed；next guarded default rollout；default settings still disabled
 
 ## 实验问题
 
@@ -88,6 +88,13 @@ v0.2.91 runtime activation observability 已完成：新增只读 metrics surfac
 - `../../workingon-archives/v0.2.91/metrics_v0.2.91_complexity_router_runtime_activation_observability_summary.md`
 - `../../workingon-archives/v0.2.91/implementation_v0.2.91_complexity_router_runtime_activation_observability.md`
 
+v0.2.92 limited-default product readiness review 已完成：7/7 gates 通过，选择 `enter_guarded_default_rollout`，下一版本为 `v0.2.93_complexity_router_guarded_default_rollout`。本 readiness stage 不改变正常默认 settings，仍为 `disabled`；guarded rollout 必须继续保留 rollback value `disabled` 和 conservative unknown bypass。
+
+证据：
+
+- `../../workingon-archives/v0.2.92/decision_v0.2.92_complexity_router_limited_default_readiness_review_summary.md`
+- `../../workingon-archives/v0.2.92/implementation_v0.2.92_complexity_router_limited_default_readiness_review.md`
+
 ## 初始设计方向
 
 - 定义 simple/medium/complex 三档需求。
@@ -96,4 +103,4 @@ v0.2.91 runtime activation observability 已完成：新增只读 metrics surfac
 
 ## 下一步
 
-下一步是进行 limited-default product readiness review：基于 runtime activation、metrics observability、frontend verification 和保守 unknown handling，决定是否进入更宽的默认启用/灰度，或继续收集运行证据。默认 settings 仍不得自动启用；显式 limited-default runtime policy 已可用且可观测。
+下一步是实现 guarded default rollout。默认 settings 是否变更只能由 v0.2.93 的 source-linked design 和验证决定；rollback value 必须保持 `disabled`，unknown 必须继续 bypass。

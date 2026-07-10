@@ -1,0 +1,101 @@
+{
+  "version": "v0.2.92",
+  "decision_id": "complexity_router_limited_default_readiness_review",
+  "source_stage_report": "docs/stage-reports/v0.2.91_complexity_router_runtime_activation_observability.md",
+  "status": "completed",
+  "normal_default_settings": "disabled",
+  "readiness_gates": [
+    {
+      "name": "runtime_activation_evidence",
+      "passed": true,
+      "evidence": "docs/workingon-archives/v0.2.91/metrics_v0.2.91_complexity_router_runtime_activation_observability_summary.md",
+      "reason": "explicit limited-default metrics must include at least two active runtime decisions"
+    },
+    {
+      "name": "observability_categories",
+      "passed": true,
+      "evidence": "platform/backend/src/agent_platform/complexity_router.py",
+      "reason": "metrics must distinguish active, bypassed, unknown, and request override decisions"
+    },
+    {
+      "name": "disabled_default_safety",
+      "passed": true,
+      "evidence": "docs/workingon-archives/v0.2.91/metrics_v0.2.91_complexity_router_runtime_activation_observability_summary.md",
+      "reason": "normal default settings must remain inactive"
+    },
+    {
+      "name": "unknown_bypass_safety",
+      "passed": true,
+      "evidence": "docs/workingon-archives/v0.2.91/metrics_v0.2.91_complexity_router_runtime_activation_observability_summary.md",
+      "reason": "unknown requirements must remain bypassed and counted"
+    },
+    {
+      "name": "request_override_visibility",
+      "passed": true,
+      "evidence": "docs/workingon-archives/v0.2.91/metrics_v0.2.91_complexity_router_runtime_activation_observability_summary.md",
+      "reason": "request override visibility must be present before broader rollout"
+    },
+    {
+      "name": "rollback_to_disabled",
+      "passed": true,
+      "evidence": "runtime activation metrics response",
+      "reason": "rollback value must remain disabled"
+    },
+    {
+      "name": "frontend_verification",
+      "passed": true,
+      "evidence": "scripts/frontend_verification_runner.py",
+      "reason": "frontend verification must pass"
+    }
+  ],
+  "decision": {
+    "decision": "enter_guarded_default_rollout",
+    "next_version": "v0.2.93_complexity_router_guarded_default_rollout",
+    "first_design": "docs/current-design/design_v0_2_93_complexity_router_guarded_default_rollout.md",
+    "reason": "runtime activation, observability, rollback, unknown bypass, request override, and frontend gates passed"
+  },
+  "frontend_verification": {
+    "status": "completed",
+    "reason": "frontend verification passed",
+    "probe": {
+      "frontend_dir": "platform/frontend",
+      "package_json_present": true,
+      "package_lock_present": true,
+      "node_modules_present": true,
+      "selected_node_bin": "/Users/zhonghaoyang/.nvm/versions/node/v24.15.0/bin",
+      "node_available": true,
+      "npm_available": true,
+      "candidates": [
+        {
+          "node_bin": "/Users/zhonghaoyang/.nvm/versions/node/v24.15.0/bin",
+          "node_exists": true,
+          "npm_exists": true,
+          "usable": true
+        },
+        {
+          "node_bin": "/Users/zhonghaoyang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin",
+          "node_exists": true,
+          "npm_exists": false,
+          "usable": false
+        }
+      ]
+    },
+    "checks": [
+      {
+        "command": "npm run lint",
+        "returncode": 0,
+        "stdout": "\n> agent-platform-studio@0.1.0 lint\n> tsc --noEmit\n\n",
+        "stderr": "",
+        "passed": true
+      },
+      {
+        "command": "node_modules/.bin/tsc --noEmit",
+        "returncode": 0,
+        "stdout": "",
+        "stderr": "",
+        "passed": true
+      }
+    ],
+    "passed": true
+  }
+}

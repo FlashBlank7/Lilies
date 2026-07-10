@@ -115,6 +115,7 @@
 - `stage-reports/v0.2.89_complexity_router_limited_default_enablement_contract.md`
 - `stage-reports/v0.2.90_complexity_router_runtime_activation_path.md`
 - `stage-reports/v0.2.91_complexity_router_runtime_activation_observability.md`
+- `stage-reports/v0.2.92_complexity_router_limited_default_readiness_review.md`
 
 ## 使用原则
 
