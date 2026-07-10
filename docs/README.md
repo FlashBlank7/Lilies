@@ -122,6 +122,7 @@
 - `stage-reports/v0.2.96_e08_editable_policy_controls_api.md`
 - `stage-reports/v0.2.97_e08_post_api_productization_decision.md`
 - `stage-reports/v0.2.98_e08_studio_editable_policy_controls.md`
+- `stage-reports/v0.2.99_e08_post_studio_controls_decision.md`
 
 ## 使用原则
 

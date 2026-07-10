@@ -1,6 +1,6 @@
 # E08 Harness Sidecar Passmode Ledger
 
-状态：Studio editable controls completed；runbook or broader boundary next
+状态：post_Studio_path_selected；operator runbook lifecycle next
 
 ## 当前结论
 
@@ -49,3 +49,7 @@ v0.2.97 已在后端 API 完成后选择 `studio_editable_policy_controls` 作�
 v0.2.98 已将 editable policy-controls 暴露到 Studio monitor tab：包含 network policy、allowlist、cancellation policy、secret policy、worker lease、budget limits、reason 和 save action，调用 `PATCH /api/v1/platform/harness/policy-controls`，并保留 before/after/audit 后端证据链。前端 TypeScript、route smoke、backend focused regression 均通过。此版本仍不声明 full sidecar completion。
 
 证据：`../../workingon-archives/v0.2.98/evidence_v0.2.98_e08_studio_editable_policy_controls_summary.md`
+
+v0.2.99 已选择 `operator_runbook_lifecycle` 作为 Studio controls 之后的下一条 E08 产品化路径。broader sidecar boundary closure 仍因范围过大延后；暂停 E08 被拒绝，因为已有 API 与 Studio controls 后，操作员流程、回滚和升级边界是自然闭合步骤。
+
+证据：`../../workingon-archives/v0.2.99/decision_v0.2.99_e08_post_studio_controls_summary.md`

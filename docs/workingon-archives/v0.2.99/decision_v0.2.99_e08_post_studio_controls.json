@@ -1,0 +1,84 @@
+{
+  "version": "v0.2.99",
+  "decision_id": "e08_post_studio_controls_decision",
+  "source_stage_report": "docs/stage-reports/v0.2.98_e08_studio_editable_policy_controls.md",
+  "status": "completed",
+  "decision": "select_operator_runbook_lifecycle",
+  "selected_candidate": {
+    "candidate_id": "operator_runbook_lifecycle",
+    "status": "candidate",
+    "product_value": 40,
+    "readiness": 35,
+    "verification_readiness": 35,
+    "scope_risk": 15,
+    "evidence": [
+      "docs/workingon-archives/v0.2.96/evidence_v0.2.96_e08_editable_policy_controls_api_summary.md",
+      "docs/workingon-archives/v0.2.98/evidence_v0.2.98_e08_studio_editable_policy_controls_summary.md"
+    ],
+    "disposition": "select because backend API and Studio surface now need operational procedure, rollback, and escalation guidance",
+    "next_version": "v0.2.100_e08_operator_runbook_lifecycle",
+    "first_design": "docs/current-design/design_v0_2_100_e08_operator_runbook_lifecycle.md",
+    "score": 95
+  },
+  "candidates": [
+    {
+      "candidate_id": "operator_runbook_lifecycle",
+      "status": "candidate",
+      "product_value": 40,
+      "readiness": 35,
+      "verification_readiness": 35,
+      "scope_risk": 15,
+      "evidence": [
+        "docs/workingon-archives/v0.2.96/evidence_v0.2.96_e08_editable_policy_controls_api_summary.md",
+        "docs/workingon-archives/v0.2.98/evidence_v0.2.98_e08_studio_editable_policy_controls_summary.md"
+      ],
+      "disposition": "select because backend API and Studio surface now need operational procedure, rollback, and escalation guidance",
+      "next_version": "v0.2.100_e08_operator_runbook_lifecycle",
+      "first_design": "docs/current-design/design_v0_2_100_e08_operator_runbook_lifecycle.md",
+      "score": 95
+    },
+    {
+      "candidate_id": "pause_e08_after_studio_controls",
+      "status": "candidate",
+      "product_value": 10,
+      "readiness": 40,
+      "verification_readiness": 40,
+      "scope_risk": 5,
+      "evidence": [
+        "docs/stage-reports/v0.2.98_e08_studio_editable_policy_controls.md"
+      ],
+      "disposition": "reject for now because operator runbook is the natural closure after an operator surface",
+      "next_version": "v0.2.x_productization_lane_reselection",
+      "first_design": "docs/current-design/design_productization_lane_reselection.md",
+      "score": 85
+    },
+    {
+      "candidate_id": "broader_sidecar_boundary_closure",
+      "status": "candidate",
+      "product_value": 50,
+      "readiness": 15,
+      "verification_readiness": 15,
+      "scope_risk": 45,
+      "evidence": [
+        "docs/experiment-status/ledgers/E08_harness_sidecar_passmode.md"
+      ],
+      "disposition": "defer because full boundary closure remains broader than the immediate post-Studio slice",
+      "next_version": "v0.2.x_e08_broader_sidecar_boundary_closure",
+      "first_design": "docs/current-design/design_e08_broader_sidecar_boundary_closure.md",
+      "score": 35
+    }
+  ],
+  "next_version": "v0.2.100_e08_operator_runbook_lifecycle",
+  "first_design": "docs/current-design/design_v0_2_100_e08_operator_runbook_lifecycle.md",
+  "e07_invariant": {
+    "status": "preserved",
+    "no_e07_code_or_default_change": true
+  },
+  "v02_100_verification_targets": [
+    "operator runbook document or product surface under docs/current-design then archived",
+    "runbook checklist covering before-change, apply-change, rollback, and incident escalation",
+    "linkage to backend PATCH API and Studio editable controls evidence",
+    "stage report template validation and active directory cleanup"
+  ],
+  "reason": "After API and Studio controls, the next highest-value bounded step is an operator runbook lifecycle."
+}

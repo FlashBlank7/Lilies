@@ -110,6 +110,7 @@
 - `v0.2.96_*`：来自 `docs/stage-reports/v0.2.96_e08_editable_policy_controls_api.md`。
 - `v0.2.97_*`：来自 `docs/stage-reports/v0.2.97_e08_post_api_productization_decision.md`。
 - `v0.2.98_*`：来自 `docs/stage-reports/v0.2.98_e08_studio_editable_policy_controls.md`。
+- `v0.2.99_*`：来自 `docs/stage-reports/v0.2.99_e08_post_studio_controls_decision.md`。
 
 Active workspace rule:
 
