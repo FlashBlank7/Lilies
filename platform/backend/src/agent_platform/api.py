@@ -16,7 +16,12 @@ from pydantic import BaseModel, Field
 
 from .config import Settings, get_settings
 from .applications import ApplicationService
-from .adaptive_monitoring import adaptive_monitoring_status_with_history, record_adaptive_monitoring_refresh
+from .adaptive_monitoring import (
+    adaptive_monitoring_refresh_loop,
+    adaptive_monitoring_schedule_status,
+    adaptive_monitoring_status_with_history,
+    record_adaptive_monitoring_refresh,
+)
 from .blocks import BlockRegistry, build_block_registry
 from .builder import WorkflowBuilder
 from .builder_benchmark import BuilderBenchmark, BuilderBenchmarkCase, BuilderBenchmarkSuiteCase
@@ -231,10 +236,22 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         await services.workflow_store.initialize()
         await services.workflow_store.fail_interrupted_runs()
         services.scheduler.start()
+        adaptive_refresh_task: asyncio.Task[Any] | None = None
+        if settings.adaptive_monitoring_refresh_interval_seconds > 0:
+            adaptive_refresh_task = asyncio.create_task(
+                adaptive_monitoring_refresh_loop(
+                    services.settings.data_dir,
+                    settings.adaptive_monitoring_refresh_interval_seconds,
+                ),
+                name="adaptive-monitoring-refresh-loop",
+            )
+            services.background_tasks.add(adaptive_refresh_task)
         yield
         await services.scheduler.stop()
         for task in services.background_tasks:
             task.cancel()
+        if adaptive_refresh_task is not None:
+            services.background_tasks.discard(adaptive_refresh_task)
         await services.sandboxes.close()
 
     app = FastAPI(title=settings.app_name, version="0.2.0", lifespan=lifespan)
@@ -554,6 +571,25 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
     @app.post("/api/v1/templates/adaptive-monitoring/refresh", dependencies=[Depends(require_token)])
     async def refresh_adaptive_template_monitoring() -> dict[str, Any]:
         return record_adaptive_monitoring_refresh(services.settings.data_dir)
+
+    @app.get("/api/v1/templates/adaptive-monitoring/schedule", dependencies=[Depends(require_token)])
+    async def get_adaptive_template_monitoring_schedule() -> dict[str, Any]:
+        interval = services.settings.adaptive_monitoring_refresh_interval_seconds
+        running = any(
+            task.get_name() == "adaptive-monitoring-refresh-loop" and not task.done()
+            for task in services.background_tasks
+        )
+        return adaptive_monitoring_schedule_status(services.settings.data_dir, interval, running=running)
+
+    @app.post("/api/v1/templates/adaptive-monitoring/schedule/run-once", dependencies=[Depends(require_token)])
+    async def run_adaptive_template_monitoring_schedule_once() -> dict[str, Any]:
+        record_adaptive_monitoring_refresh(services.settings.data_dir, trigger="manual_schedule_run")
+        interval = services.settings.adaptive_monitoring_refresh_interval_seconds
+        running = any(
+            task.get_name() == "adaptive-monitoring-refresh-loop" and not task.done()
+            for task in services.background_tasks
+        )
+        return adaptive_monitoring_schedule_status(services.settings.data_dir, interval, running=running)
 
     @app.get("/api/v1/templates/{name}", dependencies=[Depends(require_token)])
     async def get_template(name: str) -> dict[str, Any]:

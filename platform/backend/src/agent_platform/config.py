@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     max_subagent_depth: int = 2
     event_queue_size: int = 1000
     scheduler_poll_seconds: float = 30.0
+    adaptive_monitoring_refresh_interval_seconds: float = 0.0
     templates_dir: Path | None = None
     platform_harness_max_active_tasks: int = 100
     platform_harness_max_model_calls_per_task: int = 100

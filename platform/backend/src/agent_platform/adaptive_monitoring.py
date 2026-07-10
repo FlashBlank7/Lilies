@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -82,9 +83,10 @@ def adaptive_monitoring_status(path: Path = MONITOR_SNAPSHOT_PATH) -> dict[str, 
     }
 
 
-def _refresh_record(status: dict[str, Any]) -> dict[str, Any]:
+def _refresh_record(status: dict[str, Any], trigger: str) -> dict[str, Any]:
     return {
         "refreshed_at": utc_now(),
+        "trigger": trigger,
         "status": status["status"],
         "critical_alert_count": status["critical_alert_count"],
         "warning_alert_count": status["warning_alert_count"],
@@ -123,11 +125,36 @@ def adaptive_monitoring_status_with_history(data_dir: Path, limit: int = 10) -> 
     }
 
 
-def record_adaptive_monitoring_refresh(data_dir: Path) -> dict[str, Any]:
+def record_adaptive_monitoring_refresh(data_dir: Path, trigger: str = "manual") -> dict[str, Any]:
     status = adaptive_monitoring_status()
-    record = _refresh_record(status)
+    record = _refresh_record(status, trigger=trigger)
     path = refresh_history_path(data_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(record, ensure_ascii=False) + "\n")
     return adaptive_monitoring_status_with_history(data_dir)
+
+
+def adaptive_monitoring_schedule_status(
+    data_dir: Path,
+    interval_seconds: float,
+    *,
+    running: bool = False,
+) -> dict[str, Any]:
+    history = adaptive_monitoring_history(data_dir, limit=1)
+    return {
+        "enabled": interval_seconds > 0,
+        "interval_seconds": interval_seconds,
+        "running": running,
+        "trigger": "scheduled" if interval_seconds > 0 else "disabled",
+        "history_path": refresh_history_path(data_dir).as_posix(),
+        "last_refresh": history[0] if history else None,
+    }
+
+
+async def adaptive_monitoring_refresh_loop(data_dir: Path, interval_seconds: float) -> None:
+    if interval_seconds <= 0:
+        return
+    while True:
+        await asyncio.sleep(interval_seconds)
+        record_adaptive_monitoring_refresh(data_dir, trigger="scheduled")
