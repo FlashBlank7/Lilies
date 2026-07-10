@@ -28,7 +28,9 @@ from .builder_benchmark import BuilderBenchmark, BuilderBenchmarkCase, BuilderBe
 from .complexity_router import (
     classify_requirement,
     complexity_router_default_safety_gate,
+    operator_override_plan_status,
     requirement_classification_contract_status,
+    validate_operator_override,
 )
 from .factory import AgentFactory
 from .draft_patch_preview import DraftPatchPreviewer, DraftPatchPreviewRequest
@@ -109,6 +111,11 @@ class PlatformSecretCreateRequest(BaseModel):
 
 class RequirementClassificationRequest(BaseModel):
     requirement: str = Field(default="", max_length=4000)
+
+
+class OperatorOverrideRequest(BaseModel):
+    mode: str = Field(default="disabled", max_length=80)
+    reason: str = Field(default="", max_length=1000)
 
 
 def deadline_summary(max_elapsed_seconds: float | None) -> dict[str, Any]:
@@ -337,6 +344,16 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         body: RequirementClassificationRequest,
     ) -> dict[str, Any]:
         return classify_requirement(body.requirement)
+
+    @app.get("/api/v1/platform/complexity-router/operator-override-plan", dependencies=[Depends(require_token)])
+    async def get_complexity_router_operator_override_plan() -> dict[str, Any]:
+        return operator_override_plan_status()
+
+    @app.post("/api/v1/platform/complexity-router/validate-operator-override", dependencies=[Depends(require_token)])
+    async def post_complexity_router_validate_operator_override(
+        body: OperatorOverrideRequest,
+    ) -> dict[str, Any]:
+        return validate_operator_override(body.mode, body.reason)
 
     @app.post("/api/v1/platform/harness/tasks/{task_id}/lease", dependencies=[Depends(require_token)])
     async def claim_platform_harness_task_lease(

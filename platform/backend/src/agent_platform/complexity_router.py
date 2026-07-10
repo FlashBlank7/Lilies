@@ -85,6 +85,29 @@ COMPLEX_SIGNALS = {
     "router",
 }
 
+OPERATOR_OVERRIDE_MODES = {
+    "disabled": {
+        "target_class": None,
+        "requires_reason": False,
+        "description": "Keep automatic complexity routing disabled.",
+    },
+    "force_simple": {
+        "target_class": "simple",
+        "requires_reason": True,
+        "description": "Force simple handling for a requirement with an operator-visible reason.",
+    },
+    "force_medium": {
+        "target_class": "medium",
+        "requires_reason": True,
+        "description": "Force medium handling for a requirement with an operator-visible reason.",
+    },
+    "force_complex": {
+        "target_class": "complex",
+        "requires_reason": True,
+        "description": "Force complex handling for a requirement with an operator-visible reason.",
+    },
+}
+
 
 @dataclass(frozen=True)
 class DefaultSafetyInputs:
@@ -108,7 +131,7 @@ def current_default_safety_inputs(root: Path | None = None) -> DefaultSafetyInpu
     return DefaultSafetyInputs(
         source_evidence_present=source_ready,
         requirement_classification_contract=True,
-        operator_override_plan=False,
+        operator_override_plan=True,
         rollout_metrics_prerequisites=False,
     )
 
@@ -207,6 +230,64 @@ def _classification_result(
     }
 
 
+def operator_override_plan_status() -> dict[str, Any]:
+    return {
+        "plan_id": "operator_override_plan",
+        "policy_version": "v0.2.73_complexity_router_operator_override_plan",
+        "satisfied": True,
+        "default_router_enabled": False,
+        "allowed_modes": OPERATOR_OVERRIDE_MODES,
+        "operator_visible_reason_required_for": [
+            mode for mode, config in OPERATOR_OVERRIDE_MODES.items() if config["requires_reason"]
+        ],
+        "evidence": [
+            "platform/backend/src/agent_platform/complexity_router.py",
+            "tests/test_complexity_router_default_safety.py",
+        ],
+    }
+
+
+def validate_operator_override(mode: str, reason: str = "") -> dict[str, Any]:
+    normalized_mode = mode.strip().casefold()
+    normalized_reason = reason.strip()
+    config = OPERATOR_OVERRIDE_MODES.get(normalized_mode)
+    if config is None:
+        return {
+            "plan_id": "operator_override_plan",
+            "policy_version": "v0.2.73_complexity_router_operator_override_plan",
+            "mode": normalized_mode,
+            "valid": False,
+            "target_class": None,
+            "reason_required": False,
+            "operator_visible_reason": normalized_reason,
+            "error": "unsupported_override_mode",
+            "default_router_enabled": False,
+        }
+    if config["requires_reason"] and not normalized_reason:
+        return {
+            "plan_id": "operator_override_plan",
+            "policy_version": "v0.2.73_complexity_router_operator_override_plan",
+            "mode": normalized_mode,
+            "valid": False,
+            "target_class": config["target_class"],
+            "reason_required": True,
+            "operator_visible_reason": normalized_reason,
+            "error": "operator_visible_reason_required",
+            "default_router_enabled": False,
+        }
+    return {
+        "plan_id": "operator_override_plan",
+        "policy_version": "v0.2.73_complexity_router_operator_override_plan",
+        "mode": normalized_mode,
+        "valid": True,
+        "target_class": config["target_class"],
+        "reason_required": config["requires_reason"],
+        "operator_visible_reason": normalized_reason,
+        "error": None,
+        "default_router_enabled": False,
+    }
+
+
 def complexity_router_default_safety_gate(
     inputs: DefaultSafetyInputs | None = None,
 ) -> dict[str, Any]:
@@ -233,7 +314,10 @@ def complexity_router_default_safety_gate(
             "id": "operator_override_plan",
             "label": "Operator override plan",
             "satisfied": resolved.operator_override_plan,
-            "evidence": [],
+            "evidence": [
+                "platform/backend/src/agent_platform/complexity_router.py",
+                "tests/test_complexity_router_default_safety.py",
+            ],
             "required_for_default": True,
         },
         {
@@ -249,7 +333,7 @@ def complexity_router_default_safety_gate(
     return {
         "router_id": "e07_complexity_router",
         "gate_id": "default_safety_gate",
-        "policy_version": "v0.2.72_complexity_router_requirement_classification_contract",
+        "policy_version": "v0.2.73_complexity_router_operator_override_plan",
         "default_enabled": False,
         "allowed_to_enable_default": allowed,
         "router_ready_for_default": allowed,

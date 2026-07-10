@@ -10,7 +10,9 @@ from agent_platform.complexity_router import (
     classify_requirement,
     complexity_router_default_safety_gate,
     current_default_safety_inputs,
+    operator_override_plan_status,
     requirement_classification_contract_status,
+    validate_operator_override,
 )
 from agent_platform.config import Settings
 from tests.test_runtime import ScriptedProvider
@@ -29,7 +31,7 @@ def test_current_complexity_router_default_safety_gate_stays_disabled() -> None:
     assert status["router_ready_for_default"] is False
     assert "source_evidence" not in status["missing_prerequisites"]
     assert "requirement_classification_contract" not in status["missing_prerequisites"]
-    assert "operator_override_plan" in status["missing_prerequisites"]
+    assert "operator_override_plan" not in status["missing_prerequisites"]
     assert "rollout_metrics_prerequisites" in status["missing_prerequisites"]
     assert "requirement_classification_contract" in status["supporting_guardrails"]
 
@@ -69,7 +71,8 @@ def test_complexity_router_default_safety_api_reports_current_gate(tmp_path: Pat
     assert body["default_enabled"] is False
     assert body["router_ready_for_default"] is False
     assert "requirement_classification_contract" not in body["missing_prerequisites"]
-    assert "operator_override_plan" in body["missing_prerequisites"]
+    assert "operator_override_plan" not in body["missing_prerequisites"]
+    assert "rollout_metrics_prerequisites" in body["missing_prerequisites"]
 
 
 def test_requirement_classification_contract_status_is_satisfied_without_enabling_default() -> None:
@@ -122,3 +125,53 @@ def test_requirement_classification_api_surfaces_contract_and_classification(tmp
     classification = classify_response.json()
     assert classification["requirement_class"] == "complex"
     assert classification["default_router_enabled"] is False
+
+
+def test_operator_override_plan_status_and_validation() -> None:
+    status = operator_override_plan_status()
+
+    assert status["satisfied"] is True
+    assert status["default_router_enabled"] is False
+    assert set(status["allowed_modes"]) == {"disabled", "force_simple", "force_medium", "force_complex"}
+    assert "force_complex" in status["operator_visible_reason_required_for"]
+
+    assert validate_operator_override("disabled")["valid"] is True
+    force_complex = validate_operator_override("force_complex", "High-risk live integration")
+    assert force_complex["valid"] is True
+    assert force_complex["target_class"] == "complex"
+    assert force_complex["operator_visible_reason"] == "High-risk live integration"
+
+    missing_reason = validate_operator_override("force_medium", "")
+    assert missing_reason["valid"] is False
+    assert missing_reason["error"] == "operator_visible_reason_required"
+
+    unsupported = validate_operator_override("force_magic", "testing")
+    assert unsupported["valid"] is False
+    assert unsupported["error"] == "unsupported_override_mode"
+
+
+def test_operator_override_api_surfaces_plan_and_validation(tmp_path: Path) -> None:
+    settings = Settings(api_token="test-token", data_dir=tmp_path / "data", workspace_root=tmp_path / "workspaces")
+    app = create_app(settings, ScriptedProvider())
+
+    with TestClient(app) as client:
+        plan_response = client.get(
+            "/api/v1/platform/complexity-router/operator-override-plan",
+            headers=headers(),
+        )
+        validation_response = client.post(
+            "/api/v1/platform/complexity-router/validate-operator-override",
+            headers=headers(),
+            json={"mode": "force_simple", "reason": "Low-risk text-only edit"},
+        )
+
+    assert plan_response.status_code == 200
+    plan = plan_response.json()
+    assert plan["satisfied"] is True
+    assert plan["default_router_enabled"] is False
+
+    assert validation_response.status_code == 200
+    validation = validation_response.json()
+    assert validation["valid"] is True
+    assert validation["target_class"] == "simple"
+    assert validation["default_router_enabled"] is False

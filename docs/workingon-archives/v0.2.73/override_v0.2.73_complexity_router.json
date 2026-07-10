@@ -1,0 +1,142 @@
+{
+  "version": "v0.2.73",
+  "operator_override_plan": {
+    "plan_id": "operator_override_plan",
+    "policy_version": "v0.2.73_complexity_router_operator_override_plan",
+    "satisfied": true,
+    "default_router_enabled": false,
+    "allowed_modes": {
+      "disabled": {
+        "target_class": null,
+        "requires_reason": false,
+        "description": "Keep automatic complexity routing disabled."
+      },
+      "force_simple": {
+        "target_class": "simple",
+        "requires_reason": true,
+        "description": "Force simple handling for a requirement with an operator-visible reason."
+      },
+      "force_medium": {
+        "target_class": "medium",
+        "requires_reason": true,
+        "description": "Force medium handling for a requirement with an operator-visible reason."
+      },
+      "force_complex": {
+        "target_class": "complex",
+        "requires_reason": true,
+        "description": "Force complex handling for a requirement with an operator-visible reason."
+      }
+    },
+    "operator_visible_reason_required_for": [
+      "force_simple",
+      "force_medium",
+      "force_complex"
+    ],
+    "evidence": [
+      "platform/backend/src/agent_platform/complexity_router.py",
+      "tests/test_complexity_router_default_safety.py"
+    ]
+  },
+  "validations": [
+    {
+      "plan_id": "operator_override_plan",
+      "policy_version": "v0.2.73_complexity_router_operator_override_plan",
+      "mode": "disabled",
+      "valid": true,
+      "target_class": null,
+      "reason_required": false,
+      "operator_visible_reason": "",
+      "error": null,
+      "default_router_enabled": false
+    },
+    {
+      "plan_id": "operator_override_plan",
+      "policy_version": "v0.2.73_complexity_router_operator_override_plan",
+      "mode": "force_simple",
+      "valid": true,
+      "target_class": "simple",
+      "reason_required": true,
+      "operator_visible_reason": "Low-risk text-only edit",
+      "error": null,
+      "default_router_enabled": false
+    },
+    {
+      "plan_id": "operator_override_plan",
+      "policy_version": "v0.2.73_complexity_router_operator_override_plan",
+      "mode": "force_medium",
+      "valid": false,
+      "target_class": "medium",
+      "reason_required": true,
+      "operator_visible_reason": "",
+      "error": "operator_visible_reason_required",
+      "default_router_enabled": false
+    },
+    {
+      "plan_id": "operator_override_plan",
+      "policy_version": "v0.2.73_complexity_router_operator_override_plan",
+      "mode": "force_magic",
+      "valid": false,
+      "target_class": null,
+      "reason_required": false,
+      "operator_visible_reason": "unsupported mode smoke test",
+      "error": "unsupported_override_mode",
+      "default_router_enabled": false
+    }
+  ],
+  "default_safety": {
+    "router_id": "e07_complexity_router",
+    "gate_id": "default_safety_gate",
+    "policy_version": "v0.2.73_complexity_router_operator_override_plan",
+    "default_enabled": false,
+    "allowed_to_enable_default": false,
+    "router_ready_for_default": false,
+    "reason": "complexity-router default remains disabled until every default-safety prerequisite is satisfied",
+    "missing_prerequisites": [
+      "rollout_metrics_prerequisites"
+    ],
+    "prerequisites": [
+      {
+        "id": "source_evidence",
+        "label": "Source evidence",
+        "satisfied": true,
+        "evidence": [
+          "docs/experiment-status/ledgers/E07_complexity_router.md",
+          "docs/workingon-archives/v0.2.70/selection_v0.2.70_complexity_router_guardrail_summary.md"
+        ],
+        "required_for_default": true
+      },
+      {
+        "id": "requirement_classification_contract",
+        "label": "Requirement classification contract",
+        "satisfied": true,
+        "evidence": [
+          "platform/backend/src/agent_platform/complexity_router.py",
+          "tests/test_complexity_router_default_safety.py"
+        ],
+        "required_for_default": true
+      },
+      {
+        "id": "operator_override_plan",
+        "label": "Operator override plan",
+        "satisfied": true,
+        "evidence": [
+          "platform/backend/src/agent_platform/complexity_router.py",
+          "tests/test_complexity_router_default_safety.py"
+        ],
+        "required_for_default": true
+      },
+      {
+        "id": "rollout_metrics_prerequisites",
+        "label": "Rollout metrics prerequisites",
+        "satisfied": false,
+        "evidence": [],
+        "required_for_default": true
+      }
+    ],
+    "supporting_guardrails": [
+      "requirement_classification_contract",
+      "operator_override_plan",
+      "rollout_metrics_prerequisites"
+    ]
+  }
+}

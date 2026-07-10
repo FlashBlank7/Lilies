@@ -96,6 +96,7 @@
 - `stage-reports/v0.2.70_complexity_router_guardrail_selection.md`
 - `stage-reports/v0.2.71_complexity_router_default_safety_gate.md`
 - `stage-reports/v0.2.72_complexity_router_requirement_classification_contract.md`
+- `stage-reports/v0.2.73_complexity_router_operator_override_plan.md`
 
 ## 使用原则
 
