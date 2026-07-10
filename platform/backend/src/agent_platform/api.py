@@ -33,6 +33,7 @@ from .complexity_router import (
     requirement_classification_contract_status,
     rollout_metrics_prerequisites_status,
     runtime_activation_for_build,
+    runtime_activation_rollout_metrics,
     validate_operator_override,
 )
 from .factory import AgentFactory
@@ -360,6 +361,11 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             limited_default_enabled=services.settings.complexity_router_limited_default_enabled,
             min_confidence=services.settings.complexity_router_limited_default_min_confidence,
         )
+
+    @app.get("/api/v1/platform/complexity-router/runtime-activation-metrics", dependencies=[Depends(require_token)])
+    async def get_complexity_router_runtime_activation_metrics(limit: int = 100) -> dict[str, Any]:
+        builds = await services.workflow_store.list_recent_builds(limit=max(1, min(limit, 500)))
+        return runtime_activation_rollout_metrics(builds)
 
     @app.get("/api/v1/platform/complexity-router/operator-override-plan", dependencies=[Depends(require_token)])
     async def get_complexity_router_operator_override_plan() -> dict[str, Any]:

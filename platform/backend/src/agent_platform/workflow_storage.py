@@ -500,11 +500,26 @@ class WorkflowStorage:
             row["auto_publish"] = bool(row["auto_publish"])
         return rows
 
+    async def list_recent_builds(self, limit: int = 100) -> list[dict[str, Any]]:
+        rows = await asyncio.to_thread(self._list_recent_builds_sync, max(1, min(limit, 500)))
+        for row in rows:
+            row["team_state"] = BuildTeamState.model_validate_json(row.pop("team_state_json"))
+            row["auto_publish"] = bool(row["auto_publish"])
+        return rows
+
     def _list_builds_sync(self, application_id: str) -> list[dict[str, Any]]:
         with self.storage._connect() as conn:
             rows = conn.execute(
                 "SELECT * FROM builds WHERE application_id=? ORDER BY created_at DESC",
                 (application_id,),
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    def _list_recent_builds_sync(self, limit: int) -> list[dict[str, Any]]:
+        with self.storage._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM builds ORDER BY created_at DESC LIMIT ?",
+                (limit,),
             ).fetchall()
             return [dict(row) for row in rows]
 

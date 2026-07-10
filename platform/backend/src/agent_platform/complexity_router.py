@@ -372,6 +372,87 @@ def runtime_activation_for_build(
     }
 
 
+def runtime_activation_rollout_metrics(builds: list[dict[str, Any]]) -> dict[str, Any]:
+    decision_categories = {
+        "active": 0,
+        "bypassed": 0,
+        "disabled_default": 0,
+        "conservative_unknown": 0,
+        "request_override": 0,
+    }
+    classification_distribution: dict[str, int] = {}
+    planning_mode_distribution: dict[str, int] = {}
+    reuse_depth_distribution: dict[str, int] = {}
+    build_outcome_distribution: dict[str, int] = {}
+    records: list[dict[str, Any]] = []
+
+    for build in builds:
+        state = build.get("team_state") or {}
+        if hasattr(state, "model_dump"):
+            state = state.model_dump(mode="json")
+        activation = state.get("complexity_router") or {}
+        classification = activation.get("classification") or {}
+        runtime_policy = state.get("runtime_builder_policy") or {}
+        active = bool(activation.get("active"))
+        conservative_unknown = bool(classification.get("conservative_unknown"))
+        configured_mode = str(classification.get("configured_default_mode") or "missing")
+        planning_mode_source = str(activation.get("planning_mode_source") or "missing")
+        effective_class = str(
+            classification.get("effective_class")
+            or classification.get("requirement_class")
+            or "missing"
+        )
+        effective_planning_mode = str(
+            activation.get("effective_planning_mode")
+            or state.get("planning_mode")
+            or "missing"
+        )
+        reuse_depth = str(runtime_policy.get("reuse_depth") or "none")
+        outcome = str(build.get("status") or "missing")
+
+        if active:
+            decision_categories["active"] += 1
+        else:
+            decision_categories["bypassed"] += 1
+        if configured_mode == "disabled":
+            decision_categories["disabled_default"] += 1
+        if conservative_unknown:
+            decision_categories["conservative_unknown"] += 1
+        if planning_mode_source == "request_override":
+            decision_categories["request_override"] += 1
+
+        classification_distribution[effective_class] = classification_distribution.get(effective_class, 0) + 1
+        planning_mode_distribution[effective_planning_mode] = planning_mode_distribution.get(effective_planning_mode, 0) + 1
+        reuse_depth_distribution[reuse_depth] = reuse_depth_distribution.get(reuse_depth, 0) + 1
+        build_outcome_distribution[outcome] = build_outcome_distribution.get(outcome, 0) + 1
+        records.append({
+            "build_id": build.get("id"),
+            "application_id": build.get("application_id"),
+            "status": outcome,
+            "active": active,
+            "configured_default_mode": configured_mode,
+            "requirement_class": classification.get("requirement_class"),
+            "effective_class": effective_class,
+            "conservative_unknown": conservative_unknown,
+            "planning_mode_source": planning_mode_source,
+            "effective_planning_mode": effective_planning_mode,
+            "runtime_reuse_depth": reuse_depth,
+        })
+
+    return {
+        "metric_id": "complexity_router_runtime_activation_rollout_metrics",
+        "policy_version": "v0.2.91_complexity_router_runtime_activation_observability",
+        "total_builds": len(builds),
+        "rollback_value": "disabled",
+        "decision_categories": decision_categories,
+        "classification_distribution": classification_distribution,
+        "effective_planning_mode_distribution": planning_mode_distribution,
+        "runtime_reuse_depth_distribution": reuse_depth_distribution,
+        "build_outcome_distribution": build_outcome_distribution,
+        "records": records,
+    }
+
+
 def operator_override_plan_status() -> dict[str, Any]:
     return {
         "plan_id": "operator_override_plan",

@@ -1,6 +1,6 @@
 # E07 Complexity Router Ledger
 
-状态：runtime_activation_path_implemented；default settings disabled；explicit limited-default runtime policy supported
+状态：runtime_activation_observability_implemented；default settings disabled；explicit limited-default runtime policy observable
 
 ## 实验问题
 
@@ -81,6 +81,13 @@ v0.2.90 runtime activation path 已完成：创建 build 时会基于 settings �
 - `../../workingon-archives/v0.2.90/activation_v0.2.90_complexity_router_runtime_activation_path_summary.md`
 - `../../workingon-archives/v0.2.90/implementation_v0.2.90_complexity_router_runtime_activation_path.md`
 
+v0.2.91 runtime activation observability 已完成：新增只读 metrics surface，可统计 active、bypassed、disabled-default、conservative-unknown、request-override，并暴露 classification distribution、effective planning mode distribution、runtime reuse-depth distribution、build outcome 和 sampled records。默认 metrics 记录 `active=0`、`disabled_default=1`；显式 limited-default metrics 记录 `active=2`、`bypassed=1`、`conservative_unknown=1`、`request_override=1`，frontend verification 通过。
+
+证据：
+
+- `../../workingon-archives/v0.2.91/metrics_v0.2.91_complexity_router_runtime_activation_observability_summary.md`
+- `../../workingon-archives/v0.2.91/implementation_v0.2.91_complexity_router_runtime_activation_observability.md`
+
 ## 初始设计方向
 
 - 定义 simple/medium/complex 三档需求。
@@ -89,4 +96,4 @@ v0.2.90 runtime activation path 已完成：创建 build 时会基于 settings �
 
 ## 下一步
 
-下一步是实现 runtime activation rollout observability，把 activated/bypassed/unknown/request-override 分类、success/failure、planning_mode 和 reuse_depth decision 记录成可审计 rollout metrics。默认 settings 仍不得自动启用；显式 limited-default runtime policy 已可用。
+下一步是进行 limited-default product readiness review：基于 runtime activation、metrics observability、frontend verification 和保守 unknown handling，决定是否进入更宽的默认启用/灰度，或继续收集运行证据。默认 settings 仍不得自动启用；显式 limited-default runtime policy 已可用且可观测。

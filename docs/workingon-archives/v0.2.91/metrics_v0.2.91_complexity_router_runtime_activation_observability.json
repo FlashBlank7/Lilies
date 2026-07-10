@@ -1,0 +1,170 @@
+{
+  "version": "v0.2.91",
+  "metric_id": "complexity_router_runtime_activation_rollout_metrics",
+  "source_stage_report": "docs/stage-reports/v0.2.90_complexity_router_runtime_activation_path.md",
+  "status": "completed",
+  "checks": {
+    "default_disabled_counted": true,
+    "enabled_active_counted": true,
+    "unknown_counted": true,
+    "request_override_counted": true,
+    "planning_and_reuse_counted": true,
+    "frontend_passed": true
+  },
+  "default_metrics": {
+    "metric_id": "complexity_router_runtime_activation_rollout_metrics",
+    "policy_version": "v0.2.91_complexity_router_runtime_activation_observability",
+    "total_builds": 1,
+    "rollback_value": "disabled",
+    "decision_categories": {
+      "active": 0,
+      "bypassed": 1,
+      "disabled_default": 1,
+      "conservative_unknown": 0,
+      "request_override": 0
+    },
+    "classification_distribution": {
+      "simple": 1
+    },
+    "effective_planning_mode_distribution": {
+      "auto": 1
+    },
+    "runtime_reuse_depth_distribution": {
+      "none": 1
+    },
+    "build_outcome_distribution": {
+      "queued": 1
+    },
+    "records": [
+      {
+        "build_id": "b7dca008-ebf5-452e-a0a2-a7a8b31bbf5d",
+        "application_id": "5ea24a8a-4f19-449b-ac45-8ae046370204",
+        "status": "queued",
+        "active": false,
+        "configured_default_mode": "disabled",
+        "requirement_class": "simple",
+        "effective_class": "simple",
+        "conservative_unknown": false,
+        "planning_mode_source": "request_default",
+        "effective_planning_mode": "auto",
+        "runtime_reuse_depth": "none"
+      }
+    ]
+  },
+  "enabled_metrics": {
+    "metric_id": "complexity_router_runtime_activation_rollout_metrics",
+    "policy_version": "v0.2.91_complexity_router_runtime_activation_observability",
+    "total_builds": 3,
+    "rollback_value": "disabled",
+    "decision_categories": {
+      "active": 2,
+      "bypassed": 1,
+      "disabled_default": 0,
+      "conservative_unknown": 1,
+      "request_override": 1
+    },
+    "classification_distribution": {
+      "complex": 1,
+      "medium": 1,
+      "simple": 1
+    },
+    "effective_planning_mode_distribution": {
+      "auto": 1,
+      "disabled": 2
+    },
+    "runtime_reuse_depth_distribution": {
+      "none": 1,
+      "adaptive": 1,
+      "shallow": 1
+    },
+    "build_outcome_distribution": {
+      "queued": 2,
+      "building": 1
+    },
+    "records": [
+      {
+        "build_id": "3d6a2a17-7a42-412b-96d5-e37b6899f930",
+        "application_id": "093a4a61-c2d3-4498-a725-a3734f9acaa0",
+        "status": "queued",
+        "active": false,
+        "configured_default_mode": "limited_default",
+        "requirement_class": "unknown",
+        "effective_class": "complex",
+        "conservative_unknown": true,
+        "planning_mode_source": "request_default",
+        "effective_planning_mode": "auto",
+        "runtime_reuse_depth": "none"
+      },
+      {
+        "build_id": "ca6d666b-5583-466b-bf8e-1265dcccc07c",
+        "application_id": "2913300a-b25f-4dfc-a587-9fa69dcff4b9",
+        "status": "queued",
+        "active": true,
+        "configured_default_mode": "limited_default",
+        "requirement_class": "medium",
+        "effective_class": "medium",
+        "conservative_unknown": false,
+        "planning_mode_source": "request_override",
+        "effective_planning_mode": "disabled",
+        "runtime_reuse_depth": "adaptive"
+      },
+      {
+        "build_id": "b51901bc-14c4-4563-b30b-3aa36255d3f0",
+        "application_id": "183d41a4-6d83-4540-ac1b-e4b1bf625ad4",
+        "status": "building",
+        "active": true,
+        "configured_default_mode": "limited_default",
+        "requirement_class": "simple",
+        "effective_class": "simple",
+        "conservative_unknown": false,
+        "planning_mode_source": "complexity_router",
+        "effective_planning_mode": "disabled",
+        "runtime_reuse_depth": "shallow"
+      }
+    ]
+  },
+  "frontend_verification": {
+    "status": "completed",
+    "reason": "frontend verification passed",
+    "probe": {
+      "frontend_dir": "platform/frontend",
+      "package_json_present": true,
+      "package_lock_present": true,
+      "node_modules_present": true,
+      "selected_node_bin": "/Users/zhonghaoyang/.nvm/versions/node/v24.15.0/bin",
+      "node_available": true,
+      "npm_available": true,
+      "candidates": [
+        {
+          "node_bin": "/Users/zhonghaoyang/.nvm/versions/node/v24.15.0/bin",
+          "node_exists": true,
+          "npm_exists": true,
+          "usable": true
+        },
+        {
+          "node_bin": "/Users/zhonghaoyang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin",
+          "node_exists": true,
+          "npm_exists": false,
+          "usable": false
+        }
+      ]
+    },
+    "checks": [
+      {
+        "command": "npm run lint",
+        "returncode": 0,
+        "stdout": "\n> agent-platform-studio@0.1.0 lint\n> tsc --noEmit\n\n",
+        "stderr": "",
+        "passed": true
+      },
+      {
+        "command": "node_modules/.bin/tsc --noEmit",
+        "returncode": 0,
+        "stdout": "",
+        "stderr": "",
+        "passed": true
+      }
+    ],
+    "passed": true
+  }
+}
