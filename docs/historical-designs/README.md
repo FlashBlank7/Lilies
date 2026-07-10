@@ -145,6 +145,7 @@
 - `v0.2.131_*`：来自 `docs/stage-reports/v0.2.131_e08_remaining_sidecar_architecture_reselection.md`。
 - `v0.2.132_*`：来自 `docs/stage-reports/v0.2.132_e08_external_kms_provider_integration.md`。
 - `v0.2.133_*`：来自 `docs/stage-reports/v0.2.133_e08_full_sidecar_completion_audit.md`。
+- `v0.2.134_*`：来自 `docs/stage-reports/v0.2.134_global_experiment_productization_completion_audit.md`。
 
 Active workspace rule:
 
