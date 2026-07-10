@@ -120,6 +120,7 @@
 - `stage-reports/v0.2.94_productization_lane_reselection.md`
 - `stage-reports/v0.2.95_e08_followup_controls_scope.md`
 - `stage-reports/v0.2.96_e08_editable_policy_controls_api.md`
+- `stage-reports/v0.2.97_e08_post_api_productization_decision.md`
 
 ## 使用原则
 
