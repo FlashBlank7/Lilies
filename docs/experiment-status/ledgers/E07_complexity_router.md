@@ -1,6 +1,6 @@
 # E07 Complexity Router Ledger
 
-状态：未开始
+状态：completed_as_policy_hypothesis；not enabled as default
 
 ## 实验问题
 
@@ -8,7 +8,9 @@
 
 ## 当前证据
 
-暂无正式实验报告、summary 或 raw evidence。
+v0.2.57 deterministic router fixture 已完成：simple/medium/complex routing hypotheses 已基于 E01/E05 evidence 显式化，但 `router_ready_for_default=false`。
+
+证据：`../evidence/experiment_v0.2.57_full_backlog_closure_2026_07_10_summary.md`
 
 ## 初始设计方向
 
@@ -18,4 +20,4 @@
 
 ## 下一步
 
-先用已有 E01/E05 结果抽取 routing 假设，再设计正式实验。不要直接把假设写入默认策略。
+后续若要产品化，需要 guardrails 和 rollout design；当前假设不得直接写入默认策略。

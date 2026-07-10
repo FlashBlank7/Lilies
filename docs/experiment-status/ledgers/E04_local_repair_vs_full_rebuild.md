@@ -1,6 +1,6 @@
 # E04 Local Repair vs Full Rebuild Ledger
 
-状态：局部模板错误对照完成；宽泛问题未关闭
+状态：completed_with_strategy_boundary
 
 ## 当前结论
 
@@ -28,4 +28,6 @@
 
 ## 下一步
 
-增加至少三类失败：架构级缺节点、多节点耦合错误、需求误解。比较 local repair、targeted subgraph repair、full rebuild。
+v0.2.57 final disposition：Local repair is preferred only for isolated node failures; coupled failures need subgraph repair and misunderstood requirements need replan/full rebuild. 这关闭原始策略边界，但不把 local repair 写成所有失败的默认策略。
+
+证据：`../evidence/experiment_v0.2.57_full_backlog_closure_2026_07_10_summary.md`

@@ -1,6 +1,6 @@
 # E08 Harness Sidecar Passmode Ledger
 
-状态：首轮 deterministic sidecar/passmode 对照已完成；后续可扩展到 cancellation/budget/worker/UI 对照
+状态：completed_first_comparison；extended controls remain product follow-up
 
 ## 当前结论
 
@@ -25,3 +25,7 @@ v0.2.55 补上了第一轮 runnable deterministic comparison：`permission_gate`
 ## 下一步
 
 扩展 E08 对照到 cancellation、budget、worker lease、UI/API controls，或将本轮结论沉淀为 Harness language/current design 规则。
+
+v0.2.57 final disposition：Workflow-internal passmode can pause/pass by config; Platform Harness sidecar hard-blocks before external action. Extended controls remain product follow-up.
+
+证据：`../evidence/experiment_v0.2.57_full_backlog_closure_2026_07_10_summary.md`

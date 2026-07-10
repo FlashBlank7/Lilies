@@ -1,6 +1,6 @@
 # E01 Plan-first vs Node-by-node Ledger
 
-状态：complex required 单 case 已闭环；原始策略问题未关闭
+状态：completed_with_conditional_policy；全局默认仍需 complexity router/product rollout
 
 ## 当前结论
 
@@ -26,4 +26,6 @@
 
 ## 下一步
 
-做第二个复杂任务族，或把 plan-first 策略改为由 complexity router/architecture requirement 触发。关闭 E01 前至少需要说明：何时 plan-first required，何时 node-by-node 足够。
+v0.2.57 final disposition：Plan-first should be conditional: avoid it for simple tasks, require it for complex tasks with architecture coverage needs. 后续若产品化，需要 complexity router 或 architecture requirement 触发规则，而不是全局强制 plan-first。
+
+证据：`../evidence/experiment_v0.2.57_full_backlog_closure_2026_07_10_summary.md`

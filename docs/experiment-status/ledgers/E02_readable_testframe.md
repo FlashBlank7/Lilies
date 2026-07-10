@@ -1,6 +1,6 @@
 # E02 Readable TestFrame Ledger
 
-状态：proxy 对比完成；真实 human panel 未关闭
+状态：completed_for_proxy_blocked_for_true_human_panel
 
 ## 当前结论
 
@@ -28,4 +28,6 @@
 
 ## 下一步
 
-若要关闭原始 E02，做真实 human panel 或更严格多模型 reviewer protocol，衡量审阅耗时、错误定位率和第一修复建议命中率。
+v0.2.57 final disposition：Readable TestFrame is validated as the default reviewer surface; true human timing claims remain externally blocked. 若要证明真实人工审阅耗时下降，仍需 recruited participants 和 timing protocol，不能由自动化替代。
+
+证据：`../evidence/experiment_v0.2.57_full_backlog_closure_2026_07_10_summary.md`

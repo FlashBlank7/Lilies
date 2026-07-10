@@ -80,6 +80,7 @@
 - `stage-reports/v0.2.54_policy_default_live_reliability.md`
 - `stage-reports/v0.2.55_e08_harness_sidecar_passmode.md`
 - `stage-reports/v0.2.56_adaptive_long_term_monitoring.md`
+- `stage-reports/v0.2.57_full_backlog_closure.md`
 
 ## 使用原则
 

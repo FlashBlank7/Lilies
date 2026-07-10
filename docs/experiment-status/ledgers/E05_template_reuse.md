@@ -1,6 +1,6 @@
 # E05 Template Reuse Depth Ledger
 
-状态：多轮 paid/live 完成并触发工程修复；adaptive reuse-depth policy 已完成双 family live validation 并已产品化；policy-default live reliability 已完成一轮工程修复与 bounded live closure；首轮 monitoring snapshot 已建立
+状态：completed_and_monitored
 
 ## 当前结论
 
@@ -56,3 +56,7 @@ Template reuse 已证明会改变 Builder 行为，也证明 marketplace expanda
 ## 下一步
 
 E05 的原始 backlog 问题已经从“该不该上 adaptive”转移到“adaptive 产品化后的长期观测”。因此下一步不是再回到 fixed-depth 争论，而是保留 fixed-depth 显式选项、增加 family 退化/override 使用监测，并把 E08 sidecar/passmode 作为独立 Harness 对照继续推进。
+
+v0.2.57 final disposition：Adaptive default and policy-default reliability are validated; monitoring snapshot has zero critical alerts and overrides remain visible. Future work is product monitoring surface, not experiment closure.
+
+证据：`../evidence/experiment_v0.2.57_full_backlog_closure_2026_07_10_summary.md`

@@ -68,6 +68,7 @@
 - `v0.2.54_*`：来自 `docs/stage-reports/v0.2.54_policy_default_live_reliability.md`。
 - `v0.2.55_*`：来自 `docs/stage-reports/v0.2.55_e08_harness_sidecar_passmode.md`。
 - `v0.2.56_*`：来自 `docs/stage-reports/v0.2.56_adaptive_long_term_monitoring.md`。
+- `v0.2.57_*`：来自 `docs/stage-reports/v0.2.57_full_backlog_closure.md`。
 
 Active workspace rule:
 
