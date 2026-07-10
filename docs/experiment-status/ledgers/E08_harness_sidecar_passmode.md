@@ -1,6 +1,6 @@
 # E08 Harness Sidecar Passmode Ledger
 
-状态：selected_for_followup_controls_scope；extended controls productization next
+状态：followup_controls_scope_selected；editable policy-controls API next
 
 ## 当前结论
 
@@ -33,3 +33,7 @@ v0.2.57 final disposition：Workflow-internal passmode can pause/pass by config;
 v0.2.94 productization lane reselection 已选择 E08 follow-up controls 作为下一条 P1 lane。E07 guarded default rollout 已完成，E02/E10 存在外部/治理阻塞，E05 monitoring 已有 completed slice，因此 E08 是最高优先级且未阻塞的剩余产品化 gap。
 
 证据：`../../workingon-archives/v0.2.94/decision_v0.2.94_productization_lane_reselection_summary.md`
+
+v0.2.95 E08 follow-up controls scope 已选择 `editable_policy_controls_api` 作为下一版具体实现切片。选择理由是：v0.2.65-v0.2.66 已有只读 policy-controls 与行为矩阵，v0.2.68 已有 cancellation/budget 行为证据，v0.2.20-v0.2.28 已有 worker lease 后端/runner/续租证据；继续重复这些证据不会推进产品化。下一步应先建立受审计的后端 mutation contract，再进入 Studio 可编辑 UI。
+
+证据：`../../workingon-archives/v0.2.95/scope_v0.2.95_e08_followup_controls_summary.md`
