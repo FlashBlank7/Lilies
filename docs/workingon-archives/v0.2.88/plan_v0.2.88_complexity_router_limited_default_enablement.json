@@ -1,0 +1,126 @@
+{
+  "version": "v0.2.88",
+  "plan_id": "complexity_router_limited_default_enablement_plan",
+  "source_stage_report": "docs/stage-reports/v0.2.87_complexity_router_default_enablement_review_decision.md",
+  "source_default_review_decision": "docs/workingon-archives/v0.2.87/decision_v0.2.87_complexity_router_default_enablement_review.json",
+  "implementation_in_this_version": false,
+  "default_enabled": false,
+  "allowed_to_enable_default": true,
+  "limited_default_scope": {
+    "mode": "limited_default",
+    "eligible_requirement_classes": [
+      "simple",
+      "medium",
+      "complex"
+    ],
+    "unknown_handling": "complex_equivalent_with_conservative_policy",
+    "minimum_confidence_by_class": {
+      "simple": 0.55,
+      "medium": 0.6,
+      "complex": 0.65
+    },
+    "behavior": "return default builder policy for eligible classifications while preserving operator override controls"
+  },
+  "config_contract": {
+    "settings_fields_to_add": [
+      {
+        "name": "complexity_router_default_mode",
+        "type": "literal",
+        "allowed_values": [
+          "disabled",
+          "shadow_only",
+          "operator_opt_in",
+          "limited_default"
+        ],
+        "default": "disabled"
+      },
+      {
+        "name": "complexity_router_limited_default_enabled",
+        "type": "bool",
+        "default": false
+      },
+      {
+        "name": "complexity_router_limited_default_min_confidence",
+        "type": "float",
+        "default": 0.55
+      }
+    ],
+    "runtime_default": "disabled",
+    "rollback_value": "disabled"
+  },
+  "api_contract": {
+    "surfaces_to_add_or_extend": [
+      "GET /api/v1/platform/complexity-router/default-safety includes configured default mode",
+      "GET /api/v1/platform/complexity-router/default-enableable-plan returns current limited default plan",
+      "POST /api/v1/platform/complexity-router/classify-requirement returns default policy only when configured mode allows it"
+    ],
+    "operator_visible_controls": [
+      "disable_routing_for_task",
+      "force_simple_with_reason",
+      "force_medium_with_reason",
+      "force_complex_with_reason",
+      "rollback_to_disabled_default"
+    ]
+  },
+  "rollback": {
+    "immediate_rollback_mode": "disabled",
+    "rollback_triggers": [
+      "unexpected_classification_rate_above_0.05",
+      "override_reason_coverage_below_0.95",
+      "frontend_verification_failure",
+      "any_accidental_default_enablement_outside_config"
+    ]
+  },
+  "verification_gates": {
+    "default_review_selected": true,
+    "default_safety_allowed": true,
+    "fresh_frontend_verification_passed": true,
+    "runtime_default_still_disabled": true
+  },
+  "frontend_verification": {
+    "status": "completed",
+    "reason": "frontend verification passed",
+    "probe": {
+      "frontend_dir": "platform/frontend",
+      "package_json_present": true,
+      "package_lock_present": true,
+      "node_modules_present": true,
+      "selected_node_bin": "/Users/zhonghaoyang/.nvm/versions/node/v24.15.0/bin",
+      "node_available": true,
+      "npm_available": true,
+      "candidates": [
+        {
+          "node_bin": "/Users/zhonghaoyang/.nvm/versions/node/v24.15.0/bin",
+          "node_exists": true,
+          "npm_exists": true,
+          "usable": true
+        },
+        {
+          "node_bin": "/Users/zhonghaoyang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin",
+          "node_exists": true,
+          "npm_exists": false,
+          "usable": false
+        }
+      ]
+    },
+    "checks": [
+      {
+        "command": "npm run lint",
+        "returncode": 0,
+        "stdout": "\n> agent-platform-studio@0.1.0 lint\n> tsc --noEmit\n\n",
+        "stderr": "",
+        "passed": true
+      },
+      {
+        "command": "node_modules/.bin/tsc --noEmit",
+        "returncode": 0,
+        "stdout": "",
+        "stderr": "",
+        "passed": true
+      }
+    ],
+    "passed": true
+  },
+  "next_implementation_target": "v0.2.89_complexity_router_limited_default_enablement_contract",
+  "first_design": "docs/current-design/design_complexity_router_limited_default_enablement_contract.md"
+}
