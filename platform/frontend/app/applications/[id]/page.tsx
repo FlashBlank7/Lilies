@@ -618,6 +618,23 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     }
   }, [])
 
+  const recordAdaptiveMonitoringRefresh = useCallback(async () => {
+    setAdaptiveMonitoringLoading(true)
+    setAdaptiveMonitoringError('')
+    try {
+      const status = await api<AdaptiveMonitoringStatus>('/api/v1/templates/adaptive-monitoring/refresh', { method: 'POST' })
+      setAdaptiveMonitoring(status)
+      setAuthRequired(false)
+      return status
+    } catch (error) {
+      if (isAuthError(error)) setAuthRequired(true)
+      setAdaptiveMonitoringError(String(error))
+      throw error
+    } finally {
+      setAdaptiveMonitoringLoading(false)
+    }
+  }, [])
+
   useEffect(() => {
     const stored = globalThis.localStorage?.getItem('foundry.locale')
     if (isLocale(stored)) setLocale(stored)
@@ -1125,8 +1142,8 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
           {monitorError && <p className="error-banner">{monitorError}</p>}
           <section className={`adaptive-monitoring ${adaptiveMonitoring?.status || ''}`}>
             <div className="adaptive-monitoring-head">
-              <strong>{t.adaptiveMonitoringTitle}</strong>
-              <small>{t.adaptiveMonitoringHelp}</small>
+              <div><strong>{t.adaptiveMonitoringTitle}</strong><small>{t.adaptiveMonitoringHelp}</small></div>
+              <button onClick={() => { recordAdaptiveMonitoringRefresh().catch(error => setNotice(String(error))) }} disabled={adaptiveMonitoringLoading}>{adaptiveMonitoringLoading ? t.adaptiveRefreshing : t.adaptiveRefresh}</button>
             </div>
             {adaptiveMonitoringError && <p className="error-banner">{adaptiveMonitoringError}</p>}
             {adaptiveMonitoring ? <>
@@ -1135,6 +1152,8 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
                 <span><b>{adaptiveMonitoring.critical_alert_count}</b>{t.adaptiveCriticalAlerts}</span>
                 <span><b>{adaptiveMonitoring.warning_alert_count}</b>{t.adaptiveWarningAlerts}</span>
                 <span><b>{adaptiveMonitoring.override_options_visible ? t.policyEnabled : t.policyDisabled}</b>{t.adaptiveOverrides}</span>
+                <span><b>{adaptiveMonitoring.last_refresh ? shortTime(adaptiveMonitoring.last_refresh.refreshed_at) : t.adaptiveNeverRefreshed}</b>{t.adaptiveLastRefresh}</span>
+                <span><b>{adaptiveMonitoring.history_count}</b>{t.adaptiveHistory}</span>
               </div>
               <div className="adaptive-overrides">
                 <strong>{t.adaptiveOverrides}</strong>

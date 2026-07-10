@@ -84,6 +84,7 @@
 - `stage-reports/v0.2.58_continuous_auto_evolution.md`
 - `stage-reports/v0.2.59_productization_lane_selection.md`
 - `stage-reports/v0.2.60_adaptive_monitoring_product_surface.md`
+- `stage-reports/v0.2.61_adaptive_monitoring_refresh_control.md`
 
 ## 使用原则
 

@@ -164,6 +164,16 @@ export type AdaptiveMonitoringCase = {
   source: string
 }
 
+export type AdaptiveMonitoringRefreshRecord = {
+  refreshed_at: string
+  status: string
+  critical_alert_count: number
+  warning_alert_count: number
+  override_options_visible: boolean
+  source: string
+  source_generated_at?: string | null
+}
+
 export type AdaptiveMonitoringStatus = {
   status: 'healthy' | 'attention' | 'missing_evidence'
   version: string
@@ -176,6 +186,10 @@ export type AdaptiveMonitoringStatus = {
   cases: AdaptiveMonitoringCase[]
   alerts: Array<Record<string, unknown>>
   conclusion: string
+  last_refresh?: AdaptiveMonitoringRefreshRecord | null
+  history: AdaptiveMonitoringRefreshRecord[]
+  history_count: number
+  history_path: string
 }
 
 const root = '/api/platform'

@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 
 from .config import Settings, get_settings
 from .applications import ApplicationService
-from .adaptive_monitoring import adaptive_monitoring_status
+from .adaptive_monitoring import adaptive_monitoring_status_with_history, record_adaptive_monitoring_refresh
 from .blocks import BlockRegistry, build_block_registry
 from .builder import WorkflowBuilder
 from .builder_benchmark import BuilderBenchmark, BuilderBenchmarkCase, BuilderBenchmarkSuiteCase
@@ -549,7 +549,11 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
 
     @app.get("/api/v1/templates/adaptive-monitoring", dependencies=[Depends(require_token)])
     async def get_adaptive_template_monitoring() -> dict[str, Any]:
-        return adaptive_monitoring_status()
+        return adaptive_monitoring_status_with_history(services.settings.data_dir)
+
+    @app.post("/api/v1/templates/adaptive-monitoring/refresh", dependencies=[Depends(require_token)])
+    async def refresh_adaptive_template_monitoring() -> dict[str, Any]:
+        return record_adaptive_monitoring_refresh(services.settings.data_dir)
 
     @app.get("/api/v1/templates/{name}", dependencies=[Depends(require_token)])
     async def get_template(name: str) -> dict[str, Any]:

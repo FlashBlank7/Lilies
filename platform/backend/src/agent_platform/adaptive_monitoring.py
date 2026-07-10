@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,7 @@ MONITOR_SNAPSHOT_PATH = (
     / "evidence"
     / "monitor_v0.2.56_e05_adaptive_policy_2026_07_10.json"
 )
+HISTORY_PATH = Path("monitoring") / "adaptive_template_policy_history.jsonl"
 
 
 def relative(path: Path) -> str:
@@ -34,6 +36,14 @@ def _normalize_case(case: dict[str, Any]) -> dict[str, Any]:
         "available_overrides": list(case.get("available_overrides") or []),
         "source": str(case.get("source") or ""),
     }
+
+
+def utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def refresh_history_path(data_dir: Path) -> Path:
+    return data_dir / HISTORY_PATH
 
 
 def adaptive_monitoring_status(path: Path = MONITOR_SNAPSHOT_PATH) -> dict[str, Any]:
@@ -70,3 +80,54 @@ def adaptive_monitoring_status(path: Path = MONITOR_SNAPSHOT_PATH) -> dict[str, 
         "alerts": alerts,
         "conclusion": str(snapshot.get("conclusion") or ""),
     }
+
+
+def _refresh_record(status: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "refreshed_at": utc_now(),
+        "status": status["status"],
+        "critical_alert_count": status["critical_alert_count"],
+        "warning_alert_count": status["warning_alert_count"],
+        "override_options_visible": status["override_options_visible"],
+        "source": status["source"],
+        "source_generated_at": status.get("generated_at"),
+    }
+
+
+def adaptive_monitoring_history(data_dir: Path, limit: int = 10) -> list[dict[str, Any]]:
+    path = refresh_history_path(data_dir)
+    if not path.exists():
+        return []
+    records: list[dict[str, Any]] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        try:
+            value = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(value, dict):
+            records.append(value)
+    return records[-limit:][::-1]
+
+
+def adaptive_monitoring_status_with_history(data_dir: Path, limit: int = 10) -> dict[str, Any]:
+    status = adaptive_monitoring_status()
+    history = adaptive_monitoring_history(data_dir, limit=limit)
+    return {
+        **status,
+        "last_refresh": history[0] if history else None,
+        "history": history,
+        "history_count": len(history),
+        "history_path": refresh_history_path(data_dir).as_posix(),
+    }
+
+
+def record_adaptive_monitoring_refresh(data_dir: Path) -> dict[str, Any]:
+    status = adaptive_monitoring_status()
+    record = _refresh_record(status)
+    path = refresh_history_path(data_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+    return adaptive_monitoring_status_with_history(data_dir)
