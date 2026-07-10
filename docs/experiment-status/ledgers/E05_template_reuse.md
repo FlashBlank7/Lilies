@@ -60,3 +60,7 @@ E05 的原始 backlog 问题已经从“该不该上 adaptive”转移到“adap
 v0.2.57 final disposition：Adaptive default and policy-default reliability are validated; monitoring snapshot has zero critical alerts and overrides remain visible. Future work is product monitoring surface, not experiment closure.
 
 证据：`../evidence/experiment_v0.2.57_full_backlog_closure_2026_07_10_summary.md`
+
+v0.2.102 productization lane reselection 已选择 `e05_scheduled_monitoring_hook` 作为下一条未阻塞产品化 lane。选择理由是：E05 已有 adaptive 默认、API/Studio/manual refresh/history 和 monitoring snapshot；剩余的 scheduled drift checks 是具体可实现的产品切片。此选择不表示 scheduled hook 已实现，下一版应从 `docs/stage-reports/v0.2.102_productization_lane_reselection.md` 的 Next-stage Task Set 展开设计。
+
+证据：`../../workingon-archives/v0.2.102/decision_v0.2.102_productization_lane_reselection_summary.md`

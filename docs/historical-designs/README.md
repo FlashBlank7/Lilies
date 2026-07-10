@@ -113,6 +113,7 @@
 - `v0.2.99_*`：来自 `docs/stage-reports/v0.2.99_e08_post_studio_controls_decision.md`。
 - `v0.2.100_*`：来自 `docs/stage-reports/v0.2.100_e08_operator_runbook_lifecycle.md`。
 - `v0.2.101_*`：来自 `docs/stage-reports/v0.2.101_e08_post_runbook_disposition.md`。
+- `v0.2.102_*`：来自 `docs/stage-reports/v0.2.102_productization_lane_reselection.md`。
 
 Active workspace rule:
 

@@ -61,3 +61,7 @@ v0.2.100 已新增稳定 runbook `docs/operator-runbooks/e08_policy_controls_ope
 v0.2.101 已决定暂停当前 E08 tranche 并回到 productization lane reselection。当前 E08 tranche 已完成 deterministic comparison、editable backend API、Studio editable controls、operator runbook lifecycle；但 broader sidecar boundary closure 仍延后，不能写成 full sidecar completion。
 
 证据：`../../workingon-archives/v0.2.101/decision_v0.2.101_e08_post_runbook_disposition_summary.md`
+
+v0.2.102 productization lane reselection 未选择 E08 broader sidecar boundary closure 作为下一版实现切片。该方向保持未完成/延后状态，因为 full sidecar closure 范围过宽，不能由当前 E08 tranche 的 API、Studio controls 和 runbook 证据冒认。下一条 lane 选择为 E05 scheduled monitoring hook。
+
+证据：`../../workingon-archives/v0.2.102/decision_v0.2.102_productization_lane_reselection_summary.md`
