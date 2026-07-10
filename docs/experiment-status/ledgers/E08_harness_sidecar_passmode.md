@@ -1,6 +1,6 @@
 # E08 Harness Sidecar Passmode Ledger
 
-状态：completed_first_comparison；extended controls remain product follow-up
+状态：selected_for_followup_controls_scope；extended controls productization next
 
 ## 当前结论
 
@@ -29,3 +29,7 @@ v0.2.55 补上了第一轮 runnable deterministic comparison：`permission_gate`
 v0.2.57 final disposition：Workflow-internal passmode can pause/pass by config; Platform Harness sidecar hard-blocks before external action. Extended controls remain product follow-up.
 
 证据：`../evidence/experiment_v0.2.57_full_backlog_closure_2026_07_10_summary.md`
+
+v0.2.94 productization lane reselection 已选择 E08 follow-up controls 作为下一条 P1 lane。E07 guarded default rollout 已完成，E02/E10 存在外部/治理阻塞，E05 monitoring 已有 completed slice，因此 E08 是最高优先级且未阻塞的剩余产品化 gap。
+
+证据：`../../workingon-archives/v0.2.94/decision_v0.2.94_productization_lane_reselection_summary.md`

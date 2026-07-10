@@ -117,6 +117,7 @@
 - `stage-reports/v0.2.91_complexity_router_runtime_activation_observability.md`
 - `stage-reports/v0.2.92_complexity_router_limited_default_readiness_review.md`
 - `stage-reports/v0.2.93_complexity_router_guarded_default_rollout.md`
+- `stage-reports/v0.2.94_productization_lane_reselection.md`
 
 ## 使用原则
 
