@@ -202,9 +202,8 @@ def verify_contract() -> dict[str, Any]:
         and any(task["metadata"].get("origin") == "test_suite" for task in api_tasks.json()),
         "heartbeat_registry_preserved": heartbeats["v02-118-worker"]["status"] == "idle"
         and heartbeats["v02-118-worker"]["metadata"]["last_task_status"] == "succeeded",
-        "remaining_catalog_gaps_still_unavailable": set(remaining_unavailable)
-        == {"builder_build"},
-        "full_execution_coverage_not_claimed": catalog["full_execution_coverage"] is False
+        "remaining_catalog_gaps_closed": set(remaining_unavailable) == set(),
+        "full_execution_coverage_without_full_sidecar_claim": catalog["full_execution_coverage"] is True
         and catalog["not_full_sidecar_completion"] is True,
     }
     return {

@@ -40,22 +40,23 @@ def test_v02_120_catalog_marks_draft_patch_preview_implemented() -> None:
         catalog = platform_worker_handler_catalog(handlers)
     entries = {entry["kind"]: entry for entry in catalog["entries"]}
 
-    assert catalog["version"] == "v0.2.122"
+    assert catalog["version"] == "v0.2.124"
     assert catalog["catalog_complete"] is True
     assert catalog["registered_catalog_complete"] is True
-    assert catalog["full_execution_coverage"] is False
+    assert catalog["full_execution_coverage"] is True
     assert entries["draft_patch_preview"]["status"] == "implemented"
     assert entries["draft_patch_preview"]["implementation"] == "draft_patch_preview_handler"
     assert entries["draft_patch_preview"]["executable"] is True
     remaining_unavailable = set(PLATFORM_WORKER_TASK_KINDS) - {
         "workflow_run",
+        "builder_build",
         "test_suite",
         "scheduler_trigger",
         "scheduler_manual_trigger",
         "draft_patch_preview",
         "benchmark",
     }
-    assert remaining_unavailable == {"builder_build"}
+    assert remaining_unavailable == set()
     for kind in remaining_unavailable:
         assert entries[kind]["status"] == "unavailable"
 

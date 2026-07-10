@@ -65,6 +65,11 @@ class FakeHarness:
         return None
 
 
+class FakeBuilder:
+    async def run_claimed_build(self, build_id: str) -> dict[str, Any]:
+        return {"build_id": build_id, "application_id": "owner-a", "status": "published", "published_version": 1}
+
+
 class FakeServices:
     scheduler = FakeScheduler()
     workflow_runtime = FakeWorkflowRuntime()
@@ -72,6 +77,7 @@ class FakeServices:
     draft_patcher = FakeDraftPatcher()
     benchmark = FakeBenchmark()
     harness = FakeHarness()
+    builder = FakeBuilder()
 
 
 def headers() -> dict[str, str]:
@@ -86,7 +92,7 @@ def test_v02_110_catalog_covers_all_platform_task_kinds() -> None:
     assert catalog["required_count"] == len(PLATFORM_WORKER_TASK_KINDS)
     assert catalog["catalog_complete"] is True
     assert catalog["registered_catalog_complete"] is True
-    assert catalog["full_execution_coverage"] is False
+    assert catalog["full_execution_coverage"] is True
     assert catalog["deterministic_gap_failure"] is True
     assert catalog["missing_required_kinds"] == []
     assert catalog["unregistered_required_kinds"] == []
@@ -104,8 +110,11 @@ def test_v02_110_catalog_covers_all_platform_task_kinds() -> None:
     assert entries["draft_patch_preview"]["executable"] is True
     assert entries["benchmark"]["status"] == "implemented"
     assert entries["benchmark"]["executable"] is True
+    assert entries["builder_build"]["status"] == "implemented"
+    assert entries["builder_build"]["executable"] is True
     for kind in set(PLATFORM_WORKER_TASK_KINDS) - {
         "workflow_run",
+        "builder_build",
         "test_suite",
         "scheduler_trigger",
         "scheduler_manual_trigger",
@@ -118,7 +127,7 @@ def test_v02_110_catalog_covers_all_platform_task_kinds() -> None:
         assert entries[kind]["operator_action"]
 
 
-def test_v02_110_unavailable_catalog_handler_fails_deterministically(tmp_path: Path) -> None:
+def test_v02_110_builder_build_catalog_handler_is_executable(tmp_path: Path) -> None:
     async def scenario() -> None:
         storage = Storage(tmp_path / "data")
         await storage.initialize()
@@ -127,7 +136,7 @@ def test_v02_110_unavailable_catalog_handler_fails_deterministically(tmp_path: P
             "handler-catalog-builder-build-1",
             kind="builder_build",
             owner_id="owner-a",
-            resource_id="build-a",
+            resource_id="handler-catalog-builder-build-1",
             worker_id="producer",
             lease_seconds=60,
         )
@@ -146,14 +155,13 @@ def test_v02_110_unavailable_catalog_handler_fails_deterministically(tmp_path: P
         results = await runner.run_once(limit=5)
 
         assert [(item.task_id, item.status) for item in results] == [
-            ("handler-catalog-builder-build-1", "failed")
+            ("handler-catalog-builder-build-1", "succeeded")
         ]
-        assert "worker handler unavailable: builder_build" in results[0].error
         finished = await harness.get_task("handler-catalog-builder-build-1")
-        assert finished.status == "failed"
+        assert finished.status == "succeeded"
         assert finished.worker_id == "worker-a"
-        assert "worker handler unavailable: builder_build" in finished.error
-        assert finished.metadata["worker_runner"]["status"] == "failed"
+        assert finished.metadata["worker_runner"]["status"] == "succeeded"
+        assert finished.metadata["worker_runner"]["result"]["status"] == "published"
 
     run(scenario())
 
@@ -171,10 +179,10 @@ def test_v02_110_worker_handler_catalog_api_exposes_coverage(tmp_path: Path) -> 
 
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["version"] == "v0.2.122"
+    assert body["version"] == "v0.2.124"
     assert body["catalog_complete"] is True
     assert body["registered_catalog_complete"] is True
-    assert body["full_execution_coverage"] is False
+    assert body["full_execution_coverage"] is True
     assert body["not_full_sidecar_completion"] is True
     assert body["missing_required_kinds"] == []
     assert {entry["kind"] for entry in body["entries"]} == set(PLATFORM_WORKER_TASK_KINDS)

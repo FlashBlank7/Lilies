@@ -1,0 +1,344 @@
+{
+  "version": "v0.2.124",
+  "evidence_id": "e08_builder_build_worker_offload_handler",
+  "source_stage_report": "docs/stage-reports/v0.2.123_e08_remaining_sidecar_slice_reselection.md",
+  "status": "completed",
+  "checks": {
+    "builder_build_catalog_implemented": true,
+    "all_required_worker_kinds_executable": true,
+    "worker_completed_builder_build": true,
+    "worker_build_recorded_usage_and_events": true,
+    "worker_failed_builder_build_with_metadata": true,
+    "api_build_path_preserved": true,
+    "heartbeat_registry_preserved": true,
+    "not_full_sidecar_completion_preserved": true
+  },
+  "catalog_summary": {
+    "version": "v0.2.124",
+    "required_count": 7,
+    "cataloged_count": 7,
+    "implemented_count": 7,
+    "unavailable_count": 0,
+    "catalog_complete": true,
+    "registered_catalog_complete": true,
+    "full_execution_coverage": true,
+    "not_full_sidecar_completion": true
+  },
+  "builder_build_entry": {
+    "kind": "builder_build",
+    "label": "Builder build",
+    "required": true,
+    "status": "implemented",
+    "handler_registered": true,
+    "executable": true,
+    "implementation": "builder_build_handler",
+    "evidence": "docs/stage-reports/v0.2.124_e08_builder_build_worker_offload_handler.md",
+    "reason": "",
+    "operator_action": "Monitor worker-runner results and lease renewals."
+  },
+  "remaining_unavailable": [],
+  "success_worker_task": {
+    "id": "78c55ed9-8e54-4584-b9d8-245b3d80644a",
+    "kind": "builder_build",
+    "owner_id": "0b4e425b-1805-4818-afc3-1c2d2f2f5882",
+    "resource_id": "78c55ed9-8e54-4584-b9d8-245b3d80644a",
+    "status": "succeeded",
+    "parent_task_id": null,
+    "metadata": {
+      "build_id": "78c55ed9-8e54-4584-b9d8-245b3d80644a",
+      "auto_publish": true,
+      "worker_lease": {
+        "worker_id": "v02-124-worker-success",
+        "lease_seconds": 60.0,
+        "last_action": "claimed",
+        "updated_at": "2026-07-10T12:15:52.672966+00:00",
+        "lease_version": 3,
+        "released_at": "2026-07-10T12:15:52.670687+00:00",
+        "released_by": "producer",
+        "next_status": "queued"
+      },
+      "worker_runner": {
+        "worker_id": "v02-124-worker-success",
+        "status": "succeeded",
+        "result": {
+          "build_id": "78c55ed9-8e54-4584-b9d8-245b3d80644a",
+          "application_id": "0b4e425b-1805-4818-afc3-1c2d2f2f5882",
+          "status": "published",
+          "published_version": 1
+        },
+        "renewal_count": 0
+      }
+    },
+    "usage_counts": {
+      "model_call": 9,
+      "tool_call": 9
+    },
+    "usage": [
+      {
+        "usage_type": "model_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "turn": 1,
+          "model": "deepseek-v4-pro"
+        },
+        "created_at": "2026-07-10T12:15:52.678747+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "draft_add_node"
+        },
+        "created_at": "2026-07-10T12:15:52.680175+00:00"
+      },
+      {
+        "usage_type": "model_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "turn": 2,
+          "model": "deepseek-v4-pro"
+        },
+        "created_at": "2026-07-10T12:15:52.682464+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "draft_add_node"
+        },
+        "created_at": "2026-07-10T12:15:52.683602+00:00"
+      },
+      {
+        "usage_type": "model_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "turn": 3,
+          "model": "deepseek-v4-pro"
+        },
+        "created_at": "2026-07-10T12:15:52.686015+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "draft_add_node"
+        },
+        "created_at": "2026-07-10T12:15:52.688309+00:00"
+      },
+      {
+        "usage_type": "model_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "turn": 4,
+          "model": "deepseek-v4-pro"
+        },
+        "created_at": "2026-07-10T12:15:52.690789+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "draft_connect"
+        },
+        "created_at": "2026-07-10T12:15:52.692099+00:00"
+      },
+      {
+        "usage_type": "model_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "turn": 5,
+          "model": "deepseek-v4-pro"
+        },
+        "created_at": "2026-07-10T12:15:52.694623+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "draft_connect"
+        },
+        "created_at": "2026-07-10T12:15:52.696010+00:00"
+      },
+      {
+        "usage_type": "model_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "turn": 6,
+          "model": "deepseek-v4-pro"
+        },
+        "created_at": "2026-07-10T12:15:52.699963+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "test_add"
+        },
+        "created_at": "2026-07-10T12:15:52.701177+00:00"
+      },
+      {
+        "usage_type": "model_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "turn": 7,
+          "model": "deepseek-v4-pro"
+        },
+        "created_at": "2026-07-10T12:15:52.703755+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "draft_validate"
+        },
+        "created_at": "2026-07-10T12:15:52.704906+00:00"
+      },
+      {
+        "usage_type": "model_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "turn": 8,
+          "model": "deepseek-v4-pro"
+        },
+        "created_at": "2026-07-10T12:15:52.706929+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "test_run"
+        },
+        "created_at": "2026-07-10T12:15:52.708162+00:00"
+      },
+      {
+        "usage_type": "model_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "turn": 9,
+          "model": "deepseek-v4-pro"
+        },
+        "created_at": "2026-07-10T12:15:52.724293+00:00"
+      },
+      {
+        "usage_type": "tool_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "tool": "draft_publish"
+        },
+        "created_at": "2026-07-10T12:15:52.725507+00:00"
+      }
+    ],
+    "error": "",
+    "worker_id": "v02-124-worker-success",
+    "lease_expires_at": "2026-07-10T12:16:52.672966+00:00",
+    "lease_version": 3,
+    "created_at": "2026-07-10T12:15:52.669578+00:00",
+    "updated_at": "2026-07-10T12:15:52.728051+00:00",
+    "finished_at": "2026-07-10T12:15:52.728051+00:00"
+  },
+  "failure_worker_task": {
+    "id": "1d4f3741-c8ee-4735-85a1-abdeeff7513d",
+    "kind": "builder_build",
+    "owner_id": "7100d7fb-8cf3-409d-90f8-59cf3875c86e",
+    "resource_id": "1d4f3741-c8ee-4735-85a1-abdeeff7513d",
+    "status": "failed",
+    "parent_task_id": null,
+    "metadata": {
+      "build_id": "1d4f3741-c8ee-4735-85a1-abdeeff7513d",
+      "auto_publish": false,
+      "worker_lease": {
+        "worker_id": "v02-124-worker-failure",
+        "lease_seconds": 60.0,
+        "last_action": "claimed",
+        "updated_at": "2026-07-10T12:15:52.885933+00:00",
+        "lease_version": 3,
+        "released_at": "2026-07-10T12:15:52.883916+00:00",
+        "released_by": "producer",
+        "next_status": "queued"
+      },
+      "worker_runner": {
+        "worker_id": "v02-124-worker-failure",
+        "status": "failed",
+        "result": {
+          "build_id": "1d4f3741-c8ee-4735-85a1-abdeeff7513d",
+          "application_id": "7100d7fb-8cf3-409d-90f8-59cf3875c86e",
+          "status": "needs_attention",
+          "error": "DeepSeek request timed out"
+        },
+        "renewal_count": 0
+      }
+    },
+    "usage_counts": {
+      "model_call": 1
+    },
+    "usage": [
+      {
+        "usage_type": "model_call",
+        "amount": 1,
+        "metadata": {
+          "actor": "coordinator",
+          "turn": 1,
+          "model": "deepseek-v4-pro"
+        },
+        "created_at": "2026-07-10T12:15:52.891172+00:00"
+      }
+    ],
+    "error": "worker builder_build failed: 1d4f3741-c8ee-4735-85a1-abdeeff7513d: DeepSeek request timed out",
+    "worker_id": "v02-124-worker-failure",
+    "lease_expires_at": "2026-07-10T12:16:52.885933+00:00",
+    "lease_version": 3,
+    "created_at": "2026-07-10T12:15:52.882843+00:00",
+    "updated_at": "2026-07-10T12:15:52.893407+00:00",
+    "finished_at": "2026-07-10T12:15:52.893407+00:00"
+  },
+  "success_build": {
+    "id": "78c55ed9-8e54-4584-b9d8-245b3d80644a",
+    "status": "published",
+    "published_version": 1
+  },
+  "failure_build": {
+    "id": "1d4f3741-c8ee-4735-85a1-abdeeff7513d",
+    "status": "needs_attention",
+    "error": "DeepSeek request timed out"
+  },
+  "api_build": {
+    "id": "256ba0ed-0ba3-4582-b689-b5f7ccfc378d",
+    "status": "published",
+    "task_status": "succeeded"
+  },
+  "implementation_paths": [
+    "platform/backend/src/agent_platform/builder.py",
+    "platform/backend/src/agent_platform/worker_runner.py",
+    "tests/test_v02_124_e08_builder_build_worker_offload_handler.py",
+    "scripts/v02_124_e08_builder_build_worker_offload_handler.py"
+  ],
+  "invariants": {
+    "api_build_path_preserved": true,
+    "all_required_worker_kinds_executable": true,
+    "process_supervision_implemented": false,
+    "distributed_queue_implemented": false,
+    "external_kms_provider_integrated": false,
+    "e08_full_sidecar_completion_claimed": false,
+    "workingon_is_not_task_source": true,
+    "stage_report_is_next_task_source": true
+  },
+  "next_boundary": "This closes required worker task-kind execution coverage only. Full Platform Harness sidecar completion still needs production worker supervision, distributed queue semantics, and external KMS provider integration."
+}

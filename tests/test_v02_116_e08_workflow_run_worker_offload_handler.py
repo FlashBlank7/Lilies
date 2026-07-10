@@ -66,21 +66,23 @@ def test_v02_116_catalog_marks_workflow_run_implemented() -> None:
         catalog = platform_worker_handler_catalog(handlers)
     entries = {entry["kind"]: entry for entry in catalog["entries"]}
 
-    assert catalog["version"] == "v0.2.122"
+    assert catalog["version"] == "v0.2.124"
     assert catalog["catalog_complete"] is True
     assert catalog["registered_catalog_complete"] is True
-    assert catalog["full_execution_coverage"] is False
+    assert catalog["full_execution_coverage"] is True
     assert entries["workflow_run"]["status"] == "implemented"
     assert entries["workflow_run"]["implementation"] == "workflow_run_handler"
     assert entries["workflow_run"]["executable"] is True
     remaining_unavailable = set(PLATFORM_WORKER_TASK_KINDS) - {
         "workflow_run",
+        "builder_build",
         "test_suite",
         "scheduler_trigger",
         "scheduler_manual_trigger",
         "draft_patch_preview",
         "benchmark",
     }
+    assert remaining_unavailable == set()
     for kind in remaining_unavailable:
         assert entries[kind]["status"] == "unavailable"
 

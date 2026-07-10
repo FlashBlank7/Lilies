@@ -52,15 +52,14 @@ IMPLEMENTED_WORKER_HANDLERS: dict[str, dict[str, str]] = {
         "implementation": "benchmark_handler",
         "evidence": "docs/stage-reports/v0.2.122_e08_benchmark_worker_offload_handler.md",
     },
-}
-
-UNAVAILABLE_WORKER_HANDLERS: dict[str, dict[str, str]] = {
     "builder_build": {
         "label": "Builder build",
-        "reason": "builder builds are currently managed by the builder service path",
-        "operator_action": "Keep builder builds on the builder service path until a worker-owned build handler is implemented.",
+        "implementation": "builder_build_handler",
+        "evidence": "docs/stage-reports/v0.2.124_e08_builder_build_worker_offload_handler.md",
     },
 }
+
+UNAVAILABLE_WORKER_HANDLERS: dict[str, dict[str, str]] = {}
 
 
 PlatformTaskHandler = Callable[[PlatformTaskRecord], Awaitable[dict[str, Any] | None] | dict[str, Any] | None]
@@ -473,6 +472,36 @@ def benchmark_handler(benchmark: Any, harness: PlatformHarness) -> PlatformTaskH
     return handler
 
 
+def builder_build_handler(builder: Any) -> PlatformTaskHandler:
+    async def handler(task: PlatformTaskRecord) -> dict[str, Any]:
+        build_id = task.metadata.get("build_id") or task.resource_id or task.id
+        if not isinstance(build_id, str) or not build_id.strip():
+            raise ValueError("builder_build task metadata requires build_id or resource_id")
+        build_id = build_id.strip()
+        if build_id != task.id:
+            raise ValueError("builder_build worker task id must match build_id")
+        try:
+            result = await builder.run_claimed_build(build_id)
+        except Exception as error:
+            failure_result: dict[str, Any] = {"build_id": build_id}
+            try:
+                build = await builder.workflow_store.get_build(build_id)
+                failure_result.update({
+                    "application_id": build["application_id"],
+                    "status": build["status"],
+                    "error": build.get("error") or str(error),
+                })
+            except Exception:
+                failure_result["error"] = str(error)
+            raise PlatformWorkerHandlerFailed(
+                f"worker builder_build failed: {build_id}: {error}",
+                failure_result,
+            ) from error
+        return result
+
+    return handler
+
+
 def scheduler_trigger_handler(scheduler: Any) -> PlatformTaskHandler:
     async def handler(task: PlatformTaskRecord) -> dict[str, Any]:
         version = _required_int_metadata(task, "version")
@@ -548,6 +577,7 @@ def build_platform_worker_handlers(services: Any) -> dict[str, PlatformTaskHandl
         "scheduler_manual_trigger": scheduler_manual_trigger_handler(services.scheduler),
         "draft_patch_preview": draft_patch_preview_handler(services.workflow_store, services.draft_patcher),
         "benchmark": benchmark_handler(services.benchmark, services.harness),
+        "builder_build": builder_build_handler(services.builder),
     }
     for kind in UNAVAILABLE_WORKER_HANDLERS:
         handlers[kind] = unavailable_worker_handler(kind)
@@ -601,7 +631,7 @@ def platform_worker_handler_catalog(
     implemented = [entry.kind for entry in entries if entry.status == "implemented"]
     unavailable = [entry.kind for entry in entries if entry.status == "unavailable"]
     return {
-        "version": "v0.2.122",
+        "version": "v0.2.124",
         "source": "docs/stage-reports/v0.2.113_e08_remaining_sidecar_slice_reselection.md",
         "required_count": len(required),
         "cataloged_count": len(cataloged),

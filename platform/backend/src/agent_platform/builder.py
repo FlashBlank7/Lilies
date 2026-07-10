@@ -159,7 +159,7 @@ class WorkflowBuilder:
         self.harness = harness
         self.on_build_complete = on_build_complete
         self.template_store = template_store
-        self.active: dict[str, asyncio.Task[None]] = {}
+        self.active: dict[str, asyncio.Task[Any]] = {}
         self._trackers: dict[str, DecisionTracker] = {}  # build_id → tracker
 
     def start(self, build_id: str) -> None:
@@ -175,7 +175,19 @@ class WorkflowBuilder:
             raise KeyError("active build not found")
         task.cancel()
 
-    async def _run(self, build_id: str) -> None:
+    async def run_claimed_build(self, build_id: str) -> dict[str, Any]:
+        if build_id in self.active and not self.active[build_id].done():
+            raise RuntimeError("build is already running")
+        task = asyncio.current_task()
+        if task is not None:
+            self.active[build_id] = task
+        try:
+            return await self._run(build_id, manage_harness_task=False)
+        finally:
+            if task is None or self.active.get(build_id) is task:
+                self.active.pop(build_id, None)
+
+    async def _run(self, build_id: str, *, manage_harness_task: bool = True) -> dict[str, Any]:
         build = await self.workflow_store.get_build(build_id)
         state: BuildTeamState = build["team_state"]
         build_started_at = time.monotonic()
@@ -187,13 +199,14 @@ class WorkflowBuilder:
         }
         if max_elapsed_seconds is not None:
             task_metadata["max_elapsed_seconds"] = max_elapsed_seconds
-        await self.harness.start_task(
-            build_id,
-            kind="builder_build",
-            owner_id=build["application_id"],
-            resource_id=build_id,
-            metadata=task_metadata,
-        )
+        if manage_harness_task:
+            await self.harness.start_task(
+                build_id,
+                kind="builder_build",
+                owner_id=build["application_id"],
+                resource_id=build_id,
+                metadata=task_metadata,
+            )
         await self.workflow_store.update_build(build_id, status="building", team_state=state)
         await self._emit(build_id, "build.started", {
             "application_id": build["application_id"], "requirement": build["requirement"]
@@ -276,16 +289,24 @@ class WorkflowBuilder:
                 else:
                     status = "ready"
             await self.workflow_store.update_build(build_id, status=status, team_state=state)
-            await self.harness.finish_task(build_id, status="succeeded")
+            if manage_harness_task:
+                await self.harness.finish_task(build_id, status="succeeded")
             await self._emit(build_id, "build.completed", {
                 "status": status, "published_version": state.published_version
             })
             # Meta-cognition: try to extract a reusable template from this build
             if self.on_build_complete and (status == "published" or status == "ready"):
                 asyncio.create_task(self.on_build_complete(build_id))
+            return {
+                "build_id": build_id,
+                "application_id": build["application_id"],
+                "status": status,
+                "published_version": state.published_version,
+            }
         except asyncio.CancelledError:
             await self.workflow_store.update_build(build_id, status="cancelled", team_state=state)
-            await self.harness.finish_task(build_id, status="cancelled")
+            if manage_harness_task:
+                await self.harness.finish_task(build_id, status="cancelled")
             await self._emit(build_id, "build.cancelled", {})
             raise
         except Exception as error:
@@ -293,17 +314,20 @@ class WorkflowBuilder:
             await self.workflow_store.update_build(
                 build_id, status="needs_attention", team_state=state, error=str(error)
             )
-            await self.harness.finish_task(
-                build_id,
-                status="failed",
-                error=str(error),
-                metadata=failure_metadata,
-            )
+            if manage_harness_task:
+                await self.harness.finish_task(
+                    build_id,
+                    status="failed",
+                    error=str(error),
+                    metadata=failure_metadata,
+                )
             await self._emit(build_id, "build.needs_attention", {
                 "error": str(error),
                 "error_type": type(error).__name__,
                 **failure_metadata,
             })
+            if not manage_harness_task:
+                raise
 
     async def _ensure_mandatory_smoke_test(
         self, build_id: str, application_id: str, state: BuildTeamState
@@ -1208,7 +1232,7 @@ class WorkflowBuilder:
         if block_type not in state.manual_lookups:
             state.manual_lookups.append(block_type)
 
-    def _consume(self, build_id: str, task: asyncio.Task[None]) -> None:
+    def _consume(self, build_id: str, task: asyncio.Task[Any]) -> None:
         if not task.cancelled():
             task.exception()
         self.active.pop(build_id, None)

@@ -209,9 +209,8 @@ def verify_contract() -> dict[str, Any]:
         and after_api_preview.json()["content_hash"] == before["content_hash"],
         "heartbeat_registry_preserved": heartbeats["v02-120-worker"]["status"] == "idle"
         and heartbeats["v02-120-worker"]["metadata"]["last_task_status"] == "failed",
-        "remaining_catalog_gaps_still_unavailable": set(remaining_unavailable)
-        == {"builder_build"},
-        "full_execution_coverage_not_claimed": catalog["full_execution_coverage"] is False
+        "remaining_catalog_gaps_closed": set(remaining_unavailable) == set(),
+        "full_execution_coverage_without_full_sidecar_claim": catalog["full_execution_coverage"] is True
         and catalog["not_full_sidecar_completion"] is True,
     }
     return {
@@ -259,7 +258,7 @@ def verify_contract() -> dict[str, Any]:
         },
         "next_boundary": (
             "This closes the draft_patch_preview worker offload handler only. Full Platform Harness sidecar "
-            "completion still needs builder_build, production worker supervision, and distributed "
+            "completion still needs production worker supervision, and distributed "
             "queue semantics."
         ),
     }

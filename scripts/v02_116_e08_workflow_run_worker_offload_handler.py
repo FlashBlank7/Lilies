@@ -187,9 +187,8 @@ def verify_contract() -> dict[str, Any]:
         and api_task.parent_task_id is None,
         "heartbeat_registry_preserved": heartbeats["v02-116-worker"]["status"] == "idle"
         and heartbeats["v02-116-worker"]["metadata"]["last_task_status"] == "succeeded",
-        "remaining_catalog_gaps_still_unavailable": set(remaining_unavailable)
-        == {"builder_build"},
-        "full_execution_coverage_not_claimed": catalog["full_execution_coverage"] is False
+        "remaining_catalog_gaps_closed": set(remaining_unavailable) == set(),
+        "full_execution_coverage_without_full_sidecar_claim": catalog["full_execution_coverage"] is True
         and catalog["not_full_sidecar_completion"] is True,
     }
     return {

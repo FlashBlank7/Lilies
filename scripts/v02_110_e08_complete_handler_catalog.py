@@ -59,6 +59,11 @@ class FakeHarness:
         return None
 
 
+class FakeBuilder:
+    async def run_claimed_build(self, build_id: str) -> dict[str, Any]:
+        return {"build_id": build_id, "application_id": "owner-a", "status": "published", "published_version": 1}
+
+
 class FakeServices:
     scheduler = FakeScheduler()
     workflow_runtime = FakeWorkflowRuntime()
@@ -66,6 +71,7 @@ class FakeServices:
     draft_patcher = FakeDraftPatcher()
     benchmark = FakeBenchmark()
     harness = FakeHarness()
+    builder = FakeBuilder()
 
 
 def verify_contract() -> dict[str, Any]:
@@ -95,7 +101,7 @@ def verify_contract() -> dict[str, Any]:
             "handler-catalog-builder-build-1",
             kind="builder_build",
             owner_id="owner-a",
-            resource_id="build-a",
+            resource_id="handler-catalog-builder-build-1",
             worker_id="producer",
             lease_seconds=60,
         )
@@ -138,25 +144,18 @@ def verify_contract() -> dict[str, Any]:
             and entries["draft_patch_preview"]["executable"] is True,
             "benchmark_implemented_by_v02_122": entries["benchmark"]["status"] == "implemented"
             and entries["benchmark"]["executable"] is True,
-            "unimplemented_kinds_are_deterministic_unavailable": all(
-                entries[kind]["status"] == "unavailable"
+            "builder_build_implemented_by_v02_124": entries["builder_build"]["status"] == "implemented"
+            and entries["builder_build"]["executable"] is True,
+            "all_required_kinds_are_executable": all(
+                entries[kind]["status"] == "implemented"
                 and entries[kind]["handler_registered"] is True
-                and entries[kind]["operator_action"]
-                for kind in set(PLATFORM_WORKER_TASK_KINDS) - {
-                    "workflow_run",
-                    "test_suite",
-                    "scheduler_trigger",
-                    "scheduler_manual_trigger",
-                    "draft_patch_preview",
-                    "benchmark",
-                }
+                and entries[kind]["executable"] is True
+                for kind in set(PLATFORM_WORKER_TASK_KINDS)
             ),
-            "unavailable_handler_fails_task_deterministically": len(results) == 1
-            and results[0].status == "failed"
-            and "worker handler unavailable: builder_build" in results[0].error
-            and finished.status == "failed"
-            and "worker handler unavailable: builder_build" in finished.error,
-            "coverage_exposed_without_full_execution_claim": catalog["full_execution_coverage"] is False
+            "builder_build_handler_succeeds_task": len(results) == 1
+            and results[0].status == "succeeded"
+            and finished.status == "succeeded",
+            "coverage_exposed_without_full_sidecar_claim": catalog["full_execution_coverage"] is True
             and catalog["not_full_sidecar_completion"] is True,
         }
         return {

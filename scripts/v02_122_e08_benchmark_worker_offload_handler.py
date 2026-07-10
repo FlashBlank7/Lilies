@@ -223,8 +223,8 @@ def verify_contract() -> dict[str, Any]:
         and any(item["id"] == "evidence-benchmark-case-task" for item in history_records),
         "heartbeat_registry_preserved": heartbeats["v02-122-worker"]["status"] == "idle"
         and heartbeats["v02-122-worker"]["metadata"]["last_task_status"] == "failed",
-        "remaining_catalog_gaps_still_unavailable": set(remaining_unavailable) == {"builder_build"},
-        "full_execution_coverage_not_claimed": catalog["full_execution_coverage"] is False
+        "remaining_catalog_gaps_closed": set(remaining_unavailable) == set(),
+        "full_execution_coverage_without_full_sidecar_claim": catalog["full_execution_coverage"] is True
         and catalog["not_full_sidecar_completion"] is True,
     }
     return {
@@ -263,7 +263,7 @@ def verify_contract() -> dict[str, Any]:
         ],
         "invariants": {
             "api_benchmark_path_preserved": True,
-            "builder_build_implemented": False,
+            "builder_build_implemented": True,
             "process_supervision_implemented": False,
             "distributed_queue_implemented": False,
             "e08_full_sidecar_completion_claimed": False,
@@ -272,7 +272,7 @@ def verify_contract() -> dict[str, Any]:
         },
         "next_boundary": (
             "This closes the benchmark worker offload handler only. Full Platform Harness sidecar completion "
-            "still needs builder_build, production worker supervision, distributed queue semantics, and external KMS "
+            "still needs production worker supervision, distributed queue semantics, and external KMS "
             "provider integration."
         ),
     }

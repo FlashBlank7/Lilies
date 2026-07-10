@@ -71,6 +71,11 @@ class FakeHarness:
         return None
 
 
+class FakeBuilder:
+    async def run_claimed_build(self, build_id: str) -> dict[str, Any]:
+        return {"build_id": build_id, "application_id": "fake-app", "status": "published", "published_version": 1}
+
+
 class FakeServices:
     scheduler = FakeScheduler()
     workflow_runtime = FakeWorkflowRuntime()
@@ -78,6 +83,7 @@ class FakeServices:
     draft_patcher = FakeDraftPatcher()
     benchmark = FakeBenchmark()
     harness = FakeHarness()
+    builder = FakeBuilder()
 
 
 def _create_scheduled_application(client: TestClient, *, name: str = "Worker schedule") -> str:
@@ -160,17 +166,19 @@ def test_v02_114_catalog_marks_scheduler_trigger_implemented() -> None:
     catalog = platform_worker_handler_catalog(handlers)
     entries = {entry["kind"]: entry for entry in catalog["entries"]}
 
-    assert catalog["version"] == "v0.2.122"
+    assert catalog["version"] == "v0.2.124"
     assert catalog["catalog_complete"] is True
     assert catalog["registered_catalog_complete"] is True
-    assert catalog["full_execution_coverage"] is False
+    assert catalog["full_execution_coverage"] is True
     assert catalog["not_full_sidecar_completion"] is True
     assert entries["scheduler_trigger"]["status"] == "implemented"
     assert entries["scheduler_trigger"]["implementation"] == "scheduler_trigger_handler"
     assert entries["scheduler_trigger"]["executable"] is True
     assert entries["scheduler_manual_trigger"]["status"] == "implemented"
+    assert entries["builder_build"]["status"] == "implemented"
 
     remaining_unavailable = set(PLATFORM_WORKER_TASK_KINDS) - {
+        "builder_build",
         "workflow_run",
         "test_suite",
         "scheduler_trigger",
@@ -178,6 +186,7 @@ def test_v02_114_catalog_marks_scheduler_trigger_implemented() -> None:
         "draft_patch_preview",
         "benchmark",
     }
+    assert remaining_unavailable == set()
     for kind in remaining_unavailable:
         assert entries[kind]["status"] == "unavailable"
         assert entries[kind]["executable"] is False

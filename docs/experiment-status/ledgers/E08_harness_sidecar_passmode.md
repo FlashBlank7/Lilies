@@ -145,3 +145,7 @@ v0.2.122 已实现 `benchmark` worker offload handler：worker catalog 将 `benc
 v0.2.123 remaining sidecar slice reselection 已排除 completed benchmark、draft_patch_preview、test_suite、workflow_run、scheduler_trigger worker offload handlers 以及 heartbeat registry、handler catalog、stdio/container egress、secret rotation、policy-controls API、Studio controls 和 operator runbook lifecycle，并选择 `builder_build_worker_offload_handler` 作为下一条 E08 实现切片。该版本只选择下一 slice，不实现 builder_build worker handler，也不声明 full sidecar completion。
 
 证据：`../../workingon-archives/v0.2.123/decision_v0.2.123_e08_remaining_sidecar_slice_reselection_summary.md`
+
+v0.2.124 已实现 `builder_build` worker offload handler：worker catalog 将最后一个 required task kind 从 unavailable 迁移为 implemented，`PlatformHarnessWorkerRunner` 可消费 queued builder_build task，并复用现有 Builder lifecycle 执行 publish/needs_attention 状态转换；API build path 仍由 `Builder.start()` 管理自己的 harness task。该版本关闭 required worker task-kind execution coverage，但不声明 production worker supervision、distributed queue、external KMS 或 full sidecar completion。
+
+证据：`../../workingon-archives/v0.2.124/evidence_v0.2.124_e08_builder_build_worker_offload_handler_summary.md`
