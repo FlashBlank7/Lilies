@@ -125,3 +125,7 @@ v0.2.117 remaining sidecar slice reselection 已排除 completed workflow_run wo
 v0.2.118 已实现 `test_suite` worker offload handler：worker catalog 将 `test_suite` 从 deterministic unavailable 迁移为 implemented，`PlatformHarnessWorkerRunner` 可消费 queued `test_suite` task，并复用现有 `WorkflowRuntime.run_test_suite()` 执行 draft validation、per-test workflow run、assertion/report 逻辑；per-test workflow run 以 worker test-suite task 为 parent，既有 API `/tests/run` path 仍由 runtime 管理。该版本只关闭 test_suite worker handler slice，不声明 builder/benchmark/draft-preview handlers、production worker supervision、distributed queue 或 full sidecar completion。
 
 证据：`../../workingon-archives/v0.2.118/evidence_v0.2.118_e08_test_suite_worker_offload_handler_summary.md`
+
+v0.2.119 remaining sidecar slice reselection 已排除 completed test_suite、workflow_run、scheduler_trigger worker offload handlers 以及 heartbeat registry、handler catalog、stdio/container egress、secret rotation、policy-controls API、Studio controls 和 operator runbook lifecycle，并选择 `draft_patch_preview_worker_offload_handler` 作为下一条 E08 实现切片。该版本只选择下一 slice，不实现 draft_patch_preview worker handler，也不声明 full sidecar completion。
+
+证据：`../../workingon-archives/v0.2.119/decision_v0.2.119_e08_remaining_sidecar_slice_reselection_summary.md`

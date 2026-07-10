@@ -130,6 +130,7 @@
 - `v0.2.116_*`：来自 `docs/stage-reports/v0.2.116_e08_workflow_run_worker_offload_handler.md`。
 - `v0.2.117_*`：来自 `docs/stage-reports/v0.2.117_e08_remaining_sidecar_slice_reselection.md`。
 - `v0.2.118_*`：来自 `docs/stage-reports/v0.2.118_e08_test_suite_worker_offload_handler.md`。
+- `v0.2.119_*`：来自 `docs/stage-reports/v0.2.119_e08_remaining_sidecar_slice_reselection.md`。
 
 Active workspace rule:
 
