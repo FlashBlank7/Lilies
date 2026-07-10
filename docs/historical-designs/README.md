@@ -142,6 +142,7 @@
 - `v0.2.128_*`：来自 `docs/stage-reports/v0.2.128_e08_distributed_queue_semantics.md`。
 - `v0.2.129_*`：来自 `docs/stage-reports/v0.2.129_e08_remaining_sidecar_architecture_reselection.md`。
 - `v0.2.130_*`：来自 `docs/stage-reports/v0.2.130_e08_external_process_manager.md`。
+- `v0.2.131_*`：来自 `docs/stage-reports/v0.2.131_e08_remaining_sidecar_architecture_reselection.md`。
 
 Active workspace rule:
 

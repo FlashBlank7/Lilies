@@ -173,3 +173,7 @@ v0.2.129 remaining sidecar architecture reselection 已排除 completed distribu
 v0.2.130 已实现 local external worker process manager：新增 `ExternalWorkerProcessManager` 和 worker process manager API，可基于配置命令 start/observe/stop/restart 本地 worker subprocess，并在 snapshot 中保留 distributed queue semantics evidence 与 external KMS/full sidecar 边界。该版本只关闭 external process lifecycle slice，不实现 external KMS provider integration 或 full sidecar completion。
 
 证据：`../../workingon-archives/v0.2.130/evidence_v0.2.130_e08_external_process_manager_summary.md`
+
+v0.2.131 remaining sidecar architecture reselection 已排除 completed external process manager、distributed queue semantics、production supervision 和全部 required worker task-kind execution coverage，并选择 `external_kms_provider_integration` 作为下一条 E08 architecture implementation slice。该版本只选择下一 slice，不实现 external KMS provider integration，也不声明 full sidecar completion。
+
+证据：`../../workingon-archives/v0.2.131/decision_v0.2.131_e08_remaining_sidecar_architecture_reselection_summary.md`
