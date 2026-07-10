@@ -11,6 +11,80 @@ V02_70_SELECTION = Path(
     "docs/workingon-archives/v0.2.70/selection_v0.2.70_complexity_router_guardrail_summary.md"
 )
 
+REQUIREMENT_CLASS_DEFINITIONS = {
+    "simple": {
+        "description": "Small single-surface work with bounded acceptance and no live/external dependency.",
+        "default_builder_policy": {
+            "plan_first": False,
+            "reuse_depth": "shallow",
+            "model_tier": "standard",
+        },
+    },
+    "medium": {
+        "description": "Multi-step workflow, API, or integration work with bounded tests and limited cross-boundary risk.",
+        "default_builder_policy": {
+            "plan_first": True,
+            "reuse_depth": "adaptive",
+            "model_tier": "standard",
+        },
+    },
+    "complex": {
+        "description": "Multi-module, architecture, live/external, model-sensitive, or broad platform-boundary work.",
+        "default_builder_policy": {
+            "plan_first": True,
+            "reuse_depth": "adaptive",
+            "model_tier": "strong",
+        },
+    },
+    "unknown": {
+        "description": "Insufficient requirement text; handled conservatively as complex-equivalent.",
+        "default_builder_policy": {
+            "plan_first": True,
+            "reuse_depth": "adaptive",
+            "model_tier": "strong",
+        },
+    },
+}
+
+SIMPLE_SIGNALS = {
+    "copy",
+    "fix",
+    "format",
+    "one-line",
+    "rename",
+    "single",
+    "small",
+    "text",
+    "translate",
+    "typo",
+}
+MEDIUM_SIGNALS = {
+    "api",
+    "dashboard",
+    "database",
+    "endpoint",
+    "form",
+    "integration",
+    "report",
+    "test",
+    "ui",
+    "workflow",
+}
+COMPLEX_SIGNALS = {
+    "agent",
+    "architecture",
+    "cross-boundary",
+    "default",
+    "guardrail",
+    "live",
+    "model-sensitive",
+    "multi-module",
+    "paid",
+    "platform",
+    "rollout",
+    "router",
+}
+
 
 @dataclass(frozen=True)
 class DefaultSafetyInputs:
@@ -33,10 +107,104 @@ def current_default_safety_inputs(root: Path | None = None) -> DefaultSafetyInpu
     )
     return DefaultSafetyInputs(
         source_evidence_present=source_ready,
-        requirement_classification_contract=False,
+        requirement_classification_contract=True,
         operator_override_plan=False,
         rollout_metrics_prerequisites=False,
     )
+
+
+def requirement_classification_contract_status() -> dict[str, Any]:
+    return {
+        "contract_id": "requirement_classification_contract",
+        "policy_version": "v0.2.72_complexity_router_requirement_classification_contract",
+        "satisfied": True,
+        "default_router_enabled": False,
+        "classes": REQUIREMENT_CLASS_DEFINITIONS,
+        "conservative_unknown_handling": {
+            "requirement_class": "unknown",
+            "effective_class": "complex",
+            "reason": "insufficient requirement text is treated as complex-equivalent until clarified",
+        },
+        "evidence": [
+            "platform/backend/src/agent_platform/complexity_router.py",
+            "tests/test_complexity_router_default_safety.py",
+        ],
+    }
+
+
+def classify_requirement(requirement: str) -> dict[str, Any]:
+    text = requirement.strip().casefold()
+    if not text:
+        return _classification_result(
+            requirement_class="unknown",
+            effective_class="complex",
+            confidence=0.0,
+            signals=["empty_requirement"],
+            conservative_unknown=True,
+        )
+
+    simple_hits = _signal_hits(text, SIMPLE_SIGNALS)
+    medium_hits = _signal_hits(text, MEDIUM_SIGNALS)
+    complex_hits = _signal_hits(text, COMPLEX_SIGNALS)
+    token_count = len(text.split())
+    if token_count > 80:
+        complex_hits.append("long_requirement")
+    if token_count < 4 and not (simple_hits or medium_hits or complex_hits):
+        return _classification_result(
+            requirement_class="unknown",
+            effective_class="complex",
+            confidence=0.2,
+            signals=["underspecified_requirement"],
+            conservative_unknown=True,
+        )
+    if complex_hits:
+        return _classification_result(
+            requirement_class="complex",
+            effective_class="complex",
+            confidence=min(0.95, 0.65 + 0.1 * len(complex_hits)),
+            signals=complex_hits,
+            conservative_unknown=False,
+        )
+    if medium_hits:
+        return _classification_result(
+            requirement_class="medium",
+            effective_class="medium",
+            confidence=min(0.9, 0.6 + 0.08 * len(medium_hits)),
+            signals=medium_hits,
+            conservative_unknown=False,
+        )
+    return _classification_result(
+        requirement_class="simple",
+        effective_class="simple",
+        confidence=0.55 if simple_hits else 0.45,
+        signals=simple_hits or ["bounded_requirement"],
+        conservative_unknown=False,
+    )
+
+
+def _signal_hits(text: str, signals: set[str]) -> list[str]:
+    return sorted(signal for signal in signals if signal in text)
+
+
+def _classification_result(
+    *,
+    requirement_class: str,
+    effective_class: str,
+    confidence: float,
+    signals: list[str],
+    conservative_unknown: bool,
+) -> dict[str, Any]:
+    return {
+        "contract_id": "requirement_classification_contract",
+        "policy_version": "v0.2.72_complexity_router_requirement_classification_contract",
+        "requirement_class": requirement_class,
+        "effective_class": effective_class,
+        "confidence": round(confidence, 3),
+        "signals": signals,
+        "conservative_unknown": conservative_unknown,
+        "default_router_enabled": False,
+        "builder_policy": REQUIREMENT_CLASS_DEFINITIONS[requirement_class]["default_builder_policy"],
+    }
 
 
 def complexity_router_default_safety_gate(
@@ -55,7 +223,10 @@ def complexity_router_default_safety_gate(
             "id": "requirement_classification_contract",
             "label": "Requirement classification contract",
             "satisfied": resolved.requirement_classification_contract,
-            "evidence": [],
+            "evidence": [
+                "platform/backend/src/agent_platform/complexity_router.py",
+                "tests/test_complexity_router_default_safety.py",
+            ],
             "required_for_default": True,
         },
         {
@@ -78,7 +249,7 @@ def complexity_router_default_safety_gate(
     return {
         "router_id": "e07_complexity_router",
         "gate_id": "default_safety_gate",
-        "policy_version": "v0.2.71_complexity_router_default_safety_gate",
+        "policy_version": "v0.2.72_complexity_router_requirement_classification_contract",
         "default_enabled": False,
         "allowed_to_enable_default": allowed,
         "router_ready_for_default": allowed,

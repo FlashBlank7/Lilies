@@ -1,0 +1,186 @@
+{
+  "version": "v0.2.72",
+  "contract": {
+    "contract_id": "requirement_classification_contract",
+    "policy_version": "v0.2.72_complexity_router_requirement_classification_contract",
+    "satisfied": true,
+    "default_router_enabled": false,
+    "classes": {
+      "simple": {
+        "description": "Small single-surface work with bounded acceptance and no live/external dependency.",
+        "default_builder_policy": {
+          "plan_first": false,
+          "reuse_depth": "shallow",
+          "model_tier": "standard"
+        }
+      },
+      "medium": {
+        "description": "Multi-step workflow, API, or integration work with bounded tests and limited cross-boundary risk.",
+        "default_builder_policy": {
+          "plan_first": true,
+          "reuse_depth": "adaptive",
+          "model_tier": "standard"
+        }
+      },
+      "complex": {
+        "description": "Multi-module, architecture, live/external, model-sensitive, or broad platform-boundary work.",
+        "default_builder_policy": {
+          "plan_first": true,
+          "reuse_depth": "adaptive",
+          "model_tier": "strong"
+        }
+      },
+      "unknown": {
+        "description": "Insufficient requirement text; handled conservatively as complex-equivalent.",
+        "default_builder_policy": {
+          "plan_first": true,
+          "reuse_depth": "adaptive",
+          "model_tier": "strong"
+        }
+      }
+    },
+    "conservative_unknown_handling": {
+      "requirement_class": "unknown",
+      "effective_class": "complex",
+      "reason": "insufficient requirement text is treated as complex-equivalent until clarified"
+    },
+    "evidence": [
+      "platform/backend/src/agent_platform/complexity_router.py",
+      "tests/test_complexity_router_default_safety.py"
+    ]
+  },
+  "samples": {
+    "simple": {
+      "contract_id": "requirement_classification_contract",
+      "policy_version": "v0.2.72_complexity_router_requirement_classification_contract",
+      "requirement_class": "simple",
+      "effective_class": "simple",
+      "confidence": 0.55,
+      "signals": [
+        "fix",
+        "typo"
+      ],
+      "conservative_unknown": false,
+      "default_router_enabled": false,
+      "builder_policy": {
+        "plan_first": false,
+        "reuse_depth": "shallow",
+        "model_tier": "standard"
+      }
+    },
+    "medium": {
+      "contract_id": "requirement_classification_contract",
+      "policy_version": "v0.2.72_complexity_router_requirement_classification_contract",
+      "requirement_class": "medium",
+      "effective_class": "medium",
+      "confidence": 0.9,
+      "signals": [
+        "api",
+        "endpoint",
+        "report",
+        "test",
+        "workflow"
+      ],
+      "conservative_unknown": false,
+      "default_router_enabled": false,
+      "builder_policy": {
+        "plan_first": true,
+        "reuse_depth": "adaptive",
+        "model_tier": "standard"
+      }
+    },
+    "complex": {
+      "contract_id": "requirement_classification_contract",
+      "policy_version": "v0.2.72_complexity_router_requirement_classification_contract",
+      "requirement_class": "complex",
+      "effective_class": "complex",
+      "confidence": 0.95,
+      "signals": [
+        "agent",
+        "guardrail",
+        "model-sensitive",
+        "platform",
+        "rollout",
+        "router"
+      ],
+      "conservative_unknown": false,
+      "default_router_enabled": false,
+      "builder_policy": {
+        "plan_first": true,
+        "reuse_depth": "adaptive",
+        "model_tier": "strong"
+      }
+    },
+    "unknown": {
+      "contract_id": "requirement_classification_contract",
+      "policy_version": "v0.2.72_complexity_router_requirement_classification_contract",
+      "requirement_class": "unknown",
+      "effective_class": "complex",
+      "confidence": 0.0,
+      "signals": [
+        "empty_requirement"
+      ],
+      "conservative_unknown": true,
+      "default_router_enabled": false,
+      "builder_policy": {
+        "plan_first": true,
+        "reuse_depth": "adaptive",
+        "model_tier": "strong"
+      }
+    }
+  },
+  "default_safety": {
+    "router_id": "e07_complexity_router",
+    "gate_id": "default_safety_gate",
+    "policy_version": "v0.2.72_complexity_router_requirement_classification_contract",
+    "default_enabled": false,
+    "allowed_to_enable_default": false,
+    "router_ready_for_default": false,
+    "reason": "complexity-router default remains disabled until every default-safety prerequisite is satisfied",
+    "missing_prerequisites": [
+      "operator_override_plan",
+      "rollout_metrics_prerequisites"
+    ],
+    "prerequisites": [
+      {
+        "id": "source_evidence",
+        "label": "Source evidence",
+        "satisfied": true,
+        "evidence": [
+          "docs/experiment-status/ledgers/E07_complexity_router.md",
+          "docs/workingon-archives/v0.2.70/selection_v0.2.70_complexity_router_guardrail_summary.md"
+        ],
+        "required_for_default": true
+      },
+      {
+        "id": "requirement_classification_contract",
+        "label": "Requirement classification contract",
+        "satisfied": true,
+        "evidence": [
+          "platform/backend/src/agent_platform/complexity_router.py",
+          "tests/test_complexity_router_default_safety.py"
+        ],
+        "required_for_default": true
+      },
+      {
+        "id": "operator_override_plan",
+        "label": "Operator override plan",
+        "satisfied": false,
+        "evidence": [],
+        "required_for_default": true
+      },
+      {
+        "id": "rollout_metrics_prerequisites",
+        "label": "Rollout metrics prerequisites",
+        "satisfied": false,
+        "evidence": [],
+        "required_for_default": true
+      }
+    ],
+    "supporting_guardrails": [
+      "requirement_classification_contract",
+      "operator_override_plan",
+      "rollout_metrics_prerequisites"
+    ]
+  }
+}
