@@ -156,6 +156,7 @@
 - `stage-reports/v0.2.129_e08_remaining_sidecar_architecture_reselection.md`
 - `stage-reports/v0.2.130_e08_external_process_manager.md`
 - `stage-reports/v0.2.131_e08_remaining_sidecar_architecture_reselection.md`
+- `stage-reports/v0.2.132_e08_external_kms_provider_integration.md`
 
 ## 使用原则
 

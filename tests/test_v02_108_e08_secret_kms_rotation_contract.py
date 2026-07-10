@@ -173,6 +173,18 @@ def test_v02_108_policy_controls_report_rotation_contract(tmp_path: Path) -> Non
         "current_key_id": "kms-current",
         "keyring_size": 2,
         "rotation_aware": True,
+        "kms_provider_configured": False,
+        "kms_provider": {
+            "provider_id": "",
+            "provider_type": "",
+            "configured": False,
+            "primary_key_id": "",
+            "keyring_size": 0,
+            "rotation_aware": False,
+            "wrap_supported": False,
+            "unwrap_supported": False,
+        },
+        "external_kms_provider_integration": False,
         "legacy_v1_read_supported": True,
         "legacy_plaintext_read_supported": True,
     }

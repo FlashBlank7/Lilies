@@ -166,6 +166,15 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         deepseek_base_url=settings.deepseek_base_url,
         timeout_seconds=settings.deepseek_timeout_seconds,
     )
+    from .secret_kms import build_secret_kms_provider  # pylint: disable=import-outside-toplevel
+
+    secret_kms_provider = build_secret_kms_provider(
+        provider=settings.platform_harness_secret_kms_provider,
+        provider_id=settings.platform_harness_secret_kms_provider_id,
+        key_id=settings.platform_harness_secret_kms_key_id,
+        key=settings.platform_harness_secret_kms_key,
+        previous_keys=settings.platform_harness_secret_kms_previous_keys,
+    )
     harness = PlatformHarness(
         storage=storage,
         max_active_tasks=settings.platform_harness_max_active_tasks,
@@ -180,6 +189,7 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         secret_envelope_key=settings.platform_harness_secret_envelope_key or settings.api_token,
         secret_envelope_key_id=settings.platform_harness_secret_envelope_key_id,
         secret_envelope_previous_keys=settings.platform_harness_secret_envelope_previous_keys,
+        secret_kms_provider=secret_kms_provider,
         network_egress_policy=settings.platform_harness_network_egress_policy,
         network_egress_allowlist=settings.platform_harness_network_egress_allowlist,
         worker_id=settings.platform_harness_worker_id or None,

@@ -52,6 +52,11 @@ class Settings(BaseSettings):
     platform_harness_secret_envelope_key: str = Field(default="", repr=False)
     platform_harness_secret_envelope_key_id: str = "local"
     platform_harness_secret_envelope_previous_keys: dict[str, str] = Field(default_factory=dict, repr=False)
+    platform_harness_secret_kms_provider: str = "none"
+    platform_harness_secret_kms_provider_id: str = "local-kms"
+    platform_harness_secret_kms_key_id: str = "primary"
+    platform_harness_secret_kms_key: str = Field(default="", repr=False)
+    platform_harness_secret_kms_previous_keys: dict[str, str] = Field(default_factory=dict, repr=False)
     platform_harness_network_egress_policy: str = "full"
     platform_harness_network_egress_allowlist: list[str] = Field(default_factory=list)
     platform_harness_worker_id: str = ""

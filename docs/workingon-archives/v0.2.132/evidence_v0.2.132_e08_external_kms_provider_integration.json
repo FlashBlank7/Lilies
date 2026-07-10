@@ -1,0 +1,63 @@
+{
+  "version": "v0.2.132",
+  "evidence_id": "e08_external_kms_provider_integration",
+  "source_stage_report": "docs/stage-reports/v0.2.131_e08_remaining_sidecar_architecture_reselection.md",
+  "status": "completed",
+  "checks": {
+    "new_secret_uses_v3_provider_envelope": true,
+    "provider_unwrap_resolves_secret": true,
+    "missing_provider_blocks_v3_read": true,
+    "missing_provider_key_blocks_v3_read": true,
+    "v2_compatibility_preserved": true,
+    "secret_material_redacted_from_public_metadata": true,
+    "policy_controls_report_external_kms": true
+  },
+  "public_secret": {
+    "id": "owner-a:provider_token",
+    "owner_id": "owner-a",
+    "name": "provider_token",
+    "description": "provider-backed evidence",
+    "secret_ref": "secret://owner-a/provider_token",
+    "storage_mode": "encrypted_v3:local-external-kms:kms-2026q3",
+    "encrypted": true,
+    "key_id": "kms-2026q3",
+    "kms_provider_id": "local-external-kms",
+    "created_at": "2026-07-10T12:58:52.823922+00:00",
+    "updated_at": "2026-07-10T12:58:52.823922+00:00",
+    "redacted": true
+  },
+  "policy_secret_storage": {
+    "new_secret_mode": "encrypted_v3:local-external-kms:kms-2026q3",
+    "envelope_configured": true,
+    "current_key_id": "kms-2026q3",
+    "keyring_size": 0,
+    "rotation_aware": false,
+    "kms_provider_configured": true,
+    "kms_provider": {
+      "provider_id": "local-external-kms",
+      "provider_type": "local",
+      "configured": true,
+      "primary_key_id": "kms-2026q3",
+      "keyring_size": 1,
+      "rotation_aware": true,
+      "wrap_supported": true,
+      "unwrap_supported": true
+    },
+    "external_kms_provider_integration": true,
+    "legacy_v1_read_supported": true,
+    "legacy_plaintext_read_supported": true
+  },
+  "implementation_paths": [
+    "platform/backend/src/agent_platform/secret_kms.py",
+    "platform/backend/src/agent_platform/platform_harness.py",
+    "platform/backend/src/agent_platform/config.py",
+    "platform/backend/src/agent_platform/api.py",
+    "tests/test_v02_132_e08_external_kms_provider_integration.py"
+  ],
+  "boundaries": {
+    "external_kms_provider_integration_claimed": true,
+    "provider_type": "local",
+    "cloud_provider_deployment_claimed": false,
+    "e08_full_sidecar_completion_claimed": false
+  }
+}

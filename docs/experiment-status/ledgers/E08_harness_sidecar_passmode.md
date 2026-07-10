@@ -177,3 +177,7 @@ v0.2.130 已实现 local external worker process manager：新增 `ExternalWorke
 v0.2.131 remaining sidecar architecture reselection 已排除 completed external process manager、distributed queue semantics、production supervision 和全部 required worker task-kind execution coverage，并选择 `external_kms_provider_integration` 作为下一条 E08 architecture implementation slice。该版本只选择下一 slice，不实现 external KMS provider integration，也不声明 full sidecar completion。
 
 证据：`../../workingon-archives/v0.2.131/decision_v0.2.131_e08_remaining_sidecar_architecture_reselection_summary.md`
+
+v0.2.132 已实现 external KMS provider integration contract：新增 `SecretKMSProvider` protocol、deterministic local provider、v3 provider-backed secret envelope、provider-backed policy/status surface，并保留 v2/v1/plaintext compatibility。该版本声明 provider contract integration 已完成，但不声明 cloud provider deployment 或 full sidecar completion。
+
+证据：`../../workingon-archives/v0.2.132/evidence_v0.2.132_e08_external_kms_provider_integration_summary.md`

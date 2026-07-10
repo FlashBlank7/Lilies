@@ -13,6 +13,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from .models import utc_now
+from .secret_kms import SecretKMSProvider
 from .storage import Storage
 
 
@@ -47,6 +48,7 @@ SECRET_FIELD_MARKERS = (
 SECRET_REFERENCE_KEYS = ("$secret", "secret_ref")
 SECRET_ENVELOPE_PREFIX = "secret-envelope:v1:"
 SECRET_ENVELOPE_V2_PREFIX = "secret-envelope:v2:"
+SECRET_ENVELOPE_V3_PREFIX = "secret-envelope:v3:"
 SECRET_ENVELOPE_ITERATIONS = 200_000
 
 
@@ -116,6 +118,7 @@ class PlatformHarness:
         secret_envelope_key: str = "",
         secret_envelope_key_id: str = "local",
         secret_envelope_previous_keys: dict[str, str] | None = None,
+        secret_kms_provider: SecretKMSProvider | None = None,
         network_egress_policy: str = "full",
         network_egress_allowlist: list[str] | None = None,
         cancellation_policy: str = "enabled",
@@ -139,6 +142,7 @@ class PlatformHarness:
             current_key=secret_envelope_key,
             previous_keys=secret_envelope_previous_keys or {},
         )
+        self.secret_kms_provider = secret_kms_provider
         self.network_egress_policy = network_egress_policy
         self.network_egress_allowlist = network_egress_allowlist or []
         self.cancellation_policy = self._normalized_cancellation_policy(cancellation_policy)
@@ -840,6 +844,8 @@ class PlatformHarness:
         return f"{prefix}{self._decrypt_secret_value(str(row['value']))}{suffix}"
 
     def _encrypt_secret_value(self, value: str) -> str:
+        if self.secret_kms_provider is not None:
+            return self._encrypt_secret_value_v3(value)
         if not self.secret_envelope_key:
             return value
         salt = os.urandom(16)
@@ -861,9 +867,36 @@ class PlatformHarness:
         envelope["tag"] = self._b64(hmac.new(mac_key, mac_input, hashlib.sha256).digest())
         return SECRET_ENVELOPE_V2_PREFIX + self._b64(self._stable_json(envelope).encode("utf-8"))
 
+    def _encrypt_secret_value_v3(self, value: str) -> str:
+        if self.secret_kms_provider is None:
+            raise PlatformHarnessViolation("platform secret KMS provider is not configured")
+        data_key = os.urandom(32)
+        salt = os.urandom(16)
+        nonce = os.urandom(16)
+        enc_key, mac_key = self._derive_secret_envelope_keys(self._b64(data_key), salt)
+        plaintext = value.encode("utf-8")
+        ciphertext = self._xor_bytes(plaintext, self._keystream(enc_key, nonce, len(plaintext)))
+        envelope = {
+            "algorithm": "hmac-sha256-xor-stream",
+            "ciphertext": self._b64(ciphertext),
+            "iterations": SECRET_ENVELOPE_ITERATIONS,
+            "key_id": self.secret_kms_provider.primary_key_id,
+            "kdf": "pbkdf2-hmac-sha256",
+            "nonce": self._b64(nonce),
+            "provider_id": self.secret_kms_provider.provider_id,
+            "salt": self._b64(salt),
+            "version": 3,
+            "wrapped_data_key": self.secret_kms_provider.wrap_data_key(data_key),
+        }
+        mac_input = self._stable_json(envelope).encode("utf-8")
+        envelope["tag"] = self._b64(hmac.new(mac_key, mac_input, hashlib.sha256).digest())
+        return SECRET_ENVELOPE_V3_PREFIX + self._b64(self._stable_json(envelope).encode("utf-8"))
+
     def _decrypt_secret_value(self, stored_value: str) -> str:
         if not self._is_encrypted_secret_value(stored_value):
             return stored_value
+        if stored_value.startswith(SECRET_ENVELOPE_V3_PREFIX):
+            return self._decrypt_secret_value_v3(stored_value)
         if not self.secret_envelope_keyring:
             raise PlatformHarnessViolation("platform secret envelope key is not configured")
         prefix = SECRET_ENVELOPE_V2_PREFIX if stored_value.startswith(SECRET_ENVELOPE_V2_PREFIX) else SECRET_ENVELOPE_PREFIX
@@ -890,6 +923,37 @@ class PlatformHarness:
             return plaintext.decode("utf-8")
         except UnicodeDecodeError as error:
             raise PlatformHarnessViolation("platform secret envelope plaintext is invalid") from error
+
+    def _decrypt_secret_value_v3(self, stored_value: str) -> str:
+        if self.secret_kms_provider is None:
+            raise PlatformHarnessViolation("platform secret KMS provider is not configured")
+        try:
+            raw = self._unb64(stored_value.removeprefix(SECRET_ENVELOPE_V3_PREFIX))
+            envelope = json.loads(raw.decode("utf-8"))
+            tag = self._unb64(str(envelope.pop("tag")))
+            salt = self._unb64(str(envelope["salt"]))
+            nonce = self._unb64(str(envelope["nonce"]))
+            ciphertext = self._unb64(str(envelope["ciphertext"]))
+            wrapped_data_key = dict(envelope["wrapped_data_key"])
+        except Exception as error:
+            raise PlatformHarnessViolation("platform secret KMS envelope is invalid") from error
+        provider_id = str(envelope.get("provider_id") or "")
+        if provider_id != self.secret_kms_provider.provider_id:
+            raise PlatformHarnessViolation(f"platform secret KMS provider is not configured: {provider_id}")
+        try:
+            data_key = self.secret_kms_provider.unwrap_data_key(wrapped_data_key)
+        except ValueError as error:
+            raise PlatformHarnessViolation(str(error)) from error
+        enc_key, mac_key = self._derive_secret_envelope_keys(self._b64(data_key), salt)
+        mac_input = self._stable_json(envelope).encode("utf-8")
+        expected = hmac.new(mac_key, mac_input, hashlib.sha256).digest()
+        if not hmac.compare_digest(tag, expected):
+            raise PlatformHarnessViolation("platform secret KMS envelope authentication failed")
+        plaintext = self._xor_bytes(ciphertext, self._keystream(enc_key, nonce, len(ciphertext)))
+        try:
+            return plaintext.decode("utf-8")
+        except UnicodeDecodeError as error:
+            raise PlatformHarnessViolation("platform secret KMS envelope plaintext is invalid") from error
 
     def _derive_secret_envelope_keys(self, envelope_key: str, salt: bytes) -> tuple[bytes, bytes]:
         material = hashlib.pbkdf2_hmac(
@@ -927,6 +991,11 @@ class PlatformHarness:
         return base64.urlsafe_b64decode(padded.encode("ascii"))
 
     def _secret_storage_mode(self, stored_value: str) -> str:
+        if stored_value.startswith(SECRET_ENVELOPE_V3_PREFIX):
+            provider_id, key_id = self._secret_envelope_v3_provider_and_key_id(stored_value)
+            if provider_id and key_id:
+                return f"encrypted_v3:{provider_id}:{key_id}"
+            return "encrypted_v3:unknown"
         if stored_value.startswith(SECRET_ENVELOPE_V2_PREFIX):
             key_id = self._secret_envelope_key_id(stored_value)
             return f"encrypted_v2:{key_id}" if key_id else "encrypted_v2:unknown"
@@ -944,8 +1013,22 @@ class PlatformHarness:
             return ""
         return str(envelope.get("key_id") or "")
 
+    def _secret_envelope_v3_provider_and_key_id(self, stored_value: str) -> tuple[str, str]:
+        if not stored_value.startswith(SECRET_ENVELOPE_V3_PREFIX):
+            return "", ""
+        try:
+            raw = self._unb64(stored_value.removeprefix(SECRET_ENVELOPE_V3_PREFIX))
+            envelope = json.loads(raw.decode("utf-8"))
+        except Exception:
+            return "", ""
+        return str(envelope.get("provider_id") or ""), str(envelope.get("key_id") or "")
+
     def _is_encrypted_secret_value(self, stored_value: str) -> bool:
-        return stored_value.startswith(SECRET_ENVELOPE_PREFIX) or stored_value.startswith(SECRET_ENVELOPE_V2_PREFIX)
+        return (
+            stored_value.startswith(SECRET_ENVELOPE_PREFIX)
+            or stored_value.startswith(SECRET_ENVELOPE_V2_PREFIX)
+            or stored_value.startswith(SECRET_ENVELOPE_V3_PREFIX)
+        )
 
     def _normalized_secret_key_id(self, key_id: str) -> str:
         normalized = key_id.strip() or "local"
@@ -984,6 +1067,12 @@ class PlatformHarness:
 
     def _public_secret(self, row: dict[str, Any]) -> dict[str, Any]:
         storage_mode = self._secret_storage_mode(str(row.get("value", "")))
+        key_id = ""
+        provider_id = ""
+        if storage_mode.startswith("encrypted_v3:"):
+            _, provider_id, key_id = storage_mode.split(":", 2)
+        elif storage_mode.startswith("encrypted_v2:"):
+            key_id = storage_mode.split(":", 1)[1]
         return {
             "id": row["id"],
             "owner_id": row["owner_id"],
@@ -992,7 +1081,8 @@ class PlatformHarness:
             "secret_ref": f"secret://{row['owner_id']}/{row['name']}",
             "storage_mode": storage_mode,
             "encrypted": storage_mode.startswith("encrypted"),
-            "key_id": storage_mode.split(":", 1)[1] if storage_mode.startswith("encrypted_v2:") else "",
+            "key_id": key_id,
+            "kms_provider_id": provider_id,
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
             "redacted": True,
@@ -1191,11 +1281,25 @@ class PlatformHarness:
             "network_egress_allowlist": list(self.network_egress_allowlist),
             "secret_policy_enabled": self.secret_policy_enabled,
             "secret_storage": {
-                "new_secret_mode": f"encrypted_v2:{self.secret_envelope_key_id}" if self.secret_envelope_key else "legacy_plaintext",
-                "envelope_configured": bool(self.secret_envelope_key),
-                "current_key_id": self.secret_envelope_key_id if self.secret_envelope_key else "",
+                "new_secret_mode": self._new_secret_storage_mode(),
+                "envelope_configured": bool(self.secret_envelope_key) or self.secret_kms_provider is not None,
+                "current_key_id": self._current_secret_key_id(),
                 "keyring_size": len(self.secret_envelope_keyring),
                 "rotation_aware": bool(self.secret_envelope_keyring),
+                "kms_provider_configured": self.secret_kms_provider is not None,
+                "kms_provider": self.secret_kms_provider.status()
+                if self.secret_kms_provider is not None
+                else {
+                    "provider_id": "",
+                    "provider_type": "",
+                    "configured": False,
+                    "primary_key_id": "",
+                    "keyring_size": 0,
+                    "rotation_aware": False,
+                    "wrap_supported": False,
+                    "unwrap_supported": False,
+                },
+                "external_kms_provider_integration": self.secret_kms_provider is not None,
                 "legacy_v1_read_supported": True,
                 "legacy_plaintext_read_supported": True,
             },
@@ -1296,6 +1400,20 @@ class PlatformHarness:
                 "not_full_sidecar_completion": True,
             },
         }
+
+    def _new_secret_storage_mode(self) -> str:
+        if self.secret_kms_provider is not None:
+            return f"encrypted_v3:{self.secret_kms_provider.provider_id}:{self.secret_kms_provider.primary_key_id}"
+        if self.secret_envelope_key:
+            return f"encrypted_v2:{self.secret_envelope_key_id}"
+        return "legacy_plaintext"
+
+    def _current_secret_key_id(self) -> str:
+        if self.secret_kms_provider is not None:
+            return self.secret_kms_provider.primary_key_id
+        if self.secret_envelope_key:
+            return self.secret_envelope_key_id
+        return ""
 
     def _normalized_allowlist(self, entries: list[str]) -> list[str]:
         normalized: list[str] = []
