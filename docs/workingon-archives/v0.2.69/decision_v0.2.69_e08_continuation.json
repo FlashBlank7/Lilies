@@ -1,0 +1,78 @@
+{
+  "version": "v0.2.69",
+  "generated_at": "2026-07-10T07:44:50.248427+00:00",
+  "decision": {
+    "option_id": "pause_e08_move_complexity_router",
+    "label": "Pause E08 tranche and move to complexity-router guardrails",
+    "score": 18,
+    "product_value": 5,
+    "evidence_saturation": 5,
+    "verification_feasibility": 4,
+    "dependency_risk": 1,
+    "novelty": 5,
+    "source": "docs/stage-reports/v0.2.68_e08_cancellation_budget_behavior.md",
+    "disposition": "selected",
+    "next_version": "v0.2.70_complexity_router_guardrail_selection",
+    "first_design": "docs/current-design/design_complexity_router_guardrail_selection.md"
+  },
+  "options": [
+    {
+      "option_id": "pause_e08_move_complexity_router",
+      "label": "Pause E08 tranche and move to complexity-router guardrails",
+      "score": 18,
+      "product_value": 5,
+      "evidence_saturation": 5,
+      "verification_feasibility": 4,
+      "dependency_risk": 1,
+      "novelty": 5,
+      "source": "docs/stage-reports/v0.2.68_e08_cancellation_budget_behavior.md",
+      "disposition": "selected",
+      "next_version": "v0.2.70_complexity_router_guardrail_selection",
+      "first_design": "docs/current-design/design_complexity_router_guardrail_selection.md"
+    },
+    {
+      "option_id": "continue_e08_operator_runbook",
+      "label": "Continue E08 with operator runbook lifecycle",
+      "score": 10,
+      "product_value": 3,
+      "evidence_saturation": 3,
+      "verification_feasibility": 4,
+      "dependency_risk": 2,
+      "novelty": 2,
+      "source": "docs/stage-reports/v0.2.68_e08_cancellation_budget_behavior.md",
+      "disposition": "deferred because it is lower value after current backend evidence and before editable controls",
+      "next_version": "v0.2.x_e08_operator_runbook",
+      "first_design": "docs/current-design/design_e08_operator_runbook.md"
+    },
+    {
+      "option_id": "continue_e08_editable_policy_controls",
+      "label": "Continue E08 with editable policy controls",
+      "score": 7,
+      "product_value": 5,
+      "evidence_saturation": 2,
+      "verification_feasibility": 2,
+      "dependency_risk": 5,
+      "novelty": 3,
+      "source": "docs/stage-reports/v0.2.68_e08_cancellation_budget_behavior.md",
+      "disposition": "deferred because Node/frontend verification is still blocked and read-only evidence is sufficient for now",
+      "next_version": "v0.2.x_e08_editable_policy_controls",
+      "first_design": "docs/current-design/design_e08_editable_policy_controls.md"
+    },
+    {
+      "option_id": "declare_full_sidecar_complete",
+      "label": "Declare full sidecar complete",
+      "score": -3,
+      "product_value": 1,
+      "evidence_saturation": 0,
+      "verification_feasibility": 1,
+      "dependency_risk": 5,
+      "novelty": 0,
+      "source": "docs/stage-reports/v0.2.68_e08_cancellation_budget_behavior.md",
+      "disposition": "rejected because v0.2.65-v0.2.68 explicitly do not close full sidecar completion",
+      "next_version": null,
+      "first_design": null
+    }
+  ],
+  "formula": "product_value + evidence_saturation + verification_feasibility + novelty - dependency_risk",
+  "conclusion": "Pause the current E08 productization tranche after surface, matrix, and cancellation/budget evidence. Move next to complexity-router guardrail selection while keeping E08 editable controls and runbook deferred."
+}
