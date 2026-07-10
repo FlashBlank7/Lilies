@@ -1,0 +1,22 @@
+{
+  "version": "v0.2.68",
+  "cancellation_api": {
+    "run_id": "e08-cancel-active-run",
+    "status_code": 200,
+    "response": {
+      "run_id": "e08-cancel-active-run",
+      "status": "cancelling"
+    },
+    "cancel_called": true
+  },
+  "budget_record": {
+    "task_id": "e08-budget-task",
+    "violation": "model call budget exceeded: 2 > 1",
+    "status": "failed",
+    "error": "model call budget exceeded: 2 > 1",
+    "usage_counts": {
+      "model_call": 2
+    }
+  },
+  "not_full_sidecar_completion": true
+}
