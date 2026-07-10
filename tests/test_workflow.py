@@ -2711,6 +2711,18 @@ def test_platform_harness_policy_controls_api_reports_stdio_mcp_decisions(tmp_pa
         assert decisions["sandboxed_allowlist"]["operator_action"]
         assert decisions["restricted_unsandboxed"]["allowed"] is False
 
+        e08 = body["e08_boundary"]
+        assert e08["current_slice"] == "e08_policy_controls_surface"
+        assert e08["source"] == "docs/experiment-status/ledgers/E08_harness_sidecar_passmode.md"
+        assert e08["soft_passmode"]["enforcement"] == "soft_configurable"
+        assert e08["hard_boundary"]["enforcement"] == "hard_boundary"
+        assert e08["not_full_sidecar_completion"] is True
+        controls = {item["id"]: item for item in e08["controls"]}
+        assert controls["network_egress"]["value"] == "full"
+        assert controls["secret_policy"]["status"] == "enabled"
+        assert controls["worker_lease"]["value"] == 60
+        assert controls["workflow_passmode"]["layer"] == "workflow_internal"
+
 
 def test_builder_benchmark_treats_llm_as_model_turn_equivalent(tmp_path: Path) -> None:
     settings = Settings(

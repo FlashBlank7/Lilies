@@ -76,6 +76,7 @@
 - `v0.2.62_*`：来自 `docs/stage-reports/v0.2.62_evolution_process_architecture.md`。
 - `v0.2.63_*`：来自 `docs/stage-reports/v0.2.63_adaptive_monitoring_schedule_and_report_audit.md`。
 - `v0.2.64_*`：来自 `docs/stage-reports/v0.2.64_productization_lane_reselection.md`。
+- `v0.2.65_*`：来自 `docs/stage-reports/v0.2.65_e08_policy_controls_surface.md`。
 
 Active workspace rule:
 

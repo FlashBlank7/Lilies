@@ -951,6 +951,78 @@ class PlatformHarness:
                 "allowlist_supported": False,
                 "decisions": decisions,
             },
+            "e08_boundary": self._e08_boundary_summary(),
+        }
+
+    def _e08_boundary_summary(self) -> dict[str, Any]:
+        network_policy = self._normalized_policy(self.network_egress_policy)
+        budget_limits = {
+            "max_model_calls_per_task": self.max_model_calls_per_task,
+            "max_tool_calls_per_task": self.max_tool_calls_per_task,
+            "max_node_executions_per_task": self.max_node_executions_per_task,
+            "max_model_calls_per_owner": self.max_model_calls_per_owner,
+            "max_tool_calls_per_owner": self.max_tool_calls_per_owner,
+            "max_node_executions_per_owner": self.max_node_executions_per_owner,
+        }
+        return {
+            "current_slice": "e08_policy_controls_surface",
+            "source": "docs/experiment-status/ledgers/E08_harness_sidecar_passmode.md",
+            "comparison_evidence": "docs/experiment-status/evidence/experiment_v0.2.55_e08_sidecar_passmode_2026_07_10_summary.md",
+            "soft_passmode": {
+                "layer": "workflow_internal",
+                "enforcement": "soft_configurable",
+                "statement": "workflow-internal passmode can pause or pass by workflow configuration",
+            },
+            "hard_boundary": {
+                "layer": "platform_harness",
+                "enforcement": "hard_boundary",
+                "statement": "Platform Harness policy is enforced before external actions",
+            },
+            "not_full_sidecar_completion": True,
+            "remaining_full_boundary": [
+                "complete cancellation policy closure",
+                "budget and owner-limit closure",
+                "worker lease operator lifecycle",
+                "editable policy controls",
+                "full Studio/API operational runbook",
+            ],
+            "controls": [
+                {
+                    "id": "network_egress",
+                    "label": "Network egress policy",
+                    "layer": "platform_harness",
+                    "status": "restricted" if network_policy != "full" else "open",
+                    "value": network_policy,
+                },
+                {
+                    "id": "secret_policy",
+                    "label": "Secret policy",
+                    "layer": "platform_harness",
+                    "status": "enabled" if self.secret_policy_enabled else "disabled",
+                    "value": self.secret_policy_enabled,
+                },
+                {
+                    "id": "worker_lease",
+                    "label": "Worker lease",
+                    "layer": "platform_harness",
+                    "status": "enabled" if self.worker_lease_seconds > 0 else "disabled",
+                    "value": self.worker_lease_seconds,
+                },
+                {
+                    "id": "budget_limits",
+                    "label": "Task and owner budgets",
+                    "layer": "platform_harness",
+                    "status": "configured",
+                    "value": budget_limits,
+                },
+                {
+                    "id": "workflow_passmode",
+                    "label": "Workflow passmode",
+                    "layer": "workflow_internal",
+                    "status": "soft_configurable",
+                    "value": "permission_gate modes such as always_ask or auto_approve",
+                },
+            ],
         }
 
     def _stdio_policy_control_decision(

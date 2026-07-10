@@ -1188,6 +1188,23 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
                 <strong>{t.policyAllowlist}</strong>
                 <div>{policyControls.network_egress_allowlist.length ? policyControls.network_egress_allowlist.map(host => <code key={host}>{host}</code>) : <span>{t.policyNoAllowlist}</span>}</div>
               </div>
+              <div className="e08-boundary">
+                <div className="e08-boundary-head"><strong>{t.e08BoundaryTitle}</strong><span>{policyControls.e08_boundary.current_slice}</span></div>
+                <div className="e08-boundary-grid">
+                  <article>
+                    <b>{t.e08SoftPassmode}</b>
+                    <code>{policyControls.e08_boundary.soft_passmode.enforcement}</code>
+                    <p>{policyControls.e08_boundary.soft_passmode.statement}</p>
+                  </article>
+                  <article>
+                    <b>{t.e08HardBoundary}</b>
+                    <code>{policyControls.e08_boundary.hard_boundary.enforcement}</code>
+                    <p>{policyControls.e08_boundary.hard_boundary.statement}</p>
+                  </article>
+                </div>
+                <div className="e08-control-list">{policyControls.e08_boundary.controls.map(control => <span key={control.id}><b>{control.label}</b><code>{control.layer} · {control.status}</code></span>)}</div>
+                <small>{t.e08NotFullSidecar}: {String(policyControls.e08_boundary.not_full_sidecar_completion)} · {policyControls.e08_boundary.source}</small>
+              </div>
               <h3>{t.policyStdioTitle}</h3>
               <div className="policy-decision-list">{policyControls.stdio_mcp.decisions.map(decision => <article className={`policy-decision ${decision.allowed ? 'allowed' : 'blocked'}`} key={decision.id}>
                 <div className="policy-decision-head"><strong>{decision.label}</strong><span>{decision.allowed ? t.policyAllowed : t.policyBlocked}</span></div>

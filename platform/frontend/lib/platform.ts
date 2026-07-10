@@ -117,6 +117,30 @@ export type PlatformPolicyControls = {
   worker_id: string
   worker_lease_seconds: number
   limits: Record<string, number>
+  e08_boundary: {
+    current_slice: string
+    source: string
+    comparison_evidence: string
+    soft_passmode: {
+      layer: string
+      enforcement: string
+      statement: string
+    }
+    hard_boundary: {
+      layer: string
+      enforcement: string
+      statement: string
+    }
+    not_full_sidecar_completion: boolean
+    remaining_full_boundary: string[]
+    controls: Array<{
+      id: string
+      label: string
+      layer: string
+      status: string
+      value: unknown
+    }>
+  }
   stdio_mcp: {
     sandboxed_no_network_supported: boolean
     allowlist_supported: boolean
