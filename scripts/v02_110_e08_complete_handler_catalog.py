@@ -30,9 +30,27 @@ class FakeWorkflowRuntime:
         return {"passed": True, "summary": {"total": 1, "failed": 0, "mandatory_failed": 0}, "tests": []}
 
 
+class FakeWorkflowStore:
+    async def get_draft(self, *_: Any, **__: Any) -> dict[str, Any]:
+        return {"snapshot": None, "revision": 1, "content_hash": "fake"}
+
+
+class FakeDraftPatcher:
+    def preview(self, *_: Any, **__: Any) -> Any:
+        class Response:
+            supported = True
+
+            def model_dump(self, *_args: Any, **_kwargs: Any) -> dict[str, Any]:
+                return {"supported": True, "intent": "rename_node", "message": "ok", "operations": [], "warnings": []}
+
+        return Response()
+
+
 class FakeServices:
     scheduler = FakeScheduler()
     workflow_runtime = FakeWorkflowRuntime()
+    workflow_store = FakeWorkflowStore()
+    draft_patcher = FakeDraftPatcher()
 
 
 def verify_contract() -> dict[str, Any]:
@@ -101,6 +119,8 @@ def verify_contract() -> dict[str, Any]:
             and entries["workflow_run"]["executable"] is True,
             "test_suite_implemented_by_v02_118": entries["test_suite"]["status"] == "implemented"
             and entries["test_suite"]["executable"] is True,
+            "draft_patch_preview_implemented_by_v02_120": entries["draft_patch_preview"]["status"] == "implemented"
+            and entries["draft_patch_preview"]["executable"] is True,
             "unimplemented_kinds_are_deterministic_unavailable": all(
                 entries[kind]["status"] == "unavailable"
                 and entries[kind]["handler_registered"] is True
@@ -110,6 +130,7 @@ def verify_contract() -> dict[str, Any]:
                     "test_suite",
                     "scheduler_trigger",
                     "scheduler_manual_trigger",
+                    "draft_patch_preview",
                 }
             ),
             "unavailable_handler_fails_task_deterministically": len(results) == 1

@@ -1,0 +1,194 @@
+{
+  "version": "v0.2.120",
+  "evidence_id": "e08_draft_patch_preview_worker_offload_handler",
+  "source_stage_report": "docs/stage-reports/v0.2.119_e08_remaining_sidecar_slice_reselection.md",
+  "status": "completed",
+  "checks": {
+    "draft_patch_preview_catalog_implemented": true,
+    "worker_completed_supported_preview_task": true,
+    "worker_preview_returned_expected_operation": true,
+    "worker_preview_non_destructive": true,
+    "unsupported_preview_fails_deterministically": true,
+    "unsupported_preview_non_destructive": true,
+    "api_preview_path_preserved": true,
+    "heartbeat_registry_preserved": true,
+    "remaining_catalog_gaps_still_unavailable": true,
+    "full_execution_coverage_not_claimed": true
+  },
+  "catalog_summary": {
+    "version": "v0.2.120",
+    "required_count": 7,
+    "cataloged_count": 7,
+    "implemented_count": 5,
+    "unavailable_count": 2,
+    "catalog_complete": true,
+    "registered_catalog_complete": true,
+    "full_execution_coverage": false,
+    "not_full_sidecar_completion": true
+  },
+  "draft_patch_preview_entry": {
+    "kind": "draft_patch_preview",
+    "label": "Draft patch preview",
+    "required": true,
+    "status": "implemented",
+    "handler_registered": true,
+    "executable": true,
+    "implementation": "draft_patch_preview_handler",
+    "evidence": "docs/stage-reports/v0.2.120_e08_draft_patch_preview_worker_offload_handler.md",
+    "reason": "",
+    "operator_action": "Monitor worker-runner results and lease renewals."
+  },
+  "remaining_unavailable": [
+    "builder_build",
+    "benchmark"
+  ],
+  "supported_worker_task": {
+    "id": "evidence-draft-preview-worker-task",
+    "kind": "draft_patch_preview",
+    "owner_id": "efa55736-4ef0-49d0-ad6b-57a12d2d3d6d",
+    "resource_id": "efa55736-4ef0-49d0-ad6b-57a12d2d3d6d",
+    "status": "succeeded",
+    "parent_task_id": null,
+    "metadata": {
+      "instruction": "rename node end to Final Answer",
+      "worker_lease": {
+        "worker_id": "v02-120-worker",
+        "lease_seconds": 60.0,
+        "last_action": "claimed",
+        "updated_at": "2026-07-10T11:50:50.832394+00:00",
+        "lease_version": 3,
+        "released_at": "2026-07-10T11:50:50.830290+00:00",
+        "released_by": "producer",
+        "next_status": "queued"
+      },
+      "worker_runner": {
+        "worker_id": "v02-120-worker",
+        "status": "succeeded",
+        "result": {
+          "application_id": "efa55736-4ef0-49d0-ad6b-57a12d2d3d6d",
+          "revision": 2,
+          "content_hash": "0f5a1b822840c16e15d4903b68f5533c69eaaa178c2621632953dd1c64607392",
+          "supported": true,
+          "intent": "rename_node",
+          "message": "Preview rename_node for node end.",
+          "operations": [
+            {
+              "expected_revision": 2,
+              "op": "update_node",
+              "data": {
+                "node_id": "end",
+                "changes": {
+                  "title": "Final Answer"
+                },
+                "merge_config": true
+              }
+            }
+          ],
+          "warnings": []
+        },
+        "renewal_count": 0
+      }
+    },
+    "usage_counts": {},
+    "usage": [],
+    "error": "",
+    "worker_id": "v02-120-worker",
+    "lease_expires_at": "2026-07-10T11:51:50.832394+00:00",
+    "lease_version": 3,
+    "created_at": "2026-07-10T11:50:50.826780+00:00",
+    "updated_at": "2026-07-10T11:50:50.836839+00:00",
+    "finished_at": "2026-07-10T11:50:50.836839+00:00"
+  },
+  "unsupported_worker_task": {
+    "id": "evidence-draft-preview-unsupported-task",
+    "kind": "draft_patch_preview",
+    "owner_id": "efa55736-4ef0-49d0-ad6b-57a12d2d3d6d",
+    "resource_id": "efa55736-4ef0-49d0-ad6b-57a12d2d3d6d",
+    "status": "failed",
+    "parent_task_id": null,
+    "metadata": {
+      "instruction": "please invent a new workflow",
+      "worker_lease": {
+        "worker_id": "v02-120-worker",
+        "lease_seconds": 60.0,
+        "last_action": "claimed",
+        "updated_at": "2026-07-10T11:50:50.842889+00:00",
+        "lease_version": 3,
+        "released_at": "2026-07-10T11:50:50.840914+00:00",
+        "released_by": "producer",
+        "next_status": "queued"
+      },
+      "worker_runner": {
+        "worker_id": "v02-120-worker",
+        "status": "failed",
+        "result": {},
+        "renewal_count": 0
+      }
+    },
+    "usage_counts": {},
+    "usage": [],
+    "error": "worker draft_patch_preview unsupported: unsupported instruction; deterministic preview supports rename, description update, and disconnected node removal.",
+    "worker_id": "v02-120-worker",
+    "lease_expires_at": "2026-07-10T11:51:50.842889+00:00",
+    "lease_version": 3,
+    "created_at": "2026-07-10T11:50:50.840002+00:00",
+    "updated_at": "2026-07-10T11:50:50.845786+00:00",
+    "finished_at": "2026-07-10T11:50:50.845786+00:00"
+  },
+  "supported_worker_result": {
+    "application_id": "efa55736-4ef0-49d0-ad6b-57a12d2d3d6d",
+    "revision": 2,
+    "content_hash": "0f5a1b822840c16e15d4903b68f5533c69eaaa178c2621632953dd1c64607392",
+    "supported": true,
+    "intent": "rename_node",
+    "message": "Preview rename_node for node end.",
+    "operations": [
+      {
+        "expected_revision": 2,
+        "op": "update_node",
+        "data": {
+          "node_id": "end",
+          "changes": {
+            "title": "Final Answer"
+          },
+          "merge_config": true
+        }
+      }
+    ],
+    "warnings": []
+  },
+  "api_preview_task_id": "e3a68d52-10c8-4a52-bbed-9cc4e693f5be",
+  "api_preview_intent": "rename_node",
+  "api_preview_task_count": 3,
+  "heartbeats": {
+    "v02-120-worker": {
+      "worker_id": "v02-120-worker",
+      "status": "idle",
+      "active_task_id": "",
+      "last_seen_at": "2026-07-10T11:50:50.846808+00:00",
+      "stale_after_seconds": 120.0,
+      "liveness": "active",
+      "metadata": {
+        "phase": "task_finished",
+        "last_task_id": "evidence-draft-preview-unsupported-task",
+        "last_task_status": "failed"
+      },
+      "updated_at": "2026-07-10T11:50:50.846826+00:00"
+    }
+  },
+  "implementation_paths": [
+    "platform/backend/src/agent_platform/worker_runner.py",
+    "tests/test_v02_120_e08_draft_patch_preview_worker_offload_handler.py",
+    "scripts/v02_120_e08_draft_patch_preview_worker_offload_handler.py"
+  ],
+  "invariants": {
+    "worker_preview_does_not_mutate_draft": true,
+    "api_preview_path_preserved": true,
+    "process_supervision_implemented": false,
+    "distributed_queue_implemented": false,
+    "e08_full_sidecar_completion_claimed": false,
+    "workingon_is_not_task_source": true,
+    "stage_report_is_next_task_source": true
+  },
+  "next_boundary": "This closes the draft_patch_preview worker offload handler only. Full Platform Harness sidecar completion still needs builder_build, benchmark, production worker supervision, and distributed queue semantics."
+}

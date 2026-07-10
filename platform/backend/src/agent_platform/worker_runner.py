@@ -42,6 +42,11 @@ IMPLEMENTED_WORKER_HANDLERS: dict[str, dict[str, str]] = {
         "implementation": "scheduler_manual_trigger_handler",
         "evidence": "docs/stage-reports/v0.2.27_worker_runner_cli_and_handler.md",
     },
+    "draft_patch_preview": {
+        "label": "Draft patch preview",
+        "implementation": "draft_patch_preview_handler",
+        "evidence": "docs/stage-reports/v0.2.120_e08_draft_patch_preview_worker_offload_handler.md",
+    },
 }
 
 UNAVAILABLE_WORKER_HANDLERS: dict[str, dict[str, str]] = {
@@ -54,11 +59,6 @@ UNAVAILABLE_WORKER_HANDLERS: dict[str, dict[str, str]] = {
         "label": "Benchmark",
         "reason": "benchmark tasks are currently recorded by benchmark APIs and scripts, not executed by the worker catalog",
         "operator_action": "Keep benchmark execution on the benchmark path until a worker-owned benchmark handler is implemented.",
-    },
-    "draft_patch_preview": {
-        "label": "Draft patch preview",
-        "reason": "draft patch previews are currently managed by the API preview path",
-        "operator_action": "Keep draft previews on the API path until a worker-owned preview handler is implemented.",
     },
 }
 
@@ -376,6 +376,32 @@ def test_suite_handler(workflow_runtime: Any) -> PlatformTaskHandler:
     return handler
 
 
+def draft_patch_preview_handler(workflow_store: Any, draft_patcher: Any) -> PlatformTaskHandler:
+    async def handler(task: PlatformTaskRecord) -> dict[str, Any]:
+        instruction = task.metadata.get("instruction")
+        if not isinstance(instruction, str) or not instruction.strip():
+            raise ValueError("draft_patch_preview task metadata requires instruction")
+        draft = await workflow_store.get_draft(task.owner_id)
+        response = draft_patcher.preview(
+            draft["snapshot"],
+            int(draft["revision"]),
+            instruction,
+        )
+        result = response.model_dump(mode="json")
+        if not response.supported:
+            raise PlatformWorkerHandlerUnavailable(
+                f"worker draft_patch_preview unsupported: {response.message}"
+            )
+        return {
+            "application_id": task.owner_id,
+            "revision": int(draft["revision"]),
+            "content_hash": draft["content_hash"],
+            **result,
+        }
+
+    return handler
+
+
 def scheduler_trigger_handler(scheduler: Any) -> PlatformTaskHandler:
     async def handler(task: PlatformTaskRecord) -> dict[str, Any]:
         version = _required_int_metadata(task, "version")
@@ -449,6 +475,7 @@ def build_platform_worker_handlers(services: Any) -> dict[str, PlatformTaskHandl
         "test_suite": test_suite_handler(services.workflow_runtime),
         "scheduler_trigger": scheduler_trigger_handler(services.scheduler),
         "scheduler_manual_trigger": scheduler_manual_trigger_handler(services.scheduler),
+        "draft_patch_preview": draft_patch_preview_handler(services.workflow_store, services.draft_patcher),
     }
     for kind in UNAVAILABLE_WORKER_HANDLERS:
         handlers[kind] = unavailable_worker_handler(kind)
@@ -502,7 +529,7 @@ def platform_worker_handler_catalog(
     implemented = [entry.kind for entry in entries if entry.status == "implemented"]
     unavailable = [entry.kind for entry in entries if entry.status == "unavailable"]
     return {
-        "version": "v0.2.118",
+        "version": "v0.2.120",
         "source": "docs/stage-reports/v0.2.113_e08_remaining_sidecar_slice_reselection.md",
         "required_count": len(required),
         "cataloged_count": len(cataloged),

@@ -42,9 +42,27 @@ class FakeWorkflowRuntime:
         return {"passed": True, "summary": {"total": 1, "failed": 0, "mandatory_failed": 0}, "tests": []}
 
 
+class FakeWorkflowStore:
+    async def get_draft(self, *_: Any, **__: Any) -> dict[str, Any]:
+        return {"snapshot": None, "revision": 1, "content_hash": "fake"}
+
+
+class FakeDraftPatcher:
+    def preview(self, *_: Any, **__: Any) -> Any:
+        class Response:
+            supported = True
+
+            def model_dump(self, *_args: Any, **_kwargs: Any) -> dict[str, Any]:
+                return {"supported": True, "intent": "rename_node", "message": "ok", "operations": [], "warnings": []}
+
+        return Response()
+
+
 class FakeServices:
     scheduler = FakeScheduler()
     workflow_runtime = FakeWorkflowRuntime()
+    workflow_store = FakeWorkflowStore()
+    draft_patcher = FakeDraftPatcher()
 
 
 def _create_scheduled_application(client: TestClient, *, name: str = "Worker schedule") -> str:
@@ -127,7 +145,7 @@ def test_v02_114_catalog_marks_scheduler_trigger_implemented() -> None:
     catalog = platform_worker_handler_catalog(handlers)
     entries = {entry["kind"]: entry for entry in catalog["entries"]}
 
-    assert catalog["version"] == "v0.2.118"
+    assert catalog["version"] == "v0.2.120"
     assert catalog["catalog_complete"] is True
     assert catalog["registered_catalog_complete"] is True
     assert catalog["full_execution_coverage"] is False
@@ -142,6 +160,7 @@ def test_v02_114_catalog_marks_scheduler_trigger_implemented() -> None:
         "test_suite",
         "scheduler_trigger",
         "scheduler_manual_trigger",
+        "draft_patch_preview",
     }
     for kind in remaining_unavailable:
         assert entries[kind]["status"] == "unavailable"

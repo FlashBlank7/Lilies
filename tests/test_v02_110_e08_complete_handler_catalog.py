@@ -36,9 +36,27 @@ class FakeWorkflowRuntime:
         return {"passed": True, "summary": {"total": 1, "failed": 0, "mandatory_failed": 0}, "tests": []}
 
 
+class FakeWorkflowStore:
+    async def get_draft(self, *_: Any, **__: Any) -> dict[str, Any]:
+        return {"snapshot": None, "revision": 1, "content_hash": "fake"}
+
+
+class FakeDraftPatcher:
+    def preview(self, *_: Any, **__: Any) -> Any:
+        class Response:
+            supported = True
+
+            def model_dump(self, *_args: Any, **_kwargs: Any) -> dict[str, Any]:
+                return {"supported": True, "intent": "rename_node", "message": "ok", "operations": [], "warnings": []}
+
+        return Response()
+
+
 class FakeServices:
     scheduler = FakeScheduler()
     workflow_runtime = FakeWorkflowRuntime()
+    workflow_store = FakeWorkflowStore()
+    draft_patcher = FakeDraftPatcher()
 
 
 def headers() -> dict[str, str]:
@@ -67,11 +85,14 @@ def test_v02_110_catalog_covers_all_platform_task_kinds() -> None:
     assert entries["scheduler_trigger"]["executable"] is True
     assert entries["scheduler_manual_trigger"]["status"] == "implemented"
     assert entries["scheduler_manual_trigger"]["executable"] is True
+    assert entries["draft_patch_preview"]["status"] == "implemented"
+    assert entries["draft_patch_preview"]["executable"] is True
     for kind in set(PLATFORM_WORKER_TASK_KINDS) - {
         "workflow_run",
         "test_suite",
         "scheduler_trigger",
         "scheduler_manual_trigger",
+        "draft_patch_preview",
     }:
         assert entries[kind]["status"] == "unavailable"
         assert entries[kind]["handler_registered"] is True
@@ -132,7 +153,7 @@ def test_v02_110_worker_handler_catalog_api_exposes_coverage(tmp_path: Path) -> 
 
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["version"] == "v0.2.118"
+    assert body["version"] == "v0.2.120"
     assert body["catalog_complete"] is True
     assert body["registered_catalog_complete"] is True
     assert body["full_execution_coverage"] is False

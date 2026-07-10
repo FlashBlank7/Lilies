@@ -66,7 +66,7 @@ def test_v02_116_catalog_marks_workflow_run_implemented() -> None:
         catalog = platform_worker_handler_catalog(handlers)
     entries = {entry["kind"]: entry for entry in catalog["entries"]}
 
-    assert catalog["version"] == "v0.2.118"
+    assert catalog["version"] == "v0.2.120"
     assert catalog["catalog_complete"] is True
     assert catalog["registered_catalog_complete"] is True
     assert catalog["full_execution_coverage"] is False
@@ -78,6 +78,7 @@ def test_v02_116_catalog_marks_workflow_run_implemented() -> None:
         "test_suite",
         "scheduler_trigger",
         "scheduler_manual_trigger",
+        "draft_patch_preview",
     }
     for kind in remaining_unavailable:
         assert entries[kind]["status"] == "unavailable"

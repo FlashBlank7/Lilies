@@ -188,7 +188,7 @@ def verify_contract() -> dict[str, Any]:
         "heartbeat_registry_preserved": heartbeats["v02-116-worker"]["status"] == "idle"
         and heartbeats["v02-116-worker"]["metadata"]["last_task_status"] == "succeeded",
         "remaining_catalog_gaps_still_unavailable": set(remaining_unavailable)
-        == {"builder_build", "benchmark", "draft_patch_preview"},
+        == {"builder_build", "benchmark"},
         "full_execution_coverage_not_claimed": catalog["full_execution_coverage"] is False
         and catalog["not_full_sidecar_completion"] is True,
     }
