@@ -1,6 +1,6 @@
 # E07 Complexity Router Ledger
 
-状态：operator_opt_in_rollout_selected；not enabled as default
+状态：operator_opt_in_rollout_completed；not enabled as default
 
 ## 实验问题
 
@@ -37,6 +37,12 @@ v0.2.83 post-shadow rollout decision 已完成：选择 `execute_operator_opt_in
 
 - `../../workingon-archives/v0.2.83/decision_v0.2.83_complexity_router_post_shadow_rollout_summary.md`
 
+v0.2.84 operator opt-in rollout 已完成：三条 validation cases 均通过 operator opt-in override，override reason coverage `1.0`，unexpected classification rate `0.0`，accidental default enablement count `0`，`default_enabled=false` 保持不变。
+
+证据：
+
+- `../../workingon-archives/v0.2.84/rollout_v0.2.84_complexity_router_operator_opt_in_summary.md`
+
 ## 初始设计方向
 
 - 定义 simple/medium/complex 三档需求。
@@ -45,4 +51,4 @@ v0.2.83 post-shadow rollout decision 已完成：选择 `execute_operator_opt_in
 
 ## 下一步
 
-下一步是执行 stage_1 operator opt-in rollout，记录 override reason coverage 和 unexpected classification rate。默认行为仍不得自动启用。
+下一步需要显式决定 post-operator-opt-in 路径：默认启用评审、继续 opt-in 观测，或先关闭 frontend verification blocker。默认行为仍不得自动启用。
