@@ -1,0 +1,42 @@
+{
+  "schema_id": "e02_true_human_panel_result_v1",
+  "status": "prepared_pending_external_execution",
+  "required_fields": [
+    "participant_id",
+    "group",
+    "packet_type",
+    "task_id",
+    "started_at",
+    "ended_at",
+    "time_to_actionable_review_seconds",
+    "completed",
+    "localization_correct",
+    "recommendation_actionable",
+    "confidence_1_to_5",
+    "facilitator_intervention_count",
+    "preference",
+    "notes"
+  ],
+  "fields": {
+    "participant_id": "Stable anonymous id such as P001.",
+    "group": "Counterbalance group: A or B.",
+    "packet_type": "raw_json or readable_testframe.",
+    "task_id": "Matched review task id.",
+    "started_at": "ISO-8601 timestamp when participant begins reading.",
+    "ended_at": "ISO-8601 timestamp when participant submits final answer.",
+    "time_to_actionable_review_seconds": "Elapsed seconds from start to final answer.",
+    "completed": "true if participant submitted final answer.",
+    "localization_correct": "true if answer identifies expected issue location.",
+    "recommendation_actionable": "true if answer provides implementable fix or diagnostic step.",
+    "confidence_1_to_5": "Integer confidence rating from 1 to 5.",
+    "facilitator_intervention_count": "Number of facilitator clarifications.",
+    "preference": "raw_json, readable_testframe, no_preference, or not_asked.",
+    "notes": "Non-identifying notes."
+  },
+  "completion_gate": {
+    "minimum_participants": 5,
+    "requires_raw_and_readable_rows_per_participant": true,
+    "requires_analysis_summary": true,
+    "proxy_or_dry_run_can_complete_e02": false
+  }
+}

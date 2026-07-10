@@ -31,3 +31,7 @@
 v0.2.57 final disposition：Readable TestFrame is validated as the default reviewer surface; true human timing claims remain externally blocked. 若要证明真实人工审阅耗时下降，仍需 recruited participants 和 timing protocol，不能由自动化替代。
 
 证据：`../evidence/experiment_v0.2.57_full_backlog_closure_2026_07_10_summary.md`
+
+v0.2.141 已准备真实 human panel execution package，包含 participant protocol、timing rubric、consent/safety notes、data capture schema、blank results sheet 和 execution checklist。该版本只关闭“可执行包缺失”，不关闭 E02 blocker；E02 仍需真实外部 participant rows 和 analysis summary。
+
+证据：`../../workingon-archives/v0.2.141/evidence_v0.2.141_e02_true_human_panel_execution_package_summary.md`

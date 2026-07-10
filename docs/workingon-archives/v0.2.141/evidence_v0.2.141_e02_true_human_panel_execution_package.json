@@ -1,0 +1,48 @@
+{
+  "version": "v0.2.141",
+  "evidence_id": "e02_true_human_panel_execution_package",
+  "source_stage_report": "docs/stage-reports/v0.2.140_global_completion_audit_after_e10_productization.md",
+  "status": "completed",
+  "package_dir": "docs/experiment-status/e02-human-panel",
+  "files": {
+    "README.md": true,
+    "participant_protocol.md": true,
+    "timing_rubric.md": true,
+    "consent_safety_notes.md": true,
+    "data_capture_schema.json": true,
+    "blank_results.csv": true,
+    "execution_checklist.md": true
+  },
+  "required_fields": [
+    "participant_id",
+    "group",
+    "packet_type",
+    "task_id",
+    "started_at",
+    "ended_at",
+    "time_to_actionable_review_seconds",
+    "completed",
+    "localization_correct",
+    "recommendation_actionable",
+    "confidence_1_to_5",
+    "facilitator_intervention_count",
+    "preference",
+    "notes"
+  ],
+  "checks": {
+    "required_files_present": true,
+    "required_fields_present": true,
+    "minimum_participants_declared": true,
+    "raw_and_readable_rows_required": true,
+    "analysis_summary_required": true,
+    "proxy_or_dry_run_cannot_complete_e02": true,
+    "no_completion_claim": true,
+    "unrestricted_memory_forbidden_preserved": true
+  },
+  "e02_true_human_panel_package_ready": true,
+  "e02_true_human_panel_completed": false,
+  "external_participant_rows_captured": 0,
+  "global_completion_claimed": false,
+  "unrestricted_memory_forbidden": true,
+  "next_required_external_action": "recruit participants and run the panel using this package"
+}
