@@ -1,0 +1,113 @@
+{
+  "version": "v0.2.75",
+  "decision": {
+    "option_id": "require_live_validation_before_default_change",
+    "label": "Require live validation before any default change",
+    "score": 12,
+    "safety": 5,
+    "evidence_readiness": 4,
+    "product_value": 4,
+    "default_change_risk": 1,
+    "disposition": "selected",
+    "next_version": "v0.2.76_complexity_router_live_validation_plan",
+    "first_design": "docs/current-design/design_complexity_router_live_validation_plan.md"
+  },
+  "options": [
+    {
+      "option_id": "require_live_validation_before_default_change",
+      "label": "Require live validation before any default change",
+      "score": 12,
+      "safety": 5,
+      "evidence_readiness": 4,
+      "product_value": 4,
+      "default_change_risk": 1,
+      "disposition": "selected",
+      "next_version": "v0.2.76_complexity_router_live_validation_plan",
+      "first_design": "docs/current-design/design_complexity_router_live_validation_plan.md"
+    },
+    {
+      "option_id": "defer_enablement_indefinitely",
+      "label": "Defer default enablement indefinitely",
+      "score": 8,
+      "safety": 5,
+      "evidence_readiness": 2,
+      "product_value": 1,
+      "default_change_risk": 0,
+      "disposition": "rejected because it loses the value of completed guardrails without adding evidence",
+      "next_version": "v0.2.x_complexity_router_deferred",
+      "first_design": "docs/current-design/design_complexity_router_deferred.md"
+    },
+    {
+      "option_id": "enter_enablement_review_now",
+      "label": "Enter default enablement review now",
+      "score": 7,
+      "safety": 3,
+      "evidence_readiness": 3,
+      "product_value": 5,
+      "default_change_risk": 4,
+      "disposition": "deferred until live validation plan exists",
+      "next_version": "v0.2.x_complexity_router_enablement_review",
+      "first_design": "docs/current-design/design_complexity_router_enablement_review.md"
+    }
+  ],
+  "default_safety": {
+    "router_id": "e07_complexity_router",
+    "gate_id": "default_safety_gate",
+    "policy_version": "v0.2.74_complexity_router_rollout_metrics_prerequisites",
+    "default_enabled": false,
+    "allowed_to_enable_default": true,
+    "router_ready_for_default": true,
+    "reason": "all required prerequisites are satisfied",
+    "missing_prerequisites": [],
+    "prerequisites": [
+      {
+        "id": "source_evidence",
+        "label": "Source evidence",
+        "satisfied": true,
+        "evidence": [
+          "docs/experiment-status/ledgers/E07_complexity_router.md",
+          "docs/workingon-archives/v0.2.70/selection_v0.2.70_complexity_router_guardrail_summary.md"
+        ],
+        "required_for_default": true
+      },
+      {
+        "id": "requirement_classification_contract",
+        "label": "Requirement classification contract",
+        "satisfied": true,
+        "evidence": [
+          "platform/backend/src/agent_platform/complexity_router.py",
+          "tests/test_complexity_router_default_safety.py"
+        ],
+        "required_for_default": true
+      },
+      {
+        "id": "operator_override_plan",
+        "label": "Operator override plan",
+        "satisfied": true,
+        "evidence": [
+          "platform/backend/src/agent_platform/complexity_router.py",
+          "tests/test_complexity_router_default_safety.py"
+        ],
+        "required_for_default": true
+      },
+      {
+        "id": "rollout_metrics_prerequisites",
+        "label": "Rollout metrics prerequisites",
+        "satisfied": true,
+        "evidence": [
+          "platform/backend/src/agent_platform/complexity_router.py",
+          "tests/test_complexity_router_default_safety.py"
+        ],
+        "required_for_default": true
+      }
+    ],
+    "supporting_guardrails": [
+      "requirement_classification_contract",
+      "operator_override_plan",
+      "rollout_metrics_prerequisites"
+    ]
+  },
+  "default_enabled": false,
+  "allowed_to_enable_default": true,
+  "conclusion": "Default-safety prerequisites are satisfied, but default behavior remains disabled. Require a live validation plan before any default change."
+}
