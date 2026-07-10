@@ -1,6 +1,6 @@
 # E07 Complexity Router Ledger
 
-状态：completed_as_policy_hypothesis；not enabled as default
+状态：guardrails_satisfied_live_validation_passed；not enabled as default
 
 ## 实验问题
 
@@ -12,6 +12,19 @@ v0.2.57 deterministic router fixture 已完成：simple/medium/complex routing h
 
 证据：`../evidence/experiment_v0.2.57_full_backlog_closure_2026_07_10_summary.md`
 
+v0.2.70-v0.2.74 productization guardrails 已完成：default-safety gate、requirement classification contract、operator override plan、rollout metrics prerequisites 均已具备 API / tests / evidence；`allowed_to_enable_default=true` 只表示进入启用评审的前置条件满足，不表示默认行为已启用。
+
+证据：
+
+- `../../stage-reports/v0.2.74_complexity_router_rollout_metrics_prerequisites.md`
+- `../../workingon-archives/v0.2.74/metrics_v0.2.74_complexity_router_summary.md`
+
+v0.2.78 bounded live validation 已完成：三条 v0.2.76 validation cases（simple / medium / complex）均由 DeepSeek live provider 分类通过，`default_enabled=false` 保持不变。
+
+证据：
+
+- `../../workingon-archives/v0.2.78/live_v0.2.78_complexity_router_bounded_validation_summary.md`
+
 ## 初始设计方向
 
 - 定义 simple/medium/complex 三档需求。
@@ -20,4 +33,4 @@ v0.2.57 deterministic router fixture 已完成：simple/medium/complex routing h
 
 ## 下一步
 
-后续若要产品化，需要 guardrails 和 rollout design；当前假设不得直接写入默认策略。
+进入默认启用评审决策；默认行为仍不得自动启用，必须由后续 stage report 显式选择。

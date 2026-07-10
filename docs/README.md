@@ -101,6 +101,7 @@
 - `stage-reports/v0.2.75_complexity_router_default_enablement_boundary.md`
 - `stage-reports/v0.2.76_complexity_router_live_validation_plan.md`
 - `stage-reports/v0.2.77_complexity_router_live_validation_execution_decision.md`
+- `stage-reports/v0.2.78_complexity_router_bounded_live_validation.md`
 
 ## 使用原则
 

@@ -1,0 +1,92 @@
+{
+  "version": "v0.2.78",
+  "status": "completed",
+  "reason": "all live cases passed",
+  "provider": "deepseek",
+  "model": "deepseek-v4-pro",
+  "command": ".venv/bin/python scripts/v02_78_complexity_router_bounded_live_validation.py",
+  "source_plan": "docs/workingon-archives/v0.2.76/plan_v0.2.76_complexity_router_live_validation.json",
+  "case_budget": 3,
+  "case_results": [
+    {
+      "case_id": "simple_text_edit",
+      "requirement": "Fix a typo in a settings label",
+      "expected_class": "simple",
+      "status": "passed",
+      "duration_seconds": 1.756,
+      "raw_text": "{\"class\":\"simple\",\"reason\":\"A label text change is a small, single-surface edit with no logic, API, or integration impact.\"}",
+      "parsed": {
+        "class": "simple",
+        "reason": "A label text change is a small, single-surface edit with no logic, API, or integration impact."
+      },
+      "predicted_class": "simple",
+      "passed": true
+    },
+    {
+      "case_id": "medium_api_workflow",
+      "requirement": "Add an API endpoint with tests for a reporting workflow",
+      "expected_class": "medium",
+      "status": "passed",
+      "duration_seconds": 2.321,
+      "raw_text": "{\"class\":\"medium\",\"reason\":\"Adding an API endpoint involves bounded API design and workflow integration, and including tests indicates the change is contained but multi-surface; no mention of platform-level, architectural, or model-sensitive changes.\"}",
+      "parsed": {
+        "class": "medium",
+        "reason": "Adding an API endpoint involves bounded API design and workflow integration, and including tests indicates the change is contained but multi-surface; no mention of platform-level, architectural, or model-sensitive changes."
+      },
+      "predicted_class": "medium",
+      "passed": true
+    },
+    {
+      "case_id": "complex_platform_guardrail",
+      "requirement": "Design a platform guardrail rollout for a model-sensitive agent router",
+      "expected_class": "complex",
+      "status": "passed",
+      "duration_seconds": 1.878,
+      "raw_text": "{\"class\":\"complex\",\"reason\":\"Platform guardrail rollout for a model-sensitive agent router involves architecture, safety, model sensitivity, and live system implications, which meets the criteria for complex.\"}",
+      "parsed": {
+        "class": "complex",
+        "reason": "Platform guardrail rollout for a model-sensitive agent router involves architecture, safety, model sensitivity, and live system implications, which meets the criteria for complex."
+      },
+      "predicted_class": "complex",
+      "passed": true
+    }
+  ],
+  "metrics_capture": [
+    "classification_distribution",
+    "override_rate",
+    "fallback_unknown_rate",
+    "success_rate_by_class",
+    "cost_latency_by_class"
+  ],
+  "metrics": {
+    "classification_distribution": {
+      "simple": 1,
+      "medium": 1,
+      "complex": 1
+    },
+    "override_rate": 0.0,
+    "fallback_unknown_rate": 0.0,
+    "success_rate_by_class": {
+      "simple": 1.0,
+      "medium": 1.0,
+      "complex": 1.0
+    },
+    "cost_latency_by_class": {
+      "simple": {
+        "avg_duration_seconds": 1.756
+      },
+      "medium": {
+        "avg_duration_seconds": 2.321
+      },
+      "complex": {
+        "avg_duration_seconds": 1.878
+      }
+    }
+  },
+  "pass_fail": {
+    "passed": true,
+    "reason": "all criteria satisfied"
+  },
+  "default_enabled": false,
+  "allowed_to_enable_default": true
+}
