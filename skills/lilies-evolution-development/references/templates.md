@@ -2,41 +2,41 @@
 
 Use these templates to keep document evolution dense and traceable.
 
-## Working Task
+## Optional Workingon Evidence
 
 ```markdown
-# work_<topic>
-
-## Goal
+# implementation_<topic>
 
 ## Source
 
-- Stage report:
-- Version:
+- Source stage report:
+- Source stage task:
+- Current design:
 
-## Full Task Set
+## Changes
 
-| Task | Disposition | Design | Reason |
-| --- | --- | --- | --- |
+## Evidence / Intermediate Results
 
-## Execution Status
+## Verification
 
-| Design | Status | Evidence | Next action |
-| --- | --- | --- | --- |
+## Remaining Risk
 
-## Acceptance
+## Design Decision
 
-- All tasks dispositioned:
-- All accepted designs completed/blocked/deferred:
-- Verification:
-- Experiment status updated:
-- Archive ready:
+- Continue current design / revise current design / proceed to next design / blocked:
 ```
+
+Rule: workingon is optional and only stores intermediate evidence, implementation notes, experiments, and trace material. It is not the task-decomposition authority and must not decide the next version.
 
 ## Current Design
 
 ```markdown
 # design_<component-or-flow>
+
+## Source Stage Task
+
+- Stage report:
+- Task:
 
 ## Problem
 
@@ -57,69 +57,70 @@ Use these templates to keep document evolution dense and traceable.
 
 Rule: current design never guides the next stage. It only expands one accepted task.
 
-## Implementation Evidence
-
-```markdown
-# implementation_<topic>
-
-## Changes
-
-## Files
-
-## Verification
-
-## Live / Paid Acceptance
-
-- Required:
-- Provider/model:
-- Budget:
-- Command:
-- Result:
-- Skip reason:
-
-## Remaining Risk
-
-## Design Decision
-
-- Continue current design / revise current design / proceed to next design / blocked:
-```
-
-## Compact Stage Report Factsheet
+## Mandatory Stage Report
 
 ```markdown
 # v0.x.y_<topic>
 
+## Stage Identity
+
+| Field | Value |
+| --- | --- |
+| Version | `v0.x.y` |
+| Source stage report | `docs/stage-reports/<previous>.md` |
+| Stage type | product / experiment / process / architecture / report / repair |
+| Closure level | backend slice / vertical slice / platform boundary / product capability / research experiment / process architecture |
+| Stage scope justification | Explain why this is a serious version-sized unit. If only one design is archived, justify the exception explicitly. |
+
+## Source Task Set
+
+| Source task from previous stage report | Disposition in this stage | Design / evidence | Reason |
+| --- | --- | --- | --- |
+| none | none | none | none |
+
 ## Goal
 
-## Completed
+## Completed Work
 
 | Item | Status | Evidence |
 | --- | --- | --- |
+| none | none | none |
 
 ## Verification
 
 | Check | Result | Evidence |
 | --- | --- | --- |
+| none | none | none |
 
-## Unfinished / Carried Forward
+## Unresolved / Blocked / Deferred
 
-| Item | Reason | Next action |
+| Item | Status | Reason | Next action |
+| --- | --- | --- | --- |
+| none | none | none | none |
+
+## Experiment / Product Status Updates
+
+| Ledger / surface | Update | Evidence |
 | --- | --- | --- |
+| none | none | none |
 
 ## Historical Designs
 
 | Historical design | Final status | Evidence |
 | --- | --- | --- |
+| none | none | none |
 
 ## Workingon Archive
 
 | Archive | Contents |
 | --- | --- |
+| none | none |
 
-## Next-stage Tasks
+## Next-stage Task Set
 
 | Task | Why now | Closure target |
 | --- | --- | --- |
+| none | none | none |
 
 ## Archive Commit
 
@@ -134,7 +135,7 @@ Rule: current design never guides the next stage. It only expands one accepted t
 - First workingon:
 ```
 
-Rule: stage report is the next-stage authority, but it stays compact. Command detail belongs in workingon archive.
+Rule: stage report is the next-stage authority, and these sections are mandatory. If a section has no content, write an explicit `none` row instead of omitting it. Command detail belongs in workingon archive. The canonical repo template is `docs/stage-reports/STAGE_REPORT_TEMPLATE.md`; validate new reports with `scripts/validate_stage_report_template.py` when possible.
 
 ## Historical Design Final Contract
 

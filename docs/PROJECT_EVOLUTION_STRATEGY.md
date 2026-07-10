@@ -67,7 +67,9 @@ phase 代表一次方向明确的大演进，例如：
 
 `stage` 是 phase 中的小阶段，对应 `v0.2.1`、`v0.2.2`、`v0.2.3` 这样的版本。它代表一组相关任务完成后的可交接节点。
 
-一个 stage 可以包含多个问题。上一份 stage report 的 next-stage task set 必须先完整处置：每个任务标记为 accepted、blocked、deferred 或 superseded；每个 accepted task 都要展开为一个或多个具体设计文档。
+一个 stage 可以包含多个问题。上一份 stage report 的 next-stage task set 必须先完整处置：每个任务标记为 accepted、blocked、deferred 或 superseded；每个 accepted task 都要展开为一个或多个具体设计文档。任务来源和处置权属于 stage report，不属于 workingon。
+
+版本推进是严肃行为。一个 stage 必须关闭一个有足够复杂度和交接价值的版本单元，通常应体现为多个协同 design、一个跨后端/前端/API/测试/文档的纵向产品切片、一个完整实验闭环、一个平台边界切片，或一次 P0 流程/架构修复。若一个版本最终只有一个 historical design，必须在 stage report 的 scope justification 中说明为什么它仍然是完整版本；若连续出现这种模式，应优先修复阶段切分，而不是继续推进小版本。
 
 一个 stage 完成后，必须生成 `stage-report`。它回答：
 
@@ -80,9 +82,9 @@ phase 代表一次方向明确的大演进，例如：
 
 ### 3.3 Workingon：当前执行记录
 
-`workingon` 是当前 stage 的执行记录。它可以写清楚本 stage 的目标、范围、任务处置、实现证据和实验过程，但它不能决定下一阶段做什么。
+`workingon` 是当前 stage 的执行记录。它可以保存实现证据、实验过程、临时分析和中间结果，但它不能决定下一阶段做什么，也不能作为 next-stage task decomposition 的权威来源。
 
-下一阶段指导权只属于最新 stage report。`workingon` 中可以记录“当前设计是否继续、修正或阻塞”，但不能写成新的路线图。
+下一阶段指导权只属于最新 stage report。`workingon` 中可以记录“当前设计是否继续、修正或阻塞”的证据，但不能写成新的路线图。
 
 ### 3.4 Current Design：具体设计
 
@@ -100,11 +102,10 @@ phase 代表一次方向明确的大演进，例如：
 
 ### 4.1 `docs/workingon/`
 
-`workingon` 是当前 stage 的工作区。它保存尚未归档的实验、实现细节、阶段性证据和任务处置表。
+`workingon` 是当前 stage 的工作区。它保存尚未归档的实验、实现细节、阶段性证据和临时判断。它不保存 next-stage task decomposition 的权威版本。
 
 可以放：
 
-- `work_<task-topic>.md`
 - `experiment_<topic>.md`
 - `result_<topic>.md`
 - `implementation_<topic>.md`
@@ -117,6 +118,7 @@ phase 代表一次方向明确的大演进，例如：
 - 精炼后的智力资产
 - 与当前 stage 无关的长期设计基线
 - 下一阶段任务路线图
+- next-stage task decomposition 的权威版本
 - 已完成小版本的历史中间文件
 
 当用户说“归档 workingon 文件夹”时，`workingon` 是主要输入。
@@ -154,6 +156,8 @@ phase 代表一次方向明确的大演进，例如：
 - 智力资产候选
 
 stage report 不应该复制所有中间材料、命令转录、raw JSON 或实验长结论。它应该总结、筛选和链接；命令细节留在 `workingon-archives/`，实验细节留在 `experiment-status/ledgers/` 和 `evidence/*_summary.md`。
+
+新的 stage report 必须使用固定模板 `docs/stage-reports/STAGE_REPORT_TEMPLATE.md`。即使某个部分没有内容，也必须写明 `none`，不能省略。固定模板至少包含：Stage Identity、Source Task Set、Goal、Completed Work、Verification、Unresolved / Blocked / Deferred、Experiment / Product Status Updates、Historical Designs、Workingon Archive、Next-stage Task Set、Archive Commit、Automatic Evolution Handoff。
 
 ### 4.4 `docs/phase-reports/`
 
@@ -202,7 +206,7 @@ phase report 是团队判断“项目已经从 `v0.2.0` 进入 `v0.3.0`”这类
 | --- | --- | --- |
 | Phase report | `v0.<minor>.0_<theme>.md` | `v0.3.0_document_driven_development.md` |
 | Stage report | `v0.<minor>.<patch>_<stage-topic>.md` | `v0.2.3_platform_harness_boundary.md` |
-| Workingon execution record | `work_<task-topic>.md` | `work_builder_benchmark_v1.md` |
+| Workingon evidence record | `implementation_<task-topic>.md` / `experiment_<topic>.md` / `result_<topic>.md` | `implementation_run_cancel_path.md` |
 | Experiment report | `experiment_<topic>.md` | `experiment_graph_similarity_eval.md` |
 | Result report | `result_<topic>.md` | `result_scheduler_token_boundary.md` |
 | Implementation note | `implementation_<topic>.md` | `implementation_run_cancel_path.md` |
@@ -316,112 +320,131 @@ phase report 是团队判断“项目已经从 `v0.2.0` 进入 `v0.3.0`”这类
 v0.(x+1).0 应该完成什么。
 ```
 
-### 7.2 Stage report compact factsheet 模板
+### 7.2 Stage report mandatory factsheet 模板
 
 ```md
-# v0.x.y <阶段主题>
+# v0.x.y_topic
 
-## 1. Goal
+## Stage Identity
+
+| Field | Value |
+| --- | --- |
+| Version | `v0.x.y` |
+| Source stage report | `docs/stage-reports/<previous>.md` |
+| Stage type | product / experiment / process / architecture / report / repair |
+| Closure level | backend slice / vertical slice / platform boundary / product capability / research experiment / process architecture |
+| Stage scope justification | Explain why this is a serious version-sized unit. If only one design is archived, justify the exception explicitly. |
+
+## Source Task Set
+
+| Source task from previous stage report | Disposition in this stage | Design / evidence | Reason |
+| --- | --- | --- | --- |
+| none | none | none | none |
+
+## Goal
 
 本 stage 要完成什么，属于哪个 phase。
 
-## 2. Completed
+## Completed Work
 
 | Item | Status | Evidence |
 | --- | --- | --- |
+| none | none | none |
 
-## 3. Verification
+## Verification
 
 | Check | Result | Evidence |
 | --- | --- | --- |
+| none | none | none |
 
-## 4. Unfinished / Carried Forward
+## Unresolved / Blocked / Deferred
 
-| 任务 | 原因 | 下一步 |
+| Item | Status | Reason | Next action |
+| --- | --- | --- | --- |
+| none | none | none | none |
+
+## Experiment / Product Status Updates
+
+| Ledger / surface | Update | Evidence |
 | --- | --- | --- |
+| none | none | none |
 
-## 5. Historical Designs
+## Historical Designs
 
 | Historical design | Final status | Evidence |
 | --- | --- | --- |
+| none | none | none |
 
-## 6. Workingon Archive
+## Workingon Archive
 
 | Archive | Contents |
 | --- | --- |
+| none | none |
 
-## 7. Next-stage Tasks
+## Next-stage Task Set
 
 | Task | Why now | Closure target |
 | --- | --- | --- |
+| none | none | none |
 
 本 section 是下一阶段唯一的任务来源。下一次演进必须先完整处置这里的所有任务，不能只挑一个方便任务开始实现。
 
-## 8. Archive Commit
+## Archive Commit
 
 - Commit:
 - Active current-design clean:
 - Active workingon clean:
 
-## 9. Automatic Evolution Handoff
+## Automatic Evolution Handoff
 
 - Continue:
 - Next version:
 - First workingon:
-
-## 10. Intellectual Asset Candidates
-
-| Candidate | Decision | Reason |
-| --- | --- | --- |
 ```
 
-stage report 必须简洁。详细命令、实验过程和 raw 输出放在 workingon archive、experiment ledger 或 summary evidence 中。
+stage report 必须简洁且结构固定。详细命令、实验过程和 raw 输出放在 workingon archive、experiment ledger 或 summary evidence 中。模板源文件是 `docs/stage-reports/STAGE_REPORT_TEMPLATE.md`；新增 stage report 应优先用 `scripts/validate_stage_report_template.py` 检查。
 
-### 7.3 Workingon 执行记录模板
+### 7.3 Workingon 证据记录模板
 
 ```md
-# work_<task-topic>
+# implementation_<topic>
 
-## 1. 目标
+## Source
 
-本 stage 要完成什么。
+- Source stage report:
+- Source stage task:
+- Current design:
 
-## 2. 范围
+## Changes
 
-包含什么，不包含什么。
+做了哪些实现、实验或调查。
 
-## 3. 全量任务处置
+## Evidence / Intermediate Results
 
-来源 stage report：
+中间结果、命令、证据路径、临时分析。
 
-| 下一阶段任务 | 处置 | 对应 current-design | 理由 |
-| --- | --- | --- | --- |
+## Verification
 
-必须列出来源 stage report 的每个 next-stage task。
+测试、检查或跳过理由。
 
-## 4. 执行证据
+## Remaining Risk
 
-- 代码路径
-- 测试结果
-- 实验记录
+## Design Decision
 
-## 5. 设计执行状态
-
-| Design | 状态 | 证据 | 是否可进入下一个 design |
-| --- | --- | --- | --- |
-
-## 6. 归档前检查
-
-- 所有任务已处置：yes/no
-- 所有 accepted task 已展开成 design：yes/no
-- 所有 accepted design 已完成或明确阻塞/延期：yes/no
-- 本文件只记录当前 stage 证据，不指导下一阶段：yes/no
+- Continue current design / revise current design / proceed to next design / blocked:
 ```
+
+workingon 只保存证据和中间材料。它不列出、拆解或决定 next-stage task set。
 
 ### 7.4 Current design 模板
 
 ```md
 # design_<component-or-flow>
+
+## Source Stage Task
+
+- Stage report:
+- Task:
 
 ## 1. 问题
 

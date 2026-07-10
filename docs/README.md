@@ -85,6 +85,7 @@
 - `stage-reports/v0.2.59_productization_lane_selection.md`
 - `stage-reports/v0.2.60_adaptive_monitoring_product_surface.md`
 - `stage-reports/v0.2.61_adaptive_monitoring_refresh_control.md`
+- `stage-reports/v0.2.62_evolution_process_architecture.md`
 
 ## 使用原则
 
@@ -93,3 +94,10 @@
 实验状态必须维护在 `experiment-status/`。active `workingon/experiment-*` 只保存进行中的实验过程；完成后的 DOCX 报告和 raw evidence 进入 `experiment-status/`，不能替代实验闭环台账。已经用于工程改进的实验必须标记 `已应用` 或 `验证应用`，并补充证据链。常规读取优先索引、单实验 ledger 和 `evidence/*_summary.md`，只有争议或缺字段时再读 raw JSON。
 
 归档后，`current-design/` 和 `workingon/` 必须只保留 README。旧 design 与中间材料分别进入 `historical-designs/` 和 `workingon-archives/`。
+
+## 强制边界
+
+- 下一阶段任务只来自最新 `stage-reports/` 的 `Next-stage Task Set`。
+- `workingon/` 只保存中间结果、实现证据、实验过程或临时分析；不得作为任务拆解或版本推进的权威来源。
+- 新 stage report 必须使用 `stage-reports/STAGE_REPORT_TEMPLATE.md` 的固定 section；没有内容也要写 `none`。
+- 小版本推进必须有明确 scope justification；连续出现“一个版本只有一个 historical design”应视为阶段切分问题，而不是正常节奏。
