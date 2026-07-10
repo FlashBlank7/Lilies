@@ -1,6 +1,6 @@
 # E10 Assistant Memory Surface Ledger
 
-状态：governed_boundary_defined_pending_surface_contract
+状态：governed_surface_contract_implemented_pending_runtime_productization
 
 ## 实验问题
 
@@ -16,6 +16,10 @@ v0.2.136 已接受受治理记忆的产品边界：permission scope、audit log�
 
 证据：`../../workingon-archives/v0.2.136/boundary_v0.2.136_e10_governed_memory_summary.md`
 
+v0.2.137 已实现 governed memory surface contract：后端 service 支持 permission-scoped create/read/update/revoke/expire，持久化 `governed_memory_items`，为每次操作写入 append-only audit event，并暴露 `/api/v1/platform/governed-memory` 最小 API surface。该版本仍不声明 runtime assistant retrieval、Studio UI 或 unrestricted filesystem memory。
+
+证据：`../../workingon-archives/v0.2.137/evidence_v0.2.137_e10_governed_memory_surface_contract_summary.md`
+
 ## 下一步
 
-进入 `v0.2.137_e10_governed_memory_surface_contract`：定义或实现 permission/audit/revoke/retention/source/no-unrestricted-filesystem-memory 的 surface contract。不得把 unrestricted memory、后台任意文件系统索引或无审计长期记忆作为产品路径。
+进入 `v0.2.138_e10_runtime_memory_retrieval_integration`：将 governed memory 以显式 opt-in、scope-bound、audit-backed 的方式接入 runtime retrieval 或等价产品路径。不得把 unrestricted memory、后台任意文件系统索引或无审计长期记忆作为产品路径。

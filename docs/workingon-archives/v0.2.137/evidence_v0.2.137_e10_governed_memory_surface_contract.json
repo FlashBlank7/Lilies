@@ -1,0 +1,49 @@
+{
+  "version": "v0.2.137",
+  "evidence_id": "e10_governed_memory_surface_contract",
+  "source_stage_report": "docs/stage-reports/v0.2.136_e10_governed_memory_boundary_definition.md",
+  "status": "completed",
+  "checks": {
+    "permission_scoped_create_read_update_revoke": true,
+    "expire_marks_due_records": true,
+    "audit_log_records_required_fields": true,
+    "revoke_excludes_retrieval": true,
+    "retention_class_and_expiry_present": true,
+    "source_attribution_present": true,
+    "unrestricted_filesystem_memory_rejected": true,
+    "e02_external_blocker_preserved": true,
+    "global_completion_boundary_preserved": true
+  },
+  "operations": [
+    "create",
+    "read",
+    "update",
+    "revoke",
+    "create",
+    "expire"
+  ],
+  "audit_event_count": 6,
+  "api_surface": [
+    "POST /api/v1/platform/governed-memory",
+    "GET /api/v1/platform/governed-memory",
+    "POST /api/v1/platform/governed-memory/{memory_id}/read",
+    "PATCH /api/v1/platform/governed-memory/{memory_id}",
+    "POST /api/v1/platform/governed-memory/{memory_id}/revoke",
+    "POST /api/v1/platform/governed-memory/expire"
+  ],
+  "implementation_paths": [
+    "platform/backend/src/agent_platform/governed_memory.py",
+    "platform/backend/src/agent_platform/storage.py",
+    "platform/backend/src/agent_platform/api.py",
+    "tests/test_v02_137_e10_governed_memory_surface_contract.py"
+  ],
+  "boundaries": {
+    "surface_contract_implemented": true,
+    "unrestricted_memory_allowed": false,
+    "filesystem_wrapper_allowed": false,
+    "runtime_memory_retrieval_claimed": false,
+    "studio_ui_claimed": false,
+    "e02_true_human_panel_resolved": false,
+    "global_completion_claimed": false
+  }
+}

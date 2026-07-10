@@ -120,6 +120,20 @@ class Storage:
                   last_seen_at TEXT NOT NULL,
                   updated_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS governed_memory_items (
+                  id TEXT PRIMARY KEY,
+                  owner_id TEXT NOT NULL,
+                  scope_id TEXT NOT NULL,
+                  status TEXT NOT NULL,
+                  source_type TEXT NOT NULL,
+                  source_id TEXT NOT NULL,
+                  retention_class TEXT NOT NULL,
+                  expires_at TEXT NOT NULL,
+                  record_json TEXT NOT NULL,
+                  created_at TEXT NOT NULL,
+                  updated_at TEXT NOT NULL,
+                  revoked_at TEXT
+                );
                 CREATE INDEX IF NOT EXISTS idx_generations_agent ON generations(agent_id);
                 CREATE INDEX IF NOT EXISTS idx_sessions_agent ON sessions(agent_id);
                 CREATE INDEX IF NOT EXISTS idx_platform_harness_tasks_kind_status
@@ -130,6 +144,10 @@ class Storage:
                   ON platform_secrets(owner_id);
                 CREATE INDEX IF NOT EXISTS idx_platform_worker_heartbeats_status_seen
                   ON platform_worker_heartbeats(status, last_seen_at);
+                CREATE INDEX IF NOT EXISTS idx_governed_memory_owner_scope_status
+                  ON governed_memory_items(owner_id, scope_id, status);
+                CREATE INDEX IF NOT EXISTS idx_governed_memory_expiry
+                  ON governed_memory_items(status, expires_at);
                 """
             )
 
@@ -783,6 +801,102 @@ class Storage:
                 (owner_id, name),
             )
         return cursor.rowcount > 0
+
+    async def save_governed_memory_item(self, record: dict[str, Any]) -> dict[str, Any]:
+        async with self._lock:
+            return await asyncio.to_thread(self._save_governed_memory_item_sync, record)
+
+    def _save_governed_memory_item_sync(self, record: dict[str, Any]) -> dict[str, Any]:
+        encoded = json.dumps(record, ensure_ascii=False, separators=(",", ":"))
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO governed_memory_items(
+                  id, owner_id, scope_id, status, source_type, source_id,
+                  retention_class, expires_at, record_json, created_at, updated_at, revoked_at
+                )
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+                ON CONFLICT(id) DO UPDATE SET
+                  owner_id=excluded.owner_id,
+                  scope_id=excluded.scope_id,
+                  status=excluded.status,
+                  source_type=excluded.source_type,
+                  source_id=excluded.source_id,
+                  retention_class=excluded.retention_class,
+                  expires_at=excluded.expires_at,
+                  record_json=excluded.record_json,
+                  updated_at=excluded.updated_at,
+                  revoked_at=excluded.revoked_at
+                """,
+                (
+                    record["id"],
+                    record["owner_id"],
+                    record["scope_id"],
+                    record["status"],
+                    record["source"]["source_type"],
+                    record["source"]["source_id"],
+                    record["retention_class"],
+                    record["expires_at"],
+                    encoded,
+                    record["created_at"],
+                    record["updated_at"],
+                    record.get("revoked_at"),
+                ),
+            )
+            row = conn.execute("SELECT record_json FROM governed_memory_items WHERE id=?", (record["id"],)).fetchone()
+        if not row:
+            raise KeyError(f"governed memory item not found after save: {record['id']}")
+        return json.loads(row["record_json"])
+
+    async def get_governed_memory_item(self, memory_id: str) -> dict[str, Any]:
+        return await asyncio.to_thread(self._get_governed_memory_item_sync, memory_id)
+
+    def _get_governed_memory_item_sync(self, memory_id: str) -> dict[str, Any]:
+        with self._connect() as conn:
+            row = conn.execute("SELECT record_json FROM governed_memory_items WHERE id=?", (memory_id,)).fetchone()
+        if not row:
+            raise KeyError(f"governed memory item not found: {memory_id}")
+        return json.loads(row["record_json"])
+
+    async def list_governed_memory_items(
+        self,
+        *,
+        owner_id: str,
+        scope_id: str | None = None,
+        statuses: set[str] | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        return await asyncio.to_thread(
+            self._list_governed_memory_items_sync,
+            owner_id,
+            scope_id,
+            statuses,
+            max(1, min(limit, 500)),
+        )
+
+    def _list_governed_memory_items_sync(
+        self,
+        owner_id: str,
+        scope_id: str | None,
+        statuses: set[str] | None,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        clauses = ["owner_id=?"]
+        params: list[Any] = [owner_id]
+        if scope_id:
+            clauses.append("scope_id=?")
+            params.append(scope_id)
+        if statuses:
+            placeholders = ",".join("?" for _ in statuses)
+            clauses.append(f"status IN ({placeholders})")
+            params.extend(sorted(statuses))
+        params.append(limit)
+        where = " AND ".join(clauses)
+        rows = self._get_all(
+            f"SELECT record_json FROM governed_memory_items WHERE {where} ORDER BY updated_at DESC LIMIT ?",
+            tuple(params),
+        )
+        return [json.loads(row["record_json"]) for row in rows]
 
     async def append_event(self, stream_id: str, event_type: str, data: dict[str, Any]) -> EventRecord:
         async with self._lock:

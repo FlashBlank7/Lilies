@@ -38,6 +38,13 @@ from .complexity_router import (
 )
 from .factory import AgentFactory
 from .draft_patch_preview import DraftPatchPreviewer, DraftPatchPreviewRequest
+from .governed_memory import (
+    GovernedMemoryPermission,
+    GovernedMemorySource,
+    GovernedMemorySurface,
+    GovernedMemoryViolation,
+    RetentionClass,
+)
 from .models import (
     GenerationRequest,
     MessageRequest,
@@ -93,6 +100,7 @@ class Services:
     templates: TemplateStore
     benchmark: BuilderBenchmark
     draft_patcher: DraftPatchPreviewer
+    governed_memory: GovernedMemorySurface
     worker_supervisor: Any | None
     worker_process_manager: Any | None
     background_tasks: set[asyncio.Task[Any]]
@@ -123,6 +131,33 @@ class PlatformSecretCreateRequest(BaseModel):
     name: str
     value: str = Field(min_length=1, repr=False)
     description: str = ""
+
+
+class GovernedMemoryCreateRequest(BaseModel):
+    permission: GovernedMemoryPermission
+    content: str = Field(min_length=1, max_length=20_000)
+    source: GovernedMemorySource
+    retention_class: RetentionClass
+    reason: str = Field(min_length=1, max_length=1000)
+    expires_at: str | None = None
+
+
+class GovernedMemoryReadRequest(BaseModel):
+    permission: GovernedMemoryPermission
+    reason: str = Field(min_length=1, max_length=1000)
+
+
+class GovernedMemoryUpdateRequest(BaseModel):
+    permission: GovernedMemoryPermission
+    content: str = Field(min_length=1, max_length=20_000)
+    source: GovernedMemorySource
+    reason: str = Field(min_length=1, max_length=1000)
+
+
+class GovernedMemoryExpireRequest(BaseModel):
+    permission: GovernedMemoryPermission
+    reason: str = Field(min_length=1, max_length=1000)
+    now: str | None = None
 
 
 class PlatformPolicyControlsUpdateRequest(BaseModel):
@@ -230,6 +265,7 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
     templates = TemplateStore()
     benchmark = BuilderBenchmark()
     draft_patcher = DraftPatchPreviewer()
+    governed_memory = GovernedMemorySurface(storage)
     templates_dir = settings.templates_dir
     if templates_dir and templates_dir.is_dir():
         loaded = templates.load_builtins(templates_dir)
@@ -276,6 +312,7 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         templates=templates,
         benchmark=benchmark,
         draft_patcher=draft_patcher,
+        governed_memory=governed_memory,
         worker_supervisor=None,
         worker_process_manager=None,
         background_tasks=set(),
@@ -639,6 +676,92 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                 raise HTTPException(404, f"platform secret not found: {owner_id}/{name}")
             return {"owner_id": owner_id, "name": name, "deleted": True}
         except PlatformHarnessViolation as error:
+            raise HTTPException(422, str(error)) from error
+
+    @app.post("/api/v1/platform/governed-memory", status_code=201, dependencies=[Depends(require_token)])
+    async def create_governed_memory(body: GovernedMemoryCreateRequest) -> dict[str, Any]:
+        try:
+            item = await services.governed_memory.create(
+                permission=body.permission,
+                content=body.content,
+                source=body.source,
+                retention_class=body.retention_class,
+                reason=body.reason,
+                expires_at=body.expires_at,
+            )
+            return item.model_dump(mode="json")
+        except GovernedMemoryViolation as error:
+            raise HTTPException(422, str(error)) from error
+
+    @app.get("/api/v1/platform/governed-memory", dependencies=[Depends(require_token)])
+    async def list_governed_memory(
+        owner_id: str,
+        scope_id: str,
+        actor_id: str,
+        purpose: str,
+        reason: str,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        permission = GovernedMemoryPermission(
+            actor_id=actor_id,
+            owner_id=owner_id,
+            scope_id=scope_id,
+            purpose=purpose,
+            allowed_operations=["read"],
+        )
+        try:
+            items = await services.governed_memory.list_active(
+                owner_id=owner_id,
+                scope_id=scope_id,
+                permission=permission,
+                reason=reason,
+                limit=limit,
+            )
+            return [item.model_dump(mode="json") for item in items]
+        except GovernedMemoryViolation as error:
+            raise HTTPException(422, str(error)) from error
+
+    @app.post("/api/v1/platform/governed-memory/{memory_id}/read", dependencies=[Depends(require_token)])
+    async def read_governed_memory(memory_id: str, body: GovernedMemoryReadRequest) -> dict[str, Any]:
+        try:
+            item = await services.governed_memory.read(memory_id, permission=body.permission, reason=body.reason)
+            return item.model_dump(mode="json")
+        except GovernedMemoryViolation as error:
+            raise HTTPException(422, str(error)) from error
+
+    @app.patch("/api/v1/platform/governed-memory/{memory_id}", dependencies=[Depends(require_token)])
+    async def update_governed_memory(memory_id: str, body: GovernedMemoryUpdateRequest) -> dict[str, Any]:
+        try:
+            item = await services.governed_memory.update(
+                memory_id,
+                permission=body.permission,
+                content=body.content,
+                source=body.source,
+                reason=body.reason,
+            )
+            return item.model_dump(mode="json")
+        except GovernedMemoryViolation as error:
+            raise HTTPException(422, str(error)) from error
+
+    @app.post("/api/v1/platform/governed-memory/{memory_id}/revoke", dependencies=[Depends(require_token)])
+    async def revoke_governed_memory(memory_id: str, body: GovernedMemoryReadRequest) -> dict[str, Any]:
+        try:
+            item = await services.governed_memory.revoke(memory_id, permission=body.permission, reason=body.reason)
+            return item.model_dump(mode="json")
+        except GovernedMemoryViolation as error:
+            raise HTTPException(422, str(error)) from error
+
+    @app.post("/api/v1/platform/governed-memory/expire", dependencies=[Depends(require_token)])
+    async def expire_governed_memory(body: GovernedMemoryExpireRequest) -> dict[str, Any]:
+        try:
+            expired = await services.governed_memory.expire_due(
+                owner_id=body.permission.owner_id,
+                permission=body.permission,
+                reason=body.reason,
+                now=body.now,
+            )
+            return {"expired": [item.model_dump(mode="json") for item in expired], "expired_count": len(expired)}
+        except GovernedMemoryViolation as error:
             raise HTTPException(422, str(error)) from error
 
     @app.get("/api/v1/builder-benchmark/history", dependencies=[Depends(require_token)])
