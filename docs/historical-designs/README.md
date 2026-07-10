@@ -78,6 +78,7 @@
 - `v0.2.64_*`：来自 `docs/stage-reports/v0.2.64_productization_lane_reselection.md`。
 - `v0.2.65_*`：来自 `docs/stage-reports/v0.2.65_e08_policy_controls_surface.md`。
 - `v0.2.66_*`：来自 `docs/stage-reports/v0.2.66_e08_control_behavior_matrix.md`。
+- `v0.2.67_*`：来自 `docs/stage-reports/v0.2.67_e08_full_boundary_gap_selection.md`。
 
 Active workspace rule:
 

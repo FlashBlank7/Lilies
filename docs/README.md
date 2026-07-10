@@ -90,6 +90,7 @@
 - `stage-reports/v0.2.64_productization_lane_reselection.md`
 - `stage-reports/v0.2.65_e08_policy_controls_surface.md`
 - `stage-reports/v0.2.66_e08_control_behavior_matrix.md`
+- `stage-reports/v0.2.67_e08_full_boundary_gap_selection.md`
 
 ## 使用原则
 
