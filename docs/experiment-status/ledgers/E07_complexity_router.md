@@ -1,6 +1,6 @@
 # E07 Complexity Router Ledger
 
-状态：operator_opt_in_rollout_completed；not enabled as default
+状态：frontend_verification_repair_selected；not enabled as default
 
 ## 实验问题
 
@@ -43,6 +43,12 @@ v0.2.84 operator opt-in rollout 已完成：三条 validation cases 均通过 op
 
 - `../../workingon-archives/v0.2.84/rollout_v0.2.84_complexity_router_operator_opt_in_summary.md`
 
+v0.2.85 post-operator-opt-in decision 已完成：选择 `repair_frontend_verification_environment`。stage_0 和 stage_1 rollout evidence 已满足，但 `node=false`、`npm=false`，因此默认启用评审继续推迟。
+
+证据：
+
+- `../../workingon-archives/v0.2.85/decision_v0.2.85_complexity_router_post_operator_opt_in_summary.md`
+
 ## 初始设计方向
 
 - 定义 simple/medium/complex 三档需求。
@@ -51,4 +57,4 @@ v0.2.84 operator opt-in rollout 已完成：三条 validation cases 均通过 op
 
 ## 下一步
 
-下一步需要显式决定 post-operator-opt-in 路径：默认启用评审、继续 opt-in 观测，或先关闭 frontend verification blocker。默认行为仍不得自动启用。
+下一步是修复 frontend verification environment，使 `npm run lint` / `tsc --noEmit` 可执行。默认行为仍不得自动启用。

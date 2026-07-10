@@ -96,6 +96,7 @@
 - `v0.2.82_*`：来自 `docs/stage-reports/v0.2.82_complexity_router_shadow_only_rollout.md`。
 - `v0.2.83_*`：来自 `docs/stage-reports/v0.2.83_complexity_router_post_shadow_rollout_decision.md`。
 - `v0.2.84_*`：来自 `docs/stage-reports/v0.2.84_complexity_router_operator_opt_in_rollout.md`。
+- `v0.2.85_*`：来自 `docs/stage-reports/v0.2.85_complexity_router_post_operator_opt_in_decision.md`。
 
 Active workspace rule:
 

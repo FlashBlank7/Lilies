@@ -108,6 +108,7 @@
 - `stage-reports/v0.2.82_complexity_router_shadow_only_rollout.md`
 - `stage-reports/v0.2.83_complexity_router_post_shadow_rollout_decision.md`
 - `stage-reports/v0.2.84_complexity_router_operator_opt_in_rollout.md`
+- `stage-reports/v0.2.85_complexity_router_post_operator_opt_in_decision.md`
 
 ## 使用原则
 

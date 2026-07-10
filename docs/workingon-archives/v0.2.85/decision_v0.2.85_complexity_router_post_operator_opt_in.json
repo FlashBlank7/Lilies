@@ -1,0 +1,100 @@
+{
+  "version": "v0.2.85",
+  "decision_id": "complexity_router_post_operator_opt_in_decision",
+  "source_stage_report": "docs/stage-reports/v0.2.84_complexity_router_operator_opt_in_rollout.md",
+  "source_operator_opt_in_evidence": "docs/workingon-archives/v0.2.84/rollout_v0.2.84_complexity_router_operator_opt_in.json",
+  "stage_1_passed": true,
+  "operator_opt_in_metrics": {
+    "classification_distribution": {
+      "simple": 1,
+      "medium": 1,
+      "complex": 1
+    },
+    "override_rate": 1.0,
+    "override_reason_coverage": 1.0,
+    "fallback_unknown_rate": 0.0,
+    "unexpected_classification_rate": 0.0,
+    "success_rate_by_class": {
+      "simple": 1.0,
+      "medium": 1.0,
+      "complex": 1.0
+    },
+    "accidental_default_enablement_count": 0,
+    "behavior_change_count": 0
+  },
+  "frontend_environment": {
+    "frontend_dir": "platform/frontend",
+    "package_json_present": true,
+    "package_lock_present": true,
+    "node_modules_present": true,
+    "commands": {
+      "node": false,
+      "npm": false,
+      "brew": false,
+      "corepack": false,
+      "nvm": false,
+      "volta": false,
+      "fnm": false
+    },
+    "command_paths": {},
+    "executable_frontend_verification_available": false
+  },
+  "decision": {
+    "option_id": "repair_frontend_verification_environment",
+    "label": "Repair frontend verification environment",
+    "score": 16,
+    "safety": 5,
+    "productization_value": 5,
+    "evidence_readiness": 5,
+    "verification_readiness": 1,
+    "behavior_change_risk": 0,
+    "disposition": "selected",
+    "next_version": "v0.2.86_frontend_verification_environment_repair",
+    "first_design": "docs/current-design/design_frontend_verification_environment_repair.md"
+  },
+  "options": [
+    {
+      "option_id": "repair_frontend_verification_environment",
+      "label": "Repair frontend verification environment",
+      "score": 16,
+      "safety": 5,
+      "productization_value": 5,
+      "evidence_readiness": 5,
+      "verification_readiness": 1,
+      "behavior_change_risk": 0,
+      "disposition": "selected",
+      "next_version": "v0.2.86_frontend_verification_environment_repair",
+      "first_design": "docs/current-design/design_frontend_verification_environment_repair.md"
+    },
+    {
+      "option_id": "continue_operator_opt_in_observation",
+      "label": "Continue operator opt-in observation",
+      "score": 12,
+      "safety": 5,
+      "productization_value": 2,
+      "evidence_readiness": 4,
+      "verification_readiness": 1,
+      "behavior_change_risk": 0,
+      "disposition": "rejected because stage_1 exit criteria are already satisfied and productization is blocked by frontend verification",
+      "next_version": "v0.2.x_complexity_router_continued_operator_opt_in_observation",
+      "first_design": "docs/current-design/design_complexity_router_continued_operator_opt_in_observation.md"
+    },
+    {
+      "option_id": "begin_default_enablement_review",
+      "label": "Begin default enablement review",
+      "score": 8,
+      "safety": 2,
+      "productization_value": 5,
+      "evidence_readiness": 5,
+      "verification_readiness": 0,
+      "behavior_change_risk": 4,
+      "disposition": "rejected because executable frontend verification is still blocked",
+      "next_version": "v0.2.x_complexity_router_default_enablement_review",
+      "first_design": "docs/current-design/design_complexity_router_default_enablement_review.md"
+    }
+  ],
+  "default_enabled": false,
+  "allowed_to_enable_default": true,
+  "default_enablement_review_deferred_until_frontend_verification": true,
+  "conclusion": "Repair frontend verification before default enablement review. Defaults remain disabled."
+}
