@@ -87,6 +87,7 @@
 - `stage-reports/v0.2.61_adaptive_monitoring_refresh_control.md`
 - `stage-reports/v0.2.62_evolution_process_architecture.md`
 - `stage-reports/v0.2.63_adaptive_monitoring_schedule_and_report_audit.md`
+- `stage-reports/v0.2.64_productization_lane_reselection.md`
 
 ## 使用原则
 

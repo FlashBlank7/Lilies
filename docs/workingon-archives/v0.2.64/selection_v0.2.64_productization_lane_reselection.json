@@ -1,0 +1,81 @@
+{
+  "version": "v0.2.64",
+  "status": "completed",
+  "generated_at": "2026-07-10T07:29:06.530477+00:00",
+  "winner": {
+    "lane_id": "e08_extended_controls",
+    "label": "E08 sidecar/passmode extended controls",
+    "score": 16,
+    "blocked": false,
+    "evidence": 4,
+    "readiness": 4,
+    "product_value": 5,
+    "next_slice_specificity": 4,
+    "default_risk_blocker": 0,
+    "governance_blocker": 1,
+    "source": "docs/experiment-status/ledgers/E08_harness_sidecar_passmode.md",
+    "source_detail": "v0.2.55 completed a deterministic comparison: workflow-internal passmode can pause/pass by configuration, while Platform Harness sidecar policy hard-fails before the external action.",
+    "conclusion": "Select next because the first comparison is closed, evidence is runnable, and a bounded controls surface can improve operator governance without enabling risky defaults.",
+    "next_version": "v0.2.65_e08_policy_controls_surface",
+    "first_design": "docs/current-design/design_e08_policy_controls_surface.md"
+  },
+  "deferred": [
+    {
+      "lane_id": "complexity_router_rollout",
+      "label": "E07 complexity router rollout",
+      "score": 6,
+      "blocked": false,
+      "evidence": 3,
+      "readiness": 2,
+      "product_value": 4,
+      "next_slice_specificity": 2,
+      "default_risk_blocker": 3,
+      "governance_blocker": 2,
+      "source": "docs/experiment-status/ledgers/E07_complexity_router.md",
+      "source_detail": "v0.2.57 made simple/medium/complex routing hypotheses explicit, but the ledger states router_ready_for_default=false and requires guardrails plus rollout design.",
+      "conclusion": "Defer until a stage report selects guardrails, overrides, rollout metrics, and default-safety design.",
+      "next_version": "v0.2.x_complexity_router_guardrails",
+      "first_design": "docs/current-design/design_complexity_router_guardrails.md"
+    }
+  ],
+  "lanes": [
+    {
+      "lane_id": "e08_extended_controls",
+      "label": "E08 sidecar/passmode extended controls",
+      "score": 16,
+      "blocked": false,
+      "evidence": 4,
+      "readiness": 4,
+      "product_value": 5,
+      "next_slice_specificity": 4,
+      "default_risk_blocker": 0,
+      "governance_blocker": 1,
+      "source": "docs/experiment-status/ledgers/E08_harness_sidecar_passmode.md",
+      "source_detail": "v0.2.55 completed a deterministic comparison: workflow-internal passmode can pause/pass by configuration, while Platform Harness sidecar policy hard-fails before the external action.",
+      "conclusion": "Select next because the first comparison is closed, evidence is runnable, and a bounded controls surface can improve operator governance without enabling risky defaults.",
+      "next_version": "v0.2.65_e08_policy_controls_surface",
+      "first_design": "docs/current-design/design_e08_policy_controls_surface.md"
+    },
+    {
+      "lane_id": "complexity_router_rollout",
+      "label": "E07 complexity router rollout",
+      "score": 6,
+      "blocked": false,
+      "evidence": 3,
+      "readiness": 2,
+      "product_value": 4,
+      "next_slice_specificity": 2,
+      "default_risk_blocker": 3,
+      "governance_blocker": 2,
+      "source": "docs/experiment-status/ledgers/E07_complexity_router.md",
+      "source_detail": "v0.2.57 made simple/medium/complex routing hypotheses explicit, but the ledger states router_ready_for_default=false and requires guardrails plus rollout design.",
+      "conclusion": "Defer until a stage report selects guardrails, overrides, rollout metrics, and default-safety design.",
+      "next_version": "v0.2.x_complexity_router_guardrails",
+      "first_design": "docs/current-design/design_complexity_router_guardrails.md"
+    }
+  ],
+  "next_version": "v0.2.65_e08_policy_controls_surface",
+  "first_design": "docs/current-design/design_e08_policy_controls_surface.md",
+  "formula": "evidence + readiness + product_value + next_slice_specificity - default_risk_blocker - governance_blocker",
+  "conclusion": "Select E08 extended controls as the next productization lane. Complexity-router remains useful, but its own ledger says it is not default-ready until guardrails and rollout design exist."
+}
