@@ -153,3 +153,7 @@ v0.2.124 已实现 `builder_build` worker offload handler：worker catalog 将�
 v0.2.125 remaining sidecar architecture reselection 已排除 completed `builder_build` 和全部 required worker task-kind execution coverage 证据，并选择 `production_worker_supervision` 作为下一条 E08 architecture slice。该版本只选择下一 slice，不实现 production worker supervision，也不声明 distributed queue、external KMS 或 full sidecar completion。
 
 证据：`../../workingon-archives/v0.2.125/decision_v0.2.125_e08_remaining_sidecar_architecture_reselection_summary.md`
+
+v0.2.126 已实现 in-process production worker supervision：新增 `PlatformWorkerSupervisor`，提供 worker supervision snapshot/start/stop API，可启动、观察、停止一个受监督的 Platform Harness worker loop，并通过 heartbeat 和 recent results 证明实际 worker execution。该版本只关闭 in-process supervision slice，不实现 distributed queue semantics、external process manager、external KMS provider integration 或 full sidecar completion。
+
+证据：`../../workingon-archives/v0.2.126/evidence_v0.2.126_e08_production_worker_supervision_summary.md`

@@ -93,6 +93,7 @@ class Services:
     templates: TemplateStore
     benchmark: BuilderBenchmark
     draft_patcher: DraftPatchPreviewer
+    worker_supervisor: Any | None
     background_tasks: set[asyncio.Task[Any]]
 
 
@@ -104,6 +105,11 @@ class PlatformTaskLeaseRequest(BaseModel):
 class PlatformTaskLeaseReleaseRequest(BaseModel):
     worker_id: str | None = None
     next_status: Literal["queued", "running"] = "queued"
+
+
+class PlatformWorkerSupervisionStartRequest(BaseModel):
+    poll_seconds: float | None = Field(default=None, gt=0)
+    limit: int | None = Field(default=None, ge=1, le=500)
 
 
 class PlatformSecretCreateRequest(BaseModel):
@@ -235,7 +241,7 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         poll_seconds=settings.scheduler_poll_seconds,
         worker_offload_enabled=settings.scheduler_worker_offload_enabled,
     )
-    return Services(
+    services = Services(
         settings=settings,
         storage=storage,
         provider=provider,
@@ -254,8 +260,28 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         templates=templates,
         benchmark=benchmark,
         draft_patcher=draft_patcher,
+        worker_supervisor=None,
         background_tasks=set(),
     )
+    from .worker_runner import (  # pylint: disable=import-outside-toplevel
+        PlatformHarnessWorkerRunner,
+        PlatformWorkerSupervisor,
+        build_platform_worker_handlers,
+    )
+
+    supervised_runner = PlatformHarnessWorkerRunner(
+        harness=harness,
+        worker_id=harness.worker_id,
+        lease_seconds=max(harness.worker_lease_seconds, 60.0),
+        handlers=build_platform_worker_handlers(services),
+    )
+    services.worker_supervisor = PlatformWorkerSupervisor(
+        runner=supervised_runner,
+        poll_seconds=max(settings.platform_harness_worker_supervision_poll_seconds, 0.001),
+        limit=max(settings.platform_harness_worker_supervision_limit, 1),
+        background_tasks=services.background_tasks,
+    )
+    return services
 
 
 def create_app(settings: Settings | None = None, provider: ModelProvider | None = None) -> FastAPI:
@@ -280,6 +306,8 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             )
             services.background_tasks.add(adaptive_refresh_task)
         yield
+        if services.worker_supervisor is not None and services.worker_supervisor.loop_running:
+            await services.worker_supervisor.stop()
         await services.scheduler.stop()
         for task in services.background_tasks:
             task.cancel()
@@ -481,6 +509,33 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
     async def list_platform_harness_worker_heartbeats(limit: int = 100) -> list[dict[str, Any]]:
         rows = await services.harness.list_worker_heartbeats(limit=max(1, min(limit, 500)))
         return [row.model_dump(mode="json") for row in rows]
+
+    @app.get("/api/v1/platform/harness/worker-supervision", dependencies=[Depends(require_token)])
+    async def get_platform_harness_worker_supervision() -> dict[str, Any]:
+        if services.worker_supervisor is None:
+            raise HTTPException(503, "platform worker supervisor unavailable")
+        return await services.worker_supervisor.snapshot()
+
+    @app.post("/api/v1/platform/harness/worker-supervision/start", dependencies=[Depends(require_token)])
+    async def start_platform_harness_worker_supervision(
+        body: PlatformWorkerSupervisionStartRequest | None = None,
+    ) -> dict[str, Any]:
+        if services.worker_supervisor is None:
+            raise HTTPException(503, "platform worker supervisor unavailable")
+        body = body or PlatformWorkerSupervisionStartRequest()
+        try:
+            return await services.worker_supervisor.start(
+                poll_seconds=body.poll_seconds,
+                limit=body.limit,
+            )
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from error
+
+    @app.post("/api/v1/platform/harness/worker-supervision/stop", dependencies=[Depends(require_token)])
+    async def stop_platform_harness_worker_supervision() -> dict[str, Any]:
+        if services.worker_supervisor is None:
+            raise HTTPException(503, "platform worker supervisor unavailable")
+        return await services.worker_supervisor.stop()
 
     @app.post("/api/v1/platform/secrets", status_code=201, dependencies=[Depends(require_token)])
     async def create_platform_secret(body: PlatformSecretCreateRequest) -> dict[str, Any]:

@@ -1,0 +1,431 @@
+{
+  "version": "v0.2.126",
+  "source_stage_report": "docs/stage-reports/v0.2.125_e08_remaining_sidecar_architecture_reselection.md",
+  "status": "completed",
+  "direct_supervision": {
+    "started": {
+      "version": "v0.2.126",
+      "source": "docs/stage-reports/v0.2.125_e08_remaining_sidecar_architecture_reselection.md",
+      "worker_id": "v02-126-supervised-worker",
+      "desired_state": "running",
+      "loop_running": true,
+      "supervision_mode": "in_process_worker_loop",
+      "poll_seconds": 0.01,
+      "limit": 5,
+      "run_count": 0,
+      "last_error": "",
+      "started_at": "2026-07-10T12:27:01.141323+00:00",
+      "stopped_at": "",
+      "observed_state": "idle",
+      "observed_liveness": "active",
+      "heartbeat": {
+        "worker_id": "v02-126-supervised-worker",
+        "status": "idle",
+        "active_task_id": "",
+        "last_seen_at": "2026-07-10T12:27:01.141332+00:00",
+        "stale_after_seconds": 120.0,
+        "liveness": "active",
+        "metadata": {
+          "phase": "supervisor_starting",
+          "supervision_mode": "in_process_worker_loop",
+          "version": "v0.2.126"
+        },
+        "updated_at": "2026-07-10T12:27:01.141356+00:00"
+      },
+      "recent_results": [],
+      "supports_start": true,
+      "supports_stop": true,
+      "boundaries": {
+        "external_process_manager": false,
+        "distributed_queue_semantics": false,
+        "external_kms_provider_integration": false,
+        "full_sidecar_completion_claimed": false
+      }
+    },
+    "stopped": {
+      "version": "v0.2.126",
+      "source": "docs/stage-reports/v0.2.125_e08_remaining_sidecar_architecture_reselection.md",
+      "worker_id": "v02-126-supervised-worker",
+      "desired_state": "stopped",
+      "loop_running": false,
+      "supervision_mode": "in_process_worker_loop",
+      "poll_seconds": 0.01,
+      "limit": 5,
+      "run_count": 2,
+      "last_error": "",
+      "started_at": "2026-07-10T12:27:01.141323+00:00",
+      "stopped_at": "2026-07-10T12:27:01.168155+00:00",
+      "observed_state": "idle",
+      "observed_liveness": "active",
+      "heartbeat": {
+        "worker_id": "v02-126-supervised-worker",
+        "status": "idle",
+        "active_task_id": "",
+        "last_seen_at": "2026-07-10T12:27:01.168159+00:00",
+        "stale_after_seconds": 120.0,
+        "liveness": "active",
+        "metadata": {
+          "phase": "supervisor_stopped",
+          "supervision_mode": "in_process_worker_loop",
+          "version": "v0.2.126"
+        },
+        "updated_at": "2026-07-10T12:27:01.168179+00:00"
+      },
+      "recent_results": [
+        {
+          "task_id": "v02-126-supervised-task",
+          "kind": "scheduler_manual_trigger",
+          "status": "succeeded",
+          "worker_id": "v02-126-supervised-worker",
+          "lease_version": 3,
+          "error": "",
+          "metadata": {
+            "worker_runner": {
+              "worker_id": "v02-126-supervised-worker",
+              "status": "succeeded",
+              "result": {
+                "handled_task_id": "v02-126-supervised-task"
+              },
+              "renewal_count": 0
+            }
+          }
+        }
+      ],
+      "supports_start": true,
+      "supports_stop": true,
+      "boundaries": {
+        "external_process_manager": false,
+        "distributed_queue_semantics": false,
+        "external_kms_provider_integration": false,
+        "full_sidecar_completion_claimed": false
+      }
+    },
+    "task": {
+      "id": "v02-126-supervised-task",
+      "kind": "scheduler_manual_trigger",
+      "owner_id": "owner-a",
+      "resource_id": "schedule-a",
+      "status": "succeeded",
+      "parent_task_id": null,
+      "metadata": {
+        "worker_lease": {
+          "worker_id": "v02-126-supervised-worker",
+          "lease_seconds": 60.0,
+          "last_action": "claimed",
+          "updated_at": "2026-07-10T12:27:01.143978+00:00",
+          "lease_version": 3,
+          "released_at": "2026-07-10T12:27:01.140411+00:00",
+          "released_by": "producer",
+          "next_status": "queued"
+        },
+        "worker_runner": {
+          "worker_id": "v02-126-supervised-worker",
+          "status": "succeeded",
+          "result": {
+            "handled_task_id": "v02-126-supervised-task"
+          },
+          "renewal_count": 0
+        }
+      },
+      "usage_counts": {},
+      "usage": [],
+      "error": "",
+      "worker_id": "v02-126-supervised-worker",
+      "lease_expires_at": "2026-07-10T12:28:01.143978+00:00",
+      "lease_version": 3,
+      "created_at": "2026-07-10T12:27:01.138946+00:00",
+      "updated_at": "2026-07-10T12:27:01.145417+00:00",
+      "finished_at": "2026-07-10T12:27:01.145417+00:00"
+    },
+    "heartbeats": {
+      "v02-126-supervised-worker": {
+        "worker_id": "v02-126-supervised-worker",
+        "status": "idle",
+        "active_task_id": "",
+        "last_seen_at": "2026-07-10T12:27:01.168159+00:00",
+        "stale_after_seconds": 120.0,
+        "liveness": "active",
+        "metadata": {
+          "phase": "supervisor_stopped",
+          "supervision_mode": "in_process_worker_loop",
+          "version": "v0.2.126"
+        },
+        "updated_at": "2026-07-10T12:27:01.168179+00:00"
+      }
+    }
+  },
+  "api_supervision": {
+    "initial": {
+      "version": "v0.2.126",
+      "source": "docs/stage-reports/v0.2.125_e08_remaining_sidecar_architecture_reselection.md",
+      "worker_id": "v02-126-api-supervised-worker",
+      "desired_state": "stopped",
+      "loop_running": false,
+      "supervision_mode": "in_process_worker_loop",
+      "poll_seconds": 0.01,
+      "limit": 2,
+      "run_count": 0,
+      "last_error": "",
+      "started_at": "",
+      "stopped_at": "",
+      "observed_state": "unknown",
+      "observed_liveness": "unknown",
+      "heartbeat": null,
+      "recent_results": [],
+      "supports_start": true,
+      "supports_stop": true,
+      "boundaries": {
+        "external_process_manager": false,
+        "distributed_queue_semantics": false,
+        "external_kms_provider_integration": false,
+        "full_sidecar_completion_claimed": false
+      }
+    },
+    "started": {
+      "version": "v0.2.126",
+      "source": "docs/stage-reports/v0.2.125_e08_remaining_sidecar_architecture_reselection.md",
+      "worker_id": "v02-126-api-supervised-worker",
+      "desired_state": "running",
+      "loop_running": true,
+      "supervision_mode": "in_process_worker_loop",
+      "poll_seconds": 0.01,
+      "limit": 2,
+      "run_count": 0,
+      "last_error": "",
+      "started_at": "2026-07-10T12:27:01.381452+00:00",
+      "stopped_at": "",
+      "observed_state": "idle",
+      "observed_liveness": "active",
+      "heartbeat": {
+        "worker_id": "v02-126-api-supervised-worker",
+        "status": "idle",
+        "active_task_id": "",
+        "last_seen_at": "2026-07-10T12:27:01.381459+00:00",
+        "stale_after_seconds": 120.0,
+        "liveness": "active",
+        "metadata": {
+          "phase": "supervisor_starting",
+          "supervision_mode": "in_process_worker_loop",
+          "version": "v0.2.126"
+        },
+        "updated_at": "2026-07-10T12:27:01.381481+00:00"
+      },
+      "recent_results": [],
+      "supports_start": true,
+      "supports_stop": true,
+      "boundaries": {
+        "external_process_manager": false,
+        "distributed_queue_semantics": false,
+        "external_kms_provider_integration": false,
+        "full_sidecar_completion_claimed": false
+      }
+    },
+    "observed": {
+      "version": "v0.2.126",
+      "source": "docs/stage-reports/v0.2.125_e08_remaining_sidecar_architecture_reselection.md",
+      "worker_id": "v02-126-api-supervised-worker",
+      "desired_state": "running",
+      "loop_running": true,
+      "supervision_mode": "in_process_worker_loop",
+      "poll_seconds": 0.01,
+      "limit": 2,
+      "run_count": 0,
+      "last_error": "",
+      "started_at": "2026-07-10T12:27:01.381452+00:00",
+      "stopped_at": "",
+      "observed_state": "idle",
+      "observed_liveness": "active",
+      "heartbeat": {
+        "worker_id": "v02-126-api-supervised-worker",
+        "status": "idle",
+        "active_task_id": "",
+        "last_seen_at": "2026-07-10T12:27:01.382105+00:00",
+        "stale_after_seconds": 120.0,
+        "liveness": "active",
+        "metadata": {
+          "phase": "supervisor_loop_started",
+          "supervision_mode": "in_process_worker_loop",
+          "version": "v0.2.126"
+        },
+        "updated_at": "2026-07-10T12:27:01.382209+00:00"
+      },
+      "recent_results": [],
+      "supports_start": true,
+      "supports_stop": true,
+      "boundaries": {
+        "external_process_manager": false,
+        "distributed_queue_semantics": false,
+        "external_kms_provider_integration": false,
+        "full_sidecar_completion_claimed": false
+      }
+    },
+    "stopped": {
+      "version": "v0.2.126",
+      "source": "docs/stage-reports/v0.2.125_e08_remaining_sidecar_architecture_reselection.md",
+      "worker_id": "v02-126-api-supervised-worker",
+      "desired_state": "stopped",
+      "loop_running": false,
+      "supervision_mode": "in_process_worker_loop",
+      "poll_seconds": 0.01,
+      "limit": 2,
+      "run_count": 1,
+      "last_error": "",
+      "started_at": "2026-07-10T12:27:01.381452+00:00",
+      "stopped_at": "2026-07-10T12:27:01.386854+00:00",
+      "observed_state": "idle",
+      "observed_liveness": "active",
+      "heartbeat": {
+        "worker_id": "v02-126-api-supervised-worker",
+        "status": "idle",
+        "active_task_id": "",
+        "last_seen_at": "2026-07-10T12:27:01.386859+00:00",
+        "stale_after_seconds": 120.0,
+        "liveness": "active",
+        "metadata": {
+          "phase": "supervisor_stopped",
+          "supervision_mode": "in_process_worker_loop",
+          "version": "v0.2.126"
+        },
+        "updated_at": "2026-07-10T12:27:01.386880+00:00"
+      },
+      "recent_results": [],
+      "supports_start": true,
+      "supports_stop": true,
+      "boundaries": {
+        "external_process_manager": false,
+        "distributed_queue_semantics": false,
+        "external_kms_provider_integration": false,
+        "full_sidecar_completion_claimed": false
+      }
+    },
+    "heartbeats": [
+      {
+        "worker_id": "v02-126-api-supervised-worker",
+        "status": "idle",
+        "active_task_id": "",
+        "last_seen_at": "2026-07-10T12:27:01.386859+00:00",
+        "stale_after_seconds": 120.0,
+        "liveness": "active",
+        "metadata": {
+          "phase": "supervisor_stopped",
+          "supervision_mode": "in_process_worker_loop",
+          "version": "v0.2.126"
+        },
+        "updated_at": "2026-07-10T12:27:01.386880+00:00"
+      }
+    ],
+    "catalog": {
+      "version": "v0.2.124",
+      "source": "docs/stage-reports/v0.2.113_e08_remaining_sidecar_slice_reselection.md",
+      "required_count": 7,
+      "cataloged_count": 7,
+      "implemented_count": 7,
+      "unavailable_count": 0,
+      "missing_required_kinds": [],
+      "unregistered_required_kinds": [],
+      "catalog_complete": true,
+      "registered_catalog_complete": true,
+      "full_execution_coverage": true,
+      "deterministic_gap_failure": true,
+      "not_full_sidecar_completion": true,
+      "entries": [
+        {
+          "kind": "workflow_run",
+          "label": "Workflow run",
+          "required": true,
+          "status": "implemented",
+          "handler_registered": true,
+          "executable": true,
+          "implementation": "workflow_run_handler",
+          "evidence": "docs/stage-reports/v0.2.116_e08_workflow_run_worker_offload_handler.md",
+          "reason": "",
+          "operator_action": "Monitor worker-runner results and lease renewals."
+        },
+        {
+          "kind": "builder_build",
+          "label": "Builder build",
+          "required": true,
+          "status": "implemented",
+          "handler_registered": true,
+          "executable": true,
+          "implementation": "builder_build_handler",
+          "evidence": "docs/stage-reports/v0.2.124_e08_builder_build_worker_offload_handler.md",
+          "reason": "",
+          "operator_action": "Monitor worker-runner results and lease renewals."
+        },
+        {
+          "kind": "test_suite",
+          "label": "Test suite",
+          "required": true,
+          "status": "implemented",
+          "handler_registered": true,
+          "executable": true,
+          "implementation": "test_suite_handler",
+          "evidence": "docs/stage-reports/v0.2.118_e08_test_suite_worker_offload_handler.md",
+          "reason": "",
+          "operator_action": "Monitor worker-runner results and lease renewals."
+        },
+        {
+          "kind": "scheduler_trigger",
+          "label": "Scheduler automatic trigger",
+          "required": true,
+          "status": "implemented",
+          "handler_registered": true,
+          "executable": true,
+          "implementation": "scheduler_trigger_handler",
+          "evidence": "docs/stage-reports/v0.2.114_e08_scheduler_trigger_worker_offload_handler.md",
+          "reason": "",
+          "operator_action": "Monitor worker-runner results and lease renewals."
+        },
+        {
+          "kind": "scheduler_manual_trigger",
+          "label": "Scheduler manual trigger",
+          "required": true,
+          "status": "implemented",
+          "handler_registered": true,
+          "executable": true,
+          "implementation": "scheduler_manual_trigger_handler",
+          "evidence": "docs/stage-reports/v0.2.27_worker_runner_cli_and_handler.md",
+          "reason": "",
+          "operator_action": "Monitor worker-runner results and lease renewals."
+        },
+        {
+          "kind": "benchmark",
+          "label": "Benchmark",
+          "required": true,
+          "status": "implemented",
+          "handler_registered": true,
+          "executable": true,
+          "implementation": "benchmark_handler",
+          "evidence": "docs/stage-reports/v0.2.122_e08_benchmark_worker_offload_handler.md",
+          "reason": "",
+          "operator_action": "Monitor worker-runner results and lease renewals."
+        },
+        {
+          "kind": "draft_patch_preview",
+          "label": "Draft patch preview",
+          "required": true,
+          "status": "implemented",
+          "handler_registered": true,
+          "executable": true,
+          "implementation": "draft_patch_preview_handler",
+          "evidence": "docs/stage-reports/v0.2.120_e08_draft_patch_preview_worker_offload_handler.md",
+          "reason": "",
+          "operator_action": "Monitor worker-runner results and lease renewals."
+        }
+      ]
+    }
+  },
+  "invariants": {
+    "supervisor_can_start": true,
+    "supervisor_can_observe": true,
+    "supervisor_can_stop": true,
+    "worker_loop_consumed_task": true,
+    "worker_task_kind_execution_coverage_preserved": true,
+    "distributed_queue_semantics_claimed": false,
+    "external_process_manager_claimed": false,
+    "external_kms_provider_integration_claimed": false,
+    "e08_full_sidecar_completion_claimed": false
+  },
+  "next_boundary": "Production worker supervision is now an in-process supervised loop. Distributed queue semantics, external process management, external KMS provider integration, and full sidecar completion remain open."
+}

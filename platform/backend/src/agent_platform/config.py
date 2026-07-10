@@ -56,6 +56,8 @@ class Settings(BaseSettings):
     platform_harness_network_egress_allowlist: list[str] = Field(default_factory=list)
     platform_harness_worker_id: str = ""
     platform_harness_worker_lease_seconds: float = 0.0
+    platform_harness_worker_supervision_poll_seconds: float = 5.0
+    platform_harness_worker_supervision_limit: int = 10
     complexity_router_default_mode: Literal["disabled", "shadow_only", "operator_opt_in", "limited_default"] = "limited_default"
     complexity_router_limited_default_enabled: bool = True
     complexity_router_limited_default_min_confidence: float = 0.55

@@ -299,6 +299,224 @@ class PlatformHarnessWorkerRunner:
         )
 
 
+class PlatformWorkerSupervisor:
+    """In-process supervision for a Platform Harness worker loop.
+
+    This is intentionally not an external process manager or distributed queue
+    backend. It gives operators a product-level start/observe/stop lifecycle for
+    the existing worker runner and heartbeat registry.
+    """
+
+    def __init__(
+        self,
+        *,
+        runner: PlatformHarnessWorkerRunner,
+        poll_seconds: float = 5.0,
+        limit: int = 10,
+        background_tasks: set[asyncio.Task[Any]] | None = None,
+    ) -> None:
+        if poll_seconds <= 0:
+            raise ValueError("poll_seconds must be greater than 0")
+        if limit <= 0:
+            raise ValueError("limit must be greater than 0")
+        self.runner = runner
+        self.poll_seconds = poll_seconds
+        self.limit = limit
+        self.background_tasks = background_tasks
+        self._task: asyncio.Task[None] | None = None
+        self._stop_requested = asyncio.Event()
+        self.run_count = 0
+        self.last_results: list[WorkerRunResult] = []
+        self.last_error = ""
+        self.started_at = ""
+        self.stopped_at = ""
+
+    @property
+    def loop_running(self) -> bool:
+        return self._task is not None and not self._task.done()
+
+    async def start(
+        self,
+        *,
+        poll_seconds: float | None = None,
+        limit: int | None = None,
+    ) -> dict[str, Any]:
+        if poll_seconds is not None:
+            if poll_seconds <= 0:
+                raise ValueError("poll_seconds must be greater than 0")
+            self.poll_seconds = poll_seconds
+        if limit is not None:
+            if limit <= 0:
+                raise ValueError("limit must be greater than 0")
+            self.limit = limit
+        if self.loop_running:
+            return await self.snapshot()
+        self._stop_requested = asyncio.Event()
+        self.last_error = ""
+        self.started_at = _utc_now()
+        await self.runner.harness.record_worker_heartbeat(
+            worker_id=self.runner.worker_id,
+            status="idle",
+            stale_after_seconds=max(self.runner.lease_seconds * 2, 1.0),
+            metadata={
+                "phase": "supervisor_starting",
+                "supervision_mode": "in_process_worker_loop",
+                "version": "v0.2.126",
+            },
+        )
+        self._task = asyncio.create_task(
+            self._run_loop(),
+            name=f"platform-worker-supervisor:{self.runner.worker_id}",
+        )
+        if self.background_tasks is not None:
+            self.background_tasks.add(self._task)
+            self._task.add_done_callback(self.background_tasks.discard)
+        return await self.snapshot()
+
+    async def stop(self) -> dict[str, Any]:
+        if not self.loop_running:
+            self.stopped_at = _utc_now()
+            await self.runner.harness.record_worker_heartbeat(
+                worker_id=self.runner.worker_id,
+                status="idle",
+                stale_after_seconds=max(self.runner.lease_seconds * 2, 1.0),
+                metadata={
+                    "phase": "supervisor_stopped",
+                    "supervision_mode": "in_process_worker_loop",
+                    "idempotent": True,
+                    "version": "v0.2.126",
+                },
+            )
+            return await self.snapshot()
+        await self.runner.harness.record_worker_heartbeat(
+            worker_id=self.runner.worker_id,
+            status="stopping",
+            stale_after_seconds=max(self.runner.lease_seconds * 2, 1.0),
+            metadata={
+                "phase": "supervisor_stop_requested",
+                "supervision_mode": "in_process_worker_loop",
+                "version": "v0.2.126",
+            },
+        )
+        self._stop_requested.set()
+        assert self._task is not None
+        try:
+            await asyncio.wait_for(self._task, timeout=max(self.poll_seconds + 1.0, 1.0))
+        except TimeoutError:
+            self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
+        finally:
+            self._task = None
+        self.stopped_at = _utc_now()
+        await self.runner.harness.record_worker_heartbeat(
+            worker_id=self.runner.worker_id,
+            status="idle",
+            stale_after_seconds=max(self.runner.lease_seconds * 2, 1.0),
+            metadata={
+                "phase": "supervisor_stopped",
+                "supervision_mode": "in_process_worker_loop",
+                "version": "v0.2.126",
+            },
+        )
+        return await self.snapshot()
+
+    async def snapshot(self) -> dict[str, Any]:
+        heartbeat = await self._heartbeat()
+        heartbeat_payload = heartbeat.model_dump(mode="json") if heartbeat else None
+        return {
+            "version": "v0.2.126",
+            "source": "docs/stage-reports/v0.2.125_e08_remaining_sidecar_architecture_reselection.md",
+            "worker_id": self.runner.worker_id,
+            "desired_state": "running" if self.loop_running else "stopped",
+            "loop_running": self.loop_running,
+            "supervision_mode": "in_process_worker_loop",
+            "poll_seconds": self.poll_seconds,
+            "limit": self.limit,
+            "run_count": self.run_count,
+            "last_error": self.last_error,
+            "started_at": self.started_at,
+            "stopped_at": self.stopped_at,
+            "observed_state": heartbeat.status if heartbeat else "unknown",
+            "observed_liveness": heartbeat.liveness if heartbeat else "unknown",
+            "heartbeat": heartbeat_payload,
+            "recent_results": [asdict(result) for result in self.last_results[-10:]],
+            "supports_start": True,
+            "supports_stop": True,
+            "boundaries": {
+                "external_process_manager": False,
+                "distributed_queue_semantics": False,
+                "external_kms_provider_integration": False,
+                "full_sidecar_completion_claimed": False,
+            },
+        }
+
+    async def _run_loop(self) -> None:
+        await self.runner.harness.record_worker_heartbeat(
+            worker_id=self.runner.worker_id,
+            status="idle",
+            stale_after_seconds=max(self.runner.lease_seconds * 2, 1.0),
+            metadata={
+                "phase": "supervisor_loop_started",
+                "supervision_mode": "in_process_worker_loop",
+                "version": "v0.2.126",
+            },
+        )
+        try:
+            while not self._stop_requested.is_set():
+                results = await self.runner.run_once(limit=self.limit)
+                self.run_count += 1
+                if results:
+                    self.last_results.extend(results)
+                    self.last_results = self.last_results[-10:]
+                try:
+                    await asyncio.wait_for(self._stop_requested.wait(), timeout=self.poll_seconds)
+                except TimeoutError:
+                    continue
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:
+            self.last_error = str(error)
+            await self.runner.harness.record_worker_heartbeat(
+                worker_id=self.runner.worker_id,
+                status="failed",
+                stale_after_seconds=max(self.runner.lease_seconds * 2, 1.0),
+                metadata={
+                    "phase": "supervisor_loop_failed",
+                    "supervision_mode": "in_process_worker_loop",
+                    "error": str(error),
+                    "version": "v0.2.126",
+                },
+            )
+            raise
+        finally:
+            await self.runner.harness.record_worker_heartbeat(
+                worker_id=self.runner.worker_id,
+                status="idle",
+                stale_after_seconds=max(self.runner.lease_seconds * 2, 1.0),
+                metadata={
+                    "phase": "supervisor_loop_exit",
+                    "supervision_mode": "in_process_worker_loop",
+                    "version": "v0.2.126",
+                },
+            )
+
+    async def _heartbeat(self) -> Any:
+        rows = await self.runner.harness.list_worker_heartbeats()
+        for row in rows:
+            if row.worker_id == self.runner.worker_id:
+                return row
+        return None
+
+
+def _utc_now() -> str:
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).isoformat()
+
+
 def scheduler_manual_trigger_handler(scheduler: Any) -> PlatformTaskHandler:
     async def handler(task: PlatformTaskRecord) -> dict[str, Any]:
         inputs = task.metadata.get("inputs", {})
