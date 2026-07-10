@@ -1,0 +1,48 @@
+{
+  "version": "v0.2.76",
+  "plan_id": "complexity_router_live_validation_plan",
+  "default_enabled": false,
+  "allowed_to_enable_default": true,
+  "execution_in_this_stage": false,
+  "validation_cases": [
+    {
+      "case_id": "simple_text_edit",
+      "requirement": "Fix a typo in a settings label",
+      "expected_class": "simple"
+    },
+    {
+      "case_id": "medium_api_workflow",
+      "requirement": "Add an API endpoint with tests for a reporting workflow",
+      "expected_class": "medium"
+    },
+    {
+      "case_id": "complex_platform_guardrail",
+      "requirement": "Design a platform guardrail rollout for a model-sensitive agent router",
+      "expected_class": "complex"
+    }
+  ],
+  "metrics_capture": [
+    "classification_distribution",
+    "override_rate",
+    "fallback_unknown_rate",
+    "success_rate_by_class",
+    "cost_latency_by_class"
+  ],
+  "budget_boundary": {
+    "max_live_cases": 3,
+    "default_enablement_allowed": false,
+    "record_provider_model_command_and_skip_reason": true
+  },
+  "pass_criteria": [
+    "each case classified as expected",
+    "required metrics captured",
+    "no default router behavior enabled",
+    "no unresolved critical error"
+  ],
+  "fail_criteria": [
+    "unexpected class",
+    "missing metrics",
+    "budget breach",
+    "accidental default enablement"
+  ]
+}
