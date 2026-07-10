@@ -65,3 +65,7 @@ v0.2.101 已决定暂停当前 E08 tranche 并回到 productization lane reselec
 v0.2.102 productization lane reselection 未选择 E08 broader sidecar boundary closure 作为下一版实现切片。该方向保持未完成/延后状态，因为 full sidecar closure 范围过宽，不能由当前 E08 tranche 的 API、Studio controls 和 runbook 证据冒认。下一条 lane 选择为 E05 scheduled monitoring hook。
 
 证据：`../../workingon-archives/v0.2.102/decision_v0.2.102_productization_lane_reselection_summary.md`
+
+v0.2.104 productization lane reselection 已在排除 completed E05 scheduled hook、completed E07 guarded rollout 以及 blocked E02/E10 后，选择 `e08_broader_sidecar_scope_decomposition` 作为下一条 open lane。该选择只表示下一版要做 E08 broader sidecar scope decomposition，不表示 full Platform Harness sidecar 已完成。
+
+证据：`../../workingon-archives/v0.2.104/decision_v0.2.104_productization_lane_reselection_summary.md`
