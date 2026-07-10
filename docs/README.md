@@ -100,6 +100,7 @@
 - `stage-reports/v0.2.74_complexity_router_rollout_metrics_prerequisites.md`
 - `stage-reports/v0.2.75_complexity_router_default_enablement_boundary.md`
 - `stage-reports/v0.2.76_complexity_router_live_validation_plan.md`
+- `stage-reports/v0.2.77_complexity_router_live_validation_execution_decision.md`
 
 ## 使用原则
 
