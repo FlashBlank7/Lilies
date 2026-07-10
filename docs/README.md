@@ -89,6 +89,7 @@
 - `stage-reports/v0.2.63_adaptive_monitoring_schedule_and_report_audit.md`
 - `stage-reports/v0.2.64_productization_lane_reselection.md`
 - `stage-reports/v0.2.65_e08_policy_controls_surface.md`
+- `stage-reports/v0.2.66_e08_control_behavior_matrix.md`
 
 ## 使用原则
 

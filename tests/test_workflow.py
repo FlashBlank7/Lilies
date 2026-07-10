@@ -2722,6 +2722,13 @@ def test_platform_harness_policy_controls_api_reports_stdio_mcp_decisions(tmp_pa
         assert controls["secret_policy"]["status"] == "enabled"
         assert controls["worker_lease"]["value"] == 60
         assert controls["workflow_passmode"]["layer"] == "workflow_internal"
+        matrix = {item["id"]: item for item in e08["behavior_matrix"]}
+        assert matrix["workflow_passmode"]["enforcement"] == "soft_configurable"
+        assert matrix["cancellation_checkpoint"]["enforcement"] == "soft_checkpoint"
+        assert matrix["budget_limits"]["status"] == "configured"
+        assert matrix["worker_lease"]["status"] == "enabled"
+        assert matrix["network_egress_policy"]["enforcement"] == "hard_boundary"
+        assert matrix["secret_policy"]["enforcement"] == "hard_boundary"
 
 
 def test_builder_benchmark_treats_llm_as_model_turn_equivalent(tmp_path: Path) -> None:

@@ -1023,7 +1023,61 @@ class PlatformHarness:
                     "value": "permission_gate modes such as always_ask or auto_approve",
                 },
             ],
+            "behavior_matrix": self._e08_behavior_matrix(network_policy, budget_limits),
         }
+
+    def _e08_behavior_matrix(self, network_policy: str, budget_limits: dict[str, int]) -> list[dict[str, Any]]:
+        budget_configured = any(value > 0 for value in budget_limits.values())
+        return [
+            {
+                "id": "workflow_passmode",
+                "layer": "workflow_internal",
+                "enforcement": "soft_configurable",
+                "status": "available",
+                "signal": "permission_gate modes can pause or pass by workflow configuration",
+                "source": "docs/experiment-status/ledgers/E08_harness_sidecar_passmode.md",
+            },
+            {
+                "id": "cancellation_checkpoint",
+                "layer": "workflow_runtime",
+                "enforcement": "soft_checkpoint",
+                "status": "available",
+                "signal": "cancellation_point records a cancellable checkpoint and emits cancellation status",
+                "source": "platform/backend/src/agent_platform/workflow_runtime.py",
+            },
+            {
+                "id": "budget_limits",
+                "layer": "platform_harness",
+                "enforcement": "hard_counter",
+                "status": "configured" if budget_configured else "disabled",
+                "signal": "task and owner usage counters raise PlatformHarnessViolation when limits are exceeded",
+                "source": "platform/backend/src/agent_platform/platform_harness.py",
+            },
+            {
+                "id": "worker_lease",
+                "layer": "platform_harness",
+                "enforcement": "lease_coordination",
+                "status": "enabled" if self.worker_lease_seconds > 0 else "disabled",
+                "signal": "worker leases can expire, fail stale work, and be renewed by workers",
+                "source": "platform/backend/src/agent_platform/platform_harness.py",
+            },
+            {
+                "id": "network_egress_policy",
+                "layer": "platform_harness",
+                "enforcement": "hard_boundary",
+                "status": "restricted" if network_policy != "full" else "open",
+                "signal": "network egress policy blocks disallowed external actions before execution",
+                "source": "platform/backend/src/agent_platform/platform_harness.py",
+            },
+            {
+                "id": "secret_policy",
+                "layer": "platform_harness",
+                "enforcement": "hard_boundary",
+                "status": "enabled" if self.secret_policy_enabled else "disabled",
+                "signal": "secret policy blocks leaked secret material on governed surfaces",
+                "source": "platform/backend/src/agent_platform/platform_harness.py",
+            },
+        ]
 
     def _stdio_policy_control_decision(
         self,

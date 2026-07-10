@@ -1,0 +1,56 @@
+{
+  "version": "v0.2.66",
+  "current_slice": "e08_policy_controls_surface",
+  "source": "docs/experiment-status/ledgers/E08_harness_sidecar_passmode.md",
+  "not_full_sidecar_completion": true,
+  "behavior_matrix": [
+    {
+      "id": "workflow_passmode",
+      "layer": "workflow_internal",
+      "enforcement": "soft_configurable",
+      "status": "available",
+      "signal": "permission_gate modes can pause or pass by workflow configuration",
+      "source": "docs/experiment-status/ledgers/E08_harness_sidecar_passmode.md"
+    },
+    {
+      "id": "cancellation_checkpoint",
+      "layer": "workflow_runtime",
+      "enforcement": "soft_checkpoint",
+      "status": "available",
+      "signal": "cancellation_point records a cancellable checkpoint and emits cancellation status",
+      "source": "platform/backend/src/agent_platform/workflow_runtime.py"
+    },
+    {
+      "id": "budget_limits",
+      "layer": "platform_harness",
+      "enforcement": "hard_counter",
+      "status": "configured",
+      "signal": "task and owner usage counters raise PlatformHarnessViolation when limits are exceeded",
+      "source": "platform/backend/src/agent_platform/platform_harness.py"
+    },
+    {
+      "id": "worker_lease",
+      "layer": "platform_harness",
+      "enforcement": "lease_coordination",
+      "status": "enabled",
+      "signal": "worker leases can expire, fail stale work, and be renewed by workers",
+      "source": "platform/backend/src/agent_platform/platform_harness.py"
+    },
+    {
+      "id": "network_egress_policy",
+      "layer": "platform_harness",
+      "enforcement": "hard_boundary",
+      "status": "restricted",
+      "signal": "network egress policy blocks disallowed external actions before execution",
+      "source": "platform/backend/src/agent_platform/platform_harness.py"
+    },
+    {
+      "id": "secret_policy",
+      "layer": "platform_harness",
+      "enforcement": "hard_boundary",
+      "status": "enabled",
+      "signal": "secret policy blocks leaked secret material on governed surfaces",
+      "source": "platform/backend/src/agent_platform/platform_harness.py"
+    }
+  ]
+}
