@@ -1,0 +1,71 @@
+{
+  "version": "v0.2.81",
+  "source_rollout_plan": "docs/workingon-archives/v0.2.80/rollout_v0.2.80_complexity_router_staged_preparation.json",
+  "decision": {
+    "option_id": "execute_shadow_only_rollout",
+    "label": "Execute stage_0 shadow-only rollout",
+    "score": 15,
+    "safety": 5,
+    "readiness": 5,
+    "evidence_value": 5,
+    "behavior_change_risk": 0,
+    "disposition": "selected",
+    "next_version": "v0.2.82_complexity_router_shadow_only_rollout",
+    "first_design": "docs/current-design/design_complexity_router_shadow_only_rollout.md"
+  },
+  "options": [
+    {
+      "option_id": "execute_shadow_only_rollout",
+      "label": "Execute stage_0 shadow-only rollout",
+      "score": 15,
+      "safety": 5,
+      "readiness": 5,
+      "evidence_value": 5,
+      "behavior_change_risk": 0,
+      "disposition": "selected",
+      "next_version": "v0.2.82_complexity_router_shadow_only_rollout",
+      "first_design": "docs/current-design/design_complexity_router_shadow_only_rollout.md"
+    },
+    {
+      "option_id": "prepare_more_rollout_docs",
+      "label": "Prepare more rollout docs before execution",
+      "score": 9,
+      "safety": 4,
+      "readiness": 3,
+      "evidence_value": 2,
+      "behavior_change_risk": 0,
+      "disposition": "rejected because v0.2.80 already defines stages, controls, and rollback criteria",
+      "next_version": "v0.2.x_complexity_router_more_rollout_docs",
+      "first_design": "docs/current-design/design_complexity_router_more_rollout_docs.md"
+    },
+    {
+      "option_id": "defer_rollout_execution",
+      "label": "Defer rollout execution",
+      "score": 8,
+      "safety": 5,
+      "readiness": 2,
+      "evidence_value": 1,
+      "behavior_change_risk": 0,
+      "disposition": "rejected because shadow-only execution has no behavior-change risk and produces evidence",
+      "next_version": "v0.2.x_complexity_router_rollout_deferred",
+      "first_design": "docs/current-design/design_complexity_router_rollout_deferred.md"
+    }
+  ],
+  "stage_count": 3,
+  "first_stage": {
+    "stage_id": "stage_0_shadow_only",
+    "mode": "shadow_only",
+    "entry_criteria": [
+      "bounded live validation passed",
+      "metrics schema available"
+    ],
+    "exit_criteria": [
+      "classification distribution recorded",
+      "no accidental default enablement"
+    ],
+    "behavior_change": false
+  },
+  "default_enabled": false,
+  "allowed_to_enable_default": true,
+  "conclusion": "Execute the shadow-only rollout next. Defaults remain disabled."
+}

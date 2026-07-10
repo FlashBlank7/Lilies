@@ -104,6 +104,7 @@
 - `stage-reports/v0.2.78_complexity_router_bounded_live_validation.md`
 - `stage-reports/v0.2.79_complexity_router_default_enablement_review_decision.md`
 - `stage-reports/v0.2.80_complexity_router_staged_rollout_preparation.md`
+- `stage-reports/v0.2.81_complexity_router_staged_rollout_execution_decision.md`
 
 ## 使用原则
 
