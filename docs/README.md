@@ -82,6 +82,7 @@
 - `stage-reports/v0.2.56_adaptive_long_term_monitoring.md`
 - `stage-reports/v0.2.57_full_backlog_closure.md`
 - `stage-reports/v0.2.58_continuous_auto_evolution.md`
+- `stage-reports/v0.2.59_productization_lane_selection.md`
 
 ## 使用原则
 
