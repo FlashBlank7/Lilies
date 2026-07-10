@@ -125,6 +125,7 @@
 - `stage-reports/v0.2.98_e08_studio_editable_policy_controls.md`
 - `stage-reports/v0.2.99_e08_post_studio_controls_decision.md`
 - `stage-reports/v0.2.100_e08_operator_runbook_lifecycle.md`
+- `stage-reports/v0.2.101_e08_post_runbook_disposition.md`
 
 ## 使用原则
 

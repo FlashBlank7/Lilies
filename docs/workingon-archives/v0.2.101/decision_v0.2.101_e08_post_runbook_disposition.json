@@ -1,0 +1,94 @@
+{
+  "version": "v0.2.101",
+  "decision_id": "e08_post_runbook_disposition",
+  "source_stage_report": "docs/stage-reports/v0.2.100_e08_operator_runbook_lifecycle.md",
+  "status": "completed",
+  "decision": "pause_e08_and_reselect_productization_lane",
+  "selected_disposition": {
+    "candidate_id": "pause_e08_and_reselect_lane",
+    "status": "candidate",
+    "product_value": 35,
+    "readiness": 45,
+    "verification_readiness": 40,
+    "scope_risk": 10,
+    "false_completion_risk": 5,
+    "evidence": [
+      "docs/workingon-archives/v0.2.96/evidence_v0.2.96_e08_editable_policy_controls_api_summary.md",
+      "docs/workingon-archives/v0.2.98/evidence_v0.2.98_e08_studio_editable_policy_controls_summary.md",
+      "docs/workingon-archives/v0.2.100/evidence_v0.2.100_e08_operator_runbook_lifecycle_summary.md"
+    ],
+    "disposition": "select because the current E08 tranche has API, Studio, and runbook productization; full boundary closure should be a separate future lane",
+    "next_version": "v0.2.102_productization_lane_reselection",
+    "first_design": "docs/current-design/design_v0_2_102_productization_lane_reselection.md",
+    "score": 105
+  },
+  "candidates": [
+    {
+      "candidate_id": "pause_e08_and_reselect_lane",
+      "status": "candidate",
+      "product_value": 35,
+      "readiness": 45,
+      "verification_readiness": 40,
+      "scope_risk": 10,
+      "false_completion_risk": 5,
+      "evidence": [
+        "docs/workingon-archives/v0.2.96/evidence_v0.2.96_e08_editable_policy_controls_api_summary.md",
+        "docs/workingon-archives/v0.2.98/evidence_v0.2.98_e08_studio_editable_policy_controls_summary.md",
+        "docs/workingon-archives/v0.2.100/evidence_v0.2.100_e08_operator_runbook_lifecycle_summary.md"
+      ],
+      "disposition": "select because the current E08 tranche has API, Studio, and runbook productization; full boundary closure should be a separate future lane",
+      "next_version": "v0.2.102_productization_lane_reselection",
+      "first_design": "docs/current-design/design_v0_2_102_productization_lane_reselection.md",
+      "score": 105
+    },
+    {
+      "candidate_id": "continue_e08_small_followup",
+      "status": "candidate",
+      "product_value": 20,
+      "readiness": 25,
+      "verification_readiness": 25,
+      "scope_risk": 25,
+      "false_completion_risk": 20,
+      "evidence": [
+        "docs/stage-reports/v0.2.100_e08_operator_runbook_lifecycle.md"
+      ],
+      "disposition": "reject because small E08 followups would blur the current tranche boundary without addressing full closure",
+      "next_version": "v0.2.x_e08_small_followup",
+      "first_design": "docs/current-design/design_e08_small_followup.md",
+      "score": 25
+    },
+    {
+      "candidate_id": "broader_sidecar_boundary_closure_now",
+      "status": "candidate",
+      "product_value": 50,
+      "readiness": 10,
+      "verification_readiness": 10,
+      "scope_risk": 55,
+      "false_completion_risk": 45,
+      "evidence": [
+        "docs/experiment-status/ledgers/E08_harness_sidecar_passmode.md"
+      ],
+      "disposition": "defer because it includes several independent hard-boundary areas and risks a false full-completion claim",
+      "next_version": "v0.2.x_e08_broader_sidecar_boundary_closure",
+      "first_design": "docs/current-design/design_e08_broader_sidecar_boundary_closure.md",
+      "score": -30
+    }
+  ],
+  "next_version": "v0.2.102_productization_lane_reselection",
+  "first_design": "docs/current-design/design_v0_2_102_productization_lane_reselection.md",
+  "e08_current_tranche": {
+    "status": "productized_without_full_sidecar_completion",
+    "completed_slices": [
+      "deterministic sidecar/passmode comparison",
+      "editable policy-controls backend API",
+      "Studio editable policy-controls",
+      "operator runbook lifecycle"
+    ],
+    "remaining_boundary": "broader sidecar boundary closure remains deferred"
+  },
+  "e07_invariant": {
+    "status": "preserved",
+    "no_e07_code_or_default_change": true
+  },
+  "reason": "E08 has a coherent productized tranche; the next move should reselect the highest-value remaining lane instead of forcing broad sidecar closure."
+}
