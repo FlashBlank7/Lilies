@@ -101,3 +101,7 @@ v0.2.111 remaining sidecar slice reselection 已排除 completed handler catalog
 v0.2.112 已实现 durable worker heartbeat/liveness registry：新增 `platform_worker_heartbeats` 持久表、Platform Harness record/list 方法、active/stale liveness classification、`GET /api/v1/platform/harness/worker-heartbeats`，并把 `PlatformHarnessWorkerRunner` 的 poll、claim、renew、failure、finish、idle 生命周期写入 heartbeat registry。该版本只关闭 worker heartbeat registry slice，不声明 distributed queue、process supervision、external alerting、real worker-offload handlers 或 full sidecar completion。
 
 证据：`../../workingon-archives/v0.2.112/evidence_v0.2.112_e08_distributed_heartbeat_registry_summary.md`
+
+v0.2.113 remaining sidecar slice reselection 已排除 completed heartbeat registry、handler catalog、stdio/container egress、secret rotation、policy-controls API、Studio controls 和 operator runbook lifecycle，并选择 `scheduler_trigger_worker_offload_handler` 作为下一条 E08 实现切片。该版本只选择下一 slice，不实现 scheduler trigger worker handler，也不声明 full sidecar completion。
+
+证据：`../../workingon-archives/v0.2.113/decision_v0.2.113_e08_remaining_sidecar_slice_reselection_summary.md`
