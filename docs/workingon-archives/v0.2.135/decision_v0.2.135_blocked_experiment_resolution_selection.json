@@ -1,0 +1,56 @@
+{
+  "version": "v0.2.135",
+  "decision_id": "blocked_experiment_resolution_selection_after_global_audit",
+  "source_stage_report": "docs/stage-reports/v0.2.134_global_experiment_productization_completion_audit.md",
+  "status": "completed",
+  "candidates": [
+    {
+      "experiment_id": "E10",
+      "blocker": "blocked_governance_boundary",
+      "resolution_path": "governed_memory_boundary_definition",
+      "can_progress_without_external_state": true,
+      "risk": 25,
+      "product_value": 35,
+      "next_version": "v0.2.136_e10_governed_memory_boundary_definition",
+      "first_design": "docs/current-design/design_v0_2_136_e10_governed_memory_boundary_definition.md",
+      "evidence": "docs/experiment-status/ledgers/E10_assistant_memory_surface.md",
+      "score": 60
+    },
+    {
+      "experiment_id": "E02",
+      "blocker": "blocked_external_panel",
+      "resolution_path": "recruited_human_timing_panel",
+      "can_progress_without_external_state": false,
+      "risk": 35,
+      "product_value": 20,
+      "next_version": "blocked_until_external_panel_exists",
+      "first_design": "none",
+      "evidence": "docs/experiment-status/ledgers/E02_readable_testframe.md",
+      "score": -15
+    }
+  ],
+  "selected": {
+    "experiment_id": "E10",
+    "blocker": "blocked_governance_boundary",
+    "resolution_path": "governed_memory_boundary_definition",
+    "can_progress_without_external_state": true,
+    "risk": 25,
+    "product_value": 35,
+    "next_version": "v0.2.136_e10_governed_memory_boundary_definition",
+    "first_design": "docs/current-design/design_v0_2_136_e10_governed_memory_boundary_definition.md",
+    "evidence": "docs/experiment-status/ledgers/E10_assistant_memory_surface.md",
+    "score": 60
+  },
+  "decision": "select_e10_governed_memory_boundary_definition",
+  "next_version": "v0.2.136_e10_governed_memory_boundary_definition",
+  "first_design": "docs/current-design/design_v0_2_136_e10_governed_memory_boundary_definition.md",
+  "invariants": {
+    "e02_true_human_panel_remains_external_blocker": true,
+    "e02_automated_substitute_claimed": false,
+    "e10_governance_boundary_selected": true,
+    "global_completion_claimed": false,
+    "workingon_is_not_task_source": true,
+    "stage_report_is_next_task_source": true
+  },
+  "reason": "E02 requires external recruited participants and cannot progress through automation. E10 can progress by defining the governed memory product boundary that the ledger requires."
+}
