@@ -93,6 +93,7 @@
 - `stage-reports/v0.2.67_e08_full_boundary_gap_selection.md`
 - `stage-reports/v0.2.68_e08_cancellation_budget_behavior.md`
 - `stage-reports/v0.2.69_e08_continuation_decision.md`
+- `stage-reports/v0.2.70_complexity_router_guardrail_selection.md`
 
 ## 使用原则
 

@@ -81,6 +81,7 @@
 - `v0.2.67_*`：来自 `docs/stage-reports/v0.2.67_e08_full_boundary_gap_selection.md`。
 - `v0.2.68_*`：来自 `docs/stage-reports/v0.2.68_e08_cancellation_budget_behavior.md`。
 - `v0.2.69_*`：来自 `docs/stage-reports/v0.2.69_e08_continuation_decision.md`。
+- `v0.2.70_*`：来自 `docs/stage-reports/v0.2.70_complexity_router_guardrail_selection.md`。
 
 Active workspace rule:
 

@@ -1,0 +1,79 @@
+{
+  "version": "v0.2.70",
+  "generated_at": "2026-07-10T07:47:38.211249+00:00",
+  "winner": {
+    "candidate_id": "default_safety_gate",
+    "label": "Default-safety gate",
+    "score": 19,
+    "default_safety_value": 5,
+    "verification_feasibility": 5,
+    "product_value": 5,
+    "source_readiness": 5,
+    "dependency_risk": 1,
+    "source": "docs/experiment-status/ledgers/E07_complexity_router.md",
+    "disposition": "selected",
+    "next_version": "v0.2.71_complexity_router_default_safety_gate",
+    "first_design": "docs/current-design/design_complexity_router_default_safety_gate.md"
+  },
+  "candidates": [
+    {
+      "candidate_id": "default_safety_gate",
+      "label": "Default-safety gate",
+      "score": 19,
+      "default_safety_value": 5,
+      "verification_feasibility": 5,
+      "product_value": 5,
+      "source_readiness": 5,
+      "dependency_risk": 1,
+      "source": "docs/experiment-status/ledgers/E07_complexity_router.md",
+      "disposition": "selected",
+      "next_version": "v0.2.71_complexity_router_default_safety_gate",
+      "first_design": "docs/current-design/design_complexity_router_default_safety_gate.md"
+    },
+    {
+      "candidate_id": "requirement_classification_contract",
+      "label": "Requirement classification contract",
+      "score": 14,
+      "default_safety_value": 4,
+      "verification_feasibility": 4,
+      "product_value": 4,
+      "source_readiness": 4,
+      "dependency_risk": 2,
+      "source": "docs/experiment-status/ledgers/E07_complexity_router.md",
+      "disposition": "deferred as supporting input after default-safety gate contract",
+      "next_version": "v0.2.x_complexity_router_requirement_classification",
+      "first_design": "docs/current-design/design_complexity_router_requirement_classification.md"
+    },
+    {
+      "candidate_id": "rollout_metrics",
+      "label": "Rollout metrics",
+      "score": 12,
+      "default_safety_value": 3,
+      "verification_feasibility": 4,
+      "product_value": 4,
+      "source_readiness": 3,
+      "dependency_risk": 2,
+      "source": "docs/experiment-status/ledgers/E07_complexity_router.md",
+      "disposition": "deferred until the default-safety and classification contracts define measurable states",
+      "next_version": "v0.2.x_complexity_router_rollout_metrics",
+      "first_design": "docs/current-design/design_complexity_router_rollout_metrics.md"
+    },
+    {
+      "candidate_id": "override_controls",
+      "label": "Operator override controls",
+      "score": 11,
+      "default_safety_value": 4,
+      "verification_feasibility": 3,
+      "product_value": 5,
+      "source_readiness": 3,
+      "dependency_risk": 4,
+      "source": "docs/experiment-status/ledgers/E07_complexity_router.md",
+      "disposition": "deferred because editable/operator controls should follow the default-safety contract",
+      "next_version": "v0.2.x_complexity_router_override_controls",
+      "first_design": "docs/current-design/design_complexity_router_override_controls.md"
+    }
+  ],
+  "router_ready_for_default": false,
+  "formula": "default_safety_value + verification_feasibility + product_value + source_readiness - dependency_risk",
+  "conclusion": "Select the default-safety gate first. E07 remains not ready for default routing; classification, override controls, and rollout metrics are deferred supporting guardrails."
+}
