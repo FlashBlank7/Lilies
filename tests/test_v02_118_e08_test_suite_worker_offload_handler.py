@@ -80,7 +80,7 @@ def test_v02_118_catalog_marks_test_suite_implemented() -> None:
         catalog = platform_worker_handler_catalog(handlers)
     entries = {entry["kind"]: entry for entry in catalog["entries"]}
 
-    assert catalog["version"] == "v0.2.120"
+    assert catalog["version"] == "v0.2.122"
     assert catalog["catalog_complete"] is True
     assert catalog["registered_catalog_complete"] is True
     assert catalog["full_execution_coverage"] is False
@@ -93,6 +93,7 @@ def test_v02_118_catalog_marks_test_suite_implemented() -> None:
         "scheduler_trigger",
         "scheduler_manual_trigger",
         "draft_patch_preview",
+        "benchmark",
     }
     for kind in remaining_unavailable:
         assert entries[kind]["status"] == "unavailable"

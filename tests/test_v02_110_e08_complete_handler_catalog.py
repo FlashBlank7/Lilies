@@ -52,11 +52,26 @@ class FakeDraftPatcher:
         return Response()
 
 
+class FakeBenchmark:
+    def evaluate(self, *_: Any, **__: Any) -> Any:
+        raise AssertionError("benchmark handler is not exercised in this catalog fake")
+
+    def evaluate_suite(self, *_: Any, **__: Any) -> Any:
+        raise AssertionError("benchmark handler is not exercised in this catalog fake")
+
+
+class FakeHarness:
+    async def record_usage(self, *_: Any, **__: Any) -> None:
+        return None
+
+
 class FakeServices:
     scheduler = FakeScheduler()
     workflow_runtime = FakeWorkflowRuntime()
     workflow_store = FakeWorkflowStore()
     draft_patcher = FakeDraftPatcher()
+    benchmark = FakeBenchmark()
+    harness = FakeHarness()
 
 
 def headers() -> dict[str, str]:
@@ -87,12 +102,15 @@ def test_v02_110_catalog_covers_all_platform_task_kinds() -> None:
     assert entries["scheduler_manual_trigger"]["executable"] is True
     assert entries["draft_patch_preview"]["status"] == "implemented"
     assert entries["draft_patch_preview"]["executable"] is True
+    assert entries["benchmark"]["status"] == "implemented"
+    assert entries["benchmark"]["executable"] is True
     for kind in set(PLATFORM_WORKER_TASK_KINDS) - {
         "workflow_run",
         "test_suite",
         "scheduler_trigger",
         "scheduler_manual_trigger",
         "draft_patch_preview",
+        "benchmark",
     }:
         assert entries[kind]["status"] == "unavailable"
         assert entries[kind]["handler_registered"] is True
@@ -106,15 +124,15 @@ def test_v02_110_unavailable_catalog_handler_fails_deterministically(tmp_path: P
         await storage.initialize()
         harness = PlatformHarness(storage=storage, worker_lease_seconds=60)
         await harness.start_task(
-            "handler-catalog-benchmark-1",
-            kind="benchmark",
+            "handler-catalog-builder-build-1",
+            kind="builder_build",
             owner_id="owner-a",
-            resource_id="case-a",
+            resource_id="build-a",
             worker_id="producer",
             lease_seconds=60,
         )
         await harness.release_task_lease(
-            "handler-catalog-benchmark-1",
+            "handler-catalog-builder-build-1",
             worker_id="producer",
             next_status="queued",
         )
@@ -128,13 +146,13 @@ def test_v02_110_unavailable_catalog_handler_fails_deterministically(tmp_path: P
         results = await runner.run_once(limit=5)
 
         assert [(item.task_id, item.status) for item in results] == [
-            ("handler-catalog-benchmark-1", "failed")
+            ("handler-catalog-builder-build-1", "failed")
         ]
-        assert "worker handler unavailable: benchmark" in results[0].error
-        finished = await harness.get_task("handler-catalog-benchmark-1")
+        assert "worker handler unavailable: builder_build" in results[0].error
+        finished = await harness.get_task("handler-catalog-builder-build-1")
         assert finished.status == "failed"
         assert finished.worker_id == "worker-a"
-        assert "worker handler unavailable: benchmark" in finished.error
+        assert "worker handler unavailable: builder_build" in finished.error
         assert finished.metadata["worker_runner"]["status"] == "failed"
 
     run(scenario())
@@ -153,7 +171,7 @@ def test_v02_110_worker_handler_catalog_api_exposes_coverage(tmp_path: Path) -> 
 
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["version"] == "v0.2.120"
+    assert body["version"] == "v0.2.122"
     assert body["catalog_complete"] is True
     assert body["registered_catalog_complete"] is True
     assert body["full_execution_coverage"] is False

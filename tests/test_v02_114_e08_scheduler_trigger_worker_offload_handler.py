@@ -58,11 +58,26 @@ class FakeDraftPatcher:
         return Response()
 
 
+class FakeBenchmark:
+    def evaluate(self, *_: Any, **__: Any) -> Any:
+        raise AssertionError("benchmark handler is not exercised in this scheduler fake")
+
+    def evaluate_suite(self, *_: Any, **__: Any) -> Any:
+        raise AssertionError("benchmark handler is not exercised in this scheduler fake")
+
+
+class FakeHarness:
+    async def record_usage(self, *_: Any, **__: Any) -> None:
+        return None
+
+
 class FakeServices:
     scheduler = FakeScheduler()
     workflow_runtime = FakeWorkflowRuntime()
     workflow_store = FakeWorkflowStore()
     draft_patcher = FakeDraftPatcher()
+    benchmark = FakeBenchmark()
+    harness = FakeHarness()
 
 
 def _create_scheduled_application(client: TestClient, *, name: str = "Worker schedule") -> str:
@@ -145,7 +160,7 @@ def test_v02_114_catalog_marks_scheduler_trigger_implemented() -> None:
     catalog = platform_worker_handler_catalog(handlers)
     entries = {entry["kind"]: entry for entry in catalog["entries"]}
 
-    assert catalog["version"] == "v0.2.120"
+    assert catalog["version"] == "v0.2.122"
     assert catalog["catalog_complete"] is True
     assert catalog["registered_catalog_complete"] is True
     assert catalog["full_execution_coverage"] is False
@@ -161,6 +176,7 @@ def test_v02_114_catalog_marks_scheduler_trigger_implemented() -> None:
         "scheduler_trigger",
         "scheduler_manual_trigger",
         "draft_patch_preview",
+        "benchmark",
     }
     for kind in remaining_unavailable:
         assert entries[kind]["status"] == "unavailable"

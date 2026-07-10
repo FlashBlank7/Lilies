@@ -1,0 +1,839 @@
+{
+  "version": "v0.2.122",
+  "evidence_id": "e08_benchmark_worker_offload_handler",
+  "source_stage_report": "docs/stage-reports/v0.2.121_e08_remaining_sidecar_slice_reselection.md",
+  "status": "completed",
+  "checks": {
+    "benchmark_catalog_implemented": true,
+    "worker_completed_passing_case": true,
+    "worker_failed_failing_suite_with_report": true,
+    "suite_usage_recorded_on_worker_task": true,
+    "api_benchmark_path_preserved": true,
+    "benchmark_history_preserved": true,
+    "heartbeat_registry_preserved": true,
+    "remaining_catalog_gaps_still_unavailable": true,
+    "full_execution_coverage_not_claimed": true
+  },
+  "catalog_summary": {
+    "version": "v0.2.122",
+    "required_count": 7,
+    "cataloged_count": 7,
+    "implemented_count": 6,
+    "unavailable_count": 1,
+    "catalog_complete": true,
+    "registered_catalog_complete": true,
+    "full_execution_coverage": false,
+    "not_full_sidecar_completion": true
+  },
+  "benchmark_entry": {
+    "kind": "benchmark",
+    "label": "Benchmark",
+    "required": true,
+    "status": "implemented",
+    "handler_registered": true,
+    "executable": true,
+    "implementation": "benchmark_handler",
+    "evidence": "docs/stage-reports/v0.2.122_e08_benchmark_worker_offload_handler.md",
+    "reason": "",
+    "operator_action": "Monitor worker-runner results and lease renewals."
+  },
+  "remaining_unavailable": [
+    "builder_build"
+  ],
+  "case_worker_task": {
+    "id": "evidence-benchmark-case-task",
+    "kind": "benchmark",
+    "owner_id": "builder-benchmark",
+    "resource_id": "complete harness",
+    "status": "succeeded",
+    "parent_task_id": null,
+    "metadata": {
+      "case_payload": {
+        "name": "complete harness",
+        "reference": {
+          "nodes": [
+            {
+              "id": "start",
+              "type": "start",
+              "title": "Start",
+              "config": {
+                "inputs": []
+              }
+            },
+            {
+              "id": "permission",
+              "type": "permission_gate",
+              "title": "Permission",
+              "config": {
+                "input": {
+                  "$ref": {
+                    "node_id": "start",
+                    "path": [
+                      "output"
+                    ]
+                  }
+                },
+                "settings": {
+                  "auto_approve": true
+                }
+              }
+            },
+            {
+              "id": "end",
+              "type": "end",
+              "title": "End",
+              "config": {
+                "outputs": {
+                  "ok": {
+                    "$ref": {
+                      "node_id": "permission",
+                      "path": [
+                        "output"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          ],
+          "edges": [
+            {
+              "id": "a",
+              "source": "start",
+              "target": "permission",
+              "source_port": "output",
+              "target_port": "input"
+            },
+            {
+              "id": "b",
+              "source": "permission",
+              "target": "end",
+              "source_port": "output",
+              "target_port": "input"
+            }
+          ]
+        },
+        "candidate": {
+          "nodes": [
+            {
+              "id": "start",
+              "type": "start",
+              "title": "Start",
+              "config": {
+                "inputs": []
+              }
+            },
+            {
+              "id": "permission",
+              "type": "permission_gate",
+              "title": "Permission",
+              "config": {
+                "input": {
+                  "$ref": {
+                    "node_id": "start",
+                    "path": [
+                      "output"
+                    ]
+                  }
+                },
+                "settings": {
+                  "auto_approve": true
+                }
+              }
+            },
+            {
+              "id": "end",
+              "type": "end",
+              "title": "End",
+              "config": {
+                "outputs": {
+                  "ok": {
+                    "$ref": {
+                      "node_id": "permission",
+                      "path": [
+                        "output"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          ],
+          "edges": [
+            {
+              "id": "a",
+              "source": "start",
+              "target": "permission",
+              "source_port": "output",
+              "target_port": "input"
+            },
+            {
+              "id": "b",
+              "source": "permission",
+              "target": "end",
+              "source_port": "output",
+              "target_port": "input"
+            }
+          ]
+        },
+        "required_harness_nodes": [
+          "permission_gate"
+        ]
+      },
+      "worker_lease": {
+        "worker_id": "v02-122-worker",
+        "lease_seconds": 60.0,
+        "last_action": "claimed",
+        "updated_at": "2026-07-10T12:02:03.517360+00:00",
+        "lease_version": 3,
+        "released_at": "2026-07-10T12:02:03.514509+00:00",
+        "released_by": "producer",
+        "next_status": "queued"
+      },
+      "worker_runner": {
+        "worker_id": "v02-122-worker",
+        "status": "succeeded",
+        "result": {
+          "mode": "case",
+          "name": "complete harness",
+          "passed": true,
+          "score": 1.0,
+          "missing": {
+            "node_types": [],
+            "tool_nodes": [],
+            "harness_nodes": []
+          },
+          "report": {
+            "name": "complete harness",
+            "passed": true,
+            "score": 1.0,
+            "metrics": {
+              "node_type_coverage": 1.0,
+              "tool_node_coverage": 1.0,
+              "harness_coverage": 1.0,
+              "edge_similarity": 1.0,
+              "test_frame_coverage": 1.0,
+              "candidate_node_count": 3,
+              "reference_node_count": 3,
+              "node_type_equivalences": {
+                "end": [
+                  "answer"
+                ],
+                "model_turn": [
+                  "llm"
+                ]
+              }
+            },
+            "missing": {
+              "node_types": [],
+              "tool_nodes": [],
+              "harness_nodes": []
+            }
+          }
+        },
+        "renewal_count": 0
+      }
+    },
+    "usage_counts": {},
+    "usage": [],
+    "error": "",
+    "worker_id": "v02-122-worker",
+    "lease_expires_at": "2026-07-10T12:03:03.517360+00:00",
+    "lease_version": 3,
+    "created_at": "2026-07-10T12:02:03.510207+00:00",
+    "updated_at": "2026-07-10T12:02:03.519539+00:00",
+    "finished_at": "2026-07-10T12:02:03.519539+00:00"
+  },
+  "suite_worker_task": {
+    "id": "evidence-benchmark-suite-task",
+    "kind": "benchmark",
+    "owner_id": "builder-benchmark-suite",
+    "resource_id": "worker benchmark suite",
+    "status": "failed",
+    "parent_task_id": null,
+    "metadata": {
+      "suite_payload": {
+        "name": "worker benchmark suite",
+        "minimum_score": 0.8,
+        "minimum_pass_rate": 1.0,
+        "cases": [
+          {
+            "name": "complete harness",
+            "reference": {
+              "nodes": [
+                {
+                  "id": "start",
+                  "type": "start",
+                  "title": "Start",
+                  "config": {
+                    "inputs": []
+                  }
+                },
+                {
+                  "id": "permission",
+                  "type": "permission_gate",
+                  "title": "Permission",
+                  "config": {
+                    "input": {
+                      "$ref": {
+                        "node_id": "start",
+                        "path": [
+                          "output"
+                        ]
+                      }
+                    },
+                    "settings": {
+                      "auto_approve": true
+                    }
+                  }
+                },
+                {
+                  "id": "end",
+                  "type": "end",
+                  "title": "End",
+                  "config": {
+                    "outputs": {
+                      "ok": {
+                        "$ref": {
+                          "node_id": "permission",
+                          "path": [
+                            "output"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              ],
+              "edges": [
+                {
+                  "id": "a",
+                  "source": "start",
+                  "target": "permission",
+                  "source_port": "output",
+                  "target_port": "input"
+                },
+                {
+                  "id": "b",
+                  "source": "permission",
+                  "target": "end",
+                  "source_port": "output",
+                  "target_port": "input"
+                }
+              ]
+            },
+            "candidate": {
+              "nodes": [
+                {
+                  "id": "start",
+                  "type": "start",
+                  "title": "Start",
+                  "config": {
+                    "inputs": []
+                  }
+                },
+                {
+                  "id": "permission",
+                  "type": "permission_gate",
+                  "title": "Permission",
+                  "config": {
+                    "input": {
+                      "$ref": {
+                        "node_id": "start",
+                        "path": [
+                          "output"
+                        ]
+                      }
+                    },
+                    "settings": {
+                      "auto_approve": true
+                    }
+                  }
+                },
+                {
+                  "id": "end",
+                  "type": "end",
+                  "title": "End",
+                  "config": {
+                    "outputs": {
+                      "ok": {
+                        "$ref": {
+                          "node_id": "permission",
+                          "path": [
+                            "output"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              ],
+              "edges": [
+                {
+                  "id": "a",
+                  "source": "start",
+                  "target": "permission",
+                  "source_port": "output",
+                  "target_port": "input"
+                },
+                {
+                  "id": "b",
+                  "source": "permission",
+                  "target": "end",
+                  "source_port": "output",
+                  "target_port": "input"
+                }
+              ]
+            },
+            "required_harness_nodes": [
+              "permission_gate"
+            ]
+          },
+          {
+            "name": "missing harness",
+            "reference": {
+              "nodes": [
+                {
+                  "id": "start",
+                  "type": "start",
+                  "title": "Start",
+                  "config": {
+                    "inputs": []
+                  }
+                },
+                {
+                  "id": "permission",
+                  "type": "permission_gate",
+                  "title": "Permission",
+                  "config": {
+                    "input": {
+                      "$ref": {
+                        "node_id": "start",
+                        "path": [
+                          "output"
+                        ]
+                      }
+                    },
+                    "settings": {
+                      "auto_approve": true
+                    }
+                  }
+                },
+                {
+                  "id": "end",
+                  "type": "end",
+                  "title": "End",
+                  "config": {
+                    "outputs": {
+                      "ok": {
+                        "$ref": {
+                          "node_id": "permission",
+                          "path": [
+                            "output"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              ],
+              "edges": [
+                {
+                  "id": "a",
+                  "source": "start",
+                  "target": "permission",
+                  "source_port": "output",
+                  "target_port": "input"
+                },
+                {
+                  "id": "b",
+                  "source": "permission",
+                  "target": "end",
+                  "source_port": "output",
+                  "target_port": "input"
+                }
+              ]
+            },
+            "candidate": {
+              "nodes": [
+                {
+                  "id": "start",
+                  "type": "start",
+                  "title": "Start",
+                  "config": {
+                    "inputs": []
+                  }
+                },
+                {
+                  "id": "end",
+                  "type": "end",
+                  "title": "End",
+                  "config": {
+                    "outputs": {
+                      "ok": true
+                    }
+                  }
+                }
+              ],
+              "edges": [
+                {
+                  "id": "a",
+                  "source": "start",
+                  "target": "end",
+                  "source_port": "output",
+                  "target_port": "input"
+                }
+              ]
+            },
+            "required_harness_nodes": [
+              "permission_gate"
+            ]
+          }
+        ]
+      },
+      "worker_lease": {
+        "worker_id": "v02-122-worker",
+        "lease_seconds": 60.0,
+        "last_action": "claimed",
+        "updated_at": "2026-07-10T12:02:03.530591+00:00",
+        "lease_version": 3,
+        "released_at": "2026-07-10T12:02:03.523799+00:00",
+        "released_by": "producer",
+        "next_status": "queued"
+      },
+      "worker_runner": {
+        "worker_id": "v02-122-worker",
+        "status": "failed",
+        "result": {
+          "mode": "suite",
+          "name": "worker benchmark suite",
+          "passed": false,
+          "score": 0.766,
+          "pass_rate": 0.5,
+          "case_count": 2,
+          "failed_cases": [
+            "missing harness"
+          ],
+          "report": {
+            "name": "worker benchmark suite",
+            "passed": false,
+            "score": 0.766,
+            "pass_rate": 0.5,
+            "case_count": 2,
+            "failed_cases": [
+              "missing harness"
+            ],
+            "reports": [
+              {
+                "name": "complete harness",
+                "passed": true,
+                "score": 1.0,
+                "metrics": {
+                  "node_type_coverage": 1.0,
+                  "tool_node_coverage": 1.0,
+                  "harness_coverage": 1.0,
+                  "edge_similarity": 1.0,
+                  "test_frame_coverage": 1.0,
+                  "candidate_node_count": 3,
+                  "reference_node_count": 3,
+                  "node_type_equivalences": {
+                    "end": [
+                      "answer"
+                    ],
+                    "model_turn": [
+                      "llm"
+                    ]
+                  }
+                },
+                "missing": {
+                  "node_types": [],
+                  "tool_nodes": [],
+                  "harness_nodes": []
+                }
+              },
+              {
+                "name": "missing harness",
+                "passed": false,
+                "score": 0.533,
+                "metrics": {
+                  "node_type_coverage": 0.667,
+                  "tool_node_coverage": 1.0,
+                  "harness_coverage": 0.0,
+                  "edge_similarity": 0.0,
+                  "test_frame_coverage": 1.0,
+                  "candidate_node_count": 2,
+                  "reference_node_count": 3,
+                  "node_type_equivalences": {
+                    "end": [
+                      "answer"
+                    ],
+                    "model_turn": [
+                      "llm"
+                    ]
+                  }
+                },
+                "missing": {
+                  "node_types": [
+                    "permission_gate"
+                  ],
+                  "tool_nodes": [],
+                  "harness_nodes": [
+                    "permission_gate"
+                  ]
+                }
+              }
+            ],
+            "metrics": {
+              "average": {
+                "candidate_node_count": 2.5,
+                "edge_similarity": 0.5,
+                "harness_coverage": 0.5,
+                "node_type_coverage": 0.834,
+                "reference_node_count": 3.0,
+                "test_frame_coverage": 1.0,
+                "tool_node_coverage": 1.0
+              },
+              "minimum_score": 0.8,
+              "minimum_pass_rate": 1.0
+            },
+            "trends": [
+              {
+                "name": "complete harness",
+                "score": 1.0,
+                "baseline_score": null,
+                "delta": null,
+                "direction": "new"
+              },
+              {
+                "name": "missing harness",
+                "score": 0.533,
+                "baseline_score": null,
+                "delta": null,
+                "direction": "new"
+              }
+            ],
+            "cost": {
+              "model_calls": 0,
+              "tool_calls": 0,
+              "estimated_cost_usd": null,
+              "provider": "",
+              "model": "",
+              "notes": ""
+            }
+          }
+        },
+        "renewal_count": 0
+      }
+    },
+    "usage_counts": {
+      "node_execution": 2
+    },
+    "usage": [
+      {
+        "usage_type": "node_execution",
+        "amount": 2,
+        "metadata": {
+          "operation": "builder_benchmark_suite",
+          "case_count": 2
+        },
+        "created_at": "2026-07-10T12:02:03.532361+00:00"
+      }
+    ],
+    "error": "worker benchmark suite failed: worker benchmark suite",
+    "worker_id": "v02-122-worker",
+    "lease_expires_at": "2026-07-10T12:03:03.530591+00:00",
+    "lease_version": 3,
+    "created_at": "2026-07-10T12:02:03.522318+00:00",
+    "updated_at": "2026-07-10T12:02:03.535513+00:00",
+    "finished_at": "2026-07-10T12:02:03.535513+00:00"
+  },
+  "case_worker_result": {
+    "mode": "case",
+    "name": "complete harness",
+    "passed": true,
+    "score": 1.0,
+    "missing": {
+      "node_types": [],
+      "tool_nodes": [],
+      "harness_nodes": []
+    },
+    "report": {
+      "name": "complete harness",
+      "passed": true,
+      "score": 1.0,
+      "metrics": {
+        "node_type_coverage": 1.0,
+        "tool_node_coverage": 1.0,
+        "harness_coverage": 1.0,
+        "edge_similarity": 1.0,
+        "test_frame_coverage": 1.0,
+        "candidate_node_count": 3,
+        "reference_node_count": 3,
+        "node_type_equivalences": {
+          "end": [
+            "answer"
+          ],
+          "model_turn": [
+            "llm"
+          ]
+        }
+      },
+      "missing": {
+        "node_types": [],
+        "tool_nodes": [],
+        "harness_nodes": []
+      }
+    }
+  },
+  "suite_worker_result": {
+    "mode": "suite",
+    "name": "worker benchmark suite",
+    "passed": false,
+    "score": 0.766,
+    "pass_rate": 0.5,
+    "case_count": 2,
+    "failed_cases": [
+      "missing harness"
+    ],
+    "report": {
+      "name": "worker benchmark suite",
+      "passed": false,
+      "score": 0.766,
+      "pass_rate": 0.5,
+      "case_count": 2,
+      "failed_cases": [
+        "missing harness"
+      ],
+      "reports": [
+        {
+          "name": "complete harness",
+          "passed": true,
+          "score": 1.0,
+          "metrics": {
+            "node_type_coverage": 1.0,
+            "tool_node_coverage": 1.0,
+            "harness_coverage": 1.0,
+            "edge_similarity": 1.0,
+            "test_frame_coverage": 1.0,
+            "candidate_node_count": 3,
+            "reference_node_count": 3,
+            "node_type_equivalences": {
+              "end": [
+                "answer"
+              ],
+              "model_turn": [
+                "llm"
+              ]
+            }
+          },
+          "missing": {
+            "node_types": [],
+            "tool_nodes": [],
+            "harness_nodes": []
+          }
+        },
+        {
+          "name": "missing harness",
+          "passed": false,
+          "score": 0.533,
+          "metrics": {
+            "node_type_coverage": 0.667,
+            "tool_node_coverage": 1.0,
+            "harness_coverage": 0.0,
+            "edge_similarity": 0.0,
+            "test_frame_coverage": 1.0,
+            "candidate_node_count": 2,
+            "reference_node_count": 3,
+            "node_type_equivalences": {
+              "end": [
+                "answer"
+              ],
+              "model_turn": [
+                "llm"
+              ]
+            }
+          },
+          "missing": {
+            "node_types": [
+              "permission_gate"
+            ],
+            "tool_nodes": [],
+            "harness_nodes": [
+              "permission_gate"
+            ]
+          }
+        }
+      ],
+      "metrics": {
+        "average": {
+          "candidate_node_count": 2.5,
+          "edge_similarity": 0.5,
+          "harness_coverage": 0.5,
+          "node_type_coverage": 0.834,
+          "reference_node_count": 3.0,
+          "test_frame_coverage": 1.0,
+          "tool_node_coverage": 1.0
+        },
+        "minimum_score": 0.8,
+        "minimum_pass_rate": 1.0
+      },
+      "trends": [
+        {
+          "name": "complete harness",
+          "score": 1.0,
+          "baseline_score": null,
+          "delta": null,
+          "direction": "new"
+        },
+        {
+          "name": "missing harness",
+          "score": 0.533,
+          "baseline_score": null,
+          "delta": null,
+          "direction": "new"
+        }
+      ],
+      "cost": {
+        "model_calls": 0,
+        "tool_calls": 0,
+        "estimated_cost_usd": null,
+        "provider": "",
+        "model": "",
+        "notes": ""
+      }
+    }
+  },
+  "api_task_id": "5091488a-0de1-451d-9cac-5711304341cb",
+  "history_count": 2,
+  "heartbeats": {
+    "v02-122-worker": {
+      "worker_id": "v02-122-worker",
+      "status": "idle",
+      "active_task_id": "",
+      "last_seen_at": "2026-07-10T12:02:03.536988+00:00",
+      "stale_after_seconds": 120.0,
+      "liveness": "active",
+      "metadata": {
+        "phase": "task_finished",
+        "last_task_id": "evidence-benchmark-suite-task",
+        "last_task_status": "failed"
+      },
+      "updated_at": "2026-07-10T12:02:03.537009+00:00"
+    }
+  },
+  "implementation_paths": [
+    "platform/backend/src/agent_platform/worker_runner.py",
+    "tests/test_v02_122_e08_benchmark_worker_offload_handler.py",
+    "scripts/v02_122_e08_benchmark_worker_offload_handler.py"
+  ],
+  "invariants": {
+    "api_benchmark_path_preserved": true,
+    "builder_build_implemented": false,
+    "process_supervision_implemented": false,
+    "distributed_queue_implemented": false,
+    "e08_full_sidecar_completion_claimed": false,
+    "workingon_is_not_task_source": true,
+    "stage_report_is_next_task_source": true
+  },
+  "next_boundary": "This closes the benchmark worker offload handler only. Full Platform Harness sidecar completion still needs builder_build, production worker supervision, distributed queue semantics, and external KMS provider integration."
+}

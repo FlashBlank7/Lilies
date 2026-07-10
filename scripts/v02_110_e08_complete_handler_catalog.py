@@ -46,11 +46,26 @@ class FakeDraftPatcher:
         return Response()
 
 
+class FakeBenchmark:
+    def evaluate(self, *_: Any, **__: Any) -> Any:
+        raise AssertionError("benchmark handler is not exercised in this catalog fake")
+
+    def evaluate_suite(self, *_: Any, **__: Any) -> Any:
+        raise AssertionError("benchmark handler is not exercised in this catalog fake")
+
+
+class FakeHarness:
+    async def record_usage(self, *_: Any, **__: Any) -> None:
+        return None
+
+
 class FakeServices:
     scheduler = FakeScheduler()
     workflow_runtime = FakeWorkflowRuntime()
     workflow_store = FakeWorkflowStore()
     draft_patcher = FakeDraftPatcher()
+    benchmark = FakeBenchmark()
+    harness = FakeHarness()
 
 
 def verify_contract() -> dict[str, Any]:
@@ -77,15 +92,15 @@ def verify_contract() -> dict[str, Any]:
         catalog = platform_worker_handler_catalog(handlers)
         harness = PlatformHarness(storage=storage, worker_lease_seconds=60)
         await harness.start_task(
-            "handler-catalog-benchmark-1",
-            kind="benchmark",
+            "handler-catalog-builder-build-1",
+            kind="builder_build",
             owner_id="owner-a",
-            resource_id="case-a",
+            resource_id="build-a",
             worker_id="producer",
             lease_seconds=60,
         )
         await harness.release_task_lease(
-            "handler-catalog-benchmark-1",
+            "handler-catalog-builder-build-1",
             worker_id="producer",
             next_status="queued",
         )
@@ -121,6 +136,8 @@ def verify_contract() -> dict[str, Any]:
             and entries["test_suite"]["executable"] is True,
             "draft_patch_preview_implemented_by_v02_120": entries["draft_patch_preview"]["status"] == "implemented"
             and entries["draft_patch_preview"]["executable"] is True,
+            "benchmark_implemented_by_v02_122": entries["benchmark"]["status"] == "implemented"
+            and entries["benchmark"]["executable"] is True,
             "unimplemented_kinds_are_deterministic_unavailable": all(
                 entries[kind]["status"] == "unavailable"
                 and entries[kind]["handler_registered"] is True
@@ -131,13 +148,14 @@ def verify_contract() -> dict[str, Any]:
                     "scheduler_trigger",
                     "scheduler_manual_trigger",
                     "draft_patch_preview",
+                    "benchmark",
                 }
             ),
             "unavailable_handler_fails_task_deterministically": len(results) == 1
             and results[0].status == "failed"
-            and "worker handler unavailable: benchmark" in results[0].error
+            and "worker handler unavailable: builder_build" in results[0].error
             and finished.status == "failed"
-            and "worker handler unavailable: benchmark" in finished.error,
+            and "worker handler unavailable: builder_build" in finished.error,
             "coverage_exposed_without_full_execution_claim": catalog["full_execution_coverage"] is False
             and catalog["not_full_sidecar_completion"] is True,
         }

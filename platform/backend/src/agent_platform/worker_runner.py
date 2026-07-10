@@ -47,6 +47,11 @@ IMPLEMENTED_WORKER_HANDLERS: dict[str, dict[str, str]] = {
         "implementation": "draft_patch_preview_handler",
         "evidence": "docs/stage-reports/v0.2.120_e08_draft_patch_preview_worker_offload_handler.md",
     },
+    "benchmark": {
+        "label": "Benchmark",
+        "implementation": "benchmark_handler",
+        "evidence": "docs/stage-reports/v0.2.122_e08_benchmark_worker_offload_handler.md",
+    },
 }
 
 UNAVAILABLE_WORKER_HANDLERS: dict[str, dict[str, str]] = {
@@ -54,11 +59,6 @@ UNAVAILABLE_WORKER_HANDLERS: dict[str, dict[str, str]] = {
         "label": "Builder build",
         "reason": "builder builds are currently managed by the builder service path",
         "operator_action": "Keep builder builds on the builder service path until a worker-owned build handler is implemented.",
-    },
-    "benchmark": {
-        "label": "Benchmark",
-        "reason": "benchmark tasks are currently recorded by benchmark APIs and scripts, not executed by the worker catalog",
-        "operator_action": "Keep benchmark execution on the benchmark path until a worker-owned benchmark handler is implemented.",
     },
 }
 
@@ -68,6 +68,12 @@ PlatformTaskHandler = Callable[[PlatformTaskRecord], Awaitable[dict[str, Any] | 
 
 class PlatformWorkerHandlerUnavailable(RuntimeError):
     pass
+
+
+class PlatformWorkerHandlerFailed(RuntimeError):
+    def __init__(self, message: str, result: dict[str, Any]) -> None:
+        super().__init__(message)
+        self.result = result
 
 
 @dataclass(slots=True)
@@ -177,7 +183,10 @@ class PlatformHarnessWorkerRunner:
                     active_task_id=claimed.id,
                     metadata={"phase": "handler_failed", "kind": claimed.kind, "error": str(error)},
                 )
-                metadata = self._worker_metadata(status="failed", result={}, renewal_state=renewal_state)
+                error_result = getattr(error, "result", {})
+                if not isinstance(error_result, dict):
+                    error_result = {}
+                metadata = self._worker_metadata(status="failed", result=error_result, renewal_state=renewal_state)
                 finished = await self.harness.finish_task(
                     claimed.id,
                     status="failed",
@@ -402,6 +411,68 @@ def draft_patch_preview_handler(workflow_store: Any, draft_patcher: Any) -> Plat
     return handler
 
 
+def benchmark_handler(benchmark: Any, harness: PlatformHarness) -> PlatformTaskHandler:
+    async def handler(task: PlatformTaskRecord) -> dict[str, Any]:
+        from .builder_benchmark import (  # pylint: disable=import-outside-toplevel
+            BuilderBenchmarkCase,
+            BuilderBenchmarkSuiteCase,
+        )
+
+        case_payload = task.metadata.get("case_payload")
+        suite_payload = task.metadata.get("suite_payload")
+        if case_payload is None and isinstance(task.metadata.get("case"), dict):
+            case_payload = task.metadata.get("case")
+        if suite_payload is None and isinstance(task.metadata.get("suite"), dict):
+            suite_payload = task.metadata.get("suite")
+        if case_payload is not None and suite_payload is not None:
+            raise ValueError("benchmark task metadata requires exactly one of case_payload or suite_payload")
+        if suite_payload is not None:
+            suite = BuilderBenchmarkSuiteCase.model_validate(suite_payload)
+            await harness.record_usage(
+                task.id,
+                "node_execution",
+                amount=max(1, len(suite.cases)),
+                metadata={"operation": "builder_benchmark_suite", "case_count": len(suite.cases)},
+            )
+            report = benchmark.evaluate_suite(suite)
+            result = {
+                "mode": "suite",
+                "name": suite.name,
+                "passed": report.passed,
+                "score": report.score,
+                "pass_rate": report.pass_rate,
+                "case_count": report.case_count,
+                "failed_cases": report.failed_cases,
+                "report": report.model_dump(mode="json"),
+            }
+            if not report.passed:
+                raise PlatformWorkerHandlerFailed(
+                    f"worker benchmark suite failed: {suite.name}",
+                    result,
+                )
+            return result
+        if case_payload is not None:
+            case = BuilderBenchmarkCase.model_validate(case_payload)
+            report = benchmark.evaluate(case)
+            result = {
+                "mode": "case",
+                "name": case.name,
+                "passed": report.passed,
+                "score": report.score,
+                "missing": report.missing,
+                "report": report.model_dump(mode="json"),
+            }
+            if not report.passed:
+                raise PlatformWorkerHandlerFailed(
+                    f"worker benchmark case failed: {case.name}",
+                    result,
+                )
+            return result
+        raise ValueError("benchmark task metadata requires case_payload or suite_payload")
+
+    return handler
+
+
 def scheduler_trigger_handler(scheduler: Any) -> PlatformTaskHandler:
     async def handler(task: PlatformTaskRecord) -> dict[str, Any]:
         version = _required_int_metadata(task, "version")
@@ -476,6 +547,7 @@ def build_platform_worker_handlers(services: Any) -> dict[str, PlatformTaskHandl
         "scheduler_trigger": scheduler_trigger_handler(services.scheduler),
         "scheduler_manual_trigger": scheduler_manual_trigger_handler(services.scheduler),
         "draft_patch_preview": draft_patch_preview_handler(services.workflow_store, services.draft_patcher),
+        "benchmark": benchmark_handler(services.benchmark, services.harness),
     }
     for kind in UNAVAILABLE_WORKER_HANDLERS:
         handlers[kind] = unavailable_worker_handler(kind)
@@ -529,7 +601,7 @@ def platform_worker_handler_catalog(
     implemented = [entry.kind for entry in entries if entry.status == "implemented"]
     unavailable = [entry.kind for entry in entries if entry.status == "unavailable"]
     return {
-        "version": "v0.2.120",
+        "version": "v0.2.122",
         "source": "docs/stage-reports/v0.2.113_e08_remaining_sidecar_slice_reselection.md",
         "required_count": len(required),
         "cataloged_count": len(cataloged),
