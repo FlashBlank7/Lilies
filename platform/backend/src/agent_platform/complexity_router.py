@@ -298,7 +298,9 @@ def limited_default_enablement_plan_status(
     min_confidence: float = 0.55,
 ) -> dict[str, Any]:
     normalized_mode = normalize_default_mode(default_mode)
-    safety = complexity_router_default_safety_gate()
+    safety = complexity_router_default_safety_gate(
+        default_enabled=normalized_mode == "limited_default" and limited_default_enabled,
+    )
     active = (
         normalized_mode == "limited_default"
         and limited_default_enabled
@@ -537,6 +539,8 @@ def rollout_metrics_prerequisites_status(sample_count: int = 0) -> dict[str, Any
 
 def complexity_router_default_safety_gate(
     inputs: DefaultSafetyInputs | None = None,
+    *,
+    default_enabled: bool = True,
 ) -> dict[str, Any]:
     resolved = inputs or current_default_safety_inputs()
     prerequisites = [
@@ -584,7 +588,7 @@ def complexity_router_default_safety_gate(
         "router_id": "e07_complexity_router",
         "gate_id": "default_safety_gate",
         "policy_version": "v0.2.74_complexity_router_rollout_metrics_prerequisites",
-        "default_enabled": False,
+        "default_enabled": bool(default_enabled and allowed),
         "allowed_to_enable_default": allowed,
         "router_ready_for_default": allowed,
         "reason": (

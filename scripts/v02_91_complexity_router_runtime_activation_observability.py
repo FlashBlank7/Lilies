@@ -107,6 +107,8 @@ def build_evidence() -> dict[str, Any]:
             api_token="test-token",
             data_dir=temp_root / "default-data",
             workspace_root=temp_root / "default-work",
+            complexity_router_default_mode="disabled",
+            complexity_router_limited_default_enabled=False,
         )
         default_app = create_app(default_settings, QuietProvider())
         with TestClient(default_app) as client:

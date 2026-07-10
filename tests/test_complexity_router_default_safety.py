@@ -23,11 +23,11 @@ def headers() -> dict[str, str]:
     return {"Authorization": "Bearer test-token"}
 
 
-def test_current_complexity_router_default_safety_gate_keeps_default_disabled() -> None:
+def test_current_complexity_router_default_safety_gate_reports_guarded_default_enabled() -> None:
     inputs = current_default_safety_inputs()
     status = complexity_router_default_safety_gate(inputs)
 
-    assert status["default_enabled"] is False
+    assert status["default_enabled"] is True
     assert status["allowed_to_enable_default"] is True
     assert status["router_ready_for_default"] is True
     assert "source_evidence" not in status["missing_prerequisites"]
@@ -56,7 +56,7 @@ def test_complexity_router_default_safety_gate_requires_all_prerequisites() -> N
     allowed = complexity_router_default_safety_gate(complete)
     assert allowed["allowed_to_enable_default"] is True
     assert allowed["router_ready_for_default"] is True
-    assert allowed["default_enabled"] is False
+    assert allowed["default_enabled"] is True
 
 
 def test_complexity_router_default_safety_api_reports_current_gate(tmp_path: Path) -> None:
@@ -70,7 +70,7 @@ def test_complexity_router_default_safety_api_reports_current_gate(tmp_path: Pat
     body = response.json()
     assert body["gate_id"] == "default_safety_gate"
     assert body["allowed_to_enable_default"] is True
-    assert body["default_enabled"] is False
+    assert body["default_enabled"] is True
     assert body["router_ready_for_default"] is True
     assert "requirement_classification_contract" not in body["missing_prerequisites"]
     assert "operator_override_plan" not in body["missing_prerequisites"]
@@ -126,7 +126,8 @@ def test_requirement_classification_api_surfaces_contract_and_classification(tmp
     assert classify_response.status_code == 200
     classification = classify_response.json()
     assert classification["requirement_class"] == "complex"
-    assert classification["default_router_enabled"] is False
+    assert classification["default_router_enabled"] is True
+    assert classification["default_builder_policy"]["model_tier"] == "strong"
 
 
 def test_operator_override_plan_status_and_validation() -> None:

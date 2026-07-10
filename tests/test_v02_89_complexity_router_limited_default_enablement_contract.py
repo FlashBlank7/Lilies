@@ -56,7 +56,13 @@ def test_v02_89_explicit_limited_default_surfaces_default_builder_policy() -> No
 
 
 def test_v02_89_api_surfaces_disabled_and_explicit_limited_default_modes(tmp_path: Path) -> None:
-    default_settings = Settings(api_token="test-token", data_dir=tmp_path / "data1", workspace_root=tmp_path / "work1")
+    default_settings = Settings(
+        api_token="test-token",
+        data_dir=tmp_path / "data1",
+        workspace_root=tmp_path / "work1",
+        complexity_router_default_mode="disabled",
+        complexity_router_limited_default_enabled=False,
+    )
     default_app = create_app(default_settings, ScriptedProvider())
 
     with TestClient(default_app) as client:

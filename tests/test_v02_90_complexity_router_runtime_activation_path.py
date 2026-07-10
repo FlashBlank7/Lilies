@@ -81,7 +81,13 @@ def create_test_application(client: TestClient, requirement: str) -> str:
 
 
 def test_v02_90_default_settings_do_not_activate_runtime_builder_policy(tmp_path: Path) -> None:
-    settings = Settings(api_token="test-token", data_dir=tmp_path / "data", workspace_root=tmp_path / "work")
+    settings = Settings(
+        api_token="test-token",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "work",
+        complexity_router_default_mode="disabled",
+        complexity_router_limited_default_enabled=False,
+    )
     app = create_app(settings, ScriptedProvider())
 
     with TestClient(app) as client:

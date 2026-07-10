@@ -337,7 +337,12 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
 
     @app.get("/api/v1/platform/complexity-router/default-safety", dependencies=[Depends(require_token)])
     async def get_complexity_router_default_safety() -> dict[str, Any]:
-        return complexity_router_default_safety_gate()
+        return complexity_router_default_safety_gate(
+            default_enabled=(
+                services.settings.complexity_router_default_mode == "limited_default"
+                and services.settings.complexity_router_limited_default_enabled
+            )
+        )
 
     @app.get("/api/v1/platform/complexity-router/requirement-classification", dependencies=[Depends(require_token)])
     async def get_complexity_router_requirement_classification_contract() -> dict[str, Any]:

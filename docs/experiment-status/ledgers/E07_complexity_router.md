@@ -1,6 +1,6 @@
 # E07 Complexity Router Ledger
 
-状态：limited_default_readiness_passed；next guarded default rollout；default settings still disabled
+状态：guarded_default_rollout_implemented；default settings guarded-active；rollback disabled
 
 ## 实验问题
 
@@ -95,6 +95,13 @@ v0.2.92 limited-default product readiness review 已完成：7/7 gates 通过，
 - `../../workingon-archives/v0.2.92/decision_v0.2.92_complexity_router_limited_default_readiness_review_summary.md`
 - `../../workingon-archives/v0.2.92/implementation_v0.2.92_complexity_router_limited_default_readiness_review.md`
 
+v0.2.93 guarded default rollout 已完成：普通 settings 现在为 `complexity_router_default_mode=limited_default` 且 `complexity_router_limited_default_enabled=true`。默认 safety/status surface 报告 `default_enabled=true`；eligible simple build 默认激活 runtime builder policy，`reuse_depth=shallow`；unknown 仍 `active=false` 且 complex-equivalent；request override 继续记录 `planning_mode_source=request_override`；显式 `disabled` settings 仍可 rollback 到 `active=false`。
+
+证据：
+
+- `../../workingon-archives/v0.2.93/rollout_v0.2.93_complexity_router_guarded_default_summary.md`
+- `../../workingon-archives/v0.2.93/implementation_v0.2.93_complexity_router_guarded_default_rollout.md`
+
 ## 初始设计方向
 
 - 定义 simple/medium/complex 三档需求。
@@ -103,4 +110,4 @@ v0.2.92 limited-default product readiness review 已完成：7/7 gates 通过，
 
 ## 下一步
 
-下一步是实现 guarded default rollout。默认 settings 是否变更只能由 v0.2.93 的 source-linked design 和验证决定；rollback value 必须保持 `disabled`，unknown 必须继续 bypass。
+E07 complexity-router 已完成 guarded default productization。后续只需要持续监测/回滚，不再是当前 P1 blocker。

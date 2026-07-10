@@ -104,6 +104,7 @@
 - `v0.2.90_*`：来自 `docs/stage-reports/v0.2.90_complexity_router_runtime_activation_path.md`。
 - `v0.2.91_*`：来自 `docs/stage-reports/v0.2.91_complexity_router_runtime_activation_observability.md`。
 - `v0.2.92_*`：来自 `docs/stage-reports/v0.2.92_complexity_router_limited_default_readiness_review.md`。
+- `v0.2.93_*`：来自 `docs/stage-reports/v0.2.93_complexity_router_guarded_default_rollout.md`。
 
 Active workspace rule:
 
