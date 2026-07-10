@@ -1,6 +1,6 @@
 # E07 Complexity Router Ledger
 
-状态：frontend_verification_repair_selected；not enabled as default
+状态：frontend_verification_restored；not enabled as default
 
 ## 实验问题
 
@@ -49,6 +49,12 @@ v0.2.85 post-operator-opt-in decision 已完成：选择 `repair_frontend_verifi
 
 - `../../workingon-archives/v0.2.85/decision_v0.2.85_complexity_router_post_operator_opt_in_summary.md`
 
+v0.2.86 frontend verification environment repair 已完成：repo-local runner 发现 `/Users/zhonghaoyang/.nvm/versions/node/v24.15.0/bin`，并成功执行 `npm run lint` 与 `node_modules/.bin/tsc --noEmit`，两个命令 return code 均为 `0`。
+
+证据：
+
+- `../../workingon-archives/v0.2.86/verification_v0.2.86_frontend_environment_repair_summary.md`
+
 ## 初始设计方向
 
 - 定义 simple/medium/complex 三档需求。
@@ -57,4 +63,4 @@ v0.2.85 post-operator-opt-in decision 已完成：选择 `repair_frontend_verifi
 
 ## 下一步
 
-下一步是修复 frontend verification environment，使 `npm run lint` / `tsc --noEmit` 可执行。默认行为仍不得自动启用。
+下一步是显式决定 default enablement review。默认行为仍不得自动启用，必须由后续 stage report 明确选择。

@@ -1,0 +1,56 @@
+{
+  "version": "v0.2.86",
+  "repair_id": "frontend_verification_environment_repair",
+  "source_stage_report": "docs/stage-reports/v0.2.85_complexity_router_post_operator_opt_in_decision.md",
+  "verification": {
+    "status": "completed",
+    "reason": "frontend verification passed",
+    "probe": {
+      "frontend_dir": "platform/frontend",
+      "package_json_present": true,
+      "package_lock_present": true,
+      "node_modules_present": true,
+      "selected_node_bin": "/Users/zhonghaoyang/.nvm/versions/node/v24.15.0/bin",
+      "node_available": true,
+      "npm_available": true,
+      "candidates": [
+        {
+          "node_bin": "/Users/zhonghaoyang/.nvm/versions/node/v24.15.0/bin",
+          "node_exists": true,
+          "npm_exists": true,
+          "usable": true
+        },
+        {
+          "node_bin": "/Users/zhonghaoyang/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin",
+          "node_exists": true,
+          "npm_exists": false,
+          "usable": false
+        }
+      ]
+    },
+    "checks": [
+      {
+        "command": "npm run lint",
+        "returncode": 0,
+        "stdout": "\n> agent-platform-studio@0.1.0 lint\n> tsc --noEmit\n\n",
+        "stderr": "",
+        "passed": true
+      },
+      {
+        "command": "node_modules/.bin/tsc --noEmit",
+        "returncode": 0,
+        "stdout": "",
+        "stderr": "",
+        "passed": true
+      }
+    ],
+    "passed": true
+  },
+  "status": "completed",
+  "pass_fail": {
+    "passed": true,
+    "reason": "frontend verification passed"
+  },
+  "default_enabled": false,
+  "allowed_to_enable_default": true
+}

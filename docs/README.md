@@ -109,6 +109,7 @@
 - `stage-reports/v0.2.83_complexity_router_post_shadow_rollout_decision.md`
 - `stage-reports/v0.2.84_complexity_router_operator_opt_in_rollout.md`
 - `stage-reports/v0.2.85_complexity_router_post_operator_opt_in_decision.md`
+- `stage-reports/v0.2.86_frontend_verification_environment_repair.md`
 
 ## 使用原则
 
