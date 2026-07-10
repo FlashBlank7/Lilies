@@ -141,3 +141,7 @@ v0.2.121 remaining sidecar slice reselection 已排除 completed draft_patch_pre
 v0.2.122 已实现 `benchmark` worker offload handler：worker catalog 将 `benchmark` 从 deterministic unavailable 迁移为 implemented，`PlatformHarnessWorkerRunner` 可消费 queued benchmark case/suite tasks，并复用现有 deterministic `BuilderBenchmark.evaluate()` / `evaluate_suite()` 产生 report；suite worker task 继续记录 node_execution usage，既有 API benchmark path 和 history retrieval 保持可用。该版本只关闭 benchmark worker handler slice，不声明 builder_build handler、production worker supervision、distributed queue、external KMS 或 full sidecar completion。
 
 证据：`../../workingon-archives/v0.2.122/evidence_v0.2.122_e08_benchmark_worker_offload_handler_summary.md`
+
+v0.2.123 remaining sidecar slice reselection 已排除 completed benchmark、draft_patch_preview、test_suite、workflow_run、scheduler_trigger worker offload handlers 以及 heartbeat registry、handler catalog、stdio/container egress、secret rotation、policy-controls API、Studio controls 和 operator runbook lifecycle，并选择 `builder_build_worker_offload_handler` 作为下一条 E08 实现切片。该版本只选择下一 slice，不实现 builder_build worker handler，也不声明 full sidecar completion。
+
+证据：`../../workingon-archives/v0.2.123/decision_v0.2.123_e08_remaining_sidecar_slice_reselection_summary.md`
