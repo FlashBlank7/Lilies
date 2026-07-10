@@ -138,6 +138,7 @@
 - `v0.2.124_*`：来自 `docs/stage-reports/v0.2.124_e08_builder_build_worker_offload_handler.md`。
 - `v0.2.125_*`：来自 `docs/stage-reports/v0.2.125_e08_remaining_sidecar_architecture_reselection.md`。
 - `v0.2.126_*`：来自 `docs/stage-reports/v0.2.126_e08_production_worker_supervision.md`。
+- `v0.2.127_*`：来自 `docs/stage-reports/v0.2.127_e08_remaining_sidecar_architecture_reselection.md`。
 
 Active workspace rule:
 

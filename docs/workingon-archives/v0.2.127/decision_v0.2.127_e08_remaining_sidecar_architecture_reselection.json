@@ -1,0 +1,130 @@
+{
+  "version": "v0.2.127",
+  "decision_id": "e08_remaining_sidecar_architecture_reselection_after_production_worker_supervision",
+  "source_stage_report": "docs/stage-reports/v0.2.126_e08_production_worker_supervision.md",
+  "status": "completed",
+  "completed_slices": [
+    {
+      "slice_id": "production_worker_supervision",
+      "evidence": "docs/workingon-archives/v0.2.126/evidence_v0.2.126_e08_production_worker_supervision_summary.md"
+    },
+    {
+      "slice_id": "builder_build_worker_offload_handler",
+      "evidence": "docs/workingon-archives/v0.2.124/evidence_v0.2.124_e08_builder_build_worker_offload_handler_summary.md"
+    },
+    {
+      "slice_id": "benchmark_worker_offload_handler",
+      "evidence": "docs/workingon-archives/v0.2.122/evidence_v0.2.122_e08_benchmark_worker_offload_handler_summary.md"
+    },
+    {
+      "slice_id": "draft_patch_preview_worker_offload_handler",
+      "evidence": "docs/workingon-archives/v0.2.120/evidence_v0.2.120_e08_draft_patch_preview_worker_offload_handler_summary.md"
+    },
+    {
+      "slice_id": "test_suite_worker_offload_handler",
+      "evidence": "docs/workingon-archives/v0.2.118/evidence_v0.2.118_e08_test_suite_worker_offload_handler_summary.md"
+    },
+    {
+      "slice_id": "workflow_run_worker_offload_handler",
+      "evidence": "docs/workingon-archives/v0.2.116/evidence_v0.2.116_e08_workflow_run_worker_offload_handler_summary.md"
+    },
+    {
+      "slice_id": "scheduler_trigger_worker_offload_handler",
+      "evidence": "docs/workingon-archives/v0.2.114/evidence_v0.2.114_e08_scheduler_trigger_worker_offload_handler_summary.md"
+    },
+    {
+      "slice_id": "distributed_heartbeat_registry",
+      "evidence": "docs/workingon-archives/v0.2.112/evidence_v0.2.112_e08_distributed_heartbeat_registry_summary.md"
+    },
+    {
+      "slice_id": "complete_handler_catalog",
+      "evidence": "docs/workingon-archives/v0.2.110/evidence_v0.2.110_e08_complete_handler_catalog_summary.md"
+    },
+    {
+      "slice_id": "stdio_container_egress_allowlist_contract",
+      "evidence": "docs/workingon-archives/v0.2.106/evidence_v0.2.106_e08_stdio_container_egress_allowlist_contract_summary.md"
+    },
+    {
+      "slice_id": "secret_kms_rotation_contract",
+      "evidence": "docs/workingon-archives/v0.2.108/evidence_v0.2.108_e08_secret_kms_rotation_contract_summary.md"
+    },
+    {
+      "slice_id": "editable_policy_controls_api",
+      "evidence": "docs/workingon-archives/v0.2.96/evidence_v0.2.96_e08_editable_policy_controls_api_summary.md"
+    },
+    {
+      "slice_id": "studio_editable_policy_controls",
+      "evidence": "docs/workingon-archives/v0.2.98/evidence_v0.2.98_e08_studio_editable_policy_controls_summary.md"
+    },
+    {
+      "slice_id": "operator_runbook_lifecycle",
+      "evidence": "docs/workingon-archives/v0.2.100/evidence_v0.2.100_e08_operator_runbook_lifecycle_summary.md"
+    }
+  ],
+  "remaining_candidates": [
+    {
+      "slice_id": "distributed_queue_semantics",
+      "label": "Distributed queue semantics",
+      "sidecar_criticality": 39,
+      "readiness": 23,
+      "product_value": 35,
+      "testability": 22,
+      "scope_risk": 34,
+      "existing_evidence": "docs/stage-reports/v0.2.112_e08_distributed_heartbeat_registry.md; docs/stage-reports/v0.2.126_e08_production_worker_supervision.md; platform/backend/src/agent_platform/platform_harness.py",
+      "next_version": "v0.2.128_e08_distributed_queue_semantics",
+      "first_design": "docs/current-design/design_v0_2_128_e08_distributed_queue_semantics.md",
+      "score": 85
+    },
+    {
+      "slice_id": "external_process_manager",
+      "label": "External worker process manager",
+      "sidecar_criticality": 33,
+      "readiness": 16,
+      "product_value": 30,
+      "testability": 16,
+      "scope_risk": 36,
+      "existing_evidence": "docs/stage-reports/v0.2.126_e08_production_worker_supervision.md; platform/backend/src/agent_platform/worker_runner.py",
+      "next_version": "v0.2.128_e08_external_process_manager",
+      "first_design": "docs/current-design/design_v0_2_128_e08_external_process_manager.md",
+      "score": 59
+    },
+    {
+      "slice_id": "external_kms_provider_integration",
+      "label": "External KMS provider integration",
+      "sidecar_criticality": 27,
+      "readiness": 14,
+      "product_value": 24,
+      "testability": 16,
+      "scope_risk": 31,
+      "existing_evidence": "docs/stage-reports/v0.2.108_e08_secret_kms_rotation_contract.md; platform/backend/src/agent_platform/platform_harness.py",
+      "next_version": "v0.2.128_e08_external_kms_provider_integration",
+      "first_design": "docs/current-design/design_v0_2_128_e08_external_kms_provider_integration.md",
+      "score": 50
+    }
+  ],
+  "selected_slice": {
+    "slice_id": "distributed_queue_semantics",
+    "label": "Distributed queue semantics",
+    "sidecar_criticality": 39,
+    "readiness": 23,
+    "product_value": 35,
+    "testability": 22,
+    "scope_risk": 34,
+    "existing_evidence": "docs/stage-reports/v0.2.112_e08_distributed_heartbeat_registry.md; docs/stage-reports/v0.2.126_e08_production_worker_supervision.md; platform/backend/src/agent_platform/platform_harness.py",
+    "next_version": "v0.2.128_e08_distributed_queue_semantics",
+    "first_design": "docs/current-design/design_v0_2_128_e08_distributed_queue_semantics.md",
+    "score": 85
+  },
+  "decision": "select_distributed_queue_semantics",
+  "next_version": "v0.2.128_e08_distributed_queue_semantics",
+  "first_design": "docs/current-design/design_v0_2_128_e08_distributed_queue_semantics.md",
+  "invariants": {
+    "completed_production_supervision_excluded": true,
+    "required_worker_task_kind_execution_coverage_preserved": true,
+    "remaining_candidates_are_architecture_only": true,
+    "e08_full_sidecar_completion_claimed": false,
+    "workingon_is_not_task_source": true,
+    "stage_report_is_next_task_source": true
+  },
+  "reason": "v0.2.126 closed in-process production worker supervision. The next highest-value remaining architecture slice is distributed queue semantics because supervised workers and durable heartbeat evidence now exist, but the task store still lacks explicit queue ownership/requeue semantics. External process management and external KMS remain important but less ready follow-up slices."
+}
