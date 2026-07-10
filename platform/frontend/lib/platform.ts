@@ -152,6 +152,32 @@ export type BuilderBenchmarkHistoryRecord = {
   error: string
 }
 
+export type AdaptiveMonitoringCase = {
+  family: string
+  mode: string
+  build_status: string
+  effective_depth: string
+  reuse_depth_source: string
+  benchmark_passed: boolean | null
+  timeout_like: boolean
+  available_overrides: string[]
+  source: string
+}
+
+export type AdaptiveMonitoringStatus = {
+  status: 'healthy' | 'attention' | 'missing_evidence'
+  version: string
+  source: string
+  generated_at?: string | null
+  critical_alert_count: number
+  warning_alert_count: number
+  override_options_visible: boolean
+  available_overrides: string[]
+  cases: AdaptiveMonitoringCase[]
+  alerts: Array<Record<string, unknown>>
+  conclusion: string
+}
+
 const root = '/api/platform'
 const tokenKey = 'foundry.apiToken'
 

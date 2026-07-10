@@ -26,6 +26,7 @@ import {
   idempotency,
   isAuthError,
   saveClientToken,
+  type AdaptiveMonitoringStatus,
   type BuilderBenchmarkHistoryRecord,
   type Block,
   type Draft,
@@ -420,6 +421,9 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   const [benchmarkHistory, setBenchmarkHistory] = useState<BuilderBenchmarkHistoryRecord[]>([])
   const [benchmarkHistoryLoading, setBenchmarkHistoryLoading] = useState(false)
   const [benchmarkHistoryError, setBenchmarkHistoryError] = useState('')
+  const [adaptiveMonitoring, setAdaptiveMonitoring] = useState<AdaptiveMonitoringStatus | null>(null)
+  const [adaptiveMonitoringLoading, setAdaptiveMonitoringLoading] = useState(false)
+  const [adaptiveMonitoringError, setAdaptiveMonitoringError] = useState('')
   const [patchInstruction, setPatchInstruction] = useState('')
   const [patchPreview, setPatchPreview] = useState<DraftPatchPreview | null>(null)
   const [patchPreviewLoading, setPatchPreviewLoading] = useState(false)
@@ -597,6 +601,23 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     }
   }, [])
 
+  const refreshAdaptiveMonitoring = useCallback(async () => {
+    setAdaptiveMonitoringLoading(true)
+    setAdaptiveMonitoringError('')
+    try {
+      const status = await api<AdaptiveMonitoringStatus>('/api/v1/templates/adaptive-monitoring')
+      setAdaptiveMonitoring(status)
+      setAuthRequired(false)
+      return status
+    } catch (error) {
+      if (isAuthError(error)) setAuthRequired(true)
+      setAdaptiveMonitoringError(String(error))
+      throw error
+    } finally {
+      setAdaptiveMonitoringLoading(false)
+    }
+  }, [])
+
   useEffect(() => {
     const stored = globalThis.localStorage?.getItem('foundry.locale')
     if (isLocale(stored)) setLocale(stored)
@@ -605,7 +626,8 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     refreshMonitorTasks().catch(error => setNotice(String(error)))
     refreshPolicyControls().catch(error => setNotice(String(error)))
     refreshBenchmarkHistory().catch(error => setNotice(String(error)))
-  }, [refresh, refreshBenchmarkHistory, refreshMonitorTasks, refreshPolicyControls])
+    refreshAdaptiveMonitoring().catch(error => setNotice(String(error)))
+  }, [refresh, refreshAdaptiveMonitoring, refreshBenchmarkHistory, refreshMonitorTasks, refreshPolicyControls])
   useEffect(() => {
     const buildId = new URLSearchParams(window.location.search).get('build')
     if (buildId) watchBuild(buildId)
@@ -1098,9 +1120,41 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
           </div>
           <div className="monitor-toolbar">
             {(['related', 'failed', 'all'] as const).map(filter => <button className={monitorFilter === filter ? 'active' : ''} onClick={() => setMonitorFilter(filter)} key={filter}>{filter === 'related' ? t.monitorFilterRelated : filter === 'failed' ? t.monitorFilterFailed : t.monitorFilterAll}</button>)}
-            <button className="refresh" onClick={() => { refreshMonitorTasks().catch(error => setNotice(String(error))); refreshPolicyControls().catch(error => setNotice(String(error))); refreshBenchmarkHistory().catch(error => setNotice(String(error))) }} disabled={monitorLoading || policyControlsLoading || benchmarkHistoryLoading}>{monitorLoading || policyControlsLoading || benchmarkHistoryLoading ? t.monitorRefreshing : t.monitorRefresh}</button>
+            <button className="refresh" onClick={() => { refreshMonitorTasks().catch(error => setNotice(String(error))); refreshPolicyControls().catch(error => setNotice(String(error))); refreshBenchmarkHistory().catch(error => setNotice(String(error))); refreshAdaptiveMonitoring().catch(error => setNotice(String(error))) }} disabled={monitorLoading || policyControlsLoading || benchmarkHistoryLoading || adaptiveMonitoringLoading}>{monitorLoading || policyControlsLoading || benchmarkHistoryLoading || adaptiveMonitoringLoading ? t.monitorRefreshing : t.monitorRefresh}</button>
           </div>
           {monitorError && <p className="error-banner">{monitorError}</p>}
+          <section className={`adaptive-monitoring ${adaptiveMonitoring?.status || ''}`}>
+            <div className="adaptive-monitoring-head">
+              <strong>{t.adaptiveMonitoringTitle}</strong>
+              <small>{t.adaptiveMonitoringHelp}</small>
+            </div>
+            {adaptiveMonitoringError && <p className="error-banner">{adaptiveMonitoringError}</p>}
+            {adaptiveMonitoring ? <>
+              <div className="adaptive-status-row">
+                <span><b>{adaptiveMonitoring.status === 'healthy' ? t.adaptiveHealthy : adaptiveMonitoring.status === 'attention' ? t.adaptiveAttention : t.adaptiveMissing}</b>{adaptiveMonitoring.version}</span>
+                <span><b>{adaptiveMonitoring.critical_alert_count}</b>{t.adaptiveCriticalAlerts}</span>
+                <span><b>{adaptiveMonitoring.warning_alert_count}</b>{t.adaptiveWarningAlerts}</span>
+                <span><b>{adaptiveMonitoring.override_options_visible ? t.policyEnabled : t.policyDisabled}</b>{t.adaptiveOverrides}</span>
+              </div>
+              <div className="adaptive-overrides">
+                <strong>{t.adaptiveOverrides}</strong>
+                <div>{adaptiveMonitoring.available_overrides.length ? adaptiveMonitoring.available_overrides.map(option => <code key={option}>{option}</code>) : <span>{t.policyNoAllowlist}</span>}</div>
+              </div>
+              <h3>{t.adaptiveCases}</h3>
+              <div className="adaptive-case-list">{adaptiveMonitoring.cases.map(item => <article className="adaptive-case" key={`${item.family}-${item.mode}`}>
+                <div className="adaptive-case-head"><strong>{item.family}</strong><span>{item.mode}</span></div>
+                <div className="monitor-counts">
+                  <span>{item.build_status}</span>
+                  <span>{item.effective_depth}</span>
+                  <span>{item.reuse_depth_source}</span>
+                  <span>{t.adaptiveBenchmark} <b>{String(item.benchmark_passed)}</b></span>
+                  <span>{t.adaptiveTimeout} <b>{String(item.timeout_like)}</b></span>
+                </div>
+                <small>{t.adaptiveSource}: {item.source}</small>
+              </article>)}</div>
+              <p className="muted">{adaptiveMonitoring.conclusion}</p>
+            </> : <p className="muted">{adaptiveMonitoringLoading ? t.monitorRefreshing : t.adaptiveMonitoringEmpty}</p>}
+          </section>
           <section className="policy-controls">
             <div className="policy-controls-head"><strong>{t.policyControlsTitle}</strong><small>{t.policyControlsHelp}</small></div>
             {policyControlsError && <p className="error-banner">{policyControlsError}</p>}

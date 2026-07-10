@@ -83,6 +83,7 @@
 - `stage-reports/v0.2.57_full_backlog_closure.md`
 - `stage-reports/v0.2.58_continuous_auto_evolution.md`
 - `stage-reports/v0.2.59_productization_lane_selection.md`
+- `stage-reports/v0.2.60_adaptive_monitoring_product_surface.md`
 
 ## 使用原则
 

@@ -71,6 +71,7 @@
 - `v0.2.57_*`：来自 `docs/stage-reports/v0.2.57_full_backlog_closure.md`。
 - `v0.2.58_*`：来自 `docs/stage-reports/v0.2.58_continuous_auto_evolution.md`。
 - `v0.2.59_*`：来自 `docs/stage-reports/v0.2.59_productization_lane_selection.md`。
+- `v0.2.60_*`：来自 `docs/stage-reports/v0.2.60_adaptive_monitoring_product_surface.md`。
 
 Active workspace rule:
 
