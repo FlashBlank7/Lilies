@@ -13,6 +13,12 @@ This package prepares the external human timing panel required to resolve the re
 - `blank_results.csv`: blank capture sheet matching the schema.
 - `execution_checklist.md`: before/during/after checklist and completion gates.
 
+## Analyzer
+
+- `scripts/e02_human_panel_analyzer.py` validates captured CSV rows and generates timing/correctness analysis.
+- It requires paired `raw_json` and `readable_testframe` rows per participant and at least 5 paired participants before a timing claim can be supported.
+- The bundled blank results sheet has zero rows and does not complete E02.
+
 ## Completion Boundary
 
 E02 remains `completed_for_proxy_blocked_for_true_human_panel` until this package is executed with real recruited participants and the captured data is analyzed.
