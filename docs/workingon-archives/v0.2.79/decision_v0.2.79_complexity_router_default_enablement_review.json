@@ -1,0 +1,125 @@
+{
+  "version": "v0.2.79",
+  "source_live_evidence": "docs/workingon-archives/v0.2.78/live_v0.2.78_complexity_router_bounded_validation.json",
+  "decision": {
+    "option_id": "prepare_staged_rollout",
+    "label": "Prepare staged rollout before default enablement",
+    "score": 17,
+    "safety": 5,
+    "live_evidence": 5,
+    "product_value": 4,
+    "rollout_readiness": 4,
+    "frontend_operator_risk": 1,
+    "disposition": "selected",
+    "next_version": "v0.2.80_complexity_router_staged_rollout_preparation",
+    "first_design": "docs/current-design/design_complexity_router_staged_rollout_preparation.md"
+  },
+  "options": [
+    {
+      "option_id": "prepare_staged_rollout",
+      "label": "Prepare staged rollout before default enablement",
+      "score": 17,
+      "safety": 5,
+      "live_evidence": 5,
+      "product_value": 4,
+      "rollout_readiness": 4,
+      "frontend_operator_risk": 1,
+      "disposition": "selected",
+      "next_version": "v0.2.80_complexity_router_staged_rollout_preparation",
+      "first_design": "docs/current-design/design_complexity_router_staged_rollout_preparation.md"
+    },
+    {
+      "option_id": "continue_deferral",
+      "label": "Continue deferral despite passed live validation",
+      "score": 12,
+      "safety": 5,
+      "live_evidence": 5,
+      "product_value": 1,
+      "rollout_readiness": 1,
+      "frontend_operator_risk": 0,
+      "disposition": "rejected because it wastes completed guardrail and live evidence without adding a safer rollout path",
+      "next_version": "v0.2.x_complexity_router_enablement_deferral",
+      "first_design": "docs/current-design/design_complexity_router_enablement_deferral.md"
+    },
+    {
+      "option_id": "enter_immediate_enablement_review",
+      "label": "Enter immediate default enablement review",
+      "score": 11,
+      "safety": 3,
+      "live_evidence": 5,
+      "product_value": 5,
+      "rollout_readiness": 2,
+      "frontend_operator_risk": 4,
+      "disposition": "deferred until staged rollout preparation exists and frontend verification is restored or explicitly waived",
+      "next_version": "v0.2.x_complexity_router_immediate_enablement_review",
+      "first_design": "docs/current-design/design_complexity_router_immediate_enablement_review.md"
+    }
+  ],
+  "live_evidence": {
+    "status": "completed",
+    "provider": "deepseek",
+    "model": "deepseek-v4-pro",
+    "passed": true,
+    "case_count": 3
+  },
+  "default_safety": {
+    "router_id": "e07_complexity_router",
+    "gate_id": "default_safety_gate",
+    "policy_version": "v0.2.74_complexity_router_rollout_metrics_prerequisites",
+    "default_enabled": false,
+    "allowed_to_enable_default": true,
+    "router_ready_for_default": true,
+    "reason": "all required prerequisites are satisfied",
+    "missing_prerequisites": [],
+    "prerequisites": [
+      {
+        "id": "source_evidence",
+        "label": "Source evidence",
+        "satisfied": true,
+        "evidence": [
+          "docs/experiment-status/ledgers/E07_complexity_router.md",
+          "docs/workingon-archives/v0.2.70/selection_v0.2.70_complexity_router_guardrail_summary.md"
+        ],
+        "required_for_default": true
+      },
+      {
+        "id": "requirement_classification_contract",
+        "label": "Requirement classification contract",
+        "satisfied": true,
+        "evidence": [
+          "platform/backend/src/agent_platform/complexity_router.py",
+          "tests/test_complexity_router_default_safety.py"
+        ],
+        "required_for_default": true
+      },
+      {
+        "id": "operator_override_plan",
+        "label": "Operator override plan",
+        "satisfied": true,
+        "evidence": [
+          "platform/backend/src/agent_platform/complexity_router.py",
+          "tests/test_complexity_router_default_safety.py"
+        ],
+        "required_for_default": true
+      },
+      {
+        "id": "rollout_metrics_prerequisites",
+        "label": "Rollout metrics prerequisites",
+        "satisfied": true,
+        "evidence": [
+          "platform/backend/src/agent_platform/complexity_router.py",
+          "tests/test_complexity_router_default_safety.py"
+        ],
+        "required_for_default": true
+      }
+    ],
+    "supporting_guardrails": [
+      "requirement_classification_contract",
+      "operator_override_plan",
+      "rollout_metrics_prerequisites"
+    ]
+  },
+  "default_enabled": false,
+  "allowed_to_enable_default": true,
+  "conclusion": "Prepare staged rollout before any default enablement. This preserves the positive live evidence while avoiding an immediate default behavior change."
+}
