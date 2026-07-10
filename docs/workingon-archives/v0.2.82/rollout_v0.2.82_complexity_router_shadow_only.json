@@ -1,0 +1,127 @@
+{
+  "version": "v0.2.82",
+  "rollout_id": "complexity_router_shadow_only_rollout",
+  "source_stage_report": "docs/stage-reports/v0.2.81_complexity_router_staged_rollout_execution_decision.md",
+  "source_rollout_plan": "docs/workingon-archives/v0.2.80/rollout_v0.2.80_complexity_router_staged_preparation.json",
+  "source_validation_plan": "docs/workingon-archives/v0.2.76/plan_v0.2.76_complexity_router_live_validation.json",
+  "stage": {
+    "stage_id": "stage_0_shadow_only",
+    "mode": "shadow_only",
+    "entry_criteria": [
+      "bounded live validation passed",
+      "metrics schema available"
+    ],
+    "exit_criteria": [
+      "classification distribution recorded",
+      "no accidental default enablement"
+    ],
+    "behavior_change": false
+  },
+  "status": "completed",
+  "reason": "stage_0 shadow-only exit criteria satisfied",
+  "sample_count": 3,
+  "sample_results": [
+    {
+      "case_id": "simple_text_edit",
+      "requirement": "Fix a typo in a settings label",
+      "expected_class": "simple",
+      "predicted_class": "simple",
+      "effective_class": "simple",
+      "confidence": 0.55,
+      "signals": [
+        "fix",
+        "typo"
+      ],
+      "conservative_unknown": false,
+      "shadow_only": true,
+      "behavior_changed": false,
+      "default_router_enabled": false,
+      "duration_seconds": 1.2e-05,
+      "passed": true
+    },
+    {
+      "case_id": "medium_api_workflow",
+      "requirement": "Add an API endpoint with tests for a reporting workflow",
+      "expected_class": "medium",
+      "predicted_class": "medium",
+      "effective_class": "medium",
+      "confidence": 0.9,
+      "signals": [
+        "api",
+        "endpoint",
+        "report",
+        "test",
+        "workflow"
+      ],
+      "conservative_unknown": false,
+      "shadow_only": true,
+      "behavior_changed": false,
+      "default_router_enabled": false,
+      "duration_seconds": 7e-06,
+      "passed": true
+    },
+    {
+      "case_id": "complex_platform_guardrail",
+      "requirement": "Design a platform guardrail rollout for a model-sensitive agent router",
+      "expected_class": "complex",
+      "predicted_class": "complex",
+      "effective_class": "complex",
+      "confidence": 0.95,
+      "signals": [
+        "agent",
+        "guardrail",
+        "model-sensitive",
+        "platform",
+        "rollout",
+        "router"
+      ],
+      "conservative_unknown": false,
+      "shadow_only": true,
+      "behavior_changed": false,
+      "default_router_enabled": false,
+      "duration_seconds": 6e-06,
+      "passed": true
+    }
+  ],
+  "metrics": {
+    "classification_distribution": {
+      "simple": 1,
+      "medium": 1,
+      "complex": 1
+    },
+    "override_rate": 0.0,
+    "override_reason_coverage": 1.0,
+    "fallback_unknown_rate": 0.0,
+    "unexpected_classification_rate": 0.0,
+    "success_rate_by_class": {
+      "simple": 1.0,
+      "medium": 1.0,
+      "complex": 1.0
+    },
+    "cost_latency_by_class": {
+      "simple": {
+        "avg_shadow_duration_seconds": 1.2e-05
+      },
+      "medium": {
+        "avg_shadow_duration_seconds": 7e-06
+      },
+      "complex": {
+        "avg_shadow_duration_seconds": 6e-06
+      }
+    },
+    "accidental_default_enablement_count": 0,
+    "behavior_change_count": 0
+  },
+  "exit_criteria": {
+    "classification_distribution_recorded": true,
+    "no_accidental_default_enablement": true,
+    "unexpected_classification_rate_within_stage_0_boundary": true
+  },
+  "pass_fail": {
+    "passed": true,
+    "reason": "classification distribution recorded and no default enablement occurred"
+  },
+  "default_enabled": false,
+  "allowed_to_enable_default": true,
+  "behavior_change": false
+}

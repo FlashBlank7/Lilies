@@ -93,6 +93,7 @@
 - `v0.2.79_*`：来自 `docs/stage-reports/v0.2.79_complexity_router_default_enablement_review_decision.md`。
 - `v0.2.80_*`：来自 `docs/stage-reports/v0.2.80_complexity_router_staged_rollout_preparation.md`。
 - `v0.2.81_*`：来自 `docs/stage-reports/v0.2.81_complexity_router_staged_rollout_execution_decision.md`。
+- `v0.2.82_*`：来自 `docs/stage-reports/v0.2.82_complexity_router_shadow_only_rollout.md`。
 
 Active workspace rule:
 

@@ -1,6 +1,6 @@
 # E07 Complexity Router Ledger
 
-状态：guardrails_satisfied_live_validation_passed；not enabled as default
+状态：shadow_only_rollout_completed；not enabled as default
 
 ## 实验问题
 
@@ -25,6 +25,12 @@ v0.2.78 bounded live validation 已完成：三条 v0.2.76 validation cases（si
 
 - `../../workingon-archives/v0.2.78/live_v0.2.78_complexity_router_bounded_validation_summary.md`
 
+v0.2.82 shadow-only rollout 已完成：复用三条 v0.2.76 validation cases，stage_0 shadow-only 本地分类全部匹配 expected class，classification distribution 已记录，unexpected classification rate `0.0`，accidental default enablement count `0`，`default_enabled=false` 保持不变。
+
+证据：
+
+- `../../workingon-archives/v0.2.82/rollout_v0.2.82_complexity_router_shadow_only_summary.md`
+
 ## 初始设计方向
 
 - 定义 simple/medium/complex 三档需求。
@@ -33,4 +39,4 @@ v0.2.78 bounded live validation 已完成：三条 v0.2.76 validation cases（si
 
 ## 下一步
 
-进入默认启用评审决策；默认行为仍不得自动启用，必须由后续 stage report 显式选择。
+下一步只能由后续 stage report 显式选择：进入 operator opt-in rollout、继续 shadow-only 观测、或开启默认启用评审。默认行为仍不得自动启用。
