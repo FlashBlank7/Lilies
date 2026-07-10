@@ -162,6 +162,7 @@
 - `stage-reports/v0.2.135_blocked_experiment_resolution_selection.md`
 - `stage-reports/v0.2.136_e10_governed_memory_boundary_definition.md`
 - `stage-reports/v0.2.137_e10_governed_memory_surface_contract.md`
+- `stage-reports/v0.2.138_e10_runtime_memory_retrieval_integration.md`
 
 ## 使用原则
 

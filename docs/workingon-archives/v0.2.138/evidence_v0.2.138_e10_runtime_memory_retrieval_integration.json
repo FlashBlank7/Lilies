@@ -1,0 +1,58 @@
+{
+  "version": "v0.2.138",
+  "evidence_id": "e10_runtime_memory_retrieval_integration",
+  "source_stage_report": "docs/stage-reports/v0.2.137_e10_governed_memory_surface_contract.md",
+  "status": "completed",
+  "checks": {
+    "runtime_opt_in_retrieves_scoped_memory": true,
+    "no_opt_in_no_retrieval": true,
+    "revoked_and_expired_excluded": true,
+    "read_audit_event_written": true,
+    "runtime_retrieval_event_written": true,
+    "unrestricted_filesystem_memory_rejected_by_contract": true,
+    "e02_external_blocker_preserved": true,
+    "global_completion_boundary_preserved": true
+  },
+  "retrieved_count": 1,
+  "retrieved_ids": [
+    "mem_d4848adb2d0943939163ba80b2e2d3d6"
+  ],
+  "audit_event_types": [
+    "governed_memory.create",
+    "governed_memory.create",
+    "governed_memory.create",
+    "governed_memory.revoke",
+    "governed_memory.expire",
+    "governed_memory.read"
+  ],
+  "runtime_context_keys": [
+    "actor_id",
+    "audit_stream_id",
+    "enabled",
+    "items",
+    "owner_id",
+    "purpose",
+    "reason",
+    "retrieved_count",
+    "scope_id"
+  ],
+  "implementation_paths": [
+    "platform/backend/src/agent_platform/workflow_runtime.py",
+    "platform/backend/src/agent_platform/api.py",
+    "platform/backend/src/agent_platform/governed_memory.py",
+    "tests/test_v02_138_e10_runtime_memory_retrieval_integration.py"
+  ],
+  "boundaries": {
+    "runtime_retrieval_integrated": true,
+    "opt_in_required": true,
+    "scope_bound": true,
+    "audit_backed": true,
+    "revoked_excluded": true,
+    "expired_excluded": true,
+    "unrestricted_memory_allowed": false,
+    "filesystem_wrapper_allowed": false,
+    "studio_ui_claimed": false,
+    "e02_true_human_panel_resolved": false,
+    "global_completion_claimed": false
+  }
+}

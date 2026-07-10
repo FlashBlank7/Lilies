@@ -36,6 +36,7 @@ from .blocks import (
     VariableAssignerConfig,
 )
 from .models import AgentSpec, ChatMessage, ContentBlock, PermissionMode, Usage
+from .governed_memory import GovernedMemoryPermission, GovernedMemorySurface, GovernedMemoryViolation
 from .platform_harness import PlatformHarness
 from .providers import ModelProvider
 from .runtime import AgentRuntime
@@ -80,6 +81,7 @@ class WorkflowRuntime:
         tools: ToolRegistry,
         sandboxes: SandboxManager,
         runtime_model: str,
+        governed_memory: GovernedMemorySurface | None = None,
     ) -> None:
         self.storage = storage
         self.workflow_store = workflow_store
@@ -91,6 +93,7 @@ class WorkflowRuntime:
         self.tools = tools
         self.sandboxes = sandboxes
         self.runtime_model = runtime_model
+        self.governed_memory = governed_memory
         self.active_tasks: dict[str, asyncio.Task[None]] = {}
 
     async def create_run(
@@ -112,11 +115,16 @@ class WorkflowRuntime:
             raise ValueError("invalid workflow: " + "; ".join(errors))
         self.sandboxes.resolve_workspace(request.workspace_path)
         run_id = str(uuid4())
+        inputs = await self._inputs_with_governed_memory(
+            application_id=application_id,
+            inputs=request.inputs,
+            run_id=run_id,
+        )
         state = WorkflowRunState(
             run_id=run_id,
             application_id=application_id,
             snapshot=snapshot,
-            inputs=request.inputs,
+            inputs=inputs,
             workspace_path=request.workspace_path,
         )
         await self.workflow_store.create_run(
@@ -137,6 +145,86 @@ class WorkflowRuntime:
         )
         self._start(state)
         return {"run_id": run_id, "status": "queued", "version": version, "draft_revision": draft_revision}
+
+    async def _inputs_with_governed_memory(
+        self,
+        *,
+        application_id: str,
+        inputs: dict[str, Any],
+        run_id: str,
+    ) -> dict[str, Any]:
+        config = inputs.get("__governed_memory__")
+        if not config:
+            return dict(inputs)
+        if not isinstance(config, dict):
+            raise ValueError("__governed_memory__ must be an object")
+        if config.get("enabled") is not True:
+            return dict(inputs)
+        if self.governed_memory is None:
+            raise ValueError("governed memory surface is not configured")
+        actor_id = str(config.get("actor_id") or "").strip()
+        scope_id = str(config.get("scope_id") or "").strip()
+        purpose = str(config.get("purpose") or "").strip()
+        reason = str(config.get("reason") or "").strip()
+        if not actor_id or not scope_id or not purpose or not reason:
+            raise ValueError("__governed_memory__ requires actor_id, scope_id, purpose, and reason")
+        limit = int(config.get("limit", 20))
+        limit = max(1, min(limit, 100))
+        permission = GovernedMemoryPermission(
+            actor_id=actor_id,
+            owner_id=application_id,
+            scope_id=scope_id,
+            purpose=purpose,
+            allowed_operations=["read"],
+            expires_at=config.get("permission_expires_at"),
+        )
+        try:
+            listed = await self.governed_memory.list_active(
+                owner_id=application_id,
+                scope_id=scope_id,
+                permission=permission,
+                reason=reason,
+                limit=limit,
+            )
+            audited_items = [
+                await self.governed_memory.read(item.id, permission=permission, reason=reason)
+                for item in listed
+            ]
+        except GovernedMemoryViolation as error:
+            raise ValueError(f"governed memory retrieval rejected: {error}") from error
+        enriched = dict(inputs)
+        enriched["__governed_memory_context__"] = {
+            "enabled": True,
+            "owner_id": application_id,
+            "scope_id": scope_id,
+            "actor_id": actor_id,
+            "purpose": purpose,
+            "reason": reason,
+            "retrieved_count": len(audited_items),
+            "audit_stream_id": GovernedMemorySurface.audit_stream_id(application_id, scope_id),
+            "items": [
+                {
+                    "id": item.id,
+                    "content": item.content,
+                    "source": item.source.model_dump(mode="json"),
+                    "retention_class": item.retention_class,
+                    "expires_at": item.expires_at,
+                }
+                for item in audited_items
+            ],
+        }
+        await self._emit(
+            run_id,
+            "governed_memory.retrieved",
+            {
+                "owner_id": application_id,
+                "scope_id": scope_id,
+                "actor_id": actor_id,
+                "retrieved_count": len(audited_items),
+                "audit_stream_id": enriched["__governed_memory_context__"]["audit_stream_id"],
+            },
+        )
+        return enriched
 
     async def resume(self, run_id: str, values: dict[str, Any]) -> dict[str, Any]:
         record = await self.workflow_store.get_run(run_id)

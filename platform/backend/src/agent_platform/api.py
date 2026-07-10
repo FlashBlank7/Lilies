@@ -250,6 +250,7 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
     blocks = build_block_registry()
     workflow_store = WorkflowStorage(storage)
     applications = ApplicationService(workflow_store, blocks, tools)
+    governed_memory = GovernedMemorySurface(storage)
     workflow_runtime = WorkflowRuntime(
         storage=storage,
         workflow_store=workflow_store,
@@ -261,11 +262,11 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         tools=tools,
         sandboxes=sandboxes,
         runtime_model=settings.deepseek_runtime_model,
+        governed_memory=governed_memory,
     )
     templates = TemplateStore()
     benchmark = BuilderBenchmark()
     draft_patcher = DraftPatchPreviewer()
-    governed_memory = GovernedMemorySurface(storage)
     templates_dir = settings.templates_dir
     if templates_dir and templates_dir.is_dir():
         loaded = templates.load_builtins(templates_dir)

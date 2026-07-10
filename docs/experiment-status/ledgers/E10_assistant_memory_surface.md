@@ -1,6 +1,6 @@
 # E10 Assistant Memory Surface Ledger
 
-状态：governed_surface_contract_implemented_pending_runtime_productization
+状态：runtime_retrieval_integrated_pending_operator_ui_productization
 
 ## 实验问题
 
@@ -20,6 +20,10 @@ v0.2.137 已实现 governed memory surface contract：后端 service 支持 perm
 
 证据：`../../workingon-archives/v0.2.137/evidence_v0.2.137_e10_governed_memory_surface_contract_summary.md`
 
+v0.2.138 已将 governed memory 接入 workflow runtime retrieval：run inputs 显式 opt-in 后，runtime 使用 application_id + scope_id 检索 active scoped memory，注入 `__governed_memory_context__`，并通过 governed memory read 写 audit event。无 opt-in 不检索；revoked/expired memory 不进入上下文。该版本仍不声明 Studio/operator UI 或 unrestricted filesystem memory。
+
+证据：`../../workingon-archives/v0.2.138/evidence_v0.2.138_e10_runtime_memory_retrieval_integration_summary.md`
+
 ## 下一步
 
-进入 `v0.2.138_e10_runtime_memory_retrieval_integration`：将 governed memory 以显式 opt-in、scope-bound、audit-backed 的方式接入 runtime retrieval 或等价产品路径。不得把 unrestricted memory、后台任意文件系统索引或无审计长期记忆作为产品路径。
+进入 `v0.2.139_e10_studio_governed_memory_operator_ui`：为 operator 提供 governed memory 的可见创建、查看、撤销和审计入口，或通过下一阶段选择证明 UI 不是当前产品化 blocker。不得把 unrestricted memory、后台任意文件系统索引或无审计长期记忆作为产品路径。
