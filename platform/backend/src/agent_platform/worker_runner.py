@@ -22,6 +22,11 @@ PLATFORM_WORKER_TASK_KINDS = (
 )
 
 IMPLEMENTED_WORKER_HANDLERS: dict[str, dict[str, str]] = {
+    "workflow_run": {
+        "label": "Workflow run",
+        "implementation": "workflow_run_handler",
+        "evidence": "docs/stage-reports/v0.2.116_e08_workflow_run_worker_offload_handler.md",
+    },
     "scheduler_trigger": {
         "label": "Scheduler automatic trigger",
         "implementation": "scheduler_trigger_handler",
@@ -35,11 +40,6 @@ IMPLEMENTED_WORKER_HANDLERS: dict[str, dict[str, str]] = {
 }
 
 UNAVAILABLE_WORKER_HANDLERS: dict[str, dict[str, str]] = {
-    "workflow_run": {
-        "label": "Workflow run",
-        "reason": "workflow runs are currently managed by the API/runtime path, not the external worker catalog",
-        "operator_action": "Keep workflow runs on the runtime path until a worker-owned workflow handler is implemented.",
-    },
     "builder_build": {
         "label": "Builder build",
         "reason": "builder builds are currently managed by the builder service path",
@@ -311,6 +311,46 @@ def scheduler_manual_trigger_handler(scheduler: Any) -> PlatformTaskHandler:
     return handler
 
 
+def workflow_run_handler(workflow_runtime: Any) -> PlatformTaskHandler:
+    async def handler(task: PlatformTaskRecord) -> dict[str, Any]:
+        from .workflow_models import WorkflowRunRequest
+
+        inputs = task.metadata.get("inputs", {})
+        if not isinstance(inputs, dict):
+            inputs = {}
+        workspace_path = task.metadata.get("workspace_path", ".")
+        if not isinstance(workspace_path, str) or not workspace_path.strip():
+            workspace_path = "."
+        version = task.metadata.get("version")
+        if isinstance(version, bool):
+            version = None
+        elif isinstance(version, str) and version.strip().isdigit():
+            version = int(version)
+        elif not isinstance(version, int):
+            version = None
+        use_draft = bool(task.metadata.get("use_draft", version is None))
+        created = await workflow_runtime.create_run(
+            task.owner_id,
+            WorkflowRunRequest(
+                inputs=inputs,
+                version=version,
+                use_draft=use_draft,
+                workspace_path=workspace_path,
+            ),
+            parent_task_id=task.id,
+            origin="worker",
+        )
+        return {
+            "application_id": task.owner_id,
+            "run_id": created["run_id"],
+            "status": created.get("status", "queued"),
+            "version": created.get("version"),
+            "draft_revision": created.get("draft_revision"),
+        }
+
+    return handler
+
+
 def scheduler_trigger_handler(scheduler: Any) -> PlatformTaskHandler:
     async def handler(task: PlatformTaskRecord) -> dict[str, Any]:
         version = _required_int_metadata(task, "version")
@@ -380,6 +420,7 @@ def unavailable_worker_handler(kind: str) -> PlatformTaskHandler:
 
 def build_platform_worker_handlers(services: Any) -> dict[str, PlatformTaskHandler]:
     handlers: dict[str, PlatformTaskHandler] = {
+        "workflow_run": workflow_run_handler(services.workflow_runtime),
         "scheduler_trigger": scheduler_trigger_handler(services.scheduler),
         "scheduler_manual_trigger": scheduler_manual_trigger_handler(services.scheduler),
     }
@@ -435,7 +476,7 @@ def platform_worker_handler_catalog(
     implemented = [entry.kind for entry in entries if entry.status == "implemented"]
     unavailable = [entry.kind for entry in entries if entry.status == "unavailable"]
     return {
-        "version": "v0.2.114",
+        "version": "v0.2.116",
         "source": "docs/stage-reports/v0.2.113_e08_remaining_sidecar_slice_reselection.md",
         "required_count": len(required),
         "cataloged_count": len(cataloged),

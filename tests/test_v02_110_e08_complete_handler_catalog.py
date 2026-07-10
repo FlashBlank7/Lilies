@@ -28,8 +28,14 @@ class FakeScheduler:
         return {"run_id": "fake-run", "status": "queued"}
 
 
+class FakeWorkflowRuntime:
+    async def create_run(self, *_: Any, **__: Any) -> dict[str, Any]:
+        return {"run_id": "fake-workflow-run", "status": "queued", "version": 1, "draft_revision": None}
+
+
 class FakeServices:
     scheduler = FakeScheduler()
+    workflow_runtime = FakeWorkflowRuntime()
 
 
 def headers() -> dict[str, str]:
@@ -50,11 +56,13 @@ def test_v02_110_catalog_covers_all_platform_task_kinds() -> None:
     assert catalog["unregistered_required_kinds"] == []
 
     entries = {entry["kind"]: entry for entry in catalog["entries"]}
+    assert entries["workflow_run"]["status"] == "implemented"
+    assert entries["workflow_run"]["executable"] is True
     assert entries["scheduler_trigger"]["status"] == "implemented"
     assert entries["scheduler_trigger"]["executable"] is True
     assert entries["scheduler_manual_trigger"]["status"] == "implemented"
     assert entries["scheduler_manual_trigger"]["executable"] is True
-    for kind in set(PLATFORM_WORKER_TASK_KINDS) - {"scheduler_trigger", "scheduler_manual_trigger"}:
+    for kind in set(PLATFORM_WORKER_TASK_KINDS) - {"workflow_run", "scheduler_trigger", "scheduler_manual_trigger"}:
         assert entries[kind]["status"] == "unavailable"
         assert entries[kind]["handler_registered"] is True
         assert entries[kind]["executable"] is False
@@ -114,7 +122,7 @@ def test_v02_110_worker_handler_catalog_api_exposes_coverage(tmp_path: Path) -> 
 
     assert response.status_code == 200, response.text
     body = response.json()
-    assert body["version"] == "v0.2.114"
+    assert body["version"] == "v0.2.116"
     assert body["catalog_complete"] is True
     assert body["registered_catalog_complete"] is True
     assert body["full_execution_coverage"] is False

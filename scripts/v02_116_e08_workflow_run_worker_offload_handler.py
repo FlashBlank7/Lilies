@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate v0.2.114 E08 scheduler_trigger worker offload evidence."""
+"""Generate v0.2.116 E08 workflow_run worker offload evidence."""
 
 from __future__ import annotations
 
@@ -8,7 +8,6 @@ import json
 import shutil
 import sys
 import time
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -16,7 +15,7 @@ from uuid import uuid4
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUTPUT_DIR = ROOT / "docs" / "workingon"
-OUTPUT_NAME = "evidence_v0.2.114_e08_scheduler_trigger_worker_offload_handler"
+OUTPUT_NAME = "evidence_v0.2.116_e08_workflow_run_worker_offload_handler"
 
 
 def _prepare_imports() -> None:
@@ -46,74 +45,35 @@ def mutate(client: Any, app_id: str, revision: int, op: str, data: dict[str, Any
     return int(response.json()["revision"])
 
 
-def create_scheduled_application(client: Any) -> str:
+def create_simple_workflow(client: Any) -> str:
     response = client.post(
         "/api/v1/applications",
         headers=headers(),
-        json={"name": "v0.2.114 offload evidence", "requirement": "Run scheduled workflow through worker."},
+        json={"name": "v0.2.116 workflow evidence", "requirement": "Run a simple workflow through worker."},
     )
     response.raise_for_status()
     app_id = response.json()["id"]
     revision = 0
     for node in [
-        {
-            "id": "schedule",
-            "type": "schedule_trigger",
-            "title": "08:00 JST",
-            "config": {
-                "timezone": "Asia/Tokyo",
-                "hour": 8,
-                "minute": 0,
-                "inputs": {"topic": "idols"},
-            },
-        },
-        {
-            "id": "end",
-            "type": "end",
-            "title": "End",
-            "config": {
-                "outputs": {
-                    "topic": {"$ref": {"node_id": "schedule", "path": ["topic"]}},
-                },
-            },
-        },
+        {"id": "start", "type": "start", "title": "Start", "config": {"inputs": []}},
+        {"id": "end", "type": "end", "title": "End", "config": {"outputs": {"ok": True}}},
     ]:
         revision = mutate(client, app_id, revision, "add_node", {"node": node})
-    revision = mutate(
+    mutate(
         client,
         app_id,
         revision,
         "add_edge",
         {
             "edge": {
-                "id": "scheduled-end",
-                "source": "schedule",
+                "id": "start-end",
+                "source": "start",
                 "target": "end",
                 "source_port": "output",
                 "target_port": "input",
             },
         },
     )
-    mutate(
-        client,
-        app_id,
-        revision,
-        "add_test",
-        {
-            "test": {
-                "name": "Scheduled inputs",
-                "requirement": "Schedule defaults reach the result.",
-                "inputs": {},
-                "assertions": [{"path": ["topic"], "operator": "equals", "expected": "idols"}],
-            },
-        },
-    )
-    test_response = client.post(f"/api/v1/applications/{app_id}/tests/run", headers=headers())
-    test_response.raise_for_status()
-    if not test_response.json()["passed"]:
-        raise RuntimeError("schedule workflow fixture test failed")
-    publish_response = client.post(f"/api/v1/applications/{app_id}/versions", headers=headers())
-    publish_response.raise_for_status()
     return app_id
 
 
@@ -123,7 +83,7 @@ def wait_for_run(client: Any, run_id: str) -> dict[str, Any]:
         response = client.get(f"/api/v1/runs/{run_id}", headers=headers())
         response.raise_for_status()
         run = response.json()
-        if run["status"] == "succeeded":
+        if run["status"] in {"succeeded", "failed"}:
             return run
         time.sleep(0.01)
     return run
@@ -143,60 +103,69 @@ def verify_contract() -> dict[str, Any]:
     )
     from tests.test_runtime import ScriptedProvider  # pylint: disable=import-error,import-outside-toplevel
 
-    data_dir = ROOT / ".tmp" / "v02_114_e08_scheduler_trigger_worker_offload_handler"
+    data_dir = ROOT / ".tmp" / "v02_116_e08_workflow_run_worker_offload_handler"
     if data_dir.exists():
         shutil.rmtree(data_dir)
     settings = Settings(
         api_token="workflow-test",
         data_dir=data_dir / "data",
         workspace_root=data_dir / "workspaces",
-        scheduler_poll_seconds=3600,
-        scheduler_worker_offload_enabled=True,
     )
     app = create_app(settings, ScriptedProvider())
     with TestClient(app) as client:
-        app_id = create_scheduled_application(client)
+        app_id = create_simple_workflow(client)
         services = client.app.state.services
-        scheduler = services.scheduler
         harness = services.harness
-        workflow_store = services.workflow_store
         handlers = build_platform_worker_handlers(services)
         catalog = platform_worker_handler_catalog(handlers)
         entries = {entry["kind"]: entry for entry in catalog["entries"]}
 
-        queued_events = client.portal.call(
-            scheduler.tick,
-            datetime(2026, 6, 23, 23, 0, tzinfo=timezone.utc),
-        )
-        fires_before = client.portal.call(workflow_store.list_schedule_fires, app_id)
-
-        async def list_queued_scheduler_tasks():
-            return await harness.list_tasks(
-                kind="scheduler_trigger",
-                status="queued",
+        async def queue_task() -> None:
+            await harness.start_task(
+                "evidence-workflow-run-worker-task",
+                kind="workflow_run",
                 owner_id=app_id,
+                resource_id="evidence-workflow-run-worker-task",
+                metadata={"inputs": {}, "use_draft": True, "workspace_path": "."},
+                worker_id="producer",
+                lease_seconds=60,
+            )
+            await harness.release_task_lease(
+                "evidence-workflow-run-worker-task",
+                worker_id="producer",
+                next_status="queued",
             )
 
-        queued_tasks = client.portal.call(list_queued_scheduler_tasks)
-
+        client.portal.call(queue_task)
         runner = PlatformHarnessWorkerRunner(
             harness=harness,
-            worker_id="v02-114-worker",
+            worker_id="v02-116-worker",
             lease_seconds=60,
             handlers=handlers,
         )
 
         async def run_worker_once():
-            return await runner.run_once(kind="scheduler_trigger", limit=5)
+            return await runner.run_once(kind="workflow_run", limit=5)
 
         results = client.portal.call(run_worker_once)
-        fires_after = client.portal.call(workflow_store.list_schedule_fires, app_id)
-        run = wait_for_run(client, fires_after[0]["run_id"])
-        finished_task = client.portal.call(harness.get_task, queued_tasks[0].id)
+        worker_task = client.portal.call(harness.get_task, "evidence-workflow-run-worker-task")
+        run_id = worker_task.metadata["worker_runner"]["result"]["run_id"]
+        run = wait_for_run(client, run_id)
+        run_task = client.portal.call(harness.get_task, run_id)
         heartbeats = {
             row.worker_id: row.model_dump(mode="json")
             for row in client.portal.call(harness.list_worker_heartbeats)
         }
+
+        api_created = client.post(
+            f"/api/v1/applications/{app_id}/runs",
+            headers=headers(),
+            json={"inputs": {}, "use_draft": True},
+        )
+        api_created.raise_for_status()
+        api_run_id = api_created.json()["run_id"]
+        api_run = wait_for_run(client, api_run_id)
+        api_task = client.portal.call(harness.get_task, api_run_id)
 
     remaining_unavailable = [
         entry["kind"]
@@ -204,30 +173,29 @@ def verify_contract() -> dict[str, Any]:
         if entry["status"] == "unavailable"
     ]
     checks = {
-        "scheduler_trigger_catalog_implemented": entries["scheduler_trigger"]["status"] == "implemented"
-        and entries["scheduler_trigger"]["executable"] is True,
-        "scheduler_tick_queued_in_offload_mode": len(queued_events) == 1
-        and queued_events[0].get("queued") is True
-        and fires_before[0]["run_id"] is None
-        and len(queued_tasks) == 1,
-        "worker_completed_scheduler_trigger_task": len(results) == 1
+        "workflow_run_catalog_implemented": entries["workflow_run"]["status"] == "implemented"
+        and entries["workflow_run"]["executable"] is True,
+        "worker_completed_queued_workflow_run_task": len(results) == 1
         and results[0].status == "succeeded"
-        and finished_task.status == "succeeded",
-        "worker_started_real_scheduled_workflow_run": run.get("status") == "succeeded"
-        and run.get("outputs") == {"topic": "idols"}
-        and bool(fires_after[0]["run_id"]),
-        "scheduler_fire_usage_preserved": finished_task.usage_counts.get("scheduler_fire") == 1,
-        "heartbeat_registry_preserved": heartbeats["v02-114-worker"]["status"] == "idle"
-        and heartbeats["v02-114-worker"]["metadata"]["last_task_status"] == "succeeded",
+        and worker_task.status == "succeeded",
+        "worker_created_real_workflow_run": run.get("status") == "succeeded"
+        and run.get("outputs") == {"ok": True},
+        "run_task_parented_to_worker_task": run_task.parent_task_id == "evidence-workflow-run-worker-task"
+        and run_task.metadata["origin"] == "worker",
+        "api_run_path_preserved": api_run.get("status") == "succeeded"
+        and api_task.metadata["origin"] == "api"
+        and api_task.parent_task_id is None,
+        "heartbeat_registry_preserved": heartbeats["v02-116-worker"]["status"] == "idle"
+        and heartbeats["v02-116-worker"]["metadata"]["last_task_status"] == "succeeded",
         "remaining_catalog_gaps_still_unavailable": set(remaining_unavailable)
         == {"builder_build", "test_suite", "benchmark", "draft_patch_preview"},
         "full_execution_coverage_not_claimed": catalog["full_execution_coverage"] is False
         and catalog["not_full_sidecar_completion"] is True,
     }
     return {
-        "version": "v0.2.114",
-        "evidence_id": "e08_scheduler_trigger_worker_offload_handler",
-        "source_stage_report": "docs/stage-reports/v0.2.113_e08_remaining_sidecar_slice_reselection.md",
+        "version": "v0.2.116",
+        "evidence_id": "e08_workflow_run_worker_offload_handler",
+        "source_stage_report": "docs/stage-reports/v0.2.115_e08_remaining_sidecar_slice_reselection.md",
         "status": "completed" if all(checks.values()) else "needs_attention",
         "checks": checks,
         "catalog_summary": {
@@ -244,33 +212,27 @@ def verify_contract() -> dict[str, Any]:
                 "not_full_sidecar_completion",
             )
         },
-        "scheduler_trigger_entry": entries["scheduler_trigger"],
+        "workflow_run_entry": entries["workflow_run"],
         "remaining_unavailable": remaining_unavailable,
-        "queued_event": queued_events[0],
-        "finished_task": finished_task.model_dump(mode="json"),
-        "workflow_run": {
-            "id": run.get("id"),
-            "status": run.get("status"),
-            "outputs": run.get("outputs"),
-        },
+        "worker_task": worker_task.model_dump(mode="json"),
+        "worker_created_run_task": run_task.model_dump(mode="json"),
+        "workflow_run": {"id": run.get("id"), "status": run.get("status"), "outputs": run.get("outputs")},
+        "api_run_task": api_task.model_dump(mode="json"),
         "heartbeats": heartbeats,
         "implementation_paths": [
-            "platform/backend/src/agent_platform/scheduler.py",
             "platform/backend/src/agent_platform/worker_runner.py",
-            "platform/backend/src/agent_platform/config.py",
-            "platform/backend/src/agent_platform/api.py",
-            "tests/test_v02_114_e08_scheduler_trigger_worker_offload_handler.py",
+            "tests/test_v02_116_e08_workflow_run_worker_offload_handler.py",
         ],
         "invariants": {
-            "default_scheduler_direct_path_preserved": True,
+            "api_workflow_run_path_preserved": True,
             "process_supervision_implemented": False,
             "distributed_queue_implemented": False,
             "e08_full_sidecar_completion_claimed": False,
             "workingon_is_not_task_source": True,
         },
         "next_boundary": (
-            "This closes the scheduler_trigger worker offload handler only. Full Platform Harness sidecar "
-            "completion still needs remaining worker-owned handlers and production worker supervision."
+            "This closes the workflow_run worker offload handler only. Full Platform Harness sidecar completion "
+            "still needs remaining worker-owned handlers and production worker supervision."
         ),
     }
 
@@ -288,11 +250,11 @@ def write_outputs(result: dict[str, Any], output_dir: Path = DEFAULT_OUTPUT_DIR)
     summary_path = output_dir / f"{OUTPUT_NAME}_summary.md"
     json_path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
     lines = [
-        "# v0.2.114 E08 scheduler_trigger worker offload handler",
+        "# v0.2.116 E08 workflow_run worker offload handler",
         "",
         f"- Raw evidence: `{relative(json_path)}`",
         f"- Status: `{result['status']}`",
-        f"- Scheduler trigger status: `{result['scheduler_trigger_entry']['status']}`",
+        f"- Workflow run status: `{result['workflow_run_entry']['status']}`",
         f"- Catalog full execution coverage: `{result['catalog_summary']['full_execution_coverage']}`",
         f"- E08 full sidecar completion claimed: `{result['invariants']['e08_full_sidecar_completion_claimed']}`",
         f"- Next boundary: {result['next_boundary']}",
@@ -305,10 +267,10 @@ def write_outputs(result: dict[str, Any], output_dir: Path = DEFAULT_OUTPUT_DIR)
     for name, value in result["checks"].items():
         lines.append(f"| `{name}` | `{value}` |")
     lines.extend(["", "## Worker Result", ""])
-    lines.append(f"- Task id: `{result['finished_task']['id']}`")
-    lines.append(f"- Task status: `{result['finished_task']['status']}`")
-    lines.append(f"- Run id: `{result['workflow_run']['id']}`")
-    lines.append(f"- Run status: `{result['workflow_run']['status']}`")
+    lines.append(f"- Worker task id: `{result['worker_task']['id']}`")
+    lines.append(f"- Worker task status: `{result['worker_task']['status']}`")
+    lines.append(f"- Created run id: `{result['workflow_run']['id']}`")
+    lines.append(f"- Created run status: `{result['workflow_run']['status']}`")
     lines.extend(["", "## Remaining Unavailable Worker Kinds", ""])
     for kind in result["remaining_unavailable"]:
         lines.append(f"- `{kind}`")

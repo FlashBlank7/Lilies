@@ -140,6 +140,7 @@
 - `stage-reports/v0.2.113_e08_remaining_sidecar_slice_reselection.md`
 - `stage-reports/v0.2.114_e08_scheduler_trigger_worker_offload_handler.md`
 - `stage-reports/v0.2.115_e08_remaining_sidecar_slice_reselection.md`
+- `stage-reports/v0.2.116_e08_workflow_run_worker_offload_handler.md`
 
 ## 使用原则
 

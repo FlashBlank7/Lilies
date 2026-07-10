@@ -22,8 +22,14 @@ class FakeScheduler:
         return {"run_id": "evidence-run", "status": "queued"}
 
 
+class FakeWorkflowRuntime:
+    async def create_run(self, *_: Any, **__: Any) -> dict[str, Any]:
+        return {"run_id": "evidence-workflow-run", "status": "queued", "version": 1, "draft_revision": None}
+
+
 class FakeServices:
     scheduler = FakeScheduler()
+    workflow_runtime = FakeWorkflowRuntime()
 
 
 def verify_contract() -> dict[str, Any]:
@@ -88,11 +94,17 @@ def verify_contract() -> dict[str, Any]:
             and entries["scheduler_manual_trigger"]["executable"] is True,
             "scheduler_trigger_implemented_by_v02_114": entries["scheduler_trigger"]["status"] == "implemented"
             and entries["scheduler_trigger"]["executable"] is True,
+            "workflow_run_implemented_by_v02_116": entries["workflow_run"]["status"] == "implemented"
+            and entries["workflow_run"]["executable"] is True,
             "unimplemented_kinds_are_deterministic_unavailable": all(
                 entries[kind]["status"] == "unavailable"
                 and entries[kind]["handler_registered"] is True
                 and entries[kind]["operator_action"]
-                for kind in set(PLATFORM_WORKER_TASK_KINDS) - {"scheduler_trigger", "scheduler_manual_trigger"}
+                for kind in set(PLATFORM_WORKER_TASK_KINDS) - {
+                    "workflow_run",
+                    "scheduler_trigger",
+                    "scheduler_manual_trigger",
+                }
             ),
             "unavailable_handler_fails_task_deterministically": len(results) == 1
             and results[0].status == "failed"
