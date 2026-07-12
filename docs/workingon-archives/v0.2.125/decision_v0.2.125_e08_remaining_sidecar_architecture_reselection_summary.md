@@ -32,6 +32,6 @@
 
 | Slice | Score | Evidence |
 | --- | ---: | --- |
-| `production_worker_supervision` | 92 | `docs/stage-reports/v0.2.112_e08_distributed_heartbeat_registry.md; docs/stage-reports/v0.2.124_e08_builder_build_worker_offload_handler.md` |
-| `distributed_queue_semantics` | 68 | `docs/stage-reports/v0.2.112_e08_distributed_heartbeat_registry.md; platform/backend/src/agent_platform/harness.py` |
-| `external_kms_provider_integration` | 49 | `docs/stage-reports/v0.2.108_e08_secret_kms_rotation_contract.md; platform/backend/src/agent_platform/harness.py` |
+| `production_worker_supervision` | 92 | `docs/stage-report-archives/v0.2.x/v0.2.112_e08_distributed_heartbeat_registry.md; docs/stage-report-archives/v0.2.x/v0.2.124_e08_builder_build_worker_offload_handler.md` |
+| `distributed_queue_semantics` | 68 | `docs/stage-report-archives/v0.2.x/v0.2.112_e08_distributed_heartbeat_registry.md; platform/backend/src/agent_platform/harness.py` |
+| `external_kms_provider_integration` | 49 | `docs/stage-report-archives/v0.2.x/v0.2.108_e08_secret_kms_rotation_contract.md; platform/backend/src/agent_platform/harness.py` |

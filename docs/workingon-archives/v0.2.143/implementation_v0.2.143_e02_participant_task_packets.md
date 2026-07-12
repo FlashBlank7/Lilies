@@ -4,7 +4,7 @@ Status: completed
 
 ## Source
 
-- Previous stage report: `docs/stage-reports/v0.2.142_e02_panel_result_validator_analyzer.md`
+- Previous stage report: `docs/stage-report-archives/v0.2.x/v0.2.142_e02_panel_result_validator_analyzer.md`
 - Selected next version: `v0.2.143_e02_participant_task_packets`
 
 ## Implemented

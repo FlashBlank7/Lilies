@@ -2,7 +2,7 @@
 
 ## Source
 
-- Source stage report: `docs/stage-reports/v0.2.122_e08_benchmark_worker_offload_handler.md`
+- Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.122_e08_benchmark_worker_offload_handler.md`
 - Source task: `Re-select remaining E08 sidecar slice`
 - Version: `v0.2.123_e08_remaining_sidecar_slice_reselection`
 

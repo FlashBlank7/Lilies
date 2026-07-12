@@ -9,7 +9,7 @@
     "product_value": 5,
     "closure_specificity": 5,
     "dependency_risk": 1,
-    "source": "docs/stage-reports/v0.2.66_e08_control_behavior_matrix.md",
+    "source": "docs/stage-report-archives/v0.2.x/v0.2.66_e08_control_behavior_matrix.md",
     "disposition": "selected",
     "next_version": "v0.2.68_e08_cancellation_budget_behavior",
     "first_design": "docs/current-design/design_e08_cancellation_budget_behavior.md"
@@ -23,7 +23,7 @@
       "product_value": 5,
       "closure_specificity": 5,
       "dependency_risk": 1,
-      "source": "docs/stage-reports/v0.2.66_e08_control_behavior_matrix.md",
+      "source": "docs/stage-report-archives/v0.2.x/v0.2.66_e08_control_behavior_matrix.md",
       "disposition": "selected",
       "next_version": "v0.2.68_e08_cancellation_budget_behavior",
       "first_design": "docs/current-design/design_e08_cancellation_budget_behavior.md"
@@ -36,7 +36,7 @@
       "product_value": 1,
       "closure_specificity": 4,
       "dependency_risk": 0,
-      "source": "docs/stage-reports/v0.2.66_e08_control_behavior_matrix.md",
+      "source": "docs/stage-report-archives/v0.2.x/v0.2.66_e08_control_behavior_matrix.md",
       "disposition": "rejected because E08 still has high-value backend-verifiable slices",
       "next_version": null,
       "first_design": null
@@ -49,7 +49,7 @@
       "product_value": 3,
       "closure_specificity": 3,
       "dependency_risk": 2,
-      "source": "docs/stage-reports/v0.2.66_e08_control_behavior_matrix.md",
+      "source": "docs/stage-report-archives/v0.2.x/v0.2.66_e08_control_behavior_matrix.md",
       "disposition": "deferred until next behavior slice is implemented",
       "next_version": "v0.2.x_e08_operator_runbook",
       "first_design": "docs/current-design/design_e08_operator_runbook.md"
@@ -62,7 +62,7 @@
       "product_value": 5,
       "closure_specificity": 3,
       "dependency_risk": 4,
-      "source": "docs/stage-reports/v0.2.65_e08_policy_controls_surface.md",
+      "source": "docs/stage-report-archives/v0.2.x/v0.2.65_e08_policy_controls_surface.md",
       "disposition": "deferred until read-only behavior evidence is stronger",
       "next_version": "v0.2.x_e08_editable_policy_controls",
       "first_design": "docs/current-design/design_e08_editable_policy_controls.md"

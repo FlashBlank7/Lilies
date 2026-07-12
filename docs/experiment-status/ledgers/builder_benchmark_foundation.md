@@ -16,7 +16,7 @@ v0.2.6-v0.2.9 形成了 Builder benchmark 的第一条实验驱动工程闭环�
 | 自洽 rerun summary | `../evidence/experiment_builder_test_self_consistency_rerun_2026_07_09_summary.md` |
 | 节点等价 recheck 报告 | `../reports/2026-07-09_benchmark_node_type_equivalence_recheck.docx` |
 | 节点等价 summary | `../evidence/experiment_benchmark_node_type_equivalence_recheck_2026_07_09_summary.md` |
-| Stage chain | `../../stage-reports/v0.2.6_paid_builder_benchmark_experiment.md` 到 `../../stage-reports/v0.2.9_benchmark_node_type_equivalence.md` |
+| Stage chain | `../stage-report-archives/v0.2.x/v0.2.6_paid_builder_benchmark_experiment.md` 到 `../stage-report-archives/v0.2.x/v0.2.9_benchmark_node_type_equivalence.md` |
 
 ## 工程应用
 

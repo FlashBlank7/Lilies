@@ -88,7 +88,7 @@ def execute_operator_opt_in_rollout() -> dict[str, Any]:
     return {
         "version": "v0.2.84",
         "rollout_id": "complexity_router_operator_opt_in_rollout",
-        "source_stage_report": "docs/stage-reports/v0.2.83_complexity_router_post_shadow_rollout_decision.md",
+        "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.83_complexity_router_post_shadow_rollout_decision.md",
         "source_rollout_plan": ROLLOUT_PLAN_PATH.relative_to(ROOT).as_posix(),
         "source_validation_plan": VALIDATION_PLAN_PATH.relative_to(ROOT).as_posix(),
         "source_decision": POST_SHADOW_DECISION_PATH.relative_to(ROOT).as_posix(),

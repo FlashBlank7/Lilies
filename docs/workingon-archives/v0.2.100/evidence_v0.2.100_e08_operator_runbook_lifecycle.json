@@ -1,6 +1,6 @@
 {
   "version": "v0.2.100",
-  "source_stage_report": "docs/stage-reports/v0.2.99_e08_post_studio_controls_decision.md",
+  "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.99_e08_post_studio_controls_decision.md",
   "runbook": "docs/operator-runbooks/e08_policy_controls_operator_runbook.md",
   "status": "passed",
   "missing_sections": [],

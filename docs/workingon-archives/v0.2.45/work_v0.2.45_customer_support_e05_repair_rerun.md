@@ -24,7 +24,7 @@ Excluded:
 
 ## 3. Full Task Set Disposition
 
-Source stage report: `docs/stage-reports/v0.2.44_customer_support_template_reuse_repair.md`
+Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.44_customer_support_template_reuse_repair.md`
 
 | Next-stage task | Disposition | Current-version design(s) | Reason |
 | --- | --- | --- | --- |

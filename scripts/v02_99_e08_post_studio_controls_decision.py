@@ -71,7 +71,7 @@ def candidates() -> list[PostStudioCandidate]:
             verification_readiness=40,
             scope_risk=5,
             evidence=[
-                "docs/stage-reports/v0.2.98_e08_studio_editable_policy_controls.md",
+                "docs/stage-report-archives/v0.2.x/v0.2.98_e08_studio_editable_policy_controls.md",
             ],
             disposition="reject for now because operator runbook is the natural closure after an operator surface",
             next_version="v0.2.x_productization_lane_reselection",
@@ -87,7 +87,7 @@ def select_candidate(items: list[PostStudioCandidate] | None = None) -> dict[str
     return {
         "version": "v0.2.99",
         "decision_id": "e08_post_studio_controls_decision",
-        "source_stage_report": "docs/stage-reports/v0.2.98_e08_studio_editable_policy_controls.md",
+        "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.98_e08_studio_editable_policy_controls.md",
         "status": "completed",
         "decision": "select_operator_runbook_lifecycle",
         "selected_candidate": asdict(winner) | {"score": winner.score},

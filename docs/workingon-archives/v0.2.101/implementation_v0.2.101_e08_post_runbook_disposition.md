@@ -2,7 +2,7 @@
 
 ## Summary
 
-v0.2.101 selected the post-runbook E08 disposition from `docs/stage-reports/v0.2.100_e08_operator_runbook_lifecycle.md`.
+v0.2.101 selected the post-runbook E08 disposition from `docs/stage-report-archives/v0.2.x/v0.2.100_e08_operator_runbook_lifecycle.md`.
 
 Decision: pause the current E08 tranche and perform productization lane reselection in v0.2.102.
 

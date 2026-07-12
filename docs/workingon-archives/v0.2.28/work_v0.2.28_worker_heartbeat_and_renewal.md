@@ -8,7 +8,7 @@ This version does not claim full distributed queue semantics. It closes the imme
 
 ## 2. Full Task Set Disposition
 
-Source stage report: `docs/stage-reports/v0.2.27_worker_runner_cli_and_handler.md`
+Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.27_worker_runner_cli_and_handler.md`
 
 | Next-stage task | Disposition | Current-version design(s) | Reason |
 | --- | --- | --- | --- |

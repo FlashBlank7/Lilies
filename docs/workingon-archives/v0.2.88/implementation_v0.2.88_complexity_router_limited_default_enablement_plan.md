@@ -2,7 +2,7 @@
 
 ## Scope
 
-- Source stage report: `docs/stage-reports/v0.2.87_complexity_router_default_enablement_review_decision.md`
+- Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.87_complexity_router_default_enablement_review_decision.md`
 - Source task: `Create complexity-router limited default enablement plan`
 - Version: `v0.2.88_complexity_router_limited_default_enablement_plan`
 

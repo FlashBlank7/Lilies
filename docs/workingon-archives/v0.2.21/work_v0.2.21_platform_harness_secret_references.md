@@ -15,7 +15,7 @@ This version must provide a safe path for legitimate secret use without weakenin
 
 ## 2. Full Task Set Disposition
 
-Source stage report: `docs/stage-reports/v0.2.20_platform_harness_worker_lease.md`
+Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.20_platform_harness_worker_lease.md`
 
 | Next-stage task | Disposition | Current-version design(s) | Reason |
 | --- | --- | --- | --- |

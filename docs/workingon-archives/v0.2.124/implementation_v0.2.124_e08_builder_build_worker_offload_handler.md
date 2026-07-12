@@ -2,7 +2,7 @@
 
 ## Source
 
-- Source stage report: `docs/stage-reports/v0.2.123_e08_remaining_sidecar_slice_reselection.md`
+- Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.123_e08_remaining_sidecar_slice_reselection.md`
 - Source task: `Implement builder_build worker offload handler`
 - Version: `v0.2.124_e08_builder_build_worker_offload_handler`
 

@@ -2,7 +2,7 @@
 
 ## Source
 
-- Source stage report: `docs/stage-reports/v0.2.67_e08_full_boundary_gap_selection.md`
+- Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.67_e08_full_boundary_gap_selection.md`
 - Source stage task: `Implement E08 cancellation/budget behavior evidence`; `Restore executable frontend verification when Node is available`; `Preserve complexity-router guarded rollout`
 - Current design: `docs/current-design/design_e08_cancellation_budget_behavior.md`; `docs/current-design/design_v0_2_68_deferred_lanes_and_frontend_blocker.md`
 

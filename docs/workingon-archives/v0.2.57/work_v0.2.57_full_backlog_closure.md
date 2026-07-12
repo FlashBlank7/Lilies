@@ -6,7 +6,7 @@ Turn the latest `Decide next backlog lane` handoff into a concrete backlog closu
 
 ## Source
 
-- Stage report: `docs/stage-reports/v0.2.56_adaptive_long_term_monitoring.md`
+- Stage report: `docs/stage-report-archives/v0.2.x/v0.2.56_adaptive_long_term_monitoring.md`
 - Existing draft evidence: `docs/experiment-status/evidence/experiment_v0.2.57_full_backlog_closure_2026_07_10_summary.md`
 - Version: `v0.2.57`
 

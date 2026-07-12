@@ -6,7 +6,7 @@ Close the first live-validation slice after `v0.2.48`: canonicalize the `adaptiv
 
 ## Source
 
-- Stage report: `docs/stage-reports/v0.2.48_adaptive_reuse_depth_policy.md`
+- Stage report: `docs/stage-report-archives/v0.2.x/v0.2.48_adaptive_reuse_depth_policy.md`
 - Version: `v0.2.49`
 
 ## Full Task Set

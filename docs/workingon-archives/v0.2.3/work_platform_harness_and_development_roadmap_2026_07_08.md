@@ -14,8 +14,8 @@
 - `docs/intellectual-assets/asset_platform_harness_task_monitor_boundary.md`
 - `docs/intellectual-assets/asset_harness_llm_composite.md`
 - `docs/source-materials/2026-07_initial_architecture_research/Lilies_竞品研究论文与未来方向报告.docx`
-- `docs/stage-reports/v0.2.1_docs_consolidation_and_asset_baseline.md`
-- `docs/stage-reports/v0.2.2_apply_lilies_inspiration_notes.md`
+- `docs/stage-report-archives/v0.2.x/v0.2.1_docs_consolidation_and_asset_baseline.md`
+- `docs/stage-report-archives/v0.2.x/v0.2.2_apply_lilies_inspiration_notes.md`
 
 ## 3. Functional Task Extraction
 

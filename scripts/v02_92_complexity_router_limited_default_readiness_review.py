@@ -100,7 +100,7 @@ def evaluate_readiness(metrics_evidence: dict[str, Any], frontend: dict[str, Any
     return {
         "version": "v0.2.92",
         "decision_id": "complexity_router_limited_default_readiness_review",
-        "source_stage_report": "docs/stage-reports/v0.2.91_complexity_router_runtime_activation_observability.md",
+        "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.91_complexity_router_runtime_activation_observability.md",
         "status": "completed",
         "normal_default_settings": "disabled",
         "readiness_gates": readiness_gates,

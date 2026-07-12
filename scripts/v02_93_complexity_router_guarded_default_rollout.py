@@ -148,7 +148,7 @@ def build_evidence() -> dict[str, Any]:
     return {
         "version": "v0.2.93",
         "rollout_id": "complexity_router_guarded_default_rollout",
-        "source_stage_report": "docs/stage-reports/v0.2.92_complexity_router_limited_default_readiness_review.md",
+        "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.92_complexity_router_limited_default_readiness_review.md",
         "status": "completed" if all(checks.values()) else "failed",
         "checks": checks,
         "default_settings": {

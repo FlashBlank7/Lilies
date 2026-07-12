@@ -1,6 +1,6 @@
 # v0.2.137 E10 Governed Memory Surface Contract Implementation
 
-Source stage report: `docs/stage-reports/v0.2.136_e10_governed_memory_boundary_definition.md`
+Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.136_e10_governed_memory_boundary_definition.md`
 
 ## Completed
 

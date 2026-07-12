@@ -70,7 +70,7 @@ def select_resolution(items: list[BlockedResolutionCandidate] | None = None) -> 
     return {
         "version": "v0.2.135",
         "decision_id": "blocked_experiment_resolution_selection_after_global_audit",
-        "source_stage_report": "docs/stage-reports/v0.2.134_global_experiment_productization_completion_audit.md",
+        "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.134_global_experiment_productization_completion_audit.md",
         "status": "completed",
         "candidates": [item.to_json() for item in ranked],
         "selected": selected.to_json(),

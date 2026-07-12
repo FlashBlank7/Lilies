@@ -53,7 +53,7 @@ def build_contract_evidence() -> dict[str, Any]:
     return {
         "version": "v0.2.89",
         "contract_id": "complexity_router_limited_default_enablement_contract",
-        "source_stage_report": "docs/stage-reports/v0.2.88_complexity_router_limited_default_enablement_plan.md",
+        "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.88_complexity_router_limited_default_enablement_plan.md",
         "status": "completed" if passed else "failed",
         "default_settings_status": disabled_status,
         "explicit_limited_default_status": enabled_status,

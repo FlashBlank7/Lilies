@@ -23,7 +23,7 @@
 
 | Slice | Score | Evidence |
 | --- | ---: | --- |
-| `distributed_heartbeat_registry` | 83 | `docs/stage-reports/v0.2.28_worker_heartbeat_and_renewal.md` |
-| `real_worker_offload_handlers` | 59 | `docs/stage-reports/v0.2.110_e08_complete_handler_catalog.md` |
+| `distributed_heartbeat_registry` | 83 | `docs/stage-report-archives/v0.2.x/v0.2.28_worker_heartbeat_and_renewal.md` |
+| `real_worker_offload_handlers` | 59 | `docs/stage-report-archives/v0.2.x/v0.2.110_e08_complete_handler_catalog.md` |
 | `long_running_sidecar_operations_beyond_policy_controls` | 49 | `docs/operator-runbooks/e08_policy_controls_operator_runbook.md` |
-| `external_kms_provider_integration` | 43 | `docs/stage-reports/v0.2.108_e08_secret_kms_rotation_contract.md` |
+| `external_kms_provider_integration` | 43 | `docs/stage-report-archives/v0.2.x/v0.2.108_e08_secret_kms_rotation_contract.md` |

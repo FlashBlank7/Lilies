@@ -6,7 +6,7 @@ Close the next E05 breadth gap after `v0.2.50`: run a second bounded adaptive li
 
 ## Source
 
-- Stage report: `docs/stage-reports/v0.2.50_builder_deadline_visibility.md`
+- Stage report: `docs/stage-report-archives/v0.2.x/v0.2.50_builder_deadline_visibility.md`
 - Version: `v0.2.51`
 
 ## Full Task Set

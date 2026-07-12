@@ -2,7 +2,7 @@
 
 ## Summary
 
-v0.2.98 implemented the Studio editable policy-controls slice selected by `docs/stage-reports/v0.2.97_e08_post_api_productization_decision.md`.
+v0.2.98 implemented the Studio editable policy-controls slice selected by `docs/stage-report-archives/v0.2.x/v0.2.97_e08_post_api_productization_decision.md`.
 
 ## What changed
 

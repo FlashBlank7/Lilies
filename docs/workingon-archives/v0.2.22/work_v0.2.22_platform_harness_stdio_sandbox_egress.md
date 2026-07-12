@@ -8,7 +8,7 @@ This version closes a concrete bypass: stdio MCP servers do not declare hostname
 
 ## 2. Full Task Set Disposition
 
-Source stage report: `docs/stage-reports/v0.2.21_platform_harness_secret_references.md`
+Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.21_platform_harness_secret_references.md`
 
 | Next-stage task | Disposition | Current-version design(s) | Reason |
 | --- | --- | --- | --- |

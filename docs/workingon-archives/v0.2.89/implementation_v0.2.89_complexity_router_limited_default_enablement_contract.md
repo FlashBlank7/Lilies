@@ -2,7 +2,7 @@
 
 ## Source
 
-- Source stage report: `docs/stage-reports/v0.2.88_complexity_router_limited_default_enablement_plan.md`
+- Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.88_complexity_router_limited_default_enablement_plan.md`
 - Source tasks:
   - Implement complexity-router limited default enablement contract
   - Preserve default-disabled status

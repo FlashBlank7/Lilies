@@ -2,7 +2,7 @@
 
 ## Source
 
-- Source stage report: `docs/stage-reports/v0.2.64_productization_lane_reselection.md`
+- Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.64_productization_lane_reselection.md`
 - Source stage task: `Implement E08 policy controls surface`; `Define E08 boundary language for soft passmode vs Platform Harness hard boundary`; `Preserve complexity-router guarded rollout`
 - Current design: `docs/current-design/design_e08_policy_controls_api_contract.md`; `docs/current-design/design_e08_policy_controls_studio_surface.md`; `docs/current-design/design_e08_boundary_language_and_complexity_preservation.md`
 

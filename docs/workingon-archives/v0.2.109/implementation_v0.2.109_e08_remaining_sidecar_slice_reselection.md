@@ -2,7 +2,7 @@
 
 ## Source
 
-- Source stage report: `docs/stage-reports/v0.2.108_e08_secret_kms_rotation_contract.md`
+- Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.108_e08_secret_kms_rotation_contract.md`
 - Source task set: re-select remaining E08 sidecar slice; preserve completed secret rotation evidence; preserve full-sidecar boundary; maintain executable verification discipline.
 
 ## Completed

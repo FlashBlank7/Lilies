@@ -39,7 +39,7 @@ def build_limited_default_enablement_plan() -> dict[str, Any]:
     return {
         "version": "v0.2.88",
         "plan_id": "complexity_router_limited_default_enablement_plan",
-        "source_stage_report": "docs/stage-reports/v0.2.87_complexity_router_default_enablement_review_decision.md",
+        "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.87_complexity_router_default_enablement_review_decision.md",
         "source_default_review_decision": DEFAULT_REVIEW_DECISION_PATH.relative_to(ROOT).as_posix(),
         "implementation_in_this_version": False,
         "default_enabled": safety["default_enabled"],

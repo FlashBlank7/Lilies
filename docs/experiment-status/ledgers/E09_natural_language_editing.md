@@ -10,7 +10,7 @@
 
 | 项目 | 路径 |
 | --- | --- |
-| UI/后端前置 stage | `../../stage-reports/v0.2.19_full_task_set_product_visibility.md` |
+| UI/后端前置 stage | `../stage-report-archives/v0.2.x/v0.2.19_full_task_set_product_visibility.md` |
 | v0.2.57 closure fixture | `../evidence/experiment_v0.2.57_full_backlog_closure_2026_07_10_summary.md` |
 
 ## 下一步

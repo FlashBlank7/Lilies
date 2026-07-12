@@ -7,7 +7,7 @@ Convert the user's automatic-evolution clarification into a persistent Lilies pr
 ## Source
 
 - User instruction: `自动演进到意思是直到我说停，不要停下，调整skill已达成目标`
-- Previous stage report: `docs/stage-reports/v0.2.57_full_backlog_closure.md`
+- Previous stage report: `docs/stage-report-archives/v0.2.x/v0.2.57_full_backlog_closure.md`
 - Version: `v0.2.58`
 
 ## Full Task Set

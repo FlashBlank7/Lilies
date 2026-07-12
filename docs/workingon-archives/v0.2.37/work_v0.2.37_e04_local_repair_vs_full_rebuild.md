@@ -8,7 +8,7 @@ The stage should answer a narrow question: when a BlockFlow is already mostly co
 
 ## Source Task Set Disposition
 
-Source: `docs/stage-reports/v0.2.36_e02_readable_testframe_human_review.md`
+Source: `docs/stage-report-archives/v0.2.x/v0.2.36_e02_readable_testframe_human_review.md`
 
 | Prior next-stage task | v0.2.37 disposition | Reason |
 | --- | --- | --- |

@@ -6,7 +6,7 @@ Turn build deadline from a mostly internal experiment/control field into a user-
 
 ## Source
 
-- Stage report: `docs/stage-reports/v0.2.49_adaptive_policy_live_validation.md`
+- Stage report: `docs/stage-report-archives/v0.2.x/v0.2.49_adaptive_policy_live_validation.md`
 - Version: `v0.2.50`
 
 ## Full Task Set

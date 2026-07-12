@@ -5,7 +5,7 @@
 这些文件是 source materials，不是当前最精炼的团队规范。后续设计应优先引用：
 
 - `docs/PROJECT_EVOLUTION_STRATEGY.md`
-- `docs/stage-reports/v0.2.1_docs_consolidation_and_asset_baseline.md`
+- `docs/stage-report-archives/v0.2.x/v0.2.1_docs_consolidation_and_asset_baseline.md`
 - `docs/intellectual-assets/asset_blockflow_language_system.md`
 - `docs/intellectual-assets/asset_platform_harness_task_monitor_boundary.md`
 - `docs/intellectual-assets/asset_harness_llm_composite.md`

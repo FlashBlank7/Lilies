@@ -15,8 +15,8 @@ v0.2.133 audit 结论为 `claim_e08_full_sidecar_completion`：18 个 required s
 | 工程证据审查报告 | `../reports/2026-07-09_1809_E08_harness_sidecar_passmode_evidence_review.docx` |
 | 首轮 deterministic 对照报告 | `../reports/2026-07-10_0755_E08_harness_sidecar_passmode_comparison.docx` |
 | 首轮 raw evidence | `../evidence/experiment_v0.2.55_e08_sidecar_passmode_2026_07_10_summary.md` |
-| 相关 stage chain | `../../stage-reports/v0.2.3_platform_harness_and_development_roadmap.md` 到 `../../stage-reports/v0.2.28_worker_heartbeat_and_renewal.md` |
-| 最新 timeout/build-deadline 应用 | `../../stage-reports/v0.2.40_builder_provider_timeout_boundary.md`、`../../stage-reports/v0.2.42_builder_build_level_watchdog.md` |
+| 相关 stage chain | `../stage-report-archives/v0.2.x/v0.2.3_platform_harness_and_development_roadmap.md` 到 `../stage-report-archives/v0.2.x/v0.2.28_worker_heartbeat_and_renewal.md` |
+| 最新 timeout/build-deadline 应用 | `../stage-report-archives/v0.2.x/v0.2.40_builder_provider_timeout_boundary.md`、`../stage-report-archives/v0.2.x/v0.2.42_builder_build_level_watchdog.md` |
 
 ## 边界
 

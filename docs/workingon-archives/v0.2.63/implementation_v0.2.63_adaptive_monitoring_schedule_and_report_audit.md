@@ -2,7 +2,7 @@
 
 ## Source
 
-- Source stage report: `docs/stage-reports/v0.2.62_evolution_process_architecture.md`
+- Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.62_evolution_process_architecture.md`
 - Source stage task: `Add scheduled adaptive drift check hook`; `Audit recent stage reports for template migration need`
 - Current design: `docs/current-design/design_adaptive_monitoring_scheduled_hook.md`; `docs/current-design/design_stage_report_template_migration_audit.md`
 

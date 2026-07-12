@@ -2,7 +2,7 @@
 
 ## Source
 
-- Source stage report: `docs/stage-reports/v0.2.130_e08_external_process_manager.md`
+- Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.130_e08_external_process_manager.md`
 - Version: `v0.2.131_e08_remaining_sidecar_architecture_reselection`
 
 ## Completed Work

@@ -6,7 +6,7 @@ Add a minimal monitoring/reporting slice for adaptive Template policy after E05 
 
 ## Source
 
-- Stage report: `docs/stage-reports/v0.2.55_e08_harness_sidecar_passmode.md`
+- Stage report: `docs/stage-report-archives/v0.2.x/v0.2.55_e08_harness_sidecar_passmode.md`
 - Version: `v0.2.56`
 
 ## Full Task Set

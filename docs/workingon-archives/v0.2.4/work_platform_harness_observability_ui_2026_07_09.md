@@ -71,7 +71,7 @@ Skipped / bounded verification:
 
 ## 7. Archive Conditions
 
-- Create `docs/stage-reports/v0.2.4_platform_harness_observability_ui.md`.
+- Create `docs/stage-report-archives/v0.2.x/v0.2.4_platform_harness_observability_ui.md`.
 - Copy current design to `docs/historical-designs/v0.2.4_design_platform_harness_observability_ui_v1.md`.
 - Auto commit after verification.
 
@@ -80,5 +80,5 @@ Skipped / bounded verification:
 - Automatic Evolution Mode active: yes
 - Current version: `v0.2.4`
 - Archive automatically after verification: yes
-- Next version selection source: `docs/stage-reports/v0.2.3_platform_harness_and_development_roadmap.md`
+- Next version selection source: `docs/stage-report-archives/v0.2.x/v0.2.3_platform_harness_and_development_roadmap.md`
 - Continue after archive: inspect the generated `v0.2.4` next-stage pool

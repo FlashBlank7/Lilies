@@ -1,7 +1,7 @@
 {
   "version": "v0.2.101",
   "decision_id": "e08_post_runbook_disposition",
-  "source_stage_report": "docs/stage-reports/v0.2.100_e08_operator_runbook_lifecycle.md",
+  "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.100_e08_operator_runbook_lifecycle.md",
   "status": "completed",
   "decision": "pause_e08_and_reselect_productization_lane",
   "selected_disposition": {
@@ -50,7 +50,7 @@
       "scope_risk": 25,
       "false_completion_risk": 20,
       "evidence": [
-        "docs/stage-reports/v0.2.100_e08_operator_runbook_lifecycle.md"
+        "docs/stage-report-archives/v0.2.x/v0.2.100_e08_operator_runbook_lifecycle.md"
       ],
       "disposition": "reject because small E08 followups would blur the current tranche boundary without addressing full closure",
       "next_version": "v0.2.x_e08_small_followup",

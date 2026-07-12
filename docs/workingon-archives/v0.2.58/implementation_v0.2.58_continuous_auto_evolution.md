@@ -17,7 +17,7 @@ Persist the clarified automatic-evolution rule: continue until the user explicit
 | --- | --- | --- |
 | Continuous-loop language present | passed | `rg -n "until the user explicitly says|no meaningful single next task|selection or meta-planning|no valid next-stage source|previous 5 versions" skills/lilies-evolution-development/SKILL.md skills/lilies-evolution-development/references/operating-gates.md` |
 | Active design/workingon created | passed | `git status --short` |
-| Latest handoff source read | passed | `docs/stage-reports/v0.2.57_full_backlog_closure.md` |
+| Latest handoff source read | passed | `docs/stage-report-archives/v0.2.x/v0.2.57_full_backlog_closure.md` |
 
 ## Evidence Lines
 

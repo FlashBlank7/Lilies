@@ -11,8 +11,8 @@
 | 切片 | 标记 | 报告 | 默认摘要 |
 | --- | --- | --- | --- |
 | paid baseline | 已应用窄修复 | `../reports/2026-07-09_1809_E01_plan_first_paid_builder_baseline.docx` | `../evidence/experiment_v0.2.29_paid_builder_tranche_2026_07_09_summary.md` |
-| terminal-node repair | 已应用 | `../../stage-reports/v0.2.30_builder_terminal_node_repair.md` | `../evidence/experiment_v0.2.30_terminal_node_recheck_2026_07_09_summary.md` |
-| repair confirmation | 已应用 | `../../stage-reports/v0.2.31_builder_repair_confirmation.md` | `../evidence/experiment_v0.2.31_paid_builder_repair_confirmation_2026_07_09_summary.md` |
+| terminal-node repair | 已应用 | `../stage-report-archives/v0.2.x/v0.2.30_builder_terminal_node_repair.md` | `../evidence/experiment_v0.2.30_terminal_node_recheck_2026_07_09_summary.md` |
+| repair confirmation | 已应用 | `../stage-report-archives/v0.2.x/v0.2.31_builder_repair_confirmation.md` | `../evidence/experiment_v0.2.31_paid_builder_repair_confirmation_2026_07_09_summary.md` |
 | smoke A/B | 第一批完成 | `../reports/2026-07-09_1834_E01_plan_first_vs_node_by_node_ab.docx` | `../evidence/experiment_v0.2.32_e01_plan_first_required_2026_07_09_summary.md` |
 | complex A/B | 完成但未应用 | `../reports/2026-07-09_1956_E01_complex_plan_first_vs_node_by_node_ab.docx` | `../evidence/experiment_v0.2.33_e01_complex_required_2026_07_09_summary.md` |
 | repair budget | 验证应用 | `../reports/2026-07-09_1910_E01_required_repair_budget_rerun.docx` | `../evidence/experiment_v0.2.34_e01_complex_required_repair_budget_retry_2026_07_09_summary.md` |

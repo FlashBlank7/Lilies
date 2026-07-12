@@ -37,7 +37,7 @@ def generate_evidence() -> dict[str, Any]:
     ]
     return {
         "version": "v0.2.98",
-        "source_stage_report": "docs/stage-reports/v0.2.97_e08_post_api_productization_decision.md",
+        "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.97_e08_post_api_productization_decision.md",
         "status": "completed",
         "studio_page": page_path.relative_to(ROOT).as_posix(),
         "type_contract": platform_path.relative_to(ROOT).as_posix(),

@@ -29,10 +29,10 @@ Lilies 需要把所有“会消耗资源、可能长时间运行、可能递归�
 - `docs/source-materials/2026-07_initial_architecture_research/DESIGN_RATIONALE.md`
 - `docs/source-materials/2026-07_initial_architecture_research/MEETING_RESPONSE.md`
 - `docs/source-materials/2026-07_initial_architecture_research/BUSINESS_LOGIC.md`
-- `docs/stage-reports/v0.2.10_platform_harness_durable_storage.md`
-- `docs/stage-reports/v0.2.11_platform_harness_owner_budget.md`
-- `docs/stage-reports/v0.2.12_platform_harness_stale_task_reconciliation.md`
-- `docs/stage-reports/v0.2.13_builder_benchmark_history.md`
+- `docs/stage-report-archives/v0.2.x/v0.2.10_platform_harness_durable_storage.md`
+- `docs/stage-report-archives/v0.2.x/v0.2.11_platform_harness_owner_budget.md`
+- `docs/stage-report-archives/v0.2.x/v0.2.12_platform_harness_stale_task_reconciliation.md`
+- `docs/stage-report-archives/v0.2.x/v0.2.13_builder_benchmark_history.md`
 
 主要代码锚点：
 

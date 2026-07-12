@@ -2,7 +2,7 @@
 
 ## Scope
 
-- Source stage report: `docs/stage-reports/v0.2.86_frontend_verification_environment_repair.md`
+- Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.86_frontend_verification_environment_repair.md`
 - Source task: `Decide complexity-router default enablement review`
 - Version: `v0.2.87_complexity_router_default_enablement_review_decision`
 

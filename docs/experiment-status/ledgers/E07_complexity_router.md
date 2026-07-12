@@ -16,7 +16,7 @@ v0.2.70-v0.2.74 productization guardrails 已完成：default-safety gate、requ
 
 证据：
 
-- `../../stage-reports/v0.2.74_complexity_router_rollout_metrics_prerequisites.md`
+- `../stage-report-archives/v0.2.x/v0.2.74_complexity_router_rollout_metrics_prerequisites.md`
 - `../../workingon-archives/v0.2.74/metrics_v0.2.74_complexity_router_summary.md`
 
 v0.2.78 bounded live validation 已完成：三条 v0.2.76 validation cases（simple / medium / complex）均由 DeepSeek live provider 分类通过，`default_enabled=false` 保持不变。

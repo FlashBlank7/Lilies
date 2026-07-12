@@ -93,7 +93,7 @@ def verify_contract() -> dict[str, Any]:
     return {
         "version": "v0.2.106",
         "evidence_id": "e08_stdio_container_egress_allowlist_contract",
-        "source_stage_report": "docs/stage-reports/v0.2.105_e08_broader_sidecar_scope_decomposition.md",
+        "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.105_e08_broader_sidecar_scope_decomposition.md",
         "status": "completed" if all(checks.values()) else "needs_attention",
         "checks": checks,
         "decisions": {
@@ -112,8 +112,8 @@ def verify_contract() -> dict[str, Any]:
             "tests/test_workflow.py",
         ],
         "existing_evidence_preserved": [
-            "docs/stage-reports/v0.2.22_platform_harness_stdio_sandbox_egress.md",
-            "docs/stage-reports/v0.2.24_platform_harness_stdio_policy_controls.md",
+            "docs/stage-report-archives/v0.2.x/v0.2.22_platform_harness_stdio_sandbox_egress.md",
+            "docs/stage-report-archives/v0.2.x/v0.2.24_platform_harness_stdio_policy_controls.md",
         ],
         "invariants": {
             "e08_full_sidecar_completion_claimed": False,

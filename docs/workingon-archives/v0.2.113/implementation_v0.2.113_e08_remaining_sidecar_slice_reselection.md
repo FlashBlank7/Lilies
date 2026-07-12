@@ -2,7 +2,7 @@
 
 ## Source
 
-- Source stage report: `docs/stage-reports/v0.2.112_e08_distributed_heartbeat_registry.md`
+- Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.112_e08_distributed_heartbeat_registry.md`
 - Source task set: re-select remaining E08 sidecar slice; preserve completed heartbeat registry evidence; preserve full-sidecar boundary; maintain executable verification discipline.
 
 ## Completed

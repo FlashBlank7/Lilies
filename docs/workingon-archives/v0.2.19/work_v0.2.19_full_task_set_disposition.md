@@ -30,7 +30,7 @@ Those items are carried forward with explicit disposition below.
 
 ## 3. Full Task Set Disposition
 
-Source stage report: `docs/stage-reports/v0.2.18_evolution_governance_and_workspace_archive.md`
+Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.18_evolution_governance_and_workspace_archive.md`
 
 | Next-stage task | Disposition | Current-version design(s) | Reason |
 | --- | --- | --- | --- |
@@ -113,5 +113,5 @@ All next-stage tasks listed: yes.
 - Automatic Evolution Mode active: yes.
 - Current version: `v0.2.19`.
 - Archive automatically after verification: yes.
-- Next version selection source: `docs/stage-reports/v0.2.19_*`.
+- Next version selection source: `docs/stage-report-archives/v0.2.x/v0.2.19_*`.
 - Continue after archive: yes, unless blocked by missing services, material cost, or user interruption.

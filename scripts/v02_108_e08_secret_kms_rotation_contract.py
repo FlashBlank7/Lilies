@@ -169,7 +169,7 @@ def verify_contract() -> dict[str, Any]:
     return {
         "version": "v0.2.108",
         "evidence_id": "e08_secret_kms_rotation_contract",
-        "source_stage_report": "docs/stage-reports/v0.2.107_e08_remaining_sidecar_slice_reselection.md",
+        "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.107_e08_remaining_sidecar_slice_reselection.md",
         "status": "completed" if all(checks.values()) else "needs_attention",
         "checks": checks,
         "public_modes": {
@@ -180,8 +180,8 @@ def verify_contract() -> dict[str, Any]:
         },
         "policy_secret_storage": policy_secret_storage,
         "existing_evidence_preserved": [
-            "docs/stage-reports/v0.2.15_platform_harness_secret_policy.md",
-            "docs/stage-reports/v0.2.25_platform_harness_secret_envelope.md",
+            "docs/stage-report-archives/v0.2.x/v0.2.15_platform_harness_secret_policy.md",
+            "docs/stage-report-archives/v0.2.x/v0.2.25_platform_harness_secret_envelope.md",
         ],
         "implementation_paths": [
             "platform/backend/src/agent_platform/config.py",

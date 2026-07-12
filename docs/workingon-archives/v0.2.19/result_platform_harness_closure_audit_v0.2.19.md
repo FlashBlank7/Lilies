@@ -10,16 +10,16 @@ Conclusion: Platform Harness is not complete. Lilies has a useful durable monito
 
 | Slice | Evidence | Closure Level |
 | --- | --- | --- |
-| Task monitor registration and usage counters | `platform/backend/src/agent_platform/platform_harness.py`; `docs/stage-reports/v0.2.3_platform_harness_and_development_roadmap.md` | backend/platform policy slice |
-| Durable task records | `docs/stage-reports/v0.2.10_platform_harness_durable_storage.md` | durable monitor baseline |
-| Owner-level budget counters | `docs/stage-reports/v0.2.11_platform_harness_owner_budget.md` | backend policy slice |
-| Stale active task reconciliation | `docs/stage-reports/v0.2.12_platform_harness_stale_task_reconciliation.md` | backend operational slice |
-| Benchmark history retrieval | `docs/stage-reports/v0.2.13_builder_benchmark_history.md` | backend visibility slice |
-| Secret field blocking | `docs/stage-reports/v0.2.15_platform_harness_secret_policy.md` | backend policy slice |
-| HTTP/network egress allowlist/blocking | `docs/stage-reports/v0.2.16_platform_harness_network_egress_policy.md` | backend policy slice |
-| Tool-level WebSearch/HTTP MCP egress checks | `docs/stage-reports/v0.2.17_platform_harness_tool_egress_policy.md` | backend policy slice |
-| Studio task monitor visibility | `docs/stage-reports/v0.2.4_platform_harness_observability_ui.md` | vertical visibility slice |
-| Natural-language patch preview task boundary | `docs/stage-reports/v0.2.3_platform_harness_and_development_roadmap.md`; v0.2.19 UI | vertical product slice |
+| Task monitor registration and usage counters | `platform/backend/src/agent_platform/platform_harness.py`; `docs/stage-report-archives/v0.2.x/v0.2.3_platform_harness_and_development_roadmap.md` | backend/platform policy slice |
+| Durable task records | `docs/stage-report-archives/v0.2.x/v0.2.10_platform_harness_durable_storage.md` | durable monitor baseline |
+| Owner-level budget counters | `docs/stage-report-archives/v0.2.x/v0.2.11_platform_harness_owner_budget.md` | backend policy slice |
+| Stale active task reconciliation | `docs/stage-report-archives/v0.2.x/v0.2.12_platform_harness_stale_task_reconciliation.md` | backend operational slice |
+| Benchmark history retrieval | `docs/stage-report-archives/v0.2.x/v0.2.13_builder_benchmark_history.md` | backend visibility slice |
+| Secret field blocking | `docs/stage-report-archives/v0.2.x/v0.2.15_platform_harness_secret_policy.md` | backend policy slice |
+| HTTP/network egress allowlist/blocking | `docs/stage-report-archives/v0.2.x/v0.2.16_platform_harness_network_egress_policy.md` | backend policy slice |
+| Tool-level WebSearch/HTTP MCP egress checks | `docs/stage-report-archives/v0.2.x/v0.2.17_platform_harness_tool_egress_policy.md` | backend policy slice |
+| Studio task monitor visibility | `docs/stage-report-archives/v0.2.x/v0.2.4_platform_harness_observability_ui.md` | vertical visibility slice |
+| Natural-language patch preview task boundary | `docs/stage-report-archives/v0.2.x/v0.2.3_platform_harness_and_development_roadmap.md`; v0.2.19 UI | vertical product slice |
 
 ## 3. Missing Hard-boundary Work
 
@@ -47,7 +47,7 @@ Do not write "Platform Harness is complete" in later stage reports until enforce
 Future Platform Harness stages should cite:
 
 - `docs/intellectual-assets/asset_platform_harness_task_monitor_boundary.md`
-- `docs/stage-reports/v0.2.18_evolution_governance_and_workspace_archive.md`
+- `docs/stage-report-archives/v0.2.x/v0.2.18_evolution_governance_and_workspace_archive.md`
 - this audit file after archive: `docs/workingon-archives/v0.2.19/result_platform_harness_closure_audit_v0.2.19.md`
 
 ## 6. No Next-stage Authority

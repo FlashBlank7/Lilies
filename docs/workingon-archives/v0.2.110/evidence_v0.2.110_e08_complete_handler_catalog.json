@@ -1,7 +1,7 @@
 {
   "version": "v0.2.110",
   "evidence_id": "e08_complete_handler_catalog",
-  "source_stage_report": "docs/stage-reports/v0.2.109_e08_remaining_sidecar_slice_reselection.md",
+  "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.109_e08_remaining_sidecar_slice_reselection.md",
   "status": "completed",
   "checks": {
     "catalog_covers_all_task_kinds": true,
@@ -31,7 +31,7 @@
       "handler_registered": true,
       "executable": false,
       "implementation": "unavailable_worker_handler",
-      "evidence": "docs/stage-reports/v0.2.110_e08_complete_handler_catalog.md",
+      "evidence": "docs/stage-report-archives/v0.2.x/v0.2.110_e08_complete_handler_catalog.md",
       "reason": "workflow runs are currently managed by the API/runtime path, not the external worker catalog",
       "operator_action": "Keep workflow runs on the runtime path until a worker-owned workflow handler is implemented."
     },
@@ -43,7 +43,7 @@
       "handler_registered": true,
       "executable": false,
       "implementation": "unavailable_worker_handler",
-      "evidence": "docs/stage-reports/v0.2.110_e08_complete_handler_catalog.md",
+      "evidence": "docs/stage-report-archives/v0.2.x/v0.2.110_e08_complete_handler_catalog.md",
       "reason": "builder builds are currently managed by the builder service path",
       "operator_action": "Keep builder builds on the builder service path until a worker-owned build handler is implemented."
     },
@@ -55,7 +55,7 @@
       "handler_registered": true,
       "executable": false,
       "implementation": "unavailable_worker_handler",
-      "evidence": "docs/stage-reports/v0.2.110_e08_complete_handler_catalog.md",
+      "evidence": "docs/stage-report-archives/v0.2.x/v0.2.110_e08_complete_handler_catalog.md",
       "reason": "test suites are currently managed by the workflow runtime test path",
       "operator_action": "Keep test suites on the runtime test path until a worker-owned test handler is implemented."
     },
@@ -67,7 +67,7 @@
       "handler_registered": true,
       "executable": false,
       "implementation": "unavailable_worker_handler",
-      "evidence": "docs/stage-reports/v0.2.110_e08_complete_handler_catalog.md",
+      "evidence": "docs/stage-report-archives/v0.2.x/v0.2.110_e08_complete_handler_catalog.md",
       "reason": "automatic scheduler triggers are currently managed by the scheduler loop",
       "operator_action": "Use scheduler_manual_trigger for worker-owned manual runs until automatic scheduler offload is implemented."
     },
@@ -79,7 +79,7 @@
       "handler_registered": true,
       "executable": true,
       "implementation": "scheduler_manual_trigger_handler",
-      "evidence": "docs/stage-reports/v0.2.27_worker_runner_cli_and_handler.md",
+      "evidence": "docs/stage-report-archives/v0.2.x/v0.2.27_worker_runner_cli_and_handler.md",
       "reason": "",
       "operator_action": "Monitor worker-runner results and lease renewals."
     },
@@ -91,7 +91,7 @@
       "handler_registered": true,
       "executable": false,
       "implementation": "unavailable_worker_handler",
-      "evidence": "docs/stage-reports/v0.2.110_e08_complete_handler_catalog.md",
+      "evidence": "docs/stage-report-archives/v0.2.x/v0.2.110_e08_complete_handler_catalog.md",
       "reason": "benchmark tasks are currently recorded by benchmark APIs and scripts, not executed by the worker catalog",
       "operator_action": "Keep benchmark execution on the benchmark path until a worker-owned benchmark handler is implemented."
     },
@@ -103,7 +103,7 @@
       "handler_registered": true,
       "executable": false,
       "implementation": "unavailable_worker_handler",
-      "evidence": "docs/stage-reports/v0.2.110_e08_complete_handler_catalog.md",
+      "evidence": "docs/stage-report-archives/v0.2.x/v0.2.110_e08_complete_handler_catalog.md",
       "reason": "draft patch previews are currently managed by the API preview path",
       "operator_action": "Keep draft previews on the API path until a worker-owned preview handler is implemented."
     }

@@ -2,7 +2,7 @@
 
 ## Source
 
-- Source stage report: `docs/stage-reports/v0.2.133_e08_full_sidecar_completion_audit.md`
+- Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.133_e08_full_sidecar_completion_audit.md`
 - Version: `v0.2.134_global_experiment_productization_completion_audit`
 
 ## Completed Work

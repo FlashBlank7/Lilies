@@ -38,7 +38,7 @@ def build_evidence() -> dict[str, Any]:
     return {
         "version": "v0.2.142",
         "evidence_id": "e02_panel_result_validator_analyzer",
-        "source_stage_report": "docs/stage-reports/v0.2.141_e02_true_human_panel_execution_package.md",
+        "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.141_e02_true_human_panel_execution_package.md",
         "status": "completed" if all(checks.values()) else "needs_attention",
         "checks": checks,
         "blank_result_analysis": blank_result,

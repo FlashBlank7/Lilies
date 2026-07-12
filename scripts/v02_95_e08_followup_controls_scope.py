@@ -54,8 +54,8 @@ def candidate_slices() -> list[ControlSlice]:
             product_value=45,
             risk=15,
             evidence=[
-                "docs/stage-reports/v0.2.65_e08_policy_controls_surface.md",
-                "docs/stage-reports/v0.2.66_e08_control_behavior_matrix.md",
+                "docs/stage-report-archives/v0.2.x/v0.2.65_e08_policy_controls_surface.md",
+                "docs/stage-report-archives/v0.2.x/v0.2.66_e08_control_behavior_matrix.md",
                 "platform/backend/src/agent_platform/platform_harness.py",
                 "tests/test_workflow.py",
             ],
@@ -73,7 +73,7 @@ def candidate_slices() -> list[ControlSlice]:
             product_value=10,
             risk=5,
             evidence=[
-                "docs/stage-reports/v0.2.68_e08_cancellation_budget_behavior.md",
+                "docs/stage-report-archives/v0.2.x/v0.2.68_e08_cancellation_budget_behavior.md",
                 "tests/test_v02_68_e08_cancellation_budget_behavior.py",
             ],
             next_version="v0.2.x_e08_cancellation_budget_repeat",
@@ -90,8 +90,8 @@ def candidate_slices() -> list[ControlSlice]:
             product_value=10,
             risk=5,
             evidence=[
-                "docs/stage-reports/v0.2.20_platform_harness_worker_lease.md",
-                "docs/stage-reports/v0.2.28_worker_heartbeat_and_renewal.md",
+                "docs/stage-report-archives/v0.2.x/v0.2.20_platform_harness_worker_lease.md",
+                "docs/stage-report-archives/v0.2.x/v0.2.28_worker_heartbeat_and_renewal.md",
                 "tests/test_workflow.py",
             ],
             next_version="v0.2.x_e08_worker_lease_repeat",
@@ -126,7 +126,7 @@ def candidate_slices() -> list[ControlSlice]:
             risk=80,
             evidence=[
                 "docs/experiment-status/ledgers/E08_harness_sidecar_passmode.md",
-                "docs/stage-reports/v0.2.69_e08_continuation_decision.md",
+                "docs/stage-report-archives/v0.2.x/v0.2.69_e08_continuation_decision.md",
             ],
             next_version="v0.2.x_e08_full_sidecar_completion",
             first_design="docs/current-design/design_e08_full_sidecar_completion.md",
@@ -141,7 +141,7 @@ def select_scope(items: list[ControlSlice] | None = None) -> dict[str, Any]:
     return {
         "version": "v0.2.95",
         "decision_id": "e08_followup_controls_scope",
-        "source_stage_report": "docs/stage-reports/v0.2.94_productization_lane_reselection.md",
+        "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.94_productization_lane_reselection.md",
         "status": "completed",
         "selected_slice": asdict(winner) | {"score": winner.score},
         "candidates": [asdict(item) | {"score": item.score} for item in ranked],

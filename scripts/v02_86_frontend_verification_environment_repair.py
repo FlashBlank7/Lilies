@@ -22,7 +22,7 @@ def build_repair_evidence() -> dict[str, Any]:
     return {
         "version": "v0.2.86",
         "repair_id": "frontend_verification_environment_repair",
-        "source_stage_report": "docs/stage-reports/v0.2.85_complexity_router_post_operator_opt_in_decision.md",
+        "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.85_complexity_router_post_operator_opt_in_decision.md",
         "verification": verification,
         "status": verification["status"],
         "pass_fail": {

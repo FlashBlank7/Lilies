@@ -174,7 +174,7 @@ def verify_contract() -> dict[str, Any]:
     return {
         "version": "v0.2.110",
         "evidence_id": "e08_complete_handler_catalog",
-        "source_stage_report": "docs/stage-reports/v0.2.109_e08_remaining_sidecar_slice_reselection.md",
+        "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.109_e08_remaining_sidecar_slice_reselection.md",
         "status": "completed" if all(details["checks"].values()) else "needs_attention",
         "checks": details["checks"],
         "catalog_summary": {

@@ -152,7 +152,7 @@ def build_evidence() -> dict[str, Any]:
     return {
         "version": "v0.2.91",
         "metric_id": "complexity_router_runtime_activation_rollout_metrics",
-        "source_stage_report": "docs/stage-reports/v0.2.90_complexity_router_runtime_activation_path.md",
+        "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.90_complexity_router_runtime_activation_path.md",
         "status": "completed" if all(checks.values()) else "failed",
         "checks": checks,
         "default_metrics": default_metrics,

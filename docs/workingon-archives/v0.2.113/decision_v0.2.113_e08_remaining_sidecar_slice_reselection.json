@@ -1,7 +1,7 @@
 {
   "version": "v0.2.113",
   "decision_id": "e08_remaining_sidecar_slice_reselection_after_heartbeat_registry",
-  "source_stage_report": "docs/stage-reports/v0.2.112_e08_distributed_heartbeat_registry.md",
+  "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.112_e08_distributed_heartbeat_registry.md",
   "status": "completed",
   "completed_slices": [
     {
@@ -42,7 +42,7 @@
       "product_value": 27,
       "testability": 25,
       "scope_risk": 18,
-      "existing_evidence": "docs/stage-reports/v0.2.110_e08_complete_handler_catalog.md; docs/stage-reports/v0.2.112_e08_distributed_heartbeat_registry.md",
+      "existing_evidence": "docs/stage-report-archives/v0.2.x/v0.2.110_e08_complete_handler_catalog.md; docs/stage-report-archives/v0.2.x/v0.2.112_e08_distributed_heartbeat_registry.md",
       "next_version": "v0.2.114_e08_scheduler_trigger_worker_offload_handler",
       "first_design": "docs/current-design/design_v0_2_114_e08_scheduler_trigger_worker_offload_handler.md",
       "score": 87
@@ -55,7 +55,7 @@
       "product_value": 22,
       "testability": 19,
       "scope_risk": 19,
-      "existing_evidence": "docs/stage-reports/v0.2.112_e08_distributed_heartbeat_registry.md",
+      "existing_evidence": "docs/stage-report-archives/v0.2.x/v0.2.112_e08_distributed_heartbeat_registry.md",
       "next_version": "v0.2.114_e08_operational_alerting_for_sidecar_liveness",
       "first_design": "docs/current-design/design_v0_2_114_e08_operational_alerting_for_sidecar_liveness.md",
       "score": 63
@@ -68,7 +68,7 @@
       "product_value": 28,
       "testability": 14,
       "scope_risk": 34,
-      "existing_evidence": "docs/stage-reports/v0.2.112_e08_distributed_heartbeat_registry.md",
+      "existing_evidence": "docs/stage-report-archives/v0.2.x/v0.2.112_e08_distributed_heartbeat_registry.md",
       "next_version": "v0.2.114_e08_distributed_queue_semantics",
       "first_design": "docs/current-design/design_v0_2_114_e08_distributed_queue_semantics.md",
       "score": 52
@@ -81,7 +81,7 @@
       "product_value": 24,
       "testability": 14,
       "scope_risk": 30,
-      "existing_evidence": "docs/stage-reports/v0.2.108_e08_secret_kms_rotation_contract.md",
+      "existing_evidence": "docs/stage-report-archives/v0.2.x/v0.2.108_e08_secret_kms_rotation_contract.md",
       "next_version": "v0.2.114_e08_external_kms_provider_integration",
       "first_design": "docs/current-design/design_v0_2_114_e08_external_kms_provider_integration.md",
       "score": 43
@@ -95,7 +95,7 @@
     "product_value": 27,
     "testability": 25,
     "scope_risk": 18,
-    "existing_evidence": "docs/stage-reports/v0.2.110_e08_complete_handler_catalog.md; docs/stage-reports/v0.2.112_e08_distributed_heartbeat_registry.md",
+    "existing_evidence": "docs/stage-report-archives/v0.2.x/v0.2.110_e08_complete_handler_catalog.md; docs/stage-report-archives/v0.2.x/v0.2.112_e08_distributed_heartbeat_registry.md",
     "next_version": "v0.2.114_e08_scheduler_trigger_worker_offload_handler",
     "first_design": "docs/current-design/design_v0_2_114_e08_scheduler_trigger_worker_offload_handler.md",
     "score": 87

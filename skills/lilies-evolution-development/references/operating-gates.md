@@ -61,6 +61,20 @@ Before every small-version archive:
 8. Validate the new stage report against `docs/stage-reports/STAGE_REPORT_TEMPLATE.md` when possible.
 9. Archive only when all accepted targets are completed or explicitly dispositioned with evidence.
 
+## Major Version Completion Gate
+
+Before declaring a phase complete:
+
+1. Verify a phase report exists under `docs/phase-reports/`.
+2. Move every completed `v0.<minor>.*` stage report from active `docs/stage-reports/` into `docs/stage-report-archives/v0.<minor>.x/`.
+3. Leave active `docs/stage-reports/` with only `README.md`, `STAGE_REPORT_TEMPLATE.md`, and current unarchived phase reports.
+4. Add/update archive README files with range, count, latest handoff, next phase target, and unresolved blockers.
+5. Update docs index and references so moved stage reports are not linked through the active directory.
+6. If this archive fixes a process failure, update the skill and archive gates before committing.
+7. Do not start the next major version until the stage-report set archive is complete.
+
+A phase report without a stage-report set archive is an incomplete major-version archive.
+
 ## Engineering Capability Closure Gate
 
 Classify closure level before implementation:

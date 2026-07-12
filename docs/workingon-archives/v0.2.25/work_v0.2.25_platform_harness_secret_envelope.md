@@ -8,7 +8,7 @@ This version is a local envelope-encryption slice. It does not claim external KM
 
 ## 2. Full Task Set Disposition
 
-Source stage report: `docs/stage-reports/v0.2.24_platform_harness_stdio_policy_controls.md`
+Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.24_platform_harness_stdio_policy_controls.md`
 
 | Next-stage task | Disposition | Current-version design(s) | Reason |
 | --- | --- | --- | --- |

@@ -2,7 +2,7 @@
 
 - Raw evidence: `docs/workingon-archives/v0.2.139/evidence_v0.2.139_e10_studio_governed_memory_operator_ui.json`
 - Status: `completed`
-- Source stage report: `docs/stage-reports/v0.2.138_e10_runtime_memory_retrieval_integration.md`
+- Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.138_e10_runtime_memory_retrieval_integration.md`
 - Studio UI productized: `True`
 - Operator create/view/revoke: `True`
 - Runtime retrieval active-only: `True`

@@ -6,7 +6,7 @@ Turn the `v0.2.47` E05 conclusion into a real backend capability: fixed `shallow
 
 ## Source
 
-- Stage report: `docs/stage-reports/v0.2.47_shallow_reuse_breadth_validation.md`
+- Stage report: `docs/stage-report-archives/v0.2.x/v0.2.47_shallow_reuse_breadth_validation.md`
 - Version: `v0.2.48`
 
 ## Full Task Set

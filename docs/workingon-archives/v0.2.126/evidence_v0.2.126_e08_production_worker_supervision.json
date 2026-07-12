@@ -1,11 +1,11 @@
 {
   "version": "v0.2.126",
-  "source_stage_report": "docs/stage-reports/v0.2.125_e08_remaining_sidecar_architecture_reselection.md",
+  "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.125_e08_remaining_sidecar_architecture_reselection.md",
   "status": "completed",
   "direct_supervision": {
     "started": {
       "version": "v0.2.126",
-      "source": "docs/stage-reports/v0.2.125_e08_remaining_sidecar_architecture_reselection.md",
+      "source": "docs/stage-report-archives/v0.2.x/v0.2.125_e08_remaining_sidecar_architecture_reselection.md",
       "worker_id": "v02-126-supervised-worker",
       "desired_state": "running",
       "loop_running": true,
@@ -44,7 +44,7 @@
     },
     "stopped": {
       "version": "v0.2.126",
-      "source": "docs/stage-reports/v0.2.125_e08_remaining_sidecar_architecture_reselection.md",
+      "source": "docs/stage-report-archives/v0.2.x/v0.2.125_e08_remaining_sidecar_architecture_reselection.md",
       "worker_id": "v02-126-supervised-worker",
       "desired_state": "stopped",
       "loop_running": false,
@@ -157,7 +157,7 @@
   "api_supervision": {
     "initial": {
       "version": "v0.2.126",
-      "source": "docs/stage-reports/v0.2.125_e08_remaining_sidecar_architecture_reselection.md",
+      "source": "docs/stage-report-archives/v0.2.x/v0.2.125_e08_remaining_sidecar_architecture_reselection.md",
       "worker_id": "v02-126-api-supervised-worker",
       "desired_state": "stopped",
       "loop_running": false,
@@ -183,7 +183,7 @@
     },
     "started": {
       "version": "v0.2.126",
-      "source": "docs/stage-reports/v0.2.125_e08_remaining_sidecar_architecture_reselection.md",
+      "source": "docs/stage-report-archives/v0.2.x/v0.2.125_e08_remaining_sidecar_architecture_reselection.md",
       "worker_id": "v02-126-api-supervised-worker",
       "desired_state": "running",
       "loop_running": true,
@@ -222,7 +222,7 @@
     },
     "observed": {
       "version": "v0.2.126",
-      "source": "docs/stage-reports/v0.2.125_e08_remaining_sidecar_architecture_reselection.md",
+      "source": "docs/stage-report-archives/v0.2.x/v0.2.125_e08_remaining_sidecar_architecture_reselection.md",
       "worker_id": "v02-126-api-supervised-worker",
       "desired_state": "running",
       "loop_running": true,
@@ -261,7 +261,7 @@
     },
     "stopped": {
       "version": "v0.2.126",
-      "source": "docs/stage-reports/v0.2.125_e08_remaining_sidecar_architecture_reselection.md",
+      "source": "docs/stage-report-archives/v0.2.x/v0.2.125_e08_remaining_sidecar_architecture_reselection.md",
       "worker_id": "v02-126-api-supervised-worker",
       "desired_state": "stopped",
       "loop_running": false,
@@ -316,7 +316,7 @@
     ],
     "catalog": {
       "version": "v0.2.124",
-      "source": "docs/stage-reports/v0.2.113_e08_remaining_sidecar_slice_reselection.md",
+      "source": "docs/stage-report-archives/v0.2.x/v0.2.113_e08_remaining_sidecar_slice_reselection.md",
       "required_count": 7,
       "cataloged_count": 7,
       "implemented_count": 7,
@@ -337,7 +337,7 @@
           "handler_registered": true,
           "executable": true,
           "implementation": "workflow_run_handler",
-          "evidence": "docs/stage-reports/v0.2.116_e08_workflow_run_worker_offload_handler.md",
+          "evidence": "docs/stage-report-archives/v0.2.x/v0.2.116_e08_workflow_run_worker_offload_handler.md",
           "reason": "",
           "operator_action": "Monitor worker-runner results and lease renewals."
         },
@@ -349,7 +349,7 @@
           "handler_registered": true,
           "executable": true,
           "implementation": "builder_build_handler",
-          "evidence": "docs/stage-reports/v0.2.124_e08_builder_build_worker_offload_handler.md",
+          "evidence": "docs/stage-report-archives/v0.2.x/v0.2.124_e08_builder_build_worker_offload_handler.md",
           "reason": "",
           "operator_action": "Monitor worker-runner results and lease renewals."
         },
@@ -361,7 +361,7 @@
           "handler_registered": true,
           "executable": true,
           "implementation": "test_suite_handler",
-          "evidence": "docs/stage-reports/v0.2.118_e08_test_suite_worker_offload_handler.md",
+          "evidence": "docs/stage-report-archives/v0.2.x/v0.2.118_e08_test_suite_worker_offload_handler.md",
           "reason": "",
           "operator_action": "Monitor worker-runner results and lease renewals."
         },
@@ -373,7 +373,7 @@
           "handler_registered": true,
           "executable": true,
           "implementation": "scheduler_trigger_handler",
-          "evidence": "docs/stage-reports/v0.2.114_e08_scheduler_trigger_worker_offload_handler.md",
+          "evidence": "docs/stage-report-archives/v0.2.x/v0.2.114_e08_scheduler_trigger_worker_offload_handler.md",
           "reason": "",
           "operator_action": "Monitor worker-runner results and lease renewals."
         },
@@ -385,7 +385,7 @@
           "handler_registered": true,
           "executable": true,
           "implementation": "scheduler_manual_trigger_handler",
-          "evidence": "docs/stage-reports/v0.2.27_worker_runner_cli_and_handler.md",
+          "evidence": "docs/stage-report-archives/v0.2.x/v0.2.27_worker_runner_cli_and_handler.md",
           "reason": "",
           "operator_action": "Monitor worker-runner results and lease renewals."
         },
@@ -397,7 +397,7 @@
           "handler_registered": true,
           "executable": true,
           "implementation": "benchmark_handler",
-          "evidence": "docs/stage-reports/v0.2.122_e08_benchmark_worker_offload_handler.md",
+          "evidence": "docs/stage-report-archives/v0.2.x/v0.2.122_e08_benchmark_worker_offload_handler.md",
           "reason": "",
           "operator_action": "Monitor worker-runner results and lease renewals."
         },
@@ -409,7 +409,7 @@
           "handler_registered": true,
           "executable": true,
           "implementation": "draft_patch_preview_handler",
-          "evidence": "docs/stage-reports/v0.2.120_e08_draft_patch_preview_worker_offload_handler.md",
+          "evidence": "docs/stage-report-archives/v0.2.x/v0.2.120_e08_draft_patch_preview_worker_offload_handler.md",
           "reason": "",
           "operator_action": "Monitor worker-runner results and lease renewals."
         }

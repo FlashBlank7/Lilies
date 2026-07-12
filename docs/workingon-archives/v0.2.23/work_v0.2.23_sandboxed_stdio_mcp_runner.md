@@ -8,7 +8,7 @@ This version narrows the target to a concrete closure: stdio MCP can run through
 
 ## 2. Full Task Set Disposition
 
-Source stage report: `docs/stage-reports/v0.2.22_platform_harness_stdio_sandbox_egress.md`
+Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.22_platform_harness_stdio_sandbox_egress.md`
 
 | Next-stage task | Disposition | Current-version design(s) | Reason |
 | --- | --- | --- | --- |

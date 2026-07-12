@@ -71,7 +71,7 @@ def build_evidence() -> dict[str, Any]:
     return {
         "version": "v0.2.141",
         "evidence_id": "e02_true_human_panel_execution_package",
-        "source_stage_report": "docs/stage-reports/v0.2.140_global_completion_audit_after_e10_productization.md",
+        "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.140_global_completion_audit_after_e10_productization.md",
         "status": "completed" if all(checks.values()) else "needs_attention",
         "package_dir": "docs/experiment-status/e02-human-panel",
         "files": files,

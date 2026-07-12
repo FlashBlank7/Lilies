@@ -120,7 +120,7 @@ def decide_post_shadow_rollout() -> dict[str, Any]:
     return {
         "version": "v0.2.83",
         "decision_id": "complexity_router_post_shadow_rollout_decision",
-        "source_stage_report": "docs/stage-reports/v0.2.82_complexity_router_shadow_only_rollout.md",
+        "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.82_complexity_router_shadow_only_rollout.md",
         "source_rollout_plan": ROLLOUT_PLAN_PATH.relative_to(ROOT).as_posix(),
         "source_shadow_evidence": SHADOW_EVIDENCE_PATH.relative_to(ROOT).as_posix(),
         "stage_0": stage_0,

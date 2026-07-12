@@ -1,7 +1,7 @@
 {
   "version": "v0.2.85",
   "decision_id": "complexity_router_post_operator_opt_in_decision",
-  "source_stage_report": "docs/stage-reports/v0.2.84_complexity_router_operator_opt_in_rollout.md",
+  "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.84_complexity_router_operator_opt_in_rollout.md",
   "source_operator_opt_in_evidence": "docs/workingon-archives/v0.2.84/rollout_v0.2.84_complexity_router_operator_opt_in.json",
   "stage_1_passed": true,
   "operator_opt_in_metrics": {

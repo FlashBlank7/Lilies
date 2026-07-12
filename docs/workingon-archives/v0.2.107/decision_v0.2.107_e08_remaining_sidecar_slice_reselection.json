@@ -1,7 +1,7 @@
 {
   "version": "v0.2.107",
   "decision_id": "e08_remaining_sidecar_slice_reselection",
-  "source_stage_report": "docs/stage-reports/v0.2.106_e08_stdio_container_egress_allowlist_contract.md",
+  "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.106_e08_stdio_container_egress_allowlist_contract.md",
   "status": "completed",
   "completed_slices": [
     {
@@ -30,7 +30,7 @@
       "product_value": 32,
       "testability": 24,
       "scope_risk": 22,
-      "existing_evidence": "docs/stage-reports/v0.2.15_platform_harness_secret_policy.md; docs/stage-reports/v0.2.25_platform_harness_secret_envelope.md",
+      "existing_evidence": "docs/stage-report-archives/v0.2.x/v0.2.15_platform_harness_secret_policy.md; docs/stage-report-archives/v0.2.x/v0.2.25_platform_harness_secret_envelope.md",
       "next_version": "v0.2.108_e08_secret_kms_rotation_contract",
       "first_design": "docs/current-design/design_v0_2_108_e08_secret_kms_rotation_contract.md",
       "score": 90
@@ -43,7 +43,7 @@
       "product_value": 24,
       "testability": 24,
       "scope_risk": 20,
-      "existing_evidence": "docs/stage-reports/v0.2.27_worker_runner_cli_and_handler.md",
+      "existing_evidence": "docs/stage-report-archives/v0.2.x/v0.2.27_worker_runner_cli_and_handler.md",
       "next_version": "v0.2.x_e08_complete_handler_catalog",
       "first_design": "docs/current-design/design_e08_complete_handler_catalog.md",
       "score": 74
@@ -56,7 +56,7 @@
       "product_value": 22,
       "testability": 18,
       "scope_risk": 24,
-      "existing_evidence": "docs/stage-reports/v0.2.28_worker_heartbeat_and_renewal.md",
+      "existing_evidence": "docs/stage-report-archives/v0.2.x/v0.2.28_worker_heartbeat_and_renewal.md",
       "next_version": "v0.2.x_e08_distributed_heartbeat_registry",
       "first_design": "docs/current-design/design_e08_distributed_heartbeat_registry.md",
       "score": 60
@@ -83,7 +83,7 @@
     "product_value": 32,
     "testability": 24,
     "scope_risk": 22,
-    "existing_evidence": "docs/stage-reports/v0.2.15_platform_harness_secret_policy.md; docs/stage-reports/v0.2.25_platform_harness_secret_envelope.md",
+    "existing_evidence": "docs/stage-report-archives/v0.2.x/v0.2.15_platform_harness_secret_policy.md; docs/stage-report-archives/v0.2.x/v0.2.25_platform_harness_secret_envelope.md",
     "next_version": "v0.2.108_e08_secret_kms_rotation_contract",
     "first_design": "docs/current-design/design_v0_2_108_e08_secret_kms_rotation_contract.md",
     "score": 90

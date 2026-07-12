@@ -2,7 +2,7 @@
 
 ## Source
 
-- Source stage report: `docs/stage-reports/v0.2.102_productization_lane_reselection.md`
+- Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.102_productization_lane_reselection.md`
 - Source task set: `Implement E05 scheduled monitoring hook`; `Preserve manual refresh and override visibility`; `Preserve E08/E07 and blocked-lane boundaries`; `Maintain executable verification discipline`
 
 ## Current-State Finding

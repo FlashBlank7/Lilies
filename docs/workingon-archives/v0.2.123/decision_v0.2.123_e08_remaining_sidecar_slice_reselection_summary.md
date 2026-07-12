@@ -30,6 +30,6 @@
 | Slice | Score | Evidence |
 | --- | ---: | --- |
 | `builder_build_worker_offload_handler` | 83 | `platform/backend/src/agent_platform/builder.py; docs/experiment-status/ledgers/builder_benchmark_foundation.md` |
-| `production_worker_supervision` | 80 | `docs/stage-reports/v0.2.112_e08_distributed_heartbeat_registry.md; docs/stage-reports/v0.2.122_e08_benchmark_worker_offload_handler.md` |
-| `distributed_queue_semantics` | 57 | `docs/stage-reports/v0.2.112_e08_distributed_heartbeat_registry.md` |
-| `external_kms_provider_integration` | 42 | `docs/stage-reports/v0.2.108_e08_secret_kms_rotation_contract.md` |
+| `production_worker_supervision` | 80 | `docs/stage-report-archives/v0.2.x/v0.2.112_e08_distributed_heartbeat_registry.md; docs/stage-report-archives/v0.2.x/v0.2.122_e08_benchmark_worker_offload_handler.md` |
+| `distributed_queue_semantics` | 57 | `docs/stage-report-archives/v0.2.x/v0.2.112_e08_distributed_heartbeat_registry.md` |
+| `external_kms_provider_integration` | 42 | `docs/stage-report-archives/v0.2.x/v0.2.108_e08_secret_kms_rotation_contract.md` |

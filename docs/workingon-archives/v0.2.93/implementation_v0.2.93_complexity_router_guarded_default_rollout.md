@@ -2,7 +2,7 @@
 
 ## Source
 
-- Source stage report: `docs/stage-reports/v0.2.92_complexity_router_limited_default_readiness_review.md`
+- Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.92_complexity_router_limited_default_readiness_review.md`
 - Source tasks:
   - Implement complexity-router guarded default rollout
   - Preserve rollback-to-disabled and conservative unknown handling

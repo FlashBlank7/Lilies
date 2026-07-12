@@ -1,7 +1,7 @@
 {
   "version": "v0.2.94",
   "decision_id": "productization_lane_reselection",
-  "source_stage_report": "docs/stage-reports/v0.2.93_complexity_router_guarded_default_rollout.md",
+  "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.93_complexity_router_guarded_default_rollout.md",
   "status": "completed",
   "e07_invariant": {
     "status": "guarded_default_rollout_implemented",

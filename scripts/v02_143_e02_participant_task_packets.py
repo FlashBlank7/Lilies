@@ -62,7 +62,7 @@ def build_evidence() -> dict[str, Any]:
     return {
         "version": "v0.2.143",
         "evidence_id": "e02_participant_task_packets",
-        "source_stage_report": "docs/stage-reports/v0.2.142_e02_panel_result_validator_analyzer.md",
+        "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.142_e02_panel_result_validator_analyzer.md",
         "status": "completed" if all(checks.values()) else "needs_attention",
         "checks": checks,
         "packet_files": {name: _relative(PACKET_DIR / name) for name in REQUIRED_PACKET_FILES},

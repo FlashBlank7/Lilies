@@ -2,7 +2,7 @@
 
 ## Scope
 
-- Source stage report: `docs/stage-reports/v0.2.83_complexity_router_post_shadow_rollout_decision.md`
+- Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.83_complexity_router_post_shadow_rollout_decision.md`
 - Source task: `Execute complexity-router operator opt-in rollout`
 - Version: `v0.2.84_complexity_router_operator_opt_in_rollout`
 

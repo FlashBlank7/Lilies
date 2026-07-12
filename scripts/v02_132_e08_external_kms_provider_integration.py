@@ -119,7 +119,7 @@ def build_evidence() -> dict[str, Any]:
     return {
         "version": "v0.2.132",
         "evidence_id": "e08_external_kms_provider_integration",
-        "source_stage_report": "docs/stage-reports/v0.2.131_e08_remaining_sidecar_architecture_reselection.md",
+        "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.131_e08_remaining_sidecar_architecture_reselection.md",
         "status": "completed" if all(checks.values()) else "needs_attention",
         "checks": checks,
         "public_secret": public,

@@ -1,6 +1,6 @@
 {
   "version": "v0.2.98",
-  "source_stage_report": "docs/stage-reports/v0.2.97_e08_post_api_productization_decision.md",
+  "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.97_e08_post_api_productization_decision.md",
   "status": "completed",
   "studio_page": "platform/frontend/app/applications/[id]/page.tsx",
   "type_contract": "platform/frontend/lib/platform.ts",

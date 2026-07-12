@@ -149,7 +149,7 @@ def select_lane(items: list[LaneCandidate] | None = None) -> dict[str, Any]:
     return {
         "version": "v0.2.102",
         "decision_id": "productization_lane_reselection",
-        "source_stage_report": "docs/stage-reports/v0.2.101_e08_post_runbook_disposition.md",
+        "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.101_e08_post_runbook_disposition.md",
         "status": "completed",
         "selection_rule": (
             "choose the highest-scoring unblocked lane; blocked lanes are retained in evidence "

@@ -2,7 +2,7 @@
 
 ## Source
 
-- Source stage report: `docs/stage-reports/v0.2.74_complexity_router_rollout_metrics_prerequisites.md`
+- Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.74_complexity_router_rollout_metrics_prerequisites.md`
 - Source stage task: `Decide complexity-router default enablement boundary`; `Preserve frontend verification blocker`; `Restore executable frontend verification when Node is available`
 - Current design: `docs/current-design/design_complexity_router_default_enablement_boundary.md`; `docs/current-design/design_v0_2_75_default_disabled_preservation.md`; `docs/current-design/design_v0_2_75_frontend_blocker_preservation.md`
 

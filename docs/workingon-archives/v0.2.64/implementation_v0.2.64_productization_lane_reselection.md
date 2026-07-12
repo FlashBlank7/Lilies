@@ -2,7 +2,7 @@
 
 ## Source
 
-- Source stage report: `docs/stage-reports/v0.2.63_adaptive_monitoring_schedule_and_report_audit.md`
+- Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.63_adaptive_monitoring_schedule_and_report_audit.md`
 - Source stage task: `Re-select deferred productization lane between E08 controls and complexity-router`; `If E08 controls are selected, scope the smallest serious control slice`; `If complexity-router is selected, identify its source evidence and closure boundary`
 - Current design: `docs/current-design/design_productization_lane_reselection_evidence.md`; `docs/current-design/design_e08_control_slice_scope.md`; `docs/current-design/design_complexity_router_boundary_disposition.md`
 

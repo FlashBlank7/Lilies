@@ -2,7 +2,7 @@
 
 Status: active_product_runbook
 
-Source stage: `docs/stage-reports/v0.2.100_e08_operator_runbook_lifecycle.md`
+Source stage: `docs/stage-report-archives/v0.2.x/v0.2.100_e08_operator_runbook_lifecycle.md`
 
 Evidence:
 

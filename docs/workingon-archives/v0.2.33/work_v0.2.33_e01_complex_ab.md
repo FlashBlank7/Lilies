@@ -2,7 +2,7 @@
 
 ## Goal
 
-Complete the next E01 slice from `docs/stage-reports/v0.2.32_e01_plan_first_ab.md`: run a bounded paid/live A/B on a complex multi-module BlockFlow using the planning-mode switch introduced in v0.2.32.
+Complete the next E01 slice from `docs/stage-report-archives/v0.2.x/v0.2.32_e01_plan_first_ab.md`: run a bounded paid/live A/B on a complex multi-module BlockFlow using the planning-mode switch introduced in v0.2.32.
 
 This stage must not close original E01 unless the complex experiment has real evidence, a concise DOCX report, and the experiment ledger is updated honestly.
 

@@ -1,7 +1,7 @@
 {
   "version": "v0.2.87",
   "decision_id": "complexity_router_default_enablement_review_decision",
-  "source_stage_report": "docs/stage-reports/v0.2.86_frontend_verification_environment_repair.md",
+  "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.86_frontend_verification_environment_repair.md",
   "source_shadow_evidence": "docs/workingon-archives/v0.2.82/rollout_v0.2.82_complexity_router_shadow_only.json",
   "source_operator_opt_in_evidence": "docs/workingon-archives/v0.2.84/rollout_v0.2.84_complexity_router_operator_opt_in.json",
   "source_frontend_repair_evidence": "docs/workingon-archives/v0.2.86/verification_v0.2.86_frontend_environment_repair.json",

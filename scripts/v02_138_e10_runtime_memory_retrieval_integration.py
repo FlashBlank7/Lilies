@@ -244,7 +244,7 @@ def build_evidence() -> dict[str, Any]:
     return {
         "version": "v0.2.138",
         "evidence_id": "e10_runtime_memory_retrieval_integration",
-        "source_stage_report": "docs/stage-reports/v0.2.137_e10_governed_memory_surface_contract.md",
+        "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.137_e10_governed_memory_surface_contract.md",
         "status": "completed" if all(checks.values()) else "needs_attention",
         "checks": checks,
         "retrieved_count": context["retrieved_count"],

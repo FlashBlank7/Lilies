@@ -33,7 +33,7 @@ Excluded:
 
 ## 4. Full Task Set Disposition
 
-Source stage report: `docs/stage-reports/v0.2.39_template_reuse_expandability_contract.md`
+Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.39_template_reuse_expandability_contract.md`
 
 | Next-stage task | Disposition | Current-version design(s) | Reason |
 | --- | --- | --- | --- |

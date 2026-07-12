@@ -4,7 +4,7 @@ Status: completed
 
 ## Source
 
-- Previous stage report: `docs/stage-reports/v0.2.138_e10_runtime_memory_retrieval_integration.md`
+- Previous stage report: `docs/stage-report-archives/v0.2.x/v0.2.138_e10_runtime_memory_retrieval_integration.md`
 - Selected next version: `v0.2.139_e10_studio_governed_memory_operator_ui`
 
 ## Implemented

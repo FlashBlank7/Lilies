@@ -17,10 +17,11 @@ Before substantial work, read the smallest authoritative set first:
 2. `docs/README.md`
 3. `docs/LANGUAGE_SYSTEM.md` if relevant
 4. latest relevant `docs/stage-reports/v*.md`, read previous 5 versions at most.
-5. relevant `docs/experiment-status/v*.md`
-6. relevant `docs/experiment-status/ledgers/*.md`
-7. relevant `docs/experiment-status/evidence/*_summary.md`
-8. relevant `docs/current-design/*.md`, `docs/workingon/*.md`, and `docs/historical-designs/*.md`
+5. if active `docs/stage-reports/` has no current phase report yet, read the latest handoff under `docs/stage-report-archives/v<minor>.x/` plus the matching `docs/phase-reports/v<minor>.0_*.md`
+6. relevant `docs/experiment-status/v*.md`
+7. relevant `docs/experiment-status/ledgers/*.md`
+8. relevant `docs/experiment-status/evidence/*_summary.md`
+9. relevant `docs/current-design/*.md`, `docs/workingon/*.md`, and `docs/historical-designs/*.md`
 
 Do not read raw experiment JSON by default. Open `docs/experiment-status/evidence/*.json` only when a summary is disputed, missing a needed field, or the exact event trace is required.
 
@@ -62,7 +63,7 @@ Use **Rapid Result Report** mode when the user asks what happened across version
 ## Core Workflow
 
 1. Find the authoritative stage source.
-   - Next-stage guidance belongs only in `docs/stage-reports/`.
+   - Next-stage guidance belongs only in active `docs/stage-reports/`, or in the latest archived handoff stage report when a completed phase has been archived and the next phase has not started.
    - `current-design/` and `workingon/` are not roadmaps.
    - The latest stage report's `Next-stage Task Set` is the only source for the next version's task set unless the user gives a newer explicit instruction.
    - If the stage report is malformed, missing required sections, or unclear, repair the process/report first instead of inventing a task source.
@@ -97,6 +98,14 @@ Use **Rapid Result Report** mode when the user asks what happened across version
    - Automatic Evolution Mode: archive, commit, and continue without a separate archive request.
    - Stage reports must use `docs/stage-reports/STAGE_REPORT_TEMPLATE.md` exactly, including explicit `none` rows when a section has no content.
 
+7. When a major phase is complete, archive the stage-report set.
+   - Create/update the phase report under `docs/phase-reports/`.
+   - Move every completed `v0.<minor>.*` stage report out of active `docs/stage-reports/` and into `docs/stage-report-archives/v0.<minor>.x/`.
+   - Add/update `docs/stage-report-archives/README.md`, `docs/stage-report-archives/v0.<minor>.x/README.md`, and `docs/stage-reports/README.md`.
+   - Update `docs/README.md`, experiment-status links, and any stage-report references that would otherwise point at moved files.
+   - Leave active `docs/stage-reports/` with only `README.md`, `STAGE_REPORT_TEMPLATE.md`, and current unarchived phase reports.
+   - Record the archive range, count, latest handoff, next phase target, unresolved blockers, and verification result.
+
 ## Hard Gates
 
 - Version evolution is serious. Do not leave a version because one useful slice is done.
@@ -115,6 +124,7 @@ Use **Rapid Result Report** mode when the user asks what happened across version
 - Archive must recycle current-stage designs into `docs/historical-designs/` and move active `workingon` material into versioned archives.
 - After each small-version archive, active `docs/current-design/` and `docs/workingon/` should contain only README files unless a new active task is explicitly open.
 - Every new stage report must pass the mandatory section contract in `docs/stage-reports/STAGE_REPORT_TEMPLATE.md`. Use `scripts/validate_stage_report_template.py` for new reports when possible.
+- Major-version completion must include stage-report set archive. A phase is not fully archived if its completed `v0.<minor>.*` stage reports still sit in active `docs/stage-reports/`.
 - Archive commits are automatic after a valid archive unless the user says not to commit.
 - Docs rollback protocol is documentation-only. It must not roll back source code, database migrations, lockfiles, runtime artifacts, caches, or live state.
 
@@ -123,6 +133,8 @@ For detailed gates, read `references/operating-gates.md`, `references/archive-an
 ## Automatic Evolution Mode
 
 Automatic Evolution Mode is an execution loop: select the next version from the latest stage report's `Next-stage Task Set`, write source-linked designs, implement them, verify, update experiment status, archive with the mandatory stage-report template, commit, then inspect the new stage report and continue until the user explicitly says to pause or stop.
+
+If a phase closeout is selected, complete the phase archive before stopping or starting the next major version: phase report, stage-report set archive, archive README files, docs index updates, and skill/process gate updates when a process gap caused the issue.
 
 Do not final-answer in this mode merely because a stage was committed, a handoff did not preselect one implementation task, or the latest evidence says there is "no meaningful single next task". If the latest stage report contains lane-selection, phase-report, governance, cleanup, or other meta tasks, open the smallest next stage that resolves that decision and continue.
 

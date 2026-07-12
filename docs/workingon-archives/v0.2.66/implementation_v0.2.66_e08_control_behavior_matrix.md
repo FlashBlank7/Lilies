@@ -2,7 +2,7 @@
 
 ## Source
 
-- Source stage report: `docs/stage-reports/v0.2.65_e08_policy_controls_surface.md`
+- Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.65_e08_policy_controls_surface.md`
 - Source stage task: `Add deterministic E08 control-behavior matrix`; `Restore executable frontend verification when Node is available`; `Preserve complexity-router guarded rollout`
 - Current design: `docs/current-design/design_e08_control_behavior_matrix_api.md`; `docs/current-design/design_e08_control_behavior_matrix_evidence.md`; `docs/current-design/design_v0_2_66_frontend_verification_and_complexity_disposition.md`
 

@@ -2,7 +2,7 @@
 
 ## Source
 
-- Source stage report: `docs/stage-reports/v0.2.128_e08_distributed_queue_semantics.md`
+- Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.128_e08_distributed_queue_semantics.md`
 - Source task: `Re-select remaining E08 sidecar architecture slice`
 - Current version: `v0.2.129_e08_remaining_sidecar_architecture_reselection`
 - Status: archived evidence

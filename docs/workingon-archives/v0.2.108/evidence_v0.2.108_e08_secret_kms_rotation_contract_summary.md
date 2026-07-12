@@ -30,8 +30,8 @@
 
 ## Existing Evidence Preserved
 
-- `docs/stage-reports/v0.2.15_platform_harness_secret_policy.md`
-- `docs/stage-reports/v0.2.25_platform_harness_secret_envelope.md`
+- `docs/stage-report-archives/v0.2.x/v0.2.15_platform_harness_secret_policy.md`
+- `docs/stage-report-archives/v0.2.x/v0.2.25_platform_harness_secret_envelope.md`
 
 ## Implementation Paths
 

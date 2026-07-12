@@ -76,7 +76,7 @@ def generate_evidence() -> dict[str, Any]:
         after.raise_for_status()
         return {
             "version": "v0.2.96",
-            "source_stage_report": "docs/stage-reports/v0.2.95_e08_followup_controls_scope.md",
+            "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.95_e08_followup_controls_scope.md",
             "status": "completed",
             "endpoint": "PATCH /api/v1/platform/harness/policy-controls",
             "before": before.json(),

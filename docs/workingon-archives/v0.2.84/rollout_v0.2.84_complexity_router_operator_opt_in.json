@@ -1,7 +1,7 @@
 {
   "version": "v0.2.84",
   "rollout_id": "complexity_router_operator_opt_in_rollout",
-  "source_stage_report": "docs/stage-reports/v0.2.83_complexity_router_post_shadow_rollout_decision.md",
+  "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.83_complexity_router_post_shadow_rollout_decision.md",
   "source_rollout_plan": "docs/workingon-archives/v0.2.80/rollout_v0.2.80_complexity_router_staged_preparation.json",
   "source_validation_plan": "docs/workingon-archives/v0.2.76/plan_v0.2.76_complexity_router_live_validation.json",
   "source_decision": "docs/workingon-archives/v0.2.83/decision_v0.2.83_complexity_router_post_shadow_rollout.json",

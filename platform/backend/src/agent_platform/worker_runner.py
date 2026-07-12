@@ -29,37 +29,37 @@ IMPLEMENTED_WORKER_HANDLERS: dict[str, dict[str, str]] = {
     "workflow_run": {
         "label": "Workflow run",
         "implementation": "workflow_run_handler",
-        "evidence": "docs/stage-reports/v0.2.116_e08_workflow_run_worker_offload_handler.md",
+        "evidence": "docs/stage-report-archives/v0.2.x/v0.2.116_e08_workflow_run_worker_offload_handler.md",
     },
     "test_suite": {
         "label": "Test suite",
         "implementation": "test_suite_handler",
-        "evidence": "docs/stage-reports/v0.2.118_e08_test_suite_worker_offload_handler.md",
+        "evidence": "docs/stage-report-archives/v0.2.x/v0.2.118_e08_test_suite_worker_offload_handler.md",
     },
     "scheduler_trigger": {
         "label": "Scheduler automatic trigger",
         "implementation": "scheduler_trigger_handler",
-        "evidence": "docs/stage-reports/v0.2.114_e08_scheduler_trigger_worker_offload_handler.md",
+        "evidence": "docs/stage-report-archives/v0.2.x/v0.2.114_e08_scheduler_trigger_worker_offload_handler.md",
     },
     "scheduler_manual_trigger": {
         "label": "Scheduler manual trigger",
         "implementation": "scheduler_manual_trigger_handler",
-        "evidence": "docs/stage-reports/v0.2.27_worker_runner_cli_and_handler.md",
+        "evidence": "docs/stage-report-archives/v0.2.x/v0.2.27_worker_runner_cli_and_handler.md",
     },
     "draft_patch_preview": {
         "label": "Draft patch preview",
         "implementation": "draft_patch_preview_handler",
-        "evidence": "docs/stage-reports/v0.2.120_e08_draft_patch_preview_worker_offload_handler.md",
+        "evidence": "docs/stage-report-archives/v0.2.x/v0.2.120_e08_draft_patch_preview_worker_offload_handler.md",
     },
     "benchmark": {
         "label": "Benchmark",
         "implementation": "benchmark_handler",
-        "evidence": "docs/stage-reports/v0.2.122_e08_benchmark_worker_offload_handler.md",
+        "evidence": "docs/stage-report-archives/v0.2.x/v0.2.122_e08_benchmark_worker_offload_handler.md",
     },
     "builder_build": {
         "label": "Builder build",
         "implementation": "builder_build_handler",
-        "evidence": "docs/stage-reports/v0.2.124_e08_builder_build_worker_offload_handler.md",
+        "evidence": "docs/stage-report-archives/v0.2.x/v0.2.124_e08_builder_build_worker_offload_handler.md",
     },
 }
 
@@ -435,7 +435,7 @@ class PlatformWorkerSupervisor:
         heartbeat_payload = heartbeat.model_dump(mode="json") if heartbeat else None
         return {
             "version": "v0.2.126",
-            "source": "docs/stage-reports/v0.2.125_e08_remaining_sidecar_architecture_reselection.md",
+            "source": "docs/stage-report-archives/v0.2.x/v0.2.125_e08_remaining_sidecar_architecture_reselection.md",
             "worker_id": self.runner.worker_id,
             "desired_state": "running" if self.loop_running else "stopped",
             "loop_running": self.loop_running,
@@ -614,7 +614,7 @@ class ExternalWorkerProcessManager:
             self.last_returncode = returncode
         return {
             "version": "v0.2.130",
-            "source": "docs/stage-reports/v0.2.129_e08_remaining_sidecar_architecture_reselection.md",
+            "source": "docs/stage-report-archives/v0.2.x/v0.2.129_e08_remaining_sidecar_architecture_reselection.md",
             "process_manager_mode": "local_subprocess",
             "configured": bool(self.command),
             "command": self.command,
@@ -957,7 +957,7 @@ def platform_worker_handler_catalog(
                 handler_registered=kind in registered,
                 executable=False,
                 implementation="unavailable_worker_handler",
-                evidence="docs/stage-reports/v0.2.110_e08_complete_handler_catalog.md",
+                evidence="docs/stage-report-archives/v0.2.x/v0.2.110_e08_complete_handler_catalog.md",
                 reason=spec["reason"],
                 operator_action=spec["operator_action"],
             )
@@ -971,7 +971,7 @@ def platform_worker_handler_catalog(
     unavailable = [entry.kind for entry in entries if entry.status == "unavailable"]
     return {
         "version": "v0.2.124",
-        "source": "docs/stage-reports/v0.2.113_e08_remaining_sidecar_slice_reselection.md",
+        "source": "docs/stage-report-archives/v0.2.x/v0.2.113_e08_remaining_sidecar_slice_reselection.md",
         "required_count": len(required),
         "cataloged_count": len(cataloged),
         "implemented_count": len(implemented),

@@ -133,7 +133,7 @@ def decide_post_operator_opt_in_path() -> dict[str, Any]:
     return {
         "version": "v0.2.85",
         "decision_id": "complexity_router_post_operator_opt_in_decision",
-        "source_stage_report": "docs/stage-reports/v0.2.84_complexity_router_operator_opt_in_rollout.md",
+        "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.84_complexity_router_operator_opt_in_rollout.md",
         "source_operator_opt_in_evidence": OPERATOR_OPT_IN_EVIDENCE_PATH.relative_to(ROOT).as_posix(),
         "stage_1_passed": stage_1_passed,
         "operator_opt_in_metrics": evidence["metrics"],

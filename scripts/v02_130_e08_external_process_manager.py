@@ -84,7 +84,7 @@ def build_evidence() -> dict[str, Any]:
     boundaries = api["stopped"]["boundaries"]
     result = {
         "version": "v0.2.130",
-        "source_stage_report": "docs/stage-reports/v0.2.129_e08_remaining_sidecar_architecture_reselection.md",
+        "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.129_e08_remaining_sidecar_architecture_reselection.md",
         "status": "completed",
         "direct_process_manager": direct,
         "api_process_manager": api,

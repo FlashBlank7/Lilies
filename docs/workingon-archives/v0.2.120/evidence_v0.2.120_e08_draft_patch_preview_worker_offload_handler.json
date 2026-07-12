@@ -1,7 +1,7 @@
 {
   "version": "v0.2.120",
   "evidence_id": "e08_draft_patch_preview_worker_offload_handler",
-  "source_stage_report": "docs/stage-reports/v0.2.119_e08_remaining_sidecar_slice_reselection.md",
+  "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.119_e08_remaining_sidecar_slice_reselection.md",
   "status": "completed",
   "checks": {
     "draft_patch_preview_catalog_implemented": true,
@@ -34,7 +34,7 @@
     "handler_registered": true,
     "executable": true,
     "implementation": "draft_patch_preview_handler",
-    "evidence": "docs/stage-reports/v0.2.120_e08_draft_patch_preview_worker_offload_handler.md",
+    "evidence": "docs/stage-report-archives/v0.2.x/v0.2.120_e08_draft_patch_preview_worker_offload_handler.md",
     "reason": "",
     "operator_action": "Monitor worker-runner results and lease renewals."
   },

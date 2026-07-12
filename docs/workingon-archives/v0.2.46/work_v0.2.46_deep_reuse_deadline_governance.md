@@ -6,7 +6,7 @@ Close the immediate deep reuse long-chain deadline problem exposed by `v0.2.45`,
 
 ## Source
 
-- Stage report: `docs/stage-reports/v0.2.45_customer_support_e05_repair_rerun.md`
+- Stage report: `docs/stage-report-archives/v0.2.x/v0.2.45_customer_support_e05_repair_rerun.md`
 - Version: `v0.2.46`
 
 ## Full Task Set

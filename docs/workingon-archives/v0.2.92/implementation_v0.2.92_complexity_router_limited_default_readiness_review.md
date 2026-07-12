@@ -2,7 +2,7 @@
 
 ## Source
 
-- Source stage report: `docs/stage-reports/v0.2.91_complexity_router_runtime_activation_observability.md`
+- Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.91_complexity_router_runtime_activation_observability.md`
 - Source tasks:
   - Perform limited-default product readiness review
   - Preserve rollback-to-disabled and conservative unknown handling

@@ -2,7 +2,7 @@
 
 ## Source
 
-- Source stage report: `docs/stage-reports/v0.2.71_complexity_router_default_safety_gate.md`
+- Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.71_complexity_router_default_safety_gate.md`
 - Source stage task: `Implement complexity-router requirement classification contract`; `Preserve operator override plan and rollout metrics prerequisites`; `Restore executable frontend verification when Node is available`
 - Current design: `docs/current-design/design_complexity_router_requirement_classification_contract.md`; `docs/current-design/design_v0_2_72_override_metrics_preservation.md`; `docs/current-design/design_v0_2_72_frontend_verification_blocker.md`
 

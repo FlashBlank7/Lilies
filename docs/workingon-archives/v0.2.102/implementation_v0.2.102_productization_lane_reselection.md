@@ -2,7 +2,7 @@
 
 ## Source
 
-- Source stage report: `docs/stage-reports/v0.2.101_e08_post_runbook_disposition.md`
+- Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.101_e08_post_runbook_disposition.md`
 - Source task set: `Perform productization lane reselection`; `Preserve E08 and E07 boundaries`; `Maintain executable verification discipline`
 
 ## Implemented

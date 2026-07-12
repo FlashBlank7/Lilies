@@ -2,7 +2,7 @@
 
 ## Source
 
-- Source stage report: `docs/stage-reports/v0.2.103_e05_scheduled_monitoring_hook.md`
+- Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.103_e05_scheduled_monitoring_hook.md`
 - Source task set: `Perform productization lane reselection`; `Exclude completed E05 scheduled hook from open-lane scoring`; `Preserve E08/E07 and blocked-lane boundaries`; `Maintain executable verification discipline`
 
 ## Implemented

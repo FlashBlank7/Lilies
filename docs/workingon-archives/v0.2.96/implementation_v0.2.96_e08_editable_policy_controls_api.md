@@ -2,7 +2,7 @@
 
 ## Summary
 
-v0.2.96 implemented the E08 editable policy-controls API selected by `docs/stage-reports/v0.2.95_e08_followup_controls_scope.md`.
+v0.2.96 implemented the E08 editable policy-controls API selected by `docs/stage-report-archives/v0.2.x/v0.2.95_e08_followup_controls_scope.md`.
 
 ## What changed
 

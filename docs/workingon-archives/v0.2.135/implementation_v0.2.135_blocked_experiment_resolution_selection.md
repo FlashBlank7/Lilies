@@ -2,7 +2,7 @@
 
 ## Source
 
-- Source stage report: `docs/stage-reports/v0.2.134_global_experiment_productization_completion_audit.md`
+- Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.134_global_experiment_productization_completion_audit.md`
 - Version: `v0.2.135_blocked_experiment_resolution_selection`
 
 ## Completed Work

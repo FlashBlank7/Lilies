@@ -1,7 +1,7 @@
 {
   "version": "v0.2.143",
   "evidence_id": "e02_participant_task_packets",
-  "source_stage_report": "docs/stage-reports/v0.2.142_e02_panel_result_validator_analyzer.md",
+  "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.142_e02_panel_result_validator_analyzer.md",
   "status": "completed",
   "checks": {
     "packet_directory_present": true,

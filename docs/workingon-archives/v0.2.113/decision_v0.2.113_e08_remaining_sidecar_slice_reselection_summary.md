@@ -24,7 +24,7 @@
 
 | Slice | Score | Evidence |
 | --- | ---: | --- |
-| `scheduler_trigger_worker_offload_handler` | 87 | `docs/stage-reports/v0.2.110_e08_complete_handler_catalog.md; docs/stage-reports/v0.2.112_e08_distributed_heartbeat_registry.md` |
-| `operational_alerting_for_sidecar_liveness` | 63 | `docs/stage-reports/v0.2.112_e08_distributed_heartbeat_registry.md` |
-| `distributed_queue_semantics` | 52 | `docs/stage-reports/v0.2.112_e08_distributed_heartbeat_registry.md` |
-| `external_kms_provider_integration` | 43 | `docs/stage-reports/v0.2.108_e08_secret_kms_rotation_contract.md` |
+| `scheduler_trigger_worker_offload_handler` | 87 | `docs/stage-report-archives/v0.2.x/v0.2.110_e08_complete_handler_catalog.md; docs/stage-report-archives/v0.2.x/v0.2.112_e08_distributed_heartbeat_registry.md` |
+| `operational_alerting_for_sidecar_liveness` | 63 | `docs/stage-report-archives/v0.2.x/v0.2.112_e08_distributed_heartbeat_registry.md` |
+| `distributed_queue_semantics` | 52 | `docs/stage-report-archives/v0.2.x/v0.2.112_e08_distributed_heartbeat_registry.md` |
+| `external_kms_provider_integration` | 43 | `docs/stage-report-archives/v0.2.x/v0.2.108_e08_secret_kms_rotation_contract.md` |

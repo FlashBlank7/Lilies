@@ -53,7 +53,7 @@ def candidate_paths() -> list[ProductizationPath]:
                 "docs/workingon-archives/v0.2.96/evidence_v0.2.96_e08_editable_policy_controls_api_summary.md",
                 "platform/frontend/app/applications/[id]/page.tsx",
                 "platform/frontend/lib/platform.ts",
-                "docs/stage-reports/v0.2.86_frontend_verification_environment_repair.md",
+                "docs/stage-report-archives/v0.2.x/v0.2.86_frontend_verification_environment_repair.md",
             ],
             disposition="select as next product slice because backend PATCH contract exists and operator surface is now valuable",
             next_version="v0.2.98_e08_studio_editable_policy_controls",
@@ -84,7 +84,7 @@ def candidate_paths() -> list[ProductizationPath]:
             false_completion_risk=35,
             evidence=[
                 "docs/experiment-status/ledgers/E08_harness_sidecar_passmode.md",
-                "docs/stage-reports/v0.2.96_e08_editable_policy_controls_api.md",
+                "docs/stage-report-archives/v0.2.x/v0.2.96_e08_editable_policy_controls_api.md",
             ],
             disposition="defer because it is too broad for the immediate post-API slice",
             next_version="v0.2.x_e08_broader_sidecar_boundary_closure",
@@ -99,7 +99,7 @@ def candidate_paths() -> list[ProductizationPath]:
             scope_risk=5,
             false_completion_risk=25,
             evidence=[
-                "docs/stage-reports/v0.2.96_e08_editable_policy_controls_api.md",
+                "docs/stage-report-archives/v0.2.x/v0.2.96_e08_editable_policy_controls_api.md",
             ],
             disposition="reject for now because the API is useful but not yet operator-accessible",
             next_version="v0.2.x_productization_lane_reselection",
@@ -115,7 +115,7 @@ def select_path(items: list[ProductizationPath] | None = None) -> dict[str, Any]
     return {
         "version": "v0.2.97",
         "decision_id": "e08_post_api_productization_decision",
-        "source_stage_report": "docs/stage-reports/v0.2.96_e08_editable_policy_controls_api.md",
+        "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.96_e08_editable_policy_controls_api.md",
         "status": "completed",
         "decision": "select_studio_editable_policy_controls",
         "selected_path": asdict(winner) | {"score": winner.score},

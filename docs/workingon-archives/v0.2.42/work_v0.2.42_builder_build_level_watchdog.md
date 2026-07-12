@@ -33,7 +33,7 @@ Excluded:
 
 ## 4. Full Task Set Disposition
 
-Source stage report: `docs/stage-reports/v0.2.41_e05_success_condition_after_timeout_boundary.md`
+Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.41_e05_success_condition_after_timeout_boundary.md`
 
 | Next-stage task | Disposition | Current-version design(s) | Reason |
 | --- | --- | --- | --- |

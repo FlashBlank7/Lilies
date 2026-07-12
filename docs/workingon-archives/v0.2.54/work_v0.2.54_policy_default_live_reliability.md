@@ -6,7 +6,7 @@ Close the `v0.2.53` carried-forward reliability gap: the omitted-depth `policy_d
 
 ## Source
 
-- Stage report: `docs/stage-reports/v0.2.53_adaptive_default_live_acceptance.md`
+- Stage report: `docs/stage-report-archives/v0.2.x/v0.2.53_adaptive_default_live_acceptance.md`
 - Version: `v0.2.54`
 - First workingon from handoff: `docs/workingon/work_v0.2.54_policy_default_live_reliability.md`
 

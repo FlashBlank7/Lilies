@@ -2,7 +2,7 @@
 
 ## Scope
 
-- Source stage report: `docs/stage-reports/v0.2.85_complexity_router_post_operator_opt_in_decision.md`
+- Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.85_complexity_router_post_operator_opt_in_decision.md`
 - Source task: `Repair frontend verification environment`
 - Version: `v0.2.86_frontend_verification_environment_repair`
 

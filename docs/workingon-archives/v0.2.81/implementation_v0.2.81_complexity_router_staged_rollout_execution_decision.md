@@ -2,7 +2,7 @@
 
 ## Scope
 
-- Source stage report: `docs/stage-reports/v0.2.80_complexity_router_staged_rollout_preparation.md`
+- Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.80_complexity_router_staged_rollout_preparation.md`
 - Source task: `Decide staged rollout execution`
 - Version: `v0.2.81_complexity_router_staged_rollout_execution_decision`
 

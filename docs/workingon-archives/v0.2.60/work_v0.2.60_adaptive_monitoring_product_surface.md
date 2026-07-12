@@ -6,7 +6,7 @@ Productize the selected E05 adaptive monitoring lane as a minimal API and Studio
 
 ## Source
 
-- Stage report: `docs/stage-reports/v0.2.59_productization_lane_selection.md`
+- Stage report: `docs/stage-report-archives/v0.2.x/v0.2.59_productization_lane_selection.md`
 - Selection evidence: `docs/workingon-archives/v0.2.59/selection_v0.2.59_productization_lane_summary.md`
 - Version: `v0.2.60`
 

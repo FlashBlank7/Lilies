@@ -8,7 +8,7 @@ This version does not claim a full distributed execution queue. It must prove th
 
 ## 2. Full Task Set Disposition
 
-Source stage report: `docs/stage-reports/v0.2.25_platform_harness_secret_envelope.md`
+Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.25_platform_harness_secret_envelope.md`
 
 | Next-stage task | Disposition | Current-version design(s) | Reason |
 | --- | --- | --- | --- |

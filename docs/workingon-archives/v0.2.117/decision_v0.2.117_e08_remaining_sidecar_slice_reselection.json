@@ -1,7 +1,7 @@
 {
   "version": "v0.2.117",
   "decision_id": "e08_remaining_sidecar_slice_reselection_after_workflow_run_offload",
-  "source_stage_report": "docs/stage-reports/v0.2.116_e08_workflow_run_worker_offload_handler.md",
+  "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.116_e08_workflow_run_worker_offload_handler.md",
   "status": "completed",
   "completed_slices": [
     {
@@ -102,7 +102,7 @@
       "product_value": 30,
       "testability": 16,
       "scope_risk": 33,
-      "existing_evidence": "docs/stage-reports/v0.2.112_e08_distributed_heartbeat_registry.md; docs/stage-reports/v0.2.116_e08_workflow_run_worker_offload_handler.md",
+      "existing_evidence": "docs/stage-report-archives/v0.2.x/v0.2.112_e08_distributed_heartbeat_registry.md; docs/stage-report-archives/v0.2.x/v0.2.116_e08_workflow_run_worker_offload_handler.md",
       "next_version": "v0.2.118_e08_production_worker_supervision",
       "first_design": "docs/current-design/design_v0_2_118_e08_production_worker_supervision.md",
       "score": 59
@@ -115,7 +115,7 @@
       "product_value": 28,
       "testability": 14,
       "scope_risk": 34,
-      "existing_evidence": "docs/stage-reports/v0.2.112_e08_distributed_heartbeat_registry.md",
+      "existing_evidence": "docs/stage-report-archives/v0.2.x/v0.2.112_e08_distributed_heartbeat_registry.md",
       "next_version": "v0.2.118_e08_distributed_queue_semantics",
       "first_design": "docs/current-design/design_v0_2_118_e08_distributed_queue_semantics.md",
       "score": 52

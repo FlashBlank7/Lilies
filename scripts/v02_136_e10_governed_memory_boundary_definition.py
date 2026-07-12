@@ -55,7 +55,7 @@ def boundary() -> dict[str, Any]:
     return {
         "version": "v0.2.136",
         "boundary_id": "e10_governed_memory_boundary",
-        "source_stage_report": "docs/stage-reports/v0.2.135_blocked_experiment_resolution_selection.md",
+        "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.135_blocked_experiment_resolution_selection.md",
         "status": "completed" if not missing else "needs_attention",
         "controls": controls,
         "required_controls": REQUIRED_CONTROLS,

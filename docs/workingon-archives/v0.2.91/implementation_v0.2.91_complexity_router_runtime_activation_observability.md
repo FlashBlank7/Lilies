@@ -2,7 +2,7 @@
 
 ## Source
 
-- Source stage report: `docs/stage-reports/v0.2.90_complexity_router_runtime_activation_path.md`
+- Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.90_complexity_router_runtime_activation_path.md`
 - Source tasks:
   - Implement complexity-router runtime activation rollout observability
   - Preserve rollback-to-disabled and conservative unknown handling

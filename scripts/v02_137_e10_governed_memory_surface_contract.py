@@ -156,7 +156,7 @@ def build_evidence() -> dict[str, Any]:
     return {
         "version": "v0.2.137",
         "evidence_id": "e10_governed_memory_surface_contract",
-        "source_stage_report": "docs/stage-reports/v0.2.136_e10_governed_memory_boundary_definition.md",
+        "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.136_e10_governed_memory_boundary_definition.md",
         "status": "completed" if all(checks.values()) else "needs_attention",
         "checks": checks,
         "operations": operations,

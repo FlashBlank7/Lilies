@@ -66,7 +66,7 @@ def execute_shadow_only_rollout() -> dict[str, Any]:
     return {
         "version": "v0.2.82",
         "rollout_id": "complexity_router_shadow_only_rollout",
-        "source_stage_report": "docs/stage-reports/v0.2.81_complexity_router_staged_rollout_execution_decision.md",
+        "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.81_complexity_router_staged_rollout_execution_decision.md",
         "source_rollout_plan": ROLLOUT_PLAN_PATH.relative_to(ROOT).as_posix(),
         "source_validation_plan": VALIDATION_PLAN_PATH.relative_to(ROOT).as_posix(),
         "stage": stage,

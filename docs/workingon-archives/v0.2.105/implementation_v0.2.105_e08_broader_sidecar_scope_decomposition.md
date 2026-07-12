@@ -2,7 +2,7 @@
 
 ## Source
 
-- Source stage report: `docs/stage-reports/v0.2.104_productization_lane_reselection.md`
+- Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.104_productization_lane_reselection.md`
 - Source task set: `Scope E08 broader sidecar closure into concrete product slices`; `Preserve current E08 tranche evidence`; `Preserve completed/blocked lane exclusions`; `Maintain executable verification discipline`
 
 ## Implemented

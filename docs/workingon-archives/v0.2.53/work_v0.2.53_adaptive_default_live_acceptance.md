@@ -6,7 +6,7 @@ Run one real post-rollout acceptance slice for the new adaptive default path: pr
 
 ## Source
 
-- Stage report: `docs/stage-reports/v0.2.52_adaptive_default_productization.md`
+- Stage report: `docs/stage-report-archives/v0.2.x/v0.2.52_adaptive_default_productization.md`
 - Version: `v0.2.53`
 
 ## Full Task Set

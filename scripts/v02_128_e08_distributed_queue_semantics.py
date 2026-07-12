@@ -135,7 +135,7 @@ def build_evidence() -> dict[str, Any]:
     boundaries = snapshot["boundaries"]
     result = {
         "version": "v0.2.128",
-        "source_stage_report": "docs/stage-reports/v0.2.127_e08_remaining_sidecar_architecture_reselection.md",
+        "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.127_e08_remaining_sidecar_architecture_reselection.md",
         "status": "completed",
         "direct_queue": direct,
         "api_queue": api,

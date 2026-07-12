@@ -2,7 +2,7 @@
 
 ## Summary
 
-v0.2.100 implemented the E08 operator runbook lifecycle selected by `docs/stage-reports/v0.2.99_e08_post_studio_controls_decision.md`.
+v0.2.100 implemented the E08 operator runbook lifecycle selected by `docs/stage-report-archives/v0.2.x/v0.2.99_e08_post_studio_controls_decision.md`.
 
 ## What changed
 

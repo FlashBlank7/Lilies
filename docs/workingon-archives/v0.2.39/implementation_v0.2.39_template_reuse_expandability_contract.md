@@ -119,4 +119,4 @@ Reason:
 - Experiment ledger: updated.
 - Current-design archive: completed.
 - Workingon archive: completed.
-- Stage report: completed: `docs/stage-reports/v0.2.39_template_reuse_expandability_contract.md`.
+- Stage report: completed: `docs/stage-report-archives/v0.2.x/v0.2.39_template_reuse_expandability_contract.md`.

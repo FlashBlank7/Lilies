@@ -127,7 +127,7 @@ def audit() -> dict[str, Any]:
     return {
         "version": "v0.2.134",
         "audit_id": "global_experiment_productization_completion",
-        "source_stage_report": "docs/stage-reports/v0.2.133_e08_full_sidecar_completion_audit.md",
+        "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.133_e08_full_sidecar_completion_audit.md",
         "status": "completed" if not missing_ledgers and not missing_evidence and not open_unblocked_gaps else "needs_attention",
         "experiments": items,
         "experiment_count": len(items),

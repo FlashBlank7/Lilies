@@ -169,7 +169,7 @@ def build_evidence() -> dict[str, Any]:
     return {
         "version": "v0.2.139",
         "evidence_id": "e10_studio_governed_memory_operator_ui",
-        "source_stage_report": "docs/stage-reports/v0.2.138_e10_runtime_memory_retrieval_integration.md",
+        "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.138_e10_runtime_memory_retrieval_integration.md",
         "status": "completed" if all(checks.values()) else "needs_attention",
         "checks": checks,
         "memory_ids": {

@@ -45,7 +45,7 @@ def validate_runbook(path: Path = RUNBOOK_PATH) -> dict[str, Any]:
     checklist_items = [line for line in text.splitlines() if line.startswith("- [ ] ")]
     result = {
         "version": "v0.2.100",
-        "source_stage_report": "docs/stage-reports/v0.2.99_e08_post_studio_controls_decision.md",
+        "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.99_e08_post_studio_controls_decision.md",
         "runbook": path.relative_to(ROOT).as_posix(),
         "status": "passed" if not missing_sections and not missing_phrases and len(checklist_items) >= 6 else "failed",
         "missing_sections": missing_sections,

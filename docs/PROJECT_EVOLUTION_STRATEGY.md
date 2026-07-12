@@ -33,7 +33,8 @@ intellectual-assets/    跨阶段可复用的高价值智力资产
 | 目录 | 层级 | 用途 |
 | --- | --- | --- |
 | `docs/phase-reports/` | 大版本 | 巨大版本更新完成后的总复盘、路线转向和下一大版本目标。 |
-| `docs/stage-reports/` | 小版本 | 大版本内一个阶段完成后的阶段报告。 |
+| `docs/stage-reports/` | 小版本 active 区 | 当前大版本内一个阶段完成后的阶段报告。 |
+| `docs/stage-report-archives/` | 大版本 stage 集合归档 | 已完成大版本的 stage-report 集合，例如 `v0.2.x/`。 |
 | `docs/workingon/` | 当前工作区 | 当前 stage 的中间实验、实现证据、细节完成情况和临时判断；不具备下一阶段指导权。 |
 | `docs/current-design/` | 具体设计 | 服务于某个 accepted task 的详细设计和实现计划；不具备下一阶段指导权。 |
 | `docs/historical-designs/` | 历史设计 | 已经具备版本 state 的历史 design，按版本归档。 |
@@ -55,13 +56,15 @@ phase 代表一次方向明确的大演进，例如：
 - 从“散乱文档”到“文档驱动开发流程”。
 - 从“Builder 能搭工作流”到“Platform Harness 和能力边界可验证”。
 
-一个 phase 完成后，必须生成 `phase-report`。它回答：
+一个 phase 完成后，必须生成 `phase-report` 并执行 stage-report set archive。它回答：
 
 - 这个大版本的目标是什么？
 - 包含哪些 stage？
 - 架构、业务、语言系统或开发流程发生了什么演进？
 - 哪些成果已经稳定？
 - 哪些任务留给下一大版本？
+
+phase 完成不是只写总结。必须把本 phase 的所有 `v0.<minor>.*` stage reports 从 active `docs/stage-reports/` 迁移到 `docs/stage-report-archives/v0.<minor>.x/`，并在 archive README、docs index、phase report 和最新 handoff stage report 中记录范围、数量、最新 handoff、下一大版本入口和未完成边界。
 
 ### 3.2 Stage：小版本
 
@@ -145,7 +148,7 @@ phase 代表一次方向明确的大演进，例如：
 
 ### 4.3 `docs/stage-reports/`
 
-`stage-reports` 保存小版本报告。每个 stage report 是一个阶段的归档出口，并采用 compact factsheet 形式。
+`stage-reports` 保存当前大版本的小版本报告。每个 stage report 是一个阶段的归档出口，并采用 compact factsheet 形式。完成大版本后，这些 stage reports 必须整批迁移到 `docs/stage-report-archives/v0.<minor>.x/`。
 
 它必须把 `workingon` 中分散的任务处置、实验和结果整理为：
 
@@ -158,6 +161,17 @@ phase 代表一次方向明确的大演进，例如：
 stage report 不应该复制所有中间材料、命令转录、raw JSON 或实验长结论。它应该总结、筛选和链接；命令细节留在 `workingon-archives/`，实验细节留在 `experiment-status/ledgers/` 和 `evidence/*_summary.md`。
 
 新的 stage report 必须使用固定模板 `docs/stage-reports/STAGE_REPORT_TEMPLATE.md`。即使某个部分没有内容，也必须写明 `none`，不能省略。固定模板至少包含：Stage Identity、Source Task Set、Goal、Completed Work、Verification、Unresolved / Blocked / Deferred、Experiment / Product Status Updates、Historical Designs、Workingon Archive、Next-stage Task Set、Archive Commit、Automatic Evolution Handoff。
+
+### 4.3.1 `docs/stage-report-archives/`
+
+`stage-report-archives` 保存已经完成的大版本 stage-report 集合。它不是工作区，而是历史档案。
+
+每个 archive 目录必须包含：
+
+- 全部 `v0.<minor>.*` stage report 文件。
+- `README.md`，写明 stage range、stage count、phase closeout、latest handoff 和 next phase target。
+
+大版本归档后，active `docs/stage-reports/` 应只保留 `README.md`、`STAGE_REPORT_TEMPLATE.md` 和当前大版本尚未归档的 stage reports。若新大版本尚未开始，下一阶段任务源是最新 archived handoff stage report 加对应 phase report，而不是 `workingon/`。
 
 ### 4.4 `docs/phase-reports/`
 
@@ -206,6 +220,7 @@ phase report 是团队判断“项目已经从 `v0.2.0` 进入 `v0.3.0`”这类
 | --- | --- | --- |
 | Phase report | `v0.<minor>.0_<theme>.md` | `v0.3.0_document_driven_development.md` |
 | Stage report | `v0.<minor>.<patch>_<stage-topic>.md` | `v0.2.3_platform_harness_boundary.md` |
+| Stage report archive | `v0.<minor>.x/` | `docs/stage-report-archives/v0.2.x/` |
 | Workingon evidence record | `implementation_<task-topic>.md` / `experiment_<topic>.md` / `result_<topic>.md` | `implementation_run_cancel_path.md` |
 | Experiment report | `experiment_<topic>.md` | `experiment_graph_similarity_eval.md` |
 | Result report | `result_<topic>.md` | `result_scheduler_token_boundary.md` |
@@ -257,7 +272,7 @@ phase report 是团队判断“项目已经从 `v0.2.0` 进入 `v0.3.0`”这类
 7. 把 active workingon 中间材料回收到 `workingon-archives/v<version>/` 或 `experiment-status/`。
 8. 确认 active `current-design/` 和 `workingon/` 只剩 README。
 9. 筛选智力资产候选。
-10. 判断是否已完成一个 phase；如果是，再生成 phase report。
+10. 判断是否已完成一个 phase；如果是，生成 phase report，并执行大版本 stage-report set archive。
 
 ### 6.4 输出
 
@@ -268,7 +283,8 @@ phase report 是团队判断“项目已经从 `v0.2.0` 进入 `v0.3.0`”这类
 3. 一组版本化 workingon archive，如果本 stage 有中间材料。
 4. 更新后的 experiment-status，如果涉及实验。
 5. 一个新的 phase report，如果大版本确实完成。
-6. 少量 intellectual assets，如果存在高价值可复用结论。
+6. 一个 `docs/stage-report-archives/v0.<minor>.x/` archive，如果大版本确实完成。
+7. 少量 intellectual assets，如果存在高价值可复用结论。
 
 普通中间材料不应直接复制到稳定目录。稳定目录应该保存总结、证据链接和可复用结论。
 
@@ -579,7 +595,7 @@ historical design 只保存最终设计契约，不重复实验结果、stage �
 - `docs/source-materials/2026-07_initial_architecture_research/Lilies_竞品研究论文与未来方向报告.docx`：竞品、论文和未来方向报告原文。
 - `docs/source-materials/2026-07_initial_architecture_research/LANGUAGE_SYSTEM.md`：项目语言系统与术语映射规范原文。
 - `docs/source-materials/2026-07_initial_architecture_research/BUSINESS_LOGIC.md`：业务对象、生命周期和验收边界说明原文。
-- `docs/stage-reports/v0.2.1_docs_consolidation_and_asset_baseline.md`：本轮文档结构整理的 stage report。
+- `docs/stage-report-archives/v0.2.x/v0.2.1_docs_consolidation_and_asset_baseline.md`：本轮文档结构整理的 stage report。
 - `docs/intellectual-assets/asset_blockflow_language_system.md`：从语言系统中提炼的稳定资产。
 - `docs/intellectual-assets/asset_platform_harness_task_monitor_boundary.md`：从后端报告和 Harness 讨论中提炼的稳定资产。
 
@@ -616,7 +632,7 @@ source materials 保存原文和证据链；stage report 说明阶段完成了�
 4. `current-design` 只负责具体设计，不负责下一步任务选择。
 5. 设计文档需要引用稳定原则时，优先引用 `intellectual-assets`，不要在每个设计里重复长篇理论。
 6. 完成一个小阶段时，归档为 `stage-report`，并回收 current-design 与 workingon。
-7. 完成一个大版本时，汇总为 `phase-report`。
+7. 完成一个大版本时，汇总为 `phase-report`，并把该大版本所有 stage reports 整批迁入 `stage-report-archives/v0.<minor>.x/`。
 8. 智力资产必须经筛选，不以数量为目标。
 9. 阶段报告负责承接过程和下一阶段任务，智力资产负责承接可复用结论。
 
@@ -626,7 +642,7 @@ source materials 保存原文和证据链；stage report 说明阶段完成了�
 
 1. 任意团队成员能判断一个文档应该进入 `workingon`、`current-design`、`stage-reports`、`phase-reports` 还是 `intellectual-assets`。
 2. 当用户说“归档 workingon 文件夹”时，执行者知道输入、处理顺序和输出位置。
-3. 一个大版本是否完成，不靠口头感觉，而靠 `phase-report`。
+3. 一个大版本是否完成，不靠口头感觉，而靠 `phase-report` 和对应 `stage-report-archives/v0.<minor>.x/`。
 4. 一个小阶段是否完成，不靠聊天记录，而靠 `stage-report`。
 5. 一个具体设计为什么这么做，可以向上追溯到 stage report、workingon 任务处置和必要的 intellectual asset。
 6. 每次小版本归档后，active `current-design/` 和 `workingon/` 只剩 README。

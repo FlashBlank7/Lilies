@@ -490,7 +490,7 @@ class PlatformHarness:
                 leased_workers[task.worker_id] = leased_workers.get(task.worker_id, 0) + 1
         return {
             "version": "v0.2.128",
-            "source": "docs/stage-reports/v0.2.127_e08_remaining_sidecar_architecture_reselection.md",
+            "source": "docs/stage-report-archives/v0.2.x/v0.2.127_e08_remaining_sidecar_architecture_reselection.md",
             "queue_mode": "storage_backed_claim_next_with_requeue",
             "claim_next_atomic": True,
             "expired_lease_requeue": True,

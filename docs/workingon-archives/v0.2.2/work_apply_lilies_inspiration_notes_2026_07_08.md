@@ -85,6 +85,6 @@
 
 2026-07-08 archive update:
 
-- Archived to `docs/stage-reports/v0.2.2_apply_lilies_inspiration_notes.md`.
+- Archived to `docs/stage-report-archives/v0.2.x/v0.2.2_apply_lilies_inspiration_notes.md`.
 - Workingon files are retained for review.
 - No phase report or intellectual asset was created in this archive.

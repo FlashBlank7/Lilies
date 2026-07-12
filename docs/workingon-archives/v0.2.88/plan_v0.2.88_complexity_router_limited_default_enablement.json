@@ -1,7 +1,7 @@
 {
   "version": "v0.2.88",
   "plan_id": "complexity_router_limited_default_enablement_plan",
-  "source_stage_report": "docs/stage-reports/v0.2.87_complexity_router_default_enablement_review_decision.md",
+  "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.87_complexity_router_default_enablement_review_decision.md",
   "source_default_review_decision": "docs/workingon-archives/v0.2.87/decision_v0.2.87_complexity_router_default_enablement_review.json",
   "implementation_in_this_version": false,
   "default_enabled": false,

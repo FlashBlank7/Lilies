@@ -128,7 +128,7 @@ def decide_default_enablement_review() -> dict[str, Any]:
     return {
         "version": "v0.2.87",
         "decision_id": "complexity_router_default_enablement_review_decision",
-        "source_stage_report": "docs/stage-reports/v0.2.86_frontend_verification_environment_repair.md",
+        "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.86_frontend_verification_environment_repair.md",
         "source_shadow_evidence": SHADOW_EVIDENCE_PATH.relative_to(ROOT).as_posix(),
         "source_operator_opt_in_evidence": OPERATOR_OPT_IN_EVIDENCE_PATH.relative_to(ROOT).as_posix(),
         "source_frontend_repair_evidence": FRONTEND_REPAIR_EVIDENCE_PATH.relative_to(ROOT).as_posix(),

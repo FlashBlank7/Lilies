@@ -2,7 +2,7 @@
 
 ## Source
 
-- Source stage report: `docs/stage-reports/v0.2.79_complexity_router_default_enablement_review_decision.md`
+- Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.79_complexity_router_default_enablement_review_decision.md`
 - Source stage task: `Implement complexity-router staged rollout preparation`; `Preserve default-disabled status`; `Restore executable frontend verification when Node is available`
 - Current design: `docs/current-design/design_complexity_router_staged_rollout_preparation.md`; `docs/current-design/design_v0_2_80_operator_controls_and_rollback.md`; `docs/current-design/design_v0_2_80_default_disabled_and_frontend_blocker.md`
 

@@ -6,7 +6,7 @@ Resolve the post-backlog productization lane choice into one concrete next stage
 
 ## Source
 
-- Stage report: `docs/stage-reports/v0.2.58_continuous_auto_evolution.md`
+- Stage report: `docs/stage-report-archives/v0.2.x/v0.2.58_continuous_auto_evolution.md`
 - Experiment index: `docs/experiment-status/v0.2_experiment_status.md`
 - Version: `v0.2.59`
 

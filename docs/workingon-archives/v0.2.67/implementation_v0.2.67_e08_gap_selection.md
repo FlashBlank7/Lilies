@@ -2,7 +2,7 @@
 
 ## Source
 
-- Source stage report: `docs/stage-reports/v0.2.66_e08_control_behavior_matrix.md`
+- Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.66_e08_control_behavior_matrix.md`
 - Source stage task: `Select next E08 full-boundary gap slice`; `Restore executable frontend verification when Node is available`; `Preserve complexity-router guarded rollout`
 - Current design: `docs/current-design/design_e08_gap_selection_evidence.md`; `docs/current-design/design_e08_cancellation_budget_slice_scope.md`; `docs/current-design/design_v0_2_67_verification_and_deferred_lanes.md`
 

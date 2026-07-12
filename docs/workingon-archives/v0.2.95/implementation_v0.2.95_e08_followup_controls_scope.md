@@ -2,7 +2,7 @@
 
 ## Summary
 
-v0.2.95 completed the scope decision requested by `docs/stage-reports/v0.2.94_productization_lane_reselection.md`.
+v0.2.95 completed the scope decision requested by `docs/stage-report-archives/v0.2.x/v0.2.94_productization_lane_reselection.md`.
 
 The selected next implementation slice is `editable_policy_controls_api`, with next version `v0.2.96_e08_editable_policy_controls_api`.
 

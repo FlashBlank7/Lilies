@@ -146,7 +146,7 @@ def audit() -> dict[str, Any]:
     return {
         "version": "v0.2.133",
         "audit_id": "e08_full_sidecar_completion_audit",
-        "source_stage_report": "docs/stage-reports/v0.2.132_e08_external_kms_provider_integration.md",
+        "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.132_e08_external_kms_provider_integration.md",
         "status": "completed" if full_sidecar_completion_claimed else "needs_attention",
         "required_surfaces": required,
         "required_surface_count": len(required),

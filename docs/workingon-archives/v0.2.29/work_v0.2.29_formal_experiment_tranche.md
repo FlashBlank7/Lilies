@@ -25,7 +25,7 @@ Excluded:
 
 ## 3. Full Task Set Disposition
 
-Source stage report: `docs/stage-reports/v0.2.28_worker_heartbeat_and_renewal.md`
+Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.28_worker_heartbeat_and_renewal.md`
 
 | Prior next-stage task | Disposition | Current design | Reason |
 | --- | --- | --- | --- |

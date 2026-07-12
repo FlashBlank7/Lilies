@@ -25,10 +25,10 @@
 
 | Slice | Score | Evidence |
 | --- | ---: | --- |
-| `workflow_run_worker_offload_handler` | 90 | `docs/stage-reports/v0.2.114_e08_scheduler_trigger_worker_offload_handler.md; platform/backend/src/agent_platform/workflow_runtime.py` |
+| `workflow_run_worker_offload_handler` | 90 | `docs/stage-report-archives/v0.2.x/v0.2.114_e08_scheduler_trigger_worker_offload_handler.md; platform/backend/src/agent_platform/workflow_runtime.py` |
 | `test_suite_worker_offload_handler` | 74 | `platform/backend/src/agent_platform/workflow_runtime.py; platform/backend/src/agent_platform/workflow_storage.py` |
 | `draft_patch_preview_worker_offload_handler` | 65 | `platform/backend/src/agent_platform/draft_patch_preview.py` |
 | `builder_build_worker_offload_handler` | 60 | `platform/backend/src/agent_platform/builder.py; docs/experiment-status/ledgers/builder_benchmark_foundation.md` |
 | `benchmark_worker_offload_handler` | 57 | `platform/backend/src/agent_platform/builder_benchmark.py` |
-| `production_worker_supervision` | 55 | `docs/stage-reports/v0.2.112_e08_distributed_heartbeat_registry.md; docs/stage-reports/v0.2.114_e08_scheduler_trigger_worker_offload_handler.md` |
-| `distributed_queue_semantics` | 52 | `docs/stage-reports/v0.2.112_e08_distributed_heartbeat_registry.md` |
+| `production_worker_supervision` | 55 | `docs/stage-report-archives/v0.2.x/v0.2.112_e08_distributed_heartbeat_registry.md; docs/stage-report-archives/v0.2.x/v0.2.114_e08_scheduler_trigger_worker_offload_handler.md` |
+| `distributed_queue_semantics` | 52 | `docs/stage-report-archives/v0.2.x/v0.2.112_e08_distributed_heartbeat_registry.md` |

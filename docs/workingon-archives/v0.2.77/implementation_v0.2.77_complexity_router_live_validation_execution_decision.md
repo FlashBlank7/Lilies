@@ -2,7 +2,7 @@
 
 ## Source
 
-- Source stage report: `docs/stage-reports/v0.2.76_complexity_router_live_validation_plan.md`
+- Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.76_complexity_router_live_validation_plan.md`
 - Source stage task: `Decide live validation execution`; `Preserve default-disabled status`; `Restore executable frontend verification when Node is available`
 - Current design: `docs/current-design/design_complexity_router_live_validation_execution_decision.md`; `docs/current-design/design_v0_2_77_default_disabled_preservation.md`; `docs/current-design/design_v0_2_77_frontend_verification_blocker.md`
 

@@ -6,7 +6,7 @@ Use one more E05 task family to answer the next real policy question after `v0.2
 
 ## Source
 
-- Stage report: `docs/stage-reports/v0.2.46_deep_reuse_deadline_governance.md`
+- Stage report: `docs/stage-report-archives/v0.2.x/v0.2.46_deep_reuse_deadline_governance.md`
 - Version: `v0.2.47`
 
 ## Full Task Set

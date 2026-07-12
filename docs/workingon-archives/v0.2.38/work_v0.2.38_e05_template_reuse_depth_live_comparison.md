@@ -33,7 +33,7 @@ Excluded:
 
 ## 4. Full Task Set Disposition
 
-Source stage report: `docs/stage-reports/v0.2.37_e04_local_repair_vs_full_rebuild.md`
+Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.37_e04_local_repair_vs_full_rebuild.md`
 
 | Next-stage task | Disposition | Current-version design(s) | Reason |
 | --- | --- | --- | --- |

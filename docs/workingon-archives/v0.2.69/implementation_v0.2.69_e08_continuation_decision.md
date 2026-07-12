@@ -2,7 +2,7 @@
 
 ## Source
 
-- Source stage report: `docs/stage-reports/v0.2.68_e08_cancellation_budget_behavior.md`
+- Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.68_e08_cancellation_budget_behavior.md`
 - Source stage task: `Decide whether to continue E08 with editable controls/runbook or stop the E08 lane`; `Restore executable frontend verification when Node is available`; `Preserve complexity-router guarded rollout`
 - Current design: `docs/current-design/design_e08_continuation_decision.md`; `docs/current-design/design_e08_stop_and_complexity_transition_scope.md`; `docs/current-design/design_v0_2_69_frontend_blocker_and_deferred_lanes.md`
 

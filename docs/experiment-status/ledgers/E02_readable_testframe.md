@@ -14,7 +14,7 @@
 | proxy 对照报告 | `../reports/2026-07-09_2013_E02_readable_testframe_reviewer_proxy.docx` |
 | 默认摘要 | `../evidence/experiment_v0.2.36_e02_readable_testframe_review_2026_07_09_summary.md` |
 | raw evidence | `../evidence/experiment_v0.2.36_e02_readable_testframe_review_2026_07_09.json` |
-| stage report | `../../stage-reports/v0.2.36_e02_readable_testframe_human_review.md` |
+| stage report | `../stage-report-archives/v0.2.x/v0.2.36_e02_readable_testframe_human_review.md` |
 
 ## 关键结果
 

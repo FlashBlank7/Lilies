@@ -1,6 +1,6 @@
 # v0.2.136 E10 Governed Memory Boundary Definition Implementation
 
-Source stage report: `docs/stage-reports/v0.2.135_blocked_experiment_resolution_selection.md`
+Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.135_blocked_experiment_resolution_selection.md`
 
 ## Completed
 

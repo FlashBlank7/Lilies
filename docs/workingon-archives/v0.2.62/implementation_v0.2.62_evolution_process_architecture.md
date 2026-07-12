@@ -2,7 +2,7 @@
 
 ## Source
 
-- Source stage report: `docs/stage-reports/v0.2.61_adaptive_monitoring_refresh_control.md`
+- Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.61_adaptive_monitoring_refresh_control.md`
 - Source stage task: `Repair evolution process architecture and stage-report template`
 - Current designs:
   - `docs/current-design/design_stage_authority_workingon_boundary.md`
@@ -37,7 +37,7 @@
 | Old wrong workingon-authority language removed | passed | `rg -n "List every next-stage task|Full Task Set|全量任务处置|workingon.*任务处置表|work_<task-topic>|Next-stage Tasks" ...` returned no matches |
 | Stage-report validator tests | `2 passed` | `./.venv/bin/python -m pytest tests/test_stage_report_template_validation.py -q` |
 | Canonical template validation | passed | `./.venv/bin/python scripts/validate_stage_report_template.py docs/stage-reports/STAGE_REPORT_TEMPLATE.md` |
-| v0.2.62 report validation | passed | `./.venv/bin/python scripts/validate_stage_report_template.py docs/stage-reports/STAGE_REPORT_TEMPLATE.md docs/stage-reports/v0.2.62_evolution_process_architecture.md` |
+| v0.2.62 report validation | passed | `./.venv/bin/python scripts/validate_stage_report_template.py docs/stage-reports/STAGE_REPORT_TEMPLATE.md docs/stage-report-archives/v0.2.x/v0.2.62_evolution_process_architecture.md` |
 
 ## Remaining Risk
 

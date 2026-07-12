@@ -1,7 +1,7 @@
 {
   "version": "v0.2.112",
   "evidence_id": "e08_distributed_heartbeat_registry",
-  "source_stage_report": "docs/stage-reports/v0.2.111_e08_remaining_sidecar_slice_reselection.md",
+  "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.111_e08_remaining_sidecar_slice_reselection.md",
   "status": "completed",
   "checks": {
     "heartbeat_persisted_across_harness_instances": true,

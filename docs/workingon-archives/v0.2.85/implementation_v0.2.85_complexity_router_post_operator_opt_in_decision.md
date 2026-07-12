@@ -2,7 +2,7 @@
 
 ## Scope
 
-- Source stage report: `docs/stage-reports/v0.2.84_complexity_router_operator_opt_in_rollout.md`
+- Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.84_complexity_router_operator_opt_in_rollout.md`
 - Source task: `Decide post-operator-opt-in rollout path`
 - Version: `v0.2.85_complexity_router_post_operator_opt_in_decision`
 

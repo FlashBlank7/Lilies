@@ -2,7 +2,7 @@
 
 ## Source
 
-- Source stage report: `docs/stage-reports/v0.2.69_e08_continuation_decision.md`
+- Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.69_e08_continuation_decision.md`
 - Source stage task: `Select complexity-router guardrail scope`; `Preserve E08 deferred controls/runbook`; `Restore executable frontend verification when Node is available`
 - Current design: `docs/current-design/design_complexity_router_guardrail_selection.md`; `docs/current-design/design_complexity_router_default_safety_scope.md`; `docs/current-design/design_v0_2_70_deferred_lanes_and_frontend_blocker.md`
 

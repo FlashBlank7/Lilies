@@ -32,7 +32,7 @@ Excluded:
 
 ## 4. Full Task Set Disposition
 
-Source stage report: `docs/stage-reports/v0.2.42_builder_build_level_watchdog.md`
+Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.42_builder_build_level_watchdog.md`
 
 | Next-stage task | Disposition | Current-version design(s) | Reason |
 | --- | --- | --- | --- |

@@ -1,7 +1,7 @@
 {
   "version": "v0.2.124",
   "evidence_id": "e08_builder_build_worker_offload_handler",
-  "source_stage_report": "docs/stage-reports/v0.2.123_e08_remaining_sidecar_slice_reselection.md",
+  "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.123_e08_remaining_sidecar_slice_reselection.md",
   "status": "completed",
   "checks": {
     "builder_build_catalog_implemented": true,
@@ -32,7 +32,7 @@
     "handler_registered": true,
     "executable": true,
     "implementation": "builder_build_handler",
-    "evidence": "docs/stage-reports/v0.2.124_e08_builder_build_worker_offload_handler.md",
+    "evidence": "docs/stage-report-archives/v0.2.x/v0.2.124_e08_builder_build_worker_offload_handler.md",
     "reason": "",
     "operator_action": "Monitor worker-runner results and lease renewals."
   },

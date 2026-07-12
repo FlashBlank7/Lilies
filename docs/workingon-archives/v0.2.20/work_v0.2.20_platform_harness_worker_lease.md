@@ -16,7 +16,7 @@ This is not a full external distributed execution queue. It is the durable lease
 
 ## 2. Full Task Set Disposition
 
-Source stage report: `docs/stage-reports/v0.2.19_full_task_set_product_visibility.md`
+Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.19_full_task_set_product_visibility.md`
 
 | Next-stage task | Disposition | Current-version design(s) | Reason |
 | --- | --- | --- | --- |

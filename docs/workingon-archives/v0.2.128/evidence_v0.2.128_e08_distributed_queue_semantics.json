@@ -1,6 +1,6 @@
 {
   "version": "v0.2.128",
-  "source_stage_report": "docs/stage-reports/v0.2.127_e08_remaining_sidecar_architecture_reselection.md",
+  "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.127_e08_remaining_sidecar_architecture_reselection.md",
   "status": "completed",
   "direct_queue": {
     "atomic_claims": [
@@ -143,7 +143,7 @@
     ],
     "snapshot": {
       "version": "v0.2.128",
-      "source": "docs/stage-reports/v0.2.127_e08_remaining_sidecar_architecture_reselection.md",
+      "source": "docs/stage-report-archives/v0.2.x/v0.2.127_e08_remaining_sidecar_architecture_reselection.md",
       "queue_mode": "storage_backed_claim_next_with_requeue",
       "claim_next_atomic": true,
       "expired_lease_requeue": true,
@@ -212,7 +212,7 @@
     ],
     "snapshot": {
       "version": "v0.2.128",
-      "source": "docs/stage-reports/v0.2.127_e08_remaining_sidecar_architecture_reselection.md",
+      "source": "docs/stage-report-archives/v0.2.x/v0.2.127_e08_remaining_sidecar_architecture_reselection.md",
       "queue_mode": "storage_backed_claim_next_with_requeue",
       "claim_next_atomic": true,
       "expired_lease_requeue": true,

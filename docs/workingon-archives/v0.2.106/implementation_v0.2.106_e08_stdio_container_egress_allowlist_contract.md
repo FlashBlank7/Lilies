@@ -2,7 +2,7 @@
 
 ## Source
 
-- Source stage report: `docs/stage-reports/v0.2.105_e08_broader_sidecar_scope_decomposition.md`
+- Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.105_e08_broader_sidecar_scope_decomposition.md`
 - Source task set: `Implement stdio/container egress allowlist contract`; `Preserve existing stdio/sandbox evidence`; `Preserve full-sidecar boundary`; `Maintain executable verification discipline`
 
 ## Implemented

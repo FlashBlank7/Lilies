@@ -8,7 +8,7 @@ This version does not claim full distributed queue completion. It adds a CLI/ent
 
 ## 2. Full Task Set Disposition
 
-Source stage report: `docs/stage-reports/v0.2.26_platform_harness_worker_runner.md`
+Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.26_platform_harness_worker_runner.md`
 
 | Next-stage task | Disposition | Current-version design(s) | Reason |
 | --- | --- | --- | --- |

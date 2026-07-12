@@ -30,5 +30,5 @@
 | `draft_patch_preview_worker_offload_handler` | 79 | `platform/backend/src/agent_platform/draft_patch_preview.py; platform/backend/src/agent_platform/api.py` |
 | `builder_build_worker_offload_handler` | 65 | `platform/backend/src/agent_platform/builder.py; docs/experiment-status/ledgers/builder_benchmark_foundation.md` |
 | `benchmark_worker_offload_handler` | 64 | `platform/backend/src/agent_platform/builder_benchmark.py` |
-| `production_worker_supervision` | 63 | `docs/stage-reports/v0.2.112_e08_distributed_heartbeat_registry.md; docs/stage-reports/v0.2.118_e08_test_suite_worker_offload_handler.md` |
-| `distributed_queue_semantics` | 52 | `docs/stage-reports/v0.2.112_e08_distributed_heartbeat_registry.md` |
+| `production_worker_supervision` | 63 | `docs/stage-report-archives/v0.2.x/v0.2.112_e08_distributed_heartbeat_registry.md; docs/stage-report-archives/v0.2.x/v0.2.118_e08_test_suite_worker_offload_handler.md` |
+| `distributed_queue_semantics` | 52 | `docs/stage-report-archives/v0.2.x/v0.2.112_e08_distributed_heartbeat_registry.md` |

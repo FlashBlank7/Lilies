@@ -1,7 +1,7 @@
 {
   "version": "v0.2.109",
   "decision_id": "e08_remaining_sidecar_slice_reselection_after_secret_rotation",
-  "source_stage_report": "docs/stage-reports/v0.2.108_e08_secret_kms_rotation_contract.md",
+  "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.108_e08_secret_kms_rotation_contract.md",
   "status": "completed",
   "completed_slices": [
     {
@@ -34,7 +34,7 @@
       "product_value": 27,
       "testability": 25,
       "scope_risk": 17,
-      "existing_evidence": "docs/stage-reports/v0.2.27_worker_runner_cli_and_handler.md",
+      "existing_evidence": "docs/stage-report-archives/v0.2.x/v0.2.27_worker_runner_cli_and_handler.md",
       "next_version": "v0.2.110_e08_complete_handler_catalog",
       "first_design": "docs/current-design/design_v0_2_110_e08_complete_handler_catalog.md",
       "score": 87
@@ -47,7 +47,7 @@
       "product_value": 23,
       "testability": 18,
       "scope_risk": 23,
-      "existing_evidence": "docs/stage-reports/v0.2.28_worker_heartbeat_and_renewal.md",
+      "existing_evidence": "docs/stage-report-archives/v0.2.x/v0.2.28_worker_heartbeat_and_renewal.md",
       "next_version": "v0.2.110_e08_distributed_heartbeat_registry",
       "first_design": "docs/current-design/design_v0_2_110_e08_distributed_heartbeat_registry.md",
       "score": 64
@@ -73,7 +73,7 @@
       "product_value": 24,
       "testability": 14,
       "scope_risk": 30,
-      "existing_evidence": "docs/stage-reports/v0.2.108_e08_secret_kms_rotation_contract.md",
+      "existing_evidence": "docs/stage-report-archives/v0.2.x/v0.2.108_e08_secret_kms_rotation_contract.md",
       "next_version": "v0.2.110_e08_external_kms_provider_integration",
       "first_design": "docs/current-design/design_v0_2_110_e08_external_kms_provider_integration.md",
       "score": 43
@@ -87,7 +87,7 @@
     "product_value": 27,
     "testability": 25,
     "scope_risk": 17,
-    "existing_evidence": "docs/stage-reports/v0.2.27_worker_runner_cli_and_handler.md",
+    "existing_evidence": "docs/stage-report-archives/v0.2.x/v0.2.27_worker_runner_cli_and_handler.md",
     "next_version": "v0.2.110_e08_complete_handler_catalog",
     "first_design": "docs/current-design/design_v0_2_110_e08_complete_handler_catalog.md",
     "score": 87

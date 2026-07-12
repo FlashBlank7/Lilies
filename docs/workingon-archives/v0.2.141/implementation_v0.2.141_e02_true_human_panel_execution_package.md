@@ -4,7 +4,7 @@ Status: completed
 
 ## Source
 
-- Previous stage report: `docs/stage-reports/v0.2.140_global_completion_audit_after_e10_productization.md`
+- Previous stage report: `docs/stage-report-archives/v0.2.x/v0.2.140_global_completion_audit_after_e10_productization.md`
 - Selected next version: `v0.2.141_e02_true_human_panel_execution_package`
 
 ## Implemented

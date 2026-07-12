@@ -1,6 +1,6 @@
 # v0.2.138 E10 Runtime Memory Retrieval Integration Implementation
 
-Source stage report: `docs/stage-reports/v0.2.137_e10_governed_memory_surface_contract.md`
+Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.137_e10_governed_memory_surface_contract.md`
 
 ## Completed
 

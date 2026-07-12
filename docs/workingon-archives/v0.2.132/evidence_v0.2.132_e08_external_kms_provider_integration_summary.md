@@ -2,7 +2,7 @@
 
 - Raw evidence: `docs/workingon-archives/v0.2.132/evidence_v0.2.132_e08_external_kms_provider_integration.json`
 - Status: `completed`
-- Source stage report: `docs/stage-reports/v0.2.131_e08_remaining_sidecar_architecture_reselection.md`
+- Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.131_e08_remaining_sidecar_architecture_reselection.md`
 - External KMS provider integration claimed: `True`
 - Provider type: `local`
 - Cloud provider deployment claimed: `False`

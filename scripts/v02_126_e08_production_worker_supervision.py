@@ -119,7 +119,7 @@ def build_evidence(output_dir: Path) -> dict[str, Any]:
     boundaries = api["stopped"]["boundaries"]
     result = {
         "version": "v0.2.126",
-        "source_stage_report": "docs/stage-reports/v0.2.125_e08_remaining_sidecar_architecture_reselection.md",
+        "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.125_e08_remaining_sidecar_architecture_reselection.md",
         "status": "completed",
         "direct_supervision": direct,
         "api_supervision": api,

@@ -2,7 +2,7 @@
 
 - Raw evidence: `docs/workingon-archives/v0.2.137/evidence_v0.2.137_e10_governed_memory_surface_contract.json`
 - Status: `completed`
-- Source stage report: `docs/stage-reports/v0.2.136_e10_governed_memory_boundary_definition.md`
+- Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.136_e10_governed_memory_boundary_definition.md`
 - Audit event count: `6`
 - Operations: `create, read, update, revoke, create, expire`
 - Surface contract implemented: `True`

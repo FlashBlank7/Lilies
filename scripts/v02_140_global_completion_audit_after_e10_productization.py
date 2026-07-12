@@ -163,7 +163,7 @@ def audit() -> dict[str, Any]:
     return {
         "version": "v0.2.140",
         "audit_id": "global_completion_after_e10_productization",
-        "source_stage_report": "docs/stage-reports/v0.2.139_e10_studio_governed_memory_operator_ui.md",
+        "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.139_e10_studio_governed_memory_operator_ui.md",
         "status": "completed" if all_non_external_productization_complete else "needs_attention",
         "experiments": items,
         "experiment_count": len(items),

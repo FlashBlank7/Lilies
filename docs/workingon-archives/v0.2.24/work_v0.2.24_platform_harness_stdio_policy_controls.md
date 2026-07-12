@@ -8,7 +8,7 @@ This version is not a firewall implementation. It closes a product/platform visi
 
 ## 2. Full Task Set Disposition
 
-Source stage report: `docs/stage-reports/v0.2.23_sandboxed_stdio_mcp_runner.md`
+Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.23_sandboxed_stdio_mcp_runner.md`
 
 | Next-stage task | Disposition | Current-version design(s) | Reason |
 | --- | --- | --- | --- |

@@ -2,7 +2,7 @@
 
 ## Source
 
-- Source stage report: `docs/stage-reports/v0.2.111_e08_remaining_sidecar_slice_reselection.md`
+- Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.111_e08_remaining_sidecar_slice_reselection.md`
 - Source task set: implement distributed worker heartbeat registry; preserve completed sidecar-slice evidence; preserve full-sidecar boundary; maintain executable verification discipline.
 
 ## Completed

@@ -2,7 +2,7 @@
 
 - Raw evidence: `docs/workingon-archives/v0.2.138/evidence_v0.2.138_e10_runtime_memory_retrieval_integration.json`
 - Status: `completed`
-- Source stage report: `docs/stage-reports/v0.2.137_e10_governed_memory_surface_contract.md`
+- Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.137_e10_governed_memory_surface_contract.md`
 - Retrieved count: `1`
 - Runtime retrieval integrated: `True`
 - Opt-in required: `True`

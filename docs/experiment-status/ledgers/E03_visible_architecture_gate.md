@@ -13,7 +13,7 @@ Builder benchmark 已通过 `required_node_types`、`required_tool_nodes` 和节
 | Benchmark foundation | `builder_benchmark_foundation.md` |
 | E01 complex required | `E01_plan_first_vs_node_by_node.md` |
 | v0.2.57 closure fixture | `../evidence/experiment_v0.2.57_full_backlog_closure_2026_07_10_summary.md` |
-| 相关 stage | `../../stage-reports/v0.2.5_builder_benchmark_suite.md` 到 `../../stage-reports/v0.2.9_benchmark_node_type_equivalence.md` |
+| 相关 stage | `../stage-report-archives/v0.2.x/v0.2.5_builder_benchmark_suite.md` 到 `../stage-report-archives/v0.2.x/v0.2.9_benchmark_node_type_equivalence.md` |
 
 ## 边界
 

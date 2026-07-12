@@ -6,7 +6,7 @@ Add a manual refresh control and persisted freshness history for the adaptive Te
 
 ## Source
 
-- Stage report: `docs/stage-reports/v0.2.60_adaptive_monitoring_product_surface.md`
+- Stage report: `docs/stage-report-archives/v0.2.x/v0.2.60_adaptive_monitoring_product_surface.md`
 - Version: `v0.2.61`
 
 ## Full Task Set

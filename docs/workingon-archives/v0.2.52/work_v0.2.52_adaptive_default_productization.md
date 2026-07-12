@@ -6,7 +6,7 @@ Turn the `v0.2.51` adaptive defaultization gate into real product behavior: adap
 
 ## Source
 
-- Stage report: `docs/stage-reports/v0.2.51_e05_second_family_adaptive_validation.md`
+- Stage report: `docs/stage-report-archives/v0.2.x/v0.2.51_e05_second_family_adaptive_validation.md`
 - Version: `v0.2.52`
 
 ## Full Task Set

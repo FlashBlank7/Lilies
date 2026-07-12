@@ -2,7 +2,7 @@
 
 ## Source
 
-- Source stage report: `docs/stage-reports/v0.2.110_e08_complete_handler_catalog.md`
+- Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.110_e08_complete_handler_catalog.md`
 - Source task set: re-select remaining E08 sidecar slice; preserve completed handler catalog evidence; preserve full-sidecar boundary; maintain executable verification discipline.
 
 ## Completed

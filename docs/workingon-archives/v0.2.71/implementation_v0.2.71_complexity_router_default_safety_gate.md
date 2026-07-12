@@ -2,7 +2,7 @@
 
 ## Source
 
-- Source stage report: `docs/stage-reports/v0.2.70_complexity_router_guardrail_selection.md`
+- Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.70_complexity_router_guardrail_selection.md`
 - Source stage task: `Implement complexity-router default-safety gate`; `Preserve supporting router guardrails`; `Restore executable frontend verification when Node is available`
 - Current design: `docs/current-design/design_complexity_router_default_safety_gate.md`; `docs/current-design/design_complexity_router_supporting_guardrails_preservation.md`; `docs/current-design/design_v0_2_71_frontend_verification_blocker.md`
 

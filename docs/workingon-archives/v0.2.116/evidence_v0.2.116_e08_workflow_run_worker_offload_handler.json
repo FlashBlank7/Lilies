@@ -1,7 +1,7 @@
 {
   "version": "v0.2.116",
   "evidence_id": "e08_workflow_run_worker_offload_handler",
-  "source_stage_report": "docs/stage-reports/v0.2.115_e08_remaining_sidecar_slice_reselection.md",
+  "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.115_e08_remaining_sidecar_slice_reselection.md",
   "status": "completed",
   "checks": {
     "workflow_run_catalog_implemented": true,
@@ -32,7 +32,7 @@
     "handler_registered": true,
     "executable": true,
     "implementation": "workflow_run_handler",
-    "evidence": "docs/stage-reports/v0.2.116_e08_workflow_run_worker_offload_handler.md",
+    "evidence": "docs/stage-report-archives/v0.2.x/v0.2.116_e08_workflow_run_worker_offload_handler.md",
     "reason": "",
     "operator_action": "Monitor worker-runner results and lease renewals."
   },

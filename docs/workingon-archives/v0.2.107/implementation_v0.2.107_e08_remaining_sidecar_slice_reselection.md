@@ -2,7 +2,7 @@
 
 ## Source
 
-- Source stage report: `docs/stage-reports/v0.2.106_e08_stdio_container_egress_allowlist_contract.md`
+- Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.106_e08_stdio_container_egress_allowlist_contract.md`
 - Source task set: `Re-select remaining E08 sidecar slice`; `Preserve completed stdio/container contract`; `Preserve full-sidecar boundary`; `Maintain executable verification discipline`
 
 ## Implemented

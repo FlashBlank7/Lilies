@@ -66,7 +66,7 @@ def verify() -> dict[str, Any]:
     return {
         "version": "v0.2.103",
         "verification_id": "e05_scheduled_monitoring_hook",
-        "source_stage_report": "docs/stage-reports/v0.2.102_productization_lane_reselection.md",
+        "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.102_productization_lane_reselection.md",
         "status": "verified_existing_product_capability" if all(checks.values()) else "needs_attention",
         "selected_lane_from_v0_2_102": "e05_scheduled_monitoring_hook",
         "implementation_origin": "v0.2.63_adaptive_monitoring_schedule_and_report_audit",

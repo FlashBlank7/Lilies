@@ -4,7 +4,7 @@ Status: completed
 
 ## Source
 
-- Previous stage report: `docs/stage-reports/v0.2.139_e10_studio_governed_memory_operator_ui.md`
+- Previous stage report: `docs/stage-report-archives/v0.2.x/v0.2.139_e10_studio_governed_memory_operator_ui.md`
 - Selected next version: `v0.2.140_global_completion_audit_after_e10_productization`
 
 ## Implemented

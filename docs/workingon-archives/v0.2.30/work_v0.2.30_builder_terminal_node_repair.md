@@ -24,7 +24,7 @@ Excluded:
 
 ## 3. Full Task Set Disposition
 
-Source stage report: `docs/stage-reports/v0.2.29_formal_experiment_tranche.md`
+Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.29_formal_experiment_tranche.md`
 
 | Prior next-stage task | Disposition | Current design | Reason |
 | --- | --- | --- | --- |

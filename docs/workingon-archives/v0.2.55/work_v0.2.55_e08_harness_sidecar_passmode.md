@@ -6,7 +6,7 @@ Close the first real E08 comparison slice: distinguish workflow-internal soft ha
 
 ## Source
 
-- Stage report: `docs/stage-reports/v0.2.54_policy_default_live_reliability.md`
+- Stage report: `docs/stage-report-archives/v0.2.x/v0.2.54_policy_default_live_reliability.md`
 - Ledger: `docs/experiment-status/ledgers/E08_harness_sidecar_passmode.md`
 - Version: `v0.2.55`
 

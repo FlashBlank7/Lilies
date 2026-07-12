@@ -14,7 +14,7 @@
 | 对照实验报告 | `../reports/2026-07-09_2021_E04_local_repair_vs_full_rebuild.docx` |
 | 默认摘要 | `../evidence/experiment_v0.2.37_e04_local_repair_vs_full_rebuild_2026_07_09_summary.md` |
 | raw evidence | `../evidence/experiment_v0.2.37_e04_local_repair_vs_full_rebuild_2026_07_09.json` |
-| stage report | `../../stage-reports/v0.2.37_e04_local_repair_vs_full_rebuild.md` |
+| stage report | `../stage-report-archives/v0.2.x/v0.2.37_e04_local_repair_vs_full_rebuild.md` |
 
 ## 关键结果
 

@@ -156,7 +156,7 @@ def select_lane(items: list[LaneCandidate] | None = None) -> dict[str, Any]:
     return {
         "version": "v0.2.104",
         "decision_id": "productization_lane_reselection",
-        "source_stage_report": "docs/stage-reports/v0.2.103_e05_scheduled_monitoring_hook.md",
+        "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.103_e05_scheduled_monitoring_hook.md",
         "status": "completed",
         "selection_rule": "only completion_state=open candidates can win; completed and blocked lanes stay visible but non-selectable",
         "candidates": [item.to_json() for item in ranked],

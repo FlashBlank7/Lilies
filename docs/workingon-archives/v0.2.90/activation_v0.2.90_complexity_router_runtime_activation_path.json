@@ -1,7 +1,7 @@
 {
   "version": "v0.2.90",
   "activation_id": "complexity_router_runtime_activation_path",
-  "source_stage_report": "docs/stage-reports/v0.2.89_complexity_router_limited_default_enablement_contract.md",
+  "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.89_complexity_router_limited_default_enablement_contract.md",
   "status": "completed",
   "checks": {
     "default_inactive": true,

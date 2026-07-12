@@ -2,7 +2,7 @@
 
 ## Source
 
-- Source stage report: `docs/stage-reports/v0.2.117_e08_remaining_sidecar_slice_reselection.md`
+- Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.117_e08_remaining_sidecar_slice_reselection.md`
 - Source task: `Implement test_suite worker offload handler`
 - Version: `v0.2.118_e08_test_suite_worker_offload_handler`
 

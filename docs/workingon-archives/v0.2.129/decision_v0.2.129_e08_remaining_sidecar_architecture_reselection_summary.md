@@ -35,5 +35,5 @@
 
 | Slice | Score | Evidence |
 | --- | ---: | --- |
-| `external_process_manager` | 74 | `docs/stage-reports/v0.2.126_e08_production_worker_supervision.md; docs/stage-reports/v0.2.128_e08_distributed_queue_semantics.md; platform/backend/src/agent_platform/worker_runner.py` |
-| `external_kms_provider_integration` | 52 | `docs/stage-reports/v0.2.108_e08_secret_kms_rotation_contract.md; platform/backend/src/agent_platform/platform_harness.py` |
+| `external_process_manager` | 74 | `docs/stage-report-archives/v0.2.x/v0.2.126_e08_production_worker_supervision.md; docs/stage-report-archives/v0.2.x/v0.2.128_e08_distributed_queue_semantics.md; platform/backend/src/agent_platform/worker_runner.py` |
+| `external_kms_provider_integration` | 52 | `docs/stage-report-archives/v0.2.x/v0.2.108_e08_secret_kms_rotation_contract.md; platform/backend/src/agent_platform/platform_harness.py` |

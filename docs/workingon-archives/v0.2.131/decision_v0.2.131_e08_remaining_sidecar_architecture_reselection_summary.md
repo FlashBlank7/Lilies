@@ -39,4 +39,4 @@
 
 | Slice | Score | Evidence |
 | --- | ---: | --- |
-| `external_kms_provider_integration` | 82 | `docs/stage-reports/v0.2.108_e08_secret_kms_rotation_contract.md; docs/stage-reports/v0.2.130_e08_external_process_manager.md; platform/backend/src/agent_platform/platform_harness.py` |
+| `external_kms_provider_integration` | 82 | `docs/stage-report-archives/v0.2.x/v0.2.108_e08_secret_kms_rotation_contract.md; docs/stage-report-archives/v0.2.x/v0.2.130_e08_external_process_manager.md; platform/backend/src/agent_platform/platform_harness.py` |

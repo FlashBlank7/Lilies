@@ -2,7 +2,7 @@
 
 ## Source
 
-- Source stage report: `docs/stage-reports/v0.2.73_complexity_router_operator_override_plan.md`
+- Source stage report: `docs/stage-report-archives/v0.2.x/v0.2.73_complexity_router_operator_override_plan.md`
 - Source stage task: `Implement complexity-router rollout metrics prerequisites`; `Decide post-guardrail enablement boundary`; `Restore executable frontend verification when Node is available`
 - Current design: `docs/current-design/design_complexity_router_rollout_metrics_prerequisites.md`; `docs/current-design/design_v0_2_74_post_guardrail_enablement_boundary.md`; `docs/current-design/design_v0_2_74_frontend_verification_blocker.md`
 

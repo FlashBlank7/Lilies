@@ -1,11 +1,11 @@
 {
   "version": "v0.2.130",
-  "source_stage_report": "docs/stage-reports/v0.2.129_e08_remaining_sidecar_architecture_reselection.md",
+  "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.129_e08_remaining_sidecar_architecture_reselection.md",
   "status": "completed",
   "direct_process_manager": {
     "started": {
       "version": "v0.2.130",
-      "source": "docs/stage-reports/v0.2.129_e08_remaining_sidecar_architecture_reselection.md",
+      "source": "docs/stage-report-archives/v0.2.x/v0.2.129_e08_remaining_sidecar_architecture_reselection.md",
       "process_manager_mode": "local_subprocess",
       "configured": true,
       "command": [
@@ -33,7 +33,7 @@
     },
     "restarted": {
       "version": "v0.2.130",
-      "source": "docs/stage-reports/v0.2.129_e08_remaining_sidecar_architecture_reselection.md",
+      "source": "docs/stage-report-archives/v0.2.x/v0.2.129_e08_remaining_sidecar_architecture_reselection.md",
       "process_manager_mode": "local_subprocess",
       "configured": true,
       "command": [
@@ -61,7 +61,7 @@
     },
     "stopped": {
       "version": "v0.2.130",
-      "source": "docs/stage-reports/v0.2.129_e08_remaining_sidecar_architecture_reselection.md",
+      "source": "docs/stage-report-archives/v0.2.x/v0.2.129_e08_remaining_sidecar_architecture_reselection.md",
       "process_manager_mode": "local_subprocess",
       "configured": true,
       "command": [
@@ -91,7 +91,7 @@
   "api_process_manager": {
     "initial": {
       "version": "v0.2.130",
-      "source": "docs/stage-reports/v0.2.129_e08_remaining_sidecar_architecture_reselection.md",
+      "source": "docs/stage-report-archives/v0.2.x/v0.2.129_e08_remaining_sidecar_architecture_reselection.md",
       "process_manager_mode": "local_subprocess",
       "configured": true,
       "command": [
@@ -119,7 +119,7 @@
     },
     "started": {
       "version": "v0.2.130",
-      "source": "docs/stage-reports/v0.2.129_e08_remaining_sidecar_architecture_reselection.md",
+      "source": "docs/stage-report-archives/v0.2.x/v0.2.129_e08_remaining_sidecar_architecture_reselection.md",
       "process_manager_mode": "local_subprocess",
       "configured": true,
       "command": [
@@ -147,7 +147,7 @@
     },
     "restarted": {
       "version": "v0.2.130",
-      "source": "docs/stage-reports/v0.2.129_e08_remaining_sidecar_architecture_reselection.md",
+      "source": "docs/stage-report-archives/v0.2.x/v0.2.129_e08_remaining_sidecar_architecture_reselection.md",
       "process_manager_mode": "local_subprocess",
       "configured": true,
       "command": [
@@ -175,7 +175,7 @@
     },
     "stopped": {
       "version": "v0.2.130",
-      "source": "docs/stage-reports/v0.2.129_e08_remaining_sidecar_architecture_reselection.md",
+      "source": "docs/stage-report-archives/v0.2.x/v0.2.129_e08_remaining_sidecar_architecture_reselection.md",
       "process_manager_mode": "local_subprocess",
       "configured": true,
       "command": [

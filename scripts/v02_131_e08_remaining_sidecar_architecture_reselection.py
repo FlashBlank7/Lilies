@@ -119,8 +119,8 @@ def candidates() -> list[E08RemainingArchitectureSlice]:
             testability=19,
             scope_risk=29,
             existing_evidence=(
-                "docs/stage-reports/v0.2.108_e08_secret_kms_rotation_contract.md; "
-                "docs/stage-reports/v0.2.130_e08_external_process_manager.md; "
+                "docs/stage-report-archives/v0.2.x/v0.2.108_e08_secret_kms_rotation_contract.md; "
+                "docs/stage-report-archives/v0.2.x/v0.2.130_e08_external_process_manager.md; "
                 "platform/backend/src/agent_platform/platform_harness.py"
             ),
             next_version="v0.2.132_e08_external_kms_provider_integration",
@@ -149,7 +149,7 @@ def select_slice(items: list[E08RemainingArchitectureSlice] | None = None) -> di
     return {
         "version": "v0.2.131",
         "decision_id": "e08_remaining_sidecar_architecture_reselection_after_external_process_manager",
-        "source_stage_report": "docs/stage-reports/v0.2.130_e08_external_process_manager.md",
+        "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.130_e08_external_process_manager.md",
         "status": "completed",
         "completed_slices": COMPLETED_SLICES,
         "remaining_candidates": [item.to_json() for item in ranked],

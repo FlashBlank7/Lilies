@@ -1,7 +1,7 @@
 {
   "version": "v0.2.114",
   "evidence_id": "e08_scheduler_trigger_worker_offload_handler",
-  "source_stage_report": "docs/stage-reports/v0.2.113_e08_remaining_sidecar_slice_reselection.md",
+  "source_stage_report": "docs/stage-report-archives/v0.2.x/v0.2.113_e08_remaining_sidecar_slice_reselection.md",
   "status": "completed",
   "checks": {
     "scheduler_trigger_catalog_implemented": true,
@@ -32,7 +32,7 @@
     "handler_registered": true,
     "executable": true,
     "implementation": "scheduler_trigger_handler",
-    "evidence": "docs/stage-reports/v0.2.114_e08_scheduler_trigger_worker_offload_handler.md",
+    "evidence": "docs/stage-report-archives/v0.2.x/v0.2.114_e08_scheduler_trigger_worker_offload_handler.md",
     "reason": "",
     "operator_action": "Monitor worker-runner results and lease renewals."
   },

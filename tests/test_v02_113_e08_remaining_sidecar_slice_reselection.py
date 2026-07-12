@@ -28,7 +28,7 @@ def test_v02_113_excludes_completed_slices() -> None:
 def test_v02_113_preserves_stage_boundaries() -> None:
     result = select_slice()
 
-    assert result["source_stage_report"] == "docs/stage-reports/v0.2.112_e08_distributed_heartbeat_registry.md"
+    assert result["source_stage_report"] == "docs/stage-report-archives/v0.2.x/v0.2.112_e08_distributed_heartbeat_registry.md"
     assert result["invariants"]["e08_full_sidecar_completion_claimed"] is False
     assert result["invariants"]["workingon_is_not_task_source"] is True
     assert result["remaining_candidates"][0]["slice_id"] == "scheduler_trigger_worker_offload_handler"

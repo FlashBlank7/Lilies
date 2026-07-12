@@ -8,7 +8,7 @@ This stage should be honest about evidence level. Without an actual human panel,
 
 ## Source Task Set Disposition
 
-Source: `docs/stage-reports/v0.2.35_e01_required_architecture_coverage.md`
+Source: `docs/stage-report-archives/v0.2.x/v0.2.35_e01_required_architecture_coverage.md`
 
 | Prior next-stage task | v0.2.36 disposition | Reason |
 | --- | --- | --- |
