@@ -32,10 +32,12 @@ export default function Home() {
   const t = messages[locale]
   const [apps, setApps] = useState<Application[]>([])
   const [requirement, setRequirement] = useState<string>(t.requirementPlaceholder)
+  const [selectedExampleId, setSelectedExampleId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [authRequired, setAuthRequired] = useState(false)
   const [tokenInput, setTokenInput] = useState('')
+  const selectedCustomerExample = t.customerExamples.find(item => item.id === selectedExampleId)
 
   const refresh = () => api<Application[]>('/api/v1/applications').then(applications => {
     setApps(applications)
@@ -85,6 +87,12 @@ export default function Home() {
     void refresh()
   }
 
+  function applyCustomerExample(example: (typeof t.customerExamples)[number]) {
+    setRequirement(example.requirement)
+    setSelectedExampleId(example.id)
+    setError('')
+  }
+
   return (
     <main className="home-shell">
       <nav className="topbar"><div className="brand"><span>F</span> Foundry</div><div className="topbar-actions"><button className="lang-toggle" onClick={toggleLocale}>{t.switchLabel}</button><div className="status-dot">{t.status}</div></div></nav>
@@ -96,6 +104,31 @@ export default function Home() {
           <textarea aria-label={t.requirementAria} value={requirement} onChange={event => setRequirement(event.target.value)} />
           <div className="create-footer"><span>{t.createHint}</span><button disabled={busy || requirement.length < 10}>{busy ? t.createBusy : t.createButton}</button></div>
         </form>
+        <section className="customer-intake-panel" aria-labelledby="customer-intake-title">
+          <div className="customer-intake-head">
+            <div>
+              <h2 id="customer-intake-title">{t.customerIntakeTitle}</h2>
+              <p>{t.customerIntakeHelp}</p>
+            </div>
+            {selectedCustomerExample && <span>{t.selectedScenarioLabel} · {selectedCustomerExample.role}</span>}
+          </div>
+          <div className="example-grid">
+            {t.customerExamples.map(example => <button
+              className={`example-card ${selectedExampleId === example.id ? 'active' : ''}`}
+              data-customer-example={example.id}
+              key={example.id}
+              onClick={() => applyCustomerExample(example)}
+              type="button"
+            >
+              <span className="scenario-chip">{example.role}</span>
+              <strong>{example.title}</strong>
+              <p>{example.need}</p>
+              <small>{example.expectedOutcome}</small>
+              <em>{example.acceptanceSignal}</em>
+              <b>{t.scenarioUseButton}</b>
+            </button>)}
+          </div>
+        </section>
         {authRequired && <form className="auth-card" onSubmit={saveToken}>
           <div><strong>{t.authTitle}</strong><p>{t.authCopy}</p></div>
           <input type="password" value={tokenInput} placeholder={t.authPlaceholder} onChange={event => setTokenInput(event.target.value)} />

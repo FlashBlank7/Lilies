@@ -1,0 +1,193 @@
+{
+  "version": "v0.3.1",
+  "stage": "customer_requirement_intake_and_blackbox_flow",
+  "status": "passed",
+  "customer_requirement_fixtures": [
+    {
+      "id": "business_owner",
+      "persona": "business_owner",
+      "need": "evaluate whether Lilies turns cross-team customer requests into a trackable workflow",
+      "requirement": "Receive a customer message, classify it as sales inquiry, delivery status, billing issue, or complaint escalation, then generate next handling step, suggested owner, missing information, and a customer-success-ready summary.",
+      "expected_outcome": "routing result, owner suggestion, missing information, and customer-readable summary",
+      "acceptance_signal": "covers sales, delivery, billing, and complaint inputs"
+    },
+    {
+      "id": "implementation_consultant",
+      "persona": "implementation_consultant",
+      "need": "turn client requirements into an acceptance-ready plan",
+      "requirement": "Read a client requirement paragraph, extract business goal, roles, key data, risks, and open questions, then generate a workflow draft brief, acceptance case list, and pre-delivery checklist.",
+      "expected_outcome": "structured plan, open questions, and acceptance checklist",
+      "acceptance_signal": "includes goal, roles, risks, and at least three acceptance cases"
+    },
+    {
+      "id": "operator",
+      "persona": "operator",
+      "need": "run a stable exception handling process and understand failure ownership",
+      "requirement": "Receive a failed order, support ticket, or system alert, judge severity and impact, request missing fields when needed, and generate handling steps, notification targets, trace, and postmortem note.",
+      "expected_outcome": "severity, handling steps, notification targets, and postmortem note",
+      "acceptance_signal": "covers missing information, actionable, and escalation cases"
+    },
+    {
+      "id": "technical_reviewer",
+      "persona": "technical_reviewer",
+      "need": "review generated automation before trusting it",
+      "requirement": "Read a workflow description and check start inputs, core processing nodes, tool calls, error handling, acceptance cases, and release risks, then output publish decision, blockers, missing tests, and policy boundaries.",
+      "expected_outcome": "publish decision, blockers, testing gaps, and policy boundary notes",
+      "acceptance_signal": "rejects workflows missing acceptance cases or tool evidence"
+    }
+  ],
+  "bug_ledger": [
+    {
+      "id": "P0-frontdoor-customer-start-is-blank",
+      "severity": "P0",
+      "status": "fixed",
+      "reproduction": "A first-time non-technical user opens the home page and does not know what requirement to write.",
+      "fix": "Add customer requirement examples that fill the existing creation textarea.",
+      "verification": "customer_fixture_ui and live_frontend_home checks verify the intake surface."
+    },
+    {
+      "id": "P1-persona-examples-not-executable",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Customer personas are explanatory cards only and cannot become testable inputs.",
+      "fix": "Convert personas into requirement fixtures with expected outcomes and acceptance signals.",
+      "verification": "fixture_quality check requires four concrete fixtures with outcome and acceptance signal."
+    },
+    {
+      "id": "P1-no-owned-customer-flow-harness",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Regression detection depends on ad hoc curl or manual observation.",
+      "fix": "Add this versioned customer-flow audit with optional live service checks and JSON evidence.",
+      "verification": "focused pytest and script execution must pass before stage archive."
+    }
+  ],
+  "live_checks_enabled": true,
+  "checks": [
+    {
+      "id": "fixture_quality",
+      "passed": true,
+      "persona_count": 4,
+      "required_personas_present": [
+        "business_owner",
+        "implementation_consultant",
+        "operator",
+        "technical_reviewer"
+      ],
+      "missing_personas": [],
+      "weak_fixtures": [],
+      "requirement_lengths": {
+        "business_owner": 224,
+        "implementation_consultant": 191,
+        "operator": 198,
+        "technical_reviewer": 217
+      }
+    },
+    {
+      "id": "p0_p1_bug_ledger",
+      "passed": true,
+      "bug_count": 3,
+      "blocking_bug_count": 0,
+      "bugs": [
+        {
+          "id": "P0-frontdoor-customer-start-is-blank",
+          "severity": "P0",
+          "status": "fixed",
+          "reproduction": "A first-time non-technical user opens the home page and does not know what requirement to write.",
+          "fix": "Add customer requirement examples that fill the existing creation textarea.",
+          "verification": "customer_fixture_ui and live_frontend_home checks verify the intake surface."
+        },
+        {
+          "id": "P1-persona-examples-not-executable",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Customer personas are explanatory cards only and cannot become testable inputs.",
+          "fix": "Convert personas into requirement fixtures with expected outcomes and acceptance signals.",
+          "verification": "fixture_quality check requires four concrete fixtures with outcome and acceptance signal."
+        },
+        {
+          "id": "P1-no-owned-customer-flow-harness",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Regression detection depends on ad hoc curl or manual observation.",
+          "fix": "Add this versioned customer-flow audit with optional live service checks and JSON evidence.",
+          "verification": "focused pytest and script execution must pass before stage archive."
+        }
+      ]
+    },
+    {
+      "id": "customer_fixture_copy",
+      "path": "platform/frontend/lib/i18n.ts",
+      "required_markers": [
+        "customerIntakeTitle",
+        "customerIntakeHelp",
+        "scenarioUseButton",
+        "selectedScenarioLabel",
+        "customerExamples",
+        "business_owner",
+        "implementation_consultant",
+        "operator",
+        "technical_reviewer"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "customer_fixture_ui",
+      "path": "platform/frontend/app/page.tsx",
+      "required_markers": [
+        "selectedExampleId",
+        "selectedCustomerExample",
+        "applyCustomerExample",
+        "customer-intake-panel",
+        "example-grid",
+        "example-card",
+        "data-customer-example"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "customer_fixture_styles",
+      "path": "platform/frontend/app/globals.css",
+      "required_markers": [
+        ".customer-intake-panel",
+        ".customer-intake-head",
+        ".example-grid",
+        ".example-card",
+        ".scenario-chip"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "live_frontend_home",
+      "url": "http://127.0.0.1:3000/",
+      "passed": true,
+      "status_code": 200,
+      "required_markers": [
+        "customer-intake-panel",
+        "data-customer-example"
+      ],
+      "missing_markers": [],
+      "error": ""
+    },
+    {
+      "id": "live_backend_health",
+      "url": "http://127.0.0.1:8001/health",
+      "passed": true,
+      "status_code": 200,
+      "required_markers": [
+        "\"status\":\"ok\""
+      ],
+      "missing_markers": [],
+      "error": ""
+    }
+  ],
+  "summary": {
+    "fixture_count": 4,
+    "bug_count": 3,
+    "failed_check_count": 0,
+    "open_p0_p1_bug_count": 0
+  }
+}

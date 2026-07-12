@@ -5,12 +5,12 @@ This directory is the active small-version stage-report workspace for the curren
 Current state:
 
 - Active phase: `v0.3.x` is active.
-- Active stage reports: `v0.3.0_product_usability_stabilization.md`.
+- Active stage reports: `v0.3.0_product_usability_stabilization.md`, `v0.3.1_customer_requirement_intake_and_blackbox_flow.md`.
 - Template: `STAGE_REPORT_TEMPLATE.md`.
 - Latest handoff source: `docs/stage-report-archives/v0.2.x/v0.2.144_v02x_closeout_and_v03_handoff.md`.
-- Latest completed version: `v0.3.0_product_usability_stabilization`.
-- Next planned version: `v0.3.1_customer_requirement_intake_and_blackbox_flow`.
-- Current target: turn the v0.3.0 customer personas into runnable requirement fixtures, add product-facing scenario intake, and add owned black-box flow evidence.
+- Latest completed version: `v0.3.1_customer_requirement_intake_and_blackbox_flow`.
+- Next planned version: `v0.3.2_bounded_create_open_detail_flow`.
+- Current target: add a bounded create/open/detail flow that proves customer examples can become real local applications without uncontrolled paid model calls.
 
 Rules:
 
