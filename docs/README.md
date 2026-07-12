@@ -23,6 +23,10 @@
 - `intellectual-assets/asset_adaptive_reuse_defaultization_gate.md`
 - `intellectual-assets/asset_adaptive_default_live_acceptance_boundary.md`
 
+## 当前大版本报告
+
+- `phase-reports/v0.2.0_experiment_productization_closeout.md`
+
 ## 当前阶段报告
 
 - `stage-reports/v0.2.1_docs_consolidation_and_asset_baseline.md`
@@ -167,6 +171,8 @@
 - `stage-reports/v0.2.140_global_completion_audit_after_e10_productization.md`
 - `stage-reports/v0.2.141_e02_true_human_panel_execution_package.md`
 - `stage-reports/v0.2.142_e02_panel_result_validator_analyzer.md`
+- `stage-reports/v0.2.143_e02_participant_task_packets.md`
+- `stage-reports/v0.2.144_v02x_closeout_and_v03_handoff.md`
 
 ## 使用原则
 
