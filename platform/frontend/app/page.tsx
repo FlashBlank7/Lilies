@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { FormEvent, useEffect, useState } from 'react'
-import { api, clearClientToken, getClientToken, isAuthError, saveClientToken } from '@/lib/platform'
+import { api, clearClientToken, getClientToken, idempotency, isAuthError, saveClientToken } from '@/lib/platform'
 import { defaultLocale, isLocale, messages, nextLocale, type Locale } from '@/lib/i18n'
 
 type Application = {
@@ -16,6 +16,10 @@ type Application = {
   tested_hash?: string | null
 }
 
+type DraftMutationResult = {
+  revision: number
+}
+
 function deriveApplicationName(requirement: string) {
   const text = requirement.trim().replace(/\s+/g, ' ')
   if (!text) return '新智能体'
@@ -25,6 +29,54 @@ function deriveApplicationName(requirement: string) {
     .replace(/^(please|build|create|make|generate|design)\s+(a|an|the)?\s*/i, '')
     .replace(/^[\s，,：:；;]+|[\s，,：:；;]+$/g, '')
   return (cleaned || first || text).slice(0, 32).replace(/[\s，,：:；;]+$/g, '') || '新智能体'
+}
+
+async function applyDraftOperation(applicationId: string, expectedRevision: number, op: string, data: Record<string, unknown>) {
+  const result = await api<DraftMutationResult>(`/api/v1/applications/${applicationId}/draft`, {
+    method: 'POST',
+    body: JSON.stringify({ expected_revision: expectedRevision, idempotency_key: idempotency(), op, data }),
+  })
+  return result.revision
+}
+
+async function seedSafeDraftSkeleton(applicationId: string, initialRevision: number) {
+  const suffix = Date.now()
+  const startId = `safe_start_${suffix}`
+  const answerId = `safe_answer_${suffix}`
+  const testId = `safe_acceptance_${suffix}`
+  let revision = initialRevision
+  revision = await applyDraftOperation(applicationId, revision, 'add_node', { node: {
+    id: startId, type: 'start', block_version: 1, title: 'Customer Request',
+    description: 'Safe draft input created without starting the builder team.',
+    config: { inputs: [{ name: 'customer_request', label: 'Customer request', type: 'string', required: true }] },
+    position: { x: 120, y: 160 },
+    retry: { enabled: false, max_attempts: 1, delay_seconds: 0.5 }, error_strategy: 'fail',
+  } })
+  revision = await applyDraftOperation(applicationId, revision, 'add_node', { node: {
+    id: answerId, type: 'answer', block_version: 1, title: 'Draft Answer',
+    description: 'Starter output placeholder; replace this after the builder team or manual editing.',
+    config: { answer: { $ref: { node_id: startId, path: ['output', 'customer_request'] } } },
+    position: { x: 420, y: 160 },
+    retry: { enabled: false, max_attempts: 1, delay_seconds: 0.5 }, error_strategy: 'fail',
+  } })
+  revision = await applyDraftOperation(applicationId, revision, 'add_edge', { edge: {
+    id: `safe_edge_${suffix}`, source: startId, target: answerId, source_port: 'output', target_port: 'input',
+  } })
+  revision = await applyDraftOperation(applicationId, revision, 'add_test', { test: {
+    id: testId,
+    name: 'Starter structure check',
+    requirement: 'Safe draft contains an editable Start to Answer skeleton before any model build.',
+    inputs: { customer_request: 'Summarize a customer request and identify the next owner.' },
+    assertions: [],
+    required_node_types: ['start', 'answer'],
+    required_tool_nodes: [],
+    required_tools: [],
+    minimum_tool_calls: 0,
+    mandatory: true,
+    structural_only: true,
+    feedback_hints: ['Start the builder team or edit the nodes manually to replace this starter skeleton.'],
+  } })
+  return revision
 }
 
 export default function Home() {
@@ -90,6 +142,7 @@ export default function Home() {
         method: 'POST',
         body: JSON.stringify({ name, description: requirement.slice(0, 180), requirement, mode: 'workflow' }),
       })
+      await seedSafeDraftSkeleton(app.id, app.draft_revision)
       window.location.href = `/applications/${app.id}?safeDraft=1`
     } catch (cause) {
       setError(String(cause))

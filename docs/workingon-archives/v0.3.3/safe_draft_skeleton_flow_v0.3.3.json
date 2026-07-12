@@ -1,0 +1,192 @@
+{
+  "version": "v0.3.3",
+  "stage": "safe_draft_starter_skeleton_and_cleanup",
+  "status": "passed",
+  "live_checks_enabled": true,
+  "token_source": "file:.env:API_TOKEN",
+  "smoke_marker": "v0.3.3-smoke",
+  "retention_policy": {
+    "status": "explicit_retention_until_archive_delete_exists",
+    "reason": "No application delete/archive API exists yet; smoke apps remain local evidence and are traceable by marker.",
+    "marker": "v0.3.3-smoke"
+  },
+  "safety": {
+    "build_endpoint_called": false,
+    "called_endpoints": [
+      "POST /api/v1/applications",
+      "POST /api/v1/applications/{id}/draft:add_node",
+      "POST /api/v1/applications/{id}/draft:add_node",
+      "POST /api/v1/applications/{id}/draft:add_edge",
+      "POST /api/v1/applications/{id}/draft:add_test"
+    ],
+    "smoke_marker": "v0.3.3-smoke"
+  },
+  "operation_preview": [
+    {
+      "op": "add_node",
+      "data_keys": [
+        "node"
+      ]
+    },
+    {
+      "op": "add_node",
+      "data_keys": [
+        "node"
+      ]
+    },
+    {
+      "op": "add_edge",
+      "data_keys": [
+        "edge"
+      ]
+    },
+    {
+      "op": "add_test",
+      "data_keys": [
+        "test"
+      ]
+    }
+  ],
+  "bug_ledger": [
+    {
+      "id": "P0-safe-draft-opens-empty-canvas",
+      "severity": "P0",
+      "status": "fixed",
+      "reproduction": "A user saves a safe draft and opens a real detail page with zero nodes to inspect.",
+      "fix": "Seed Start, Answer, edge, and structural acceptance placeholder without calling builds.",
+      "verification": "live_opened_skeleton_draft verifies node, edge, test, and revision counts."
+    },
+    {
+      "id": "P1-harness-accepts-empty-draft",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "v0.3.2 harness accepted node_count=0 as success.",
+      "fix": "v0.3.3 harness requires starter structure.",
+      "verification": "focused tests and live skeleton harness."
+    },
+    {
+      "id": "P1-smoke-app-retention-policy",
+      "severity": "P1",
+      "status": "deferred_with_reason",
+      "reproduction": "Automatic evolution leaves local smoke apps because application delete/archive is absent.",
+      "fix": "Record retention policy and keep smoke markers until a safe archive/delete stage.",
+      "verification": "retention_policy is emitted in JSON and stage report."
+    }
+  ],
+  "checks": [
+    {
+      "id": "p0_p1_bug_ledger_safe_draft_skeleton",
+      "passed": true,
+      "bug_count": 3,
+      "blocking_bug_count": 0,
+      "bugs": [
+        {
+          "id": "P0-safe-draft-opens-empty-canvas",
+          "severity": "P0",
+          "status": "fixed",
+          "reproduction": "A user saves a safe draft and opens a real detail page with zero nodes to inspect.",
+          "fix": "Seed Start, Answer, edge, and structural acceptance placeholder without calling builds.",
+          "verification": "live_opened_skeleton_draft verifies node, edge, test, and revision counts."
+        },
+        {
+          "id": "P1-harness-accepts-empty-draft",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "v0.3.2 harness accepted node_count=0 as success.",
+          "fix": "v0.3.3 harness requires starter structure.",
+          "verification": "focused tests and live skeleton harness."
+        },
+        {
+          "id": "P1-smoke-app-retention-policy",
+          "severity": "P1",
+          "status": "deferred_with_reason",
+          "reproduction": "Automatic evolution leaves local smoke apps because application delete/archive is absent.",
+          "fix": "Record retention policy and keep smoke markers until a safe archive/delete stage.",
+          "verification": "retention_policy is emitted in JSON and stage report."
+        }
+      ]
+    },
+    {
+      "id": "safe_draft_skeleton_ui",
+      "path": "platform/frontend/app/page.tsx",
+      "required_markers": [
+        "seedSafeDraftSkeleton",
+        "applyDraftOperation",
+        "safe_start_",
+        "safe_acceptance_",
+        "add_test"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "safe_draft_skeleton_styles",
+      "path": "platform/frontend/app/globals.css",
+      "required_markers": [
+        ".create-actions",
+        ".secondary-action"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "token_available",
+      "passed": true,
+      "token_source": "file:.env:API_TOKEN"
+    },
+    {
+      "id": "live_created_application",
+      "passed": true,
+      "status_code": 201,
+      "application_id": "6c4240ff-d6a1-4f59-83df-99021fab126d",
+      "draft_revision": 0,
+      "error": ""
+    },
+    {
+      "id": "live_applied_skeleton_operations",
+      "passed": true,
+      "final_revision": 4,
+      "operation_count": 4
+    },
+    {
+      "id": "live_opened_skeleton_draft",
+      "url": "http://127.0.0.1:8001/api/v1/applications/6c4240ff-d6a1-4f59-83df-99021fab126d/draft",
+      "passed": true,
+      "status_code": 200,
+      "application_id": "6c4240ff-d6a1-4f59-83df-99021fab126d",
+      "revision": 4,
+      "node_count": 2,
+      "edge_count": 1,
+      "test_count": 1,
+      "node_types": [
+        "answer",
+        "start"
+      ],
+      "error": ""
+    },
+    {
+      "id": "live_frontend_detail",
+      "url": "http://127.0.0.1:3000/applications/6c4240ff-d6a1-4f59-83df-99021fab126d?safeDraft=1",
+      "passed": true,
+      "status_code": 200,
+      "error": ""
+    },
+    {
+      "id": "safety_no_build_call",
+      "passed": true,
+      "called_endpoints": [
+        "POST /api/v1/applications",
+        "POST /api/v1/applications/{id}/draft:add_node",
+        "POST /api/v1/applications/{id}/draft:add_node",
+        "POST /api/v1/applications/{id}/draft:add_edge",
+        "POST /api/v1/applications/{id}/draft:add_test"
+      ],
+      "forbidden_endpoint": "POST /api/v1/applications/{id}/builds"
+    }
+  ],
+  "summary": {
+    "failed_check_count": 0,
+    "open_p0_p1_bug_count": 0,
+    "build_endpoint_called": false
+  }
+}
