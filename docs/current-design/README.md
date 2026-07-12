@@ -6,7 +6,7 @@
 
 Active designs:
 
-- none.
+- none
 
 归档规则：
 

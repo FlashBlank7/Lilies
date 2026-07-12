@@ -5,12 +5,12 @@ This directory is the active small-version stage-report workspace for the curren
 Current state:
 
 - Active phase: `v0.3.x` is active.
-- Active stage reports: `v0.3.0_product_usability_stabilization.md`, `v0.3.1_customer_requirement_intake_and_blackbox_flow.md`, `v0.3.2_bounded_create_open_detail_flow.md`, `v0.3.3_safe_draft_starter_skeleton_and_cleanup.md`, `v0.3.4_browser_flow_and_smoke_retention.md`.
+- Active stage reports: `v0.3.0_product_usability_stabilization.md`, `v0.3.1_customer_requirement_intake_and_blackbox_flow.md`, `v0.3.2_bounded_create_open_detail_flow.md`, `v0.3.3_safe_draft_starter_skeleton_and_cleanup.md`, `v0.3.4_browser_flow_and_smoke_retention.md`, `v0.3.5_smoke_archive_cleanup_boundary.md`.
 - Template: `STAGE_REPORT_TEMPLATE.md`.
 - Latest handoff source: `docs/stage-report-archives/v0.2.x/v0.2.144_v02x_closeout_and_v03_handoff.md`.
-- Latest completed version: `v0.3.4_browser_flow_and_smoke_retention`.
-- Next planned version: `v0.3.5_smoke_archive_cleanup_boundary`.
-- Current target: add a safe application archive/delete or retention cleanup boundary so automatic evolution evidence apps do not accumulate without control.
+- Latest completed version: `v0.3.5_smoke_archive_cleanup_boundary`.
+- Next planned version: `v0.3.6_runtime_product_health_triage`.
+- Current target: reconcile running services with current code, simulate multiple customer behaviors, and fix the first P0/P1 usability or runtime bug found by triage.
 
 Rules:
 

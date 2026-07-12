@@ -203,6 +203,65 @@ class WorkflowStorage:
             ).fetchall()
             return [dict(row) for row in rows]
 
+    async def smoke_cleanup_application(
+        self,
+        application_id: str,
+        *,
+        smoke_marker: str,
+        dry_run: bool = True,
+    ) -> dict[str, Any]:
+        async with self._lock:
+            return await asyncio.to_thread(
+                self._smoke_cleanup_application_sync,
+                application_id,
+                smoke_marker,
+                dry_run,
+            )
+
+    def _smoke_cleanup_application_sync(
+        self,
+        application_id: str,
+        smoke_marker: str,
+        dry_run: bool,
+    ) -> dict[str, Any]:
+        if not re.fullmatch(r"v0\.3\.\d+-smoke", smoke_marker):
+            raise ValueError("smoke_marker must match v0.3.<n>-smoke")
+        related_tables = [
+            "application_drafts",
+            "application_versions",
+            "builds",
+            "workflow_runs",
+            "schedule_fires",
+            "draft_idempotency",
+        ]
+        with self.storage._connect() as conn:
+            row = conn.execute(
+                "SELECT id,name,description,requirement FROM applications WHERE id=?",
+                (application_id,),
+            ).fetchone()
+            if not row:
+                raise KeyError(f"application not found: {application_id}")
+            haystack = "\n".join(str(row[key]) for key in ("name", "description", "requirement"))
+            if smoke_marker not in haystack:
+                raise ValueError(f"application does not contain smoke marker: {smoke_marker}")
+            related_counts = {
+                table: int(conn.execute(
+                    f"SELECT COUNT(*) AS count FROM {table} WHERE application_id=?",
+                    (application_id,),
+                ).fetchone()["count"])
+                for table in related_tables
+            }
+            if not dry_run:
+                conn.execute("DELETE FROM draft_idempotency WHERE application_id=?", (application_id,))
+                conn.execute("DELETE FROM applications WHERE id=?", (application_id,))
+            return {
+                "application_id": application_id,
+                "smoke_marker": smoke_marker,
+                "dry_run": dry_run,
+                "deleted": not dry_run,
+                "related_counts": related_counts,
+            }
+
     async def get_application(self, application_id: str) -> dict[str, Any]:
         return await asyncio.to_thread(self._get_application_sync, application_id)
 

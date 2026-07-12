@@ -127,6 +127,11 @@ class PlatformWorkerProcessStartRequest(BaseModel):
     cwd: str | None = None
 
 
+class SmokeCleanupRequest(BaseModel):
+    smoke_marker: str = Field(pattern=r"^v0\.3\.\d+-smoke$")
+    dry_run: bool = True
+
+
 class PlatformSecretCreateRequest(BaseModel):
     owner_id: str
     name: str
@@ -1315,6 +1320,22 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             return await services.workflow_store.get_application(application_id)
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
+
+    @app.post("/api/v1/applications/{application_id}/smoke-cleanup", dependencies=[Depends(require_token)])
+    async def smoke_cleanup_application(
+        application_id: str,
+        body: SmokeCleanupRequest,
+    ) -> dict[str, Any]:
+        try:
+            return await services.workflow_store.smoke_cleanup_application(
+                application_id,
+                smoke_marker=body.smoke_marker,
+                dry_run=body.dry_run,
+            )
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from error
 
     @app.get("/api/v1/applications/{application_id}/draft", dependencies=[Depends(require_token)])
     async def get_application_draft(application_id: str) -> dict[str, Any]:
