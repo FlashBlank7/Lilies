@@ -1,0 +1,179 @@
+{
+  "version": "v0.3.2",
+  "stage": "bounded_create_open_detail_flow",
+  "status": "passed",
+  "live_checks_enabled": true,
+  "token_source": "file:.env:API_TOKEN",
+  "smoke_marker": "v0.3.2-smoke",
+  "payload_preview": {
+    "name": "v0.3.2-smoke customer draft 0",
+    "description": "[v0.3.2-smoke] Build a safe local draft from the business-owner customer example: classify customer messages, suggest an owner, list missing information, and produce a customer-suc",
+    "requirement": "[v0.3.2-smoke] Build a safe local draft from the business-owner customer example: classify customer messages, suggest an owner, list missing information, and produce a customer-success summary. This smoke flow must create only a draft application and must not start the builder team.",
+    "mode": "workflow"
+  },
+  "safety": {
+    "build_endpoint_called": false,
+    "called_endpoints": [
+      "POST /api/v1/applications",
+      "GET /api/v1/applications/{id}",
+      "GET /api/v1/applications/{id}/draft",
+      "GET /applications/{id}?safeDraft=1"
+    ],
+    "smoke_marker": "v0.3.2-smoke"
+  },
+  "bug_ledger": [
+    {
+      "id": "P0-frontdoor-forces-model-build",
+      "severity": "P0",
+      "status": "fixed",
+      "reproduction": "A cautious user can only start the builder team after selecting a customer example.",
+      "fix": "Add a save-draft-only action that calls application create without calling builds.",
+      "verification": "safe_draft_ui marker check and live bounded create/open/detail flow."
+    },
+    {
+      "id": "P1-no-local-create-open-detail-harness",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Customer examples could be filled but not proven to create and reopen a local application.",
+      "fix": "Add this bounded live harness for POST applications plus GET application/draft/detail route.",
+      "verification": "live_created_application, live_opened_application, live_opened_draft, and live_frontend_detail checks."
+    },
+    {
+      "id": "P1-smoke-app-cleanup-missing",
+      "severity": "P1",
+      "status": "deferred_with_reason",
+      "reproduction": "The harness leaves local smoke applications because there is no delete application API.",
+      "fix": "Defer cleanup until an application archive/delete feature exists; keep a v0.3.2-smoke marker for traceability.",
+      "verification": "stage report records local-state side effect explicitly."
+    }
+  ],
+  "checks": [
+    {
+      "id": "p0_p1_bug_ledger_create_open_detail",
+      "passed": true,
+      "bug_count": 3,
+      "blocking_bug_count": 0,
+      "bugs": [
+        {
+          "id": "P0-frontdoor-forces-model-build",
+          "severity": "P0",
+          "status": "fixed",
+          "reproduction": "A cautious user can only start the builder team after selecting a customer example.",
+          "fix": "Add a save-draft-only action that calls application create without calling builds.",
+          "verification": "safe_draft_ui marker check and live bounded create/open/detail flow."
+        },
+        {
+          "id": "P1-no-local-create-open-detail-harness",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Customer examples could be filled but not proven to create and reopen a local application.",
+          "fix": "Add this bounded live harness for POST applications plus GET application/draft/detail route.",
+          "verification": "live_created_application, live_opened_application, live_opened_draft, and live_frontend_detail checks."
+        },
+        {
+          "id": "P1-smoke-app-cleanup-missing",
+          "severity": "P1",
+          "status": "deferred_with_reason",
+          "reproduction": "The harness leaves local smoke applications because there is no delete application API.",
+          "fix": "Defer cleanup until an application archive/delete feature exists; keep a v0.3.2-smoke marker for traceability.",
+          "verification": "stage report records local-state side effect explicitly."
+        }
+      ]
+    },
+    {
+      "id": "safe_draft_copy",
+      "path": "platform/frontend/lib/i18n.ts",
+      "required_markers": [
+        "safeDraftHint",
+        "saveDraftOnlyButton",
+        "saveDraftOnlyBusy"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "safe_draft_ui",
+      "path": "platform/frontend/app/page.tsx",
+      "required_markers": [
+        "saveDraftOnly",
+        "draftBusy",
+        "safeDraft=1",
+        "secondary-action"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "safe_draft_styles",
+      "path": "platform/frontend/app/globals.css",
+      "required_markers": [
+        ".create-actions",
+        ".secondary-action",
+        ".create-copy"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "token_available",
+      "passed": true,
+      "token_source": "file:.env:API_TOKEN"
+    },
+    {
+      "id": "live_created_application",
+      "url": "http://127.0.0.1:8001/api/v1/applications",
+      "passed": true,
+      "status_code": 201,
+      "application_id": "3720f7ba-a2e7-401b-939f-0421924dbf4d",
+      "active_version": null,
+      "draft_revision": 0,
+      "error": ""
+    },
+    {
+      "id": "live_opened_application",
+      "url": "http://127.0.0.1:8001/api/v1/applications/3720f7ba-a2e7-401b-939f-0421924dbf4d",
+      "passed": true,
+      "status_code": 200,
+      "application_id": "3720f7ba-a2e7-401b-939f-0421924dbf4d",
+      "error": ""
+    },
+    {
+      "id": "live_opened_draft",
+      "url": "http://127.0.0.1:8001/api/v1/applications/3720f7ba-a2e7-401b-939f-0421924dbf4d/draft",
+      "passed": true,
+      "status_code": 200,
+      "application_id": "3720f7ba-a2e7-401b-939f-0421924dbf4d",
+      "revision": 0,
+      "node_count": 0,
+      "test_count": 0,
+      "error": ""
+    },
+    {
+      "id": "live_frontend_detail",
+      "url": "http://127.0.0.1:3000/applications/3720f7ba-a2e7-401b-939f-0421924dbf4d?safeDraft=1",
+      "passed": true,
+      "status_code": 200,
+      "required_markers": [
+        "Foundry"
+      ],
+      "missing_markers": [],
+      "error": ""
+    },
+    {
+      "id": "safety_no_build_call",
+      "passed": true,
+      "called_endpoints": [
+        "POST /api/v1/applications",
+        "GET /api/v1/applications/{id}",
+        "GET /api/v1/applications/{id}/draft",
+        "GET /applications/{id}?safeDraft=1"
+      ],
+      "forbidden_endpoint": "POST /api/v1/applications/{id}/builds"
+    }
+  ],
+  "summary": {
+    "failed_check_count": 0,
+    "open_p0_p1_bug_count": 0,
+    "build_endpoint_called": false
+  }
+}

@@ -16,6 +16,9 @@ export const messages = {
     createHint: '自动拆解需求 · 搭建 · 测试 · 发布',
     createBusy: '团队启动中…',
     createButton: '开始搭建 →',
+    safeDraftHint: '想先看结构？可以只保存草稿，不启动模型团队。',
+    saveDraftOnlyButton: '仅保存草稿',
+    saveDraftOnlyBusy: '正在保存草稿…',
     customerScenariosTitle: '不同客户从这里开始',
     customerScenariosHelp: '先选一个与你最像的目标，再创建或打开一个工作流。Lilies 会保留草稿、验收、试运行和监控证据。',
     customerScenarios: [
@@ -332,6 +335,9 @@ export const messages = {
     createHint: 'Plan · build · test · publish',
     createBusy: 'Starting team…',
     createButton: 'Start building →',
+    safeDraftHint: 'Want to inspect first? Save a draft without starting the model team.',
+    saveDraftOnlyButton: 'Save draft only',
+    saveDraftOnlyBusy: 'Saving draft…',
     customerScenariosTitle: 'Start from your customer behavior',
     customerScenariosHelp: 'Pick the closest goal, then create or open a workflow. Lilies keeps draft, acceptance, run, and monitoring evidence visible.',
     customerScenarios: [

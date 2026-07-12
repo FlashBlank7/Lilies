@@ -34,6 +34,7 @@ export default function Home() {
   const [requirement, setRequirement] = useState<string>(t.requirementPlaceholder)
   const [selectedExampleId, setSelectedExampleId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [draftBusy, setDraftBusy] = useState(false)
   const [error, setError] = useState('')
   const [authRequired, setAuthRequired] = useState(false)
   const [tokenInput, setTokenInput] = useState('')
@@ -80,6 +81,22 @@ export default function Home() {
     }
   }
 
+  async function saveDraftOnly() {
+    setDraftBusy(true)
+    setError('')
+    try {
+      const name = deriveApplicationName(requirement)
+      const app = await api<Application>('/api/v1/applications', {
+        method: 'POST',
+        body: JSON.stringify({ name, description: requirement.slice(0, 180), requirement, mode: 'workflow' }),
+      })
+      window.location.href = `/applications/${app.id}?safeDraft=1`
+    } catch (cause) {
+      setError(String(cause))
+      setDraftBusy(false)
+    }
+  }
+
   function saveToken(event: FormEvent) {
     event.preventDefault()
     saveClientToken(tokenInput)
@@ -102,7 +119,13 @@ export default function Home() {
         <p>{t.heroCopy}</p>
         <form className="create-card" onSubmit={create}>
           <textarea aria-label={t.requirementAria} value={requirement} onChange={event => setRequirement(event.target.value)} />
-          <div className="create-footer"><span>{t.createHint}</span><button disabled={busy || requirement.length < 10}>{busy ? t.createBusy : t.createButton}</button></div>
+          <div className="create-footer">
+            <div className="create-copy"><span>{t.createHint}</span><small>{t.safeDraftHint}</small></div>
+            <div className="create-actions">
+              <button className="secondary-action" disabled={busy || draftBusy || requirement.length < 10} onClick={saveDraftOnly} type="button">{draftBusy ? t.saveDraftOnlyBusy : t.saveDraftOnlyButton}</button>
+              <button disabled={busy || draftBusy || requirement.length < 10}>{busy ? t.createBusy : t.createButton}</button>
+            </div>
+          </div>
         </form>
         <section className="customer-intake-panel" aria-labelledby="customer-intake-title">
           <div className="customer-intake-head">
