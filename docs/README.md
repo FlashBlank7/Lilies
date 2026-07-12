@@ -30,10 +30,11 @@
 
 ## 当前阶段报告
 
-当前 active stage report 区域用于当前大版本的小版本报告。`v0.2.x` 已完成大版本归档，active `docs/stage-reports/` 目前只保留模板，等待 `v0.3.0` 开始后写入新的 stage report。
+当前 active stage report 区域用于当前大版本的小版本报告。`v0.2.x` 已完成大版本归档，active `docs/stage-reports/` 目前只保留模板，等待 `v0.3.0_product_usability_stabilization` 开始后写入新的 stage report。
 
 - 模板：`stage-reports/STAGE_REPORT_TEMPLATE.md`
 - 最新 handoff：`stage-report-archives/v0.2.x/v0.2.144_v02x_closeout_and_v03_handoff.md`
+- 当前 `v0.3.x` 方向：先做产品可用性缓冲版本，集中解决前端入口看不懂、进入具体画稿/草稿后看不懂、关键功能不可顺畅使用、以及 P0/P1 bug。
 
 ## 已归档 Stage Report Sets
 

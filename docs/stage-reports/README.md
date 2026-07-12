@@ -8,6 +8,8 @@ Current state:
 - Active stage reports: none.
 - Template: `STAGE_REPORT_TEMPLATE.md`.
 - Latest handoff source: `docs/stage-report-archives/v0.2.x/v0.2.144_v02x_closeout_and_v03_handoff.md`.
+- Planned first version: `v0.3.0_product_usability_stabilization`.
+- First target: frontend entry clarity, concrete draft/canvas comprehension, functionality repair, and P0/P1 bugfix evidence.
 
 Rules:
 
