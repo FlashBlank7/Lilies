@@ -1,0 +1,136 @@
+{
+  "version": "v0.3.4",
+  "stage": "browser_flow_and_smoke_retention",
+  "status": "passed",
+  "browser_evidence": {
+    "status": "unavailable",
+    "note": "Browser plugin runtime returned no available browsers after setup and agent.browsers.list().",
+    "claim": "fallback_rendered_route_evidence_only"
+  },
+  "token_source": "file:.env:API_TOKEN",
+  "retention_policy": {
+    "status": "indexed_retention_no_delete_attempted",
+    "reason": "Application delete/archive API is absent; smoke apps are indexed by marker for traceability."
+  },
+  "checks": [
+    {
+      "id": "p0_p1_bug_ledger_browser_retention",
+      "passed": true,
+      "bug_count": 3,
+      "blocking_bug_count": 0,
+      "bugs": [
+        {
+          "id": "P1-browser-runtime-unavailable",
+          "severity": "P1",
+          "status": "deferred_with_reason",
+          "reproduction": "Browser skill runtime initialized but returned no available browsers.",
+          "fix": "Record unavailable status and use rendered-route fallback evidence for this stage.",
+          "verification": "browser_status and rendered_home/detail checks in v0.3.4 evidence."
+        },
+        {
+          "id": "P1-smoke-apps-not-indexed",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Automatic evolution leaves local smoke apps that are not easy to inventory.",
+          "fix": "List applications and group smoke evidence apps by marker.",
+          "verification": "smoke_retention_index check records marker counts and latest ids."
+        },
+        {
+          "id": "P1-smoke-app-delete-absent",
+          "severity": "P1",
+          "status": "deferred_with_reason",
+          "reproduction": "There is no application delete/archive API for smoke cleanup.",
+          "fix": "Keep retention index now; defer cleanup/archive implementation to a dedicated stage.",
+          "verification": "retention_policy records no deletion attempted."
+        }
+      ]
+    },
+    {
+      "id": "browser_status",
+      "passed": true,
+      "status": "unavailable",
+      "note": "Browser plugin runtime returned no available browsers after setup and agent.browsers.list()."
+    },
+    {
+      "id": "safe_draft_home_source",
+      "path": "platform/frontend/app/page.tsx",
+      "required_markers": [
+        "saveDraftOnly",
+        "seedSafeDraftSkeleton",
+        "customer-intake-panel"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "safe_draft_copy_source",
+      "path": "platform/frontend/lib/i18n.ts",
+      "required_markers": [
+        "customerExamples",
+        "saveDraftOnlyButton",
+        "safeDraftHint"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "token_available",
+      "passed": true,
+      "token_source": "file:.env:API_TOKEN"
+    },
+    {
+      "id": "listed_applications",
+      "passed": true,
+      "status_code": 200,
+      "application_count": 13
+    },
+    {
+      "id": "smoke_retention_index",
+      "passed": true,
+      "marker_count": 2,
+      "total_smoke_app_count": 5,
+      "markers": {
+        "v0.3.2-smoke": {
+          "count": 2,
+          "latest_id": "3720f7ba-a2e7-401b-939f-0421924dbf4d",
+          "latest_name": "v0.3.2-smoke customer draft 1783899379"
+        },
+        "v0.3.3-smoke": {
+          "count": 3,
+          "latest_id": "6c4240ff-d6a1-4f59-83df-99021fab126d",
+          "latest_name": "v0.3.3-smoke starter skeleton 1783899685"
+        }
+      }
+    },
+    {
+      "id": "rendered_home_safe_draft",
+      "url": "http://127.0.0.1:3000/",
+      "passed": true,
+      "status_code": 200,
+      "required_markers": [
+        "customer-intake-panel",
+        "secondary-action",
+        "仅保存草稿"
+      ],
+      "missing_markers": [],
+      "error": ""
+    },
+    {
+      "id": "rendered_detail_route",
+      "url": "http://127.0.0.1:3000/applications/6c4240ff-d6a1-4f59-83df-99021fab126d?safeDraft=1",
+      "passed": true,
+      "status_code": 200,
+      "required_markers": [
+        "Foundry"
+      ],
+      "missing_markers": [],
+      "error": ""
+    }
+  ],
+  "summary": {
+    "failed_check_count": 0,
+    "open_p0_p1_bug_count": 0,
+    "smoke_app_count": 5,
+    "smoke_marker_count": 2
+  }
+}
