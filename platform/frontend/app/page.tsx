@@ -103,6 +103,18 @@ export default function Home() {
         </form>}
         {error && <div className="error-banner">{error}</div>}
       </section>
+      <section className="customer-section">
+        <div className="section-heading"><h2>{t.customerScenariosTitle}</h2><span>{t.customerScenariosHelp}</span></div>
+        <div className="scenario-grid">{t.customerScenarios.map(item => <article className="scenario-card" key={item.role}>
+          <strong>{item.role}</strong>
+          <p>{item.need}</p>
+          <small>{item.action}</small>
+        </article>)}</div>
+        <div className="product-path">{t.productSteps.map(item => <article className="step-card" key={item.title}>
+          <b>{item.title}</b>
+          <span>{item.text}</span>
+        </article>)}</div>
+      </section>
       <section className="apps-section">
         <div className="section-heading"><h2>{t.applications}</h2><span>{t.appCount(apps.length)}</span></div>
         <div className="app-grid">
@@ -111,7 +123,7 @@ export default function Home() {
             <div><h3>{item.name}</h3><p>{item.description || t.fallbackDescription}</p></div>
             <div className="app-meta"><span>{item.active_version ? t.published(item.active_version) : t.draft}</span><span>r{item.draft_revision}</span></div>
           </Link>)}
-          {!apps.length && <div className="empty-card">{t.emptyApps}</div>}
+          {!apps.length && <div className="empty-card"><strong>{t.emptyApps}</strong><span>{t.emptyAppsNextAction}</span></div>}
         </div>
       </section>
     </main>

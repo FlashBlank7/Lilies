@@ -1275,6 +1275,37 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     failed: monitorTasks.filter(task => task.status === 'failed').length,
     running: monitorTasks.filter(task => task.status === 'running').length,
   }), [monitorTasks, relatedMonitorTasks.length])
+  const canvasStats = useMemo(() => ({
+    nodes: draft?.snapshot.workflow.nodes.length || 0,
+    edges: validWorkflowEdges(draft?.snapshot.workflow.nodes || [], draft?.snapshot.workflow.edges || []).length,
+  }), [draft])
+  const readinessCards = [
+    {
+      label: t.readinessDraft,
+      ready: Boolean(draft),
+      detail: draft ? `${t.draft} r${draft.revision}` : t.loading,
+    },
+    {
+      label: t.readinessTest,
+      ready: Boolean(tested),
+      detail: tested ? t.verified : t.unverified,
+    },
+    {
+      label: t.readinessPublish,
+      ready: Boolean(activeVersion),
+      detail: activeVersion ? t.activeVersion(activeVersion) : t.noPublishedVersion,
+    },
+    {
+      label: t.readinessRun,
+      ready: Boolean(draft),
+      detail: runInputParsed.error ? runInputParsed.error : t.runDraftButton,
+    },
+    {
+      label: t.readinessMonitor,
+      ready: monitorSummary.related > 0 || monitorSummary.failed > 0 || monitorSummary.running > 0,
+      detail: `${monitorSummary.related} ${t.monitorRelated} · ${monitorSummary.failed} ${t.monitorFailed}`,
+    },
+  ]
   function toggleLocale() {
     const value = nextLocale(locale)
     setLocale(value)
@@ -1328,6 +1359,10 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
           {build && <div className="build-status"><b>{build.status}</b><span>{Object.keys(build.team_state.teammates).length} teammates · {build.team_state.tasks.length} tasks · {build.team_state.repair_cycles} repairs</span><span>{build.deadline?.enabled && build.deadline.max_elapsed_seconds ? t.buildDeadlineActive(build.deadline.max_elapsed_seconds) : t.buildDeadlineInactive}</span>{build.error && <p>{build.error}</p>}</div>}
           <h3>{t.tasksTitle}</h3>
           <div className="test-list">{build?.team_state.tasks.map((task, index) => <pre key={index}>{JSON.stringify(task, null, 2)}</pre>) || <p className="muted">{t.tasksEmpty}</p>}</div>
+          <section className="bug-triage-panel">
+            <div className="bug-triage-head"><strong>{t.bugTriageTitle}</strong><small>{t.bugTriageHelp}</small></div>
+            <ul>{t.bugTriageItems.map(item => <li key={item}>{item}</li>)}</ul>
+          </section>
           <h3>{t.architectureTitle}</h3>
           <div className="architecture-list">{architecture.map(item => <code key={item}>{item}</code>)}</div>
           <div className="event-log">{events.map((event, index) => <div key={index}><span>{event.type}</span><pre>{JSON.stringify(event.data, null, 2)}</pre></div>)}</div>
@@ -1624,6 +1659,21 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
           <input type="password" value={tokenInput} placeholder={t.authPlaceholder} onChange={event => setTokenInput(event.target.value)} />
           <div className="auth-actions"><button>{t.authSave}</button><button type="button" className="ghost" onClick={() => { clearClientToken(); setTokenInput('') }}>{t.authClear}</button></div>
         </form>}
+        <div className="canvas-guidance">
+          <section className="draft-readiness">
+            <div className="draft-readiness-head"><strong>{t.draftReadinessTitle}</strong><small>{t.draftReadinessHelp}</small></div>
+            <div className="readiness-grid">{readinessCards.map(card => <article className={card.ready ? 'ready' : 'needs-action'} key={card.label}>
+              <span>{card.label}</span>
+              <b>{card.ready ? t.readyLabel : t.needsActionLabel}</b>
+              <small>{card.detail}</small>
+            </article>)}</div>
+          </section>
+          <section className="canvas-guide">
+            <div><strong>{t.canvasGuideTitle}</strong><small>{t.canvasStats(canvasStats.nodes, canvasStats.edges)}</small></div>
+            <p>{t.canvasGuideCopy}</p>
+            <ul>{t.canvasGuideSteps.map(item => <li key={item}>{item}</li>)}</ul>
+          </section>
+        </div>
         <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} deleteKeyCode={['Backspace', 'Delete']} onInit={instance => { flowRef.current = instance; scheduleFitView(nodes) }} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onNodesDelete={deleted => { void persistDeletedNodes(deleted as StudioNode[]) }} onEdgesDelete={deleted => { void persistDeletedEdges(deleted) }} onNodeClick={(_, node) => chooseNode(node)} onEdgeClick={(_, edge) => chooseEdge(edge)} onPaneClick={() => setSelectedNode(null)} onNodeDragStop={(_, node) => mutation('update_node', { node_id: node.id, changes: { position: node.position } })} fitView fitViewOptions={{ padding: 0.22 }} colorMode="dark">
           <Background color="#283142" gap={24} size={1}/><MiniMap pannable zoomable nodeColor={node => accents[(node.data as { blockType?: string } | undefined)?.blockType || ''] || '#64748b'}/><Controls/>
         </ReactFlow>

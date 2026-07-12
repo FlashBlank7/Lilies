@@ -2,11 +2,11 @@
 
 本目录是当前 stage 的 active design 工作区。
 
-当前状态：无 active design。
+当前状态：空。
 
 Active designs:
 
-- 无。
+- none.
 
 归档规则：
 
