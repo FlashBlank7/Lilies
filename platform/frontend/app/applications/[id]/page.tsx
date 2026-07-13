@@ -1443,6 +1443,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   const acceptanceCaseViews = useMemo(() => acceptanceCases(draft, testReport), [draft, testReport])
   const runInputParsed = useMemo(() => parseRunFieldInputs(runFields, t), [runFields, t])
   const runInputPreview = JSON.stringify(runInputParsed.inputs || {}, null, 2)
+  const tryInputErrorVisible = Boolean(runInputParsed.error)
   const runRecoveryHint = runInputParsed.error
     ? t.runMissingInputHelp
     : run?.status === 'failed'
@@ -1918,6 +1919,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
           <div className="run-actions compact"><button className="wide secondary" data-try-sample-action="fill-sample" onClick={applySampleRunInputs} disabled={!runFields.length}>{t.fillRunSample}</button></div>
           <div className="run-form" ref={runInputFormRef} tabIndex={-1}>{runFields.length ? runFields.map(field => <label className="run-field" key={field.name}><span>{field.label || field.name}<em>{t.fieldType(field.type || 'string')}</em></span>{field.type === 'boolean' ? <input type="checkbox" checked={field.checked || false} onChange={event => updateRunField(field.name, { checked: event.target.checked, value: event.target.checked ? 'true' : 'false' })} /> : field.type === 'object' || field.type === 'array' || field.type === 'file_list' ? <textarea value={field.value} onChange={event => updateRunField(field.name, { value: event.target.value })} /> : <input type={fieldInputType(field.type)} value={field.value} onChange={event => updateRunField(field.name, { value: event.target.value })} />}</label>) : <p className="muted">{t.runInputsEmpty}</p>}</div>
           <label>{t.runInputPreview}</label><pre className="trace-log">{runInputPreview}</pre>
+          {tryInputErrorVisible && <section className="try-input-error" data-try-input-error="inline" data-try-input-error-source="parser"><strong>{t.tryInputErrorTitle}</strong><small>{runInputParsed.error}</small><span>{t.tryInputErrorDetail}</span><button type="button" data-try-input-error-action="focus-form" onClick={() => runInputFormRef.current?.focus()}>{t.tryInputErrorFocusAction}</button></section>}
           {tryRunActive && <section className="try-run-start-guard" data-try-run-start-guard="active" data-try-run-active-status={tryRunActiveStatus}><strong>{t.tryRunActiveGuardTitle}</strong><span>{t.tryRunActiveStatus(tryRunActiveStatus)}</span><small>{t.tryRunActiveRefreshDetail}</small><small>{t.tryRunActiveStaleDetail}</small></section>}
           <div className="run-actions" ref={runControlsRef} tabIndex={-1}><button className="wide" data-try-run-mode-action="draft" onClick={() => startRun(true)} disabled={tryRunActive}>{t.runDraftButton}</button><button className="wide secondary" data-try-run-mode-action="published" onClick={() => startRun(false)} disabled={!activeVersion || tryRunActive}>{t.runPublishedButton}</button></div>
           {!activeVersion && <p className="muted">{t.noPublishedVersion}</p>}

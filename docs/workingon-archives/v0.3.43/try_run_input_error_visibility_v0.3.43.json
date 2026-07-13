@@ -1,0 +1,206 @@
+{
+  "version": "v0.3.43",
+  "stage": "try_run_input_error_visibility",
+  "status": "passed",
+  "live_checks_enabled": true,
+  "safety": {
+    "forbidden_endpoint_called": false,
+    "called_endpoints": [
+      "GET /health"
+    ],
+    "model_call_used": false
+  },
+  "bug_ledger": [
+    {
+      "id": "P1-try-input-error-toast-dependent",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Invalid Try input feedback depended too heavily on toast/notice text.",
+      "fix": "Add an inline parser error panel near the input preview.",
+      "verification": "try_input_error_visibility_fixture."
+    },
+    {
+      "id": "P1-try-input-error-correction-path-unclear",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Users did not have a direct correction action near the error.",
+      "fix": "Add correction copy and a local focus-input-form action.",
+      "verification": "try_input_error_correction_fixture."
+    },
+    {
+      "id": "P1-v0343-tests-must-enter-release-gate",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Input error visibility could regress if omitted from the current v0.3.x release gate.",
+      "fix": "Update manifest with v0.3.43 and expected 238 passing tests.",
+      "verification": "regression_manifest_updated."
+    }
+  ],
+  "checks": [
+    {
+      "id": "p0_p1_bug_ledger_try_input_error_visibility",
+      "passed": true,
+      "bug_count": 3,
+      "blocking_bug_count": 0,
+      "bugs": [
+        {
+          "id": "P1-try-input-error-toast-dependent",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Invalid Try input feedback depended too heavily on toast/notice text.",
+          "fix": "Add an inline parser error panel near the input preview.",
+          "verification": "try_input_error_visibility_fixture."
+        },
+        {
+          "id": "P1-try-input-error-correction-path-unclear",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Users did not have a direct correction action near the error.",
+          "fix": "Add correction copy and a local focus-input-form action.",
+          "verification": "try_input_error_correction_fixture."
+        },
+        {
+          "id": "P1-v0343-tests-must-enter-release-gate",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Input error visibility could regress if omitted from the current v0.3.x release gate.",
+          "fix": "Update manifest with v0.3.43 and expected 238 passing tests.",
+          "verification": "regression_manifest_updated."
+        }
+      ]
+    },
+    {
+      "id": "try_input_error_visibility_fixture",
+      "passed": true,
+      "cases": {
+        "required_error_visible": true,
+        "number_error_visible": true,
+        "json_error_visible": true,
+        "valid_input_hidden": false
+      }
+    },
+    {
+      "id": "try_input_error_correction_fixture",
+      "passed": true,
+      "guidance": {
+        "points_to_input_form": true,
+        "points_to_payload_preview": true,
+        "focus_action_is_local": true,
+        "does_not_call_run_api": true
+      }
+    },
+    {
+      "id": "try_input_error_source_markers",
+      "path": "platform/frontend/app/applications/[id]/page.tsx",
+      "required_markers": [
+        "tryInputErrorVisible",
+        "Boolean(runInputParsed.error)",
+        "data-try-input-error=\"inline\"",
+        "data-try-input-error-source=\"parser\"",
+        "runInputParsed.error",
+        "data-try-input-error-action=\"focus-form\"",
+        "runInputFormRef.current?.focus()"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "try_input_error_i18n_markers",
+      "path": "platform/frontend/lib/i18n.ts",
+      "required_markers": [
+        "tryInputErrorTitle",
+        "tryInputErrorDetail",
+        "tryInputErrorFocusAction"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "try_input_error_style_markers",
+      "path": "platform/frontend/app/globals.css",
+      "required_markers": [
+        ".try-input-error",
+        ".try-input-error button"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "regression_manifest_updated",
+      "path": "docs/testing/regression_lanes.json",
+      "required_markers": [
+        "tests/test_v03_43_try_run_input_error_visibility.py",
+        "\"pass_count\": 238"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "runtime_health_read_only",
+      "url": "http://127.0.0.1:8001/health",
+      "passed": true,
+      "status_code": 200,
+      "runtime": {
+        "version": "v0.3.6",
+        "product_phase": "v0.3.x",
+        "git": {
+          "commit": "88f8b27",
+          "branch": "usabilityEnhence",
+          "tracked_dirty": false,
+          "untracked_present": true
+        },
+        "route_availability": {
+          "health": true,
+          "applications_list": true,
+          "applications_create": true,
+          "application_detail": true,
+          "draft_detail": true,
+          "smoke_cleanup": true
+        },
+        "current_code_ready": true
+      }
+    },
+    {
+      "id": "safety_no_forbidden_try_input_error_call",
+      "passed": true,
+      "called_endpoints": [
+        "GET /health"
+      ],
+      "forbidden_endpoint_fragments": [
+        "/builds",
+        "/tests/run",
+        "/runs",
+        "/versions",
+        "/restore",
+        "/draft",
+        "/cancel"
+      ],
+      "model_call_used": false
+    }
+  ],
+  "summary": {
+    "failed_check_count": 0,
+    "open_p0_p1_bug_count": 0,
+    "forbidden_endpoint_called": false,
+    "try_input_error_visibility": {
+      "id": "try_input_error_visibility_fixture",
+      "passed": true,
+      "cases": {
+        "required_error_visible": true,
+        "number_error_visible": true,
+        "json_error_visible": true,
+        "valid_input_hidden": false
+      }
+    },
+    "try_input_error_correction": {
+      "id": "try_input_error_correction_fixture",
+      "passed": true,
+      "guidance": {
+        "points_to_input_form": true,
+        "points_to_payload_preview": true,
+        "focus_action_is_local": true,
+        "does_not_call_run_api": true
+      }
+    }
+  }
+}
