@@ -1,0 +1,293 @@
+{
+  "version": "v0.3.22",
+  "stage": "application_list_view_reset",
+  "status": "passed",
+  "live_checks_enabled": true,
+  "safety": {
+    "forbidden_endpoint_called": false,
+    "called_endpoints": [
+      "GET /health"
+    ]
+  },
+  "bug_ledger": [
+    {
+      "id": "P1-app-list-url-state-has-no-visible-summary",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "A URL-restored app list could be narrowed without explaining visible count, filter, search, or sort.",
+      "fix": "Add a compact app-list view summary.",
+      "verification": "app_list_view_summary_fixture."
+    },
+    {
+      "id": "P1-app-list-empty-state-lacks-direct-recovery",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Empty-state copy told users to clear search but offered no direct control.",
+      "fix": "Add clear-search and reset-view controls that reuse safe URL-state updates.",
+      "verification": "app_list_view_reset_fixture."
+    },
+    {
+      "id": "P1-v0322-tests-must-enter-release-gate",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "New view summary/reset tests could be omitted from the current v0.3.x release gate.",
+      "fix": "Update `docs/testing/regression_lanes.json` with v0.3.22 and expected 112 passing tests.",
+      "verification": "regression_manifest_updated."
+    }
+  ],
+  "checks": [
+    {
+      "id": "p0_p1_bug_ledger_app_list_view_reset",
+      "passed": true,
+      "bug_count": 3,
+      "blocking_bug_count": 0,
+      "bugs": [
+        {
+          "id": "P1-app-list-url-state-has-no-visible-summary",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "A URL-restored app list could be narrowed without explaining visible count, filter, search, or sort.",
+          "fix": "Add a compact app-list view summary.",
+          "verification": "app_list_view_summary_fixture."
+        },
+        {
+          "id": "P1-app-list-empty-state-lacks-direct-recovery",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Empty-state copy told users to clear search but offered no direct control.",
+          "fix": "Add clear-search and reset-view controls that reuse safe URL-state updates.",
+          "verification": "app_list_view_reset_fixture."
+        },
+        {
+          "id": "P1-v0322-tests-must-enter-release-gate",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "New view summary/reset tests could be omitted from the current v0.3.x release gate.",
+          "fix": "Update `docs/testing/regression_lanes.json` with v0.3.22 and expected 112 passing tests.",
+          "verification": "regression_manifest_updated."
+        }
+      ]
+    },
+    {
+      "id": "app_list_view_summary_fixture",
+      "passed": true,
+      "summary": {
+        "visible": 2,
+        "total": 7,
+        "filter": "Published",
+        "search": "demo",
+        "sort": "Name A-Z",
+        "parts": [
+          "Showing 2/7",
+          "Filter: Published",
+          "Search: \"demo\"",
+          "Sort: Name A-Z"
+        ]
+      },
+      "default_summary": {
+        "visible": 7,
+        "total": 7,
+        "filter": "All",
+        "search": "",
+        "sort": "Demo readiness first",
+        "parts": [
+          "Showing 7/7",
+          "Filter: All",
+          "Sort: Demo readiness first"
+        ]
+      }
+    },
+    {
+      "id": "app_list_view_reset_fixture",
+      "passed": true,
+      "dirty": {
+        "dirty": true,
+        "clear_search_enabled": true,
+        "reset_enabled": true,
+        "clear_search": {
+          "filter": "published",
+          "q": "",
+          "sort": "name"
+        },
+        "reset": {
+          "filter": "all",
+          "q": "",
+          "sort": "readiness"
+        }
+      },
+      "clean": {
+        "dirty": false,
+        "clear_search_enabled": false,
+        "reset_enabled": false,
+        "clear_search": {
+          "filter": "all",
+          "q": "",
+          "sort": "readiness"
+        },
+        "reset": {
+          "filter": "all",
+          "q": "",
+          "sort": "readiness"
+        }
+      }
+    },
+    {
+      "id": "app_list_view_summary_source_markers",
+      "path": "platform/frontend/app/page.tsx",
+      "required_markers": [
+        "appListViewDirty",
+        "currentAppFilterLabel",
+        "currentAppSortLabel",
+        "clearAppListSearch",
+        "resetAppListView",
+        "data-app-list-view-summary=\"active\"",
+        "app-list-view-actions"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "app_list_view_summary_i18n_markers",
+      "path": "platform/frontend/lib/i18n.ts",
+      "required_markers": [
+        "appListSummaryCount",
+        "appListSummaryFilter",
+        "appListSummarySearch",
+        "appListSummarySort",
+        "appListClearSearch",
+        "appListResetView"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "app_list_view_summary_style_markers",
+      "path": "platform/frontend/app/globals.css",
+      "required_markers": [
+        ".app-list-view-state",
+        ".app-list-view-actions",
+        ".app-list-view-actions button"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "regression_manifest_updated",
+      "path": "docs/testing/regression_lanes.json",
+      "required_markers": [
+        "tests/test_v03_22_application_list_view_reset.py",
+        "\"pass_count\": 112"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "runtime_health_read_only",
+      "url": "http://127.0.0.1:8001/health",
+      "passed": true,
+      "status_code": 200,
+      "runtime": {
+        "version": "v0.3.6",
+        "product_phase": "v0.3.x",
+        "git": {
+          "commit": "4fe813a",
+          "branch": "usabilityEnhence",
+          "tracked_dirty": false,
+          "untracked_present": true
+        },
+        "route_availability": {
+          "health": true,
+          "applications_list": true,
+          "applications_create": true,
+          "application_detail": true,
+          "draft_detail": true,
+          "smoke_cleanup": true
+        },
+        "current_code_ready": true
+      }
+    },
+    {
+      "id": "safety_no_forbidden_view_reset_call",
+      "passed": true,
+      "called_endpoints": [
+        "GET /health"
+      ],
+      "forbidden_endpoint_fragments": [
+        "/builds",
+        "/tests/run",
+        "/runs",
+        "/versions",
+        "/restore",
+        "/draft"
+      ]
+    }
+  ],
+  "summary": {
+    "failed_check_count": 0,
+    "open_p0_p1_bug_count": 0,
+    "forbidden_endpoint_called": false,
+    "summary_fixture": {
+      "id": "app_list_view_summary_fixture",
+      "passed": true,
+      "summary": {
+        "visible": 2,
+        "total": 7,
+        "filter": "Published",
+        "search": "demo",
+        "sort": "Name A-Z",
+        "parts": [
+          "Showing 2/7",
+          "Filter: Published",
+          "Search: \"demo\"",
+          "Sort: Name A-Z"
+        ]
+      },
+      "default_summary": {
+        "visible": 7,
+        "total": 7,
+        "filter": "All",
+        "search": "",
+        "sort": "Demo readiness first",
+        "parts": [
+          "Showing 7/7",
+          "Filter: All",
+          "Sort: Demo readiness first"
+        ]
+      }
+    },
+    "reset_fixture": {
+      "id": "app_list_view_reset_fixture",
+      "passed": true,
+      "dirty": {
+        "dirty": true,
+        "clear_search_enabled": true,
+        "reset_enabled": true,
+        "clear_search": {
+          "filter": "published",
+          "q": "",
+          "sort": "name"
+        },
+        "reset": {
+          "filter": "all",
+          "q": "",
+          "sort": "readiness"
+        }
+      },
+      "clean": {
+        "dirty": false,
+        "clear_search_enabled": false,
+        "reset_enabled": false,
+        "clear_search": {
+          "filter": "all",
+          "q": "",
+          "sort": "readiness"
+        },
+        "reset": {
+          "filter": "all",
+          "q": "",
+          "sort": "readiness"
+        }
+      }
+    }
+  }
+}

@@ -159,6 +159,15 @@ export default function Home() {
     setAppSort(value)
     writeAppListUrlState({ sort: value })
   }, [writeAppListUrlState])
+  const clearAppListSearch = useCallback(() => {
+    setAppListSearch('')
+  }, [setAppListSearch])
+  const resetAppListView = useCallback(() => {
+    setAppFilter('all')
+    setAppSearch('')
+    setAppSort('readiness')
+    writeAppListUrlState({ filter: 'all', q: '', sort: 'readiness' })
+  }, [writeAppListUrlState])
   const syncAppListStateFromLocation = useCallback(() => {
     if (typeof window === 'undefined') return
     const query = new URLSearchParams(window.location.search)
@@ -219,6 +228,11 @@ export default function Home() {
     { id: 'ready_to_publish', label: t.appFilterReadyToPublish },
     { id: 'published', label: t.appFilterPublished },
   ]
+  const appSortOptions: Array<{ id: AppSort; label: string }> = [
+    { id: 'readiness', label: t.appSortReadiness },
+    { id: 'revision', label: t.appSortRevision },
+    { id: 'name', label: t.appSortName },
+  ]
   const appFilterCount = (filter: AppFilter) => filter === 'all' ? apps.length : apps.filter(item => appReadinessState(item) === filter).length
   const statusFilteredApps = appFilter === 'all' ? apps : apps.filter(item => appReadinessState(item) === appFilter)
   const normalizedAppSearch = appSearch.trim().toLocaleLowerCase()
@@ -230,6 +244,9 @@ export default function Home() {
     if (appSort === 'revision') return right.draft_revision - left.draft_revision || left.name.localeCompare(right.name)
     return appReadinessRank(left) - appReadinessRank(right) || right.draft_revision - left.draft_revision || left.name.localeCompare(right.name)
   })
+  const currentAppFilterLabel = appFilterOptions.find(option => option.id === appFilter)?.label || t.appFilterAll
+  const currentAppSortLabel = appSortOptions.find(option => option.id === appSort)?.label || t.appSortReadiness
+  const appListViewDirty = appFilter !== 'all' || Boolean(normalizedAppSearch) || appSort !== 'readiness'
 
   const refresh = () => api<Application[]>('/api/v1/applications').then(applications => {
     setApps(applications)
@@ -392,10 +409,18 @@ export default function Home() {
         {apps.length > 0 && <div className="app-search-sort" data-app-list-search-sort="controls">
           <input aria-label={t.appSearchLabel} placeholder={t.appSearchPlaceholder} value={appSearch} onChange={event => setAppListSearch(event.target.value)} />
           <label>{t.appSortLabel}<select value={appSort} onChange={event => setAppListSort(event.target.value as AppSort)}>
-            <option value="readiness">{t.appSortReadiness}</option>
-            <option value="revision">{t.appSortRevision}</option>
-            <option value="name">{t.appSortName}</option>
+            {appSortOptions.map(option => <option value={option.id} key={option.id}>{option.label}</option>)}
           </select></label>
+        </div>}
+        {apps.length > 0 && <div className="app-list-view-state" data-app-list-view-summary="active">
+          <span>{t.appListSummaryCount(visibleApps.length, apps.length)}</span>
+          <span>{t.appListSummaryFilter(currentAppFilterLabel)}</span>
+          {normalizedAppSearch && <span>{t.appListSummarySearch(appSearch.trim())}</span>}
+          <span>{t.appListSummarySort(currentAppSortLabel)}</span>
+          <div className="app-list-view-actions">
+            {normalizedAppSearch && <button onClick={clearAppListSearch} type="button">{t.appListClearSearch}</button>}
+            <button disabled={!appListViewDirty} onClick={resetAppListView} type="button">{t.appListResetView}</button>
+          </div>
         </div>}
         <div className="app-grid">
           {visibleApps.map(item => <article className="app-card" data-app-card-action-state={appReadinessState(item)} key={item.id}>
