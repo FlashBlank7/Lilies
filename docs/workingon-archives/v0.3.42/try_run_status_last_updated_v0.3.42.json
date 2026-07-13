@@ -1,0 +1,210 @@
+{
+  "version": "v0.3.42",
+  "stage": "try_run_status_last_updated",
+  "status": "passed",
+  "live_checks_enabled": true,
+  "safety": {
+    "forbidden_endpoint_called": false,
+    "called_endpoints": [
+      "GET /health"
+    ],
+    "model_call_used": false
+  },
+  "bug_ledger": [
+    {
+      "id": "P1-try-status-refresh-recency-invisible",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Users could not tell when the Try result card last checked status.",
+      "fix": "Track a local last-checked time and show it in the run result card.",
+      "verification": "try_status_recency_signal_fixture."
+    },
+    {
+      "id": "P1-try-status-recency-could-be-misread",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "A timestamp could be mistaken for backend completion time.",
+      "fix": "Add copy that labels it as page status-read recency and keeps current status/output as truth.",
+      "verification": "try_status_recency_guidance_fixture."
+    },
+    {
+      "id": "P1-v0342-tests-must-enter-release-gate",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Status recency feedback could regress if omitted from the current v0.3.x release gate.",
+      "fix": "Update manifest with v0.3.42 and expected 232 passing tests.",
+      "verification": "regression_manifest_updated."
+    }
+  ],
+  "checks": [
+    {
+      "id": "p0_p1_bug_ledger_try_status_last_updated",
+      "passed": true,
+      "bug_count": 3,
+      "blocking_bug_count": 0,
+      "bugs": [
+        {
+          "id": "P1-try-status-refresh-recency-invisible",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Users could not tell when the Try result card last checked status.",
+          "fix": "Track a local last-checked time and show it in the run result card.",
+          "verification": "try_status_recency_signal_fixture."
+        },
+        {
+          "id": "P1-try-status-recency-could-be-misread",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "A timestamp could be mistaken for backend completion time.",
+          "fix": "Add copy that labels it as page status-read recency and keeps current status/output as truth.",
+          "verification": "try_status_recency_guidance_fixture."
+        },
+        {
+          "id": "P1-v0342-tests-must-enter-release-gate",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Status recency feedback could regress if omitted from the current v0.3.x release gate.",
+          "fix": "Update manifest with v0.3.42 and expected 232 passing tests.",
+          "verification": "regression_manifest_updated."
+        }
+      ]
+    },
+    {
+      "id": "try_status_recency_signal_fixture",
+      "passed": true,
+      "events": {
+        "start_run_initializes": true,
+        "poll_tick_updates": true,
+        "cancel_confirm_updates": true,
+        "visible_without_run": false,
+        "visible_with_run_and_timestamp": true
+      }
+    },
+    {
+      "id": "try_status_recency_guidance_fixture",
+      "passed": true,
+      "guidance": {
+        "local_ui_refresh_recency": true,
+        "not_backend_completion_time": true,
+        "current_status_is_truth": true,
+        "does_not_suggest_duplicate_start": true
+      }
+    },
+    {
+      "id": "try_status_recency_source_markers",
+      "path": "platform/frontend/app/applications/[id]/page.tsx",
+      "required_markers": [
+        "formatRunStatusCheckedAt",
+        "runStatusCheckedAt",
+        "setRunStatusCheckedAt(formatRunStatusCheckedAt())",
+        "tryRunStatusRecencyVisible",
+        "data-try-status-recency=\"last-checked\"",
+        "data-try-status-recency-status={run.status}",
+        "tryStatusRecencyLabel",
+        "tryStatusRecencyDetail"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "try_status_recency_i18n_markers",
+      "path": "platform/frontend/lib/i18n.ts",
+      "required_markers": [
+        "tryStatusRecencyLabel",
+        "tryStatusRecencyDetail",
+        "页面最近一次读取运行状态",
+        "last read run status"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "try_status_recency_style_markers",
+      "path": "platform/frontend/app/globals.css",
+      "required_markers": [
+        ".try-status-recency",
+        "text-transform:none"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "regression_manifest_updated",
+      "path": "docs/testing/regression_lanes.json",
+      "required_markers": [
+        "tests/test_v03_42_try_run_status_last_updated.py",
+        "\"pass_count\": 232"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "runtime_health_read_only",
+      "url": "http://127.0.0.1:8001/health",
+      "passed": true,
+      "status_code": 200,
+      "runtime": {
+        "version": "v0.3.6",
+        "product_phase": "v0.3.x",
+        "git": {
+          "commit": "b60c63d",
+          "branch": "usabilityEnhence",
+          "tracked_dirty": false,
+          "untracked_present": true
+        },
+        "route_availability": {
+          "health": true,
+          "applications_list": true,
+          "applications_create": true,
+          "application_detail": true,
+          "draft_detail": true,
+          "smoke_cleanup": true
+        },
+        "current_code_ready": true
+      }
+    },
+    {
+      "id": "safety_no_forbidden_try_status_recency_call",
+      "passed": true,
+      "called_endpoints": [
+        "GET /health"
+      ],
+      "forbidden_endpoint_fragments": [
+        "/builds",
+        "/tests/run",
+        "/runs",
+        "/versions",
+        "/restore",
+        "/draft",
+        "/cancel"
+      ],
+      "model_call_used": false
+    }
+  ],
+  "summary": {
+    "failed_check_count": 0,
+    "open_p0_p1_bug_count": 0,
+    "forbidden_endpoint_called": false,
+    "try_status_recency_signal": {
+      "id": "try_status_recency_signal_fixture",
+      "passed": true,
+      "events": {
+        "start_run_initializes": true,
+        "poll_tick_updates": true,
+        "cancel_confirm_updates": true,
+        "visible_without_run": false,
+        "visible_with_run_and_timestamp": true
+      }
+    },
+    "try_status_recency_guidance": {
+      "id": "try_status_recency_guidance_fixture",
+      "passed": true,
+      "guidance": {
+        "local_ui_refresh_recency": true,
+        "not_backend_completion_time": true,
+        "current_status_is_truth": true,
+        "does_not_suggest_duplicate_start": true
+      }
+    }
+  }
+}
