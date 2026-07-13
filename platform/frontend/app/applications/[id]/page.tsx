@@ -380,6 +380,12 @@ function sampleSourceKind(field: InputField, testInputs: Record<string, unknown>
   return 'generated_default'
 }
 
+function valueKind(value: unknown) {
+  if (Array.isArray(value)) return 'array'
+  if (value === null) return 'null'
+  return typeof value
+}
+
 function buildRunFields(draft: Draft | null, previous: RunInputFieldState[]): RunInputFieldState[] {
   const previousByName = new Map(previous.map(field => [field.name, field]))
   const testInputs = firstMandatoryInputs(draft)
@@ -1464,6 +1470,13 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
             : run.status === 'cancelled'
               ? { id: 'cancelled_retry', target: 'run_inputs', label: t.tryResultNextCancelled, detail: t.tryResultNextCancelledDetail }
               : { id: 'running_wait', target: 'result_panel', label: t.tryResultNextRunning, detail: t.tryResultNextRunningDetail }
+  const tryResultOutputPreviewItems = useMemo(() => Object.entries(run?.outputs || {}).slice(0, 3).map(([key, value]) => ({
+    key,
+    kind: valueKind(value),
+    preview: compactSampleValue(value),
+  })), [run])
+  const tryResultHiddenOutputCount = Math.max(0, tryResultOutputCount - tryResultOutputPreviewItems.length)
+  const tryResultErrorPreview = run?.error ? compactSampleValue(run.error) : run?.status === 'failed' ? t.tryResultUnknownError : ''
   const relatedMonitorTasks = useMemo(
     () => monitorTasks.filter(task => taskIsRelated(task, id, build, run)),
     [build, id, monitorTasks, run],
@@ -1829,7 +1842,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
           <label>{t.runInputPreview}</label><pre className="trace-log">{runInputPreview}</pre>
           <div className="run-actions" ref={runControlsRef} tabIndex={-1}><button className="wide" onClick={() => startRun(true)}>{t.runDraftButton}</button><button className="wide secondary" onClick={() => startRun(false)} disabled={!activeVersion}>{t.runPublishedButton}</button></div>
           {!activeVersion && <p className="muted">{t.noPublishedVersion}</p>}
-          {run && <div className="run-result" data-run-status={run.status} ref={runResultRef} tabIndex={-1}><b>{run.status}</b><section className="try-result-outcome" data-try-result-outcome="summary"><div className="try-result-head"><strong>{t.tryResultOutcomeTitle}</strong><small>{t.tryResultStatusMeaning(run.status)}</small></div><div className="try-result-list">{tryResultOutcomeItems.map(item => <article className={item.ready ? 'ready' : ''} key={item.label}><span>{item.label}</span><b>{item.ready ? t.tryReady : t.tryNeedsAttention}</b><small>{item.detail}</small></article>)}</div><div className="try-result-next-action" data-try-result-next-action={tryResultNextAction.id}><span>{t.tryResultNextAction}</span><strong>{tryResultNextAction.label}</strong><small>{tryResultNextAction.detail}</small><button type="button" data-try-result-focus-target={tryResultNextAction.target} onClick={() => focusTryResultRecoveryTarget(tryResultNextAction.target)}>{t.tryResultFocusAction}</button></div></section><p className="run-recovery-hint" data-try-guidance="run-result-recovery">{runRecoveryHint}</p><button className="danger-link" onClick={cancelRun} disabled={['succeeded', 'failed', 'paused', 'cancelled'].includes(run.status)}>{t.cancelRun}</button><pre>{JSON.stringify(run.outputs || run.error, null, 2)}</pre>{run.status === 'paused' && <><label>{t.humanInput}</label><textarea ref={runHumanInputRef} value={humanValues} onChange={event => setHumanValues(event.target.value)} /><button onClick={resumeRun}>{t.resume}</button></>}</div>}
+          {run && <div className="run-result" data-run-status={run.status} ref={runResultRef} tabIndex={-1}><b>{run.status}</b><section className="try-result-outcome" data-try-result-outcome="summary"><div className="try-result-head"><strong>{t.tryResultOutcomeTitle}</strong><small>{t.tryResultStatusMeaning(run.status)}</small></div><div className="try-result-list">{tryResultOutcomeItems.map(item => <article className={item.ready ? 'ready' : ''} key={item.label}><span>{item.label}</span><b>{item.ready ? t.tryReady : t.tryNeedsAttention}</b><small>{item.detail}</small></article>)}</div><div className="try-result-next-action" data-try-result-next-action={tryResultNextAction.id}><span>{t.tryResultNextAction}</span><strong>{tryResultNextAction.label}</strong><small>{tryResultNextAction.detail}</small><button type="button" data-try-result-focus-target={tryResultNextAction.target} onClick={() => focusTryResultRecoveryTarget(tryResultNextAction.target)}>{t.tryResultFocusAction}</button></div></section><section className="try-result-preview" data-try-result-preview="output" data-try-result-error-preview={tryResultErrorPreview ? 'present' : 'empty'}><div className="try-result-preview-head"><strong>{t.tryResultPreviewTitle}</strong><small>{tryResultOutputPreviewItems.length ? t.tryResultPreviewHelp : tryResultErrorPreview ? t.tryResultErrorPreviewHelp : t.tryResultPreviewEmpty}</small></div>{tryResultOutputPreviewItems.length ? <div className="try-result-preview-list">{tryResultOutputPreviewItems.map(item => <article key={item.key}><span>{item.key}<em>{item.kind}</em></span><code>{item.preview}</code></article>)}</div> : tryResultErrorPreview ? <p className="try-result-error-preview">{tryResultErrorPreview}</p> : <p className="muted">{t.tryResultPreviewEmpty}</p>}{tryResultHiddenOutputCount > 0 && <small className="try-result-preview-more">{t.tryResultPreviewMore(tryResultHiddenOutputCount)}</small>}</section><p className="run-recovery-hint" data-try-guidance="run-result-recovery">{runRecoveryHint}</p><button className="danger-link" onClick={cancelRun} disabled={['succeeded', 'failed', 'paused', 'cancelled'].includes(run.status)}>{t.cancelRun}</button><pre>{JSON.stringify(run.outputs || run.error, null, 2)}</pre>{run.status === 'paused' && <><label>{t.humanInput}</label><textarea ref={runHumanInputRef} value={humanValues} onChange={event => setHumanValues(event.target.value)} /><button onClick={resumeRun}>{t.resume}</button></>}</div>}
           {pendingPermission && <div className="permission-card" ref={runPermissionRef} tabIndex={-1}><h3>{t.permissionWaiting}</h3><p>{t.permissionHelp}</p><p>{t.permissionTool}: <code>{pendingPermission.tool || '-'}</code>{pendingPermission.node_id ? <> · <code>{pendingPermission.node_id}</code></> : null}</p><pre>{JSON.stringify(pendingPermission.input || {}, null, 2)}</pre><div className="run-actions"><button className="wide" onClick={() => resolvePermission(pendingPermission, 'allow')}>{t.approvePermission}</button><button className="wide secondary" onClick={() => resolvePermission(pendingPermission, 'deny')}>{t.denyPermission}</button></div></div>}
           {visibleTraceEventsForRun.length > 0 && <><h3>{t.traceTitle}</h3><section className="trace-readability-panel" data-trace-guidance="summary" ref={runTraceRef} tabIndex={-1}>
             <div className="trace-readability-head"><strong>{t.traceReadabilityTitle}</strong><small>{t.traceReadabilityHelp}</small></div>
