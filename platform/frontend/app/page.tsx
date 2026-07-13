@@ -281,6 +281,9 @@ export default function Home() {
     setLocale(value)
     globalThis.localStorage?.setItem('foundry.locale', value)
   }
+  function clearCustomerExample() {
+    setSelectedExampleId(null)
+  }
 
   async function create(event: FormEvent) {
     event.preventDefault()
@@ -347,6 +350,10 @@ export default function Home() {
         <p>{t.heroCopy}</p>
         <form className="create-card" onSubmit={create}>
           <textarea aria-label={t.requirementAria} value={requirement} onChange={event => { setRequirement(event.target.value); setBuildIntentConfirmed(false) }} />
+          {selectedCustomerExample && <section className="selected-scenario-summary" data-selected-scenario-summary="active">
+            <div><span>{t.selectedScenarioSummaryTitle} · {selectedCustomerExample.role}</span><strong>{selectedCustomerExample.title}</strong><p>{selectedCustomerExample.need}</p><small>{selectedCustomerExample.acceptanceSignal}</small></div>
+            <button onClick={clearCustomerExample} type="button">{t.clearSelectedScenario}</button>
+          </section>}
           <div className="create-footer">
             <div className="create-copy"><span>{t.createHint}</span><small>{t.safeDraftHint}</small><small className="build-intent-copy" data-build-intent={buildIntentConfirmed ? 'confirmed' : 'needs-confirmation'}>{buildIntentConfirmed ? t.buildIntentHomeArmed : t.buildIntentHomeSafe}</small></div>
             <div className="create-actions">

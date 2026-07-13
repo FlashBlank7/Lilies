@@ -46,6 +46,8 @@ export const messages = {
     customerIntakeHelp: '选择一个真实客户行为，先填入可编辑需求，再按你的场景改细节。',
     scenarioUseButton: '填入这个需求',
     selectedScenarioLabel: '已选择',
+    selectedScenarioSummaryTitle: '当前客户行为',
+    clearSelectedScenario: '清除选择',
     customerExamples: [
       {
         id: 'business_owner',
@@ -506,6 +508,8 @@ export const messages = {
     customerIntakeHelp: 'Choose a real customer behavior, fill an editable requirement, then adapt the details before building.',
     scenarioUseButton: 'Use this requirement',
     selectedScenarioLabel: 'Selected',
+    selectedScenarioSummaryTitle: 'Current customer behavior',
+    clearSelectedScenario: 'Clear selection',
     customerExamples: [
       {
         id: 'business_owner',
