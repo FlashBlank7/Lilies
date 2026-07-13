@@ -483,6 +483,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   const [build, setBuild] = useState<Build | null>(null)
   const [events, setEvents] = useState<Array<{ type: string; data: Record<string, unknown> }>>([])
   const [tab, setTab] = useState<StudioTab>('build')
+  const [safeDraftLanding, setSafeDraftLanding] = useState(false)
   const [requirement, setRequirement] = useState('')
   const [buildDeadlineSeconds, setBuildDeadlineSeconds] = useState('')
   const [buildIntentConfirmed, setBuildIntentConfirmed] = useState(false)
@@ -558,8 +559,10 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   }, [])
   const syncStudioTabFromLocation = useCallback(() => {
     if (typeof window === 'undefined') return
-    const requestedTab = new URLSearchParams(window.location.search).get('tab')
+    const query = new URLSearchParams(window.location.search)
+    const requestedTab = query.get('tab')
     if (isStudioTab(requestedTab)) setTab(requestedTab)
+    setSafeDraftLanding(query.get('safeDraft') === '1')
   }, [])
 
   function setSelectedNode(value: WorkflowNode | null) {
@@ -1919,6 +1922,19 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
           <div className="auth-actions"><button>{t.authSave}</button><button type="button" className="ghost" onClick={() => { clearClientToken(); setTokenInput('') }}>{t.authClear}</button></div>
         </form>}
         <div className="canvas-guidance">
+          {safeDraftLanding && <section className="safe-draft-landing" data-safe-draft-landing="active">
+            <div>
+              <strong>{t.safeDraftLandingTitle}</strong>
+              <p>{t.safeDraftLandingCopy}</p>
+              <small>{t.safeDraftLandingNoModel}</small>
+            </div>
+            <div className="safe-draft-actions">
+              <button data-safe-draft-action="inspect" onClick={() => setStudioTab('edit')} type="button">{t.safeDraftActionInspect}</button>
+              <button data-safe-draft-action="acceptance" onClick={() => setStudioTab('test')} type="button">{t.safeDraftActionAcceptance}</button>
+              <button data-safe-draft-action="try" onClick={() => setStudioTab('run')} type="button">{t.safeDraftActionTry}</button>
+              <button data-safe-draft-action="build_later" onClick={() => setStudioTab('build')} type="button">{t.safeDraftActionBuildLater}</button>
+            </div>
+          </section>}
           <section className="draft-readiness">
             <div className="draft-readiness-head"><strong>{t.draftReadinessTitle}</strong><small>{t.draftReadinessHelp}</small></div>
             <div className="readiness-grid">{readinessCards.map(card => <article className={card.ready ? 'ready' : 'needs-action'} key={card.label}>

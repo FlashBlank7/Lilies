@@ -1,0 +1,219 @@
+{
+  "version": "v0.3.27",
+  "stage": "safe_draft_landing_handoff",
+  "status": "passed",
+  "live_checks_enabled": true,
+  "safety": {
+    "forbidden_endpoint_called": false,
+    "called_endpoints": [
+      "GET /health"
+    ],
+    "model_call_used": false
+  },
+  "bug_ledger": [
+    {
+      "id": "P1-safe-draft-landing-not-explained",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "After safe draft creation, users landed on detail view without clear confirmation that no model team started.",
+      "fix": "Add safe-draft landing handoff.",
+      "verification": "safe_draft_landing_fixture."
+    },
+    {
+      "id": "P1-safe-draft-actions-must-not-trigger-work",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Landing actions could accidentally trigger build/test/run/draft mutations.",
+      "fix": "Route handoff actions only through existing tabs.",
+      "verification": "safe_draft_action_safety_fixture."
+    },
+    {
+      "id": "P1-v0327-tests-must-enter-release-gate",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "New safe-draft landing tests could be omitted from the current v0.3.x release gate.",
+      "fix": "Update manifest with v0.3.27 and expected 142 passing tests.",
+      "verification": "regression_manifest_updated."
+    }
+  ],
+  "checks": [
+    {
+      "id": "p0_p1_bug_ledger_safe_draft_landing",
+      "passed": true,
+      "bug_count": 3,
+      "blocking_bug_count": 0,
+      "bugs": [
+        {
+          "id": "P1-safe-draft-landing-not-explained",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "After safe draft creation, users landed on detail view without clear confirmation that no model team started.",
+          "fix": "Add safe-draft landing handoff.",
+          "verification": "safe_draft_landing_fixture."
+        },
+        {
+          "id": "P1-safe-draft-actions-must-not-trigger-work",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Landing actions could accidentally trigger build/test/run/draft mutations.",
+          "fix": "Route handoff actions only through existing tabs.",
+          "verification": "safe_draft_action_safety_fixture."
+        },
+        {
+          "id": "P1-v0327-tests-must-enter-release-gate",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "New safe-draft landing tests could be omitted from the current v0.3.x release gate.",
+          "fix": "Update manifest with v0.3.27 and expected 142 passing tests.",
+          "verification": "regression_manifest_updated."
+        }
+      ]
+    },
+    {
+      "id": "safe_draft_landing_fixture",
+      "passed": true,
+      "cases": {
+        "safe_draft": true,
+        "normal_detail": false,
+        "build_return": false
+      }
+    },
+    {
+      "id": "safe_draft_action_safety_fixture",
+      "passed": true,
+      "actions": {
+        "inspect": {
+          "target_tab": "edit",
+          "button_type": "button"
+        },
+        "acceptance": {
+          "target_tab": "test",
+          "button_type": "button"
+        },
+        "try": {
+          "target_tab": "run",
+          "button_type": "button"
+        },
+        "build_later": {
+          "target_tab": "build",
+          "button_type": "button"
+        }
+      },
+      "unsafe_actions": [],
+      "forbidden_targets": [
+        "builds",
+        "draft",
+        "form_submit",
+        "restore",
+        "runs",
+        "tests/run",
+        "versions"
+      ]
+    },
+    {
+      "id": "safe_draft_landing_source_markers",
+      "path": "platform/frontend/app/applications/[id]/page.tsx",
+      "required_markers": [
+        "safeDraftLanding",
+        "setSafeDraftLanding",
+        "safeDraft",
+        "data-safe-draft-landing",
+        "data-safe-draft-action",
+        "safeDraftActionBuildLater",
+        "setStudioTab('build')",
+        "type=\"button\""
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "safe_draft_landing_i18n_markers",
+      "path": "platform/frontend/lib/i18n.ts",
+      "required_markers": [
+        "safeDraftLandingTitle",
+        "safeDraftLandingNoModel",
+        "safeDraftActionInspect",
+        "safeDraftActionAcceptance",
+        "safeDraftActionBuildLater"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "safe_draft_landing_style_markers",
+      "path": "platform/frontend/app/globals.css",
+      "required_markers": [
+        ".safe-draft-landing",
+        ".safe-draft-actions",
+        ".safe-draft-actions button"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "regression_manifest_updated",
+      "path": "docs/testing/regression_lanes.json",
+      "required_markers": [
+        "tests/test_v03_27_safe_draft_landing.py",
+        "\"pass_count\": 142"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "runtime_health_read_only",
+      "url": "http://127.0.0.1:8001/health",
+      "passed": true,
+      "status_code": 200,
+      "runtime": {
+        "version": "v0.3.6",
+        "product_phase": "v0.3.x",
+        "git": {
+          "commit": "6270814",
+          "branch": "usabilityEnhence",
+          "tracked_dirty": false,
+          "untracked_present": true
+        },
+        "route_availability": {
+          "health": true,
+          "applications_list": true,
+          "applications_create": true,
+          "application_detail": true,
+          "draft_detail": true,
+          "smoke_cleanup": true
+        },
+        "current_code_ready": true
+      }
+    },
+    {
+      "id": "safety_no_forbidden_safe_draft_landing_call",
+      "passed": true,
+      "called_endpoints": [
+        "GET /health"
+      ],
+      "forbidden_endpoint_fragments": [
+        "/builds",
+        "/tests/run",
+        "/runs",
+        "/versions",
+        "/restore",
+        "/draft"
+      ],
+      "model_call_used": false
+    }
+  ],
+  "summary": {
+    "failed_check_count": 0,
+    "open_p0_p1_bug_count": 0,
+    "forbidden_endpoint_called": false,
+    "safe_draft_landing": {
+      "id": "safe_draft_landing_fixture",
+      "passed": true,
+      "cases": {
+        "safe_draft": true,
+        "normal_detail": false,
+        "build_return": false
+      }
+    }
+  }
+}
