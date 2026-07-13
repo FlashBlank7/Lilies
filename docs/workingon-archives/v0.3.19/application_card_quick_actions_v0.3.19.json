@@ -1,0 +1,295 @@
+{
+  "version": "v0.3.19",
+  "stage": "application_card_quick_actions",
+  "status": "passed",
+  "live_checks_enabled": true,
+  "safety": {
+    "forbidden_endpoint_called": false,
+    "called_endpoints": [
+      "GET /health"
+    ],
+    "forbidden_action_hrefs": []
+  },
+  "bug_ledger": [
+    {
+      "id": "P1-application-card-action-affordance-missing",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Users could find an app after v0.3.18 but still had to guess what to do from a single card link.",
+      "fix": "Add readiness-dependent navigation quick actions on every app card.",
+      "verification": "quick_action_fixture_behavior."
+    },
+    {
+      "id": "P1-card-actions-must-not-nest-in-link",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Adding buttons inside the existing card Link would create invalid nested interactive UI.",
+      "fix": "Refactor cards into an article, primary detail link, and separate action strip.",
+      "verification": "card_quick_action_source_markers."
+    },
+    {
+      "id": "P1-quick-actions-need-real-detail-targets",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "A home quick action with only `/applications/{id}` always lands on the default build tab.",
+      "fix": "Add a guarded `?tab=` detail-page deep link path.",
+      "verification": "detail_tab_deeplink_markers."
+    },
+    {
+      "id": "P1-v0319-tests-must-enter-release-gate",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "New card action tests could be omitted from the current v0.3.x release gate.",
+      "fix": "Update `docs/testing/regression_lanes.json` with v0.3.19 and expected 94 passing tests.",
+      "verification": "regression_manifest_updated."
+    }
+  ],
+  "checks": [
+    {
+      "id": "p0_p1_bug_ledger_card_quick_actions",
+      "passed": true,
+      "bug_count": 4,
+      "blocking_bug_count": 0,
+      "bugs": [
+        {
+          "id": "P1-application-card-action-affordance-missing",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Users could find an app after v0.3.18 but still had to guess what to do from a single card link.",
+          "fix": "Add readiness-dependent navigation quick actions on every app card.",
+          "verification": "quick_action_fixture_behavior."
+        },
+        {
+          "id": "P1-card-actions-must-not-nest-in-link",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Adding buttons inside the existing card Link would create invalid nested interactive UI.",
+          "fix": "Refactor cards into an article, primary detail link, and separate action strip.",
+          "verification": "card_quick_action_source_markers."
+        },
+        {
+          "id": "P1-quick-actions-need-real-detail-targets",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "A home quick action with only `/applications/{id}` always lands on the default build tab.",
+          "fix": "Add a guarded `?tab=` detail-page deep link path.",
+          "verification": "detail_tab_deeplink_markers."
+        },
+        {
+          "id": "P1-v0319-tests-must-enter-release-gate",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "New card action tests could be omitted from the current v0.3.x release gate.",
+          "fix": "Update `docs/testing/regression_lanes.json` with v0.3.19 and expected 94 passing tests.",
+          "verification": "regression_manifest_updated."
+        }
+      ]
+    },
+    {
+      "id": "quick_action_fixture_behavior",
+      "passed": true,
+      "ids": {
+        "draft": [
+          "edit",
+          "acceptance"
+        ],
+        "ready": [
+          "acceptance",
+          "publish_check"
+        ],
+        "published": [
+          "try",
+          "monitor"
+        ]
+      },
+      "tabs": {
+        "draft": [
+          "edit",
+          "test"
+        ],
+        "ready": [
+          "test",
+          "test"
+        ],
+        "published": [
+          "run",
+          "monitor"
+        ]
+      },
+      "hrefs": [
+        "/applications/draft?tab=edit",
+        "/applications/draft?tab=test",
+        "/applications/ready?tab=test",
+        "/applications/ready?tab=test",
+        "/applications/published?tab=run",
+        "/applications/published?tab=monitor"
+      ],
+      "forbidden_hrefs": []
+    },
+    {
+      "id": "detail_tab_deeplink_guard",
+      "passed": true,
+      "valid": {
+        "build": true,
+        "edit": true,
+        "test": true,
+        "run": true,
+        "monitor": true
+      },
+      "invalid": {
+        "": false,
+        "tests": false,
+        "publish": false,
+        "builds": false,
+        "null": false
+      }
+    },
+    {
+      "id": "card_quick_action_source_markers",
+      "path": "platform/frontend/app/page.tsx",
+      "required_markers": [
+        "type AppActionTab",
+        "type AppQuickAction",
+        "appCardQuickActions",
+        "data-app-card-action-state",
+        "app-card-main",
+        "data-app-card-quick-actions=\"navigation\"",
+        "data-app-card-action"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "detail_tab_deeplink_markers",
+      "path": "platform/frontend/app/applications/[id]/page.tsx",
+      "required_markers": [
+        "STUDIO_TABS",
+        "isStudioTab",
+        "requestedTab",
+        "query.get('tab')"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "card_quick_action_i18n_markers",
+      "path": "platform/frontend/lib/i18n.ts",
+      "required_markers": [
+        "appActionOpen",
+        "appActionEdit",
+        "appActionAcceptance",
+        "appActionPublishCheck",
+        "appActionTry",
+        "appActionMonitor"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "card_quick_action_style_markers",
+      "path": "platform/frontend/app/globals.css",
+      "required_markers": [
+        ".app-card-main",
+        ".app-card-actions",
+        ".app-card-actions a"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "regression_manifest_updated",
+      "path": "docs/testing/regression_lanes.json",
+      "required_markers": [
+        "tests/test_v03_19_application_card_quick_actions.py",
+        "\"pass_count\": 94"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "runtime_health_read_only",
+      "url": "http://127.0.0.1:8001/health",
+      "passed": true,
+      "status_code": 200,
+      "runtime": {
+        "version": "v0.3.6",
+        "product_phase": "v0.3.x",
+        "git": {
+          "commit": "29dab7c",
+          "branch": "usabilityEnhence",
+          "tracked_dirty": false,
+          "untracked_present": true
+        },
+        "route_availability": {
+          "health": true,
+          "applications_list": true,
+          "applications_create": true,
+          "application_detail": true,
+          "draft_detail": true,
+          "smoke_cleanup": true
+        },
+        "current_code_ready": true
+      }
+    },
+    {
+      "id": "safety_no_forbidden_quick_action_call",
+      "passed": true,
+      "called_endpoints": [
+        "GET /health"
+      ],
+      "forbidden_endpoint_fragments": [
+        "/builds",
+        "/tests/run",
+        "/runs",
+        "/versions"
+      ],
+      "forbidden_action_hrefs": []
+    }
+  ],
+  "summary": {
+    "failed_check_count": 0,
+    "open_p0_p1_bug_count": 0,
+    "forbidden_endpoint_called": false,
+    "quick_actions": {
+      "id": "quick_action_fixture_behavior",
+      "passed": true,
+      "ids": {
+        "draft": [
+          "edit",
+          "acceptance"
+        ],
+        "ready": [
+          "acceptance",
+          "publish_check"
+        ],
+        "published": [
+          "try",
+          "monitor"
+        ]
+      },
+      "tabs": {
+        "draft": [
+          "edit",
+          "test"
+        ],
+        "ready": [
+          "test",
+          "test"
+        ],
+        "published": [
+          "run",
+          "monitor"
+        ]
+      },
+      "hrefs": [
+        "/applications/draft?tab=edit",
+        "/applications/draft?tab=test",
+        "/applications/ready?tab=test",
+        "/applications/ready?tab=test",
+        "/applications/published?tab=run",
+        "/applications/published?tab=monitor"
+      ],
+      "forbidden_hrefs": []
+    }
+  }
+}

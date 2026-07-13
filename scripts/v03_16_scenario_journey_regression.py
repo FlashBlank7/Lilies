@@ -110,7 +110,7 @@ def source_marker_checks() -> list[dict[str, Any]]:
             (
                 ".app-readiness",
                 ".app-next-action",
-                ".app-card{min-height:218px}",
+                ".app-card{min-height:",
             ),
         ),
         (

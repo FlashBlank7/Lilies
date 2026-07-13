@@ -44,7 +44,8 @@ import { classifyRuntimeStatus, runtimeCommit, runtimeVersion, type RuntimeHealt
 
 type StudioNode = Node<{ title: string; blockType: string; description: string; status?: string }>
 type Copy = (typeof messages)[Locale]
-type StudioTab = 'build' | 'edit' | 'test' | 'run' | 'monitor'
+const STUDIO_TABS = ['build', 'edit', 'test', 'run', 'monitor'] as const
+type StudioTab = typeof STUDIO_TABS[number]
 type MonitorFilter = 'related' | 'failed' | 'all'
 type GovernedMemoryFilter = 'active' | 'revoked' | 'expired' | 'all'
 type Version = { version: number; content_hash: string; created_at: string; validation_report: Record<string, unknown> }
@@ -85,6 +86,10 @@ type AcceptanceCaseView = {
   requireCitedToolUrls: boolean
   raw: Record<string, unknown>
   result?: AcceptanceResult
+}
+
+function isStudioTab(value: string | null): value is StudioTab {
+  return Boolean(value && STUDIO_TABS.includes(value as StudioTab))
 }
 type PolicyControlsForm = {
   network_egress_policy: 'full' | 'allowlist' | 'none'
@@ -902,7 +907,10 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     refreshAdaptiveMonitoring().catch(error => setNotice(String(error)))
   }, [refresh, refreshAdaptiveMonitoring, refreshBenchmarkHistory, refreshMonitorTasks, refreshPolicyControls])
   useEffect(() => {
-    const buildId = new URLSearchParams(window.location.search).get('build')
+    const query = new URLSearchParams(window.location.search)
+    const requestedTab = query.get('tab')
+    if (isStudioTab(requestedTab)) setTab(requestedTab)
+    const buildId = query.get('build')
     if (buildId) watchBuild(buildId)
     else api<Build[]>(`/api/v1/applications/${id}/builds`).then(items => {
       if (!items[0]) return

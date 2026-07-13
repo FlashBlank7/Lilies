@@ -18,6 +18,8 @@ type Application = {
 }
 type AppFilter = 'all' | 'needs_acceptance' | 'ready_to_publish' | 'published'
 type AppSort = 'readiness' | 'revision' | 'name'
+type AppActionTab = 'edit' | 'test' | 'run' | 'monitor'
+type AppQuickAction = { id: string; tab: AppActionTab; label: string }
 
 type DraftMutationResult = {
   revision: number
@@ -142,6 +144,21 @@ export default function Home() {
     : item.tested_hash
       ? t.appNextActionPublish
       : t.appNextActionRunAcceptance
+  const appCardQuickActions = (item: Application): AppQuickAction[] => {
+    const state = appReadinessState(item)
+    if (state === 'published') return [
+      { id: 'try', tab: 'run', label: t.appActionTry },
+      { id: 'monitor', tab: 'monitor', label: t.appActionMonitor },
+    ]
+    if (state === 'ready_to_publish') return [
+      { id: 'acceptance', tab: 'test', label: t.appActionAcceptance },
+      { id: 'publish_check', tab: 'test', label: t.appActionPublishCheck },
+    ]
+    return [
+      { id: 'edit', tab: 'edit', label: t.appActionEdit },
+      { id: 'acceptance', tab: 'test', label: t.appActionAcceptance },
+    ]
+  }
   const appFilterOptions: Array<{ id: AppFilter; label: string }> = [
     { id: 'all', label: t.appFilterAll },
     { id: 'needs_acceptance', label: t.appFilterNeedsAcceptance },
@@ -322,14 +339,19 @@ export default function Home() {
           </select></label>
         </div>}
         <div className="app-grid">
-          {visibleApps.map(item => <Link className="app-card" href={`/applications/${item.id}`} key={item.id}>
-            <div className="app-icon">{item.name.slice(0, 1).toUpperCase()}</div>
-            <div><h3>{item.name}</h3><p>{item.description || t.fallbackDescription}</p>
-              <div className="app-readiness" data-app-card-guidance="readiness">{appCardReadiness(item).map(signal => <span className={signal.ready ? 'ready' : ''} key={signal.label}><b>{signal.label}</b>{signal.value}</span>)}</div>
-              <small className="app-next-action" data-app-card-guidance="next-action">{appCardNextAction(item)}</small>
+          {visibleApps.map(item => <article className="app-card" data-app-card-action-state={appReadinessState(item)} key={item.id}>
+            <Link className="app-card-main" href={`/applications/${item.id}`} aria-label={`${t.appActionOpen}: ${item.name}`}>
+              <div className="app-icon">{item.name.slice(0, 1).toUpperCase()}</div>
+              <div><h3>{item.name}</h3><p>{item.description || t.fallbackDescription}</p>
+                <div className="app-readiness" data-app-card-guidance="readiness">{appCardReadiness(item).map(signal => <span className={signal.ready ? 'ready' : ''} key={signal.label}><b>{signal.label}</b>{signal.value}</span>)}</div>
+                <small className="app-next-action" data-app-card-guidance="next-action">{appCardNextAction(item)}</small>
+              </div>
+              <div className="app-meta"><span>{item.active_version ? t.published(item.active_version) : t.draft}</span><span>r{item.draft_revision}</span></div>
+            </Link>
+            <div className="app-card-actions" data-app-card-quick-actions="navigation">
+              {appCardQuickActions(item).map(action => <Link href={`/applications/${item.id}?tab=${action.tab}`} data-app-card-action={action.id} key={action.id}>{action.label}</Link>)}
             </div>
-            <div className="app-meta"><span>{item.active_version ? t.published(item.active_version) : t.draft}</span><span>r{item.draft_revision}</span></div>
-          </Link>)}
+          </article>)}
           {apps.length > 0 && !visibleApps.length && <div className="empty-card"><strong>{normalizedAppSearch ? t.appSearchEmpty : t.appFilterEmpty}</strong><span>{normalizedAppSearch ? t.appSearchEmptyHelp : t.appFilterEmptyHelp}</span></div>}
           {!apps.length && <div className="empty-card"><strong>{t.emptyApps}</strong><span>{t.emptyAppsNextAction}</span></div>}
         </div>
