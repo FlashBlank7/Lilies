@@ -1,0 +1,201 @@
+{
+  "version": "v0.3.8",
+  "stage": "runtime_connection_status_surface",
+  "status": "passed",
+  "live_checks_enabled": true,
+  "token_source": "file:.env:API_TOKEN",
+  "smoke_marker": "v0.3.8-smoke",
+  "bug_ledger": [
+    {
+      "id": "P1-static-connected-status",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "The home topbar said the environment was connected without reading runtime health.",
+      "fix": "Add a health/auth-derived runtime status badge with data-runtime-status.",
+      "verification": "home_runtime_status_markers and rendered_home_runtime_status."
+    },
+    {
+      "id": "P1-detail-runtime-status-missing",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "The detail page did not show whether the studio was connected to current backend code.",
+      "fix": "Add a compact runtime chip to the detail header.",
+      "verification": "detail_runtime_status_markers and rendered_detail_runtime_status."
+    }
+  ],
+  "safety": {
+    "build_endpoint_called": false,
+    "called_endpoints": [
+      "POST /api/v1/applications",
+      "POST /api/v1/applications/{id}/smoke-cleanup"
+    ],
+    "smoke_marker": "v0.3.8-smoke",
+    "cleanup_attempted": true
+  },
+  "checks": [
+    {
+      "id": "p0_p1_bug_ledger_runtime_connection_status",
+      "passed": true,
+      "bug_count": 2,
+      "blocking_bug_count": 0,
+      "bugs": [
+        {
+          "id": "P1-static-connected-status",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "The home topbar said the environment was connected without reading runtime health.",
+          "fix": "Add a health/auth-derived runtime status badge with data-runtime-status.",
+          "verification": "home_runtime_status_markers and rendered_home_runtime_status."
+        },
+        {
+          "id": "P1-detail-runtime-status-missing",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "The detail page did not show whether the studio was connected to current backend code.",
+          "fix": "Add a compact runtime chip to the detail header.",
+          "verification": "detail_runtime_status_markers and rendered_detail_runtime_status."
+        }
+      ]
+    },
+    {
+      "id": "runtime_status_classifier_markers",
+      "path": "platform/frontend/lib/runtime-status.ts",
+      "required_markers": [
+        "classifyRuntimeStatus",
+        "auth_required",
+        "stale",
+        "unavailable",
+        "expectedRuntimeVersion"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "home_runtime_status_markers",
+      "path": "platform/frontend/app/page.tsx",
+      "required_markers": [
+        "refreshRuntimeStatus",
+        "data-runtime-status",
+        "runtimeStatusText",
+        "runtimeStatusDetail"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "detail_runtime_status_markers",
+      "path": "platform/frontend/app/applications/[id]/page.tsx",
+      "required_markers": [
+        "refreshRuntimeStatus",
+        "data-runtime-status",
+        "runtime-chip",
+        "runtimeStatusText"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "runtime_status_copy_markers",
+      "path": "platform/frontend/lib/i18n.ts",
+      "required_markers": [
+        "runtimeStatusConnected",
+        "runtimeStatusAuthRequired",
+        "runtimeStatusStale",
+        "runtimeStatusUnavailable"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "runtime_status_style_markers",
+      "path": "platform/frontend/app/globals.css",
+      "required_markers": [
+        ".runtime-status",
+        ".runtime-chip",
+        ".runtime-chip.unavailable"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "token_available",
+      "passed": true,
+      "token_source": "file:.env:API_TOKEN"
+    },
+    {
+      "id": "runtime_health_current_code",
+      "url": "http://127.0.0.1:8001/health",
+      "passed": true,
+      "status_code": 200,
+      "runtime": {
+        "version": "v0.3.6",
+        "product_phase": "v0.3.x",
+        "git": {
+          "commit": "bea790d",
+          "branch": "usabilityEnhence",
+          "tracked_dirty": false,
+          "untracked_present": true
+        },
+        "route_availability": {
+          "health": true,
+          "applications_list": true,
+          "applications_create": true,
+          "application_detail": true,
+          "draft_detail": true,
+          "smoke_cleanup": true
+        },
+        "current_code_ready": true
+      }
+    },
+    {
+      "id": "rendered_home_runtime_status",
+      "url": "http://127.0.0.1:3000/",
+      "passed": true,
+      "status_code": 200
+    },
+    {
+      "id": "created_runtime_status_smoke_app",
+      "passed": true,
+      "status_code": 201,
+      "application_id": "911adf59-4db5-4577-8579-bb406fb3a6ae"
+    },
+    {
+      "id": "rendered_detail_runtime_status",
+      "url": "http://127.0.0.1:3000/applications/911adf59-4db5-4577-8579-bb406fb3a6ae?safeDraft=1",
+      "passed": true,
+      "status_code": 200
+    },
+    {
+      "id": "cleanup_smoke_app",
+      "passed": true,
+      "status_code": 200,
+      "related_counts": {
+        "application_drafts": 1,
+        "application_versions": 0,
+        "builds": 0,
+        "workflow_runs": 0,
+        "schedule_fires": 0,
+        "draft_idempotency": 0
+      }
+    },
+    {
+      "id": "verified_smoke_deleted",
+      "passed": true,
+      "status_code": 404
+    },
+    {
+      "id": "safety_no_build_call",
+      "passed": true,
+      "called_endpoints": [
+        "POST /api/v1/applications",
+        "POST /api/v1/applications/{id}/smoke-cleanup"
+      ],
+      "forbidden_endpoint": "POST /api/v1/applications/{id}/builds"
+    }
+  ],
+  "summary": {
+    "failed_check_count": 0,
+    "open_p0_p1_bug_count": 0,
+    "build_endpoint_called": false
+  }
+}

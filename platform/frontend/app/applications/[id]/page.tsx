@@ -40,6 +40,7 @@ import {
   withFrontendToken,
 } from '@/lib/platform'
 import { defaultLocale, isLocale, messages, nextLocale, type Locale } from '@/lib/i18n'
+import { classifyRuntimeStatus, runtimeCommit, runtimeVersion, type RuntimeHealth } from '@/lib/runtime-status'
 
 type StudioNode = Node<{ title: string; blockType: string; description: string; status?: string }>
 type Copy = (typeof messages)[Locale]
@@ -526,6 +527,8 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   const [notice, setNotice] = useState('')
   const [authRequired, setAuthRequired] = useState(false)
   const [tokenInput, setTokenInput] = useState('')
+  const [runtimeHealth, setRuntimeHealth] = useState<RuntimeHealth | null>(null)
+  const [runtimeUnavailable, setRuntimeUnavailable] = useState(false)
   const eventSource = useRef<EventSource | null>(null)
   const draftRef = useRef<Draft | null>(null)
   const selectedId = useRef<string | null>(null)
@@ -890,6 +893,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     const stored = globalThis.localStorage?.getItem('foundry.locale')
     if (isLocale(stored)) setLocale(stored)
     setTokenInput(getClientToken())
+    refreshRuntimeStatus()
     refresh().catch(error => setNotice(String(error)))
     refreshMonitorTasks().catch(error => setNotice(String(error)))
     refreshPolicyControls().catch(error => setNotice(String(error)))
@@ -1378,6 +1382,25 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
       target: 'monitor',
     },
   ]
+  const runtimeStatus = classifyRuntimeStatus(runtimeHealth, { authRequired, unavailable: runtimeUnavailable })
+  const runtimeStatusText = runtimeStatus === 'connected'
+    ? t.runtimeStatusConnected(runtimeVersion(runtimeHealth))
+    : runtimeStatus === 'auth_required'
+      ? t.runtimeStatusAuthRequired
+      : runtimeStatus === 'stale'
+        ? t.runtimeStatusStale(runtimeVersion(runtimeHealth))
+        : runtimeStatus === 'unavailable'
+          ? t.runtimeStatusUnavailable
+          : t.runtimeStatusChecking
+  const runtimeStatusDetail = runtimeStatus === 'connected'
+    ? t.runtimeStatusDetailConnected(runtimeCommit(runtimeHealth))
+    : runtimeStatus === 'auth_required'
+      ? t.runtimeStatusDetailAuthRequired
+      : runtimeStatus === 'stale'
+        ? t.runtimeStatusDetailStale
+        : runtimeStatus === 'unavailable'
+          ? t.runtimeStatusDetailUnavailable
+          : t.runtimeStatusDetailChecking
   function toggleLocale() {
     const value = nextLocale(locale)
     setLocale(value)
@@ -1400,6 +1423,15 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     setNotice(t.authSaved)
     void refresh().catch(error => setNotice(String(error)))
   }
+  function refreshRuntimeStatus() {
+    return api<RuntimeHealth>('/health').then(health => {
+      setRuntimeHealth(health)
+      setRuntimeUnavailable(false)
+    }).catch(() => {
+      setRuntimeHealth(null)
+      setRuntimeUnavailable(true)
+    })
+  }
   const architecture = useMemo(() => {
     const workflow = draft?.snapshot.workflow
     if (!workflow) return []
@@ -1414,7 +1446,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     <header className="studio-header">
       <Link href="/" className="back">←</Link>
       <div className="studio-title"><strong>{draft?.snapshot.name || t.loading}</strong><span>{draft?.snapshot.mode === 'chat' ? t.modeChat : t.modeWorkflow} · {t.draft} r{draft?.revision ?? 0}</span></div>
-      <div className="header-center"><span className={tested ? 'verified' : 'unverified'}>{tested ? t.verified : t.unverified}</span>{activeVersion && <span>{t.activeVersion(activeVersion)}</span>}</div>
+      <div className="header-center"><span className={tested ? 'verified' : 'unverified'}>{tested ? t.verified : t.unverified}</span>{activeVersion && <span>{t.activeVersion(activeVersion)}</span>}<span className={`runtime-chip ${runtimeStatus}`} data-runtime-status={runtimeStatus} title={runtimeStatusDetail}>{runtimeStatusText}</span></div>
       <div className="header-actions"><button className="lang-toggle" onClick={toggleLocale}>{t.switchLabel}</button><button className="ghost" onClick={() => setTab('run')}>{t.debugDraft}</button><button onClick={publish} disabled={!tested}>{t.publishVersion}</button></div>
     </header>
     <div className="studio-grid">

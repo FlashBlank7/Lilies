@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { FormEvent, useEffect, useState } from 'react'
 import { api, clearClientToken, getClientToken, idempotency, isAuthError, saveClientToken } from '@/lib/platform'
 import { defaultLocale, isLocale, messages, nextLocale, type Locale } from '@/lib/i18n'
+import { classifyRuntimeStatus, runtimeCommit, runtimeVersion, type RuntimeHealth } from '@/lib/runtime-status'
 
 type Application = {
   id: string
@@ -90,7 +91,28 @@ export default function Home() {
   const [error, setError] = useState('')
   const [authRequired, setAuthRequired] = useState(false)
   const [tokenInput, setTokenInput] = useState('')
+  const [runtimeHealth, setRuntimeHealth] = useState<RuntimeHealth | null>(null)
+  const [runtimeUnavailable, setRuntimeUnavailable] = useState(false)
   const selectedCustomerExample = t.customerExamples.find(item => item.id === selectedExampleId)
+  const runtimeStatus = classifyRuntimeStatus(runtimeHealth, { authRequired, unavailable: runtimeUnavailable })
+  const runtimeStatusText = runtimeStatus === 'connected'
+    ? t.runtimeStatusConnected(runtimeVersion(runtimeHealth))
+    : runtimeStatus === 'auth_required'
+      ? t.runtimeStatusAuthRequired
+      : runtimeStatus === 'stale'
+        ? t.runtimeStatusStale(runtimeVersion(runtimeHealth))
+        : runtimeStatus === 'unavailable'
+          ? t.runtimeStatusUnavailable
+          : t.runtimeStatusChecking
+  const runtimeStatusDetail = runtimeStatus === 'connected'
+    ? t.runtimeStatusDetailConnected(runtimeCommit(runtimeHealth))
+    : runtimeStatus === 'auth_required'
+      ? t.runtimeStatusDetailAuthRequired
+      : runtimeStatus === 'stale'
+        ? t.runtimeStatusDetailStale
+        : runtimeStatus === 'unavailable'
+          ? t.runtimeStatusDetailUnavailable
+          : t.runtimeStatusDetailChecking
 
   const refresh = () => api<Application[]>('/api/v1/applications').then(applications => {
     setApps(applications)
@@ -100,10 +122,18 @@ export default function Home() {
     if (isAuthError(error)) setAuthRequired(true)
     setError(String(error))
   })
+  const refreshRuntimeStatus = () => api<RuntimeHealth>('/health').then(health => {
+    setRuntimeHealth(health)
+    setRuntimeUnavailable(false)
+  }).catch(() => {
+    setRuntimeHealth(null)
+    setRuntimeUnavailable(true)
+  })
   useEffect(() => {
     const stored = globalThis.localStorage?.getItem('foundry.locale')
     if (isLocale(stored)) setLocale(stored)
     setTokenInput(getClientToken())
+    void refreshRuntimeStatus()
     void refresh()
   }, [])
 
@@ -165,7 +195,7 @@ export default function Home() {
 
   return (
     <main className="home-shell">
-      <nav className="topbar"><div className="brand"><span>F</span> Foundry</div><div className="topbar-actions"><button className="lang-toggle" onClick={toggleLocale}>{t.switchLabel}</button><div className="status-dot">{t.status}</div></div></nav>
+      <nav className="topbar"><div className="brand"><span>F</span> Foundry</div><div className="topbar-actions"><button className="lang-toggle" onClick={toggleLocale}>{t.switchLabel}</button><div className={`status-dot runtime-status ${runtimeStatus}`} data-runtime-status={runtimeStatus}><span>{runtimeStatusText}</span><small>{runtimeStatusDetail}</small></div></div></nav>
       <section className="hero">
         <div className="eyebrow">{t.eyebrow}</div>
         <h1>{t.heroTitleA}<br/><em>{t.heroTitleB}</em></h1>
