@@ -1,0 +1,209 @@
+{
+  "version": "v0.3.38",
+  "stage": "try_run_duplicate_start_guard",
+  "status": "passed",
+  "live_checks_enabled": true,
+  "safety": {
+    "forbidden_endpoint_called": false,
+    "called_endpoints": [
+      "GET /health"
+    ],
+    "model_call_used": false
+  },
+  "bug_ledger": [
+    {
+      "id": "P1-try-duplicate-start-active-run",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Draft and published Try buttons could be clicked while a run was queued or running.",
+      "fix": "Disable run buttons and early-return from startRun for active statuses.",
+      "verification": "try_duplicate_start_guard_fixture."
+    },
+    {
+      "id": "P1-try-active-run-guidance-absent",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Disabled run buttons would look broken without guidance.",
+      "fix": "Add active-run guard text that tells users to wait or cancel explicitly.",
+      "verification": "try_duplicate_start_guidance_fixture."
+    },
+    {
+      "id": "P1-v0338-tests-must-enter-release-gate",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Try duplicate-start guard could regress if omitted from the current v0.3.x release gate.",
+      "fix": "Update manifest with v0.3.38 and expected 208 passing tests.",
+      "verification": "regression_manifest_updated."
+    }
+  ],
+  "checks": [
+    {
+      "id": "p0_p1_bug_ledger_try_duplicate_start_guard",
+      "passed": true,
+      "bug_count": 3,
+      "blocking_bug_count": 0,
+      "bugs": [
+        {
+          "id": "P1-try-duplicate-start-active-run",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Draft and published Try buttons could be clicked while a run was queued or running.",
+          "fix": "Disable run buttons and early-return from startRun for active statuses.",
+          "verification": "try_duplicate_start_guard_fixture."
+        },
+        {
+          "id": "P1-try-active-run-guidance-absent",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Disabled run buttons would look broken without guidance.",
+          "fix": "Add active-run guard text that tells users to wait or cancel explicitly.",
+          "verification": "try_duplicate_start_guidance_fixture."
+        },
+        {
+          "id": "P1-v0338-tests-must-enter-release-gate",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Try duplicate-start guard could regress if omitted from the current v0.3.x release gate.",
+          "fix": "Update manifest with v0.3.38 and expected 208 passing tests.",
+          "verification": "regression_manifest_updated."
+        }
+      ]
+    },
+    {
+      "id": "try_duplicate_start_guard_fixture",
+      "passed": true,
+      "cases": {
+        "none": false,
+        "queued": true,
+        "running": true,
+        "paused": false,
+        "failed": false,
+        "succeeded": false,
+        "cancelled": false
+      }
+    },
+    {
+      "id": "try_duplicate_start_guidance_fixture",
+      "passed": true,
+      "active_guard_visible_for": [
+        "queued",
+        "running"
+      ],
+      "guidance": "wait_or_cancel_explicitly",
+      "cancel_button_remains_explicit": true
+    },
+    {
+      "id": "try_duplicate_start_source_markers",
+      "path": "platform/frontend/app/applications/[id]/page.tsx",
+      "required_markers": [
+        "isActiveRunStatus",
+        "const tryRunActive = isActiveRunStatus(run?.status)",
+        "data-try-run-start-guard=\"active\"",
+        "disabled={tryRunActive}",
+        "disabled={!activeVersion || tryRunActive}",
+        "tryRunActiveGuardNotice"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "try_duplicate_start_i18n_markers",
+      "path": "platform/frontend/lib/i18n.ts",
+      "required_markers": [
+        "tryRunActiveGuardTitle",
+        "tryRunActiveGuardDetail",
+        "tryRunActiveGuardNotice"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "try_duplicate_start_style_markers",
+      "path": "platform/frontend/app/globals.css",
+      "required_markers": [
+        ".try-run-start-guard"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "regression_manifest_updated",
+      "path": "docs/testing/regression_lanes.json",
+      "required_markers": [
+        "tests/test_v03_38_try_run_duplicate_start_guard.py",
+        "\"pass_count\": 208"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "runtime_health_read_only",
+      "url": "http://127.0.0.1:8001/health",
+      "passed": true,
+      "status_code": 200,
+      "runtime": {
+        "version": "v0.3.6",
+        "product_phase": "v0.3.x",
+        "git": {
+          "commit": "ecc1e40",
+          "branch": "usabilityEnhence",
+          "tracked_dirty": false,
+          "untracked_present": true
+        },
+        "route_availability": {
+          "health": true,
+          "applications_list": true,
+          "applications_create": true,
+          "application_detail": true,
+          "draft_detail": true,
+          "smoke_cleanup": true
+        },
+        "current_code_ready": true
+      }
+    },
+    {
+      "id": "safety_no_forbidden_try_duplicate_start_call",
+      "passed": true,
+      "called_endpoints": [
+        "GET /health"
+      ],
+      "forbidden_endpoint_fragments": [
+        "/builds",
+        "/tests/run",
+        "/runs",
+        "/versions",
+        "/restore",
+        "/draft"
+      ],
+      "model_call_used": false
+    }
+  ],
+  "summary": {
+    "failed_check_count": 0,
+    "open_p0_p1_bug_count": 0,
+    "forbidden_endpoint_called": false,
+    "try_duplicate_start_guard": {
+      "id": "try_duplicate_start_guard_fixture",
+      "passed": true,
+      "cases": {
+        "none": false,
+        "queued": true,
+        "running": true,
+        "paused": false,
+        "failed": false,
+        "succeeded": false,
+        "cancelled": false
+      }
+    },
+    "try_duplicate_start_guidance": {
+      "id": "try_duplicate_start_guidance_fixture",
+      "passed": true,
+      "active_guard_visible_for": [
+        "queued",
+        "running"
+      ],
+      "guidance": "wait_or_cancel_explicitly",
+      "cancel_button_remains_explicit": true
+    }
+  }
+}
