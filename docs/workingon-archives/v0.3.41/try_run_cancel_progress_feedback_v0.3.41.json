@@ -1,0 +1,210 @@
+{
+  "version": "v0.3.41",
+  "stage": "try_run_cancel_progress_feedback",
+  "status": "passed",
+  "live_checks_enabled": true,
+  "safety": {
+    "forbidden_endpoint_called": false,
+    "called_endpoints": [
+      "GET /health"
+    ],
+    "model_call_used": false
+  },
+  "bug_ledger": [
+    {
+      "id": "P1-try-cancel-request-progress-invisible",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "After confirming cancel, users saw mostly a toast while polling continued.",
+      "fix": "Track the cancelled run id and show cancel-requested progress while active.",
+      "verification": "try_cancel_progress_state_fixture."
+    },
+    {
+      "id": "P1-try-cancel-completed-recovery-unclear",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "After cancellation completed, users needed a clearer next step.",
+      "fix": "Keep completed-cancel guidance for the same run id and point to explicit retry after adjustments.",
+      "verification": "try_cancel_recovery_guidance_fixture."
+    },
+    {
+      "id": "P1-v0341-tests-must-enter-release-gate",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Cancel progress feedback could regress if omitted from the current v0.3.x release gate.",
+      "fix": "Update manifest with v0.3.41 and expected 226 passing tests.",
+      "verification": "regression_manifest_updated."
+    }
+  ],
+  "checks": [
+    {
+      "id": "p0_p1_bug_ledger_try_cancel_progress_feedback",
+      "passed": true,
+      "bug_count": 3,
+      "blocking_bug_count": 0,
+      "bugs": [
+        {
+          "id": "P1-try-cancel-request-progress-invisible",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "After confirming cancel, users saw mostly a toast while polling continued.",
+          "fix": "Track the cancelled run id and show cancel-requested progress while active.",
+          "verification": "try_cancel_progress_state_fixture."
+        },
+        {
+          "id": "P1-try-cancel-completed-recovery-unclear",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "After cancellation completed, users needed a clearer next step.",
+          "fix": "Keep completed-cancel guidance for the same run id and point to explicit retry after adjustments.",
+          "verification": "try_cancel_recovery_guidance_fixture."
+        },
+        {
+          "id": "P1-v0341-tests-must-enter-release-gate",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Cancel progress feedback could regress if omitted from the current v0.3.x release gate.",
+          "fix": "Update manifest with v0.3.41 and expected 226 passing tests.",
+          "verification": "regression_manifest_updated."
+        }
+      ]
+    },
+    {
+      "id": "try_cancel_progress_state_fixture",
+      "passed": true,
+      "cases": {
+        "queued_same_run": "requested",
+        "running_same_run": "requested",
+        "cancelled_same_run": "completed",
+        "failed_same_run": "none",
+        "running_other_run": "none"
+      }
+    },
+    {
+      "id": "try_cancel_recovery_guidance_fixture",
+      "passed": true,
+      "guidance": {
+        "run_was_stopped": true,
+        "adjust_inputs_or_draft": true,
+        "retry_is_explicit": true,
+        "does_not_claim_successful_output": true
+      }
+    },
+    {
+      "id": "try_cancel_progress_source_markers",
+      "path": "platform/frontend/app/applications/[id]/page.tsx",
+      "required_markers": [
+        "cancelRequestedRunId",
+        "setCancelRequestedRunId(run.id)",
+        "tryCancelProgressState",
+        "tryCancelProgressVisible",
+        "data-try-cancel-progress={tryCancelProgressState}",
+        "data-try-cancel-progress-status={run.status}",
+        "tryCancelProgressRequestedTitle",
+        "tryCancelProgressCompletedTitle"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "try_cancel_progress_i18n_markers",
+      "path": "platform/frontend/lib/i18n.ts",
+      "required_markers": [
+        "tryCancelProgressRequestedTitle",
+        "tryCancelProgressRequestedDetail",
+        "tryCancelProgressCompletedTitle",
+        "tryCancelProgressCompletedDetail"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "try_cancel_progress_style_markers",
+      "path": "platform/frontend/app/globals.css",
+      "required_markers": [
+        ".try-cancel-progress",
+        "data-try-cancel-progress=\"completed\""
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "regression_manifest_updated",
+      "path": "docs/testing/regression_lanes.json",
+      "required_markers": [
+        "tests/test_v03_41_try_run_cancel_progress_feedback.py",
+        "\"pass_count\": 226"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "runtime_health_read_only",
+      "url": "http://127.0.0.1:8001/health",
+      "passed": true,
+      "status_code": 200,
+      "runtime": {
+        "version": "v0.3.6",
+        "product_phase": "v0.3.x",
+        "git": {
+          "commit": "3394703",
+          "branch": "usabilityEnhence",
+          "tracked_dirty": false,
+          "untracked_present": true
+        },
+        "route_availability": {
+          "health": true,
+          "applications_list": true,
+          "applications_create": true,
+          "application_detail": true,
+          "draft_detail": true,
+          "smoke_cleanup": true
+        },
+        "current_code_ready": true
+      }
+    },
+    {
+      "id": "safety_no_forbidden_try_cancel_progress_call",
+      "passed": true,
+      "called_endpoints": [
+        "GET /health"
+      ],
+      "forbidden_endpoint_fragments": [
+        "/builds",
+        "/tests/run",
+        "/runs",
+        "/versions",
+        "/restore",
+        "/draft",
+        "/cancel"
+      ],
+      "model_call_used": false
+    }
+  ],
+  "summary": {
+    "failed_check_count": 0,
+    "open_p0_p1_bug_count": 0,
+    "forbidden_endpoint_called": false,
+    "try_cancel_progress_state": {
+      "id": "try_cancel_progress_state_fixture",
+      "passed": true,
+      "cases": {
+        "queued_same_run": "requested",
+        "running_same_run": "requested",
+        "cancelled_same_run": "completed",
+        "failed_same_run": "none",
+        "running_other_run": "none"
+      }
+    },
+    "try_cancel_recovery_guidance": {
+      "id": "try_cancel_recovery_guidance_fixture",
+      "passed": true,
+      "guidance": {
+        "run_was_stopped": true,
+        "adjust_inputs_or_draft": true,
+        "retry_is_explicit": true,
+        "does_not_claim_successful_output": true
+      }
+    }
+  }
+}

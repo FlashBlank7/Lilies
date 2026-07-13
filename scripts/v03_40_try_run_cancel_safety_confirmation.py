@@ -103,7 +103,7 @@ def source_marker_checks() -> list[dict[str, Any]]:
             "docs/testing/regression_lanes.json",
             (
                 "tests/test_v03_40_try_run_cancel_safety_confirmation.py",
-                "\"pass_count\": 220",
+                "v0.3.x_current_release_gate",
             ),
         ),
     ]
