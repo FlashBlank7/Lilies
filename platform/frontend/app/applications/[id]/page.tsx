@@ -1437,6 +1437,27 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
       : visibleTraceEventsForRun.length > 0
         ? t.traceGuidanceReady
         : t.traceGuidanceEmpty
+  const tryResultOutputCount = Object.keys(run?.outputs || {}).length
+  const tryResultErrorPresent = Boolean(run?.error) || run?.status === 'failed'
+  const tryResultOutcomeItems = [
+    { label: t.tryResultStatus, ready: run?.status === 'succeeded', detail: run?.status || t.notRunLabel },
+    { label: t.tryResultOutputs, ready: tryResultOutputCount > 0, detail: String(tryResultOutputCount) },
+    { label: t.tryResultErrors, ready: !tryResultErrorPresent, detail: tryResultErrorPresent ? t.tryResultErrorPresent : t.tryResultErrorAbsent },
+    { label: t.tryResultTrace, ready: visibleTraceEventsForRun.length > 0, detail: String(visibleTraceEventsForRun.length) },
+  ]
+  const tryResultNextAction = !run
+    ? { id: 'not_run', label: t.tryResultNextNotRun, detail: t.tryResultNextNotRunDetail }
+    : pendingPermission
+      ? { id: 'paused_permission', label: t.tryResultNextPermission, detail: t.tryResultNextPermissionDetail }
+      : run.status === 'paused'
+        ? { id: 'paused_human_input', label: t.tryResultNextHumanInput, detail: t.tryResultNextHumanInputDetail }
+        : run.status === 'failed'
+          ? { id: 'failed_trace_retry', label: t.tryResultNextFailure, detail: t.tryResultNextFailureDetail }
+          : run.status === 'succeeded'
+            ? { id: 'succeeded_review', label: t.tryResultNextSucceeded, detail: t.tryResultNextSucceededDetail }
+            : run.status === 'cancelled'
+              ? { id: 'cancelled_retry', label: t.tryResultNextCancelled, detail: t.tryResultNextCancelledDetail }
+              : { id: 'running_wait', label: t.tryResultNextRunning, detail: t.tryResultNextRunningDetail }
   const relatedMonitorTasks = useMemo(
     () => monitorTasks.filter(task => taskIsRelated(task, id, build, run)),
     [build, id, monitorTasks, run],
@@ -1774,7 +1795,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
           <label>{t.runInputPreview}</label><pre className="trace-log">{runInputPreview}</pre>
           <div className="run-actions"><button className="wide" onClick={() => startRun(true)}>{t.runDraftButton}</button><button className="wide secondary" onClick={() => startRun(false)} disabled={!activeVersion}>{t.runPublishedButton}</button></div>
           {!activeVersion && <p className="muted">{t.noPublishedVersion}</p>}
-          {run && <div className="run-result" data-run-status={run.status}><b>{run.status}</b><p className="run-recovery-hint" data-try-guidance="run-result-recovery">{runRecoveryHint}</p><button className="danger-link" onClick={cancelRun} disabled={['succeeded', 'failed', 'paused', 'cancelled'].includes(run.status)}>{t.cancelRun}</button><pre>{JSON.stringify(run.outputs || run.error, null, 2)}</pre>{run.status === 'paused' && <><label>{t.humanInput}</label><textarea value={humanValues} onChange={event => setHumanValues(event.target.value)} /><button onClick={resumeRun}>{t.resume}</button></>}</div>}
+          {run && <div className="run-result" data-run-status={run.status}><b>{run.status}</b><section className="try-result-outcome" data-try-result-outcome="summary"><div className="try-result-head"><strong>{t.tryResultOutcomeTitle}</strong><small>{t.tryResultStatusMeaning(run.status)}</small></div><div className="try-result-list">{tryResultOutcomeItems.map(item => <article className={item.ready ? 'ready' : ''} key={item.label}><span>{item.label}</span><b>{item.ready ? t.tryReady : t.tryNeedsAttention}</b><small>{item.detail}</small></article>)}</div><p className="try-result-next-action" data-try-result-next-action={tryResultNextAction.id}><span>{t.tryResultNextAction}</span><strong>{tryResultNextAction.label}</strong><small>{tryResultNextAction.detail}</small></p></section><p className="run-recovery-hint" data-try-guidance="run-result-recovery">{runRecoveryHint}</p><button className="danger-link" onClick={cancelRun} disabled={['succeeded', 'failed', 'paused', 'cancelled'].includes(run.status)}>{t.cancelRun}</button><pre>{JSON.stringify(run.outputs || run.error, null, 2)}</pre>{run.status === 'paused' && <><label>{t.humanInput}</label><textarea value={humanValues} onChange={event => setHumanValues(event.target.value)} /><button onClick={resumeRun}>{t.resume}</button></>}</div>}
           {pendingPermission && <div className="permission-card"><h3>{t.permissionWaiting}</h3><p>{t.permissionHelp}</p><p>{t.permissionTool}: <code>{pendingPermission.tool || '-'}</code>{pendingPermission.node_id ? <> · <code>{pendingPermission.node_id}</code></> : null}</p><pre>{JSON.stringify(pendingPermission.input || {}, null, 2)}</pre><div className="run-actions"><button className="wide" onClick={() => resolvePermission(pendingPermission, 'allow')}>{t.approvePermission}</button><button className="wide secondary" onClick={() => resolvePermission(pendingPermission, 'deny')}>{t.denyPermission}</button></div></div>}
           {visibleTraceEventsForRun.length > 0 && <><h3>{t.traceTitle}</h3><section className="trace-readability-panel" data-trace-guidance="summary">
             <div className="trace-readability-head"><strong>{t.traceReadabilityTitle}</strong><small>{t.traceReadabilityHelp}</small></div>

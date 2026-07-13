@@ -1,0 +1,364 @@
+{
+  "version": "v0.3.33",
+  "stage": "try_run_result_interpretation",
+  "status": "passed",
+  "live_checks_enabled": true,
+  "safety": {
+    "forbidden_endpoint_called": false,
+    "called_endpoints": [
+      "GET /health"
+    ],
+    "model_call_used": false
+  },
+  "bug_ledger": [
+    {
+      "id": "P1-try-result-outcome-summary-absent",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Try result panel showed raw JSON before explaining whether the run was useful, failed, paused, or still running.",
+      "fix": "Add Try result outcome summary with status, output, error, and trace counts.",
+      "verification": "try_result_outcome_summary_fixture."
+    },
+    {
+      "id": "P1-try-result-recovery-next-action-absent",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Failed and paused runs did not map to trace inspection, permission handling, human input, or draft retry.",
+      "fix": "Add deterministic tryResultNextAction mapping and visible next-action strip.",
+      "verification": "try_result_next_action_fixture."
+    },
+    {
+      "id": "P1-v0333-tests-must-enter-release-gate",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Try result interpretation could regress if omitted from the current v0.3.x release gate.",
+      "fix": "Update manifest with v0.3.33 and expected 178 passing tests.",
+      "verification": "regression_manifest_updated."
+    }
+  ],
+  "checks": [
+    {
+      "id": "p0_p1_bug_ledger_try_run_result_interpretation",
+      "passed": true,
+      "bug_count": 3,
+      "blocking_bug_count": 0,
+      "bugs": [
+        {
+          "id": "P1-try-result-outcome-summary-absent",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Try result panel showed raw JSON before explaining whether the run was useful, failed, paused, or still running.",
+          "fix": "Add Try result outcome summary with status, output, error, and trace counts.",
+          "verification": "try_result_outcome_summary_fixture."
+        },
+        {
+          "id": "P1-try-result-recovery-next-action-absent",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Failed and paused runs did not map to trace inspection, permission handling, human input, or draft retry.",
+          "fix": "Add deterministic tryResultNextAction mapping and visible next-action strip.",
+          "verification": "try_result_next_action_fixture."
+        },
+        {
+          "id": "P1-v0333-tests-must-enter-release-gate",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Try result interpretation could regress if omitted from the current v0.3.x release gate.",
+          "fix": "Update manifest with v0.3.33 and expected 178 passing tests.",
+          "verification": "regression_manifest_updated."
+        }
+      ]
+    },
+    {
+      "id": "try_result_outcome_summary_fixture",
+      "passed": true,
+      "cases": {
+        "succeeded": {
+          "status": "succeeded",
+          "output_count": 2,
+          "error_present": false,
+          "trace_count": 4,
+          "status_ready": true,
+          "outputs_ready": true,
+          "errors_ready": true,
+          "trace_ready": true
+        },
+        "failed": {
+          "status": "failed",
+          "output_count": 0,
+          "error_present": true,
+          "trace_count": 3,
+          "status_ready": false,
+          "outputs_ready": false,
+          "errors_ready": false,
+          "trace_ready": true
+        },
+        "paused": {
+          "status": "paused",
+          "output_count": 0,
+          "error_present": false,
+          "trace_count": 2,
+          "status_ready": false,
+          "outputs_ready": false,
+          "errors_ready": true,
+          "trace_ready": true
+        },
+        "running": {
+          "status": "running",
+          "output_count": 0,
+          "error_present": false,
+          "trace_count": 1,
+          "status_ready": false,
+          "outputs_ready": false,
+          "errors_ready": true,
+          "trace_ready": true
+        },
+        "cancelled": {
+          "status": "cancelled",
+          "output_count": 0,
+          "error_present": false,
+          "trace_count": 0,
+          "status_ready": false,
+          "outputs_ready": false,
+          "errors_ready": true,
+          "trace_ready": false
+        }
+      }
+    },
+    {
+      "id": "try_result_next_action_fixture",
+      "passed": true,
+      "cases": {
+        "not_run": {
+          "id": "not_run",
+          "target": "draft_run_button"
+        },
+        "queued": {
+          "id": "running_wait",
+          "target": "wait_or_explicit_cancel"
+        },
+        "running": {
+          "id": "running_wait",
+          "target": "wait_or_explicit_cancel"
+        },
+        "failed": {
+          "id": "failed_trace_retry",
+          "target": "trace_then_draft_retry"
+        },
+        "paused_permission": {
+          "id": "paused_permission",
+          "target": "permission_card"
+        },
+        "paused_human_input": {
+          "id": "paused_human_input",
+          "target": "human_input_card"
+        },
+        "succeeded": {
+          "id": "succeeded_review",
+          "target": "acceptance_or_publish"
+        },
+        "cancelled": {
+          "id": "cancelled_retry",
+          "target": "draft_retry"
+        }
+      }
+    },
+    {
+      "id": "result_guidance_safety_fixture",
+      "passed": true,
+      "new_auto_retry_button": false,
+      "start_run_called": false,
+      "resume_run_called": false,
+      "cancel_run_called": false,
+      "model_call_used": false
+    },
+    {
+      "id": "try_result_source_markers",
+      "path": "platform/frontend/app/applications/[id]/page.tsx",
+      "required_markers": [
+        "tryResultOutcomeItems",
+        "tryResultNextAction",
+        "data-try-result-outcome=\"summary\"",
+        "data-try-result-next-action",
+        "tryResultStatusMeaning"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "try_result_i18n_markers",
+      "path": "platform/frontend/lib/i18n.ts",
+      "required_markers": [
+        "tryResultOutcomeTitle",
+        "tryResultStatusMeaning",
+        "tryResultNextAction",
+        "tryResultNextFailure",
+        "tryResultNextPermission",
+        "tryResultNextSucceeded"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "try_result_style_markers",
+      "path": "platform/frontend/app/globals.css",
+      "required_markers": [
+        ".try-result-outcome",
+        ".try-result-list",
+        ".try-result-next-action"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "regression_manifest_updated",
+      "path": "docs/testing/regression_lanes.json",
+      "required_markers": [
+        "tests/test_v03_33_try_run_result_interpretation.py",
+        "\"pass_count\": 178"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "runtime_health_read_only",
+      "url": "http://127.0.0.1:8001/health",
+      "passed": true,
+      "status_code": 200,
+      "runtime": {
+        "version": "v0.3.6",
+        "product_phase": "v0.3.x",
+        "git": {
+          "commit": "a482bad",
+          "branch": "usabilityEnhence",
+          "tracked_dirty": false,
+          "untracked_present": true
+        },
+        "route_availability": {
+          "health": true,
+          "applications_list": true,
+          "applications_create": true,
+          "application_detail": true,
+          "draft_detail": true,
+          "smoke_cleanup": true
+        },
+        "current_code_ready": true
+      }
+    },
+    {
+      "id": "safety_no_forbidden_try_result_call",
+      "passed": true,
+      "called_endpoints": [
+        "GET /health"
+      ],
+      "forbidden_endpoint_fragments": [
+        "/builds",
+        "/tests/run",
+        "/runs",
+        "/versions",
+        "/restore",
+        "/draft"
+      ],
+      "model_call_used": false
+    }
+  ],
+  "summary": {
+    "failed_check_count": 0,
+    "open_p0_p1_bug_count": 0,
+    "forbidden_endpoint_called": false,
+    "try_result_outcome_summary": {
+      "id": "try_result_outcome_summary_fixture",
+      "passed": true,
+      "cases": {
+        "succeeded": {
+          "status": "succeeded",
+          "output_count": 2,
+          "error_present": false,
+          "trace_count": 4,
+          "status_ready": true,
+          "outputs_ready": true,
+          "errors_ready": true,
+          "trace_ready": true
+        },
+        "failed": {
+          "status": "failed",
+          "output_count": 0,
+          "error_present": true,
+          "trace_count": 3,
+          "status_ready": false,
+          "outputs_ready": false,
+          "errors_ready": false,
+          "trace_ready": true
+        },
+        "paused": {
+          "status": "paused",
+          "output_count": 0,
+          "error_present": false,
+          "trace_count": 2,
+          "status_ready": false,
+          "outputs_ready": false,
+          "errors_ready": true,
+          "trace_ready": true
+        },
+        "running": {
+          "status": "running",
+          "output_count": 0,
+          "error_present": false,
+          "trace_count": 1,
+          "status_ready": false,
+          "outputs_ready": false,
+          "errors_ready": true,
+          "trace_ready": true
+        },
+        "cancelled": {
+          "status": "cancelled",
+          "output_count": 0,
+          "error_present": false,
+          "trace_count": 0,
+          "status_ready": false,
+          "outputs_ready": false,
+          "errors_ready": true,
+          "trace_ready": false
+        }
+      }
+    },
+    "try_result_next_action": {
+      "id": "try_result_next_action_fixture",
+      "passed": true,
+      "cases": {
+        "not_run": {
+          "id": "not_run",
+          "target": "draft_run_button"
+        },
+        "queued": {
+          "id": "running_wait",
+          "target": "wait_or_explicit_cancel"
+        },
+        "running": {
+          "id": "running_wait",
+          "target": "wait_or_explicit_cancel"
+        },
+        "failed": {
+          "id": "failed_trace_retry",
+          "target": "trace_then_draft_retry"
+        },
+        "paused_permission": {
+          "id": "paused_permission",
+          "target": "permission_card"
+        },
+        "paused_human_input": {
+          "id": "paused_human_input",
+          "target": "human_input_card"
+        },
+        "succeeded": {
+          "id": "succeeded_review",
+          "target": "acceptance_or_publish"
+        },
+        "cancelled": {
+          "id": "cancelled_retry",
+          "target": "draft_retry"
+        }
+      }
+    }
+  }
+}
