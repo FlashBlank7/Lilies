@@ -17,6 +17,7 @@ type Application = {
   tested_hash?: string | null
 }
 type AppFilter = 'all' | 'needs_acceptance' | 'ready_to_publish' | 'published'
+type AppSort = 'readiness' | 'revision' | 'name'
 
 type DraftMutationResult = {
   revision: number
@@ -87,6 +88,13 @@ function appReadinessState(item: Application): Exclude<AppFilter, 'all'> {
   return 'needs_acceptance'
 }
 
+function appReadinessRank(item: Application) {
+  const state = appReadinessState(item)
+  if (state === 'published') return 0
+  if (state === 'ready_to_publish') return 1
+  return 2
+}
+
 export default function Home() {
   const [locale, setLocale] = useState<Locale>(defaultLocale)
   const t = messages[locale]
@@ -94,6 +102,8 @@ export default function Home() {
   const [requirement, setRequirement] = useState<string>(t.requirementPlaceholder)
   const [selectedExampleId, setSelectedExampleId] = useState<string | null>(null)
   const [appFilter, setAppFilter] = useState<AppFilter>('all')
+  const [appSearch, setAppSearch] = useState('')
+  const [appSort, setAppSort] = useState<AppSort>('readiness')
   const [busy, setBusy] = useState(false)
   const [draftBusy, setDraftBusy] = useState(false)
   const [buildIntentConfirmed, setBuildIntentConfirmed] = useState(false)
@@ -139,7 +149,16 @@ export default function Home() {
     { id: 'published', label: t.appFilterPublished },
   ]
   const appFilterCount = (filter: AppFilter) => filter === 'all' ? apps.length : apps.filter(item => appReadinessState(item) === filter).length
-  const filteredApps = appFilter === 'all' ? apps : apps.filter(item => appReadinessState(item) === appFilter)
+  const statusFilteredApps = appFilter === 'all' ? apps : apps.filter(item => appReadinessState(item) === appFilter)
+  const normalizedAppSearch = appSearch.trim().toLocaleLowerCase()
+  const searchedApps = normalizedAppSearch
+    ? statusFilteredApps.filter(item => `${item.name} ${item.description}`.toLocaleLowerCase().includes(normalizedAppSearch))
+    : statusFilteredApps
+  const visibleApps = [...searchedApps].sort((left, right) => {
+    if (appSort === 'name') return left.name.localeCompare(right.name)
+    if (appSort === 'revision') return right.draft_revision - left.draft_revision || left.name.localeCompare(right.name)
+    return appReadinessRank(left) - appReadinessRank(right) || right.draft_revision - left.draft_revision || left.name.localeCompare(right.name)
+  })
 
   const refresh = () => api<Application[]>('/api/v1/applications').then(applications => {
     setApps(applications)
@@ -294,8 +313,16 @@ export default function Home() {
             <span>{option.label}</span><b>{appFilterCount(option.id)}</b>
           </button>)}
         </div>}
+        {apps.length > 0 && <div className="app-search-sort" data-app-list-search-sort="controls">
+          <input aria-label={t.appSearchLabel} placeholder={t.appSearchPlaceholder} value={appSearch} onChange={event => setAppSearch(event.target.value)} />
+          <label>{t.appSortLabel}<select value={appSort} onChange={event => setAppSort(event.target.value as AppSort)}>
+            <option value="readiness">{t.appSortReadiness}</option>
+            <option value="revision">{t.appSortRevision}</option>
+            <option value="name">{t.appSortName}</option>
+          </select></label>
+        </div>}
         <div className="app-grid">
-          {filteredApps.map(item => <Link className="app-card" href={`/applications/${item.id}`} key={item.id}>
+          {visibleApps.map(item => <Link className="app-card" href={`/applications/${item.id}`} key={item.id}>
             <div className="app-icon">{item.name.slice(0, 1).toUpperCase()}</div>
             <div><h3>{item.name}</h3><p>{item.description || t.fallbackDescription}</p>
               <div className="app-readiness" data-app-card-guidance="readiness">{appCardReadiness(item).map(signal => <span className={signal.ready ? 'ready' : ''} key={signal.label}><b>{signal.label}</b>{signal.value}</span>)}</div>
@@ -303,7 +330,7 @@ export default function Home() {
             </div>
             <div className="app-meta"><span>{item.active_version ? t.published(item.active_version) : t.draft}</span><span>r{item.draft_revision}</span></div>
           </Link>)}
-          {apps.length > 0 && !filteredApps.length && <div className="empty-card"><strong>{t.appFilterEmpty}</strong><span>{t.appFilterEmptyHelp}</span></div>}
+          {apps.length > 0 && !visibleApps.length && <div className="empty-card"><strong>{normalizedAppSearch ? t.appSearchEmpty : t.appFilterEmpty}</strong><span>{normalizedAppSearch ? t.appSearchEmptyHelp : t.appFilterEmptyHelp}</span></div>}
           {!apps.length && <div className="empty-card"><strong>{t.emptyApps}</strong><span>{t.emptyAppsNextAction}</span></div>}
         </div>
       </section>

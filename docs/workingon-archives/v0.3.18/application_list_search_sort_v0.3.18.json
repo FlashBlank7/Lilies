@@ -1,0 +1,202 @@
+{
+  "version": "v0.3.18",
+  "stage": "application_list_search_sort",
+  "status": "passed",
+  "live_checks_enabled": true,
+  "safety": {
+    "build_endpoint_called": false,
+    "called_endpoints": [
+      "GET /health"
+    ]
+  },
+  "bug_ledger": [
+    {
+      "id": "P1-application-list-long-list-search-missing",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Returning users had to scan long application lists by hand.",
+      "fix": "Add name/description search that composes with status filters.",
+      "verification": "application_list_search_sort_markers."
+    },
+    {
+      "id": "P1-application-list-order-not-predictable",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Demo reviewers had no deterministic readiness-first, revision, or name sort.",
+      "fix": "Add readiness, revision, and name sort options.",
+      "verification": "search_sort_fixture_behavior."
+    },
+    {
+      "id": "P1-v0318-tests-must-enter-release-gate",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "New search/sort tests could be omitted from the current v0.3.x release gate.",
+      "fix": "Update `docs/testing/regression_lanes.json` with v0.3.18 and expected 88 passing tests.",
+      "verification": "regression_manifest_updated."
+    }
+  ],
+  "checks": [
+    {
+      "id": "p0_p1_bug_ledger_app_list_search_sort",
+      "passed": true,
+      "bug_count": 3,
+      "blocking_bug_count": 0,
+      "bugs": [
+        {
+          "id": "P1-application-list-long-list-search-missing",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Returning users had to scan long application lists by hand.",
+          "fix": "Add name/description search that composes with status filters.",
+          "verification": "application_list_search_sort_markers."
+        },
+        {
+          "id": "P1-application-list-order-not-predictable",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Demo reviewers had no deterministic readiness-first, revision, or name sort.",
+          "fix": "Add readiness, revision, and name sort options.",
+          "verification": "search_sort_fixture_behavior."
+        },
+        {
+          "id": "P1-v0318-tests-must-enter-release-gate",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "New search/sort tests could be omitted from the current v0.3.x release gate.",
+          "fix": "Update `docs/testing/regression_lanes.json` with v0.3.18 and expected 88 passing tests.",
+          "verification": "regression_manifest_updated."
+        }
+      ]
+    },
+    {
+      "id": "search_sort_fixture_behavior",
+      "passed": true,
+      "demo_search": [
+        "alpha"
+      ],
+      "readiness_order": [
+        "alpha",
+        "beta",
+        "gamma"
+      ],
+      "revision_order": [
+        "gamma",
+        "beta",
+        "alpha"
+      ],
+      "name_order": [
+        "alpha",
+        "beta",
+        "gamma"
+      ]
+    },
+    {
+      "id": "application_list_search_sort_markers",
+      "path": "platform/frontend/app/page.tsx",
+      "required_markers": [
+        "type AppSort",
+        "appReadinessRank",
+        "normalizedAppSearch",
+        "searchedApps",
+        "visibleApps",
+        "data-app-list-search-sort=\"controls\""
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "application_list_search_sort_i18n_markers",
+      "path": "platform/frontend/lib/i18n.ts",
+      "required_markers": [
+        "appSearchPlaceholder",
+        "appSearchEmpty",
+        "appSortReadiness",
+        "appSortRevision",
+        "appSortName"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "application_list_search_sort_style_markers",
+      "path": "platform/frontend/app/globals.css",
+      "required_markers": [
+        ".app-search-sort",
+        ".app-search-sort input",
+        ".app-search-sort select"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "regression_manifest_updated",
+      "path": "docs/testing/regression_lanes.json",
+      "required_markers": [
+        "tests/test_v03_18_application_list_search_sort.py",
+        "\"pass_count\": 88"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "runtime_health_read_only",
+      "url": "http://127.0.0.1:8001/health",
+      "passed": true,
+      "status_code": 200,
+      "runtime": {
+        "version": "v0.3.6",
+        "product_phase": "v0.3.x",
+        "git": {
+          "commit": "9723df8",
+          "branch": "usabilityEnhence",
+          "tracked_dirty": false,
+          "untracked_present": true
+        },
+        "route_availability": {
+          "health": true,
+          "applications_list": true,
+          "applications_create": true,
+          "application_detail": true,
+          "draft_detail": true,
+          "smoke_cleanup": true
+        },
+        "current_code_ready": true
+      }
+    },
+    {
+      "id": "safety_no_build_call",
+      "passed": true,
+      "called_endpoints": [
+        "GET /health"
+      ],
+      "forbidden_endpoint": "POST /api/v1/applications/{id}/builds"
+    }
+  ],
+  "summary": {
+    "failed_check_count": 0,
+    "open_p0_p1_bug_count": 0,
+    "build_endpoint_called": false,
+    "fixture": {
+      "id": "search_sort_fixture_behavior",
+      "passed": true,
+      "demo_search": [
+        "alpha"
+      ],
+      "readiness_order": [
+        "alpha",
+        "beta",
+        "gamma"
+      ],
+      "revision_order": [
+        "gamma",
+        "beta",
+        "alpha"
+      ],
+      "name_order": [
+        "alpha",
+        "beta",
+        "gamma"
+      ]
+    }
+  }
+}

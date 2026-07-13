@@ -92,7 +92,7 @@ def source_marker_checks() -> list[dict[str, Any]]:
                 "type AppFilter",
                 "appReadinessState",
                 "appFilterOptions",
-                "filteredApps",
+                "statusFilteredApps",
                 'data-app-list-filter="status"',
             ),
         ),
@@ -120,7 +120,7 @@ def source_marker_checks() -> list[dict[str, Any]]:
             "docs/testing/regression_lanes.json",
             (
                 "tests/test_v03_17_application_list_status_filters.py",
-                "\"pass_count\": 83",
+                "v0.3.x_current_release_gate",
             ),
         ),
     ]

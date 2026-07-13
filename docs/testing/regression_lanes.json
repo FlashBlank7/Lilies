@@ -12,11 +12,12 @@
       "id": "v0.3.x_current_release_gate",
       "status": "gating",
       "phase": "v0.3.x",
-      "reason": "Current product usability evolution gate from v0.3.17 through v0.3.0 plus stage-report template validation.",
+      "reason": "Current product usability evolution gate from v0.3.18 through v0.3.0 plus stage-report template validation.",
       "command": [
         ".venv/bin/python",
         "-m",
         "pytest",
+        "tests/test_v03_18_application_list_search_sort.py",
         "tests/test_v03_17_application_list_status_filters.py",
         "tests/test_v03_16_scenario_journey_regression.py",
         "tests/test_v03_15_regression_suite_lane_guard.py",
@@ -40,6 +41,7 @@
         "-q"
       ],
       "test_files": [
+        "tests/test_v03_18_application_list_search_sort.py",
         "tests/test_v03_17_application_list_status_filters.py",
         "tests/test_v03_16_scenario_journey_regression.py",
         "tests/test_v03_15_regression_suite_lane_guard.py",
@@ -62,7 +64,7 @@
         "tests/test_stage_report_template_validation.py"
       ],
       "expected": {
-        "pass_count": 83,
+        "pass_count": 88,
         "warning_count": 1
       }
     },
