@@ -584,6 +584,12 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   const flowRef = useRef<ReactFlowInstance<StudioNode, Edge> | null>(null)
   const detailBuildRequirementRef = useRef<HTMLTextAreaElement>(null)
   const detailBuildStartButtonRef = useRef<HTMLButtonElement>(null)
+  const runInputFormRef = useRef<HTMLDivElement>(null)
+  const runControlsRef = useRef<HTMLDivElement>(null)
+  const runResultRef = useRef<HTMLDivElement>(null)
+  const runPermissionRef = useRef<HTMLDivElement>(null)
+  const runHumanInputRef = useRef<HTMLTextAreaElement>(null)
+  const runTraceRef = useRef<HTMLElement>(null)
   const latestRevision = useRef(0)
   const lastFitSignature = useRef('')
   const buildPoll = useRef<number | null>(null)
@@ -1446,18 +1452,18 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     { label: t.tryResultTrace, ready: visibleTraceEventsForRun.length > 0, detail: String(visibleTraceEventsForRun.length) },
   ]
   const tryResultNextAction = !run
-    ? { id: 'not_run', label: t.tryResultNextNotRun, detail: t.tryResultNextNotRunDetail }
+    ? { id: 'not_run', target: 'run_controls', label: t.tryResultNextNotRun, detail: t.tryResultNextNotRunDetail }
     : pendingPermission
-      ? { id: 'paused_permission', label: t.tryResultNextPermission, detail: t.tryResultNextPermissionDetail }
+      ? { id: 'paused_permission', target: 'permission_card', label: t.tryResultNextPermission, detail: t.tryResultNextPermissionDetail }
       : run.status === 'paused'
-        ? { id: 'paused_human_input', label: t.tryResultNextHumanInput, detail: t.tryResultNextHumanInputDetail }
+        ? { id: 'paused_human_input', target: 'human_input_card', label: t.tryResultNextHumanInput, detail: t.tryResultNextHumanInputDetail }
         : run.status === 'failed'
-          ? { id: 'failed_trace_retry', label: t.tryResultNextFailure, detail: t.tryResultNextFailureDetail }
+          ? { id: 'failed_trace_retry', target: 'trace_panel', label: t.tryResultNextFailure, detail: t.tryResultNextFailureDetail }
           : run.status === 'succeeded'
-            ? { id: 'succeeded_review', label: t.tryResultNextSucceeded, detail: t.tryResultNextSucceededDetail }
+            ? { id: 'succeeded_review', target: 'acceptance_tab', label: t.tryResultNextSucceeded, detail: t.tryResultNextSucceededDetail }
             : run.status === 'cancelled'
-              ? { id: 'cancelled_retry', label: t.tryResultNextCancelled, detail: t.tryResultNextCancelledDetail }
-              : { id: 'running_wait', label: t.tryResultNextRunning, detail: t.tryResultNextRunningDetail }
+              ? { id: 'cancelled_retry', target: 'run_inputs', label: t.tryResultNextCancelled, detail: t.tryResultNextCancelledDetail }
+              : { id: 'running_wait', target: 'result_panel', label: t.tryResultNextRunning, detail: t.tryResultNextRunningDetail }
   const relatedMonitorTasks = useMemo(
     () => monitorTasks.filter(task => taskIsRelated(task, id, build, run)),
     [build, id, monitorTasks, run],
@@ -1654,6 +1660,34 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
       setNotice(t.detailBuildRecommendedGuardDetail)
     }
   }
+
+  function focusTryResultRecoveryTarget(target: string) {
+    if (target === 'acceptance_tab') {
+      setStudioTab('test')
+      setNotice(t.tryResultFocusNotice(target))
+      return
+    }
+    setStudioTab('run')
+    window.setTimeout(() => {
+      const element = target === 'permission_card'
+        ? runPermissionRef.current
+        : target === 'human_input_card'
+          ? runHumanInputRef.current
+          : target === 'trace_panel'
+            ? runTraceRef.current
+            : target === 'run_inputs'
+              ? runInputFormRef.current
+              : target === 'run_controls'
+                ? runControlsRef.current
+                : runResultRef.current
+      const fallback = runResultRef.current || runControlsRef.current || runInputFormRef.current
+      const focusTarget = element || fallback
+      focusTarget?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      focusTarget?.focus({ preventScroll: true })
+      setNotice(t.tryResultFocusNotice(target))
+    }, 40)
+  }
+
   function refreshRuntimeStatus() {
     return api<RuntimeHealth>('/health').then(health => {
       setRuntimeHealth(health)
@@ -1791,13 +1825,13 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
           </section>
           <section className="try-sample-next-action" data-try-sample-next-action={trySampleNextAction.id}><span>{t.trySampleNextAction}</span><strong>{trySampleNextAction.label}</strong><small>{trySampleNextAction.detail}</small></section>
           <div className="run-actions compact"><button className="wide secondary" data-try-sample-action="fill-sample" onClick={applySampleRunInputs} disabled={!runFields.length}>{t.fillRunSample}</button></div>
-          <div className="run-form">{runFields.length ? runFields.map(field => <label className="run-field" key={field.name}><span>{field.label || field.name}<em>{t.fieldType(field.type || 'string')}</em></span>{field.type === 'boolean' ? <input type="checkbox" checked={field.checked || false} onChange={event => updateRunField(field.name, { checked: event.target.checked, value: event.target.checked ? 'true' : 'false' })} /> : field.type === 'object' || field.type === 'array' || field.type === 'file_list' ? <textarea value={field.value} onChange={event => updateRunField(field.name, { value: event.target.value })} /> : <input type={fieldInputType(field.type)} value={field.value} onChange={event => updateRunField(field.name, { value: event.target.value })} />}</label>) : <p className="muted">{t.runInputsEmpty}</p>}</div>
+          <div className="run-form" ref={runInputFormRef} tabIndex={-1}>{runFields.length ? runFields.map(field => <label className="run-field" key={field.name}><span>{field.label || field.name}<em>{t.fieldType(field.type || 'string')}</em></span>{field.type === 'boolean' ? <input type="checkbox" checked={field.checked || false} onChange={event => updateRunField(field.name, { checked: event.target.checked, value: event.target.checked ? 'true' : 'false' })} /> : field.type === 'object' || field.type === 'array' || field.type === 'file_list' ? <textarea value={field.value} onChange={event => updateRunField(field.name, { value: event.target.value })} /> : <input type={fieldInputType(field.type)} value={field.value} onChange={event => updateRunField(field.name, { value: event.target.value })} />}</label>) : <p className="muted">{t.runInputsEmpty}</p>}</div>
           <label>{t.runInputPreview}</label><pre className="trace-log">{runInputPreview}</pre>
-          <div className="run-actions"><button className="wide" onClick={() => startRun(true)}>{t.runDraftButton}</button><button className="wide secondary" onClick={() => startRun(false)} disabled={!activeVersion}>{t.runPublishedButton}</button></div>
+          <div className="run-actions" ref={runControlsRef} tabIndex={-1}><button className="wide" onClick={() => startRun(true)}>{t.runDraftButton}</button><button className="wide secondary" onClick={() => startRun(false)} disabled={!activeVersion}>{t.runPublishedButton}</button></div>
           {!activeVersion && <p className="muted">{t.noPublishedVersion}</p>}
-          {run && <div className="run-result" data-run-status={run.status}><b>{run.status}</b><section className="try-result-outcome" data-try-result-outcome="summary"><div className="try-result-head"><strong>{t.tryResultOutcomeTitle}</strong><small>{t.tryResultStatusMeaning(run.status)}</small></div><div className="try-result-list">{tryResultOutcomeItems.map(item => <article className={item.ready ? 'ready' : ''} key={item.label}><span>{item.label}</span><b>{item.ready ? t.tryReady : t.tryNeedsAttention}</b><small>{item.detail}</small></article>)}</div><p className="try-result-next-action" data-try-result-next-action={tryResultNextAction.id}><span>{t.tryResultNextAction}</span><strong>{tryResultNextAction.label}</strong><small>{tryResultNextAction.detail}</small></p></section><p className="run-recovery-hint" data-try-guidance="run-result-recovery">{runRecoveryHint}</p><button className="danger-link" onClick={cancelRun} disabled={['succeeded', 'failed', 'paused', 'cancelled'].includes(run.status)}>{t.cancelRun}</button><pre>{JSON.stringify(run.outputs || run.error, null, 2)}</pre>{run.status === 'paused' && <><label>{t.humanInput}</label><textarea value={humanValues} onChange={event => setHumanValues(event.target.value)} /><button onClick={resumeRun}>{t.resume}</button></>}</div>}
-          {pendingPermission && <div className="permission-card"><h3>{t.permissionWaiting}</h3><p>{t.permissionHelp}</p><p>{t.permissionTool}: <code>{pendingPermission.tool || '-'}</code>{pendingPermission.node_id ? <> · <code>{pendingPermission.node_id}</code></> : null}</p><pre>{JSON.stringify(pendingPermission.input || {}, null, 2)}</pre><div className="run-actions"><button className="wide" onClick={() => resolvePermission(pendingPermission, 'allow')}>{t.approvePermission}</button><button className="wide secondary" onClick={() => resolvePermission(pendingPermission, 'deny')}>{t.denyPermission}</button></div></div>}
-          {visibleTraceEventsForRun.length > 0 && <><h3>{t.traceTitle}</h3><section className="trace-readability-panel" data-trace-guidance="summary">
+          {run && <div className="run-result" data-run-status={run.status} ref={runResultRef} tabIndex={-1}><b>{run.status}</b><section className="try-result-outcome" data-try-result-outcome="summary"><div className="try-result-head"><strong>{t.tryResultOutcomeTitle}</strong><small>{t.tryResultStatusMeaning(run.status)}</small></div><div className="try-result-list">{tryResultOutcomeItems.map(item => <article className={item.ready ? 'ready' : ''} key={item.label}><span>{item.label}</span><b>{item.ready ? t.tryReady : t.tryNeedsAttention}</b><small>{item.detail}</small></article>)}</div><div className="try-result-next-action" data-try-result-next-action={tryResultNextAction.id}><span>{t.tryResultNextAction}</span><strong>{tryResultNextAction.label}</strong><small>{tryResultNextAction.detail}</small><button type="button" data-try-result-focus-target={tryResultNextAction.target} onClick={() => focusTryResultRecoveryTarget(tryResultNextAction.target)}>{t.tryResultFocusAction}</button></div></section><p className="run-recovery-hint" data-try-guidance="run-result-recovery">{runRecoveryHint}</p><button className="danger-link" onClick={cancelRun} disabled={['succeeded', 'failed', 'paused', 'cancelled'].includes(run.status)}>{t.cancelRun}</button><pre>{JSON.stringify(run.outputs || run.error, null, 2)}</pre>{run.status === 'paused' && <><label>{t.humanInput}</label><textarea ref={runHumanInputRef} value={humanValues} onChange={event => setHumanValues(event.target.value)} /><button onClick={resumeRun}>{t.resume}</button></>}</div>}
+          {pendingPermission && <div className="permission-card" ref={runPermissionRef} tabIndex={-1}><h3>{t.permissionWaiting}</h3><p>{t.permissionHelp}</p><p>{t.permissionTool}: <code>{pendingPermission.tool || '-'}</code>{pendingPermission.node_id ? <> · <code>{pendingPermission.node_id}</code></> : null}</p><pre>{JSON.stringify(pendingPermission.input || {}, null, 2)}</pre><div className="run-actions"><button className="wide" onClick={() => resolvePermission(pendingPermission, 'allow')}>{t.approvePermission}</button><button className="wide secondary" onClick={() => resolvePermission(pendingPermission, 'deny')}>{t.denyPermission}</button></div></div>}
+          {visibleTraceEventsForRun.length > 0 && <><h3>{t.traceTitle}</h3><section className="trace-readability-panel" data-trace-guidance="summary" ref={runTraceRef} tabIndex={-1}>
             <div className="trace-readability-head"><strong>{t.traceReadabilityTitle}</strong><small>{t.traceReadabilityHelp}</small></div>
             <div className="trace-readability-list">{traceSummaryItems.map(item => <article className={item.ready ? 'ready' : ''} key={item.label}><span>{item.label}</span><b>{item.ready ? t.tryReady : t.tryNeedsAttention}</b><small>{item.detail}</small></article>)}</div>
             <p className="trace-guidance" data-trace-guidance="next-action">{traceGuidance}</p>
