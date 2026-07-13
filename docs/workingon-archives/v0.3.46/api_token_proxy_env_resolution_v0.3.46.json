@@ -1,0 +1,224 @@
+{
+  "version": "v0.3.46",
+  "stage": "api_token_proxy_env_resolution",
+  "status": "passed",
+  "live_checks_enabled": true,
+  "safety": {
+    "forbidden_endpoint_called": false,
+    "called_endpoints": [
+      "GET /health"
+    ],
+    "model_call_used": false
+  },
+  "bug_ledger": [
+    {
+      "id": "P1-frontend-token-card-appears-mid-flow",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "The page could pass /health, then later show API Token when protected routes or streams failed with 401.",
+      "fix": "Server-side proxy now searches local .env for API_TOKEN when process env is missing.",
+      "verification": "api_token_proxy_env_resolution_fixture."
+    },
+    {
+      "id": "P1-frontend-proxy-misses-root-platform-url",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Launching frontend from platform/frontend could miss root AGENT_PLATFORM_URL and default to 8000.",
+      "fix": "Server-side proxy now searches local .env for AGENT_PLATFORM_URL as well.",
+      "verification": "api_token_proxy_env_resolution_fixture."
+    },
+    {
+      "id": "P1-v0346-tests-must-enter-release-gate",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Proxy auth bootstrap could regress if omitted from the current v0.3.x release gate.",
+      "fix": "Update manifest with v0.3.46 and expected gate growth.",
+      "verification": "regression_manifest_updated."
+    }
+  ],
+  "checks": [
+    {
+      "id": "p0_p1_bug_ledger_api_token_proxy_env_resolution",
+      "passed": true,
+      "bug_count": 3,
+      "blocking_bug_count": 0,
+      "bugs": [
+        {
+          "id": "P1-frontend-token-card-appears-mid-flow",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "The page could pass /health, then later show API Token when protected routes or streams failed with 401.",
+          "fix": "Server-side proxy now searches local .env for API_TOKEN when process env is missing.",
+          "verification": "api_token_proxy_env_resolution_fixture."
+        },
+        {
+          "id": "P1-frontend-proxy-misses-root-platform-url",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Launching frontend from platform/frontend could miss root AGENT_PLATFORM_URL and default to 8000.",
+          "fix": "Server-side proxy now searches local .env for AGENT_PLATFORM_URL as well.",
+          "verification": "api_token_proxy_env_resolution_fixture."
+        },
+        {
+          "id": "P1-v0346-tests-must-enter-release-gate",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Proxy auth bootstrap could regress if omitted from the current v0.3.x release gate.",
+          "fix": "Update manifest with v0.3.46 and expected gate growth.",
+          "verification": "regression_manifest_updated."
+        }
+      ]
+    },
+    {
+      "id": "parse_env_value_fixture",
+      "passed": true,
+      "cases": {
+        "plain_assignment": true,
+        "spaced_assignment": true,
+        "export_assignment": true,
+        "quoted_assignment": true
+      }
+    },
+    {
+      "id": "api_token_proxy_env_resolution_fixture",
+      "passed": true,
+      "cases": {
+        "browser_token_priority_preserved": true,
+        "process_env_token_second": true,
+        "local_env_token_third": true,
+        "change_me_only_last_resort": true,
+        "platform_url_uses_local_env_when_process_env_missing": true,
+        "frontend_token_query_is_stripped": true,
+        "server_side_only_local_env_read": true
+      }
+    },
+    {
+      "id": "api_token_proxy_env_resolution_source_markers",
+      "path": "platform/frontend/app/api/platform/[...path]/route.ts",
+      "required_markers": [
+        "import fs from 'fs'",
+        "import path from 'path'",
+        "localEnvCache",
+        "localEnvSearched",
+        "parseEnvValue(text, 'API_TOKEN')",
+        "parseEnvValue(text, 'AGENT_PLATFORM_URL')",
+        "for (let depth = 0; depth < 6; depth += 1)",
+        "process.cwd()",
+        "localEnvValue('API_TOKEN')",
+        "localEnvValue('AGENT_PLATFORM_URL')",
+        "browserToken || process.env.API_TOKEN || localEnvValue('API_TOKEN') || 'change-me'",
+        "process.env.AGENT_PLATFORM_URL || localEnvValue('AGENT_PLATFORM_URL') || 'http://127.0.0.1:8000'",
+        "searchParams.delete('frontend_token')",
+        "headers.set('Authorization', `Bearer ${proxyApiToken(browserToken)}`)"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "backend_token_enforcement_preserved_markers",
+      "path": "platform/backend/src/agent_platform/api.py",
+      "required_markers": [
+        "async def require_token",
+        "supplied = credentials.credentials if credentials else request.query_params.get(\"token\")",
+        "if supplied != settings.api_token",
+        "invalid API token"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "frontend_manual_token_fallback_preserved_markers",
+      "path": "platform/frontend/lib/platform.ts",
+      "required_markers": [
+        "const tokenKey = 'foundry.apiToken'",
+        "saveClientToken",
+        "X-Agent-Platform-Token",
+        "frontend_token="
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "regression_manifest_updated",
+      "path": "docs/testing/regression_lanes.json",
+      "passed": true,
+      "cases": {
+        "current_gate_present": true,
+        "v0346_test_in_test_files": true,
+        "v0346_test_in_command": true,
+        "pass_count_not_less_than_v0346_floor": true
+      },
+      "pass_count": 256
+    },
+    {
+      "id": "runtime_health_read_only",
+      "url": "http://127.0.0.1:8001/health",
+      "passed": true,
+      "status_code": 200,
+      "runtime": {
+        "version": "v0.3.6",
+        "product_phase": "v0.3.x",
+        "git": {
+          "commit": "51a7061",
+          "branch": "usabilityEnhence",
+          "tracked_dirty": true,
+          "untracked_present": true
+        },
+        "route_availability": {
+          "health": true,
+          "applications_list": true,
+          "applications_create": true,
+          "application_detail": true,
+          "draft_detail": true,
+          "smoke_cleanup": true
+        },
+        "current_code_ready": true
+      }
+    },
+    {
+      "id": "safety_no_forbidden_api_token_proxy_call",
+      "passed": true,
+      "called_endpoints": [
+        "GET /health"
+      ],
+      "forbidden_endpoint_fragments": [
+        "/builds",
+        "/tests/run",
+        "/runs",
+        "/versions",
+        "/restore",
+        "/draft",
+        "/cancel"
+      ],
+      "model_call_used": false
+    }
+  ],
+  "summary": {
+    "failed_check_count": 0,
+    "open_p0_p1_bug_count": 0,
+    "forbidden_endpoint_called": false,
+    "api_token_proxy_env_resolution": {
+      "id": "api_token_proxy_env_resolution_fixture",
+      "passed": true,
+      "cases": {
+        "browser_token_priority_preserved": true,
+        "process_env_token_second": true,
+        "local_env_token_third": true,
+        "change_me_only_last_resort": true,
+        "platform_url_uses_local_env_when_process_env_missing": true,
+        "frontend_token_query_is_stripped": true,
+        "server_side_only_local_env_read": true
+      }
+    },
+    "parse_env_value": {
+      "id": "parse_env_value_fixture",
+      "passed": true,
+      "cases": {
+        "plain_assignment": true,
+        "spaced_assignment": true,
+        "export_assignment": true,
+        "quoted_assignment": true
+      }
+    }
+  }
+}
