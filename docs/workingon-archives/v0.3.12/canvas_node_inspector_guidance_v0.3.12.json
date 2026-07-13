@@ -1,0 +1,177 @@
+{
+  "version": "v0.3.12",
+  "stage": "canvas_node_inspector_guidance",
+  "status": "passed",
+  "live_checks_enabled": true,
+  "token_source": "file:.env:API_TOKEN",
+  "smoke_marker": "v0.3.12-smoke",
+  "bug_ledger": [
+    {
+      "id": "P1-node-inspector-json-first",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "The Edit tab exposed raw config JSON before explaining the selected brick.",
+      "fix": "Add a selected-node summary and safe edit guide before JSON.",
+      "verification": "node_inspector_source_markers."
+    },
+    {
+      "id": "P1-canvas-selection-states-blurry",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "No selection, edge selection, and node selection were not clearly separated for reviewers.",
+      "fix": "Add empty-selection, edge-summary, and selection-summary markers/copy.",
+      "verification": "canvas_selection_source_markers."
+    }
+  ],
+  "safety": {
+    "build_endpoint_called": false,
+    "called_endpoints": [
+      "POST /api/v1/applications",
+      "POST /api/v1/applications/{id}/smoke-cleanup"
+    ],
+    "smoke_marker": "v0.3.12-smoke",
+    "cleanup_attempted": true
+  },
+  "checks": [
+    {
+      "id": "p0_p1_bug_ledger_canvas_node_inspector",
+      "passed": true,
+      "bug_count": 2,
+      "blocking_bug_count": 0,
+      "bugs": [
+        {
+          "id": "P1-node-inspector-json-first",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "The Edit tab exposed raw config JSON before explaining the selected brick.",
+          "fix": "Add a selected-node summary and safe edit guide before JSON.",
+          "verification": "node_inspector_source_markers."
+        },
+        {
+          "id": "P1-canvas-selection-states-blurry",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "No selection, edge selection, and node selection were not clearly separated for reviewers.",
+          "fix": "Add empty-selection, edge-summary, and selection-summary markers/copy.",
+          "verification": "canvas_selection_source_markers."
+        }
+      ]
+    },
+    {
+      "id": "node_inspector_source_markers",
+      "path": "platform/frontend/app/applications/[id]/page.tsx",
+      "required_markers": [
+        "selectedNodeSummary",
+        "data-node-inspector={",
+        "'selection-summary'",
+        "data-node-inspector=\"safe-edit-guide\"",
+        "nodeInspectorSafeEditTitle"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "canvas_selection_source_markers",
+      "path": "platform/frontend/app/applications/[id]/page.tsx",
+      "required_markers": [
+        "'edge-summary'",
+        "'empty-selection'",
+        "selectedConfigKeys",
+        "node-summary-grid"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "node_inspector_i18n_markers",
+      "path": "platform/frontend/lib/i18n.ts",
+      "required_markers": [
+        "nodeInspectorSummaryTitle",
+        "nodeInspectorNoSelectionHelp",
+        "nodeInspectorEdgeHelp",
+        "nodeConfigSummary"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "node_inspector_style_markers",
+      "path": "platform/frontend/app/globals.css",
+      "required_markers": [
+        ".node-inspector-guide",
+        ".node-summary-grid",
+        ".safe-edit-guide"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "token_available",
+      "passed": true,
+      "token_source": "file:.env:API_TOKEN"
+    },
+    {
+      "id": "runtime_health_current_code",
+      "url": "http://127.0.0.1:8001/health",
+      "passed": true,
+      "status_code": 200,
+      "runtime": {
+        "version": "v0.3.6",
+        "product_phase": "v0.3.x",
+        "git": {
+          "commit": "14ba8c4",
+          "branch": "usabilityEnhence",
+          "tracked_dirty": false,
+          "untracked_present": true
+        },
+        "route_availability": {
+          "health": true,
+          "applications_list": true,
+          "applications_create": true,
+          "application_detail": true,
+          "draft_detail": true,
+          "smoke_cleanup": true
+        },
+        "current_code_ready": true
+      }
+    },
+    {
+      "id": "created_node_inspector_smoke_app",
+      "passed": true,
+      "status_code": 201,
+      "application_id": "73f23dfe-cc17-442a-bfa2-6138401578d6"
+    },
+    {
+      "id": "cleanup_smoke_app",
+      "passed": true,
+      "status_code": 200,
+      "related_counts": {
+        "application_drafts": 1,
+        "application_versions": 0,
+        "builds": 0,
+        "workflow_runs": 0,
+        "schedule_fires": 0,
+        "draft_idempotency": 0
+      }
+    },
+    {
+      "id": "verified_smoke_deleted",
+      "passed": true,
+      "status_code": 404
+    },
+    {
+      "id": "safety_no_build_call",
+      "passed": true,
+      "called_endpoints": [
+        "POST /api/v1/applications",
+        "POST /api/v1/applications/{id}/smoke-cleanup"
+      ],
+      "forbidden_endpoint": "POST /api/v1/applications/{id}/builds"
+    }
+  ],
+  "summary": {
+    "failed_check_count": 0,
+    "open_p0_p1_bug_count": 0,
+    "build_endpoint_called": false
+  }
+}
