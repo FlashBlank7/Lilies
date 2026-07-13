@@ -1,0 +1,222 @@
+{
+  "version": "v0.3.40",
+  "stage": "try_run_cancel_safety_confirmation",
+  "status": "passed",
+  "live_checks_enabled": true,
+  "safety": {
+    "forbidden_endpoint_called": false,
+    "called_endpoints": [
+      "GET /health"
+    ],
+    "model_call_used": false
+  },
+  "bug_ledger": [
+    {
+      "id": "P1-try-cancel-direct-post-risk",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Clicking the Try cancel button posted to the cancel API immediately.",
+      "fix": "First click opens a run-id-bound inline confirmation; only the confirm action calls cancel.",
+      "verification": "try_cancel_confirmation_fixture."
+    },
+    {
+      "id": "P1-try-cancel-intent-ambiguous",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Users could read cancel as dismissing UI rather than stopping the active run.",
+      "fix": "Add copy that distinguishes stop-current-run from keep-waiting.",
+      "verification": "try_cancel_intent_guidance_fixture."
+    },
+    {
+      "id": "P1-v0340-tests-must-enter-release-gate",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Cancel confirmation could regress if omitted from the current v0.3.x release gate.",
+      "fix": "Update manifest with v0.3.40 and expected 220 passing tests.",
+      "verification": "regression_manifest_updated."
+    }
+  ],
+  "checks": [
+    {
+      "id": "p0_p1_bug_ledger_try_cancel_safety_confirmation",
+      "passed": true,
+      "bug_count": 3,
+      "blocking_bug_count": 0,
+      "bugs": [
+        {
+          "id": "P1-try-cancel-direct-post-risk",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Clicking the Try cancel button posted to the cancel API immediately.",
+          "fix": "First click opens a run-id-bound inline confirmation; only the confirm action calls cancel.",
+          "verification": "try_cancel_confirmation_fixture."
+        },
+        {
+          "id": "P1-try-cancel-intent-ambiguous",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Users could read cancel as dismissing UI rather than stopping the active run.",
+          "fix": "Add copy that distinguishes stop-current-run from keep-waiting.",
+          "verification": "try_cancel_intent_guidance_fixture."
+        },
+        {
+          "id": "P1-v0340-tests-must-enter-release-gate",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Cancel confirmation could regress if omitted from the current v0.3.x release gate.",
+          "fix": "Update manifest with v0.3.40 and expected 220 passing tests.",
+          "verification": "regression_manifest_updated."
+        }
+      ]
+    },
+    {
+      "id": "try_cancel_confirmation_fixture",
+      "passed": true,
+      "cases": {
+        "queued_active": true,
+        "running_active": true,
+        "paused_active": false,
+        "failed_active": false,
+        "succeeded_active": false,
+        "cancelled_active": false
+      },
+      "first_click": "opens_confirmation_without_cancel_api",
+      "confirm_click": "calls_existing_cancel_api_once",
+      "keep_waiting": "clears_confirmation_without_mutation",
+      "bound_to_current_run_id": true
+    },
+    {
+      "id": "try_cancel_intent_guidance_fixture",
+      "passed": true,
+      "guidance": {
+        "stop_current_run": true,
+        "not_close_message": true,
+        "keep_waiting_available": true,
+        "duplicate_start_not_suggested": true
+      }
+    },
+    {
+      "id": "try_cancel_confirmation_source_markers",
+      "path": "platform/frontend/app/applications/[id]/page.tsx",
+      "required_markers": [
+        "cancelConfirmRunId",
+        "setCancelConfirmRunId(run.id)",
+        "if (cancelConfirmRunId !== run.id)",
+        "tryCancelConfirmVisible",
+        "data-try-cancel-confirm=\"pending\"",
+        "data-try-cancel-confirm-action=\"stop\"",
+        "data-try-cancel-confirm-action=\"keep-waiting\"",
+        "data-try-cancel-action=\"request-confirmation\""
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "try_cancel_confirmation_i18n_markers",
+      "path": "platform/frontend/lib/i18n.ts",
+      "required_markers": [
+        "tryCancelConfirmNotice",
+        "tryCancelConfirmTitle",
+        "tryCancelConfirmDetail",
+        "tryCancelConfirmStopAction",
+        "tryCancelConfirmKeepAction",
+        "tryCancelConfirmationPending"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "try_cancel_confirmation_style_markers",
+      "path": "platform/frontend/app/globals.css",
+      "required_markers": [
+        ".try-cancel-confirm",
+        ".try-cancel-confirm .danger-link"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "regression_manifest_updated",
+      "path": "docs/testing/regression_lanes.json",
+      "required_markers": [
+        "tests/test_v03_40_try_run_cancel_safety_confirmation.py",
+        "\"pass_count\": 220"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "runtime_health_read_only",
+      "url": "http://127.0.0.1:8001/health",
+      "passed": true,
+      "status_code": 200,
+      "runtime": {
+        "version": "v0.3.6",
+        "product_phase": "v0.3.x",
+        "git": {
+          "commit": "2feb645",
+          "branch": "usabilityEnhence",
+          "tracked_dirty": false,
+          "untracked_present": true
+        },
+        "route_availability": {
+          "health": true,
+          "applications_list": true,
+          "applications_create": true,
+          "application_detail": true,
+          "draft_detail": true,
+          "smoke_cleanup": true
+        },
+        "current_code_ready": true
+      }
+    },
+    {
+      "id": "safety_no_forbidden_try_cancel_call",
+      "passed": true,
+      "called_endpoints": [
+        "GET /health"
+      ],
+      "forbidden_endpoint_fragments": [
+        "/builds",
+        "/tests/run",
+        "/runs",
+        "/versions",
+        "/restore",
+        "/draft",
+        "/cancel"
+      ],
+      "model_call_used": false
+    }
+  ],
+  "summary": {
+    "failed_check_count": 0,
+    "open_p0_p1_bug_count": 0,
+    "forbidden_endpoint_called": false,
+    "try_cancel_confirmation": {
+      "id": "try_cancel_confirmation_fixture",
+      "passed": true,
+      "cases": {
+        "queued_active": true,
+        "running_active": true,
+        "paused_active": false,
+        "failed_active": false,
+        "succeeded_active": false,
+        "cancelled_active": false
+      },
+      "first_click": "opens_confirmation_without_cancel_api",
+      "confirm_click": "calls_existing_cancel_api_once",
+      "keep_waiting": "clears_confirmation_without_mutation",
+      "bound_to_current_run_id": true
+    },
+    "try_cancel_intent_guidance": {
+      "id": "try_cancel_intent_guidance_fixture",
+      "passed": true,
+      "guidance": {
+        "stop_current_run": true,
+        "not_close_message": true,
+        "keep_waiting_available": true,
+        "duplicate_start_not_suggested": true
+      }
+    }
+  }
+}
