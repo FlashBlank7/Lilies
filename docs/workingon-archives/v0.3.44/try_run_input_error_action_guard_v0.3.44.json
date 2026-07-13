@@ -1,0 +1,210 @@
+{
+  "version": "v0.3.44",
+  "stage": "try_run_input_error_action_guard",
+  "status": "passed",
+  "live_checks_enabled": true,
+  "safety": {
+    "forbidden_endpoint_called": false,
+    "called_endpoints": [
+      "GET /health"
+    ],
+    "model_call_used": false
+  },
+  "bug_ledger": [
+    {
+      "id": "P1-try-input-error-run-buttons-still-actionable",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Run buttons remained clickable-looking while inline parser errors were visible.",
+      "fix": "Disable draft and published run actions while parser errors exist.",
+      "verification": "try_input_error_action_guard_fixture."
+    },
+    {
+      "id": "P1-try-input-error-guard-silent",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "A disabled run action could feel silent without guard copy and focus behavior.",
+      "fix": "Add guard copy and local focus action back to the inline input error.",
+      "verification": "try_input_error_guard_focus_fixture."
+    },
+    {
+      "id": "P1-v0344-tests-must-enter-release-gate",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Input error action guard could regress if omitted from the current v0.3.x release gate.",
+      "fix": "Update manifest with v0.3.44 and expected 244 passing tests.",
+      "verification": "regression_manifest_updated."
+    }
+  ],
+  "checks": [
+    {
+      "id": "p0_p1_bug_ledger_try_input_error_action_guard",
+      "passed": true,
+      "bug_count": 3,
+      "blocking_bug_count": 0,
+      "bugs": [
+        {
+          "id": "P1-try-input-error-run-buttons-still-actionable",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Run buttons remained clickable-looking while inline parser errors were visible.",
+          "fix": "Disable draft and published run actions while parser errors exist.",
+          "verification": "try_input_error_action_guard_fixture."
+        },
+        {
+          "id": "P1-try-input-error-guard-silent",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "A disabled run action could feel silent without guard copy and focus behavior.",
+          "fix": "Add guard copy and local focus action back to the inline input error.",
+          "verification": "try_input_error_guard_focus_fixture."
+        },
+        {
+          "id": "P1-v0344-tests-must-enter-release-gate",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Input error action guard could regress if omitted from the current v0.3.x release gate.",
+          "fix": "Update manifest with v0.3.44 and expected 244 passing tests.",
+          "verification": "regression_manifest_updated."
+        }
+      ]
+    },
+    {
+      "id": "try_input_error_action_guard_fixture",
+      "passed": true,
+      "cases": {
+        "parser_error_blocks_draft": true,
+        "parser_error_blocks_published": true,
+        "valid_input_allows_draft": true,
+        "valid_input_published_still_requires_version": true,
+        "active_run_guard_preserved": true
+      }
+    },
+    {
+      "id": "try_input_error_guard_focus_fixture",
+      "passed": true,
+      "guidance": {
+        "guard_copy_visible": true,
+        "notice_explains_input_error": true,
+        "focus_action_is_local": true,
+        "does_not_call_run_api": true
+      }
+    },
+    {
+      "id": "try_input_error_action_guard_source_markers",
+      "path": "platform/frontend/app/applications/[id]/page.tsx",
+      "required_markers": [
+        "tryInputErrorBlockingRun",
+        "data-try-input-error-action-guard={tryInputErrorBlockingRun ? 'blocked' : 'ready'}",
+        "disabled={tryRunActive || tryInputErrorBlockingRun}",
+        "disabled={!activeVersion || tryRunActive || tryInputErrorBlockingRun}",
+        "data-try-input-action-guard=\"blocked\"",
+        "data-try-input-action-guard-focus=\"error\"",
+        "tryInputErrorRef.current?.focus()",
+        "tryInputErrorGuardNotice"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "try_input_error_action_guard_i18n_markers",
+      "path": "platform/frontend/lib/i18n.ts",
+      "required_markers": [
+        "tryInputErrorGuardTitle",
+        "tryInputErrorGuardDetail",
+        "tryInputErrorGuardFocusAction",
+        "tryInputErrorGuardNotice"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "try_input_error_action_guard_style_markers",
+      "path": "platform/frontend/app/globals.css",
+      "required_markers": [
+        ".try-input-action-guard",
+        ".try-input-action-guard button"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "regression_manifest_updated",
+      "path": "docs/testing/regression_lanes.json",
+      "required_markers": [
+        "tests/test_v03_44_try_run_input_error_action_guard.py",
+        "\"pass_count\": 244"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "runtime_health_read_only",
+      "url": "http://127.0.0.1:8001/health",
+      "passed": true,
+      "status_code": 200,
+      "runtime": {
+        "version": "v0.3.6",
+        "product_phase": "v0.3.x",
+        "git": {
+          "commit": "e033dde",
+          "branch": "usabilityEnhence",
+          "tracked_dirty": false,
+          "untracked_present": true
+        },
+        "route_availability": {
+          "health": true,
+          "applications_list": true,
+          "applications_create": true,
+          "application_detail": true,
+          "draft_detail": true,
+          "smoke_cleanup": true
+        },
+        "current_code_ready": true
+      }
+    },
+    {
+      "id": "safety_no_forbidden_try_input_error_action_call",
+      "passed": true,
+      "called_endpoints": [
+        "GET /health"
+      ],
+      "forbidden_endpoint_fragments": [
+        "/builds",
+        "/tests/run",
+        "/runs",
+        "/versions",
+        "/restore",
+        "/draft",
+        "/cancel"
+      ],
+      "model_call_used": false
+    }
+  ],
+  "summary": {
+    "failed_check_count": 0,
+    "open_p0_p1_bug_count": 0,
+    "forbidden_endpoint_called": false,
+    "try_input_error_action_guard": {
+      "id": "try_input_error_action_guard_fixture",
+      "passed": true,
+      "cases": {
+        "parser_error_blocks_draft": true,
+        "parser_error_blocks_published": true,
+        "valid_input_allows_draft": true,
+        "valid_input_published_still_requires_version": true,
+        "active_run_guard_preserved": true
+      }
+    },
+    "try_input_error_guard_focus": {
+      "id": "try_input_error_guard_focus_fixture",
+      "passed": true,
+      "guidance": {
+        "guard_copy_visible": true,
+        "notice_explains_input_error": true,
+        "focus_action_is_local": true,
+        "does_not_call_run_api": true
+      }
+    }
+  }
+}

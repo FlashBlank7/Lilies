@@ -86,8 +86,8 @@ def source_marker_checks() -> list[dict[str, Any]]:
                 "t.tryRunActiveStatus(tryRunActiveStatus)",
                 "t.tryRunActiveRefreshDetail",
                 "t.tryRunActiveStaleDetail",
-                "disabled={tryRunActive}",
-                "disabled={!activeVersion || tryRunActive}",
+                "disabled={tryRunActive ||",
+                "disabled={!activeVersion || tryRunActive ||",
             ),
         ),
         (
