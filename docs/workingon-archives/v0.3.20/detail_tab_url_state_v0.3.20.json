@@ -1,0 +1,282 @@
+{
+  "version": "v0.3.20",
+  "stage": "detail_tab_url_state",
+  "status": "passed",
+  "live_checks_enabled": true,
+  "safety": {
+    "forbidden_endpoint_called": false,
+    "called_endpoints": [
+      "GET /health"
+    ],
+    "forbidden_hrefs": []
+  },
+  "bug_ledger": [
+    {
+      "id": "P1-detail-tabs-leave-url-stale",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "After v0.3.19, inbound card links could open a tab, but in-page tab clicks left the URL behind.",
+      "fix": "Route tab clicks through `setStudioTab` and update `?tab=` with history state.",
+      "verification": "detail_tab_url_source_markers."
+    },
+    {
+      "id": "P1-detail-tab-back-forward-unsynced",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Browser back/forward could change the URL without changing the visible tab.",
+      "fix": "Add a `popstate` listener that applies valid `?tab=` values.",
+      "verification": "popstate_tab_guard_fixture."
+    },
+    {
+      "id": "P1-build-query-must-survive-tab-sync",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Naive tab URL replacement could drop `?build=` and break build-event watch context.",
+      "fix": "Use `URLSearchParams` and preserve existing query parameters while changing `tab`.",
+      "verification": "tab_url_state_fixture."
+    },
+    {
+      "id": "P1-v0320-tests-must-enter-release-gate",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "New detail navigation tests could be omitted from the current v0.3.x release gate.",
+      "fix": "Update `docs/testing/regression_lanes.json` with v0.3.20 and expected 100 passing tests.",
+      "verification": "regression_manifest_updated."
+    }
+  ],
+  "checks": [
+    {
+      "id": "p0_p1_bug_ledger_detail_tab_url_state",
+      "passed": true,
+      "bug_count": 4,
+      "blocking_bug_count": 0,
+      "bugs": [
+        {
+          "id": "P1-detail-tabs-leave-url-stale",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "After v0.3.19, inbound card links could open a tab, but in-page tab clicks left the URL behind.",
+          "fix": "Route tab clicks through `setStudioTab` and update `?tab=` with history state.",
+          "verification": "detail_tab_url_source_markers."
+        },
+        {
+          "id": "P1-detail-tab-back-forward-unsynced",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Browser back/forward could change the URL without changing the visible tab.",
+          "fix": "Add a `popstate` listener that applies valid `?tab=` values.",
+          "verification": "popstate_tab_guard_fixture."
+        },
+        {
+          "id": "P1-build-query-must-survive-tab-sync",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Naive tab URL replacement could drop `?build=` and break build-event watch context.",
+          "fix": "Use `URLSearchParams` and preserve existing query parameters while changing `tab`.",
+          "verification": "tab_url_state_fixture."
+        },
+        {
+          "id": "P1-v0320-tests-must-enter-release-gate",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "New detail navigation tests could be omitted from the current v0.3.x release gate.",
+          "fix": "Update `docs/testing/regression_lanes.json` with v0.3.20 and expected 100 passing tests.",
+          "verification": "regression_manifest_updated."
+        }
+      ]
+    },
+    {
+      "id": "tab_url_state_fixture",
+      "passed": true,
+      "preserved_build": {
+        "path": "/applications/app-1",
+        "input_query": "build=b123",
+        "next_tab": "run",
+        "changed": true,
+        "history_method": "pushState",
+        "url": "/applications/app-1?build=b123&tab=run",
+        "query": {
+          "build": "b123",
+          "tab": "run"
+        }
+      },
+      "build_replace": {
+        "path": "/applications/app-1",
+        "input_query": "build=b123",
+        "next_tab": "build",
+        "changed": true,
+        "history_method": "replaceState",
+        "url": "/applications/app-1?build=b123&tab=build",
+        "query": {
+          "build": "b123",
+          "tab": "build"
+        }
+      },
+      "no_duplicate": {
+        "path": "/applications/app-1",
+        "input_query": "build=b123&tab=test",
+        "next_tab": "test",
+        "changed": false,
+        "history_method": "pushState",
+        "url": "/applications/app-1?build=b123&tab=test",
+        "query": {
+          "build": "b123",
+          "tab": "test"
+        }
+      },
+      "forbidden_hrefs": []
+    },
+    {
+      "id": "popstate_tab_guard_fixture",
+      "passed": true,
+      "valid": {
+        "build": true,
+        "edit": true,
+        "test": true,
+        "run": true,
+        "monitor": true
+      },
+      "invalid": {
+        "": false,
+        "tests": false,
+        "publish": false,
+        "builds": false,
+        "null": false
+      }
+    },
+    {
+      "id": "direct_set_tab_guard",
+      "passed": true,
+      "forbidden_markers": [
+        "setTab('edit')",
+        "setTab('build')",
+        "setTab('run')",
+        "setTab(item)",
+        "setTab(action.target)"
+      ],
+      "found": []
+    },
+    {
+      "id": "detail_tab_url_source_markers",
+      "path": "platform/frontend/app/applications/[id]/page.tsx",
+      "required_markers": [
+        "setStudioTab",
+        "syncStudioTabFromLocation",
+        "query.set('tab', next)",
+        "window.history.pushState",
+        "window.history.replaceState",
+        "data-detail-tab-url-state=\"synced\"",
+        "STUDIO_TABS.map"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "detail_tab_popstate_markers",
+      "path": "platform/frontend/app/applications/[id]/page.tsx",
+      "required_markers": [
+        "window.addEventListener('popstate'",
+        "window.removeEventListener('popstate'",
+        "isStudioTab(requestedTab)"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "regression_manifest_updated",
+      "path": "docs/testing/regression_lanes.json",
+      "required_markers": [
+        "tests/test_v03_20_detail_tab_url_state.py",
+        "\"pass_count\": 100"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "runtime_health_read_only",
+      "url": "http://127.0.0.1:8001/health",
+      "passed": true,
+      "status_code": 200,
+      "runtime": {
+        "version": "v0.3.6",
+        "product_phase": "v0.3.x",
+        "git": {
+          "commit": "f4c6b72",
+          "branch": "usabilityEnhence",
+          "tracked_dirty": false,
+          "untracked_present": true
+        },
+        "route_availability": {
+          "health": true,
+          "applications_list": true,
+          "applications_create": true,
+          "application_detail": true,
+          "draft_detail": true,
+          "smoke_cleanup": true
+        },
+        "current_code_ready": true
+      }
+    },
+    {
+      "id": "safety_no_forbidden_tab_url_call",
+      "passed": true,
+      "called_endpoints": [
+        "GET /health"
+      ],
+      "forbidden_endpoint_fragments": [
+        "/builds",
+        "/tests/run",
+        "/runs",
+        "/versions",
+        "/restore"
+      ],
+      "forbidden_hrefs": []
+    }
+  ],
+  "summary": {
+    "failed_check_count": 0,
+    "open_p0_p1_bug_count": 0,
+    "forbidden_endpoint_called": false,
+    "tab_url_state": {
+      "id": "tab_url_state_fixture",
+      "passed": true,
+      "preserved_build": {
+        "path": "/applications/app-1",
+        "input_query": "build=b123",
+        "next_tab": "run",
+        "changed": true,
+        "history_method": "pushState",
+        "url": "/applications/app-1?build=b123&tab=run",
+        "query": {
+          "build": "b123",
+          "tab": "run"
+        }
+      },
+      "build_replace": {
+        "path": "/applications/app-1",
+        "input_query": "build=b123",
+        "next_tab": "build",
+        "changed": true,
+        "history_method": "replaceState",
+        "url": "/applications/app-1?build=b123&tab=build",
+        "query": {
+          "build": "b123",
+          "tab": "build"
+        }
+      },
+      "no_duplicate": {
+        "path": "/applications/app-1",
+        "input_query": "build=b123&tab=test",
+        "next_tab": "test",
+        "changed": false,
+        "history_method": "pushState",
+        "url": "/applications/app-1?build=b123&tab=test",
+        "query": {
+          "build": "b123",
+          "tab": "test"
+        }
+      },
+      "forbidden_hrefs": []
+    }
+  }
+}

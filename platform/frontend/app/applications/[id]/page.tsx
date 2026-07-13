@@ -546,6 +546,21 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   const buildPoll = useRef<number | null>(null)
   const buildRefreshTimer = useRef<number | null>(null)
   const runPoll = useRef<number | null>(null)
+  const setStudioTab = useCallback((next: StudioTab, options: { replace?: boolean } = {}) => {
+    setTab(next)
+    if (typeof window === 'undefined') return
+    const query = new URLSearchParams(window.location.search)
+    if (query.get('tab') === next) return
+    query.set('tab', next)
+    const nextUrl = `${window.location.pathname}?${query.toString()}`
+    if (options.replace) window.history.replaceState(null, '', nextUrl)
+    else window.history.pushState(null, '', nextUrl)
+  }, [])
+  const syncStudioTabFromLocation = useCallback(() => {
+    if (typeof window === 'undefined') return
+    const requestedTab = new URLSearchParams(window.location.search).get('tab')
+    if (isStudioTab(requestedTab)) setTab(requestedTab)
+  }, [])
 
   function setSelectedNode(value: WorkflowNode | null) {
     selectedId.current = value?.id || null
@@ -907,9 +922,12 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     refreshAdaptiveMonitoring().catch(error => setNotice(String(error)))
   }, [refresh, refreshAdaptiveMonitoring, refreshBenchmarkHistory, refreshMonitorTasks, refreshPolicyControls])
   useEffect(() => {
+    window.addEventListener('popstate', syncStudioTabFromLocation)
+    return () => window.removeEventListener('popstate', syncStudioTabFromLocation)
+  }, [syncStudioTabFromLocation])
+  useEffect(() => {
+    syncStudioTabFromLocation()
     const query = new URLSearchParams(window.location.search)
-    const requestedTab = query.get('tab')
-    if (isStudioTab(requestedTab)) setTab(requestedTab)
     const buildId = query.get('build')
     if (buildId) watchBuild(buildId)
     else api<Build[]>(`/api/v1/applications/${id}/builds`).then(items => {
@@ -983,7 +1001,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   function chooseNode(node: StudioNode) {
     const value = draft?.snapshot.workflow.nodes.find(item => item.id === node.id) || null
     setSelectedNode(value)
-    setTab('edit')
+    setStudioTab('edit')
   }
 
   function chooseEdge(edge: Edge) {
@@ -1148,7 +1166,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     buildPoll.current = null
     if (buildRefreshTimer.current) window.clearTimeout(buildRefreshTimer.current)
     buildRefreshTimer.current = null
-    setTab('build')
+    setStudioTab('build', { replace: true })
     const source = new EventSource(withFrontendToken(`/api/platform/api/v1/builds/${buildId}/events`))
     eventSource.current = source
     source.onerror = () => {
@@ -1231,7 +1249,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     const result = await api<{ run_id: string }>(`/api/v1/applications/${id}/runs`, {
       method: 'POST', body: JSON.stringify({ inputs: parsed.inputs, use_draft: useDraft, workspace_path: '.' }),
     })
-    setTab('run')
+    setStudioTab('run')
     setRunEvents([])
     setRun({ id: result.run_id, status: 'queued', outputs: {}, state: {} })
     void refreshMonitorTasks().catch(error => setNotice(String(error)))
@@ -1555,11 +1573,11 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
       <Link href="/" className="back">←</Link>
       <div className="studio-title"><strong>{draft?.snapshot.name || t.loading}</strong><span>{draft?.snapshot.mode === 'chat' ? t.modeChat : t.modeWorkflow} · {t.draft} r{draft?.revision ?? 0}</span></div>
       <div className="header-center"><span className={tested ? 'verified' : 'unverified'}>{tested ? t.verified : t.unverified}</span>{activeVersion && <span>{t.activeVersion(activeVersion)}</span>}<span className={`runtime-chip ${runtimeStatus}`} data-runtime-status={runtimeStatus} title={runtimeStatusDetail}>{runtimeStatusText}</span></div>
-      <div className="header-actions"><button className="lang-toggle" onClick={toggleLocale}>{t.switchLabel}</button><button className="ghost" onClick={() => setTab('run')}>{t.debugDraft}</button><button onClick={publish} disabled={!tested}>{t.publishVersion}</button></div>
+      <div className="header-actions"><button className="lang-toggle" onClick={toggleLocale}>{t.switchLabel}</button><button className="ghost" onClick={() => setStudioTab('run')} type="button">{t.debugDraft}</button><button onClick={publish} disabled={!tested}>{t.publishVersion}</button></div>
     </header>
     <div className="studio-grid">
       <aside className="left-panel">
-        <div className="panel-tabs">{(['build', 'edit', 'test', 'run', 'monitor'] as const).map(item => <button className={tab === item ? 'active' : ''} onClick={() => setTab(item)} key={item}>{item === 'build' ? t.buildTab : item === 'edit' ? t.editTab : item === 'test' ? t.testTab : item === 'run' ? t.runTab : t.monitorTab}</button>)}</div>
+        <div className="panel-tabs" data-detail-tab-url-state="synced">{STUDIO_TABS.map(item => <button aria-pressed={tab === item} className={tab === item ? 'active' : ''} onClick={() => setStudioTab(item)} key={item} type="button">{item === 'build' ? t.buildTab : item === 'edit' ? t.editTab : item === 'test' ? t.testTab : item === 'run' ? t.runTab : t.monitorTab}</button>)}</div>
         {tab === 'build' && <div className="panel-body">
           <div className="panel-kicker">{t.builderTeam}</div><h2>{t.continueBuild}</h2>
           <textarea className="requirement-input" value={requirement} onChange={event => { setRequirement(event.target.value); setBuildIntentConfirmed(false) }} />
@@ -1924,7 +1942,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
               className={action.ready ? 'ready' : 'needs-action'}
               data-next-action={action.id}
               key={action.id}
-              onClick={() => setTab(action.target)}
+              onClick={() => setStudioTab(action.target)}
               type="button"
             >
               <span>{action.label}</span>
