@@ -1,0 +1,329 @@
+{
+  "version": "v0.3.24",
+  "stage": "requirement_readiness_summary",
+  "status": "passed",
+  "live_checks_enabled": true,
+  "safety": {
+    "forbidden_endpoint_called": false,
+    "called_endpoints": [
+      "GET /health"
+    ],
+    "model_call_used": false
+  },
+  "bug_ledger": [
+    {
+      "id": "P1-create-requirement-readiness-invisible",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Users could edit a requirement but had no local signal about whether it was specific enough before draft/build.",
+      "fix": "Add deterministic requirement readiness summary.",
+      "verification": "requirement_readiness_fixture."
+    },
+    {
+      "id": "P1-create-missing-detail-hints-absent",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Users needed concrete hints for missing audience, outcome, acceptance, or detail signals.",
+      "fix": "Add one visible readiness item per signal.",
+      "verification": "requirement_missing_detail_fixture."
+    },
+    {
+      "id": "P1-v0324-tests-must-enter-release-gate",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "New requirement-readiness tests could be omitted from the current v0.3.x release gate.",
+      "fix": "Update `docs/testing/regression_lanes.json` with v0.3.24 and expected 124 passing tests.",
+      "verification": "regression_manifest_updated."
+    }
+  ],
+  "checks": [
+    {
+      "id": "p0_p1_bug_ledger_requirement_readiness",
+      "passed": true,
+      "bug_count": 3,
+      "blocking_bug_count": 0,
+      "bugs": [
+        {
+          "id": "P1-create-requirement-readiness-invisible",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Users could edit a requirement but had no local signal about whether it was specific enough before draft/build.",
+          "fix": "Add deterministic requirement readiness summary.",
+          "verification": "requirement_readiness_fixture."
+        },
+        {
+          "id": "P1-create-missing-detail-hints-absent",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Users needed concrete hints for missing audience, outcome, acceptance, or detail signals.",
+          "fix": "Add one visible readiness item per signal.",
+          "verification": "requirement_missing_detail_fixture."
+        },
+        {
+          "id": "P1-v0324-tests-must-enter-release-gate",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "New requirement-readiness tests could be omitted from the current v0.3.x release gate.",
+          "fix": "Update `docs/testing/regression_lanes.json` with v0.3.24 and expected 124 passing tests.",
+          "verification": "regression_manifest_updated."
+        }
+      ]
+    },
+    {
+      "id": "requirement_readiness_fixture",
+      "passed": true,
+      "strong": {
+        "ready": true,
+        "ready_count": 4,
+        "total": 4,
+        "signals": [
+          {
+            "id": "audience",
+            "ready": true
+          },
+          {
+            "id": "outcome",
+            "ready": true
+          },
+          {
+            "id": "acceptance",
+            "ready": true
+          },
+          {
+            "id": "detail",
+            "ready": true
+          }
+        ]
+      },
+      "weak": {
+        "ready": false,
+        "ready_count": 0,
+        "total": 4,
+        "signals": [
+          {
+            "id": "audience",
+            "ready": false
+          },
+          {
+            "id": "outcome",
+            "ready": false
+          },
+          {
+            "id": "acceptance",
+            "ready": false
+          },
+          {
+            "id": "detail",
+            "ready": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "requirement_missing_detail_fixture",
+      "passed": true,
+      "partial": {
+        "ready": false,
+        "ready_count": 2,
+        "total": 4,
+        "signals": [
+          {
+            "id": "audience",
+            "ready": true
+          },
+          {
+            "id": "outcome",
+            "ready": true
+          },
+          {
+            "id": "acceptance",
+            "ready": false
+          },
+          {
+            "id": "detail",
+            "ready": false
+          }
+        ]
+      },
+      "missing": [
+        "acceptance",
+        "detail"
+      ]
+    },
+    {
+      "id": "requirement_readiness_source_markers",
+      "path": "platform/frontend/app/page.tsx",
+      "required_markers": [
+        "requirementReadiness",
+        "createReadiness",
+        "data-requirement-readiness=\"summary\"",
+        "requirement-readiness-list",
+        "requirementSignalAudience",
+        "requirementSignalAcceptance"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "requirement_readiness_i18n_markers",
+      "path": "platform/frontend/lib/i18n.ts",
+      "required_markers": [
+        "requirementReadinessTitle",
+        "requirementReadinessScore",
+        "requirementReadinessReady",
+        "requirementReadinessNeedsDetail",
+        "requirementSignalDetailHint"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "requirement_readiness_style_markers",
+      "path": "platform/frontend/app/globals.css",
+      "required_markers": [
+        ".requirement-readiness",
+        ".requirement-readiness-list",
+        ".requirement-readiness.ready"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "regression_manifest_updated",
+      "path": "docs/testing/regression_lanes.json",
+      "required_markers": [
+        "tests/test_v03_24_requirement_readiness.py",
+        "\"pass_count\": 124"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "runtime_health_read_only",
+      "url": "http://127.0.0.1:8001/health",
+      "passed": true,
+      "status_code": 200,
+      "runtime": {
+        "version": "v0.3.6",
+        "product_phase": "v0.3.x",
+        "git": {
+          "commit": "616f569",
+          "branch": "usabilityEnhence",
+          "tracked_dirty": false,
+          "untracked_present": true
+        },
+        "route_availability": {
+          "health": true,
+          "applications_list": true,
+          "applications_create": true,
+          "application_detail": true,
+          "draft_detail": true,
+          "smoke_cleanup": true
+        },
+        "current_code_ready": true
+      }
+    },
+    {
+      "id": "safety_no_forbidden_requirement_readiness_call",
+      "passed": true,
+      "called_endpoints": [
+        "GET /health"
+      ],
+      "forbidden_endpoint_fragments": [
+        "/builds",
+        "/tests/run",
+        "/runs",
+        "/versions",
+        "/restore",
+        "/draft"
+      ],
+      "model_call_used": false
+    }
+  ],
+  "summary": {
+    "failed_check_count": 0,
+    "open_p0_p1_bug_count": 0,
+    "forbidden_endpoint_called": false,
+    "readiness": {
+      "id": "requirement_readiness_fixture",
+      "passed": true,
+      "strong": {
+        "ready": true,
+        "ready_count": 4,
+        "total": 4,
+        "signals": [
+          {
+            "id": "audience",
+            "ready": true
+          },
+          {
+            "id": "outcome",
+            "ready": true
+          },
+          {
+            "id": "acceptance",
+            "ready": true
+          },
+          {
+            "id": "detail",
+            "ready": true
+          }
+        ]
+      },
+      "weak": {
+        "ready": false,
+        "ready_count": 0,
+        "total": 4,
+        "signals": [
+          {
+            "id": "audience",
+            "ready": false
+          },
+          {
+            "id": "outcome",
+            "ready": false
+          },
+          {
+            "id": "acceptance",
+            "ready": false
+          },
+          {
+            "id": "detail",
+            "ready": false
+          }
+        ]
+      }
+    },
+    "missing_detail": {
+      "id": "requirement_missing_detail_fixture",
+      "passed": true,
+      "partial": {
+        "ready": false,
+        "ready_count": 2,
+        "total": 4,
+        "signals": [
+          {
+            "id": "audience",
+            "ready": true
+          },
+          {
+            "id": "outcome",
+            "ready": true
+          },
+          {
+            "id": "acceptance",
+            "ready": false
+          },
+          {
+            "id": "detail",
+            "ready": false
+          }
+        ]
+      },
+      "missing": [
+        "acceptance",
+        "detail"
+      ]
+    }
+  }
+}

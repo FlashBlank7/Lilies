@@ -23,6 +23,7 @@ type AppSort = typeof APP_SORTS[number]
 type AppActionTab = 'edit' | 'test' | 'run' | 'monitor'
 type AppQuickAction = { id: string; tab: AppActionTab; label: string }
 type AppListUrlState = { filter?: AppFilter; q?: string; sort?: AppSort }
+type Copy = (typeof messages)[Locale]
 
 type DraftMutationResult = {
   revision: number
@@ -108,6 +109,19 @@ function isAppSort(value: string | null): value is AppSort {
   return Boolean(value && APP_SORTS.includes(value as AppSort))
 }
 
+function requirementReadiness(requirement: string, t: Copy) {
+  const text = requirement.trim()
+  const normalized = text.toLocaleLowerCase()
+  const signals = [
+    { id: 'audience', label: t.requirementSignalAudience, detail: t.requirementSignalAudienceHint, ready: /(客户|用户|负责人|顾问|运营|审阅|customer|user|owner|operator|consultant|reviewer)/i.test(normalized) },
+    { id: 'outcome', label: t.requirementSignalOutcome, detail: t.requirementSignalOutcomeHint, ready: /(输出|生成|给出|判断|分类|摘要|清单|result|output|generate|classify|summary|checklist)/i.test(normalized) },
+    { id: 'acceptance', label: t.requirementSignalAcceptance, detail: t.requirementSignalAcceptanceHint, ready: /(验收|测试|必须|覆盖|acceptance|test|must|cover|verify)/i.test(normalized) },
+    { id: 'detail', label: t.requirementSignalDetail, detail: t.requirementSignalDetailHint, ready: text.length >= 80 },
+  ]
+  const readyCount = signals.filter(signal => signal.ready).length
+  return { signals, readyCount, total: signals.length, ready: readyCount >= 3 }
+}
+
 export default function Home() {
   const [locale, setLocale] = useState<Locale>(defaultLocale)
   const t = messages[locale]
@@ -178,6 +192,7 @@ export default function Home() {
     setAppSearch(query.get('q') || '')
   }, [])
   const selectedCustomerExample = t.customerExamples.find(item => item.id === selectedExampleId)
+  const createReadiness = requirementReadiness(requirement, t)
   const runtimeStatus = classifyRuntimeStatus(runtimeHealth, { authRequired, unavailable: runtimeUnavailable })
   const runtimeStatusText = runtimeStatus === 'connected'
     ? t.runtimeStatusConnected(runtimeVersion(runtimeHealth))
@@ -354,6 +369,14 @@ export default function Home() {
             <div><span>{t.selectedScenarioSummaryTitle} · {selectedCustomerExample.role}</span><strong>{selectedCustomerExample.title}</strong><p>{selectedCustomerExample.need}</p><small>{selectedCustomerExample.acceptanceSignal}</small></div>
             <button onClick={clearCustomerExample} type="button">{t.clearSelectedScenario}</button>
           </section>}
+          <section className={`requirement-readiness ${createReadiness.ready ? 'ready' : 'needs-detail'}`} data-requirement-readiness="summary">
+            <div className="requirement-readiness-head"><strong>{t.requirementReadinessTitle}</strong><span>{t.requirementReadinessScore(createReadiness.readyCount, createReadiness.total)}</span></div>
+            <p>{createReadiness.ready ? t.requirementReadinessReady : t.requirementReadinessNeedsDetail}</p>
+            <div className="requirement-readiness-list">{createReadiness.signals.map(signal => <article className={signal.ready ? 'ready' : ''} key={signal.id}>
+              <b>{signal.label}</b>
+              <small>{signal.detail}</small>
+            </article>)}</div>
+          </section>
           <div className="create-footer">
             <div className="create-copy"><span>{t.createHint}</span><small>{t.safeDraftHint}</small><small className="build-intent-copy" data-build-intent={buildIntentConfirmed ? 'confirmed' : 'needs-confirmation'}>{buildIntentConfirmed ? t.buildIntentHomeArmed : t.buildIntentHomeSafe}</small></div>
             <div className="create-actions">
