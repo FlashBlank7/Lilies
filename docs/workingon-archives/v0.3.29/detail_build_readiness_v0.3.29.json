@@ -1,0 +1,298 @@
+{
+  "version": "v0.3.29",
+  "stage": "detail_build_requirement_readiness",
+  "status": "passed",
+  "live_checks_enabled": true,
+  "safety": {
+    "forbidden_endpoint_called": false,
+    "called_endpoints": [
+      "GET /health"
+    ],
+    "model_call_used": false
+  },
+  "bug_ledger": [
+    {
+      "id": "P1-detail-build-requirement-readiness-invisible",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Users entering the detail Build tab saw a raw requirement box before team startup.",
+      "fix": "Add detail build readiness summary.",
+      "verification": "detail_build_readiness_fixture."
+    },
+    {
+      "id": "P1-detail-build-missing-detail-hints-absent",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Weak build requirements did not show missing customer/outcome/acceptance/detail hints.",
+      "fix": "Add readiness signal list before the build guard.",
+      "verification": "detail_build_missing_detail_fixture."
+    },
+    {
+      "id": "P1-v0329-tests-must-enter-release-gate",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "New detail build readiness tests could be omitted from the current v0.3.x release gate.",
+      "fix": "Update manifest with v0.3.29 and expected 154 passing tests.",
+      "verification": "regression_manifest_updated."
+    }
+  ],
+  "checks": [
+    {
+      "id": "p0_p1_bug_ledger_detail_build_readiness",
+      "passed": true,
+      "bug_count": 3,
+      "blocking_bug_count": 0,
+      "bugs": [
+        {
+          "id": "P1-detail-build-requirement-readiness-invisible",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Users entering the detail Build tab saw a raw requirement box before team startup.",
+          "fix": "Add detail build readiness summary.",
+          "verification": "detail_build_readiness_fixture."
+        },
+        {
+          "id": "P1-detail-build-missing-detail-hints-absent",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Weak build requirements did not show missing customer/outcome/acceptance/detail hints.",
+          "fix": "Add readiness signal list before the build guard.",
+          "verification": "detail_build_missing_detail_fixture."
+        },
+        {
+          "id": "P1-v0329-tests-must-enter-release-gate",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "New detail build readiness tests could be omitted from the current v0.3.x release gate.",
+          "fix": "Update manifest with v0.3.29 and expected 154 passing tests.",
+          "verification": "regression_manifest_updated."
+        }
+      ]
+    },
+    {
+      "id": "detail_build_readiness_fixture",
+      "passed": true,
+      "strong": {
+        "ready": true,
+        "ready_count": 4,
+        "total": 4,
+        "signals": [
+          {
+            "id": "audience",
+            "ready": true
+          },
+          {
+            "id": "outcome",
+            "ready": true
+          },
+          {
+            "id": "acceptance",
+            "ready": true
+          },
+          {
+            "id": "detail",
+            "ready": true
+          }
+        ]
+      },
+      "weak": {
+        "ready": false,
+        "ready_count": 0,
+        "total": 4,
+        "signals": [
+          {
+            "id": "audience",
+            "ready": false
+          },
+          {
+            "id": "outcome",
+            "ready": false
+          },
+          {
+            "id": "acceptance",
+            "ready": false
+          },
+          {
+            "id": "detail",
+            "ready": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "detail_build_missing_detail_fixture",
+      "passed": true,
+      "partial": {
+        "ready": false,
+        "ready_count": 2,
+        "total": 4,
+        "signals": [
+          {
+            "id": "audience",
+            "ready": true
+          },
+          {
+            "id": "outcome",
+            "ready": true
+          },
+          {
+            "id": "acceptance",
+            "ready": false
+          },
+          {
+            "id": "detail",
+            "ready": false
+          }
+        ]
+      },
+      "missing": [
+        "acceptance",
+        "detail"
+      ]
+    },
+    {
+      "id": "detail_build_readiness_source_markers",
+      "path": "platform/frontend/app/applications/[id]/page.tsx",
+      "required_markers": [
+        "detailBuildRequirementReadiness",
+        "detailBuildReadiness",
+        "data-detail-build-readiness=\"summary\"",
+        "requirement-readiness-list",
+        "build-intent-guard",
+        "setBuildIntentConfirmed(false)"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "detail_build_readiness_i18n_markers",
+      "path": "platform/frontend/lib/i18n.ts",
+      "required_markers": [
+        "requirementReadinessTitle",
+        "requirementReadinessScore",
+        "requirementReadinessNeedsDetail",
+        "requirementSignalAcceptance",
+        "requirementSignalDetailHint"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "detail_build_readiness_style_markers",
+      "path": "platform/frontend/app/globals.css",
+      "required_markers": [
+        ".detail-build-readiness",
+        ".requirement-readiness",
+        ".requirement-readiness-list"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "regression_manifest_updated",
+      "path": "docs/testing/regression_lanes.json",
+      "required_markers": [
+        "tests/test_v03_29_detail_build_readiness.py",
+        "\"pass_count\": 154"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "runtime_health_read_only",
+      "url": "http://127.0.0.1:8001/health",
+      "passed": true,
+      "status_code": 200,
+      "runtime": {
+        "version": "v0.3.6",
+        "product_phase": "v0.3.x",
+        "git": {
+          "commit": "d828899",
+          "branch": "usabilityEnhence",
+          "tracked_dirty": false,
+          "untracked_present": true
+        },
+        "route_availability": {
+          "health": true,
+          "applications_list": true,
+          "applications_create": true,
+          "application_detail": true,
+          "draft_detail": true,
+          "smoke_cleanup": true
+        },
+        "current_code_ready": true
+      }
+    },
+    {
+      "id": "safety_no_forbidden_detail_build_readiness_call",
+      "passed": true,
+      "called_endpoints": [
+        "GET /health"
+      ],
+      "forbidden_endpoint_fragments": [
+        "/builds",
+        "/tests/run",
+        "/runs",
+        "/versions",
+        "/restore",
+        "/draft"
+      ],
+      "model_call_used": false
+    }
+  ],
+  "summary": {
+    "failed_check_count": 0,
+    "open_p0_p1_bug_count": 0,
+    "forbidden_endpoint_called": false,
+    "detail_build_readiness": {
+      "id": "detail_build_readiness_fixture",
+      "passed": true,
+      "strong": {
+        "ready": true,
+        "ready_count": 4,
+        "total": 4,
+        "signals": [
+          {
+            "id": "audience",
+            "ready": true
+          },
+          {
+            "id": "outcome",
+            "ready": true
+          },
+          {
+            "id": "acceptance",
+            "ready": true
+          },
+          {
+            "id": "detail",
+            "ready": true
+          }
+        ]
+      },
+      "weak": {
+        "ready": false,
+        "ready_count": 0,
+        "total": 4,
+        "signals": [
+          {
+            "id": "audience",
+            "ready": false
+          },
+          {
+            "id": "outcome",
+            "ready": false
+          },
+          {
+            "id": "acceptance",
+            "ready": false
+          },
+          {
+            "id": "detail",
+            "ready": false
+          }
+        ]
+      }
+    }
+  }
+}

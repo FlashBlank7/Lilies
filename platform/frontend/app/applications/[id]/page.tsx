@@ -468,6 +468,19 @@ function visibleRunEvents(events: StoredEvent[]) {
   )
 }
 
+function detailBuildRequirementReadiness(requirement: string, t: Copy) {
+  const text = requirement.trim()
+  const normalized = text.toLocaleLowerCase()
+  const signals = [
+    { id: 'audience', label: t.requirementSignalAudience, detail: t.requirementSignalAudienceHint, ready: /(客户|用户|负责人|顾问|运营|审阅|customer|user|owner|operator|consultant|reviewer)/i.test(normalized) },
+    { id: 'outcome', label: t.requirementSignalOutcome, detail: t.requirementSignalOutcomeHint, ready: /(输出|生成|给出|判断|分类|摘要|清单|result|output|generate|classify|summary|checklist)/i.test(normalized) },
+    { id: 'acceptance', label: t.requirementSignalAcceptance, detail: t.requirementSignalAcceptanceHint, ready: /(验收|测试|必须|覆盖|acceptance|test|must|cover|verify)/i.test(normalized) },
+    { id: 'detail', label: t.requirementSignalDetail, detail: t.requirementSignalDetailHint, ready: text.length >= 80 },
+  ]
+  const readyCount = signals.filter(signal => signal.ready).length
+  return { signals, readyCount, total: signals.length, ready: readyCount >= 3 }
+}
+
 export default function Studio({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
   const [locale, setLocale] = useState<Locale>(defaultLocale)
@@ -1579,6 +1592,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     { label: t.nodeInspectorConfig, value: t.nodeConfigSummary(selectedConfigKeys.length), detail: selectedConfigKeys.length ? selectedConfigKeys.slice(0, 4).join(', ') : t.nodeInspectorNoConfig },
     { label: t.nodeInspectorSafeNext, value: t.nodeInspectorSafeNextValue, detail: t.nodeInspectorSafeNextDetail },
   ] : []
+  const detailBuildReadiness = detailBuildRequirementReadiness(requirement, t)
 
   return <main className="studio-shell">
     <header className="studio-header">
@@ -1593,6 +1607,14 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
         {tab === 'build' && <div className="panel-body">
           <div className="panel-kicker">{t.builderTeam}</div><h2>{t.continueBuild}</h2>
           <textarea className="requirement-input" value={requirement} onChange={event => { setRequirement(event.target.value); setBuildIntentConfirmed(false) }} />
+          <section className={`requirement-readiness detail-build-readiness ${detailBuildReadiness.ready ? 'ready' : 'needs-detail'}`} data-detail-build-readiness="summary">
+            <div className="requirement-readiness-head"><strong>{t.requirementReadinessTitle}</strong><span>{t.requirementReadinessScore(detailBuildReadiness.readyCount, detailBuildReadiness.total)}</span></div>
+            <p>{detailBuildReadiness.ready ? t.requirementReadinessReady : t.requirementReadinessNeedsDetail}</p>
+            <div className="requirement-readiness-list">{detailBuildReadiness.signals.map(signal => <article className={signal.ready ? 'ready' : ''} key={signal.id}>
+              <b>{signal.label}</b>
+              <small>{signal.detail}</small>
+            </article>)}</div>
+          </section>
           <label className="run-field">
             <span>{t.buildDeadlineLabel}<em>{t.buildDeadlineHelp}</em></span>
             <input type="number" min="0.001" step="0.1" value={buildDeadlineSeconds} onChange={event => { setBuildDeadlineSeconds(event.target.value); setBuildIntentConfirmed(false) }} />
