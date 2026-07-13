@@ -368,6 +368,18 @@ function stringifyFieldValue(value: unknown, type?: string) {
   return value === undefined || value === null ? '' : String(value)
 }
 
+function compactSampleValue(value: unknown) {
+  const raw = typeof value === 'string' ? value : JSON.stringify(value)
+  const text = raw === undefined || raw === '' ? '""' : raw
+  return text.length > 62 ? `${text.slice(0, 59)}...` : text
+}
+
+function sampleSourceKind(field: InputField, testInputs: Record<string, unknown>) {
+  if (Object.prototype.hasOwnProperty.call(testInputs, field.name)) return 'acceptance_sample'
+  if (field.default !== undefined && field.default !== null) return 'field_default'
+  return 'generated_default'
+}
+
 function buildRunFields(draft: Draft | null, previous: RunInputFieldState[]): RunInputFieldState[] {
   const previousByName = new Map(previous.map(field => [field.name, field]))
   const testInputs = firstMandatoryInputs(draft)
@@ -1380,6 +1392,31 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
       detail: run ? run.status : t.notRunLabel,
     },
   ]
+  const trySampleSummaryItems = useMemo(() => {
+    const testInputs = firstMandatoryInputs(draft)
+    return runFields.map(field => {
+      const value = defaultInputValue(field, testInputs)
+      const source = sampleSourceKind(field, testInputs)
+      return {
+        name: field.name,
+        label: field.label || field.name,
+        type: field.type || 'string',
+        required: field.required !== false,
+        preview: compactSampleValue(value),
+        source,
+        sourceLabel: t.trySampleSource(source),
+      }
+    })
+  }, [draft, runFields, t])
+  const trySampleRequiredCount = trySampleSummaryItems.filter(item => item.required).length
+  const trySampleAcceptanceCount = trySampleSummaryItems.filter(item => item.source === 'acceptance_sample').length
+  const trySampleVisibleItems = trySampleSummaryItems.slice(0, 3)
+  const trySampleHiddenCount = Math.max(0, trySampleSummaryItems.length - trySampleVisibleItems.length)
+  const trySampleNextAction = runFields.length === 0
+    ? { id: 'no_inputs', label: t.trySampleNextNoInputs, detail: t.trySampleNextNoInputsDetail }
+    : runInputParsed.error
+      ? { id: 'fill_sample', label: t.trySampleNextFillSample, detail: t.trySampleNextFillSampleDetail }
+      : { id: 'run_draft', label: t.trySampleNextRunDraft, detail: t.trySampleNextRunDraftDetail }
   const pendingPermission = useMemo(() => latestPendingPermission(runEvents), [runEvents])
   const visibleTraceEventsForRun = useMemo(() => visibleRunEvents(runEvents), [runEvents])
   const traceFailureCount = visibleTraceEventsForRun.filter(event => event.type.includes('failed') || event.type.includes('error') || String(event.data.status || '') === 'failed' || Boolean(event.data.error)).length
@@ -1725,7 +1762,14 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
             <div className="try-readiness-list">{runReadinessItems.map(item => <article className={item.ready ? 'ready' : ''} key={item.label}><span>{item.label}</span><b>{item.ready ? t.tryReady : t.tryNeedsAttention}</b><small>{item.detail}</small></article>)}</div>
             <p className="run-recovery-hint" data-try-guidance={runInputParsed.error ? 'missing-input' : 'run-recovery'}>{runRecoveryHint}</p>
           </section>
-          <div className="run-actions compact"><button className="wide secondary" onClick={applySampleRunInputs} disabled={!runFields.length}>{t.fillRunSample}</button></div>
+          <section className="try-sample-summary" data-try-sample-input="summary">
+            <div className="try-sample-head"><strong>{t.trySampleSummaryTitle}</strong><small>{runFields.length ? t.trySampleSummaryHelp : t.runInputsEmpty}</small></div>
+            <div className="try-sample-metrics"><span><b>{trySampleSummaryItems.length}</b>{t.trySampleFields}</span><span><b>{trySampleRequiredCount}</b>{t.trySampleRequired}</span><span><b>{trySampleAcceptanceCount}</b>{t.trySampleAcceptance}</span></div>
+            {trySampleVisibleItems.length ? <div className="try-sample-list">{trySampleVisibleItems.map(item => <article key={item.name}><div><strong>{item.label}</strong><small>{t.fieldType(item.type)} · {item.required ? t.trySampleRequiredField : t.trySampleOptionalField}</small></div><code>{item.preview}</code><span>{item.sourceLabel}</span></article>)}</div> : <p className="muted">{t.runInputsEmpty}</p>}
+            {trySampleHiddenCount > 0 && <small className="try-sample-more">{t.trySampleMoreFields(trySampleHiddenCount)}</small>}
+          </section>
+          <section className="try-sample-next-action" data-try-sample-next-action={trySampleNextAction.id}><span>{t.trySampleNextAction}</span><strong>{trySampleNextAction.label}</strong><small>{trySampleNextAction.detail}</small></section>
+          <div className="run-actions compact"><button className="wide secondary" data-try-sample-action="fill-sample" onClick={applySampleRunInputs} disabled={!runFields.length}>{t.fillRunSample}</button></div>
           <div className="run-form">{runFields.length ? runFields.map(field => <label className="run-field" key={field.name}><span>{field.label || field.name}<em>{t.fieldType(field.type || 'string')}</em></span>{field.type === 'boolean' ? <input type="checkbox" checked={field.checked || false} onChange={event => updateRunField(field.name, { checked: event.target.checked, value: event.target.checked ? 'true' : 'false' })} /> : field.type === 'object' || field.type === 'array' || field.type === 'file_list' ? <textarea value={field.value} onChange={event => updateRunField(field.name, { value: event.target.value })} /> : <input type={fieldInputType(field.type)} value={field.value} onChange={event => updateRunField(field.name, { value: event.target.value })} />}</label>) : <p className="muted">{t.runInputsEmpty}</p>}</div>
           <label>{t.runInputPreview}</label><pre className="trace-log">{runInputPreview}</pre>
           <div className="run-actions"><button className="wide" onClick={() => startRun(true)}>{t.runDraftButton}</button><button className="wide secondary" onClick={() => startRun(false)} disabled={!activeVersion}>{t.runPublishedButton}</button></div>

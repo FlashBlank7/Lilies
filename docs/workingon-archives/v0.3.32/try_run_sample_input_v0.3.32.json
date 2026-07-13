@@ -1,0 +1,295 @@
+{
+  "version": "v0.3.32",
+  "stage": "try_run_sample_input_visibility",
+  "status": "passed",
+  "live_checks_enabled": true,
+  "safety": {
+    "forbidden_endpoint_called": false,
+    "called_endpoints": [
+      "GET /health"
+    ],
+    "model_call_used": false
+  },
+  "bug_ledger": [
+    {
+      "id": "P1-try-sample-summary-invisible",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Try tab had a sample-fill button but did not show what values would be applied before clicking.",
+      "fix": "Add Try tab sample-input summary with counts, source labels, and compact previews.",
+      "verification": "try_run_sample_summary_fixture."
+    },
+    {
+      "id": "P1-try-missing-input-next-action-absent",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Missing input guidance told users there was a problem but did not map it to fill sample, edit inputs, or run draft.",
+      "fix": "Add deterministic trySampleNextAction mapping and visible next-action strip.",
+      "verification": "try_run_next_action_fixture."
+    },
+    {
+      "id": "P1-v0332-tests-must-enter-release-gate",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Try tab sample visibility could regress if omitted from the current v0.3.x release gate.",
+      "fix": "Update manifest with v0.3.32 and expected 172 passing tests.",
+      "verification": "regression_manifest_updated."
+    }
+  ],
+  "checks": [
+    {
+      "id": "p0_p1_bug_ledger_try_run_sample_input",
+      "passed": true,
+      "bug_count": 3,
+      "blocking_bug_count": 0,
+      "bugs": [
+        {
+          "id": "P1-try-sample-summary-invisible",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Try tab had a sample-fill button but did not show what values would be applied before clicking.",
+          "fix": "Add Try tab sample-input summary with counts, source labels, and compact previews.",
+          "verification": "try_run_sample_summary_fixture."
+        },
+        {
+          "id": "P1-try-missing-input-next-action-absent",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Missing input guidance told users there was a problem but did not map it to fill sample, edit inputs, or run draft.",
+          "fix": "Add deterministic trySampleNextAction mapping and visible next-action strip.",
+          "verification": "try_run_next_action_fixture."
+        },
+        {
+          "id": "P1-v0332-tests-must-enter-release-gate",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Try tab sample visibility could regress if omitted from the current v0.3.x release gate.",
+          "fix": "Update manifest with v0.3.32 and expected 172 passing tests.",
+          "verification": "regression_manifest_updated."
+        }
+      ]
+    },
+    {
+      "id": "try_run_sample_summary_fixture",
+      "passed": true,
+      "field_count": 4,
+      "required_count": 1,
+      "acceptance_sample_count": 2,
+      "items": [
+        {
+          "name": "query",
+          "required": true,
+          "type": "string",
+          "preview": "Summarize the renewal risk",
+          "source": "acceptance_sample"
+        },
+        {
+          "name": "limit",
+          "required": false,
+          "type": "number",
+          "preview": "3",
+          "source": "field_default"
+        },
+        {
+          "name": "filters",
+          "required": false,
+          "type": "object",
+          "preview": "{\"priority\": \"high\"}",
+          "source": "acceptance_sample"
+        },
+        {
+          "name": "notify",
+          "required": false,
+          "type": "boolean",
+          "preview": "false",
+          "source": "generated_default"
+        }
+      ]
+    },
+    {
+      "id": "try_run_next_action_fixture",
+      "passed": true,
+      "cases": {
+        "no_inputs": {
+          "id": "no_inputs",
+          "target": "run_draft"
+        },
+        "missing_required": {
+          "id": "fill_sample",
+          "target": "sample_button"
+        },
+        "invalid_json": {
+          "id": "fill_sample",
+          "target": "sample_button"
+        },
+        "ready": {
+          "id": "run_draft",
+          "target": "draft_run_button"
+        }
+      }
+    },
+    {
+      "id": "sample_fill_safety_fixture",
+      "passed": true,
+      "sample_button_mutates_local_form_only": true,
+      "start_run_called": false,
+      "build_api_called": false,
+      "model_call_used": false
+    },
+    {
+      "id": "try_sample_source_markers",
+      "path": "platform/frontend/app/applications/[id]/page.tsx",
+      "required_markers": [
+        "compactSampleValue",
+        "sampleSourceKind",
+        "trySampleSummaryItems",
+        "trySampleNextAction",
+        "data-try-sample-input=\"summary\"",
+        "data-try-sample-next-action",
+        "data-try-sample-action=\"fill-sample\""
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "try_sample_i18n_markers",
+      "path": "platform/frontend/lib/i18n.ts",
+      "required_markers": [
+        "trySampleSummaryTitle",
+        "trySampleSource",
+        "trySampleNextAction",
+        "trySampleNextFillSample",
+        "trySampleNextRunDraft",
+        "trySampleNextNoInputs"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "try_sample_style_markers",
+      "path": "platform/frontend/app/globals.css",
+      "required_markers": [
+        ".try-sample-summary",
+        ".try-sample-metrics",
+        ".try-sample-next-action"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "regression_manifest_updated",
+      "path": "docs/testing/regression_lanes.json",
+      "required_markers": [
+        "tests/test_v03_32_try_run_sample_input.py",
+        "\"pass_count\": 172"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "runtime_health_read_only",
+      "url": "http://127.0.0.1:8001/health",
+      "passed": true,
+      "status_code": 200,
+      "runtime": {
+        "version": "v0.3.6",
+        "product_phase": "v0.3.x",
+        "git": {
+          "commit": "b75704d",
+          "branch": "usabilityEnhence",
+          "tracked_dirty": false,
+          "untracked_present": true
+        },
+        "route_availability": {
+          "health": true,
+          "applications_list": true,
+          "applications_create": true,
+          "application_detail": true,
+          "draft_detail": true,
+          "smoke_cleanup": true
+        },
+        "current_code_ready": true
+      }
+    },
+    {
+      "id": "safety_no_forbidden_try_sample_call",
+      "passed": true,
+      "called_endpoints": [
+        "GET /health"
+      ],
+      "forbidden_endpoint_fragments": [
+        "/builds",
+        "/tests/run",
+        "/runs",
+        "/versions",
+        "/restore",
+        "/draft"
+      ],
+      "model_call_used": false
+    }
+  ],
+  "summary": {
+    "failed_check_count": 0,
+    "open_p0_p1_bug_count": 0,
+    "forbidden_endpoint_called": false,
+    "try_run_sample_summary": {
+      "id": "try_run_sample_summary_fixture",
+      "passed": true,
+      "field_count": 4,
+      "required_count": 1,
+      "acceptance_sample_count": 2,
+      "items": [
+        {
+          "name": "query",
+          "required": true,
+          "type": "string",
+          "preview": "Summarize the renewal risk",
+          "source": "acceptance_sample"
+        },
+        {
+          "name": "limit",
+          "required": false,
+          "type": "number",
+          "preview": "3",
+          "source": "field_default"
+        },
+        {
+          "name": "filters",
+          "required": false,
+          "type": "object",
+          "preview": "{\"priority\": \"high\"}",
+          "source": "acceptance_sample"
+        },
+        {
+          "name": "notify",
+          "required": false,
+          "type": "boolean",
+          "preview": "false",
+          "source": "generated_default"
+        }
+      ]
+    },
+    "try_run_next_action": {
+      "id": "try_run_next_action_fixture",
+      "passed": true,
+      "cases": {
+        "no_inputs": {
+          "id": "no_inputs",
+          "target": "run_draft"
+        },
+        "missing_required": {
+          "id": "fill_sample",
+          "target": "sample_button"
+        },
+        "invalid_json": {
+          "id": "fill_sample",
+          "target": "sample_button"
+        },
+        "ready": {
+          "id": "run_draft",
+          "target": "draft_run_button"
+        }
+      }
+    }
+  }
+}
