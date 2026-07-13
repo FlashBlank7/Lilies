@@ -1,0 +1,15 @@
+# testing
+
+This directory defines regression lanes for active automatic evolution.
+
+## Authority
+
+- Stage reports decide what the next version must do.
+- `regression_lanes.json` defines machine-readable test lanes for the current product phase.
+- `workingon/` evidence may record command output, but it never defines the next task or the release gate.
+
+## Current Rule
+
+- `v0.3.x_current_release_gate` is the gating lane for the active v0.3.x usability buffer.
+- `full_historical_diagnostic` is diagnostic until its archived expectations are reconciled or explicitly version-gated.
+- Unknown failures in diagnostic sweeps must be treated as blocking until classified by a later stage report.

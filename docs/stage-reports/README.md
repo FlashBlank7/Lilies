@@ -5,12 +5,12 @@ This directory is the active small-version stage-report workspace for the curren
 Current state:
 
 - Active phase: `v0.3.x` is active.
-- Active stage reports: `v0.3.0_product_usability_stabilization.md`, `v0.3.1_customer_requirement_intake_and_blackbox_flow.md`, `v0.3.2_bounded_create_open_detail_flow.md`, `v0.3.3_safe_draft_starter_skeleton_and_cleanup.md`, `v0.3.4_browser_flow_and_smoke_retention.md`, `v0.3.5_smoke_archive_cleanup_boundary.md`, `v0.3.6_runtime_product_health_triage.md`, `v0.3.7_draft_detail_first_run_guidance.md`, `v0.3.8_runtime_connection_status_surface.md`, `v0.3.9_build_action_cost_guard.md`, `v0.3.10_hydrated_frontend_verification_recovery.md`, `v0.3.11_guided_try_run_recovery.md`, `v0.3.12_canvas_node_inspector_guidance.md`, `v0.3.13_acceptance_publish_guidance.md`, `v0.3.14_monitor_trace_readability.md`.
+- Active stage reports: `v0.3.0_product_usability_stabilization.md`, `v0.3.1_customer_requirement_intake_and_blackbox_flow.md`, `v0.3.2_bounded_create_open_detail_flow.md`, `v0.3.3_safe_draft_starter_skeleton_and_cleanup.md`, `v0.3.4_browser_flow_and_smoke_retention.md`, `v0.3.5_smoke_archive_cleanup_boundary.md`, `v0.3.6_runtime_product_health_triage.md`, `v0.3.7_draft_detail_first_run_guidance.md`, `v0.3.8_runtime_connection_status_surface.md`, `v0.3.9_build_action_cost_guard.md`, `v0.3.10_hydrated_frontend_verification_recovery.md`, `v0.3.11_guided_try_run_recovery.md`, `v0.3.12_canvas_node_inspector_guidance.md`, `v0.3.13_acceptance_publish_guidance.md`, `v0.3.14_monitor_trace_readability.md`, `v0.3.15_regression_suite_lane_guard.md`.
 - Template: `STAGE_REPORT_TEMPLATE.md`.
 - Latest handoff source: `docs/stage-report-archives/v0.2.x/v0.2.144_v02x_closeout_and_v03_handoff.md`.
-- Latest completed version: `v0.3.14_monitor_trace_readability`.
-- Next planned version: `v0.3.15_regression_suite_lane_guard`.
-- Current target: separate current release gates from archived historical assertions for reliable automatic evolution.
+- Latest completed version: `v0.3.15_regression_suite_lane_guard`.
+- Next planned version: `v0.3.16_scenario_journey_regression_expansion`.
+- Current target: expand customer-scenario simulation and fix the next concrete P1 usability gap.
 
 Rules:
 
