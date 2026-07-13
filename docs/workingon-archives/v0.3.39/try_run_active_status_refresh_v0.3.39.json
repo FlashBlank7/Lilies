@@ -1,0 +1,220 @@
+{
+  "version": "v0.3.39",
+  "stage": "try_run_active_status_refresh",
+  "status": "passed",
+  "live_checks_enabled": true,
+  "safety": {
+    "forbidden_endpoint_called": false,
+    "called_endpoints": [
+      "GET /health"
+    ],
+    "model_call_used": false
+  },
+  "bug_ledger": [
+    {
+      "id": "P1-try-active-status-summary-absent",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "After duplicate starts were blocked, queued and running states still looked like a generic disabled state.",
+      "fix": "Add an active status summary line with queued/running labels inside the Try start guard.",
+      "verification": "try_active_status_summary_fixture."
+    },
+    {
+      "id": "P1-try-stale-status-guidance-absent",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "A user waiting on a seemingly stuck Try run could not tell whether to wait, cancel, or click run again.",
+      "fix": "Add auto-refresh and stale-feeling guidance while keeping duplicate starts blocked and cancel explicit.",
+      "verification": "try_stale_status_guidance_fixture."
+    },
+    {
+      "id": "P1-v0339-tests-must-enter-release-gate",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Active status guidance could regress if omitted from the current v0.3.x release gate.",
+      "fix": "Update manifest with v0.3.39 and expected 214 passing tests.",
+      "verification": "regression_manifest_updated."
+    }
+  ],
+  "checks": [
+    {
+      "id": "p0_p1_bug_ledger_try_active_status_refresh",
+      "passed": true,
+      "bug_count": 3,
+      "blocking_bug_count": 0,
+      "bugs": [
+        {
+          "id": "P1-try-active-status-summary-absent",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "After duplicate starts were blocked, queued and running states still looked like a generic disabled state.",
+          "fix": "Add an active status summary line with queued/running labels inside the Try start guard.",
+          "verification": "try_active_status_summary_fixture."
+        },
+        {
+          "id": "P1-try-stale-status-guidance-absent",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "A user waiting on a seemingly stuck Try run could not tell whether to wait, cancel, or click run again.",
+          "fix": "Add auto-refresh and stale-feeling guidance while keeping duplicate starts blocked and cancel explicit.",
+          "verification": "try_stale_status_guidance_fixture."
+        },
+        {
+          "id": "P1-v0339-tests-must-enter-release-gate",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Active status guidance could regress if omitted from the current v0.3.x release gate.",
+          "fix": "Update manifest with v0.3.39 and expected 214 passing tests.",
+          "verification": "regression_manifest_updated."
+        }
+      ]
+    },
+    {
+      "id": "try_active_status_summary_fixture",
+      "passed": true,
+      "cases": {
+        "queued_zh": "当前状态：排队中",
+        "running_zh": "当前状态：运行中",
+        "fallback_zh": "当前状态：处理中",
+        "queued_en": "Current status: queued",
+        "running_en": "Current status: running",
+        "fallback_en": "Current status: active"
+      },
+      "visible_for": [
+        "queued",
+        "running"
+      ]
+    },
+    {
+      "id": "try_stale_status_guidance_fixture",
+      "passed": true,
+      "guidance": {
+        "auto_refresh_expectation": true,
+        "wait_is_safe": true,
+        "cancel_is_explicit": true,
+        "duplicate_start_not_suggested": true
+      }
+    },
+    {
+      "id": "try_active_status_source_markers",
+      "path": "platform/frontend/app/applications/[id]/page.tsx",
+      "required_markers": [
+        "const tryRunActiveStatus = run?.status || 'none'",
+        "data-try-run-active-status={tryRunActiveStatus}",
+        "t.tryRunActiveStatus(tryRunActiveStatus)",
+        "t.tryRunActiveRefreshDetail",
+        "t.tryRunActiveStaleDetail",
+        "disabled={tryRunActive}",
+        "disabled={!activeVersion || tryRunActive}"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "try_active_status_i18n_markers",
+      "path": "platform/frontend/lib/i18n.ts",
+      "required_markers": [
+        "tryRunActiveStatus",
+        "当前状态：排队中",
+        "当前状态：运行中",
+        "Status refreshes automatically",
+        "tryRunActiveRefreshDetail",
+        "tryRunActiveStaleDetail"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "try_active_status_style_markers",
+      "path": "platform/frontend/app/globals.css",
+      "required_markers": [
+        ".try-run-start-guard span",
+        "text-transform:uppercase"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "regression_manifest_updated",
+      "path": "docs/testing/regression_lanes.json",
+      "required_markers": [
+        "tests/test_v03_39_try_run_active_status_refresh.py",
+        "\"pass_count\": 214"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "runtime_health_read_only",
+      "url": "http://127.0.0.1:8001/health",
+      "passed": true,
+      "status_code": 200,
+      "runtime": {
+        "version": "v0.3.6",
+        "product_phase": "v0.3.x",
+        "git": {
+          "commit": "7d1faaf",
+          "branch": "usabilityEnhence",
+          "tracked_dirty": false,
+          "untracked_present": true
+        },
+        "route_availability": {
+          "health": true,
+          "applications_list": true,
+          "applications_create": true,
+          "application_detail": true,
+          "draft_detail": true,
+          "smoke_cleanup": true
+        },
+        "current_code_ready": true
+      }
+    },
+    {
+      "id": "safety_no_forbidden_try_active_status_call",
+      "passed": true,
+      "called_endpoints": [
+        "GET /health"
+      ],
+      "forbidden_endpoint_fragments": [
+        "/builds",
+        "/tests/run",
+        "/runs",
+        "/versions",
+        "/restore",
+        "/draft"
+      ],
+      "model_call_used": false
+    }
+  ],
+  "summary": {
+    "failed_check_count": 0,
+    "open_p0_p1_bug_count": 0,
+    "forbidden_endpoint_called": false,
+    "try_active_status_summary": {
+      "id": "try_active_status_summary_fixture",
+      "passed": true,
+      "cases": {
+        "queued_zh": "当前状态：排队中",
+        "running_zh": "当前状态：运行中",
+        "fallback_zh": "当前状态：处理中",
+        "queued_en": "Current status: queued",
+        "running_en": "Current status: running",
+        "fallback_en": "Current status: active"
+      },
+      "visible_for": [
+        "queued",
+        "running"
+      ]
+    },
+    "try_stale_status_guidance": {
+      "id": "try_stale_status_guidance_fixture",
+      "passed": true,
+      "guidance": {
+        "auto_refresh_expectation": true,
+        "wait_is_safe": true,
+        "cancel_is_explicit": true,
+        "duplicate_start_not_suggested": true
+      }
+    }
+  }
+}
