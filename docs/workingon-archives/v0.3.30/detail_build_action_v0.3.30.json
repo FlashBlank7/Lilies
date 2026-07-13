@@ -1,0 +1,195 @@
+{
+  "version": "v0.3.30",
+  "stage": "detail_build_action_state_explainer",
+  "status": "passed",
+  "live_checks_enabled": true,
+  "safety": {
+    "forbidden_endpoint_called": false,
+    "called_endpoints": [
+      "GET /health"
+    ],
+    "model_call_used": false
+  },
+  "bug_ledger": [
+    {
+      "id": "P1-detail-build-action-state-invisible",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Build tab readiness existed but users still lacked a compact explanation of the next build action.",
+      "fix": "Add detail build action-state explainer.",
+      "verification": "detail_build_action_state_fixture."
+    },
+    {
+      "id": "P1-detail-build-action-must-not-start-team",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Explaining build actions could accidentally add a direct team-start path.",
+      "fix": "Keep explainer text-only and preserve build-intent guard.",
+      "verification": "detail_build_action_safety_fixture."
+    },
+    {
+      "id": "P1-v0330-tests-must-enter-release-gate",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "New detail build action tests could be omitted from the current v0.3.x release gate.",
+      "fix": "Update manifest with v0.3.30 and expected 160 passing tests.",
+      "verification": "regression_manifest_updated."
+    }
+  ],
+  "checks": [
+    {
+      "id": "p0_p1_bug_ledger_detail_build_action",
+      "passed": true,
+      "bug_count": 3,
+      "blocking_bug_count": 0,
+      "bugs": [
+        {
+          "id": "P1-detail-build-action-state-invisible",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Build tab readiness existed but users still lacked a compact explanation of the next build action.",
+          "fix": "Add detail build action-state explainer.",
+          "verification": "detail_build_action_state_fixture."
+        },
+        {
+          "id": "P1-detail-build-action-must-not-start-team",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Explaining build actions could accidentally add a direct team-start path.",
+          "fix": "Keep explainer text-only and preserve build-intent guard.",
+          "verification": "detail_build_action_safety_fixture."
+        },
+        {
+          "id": "P1-v0330-tests-must-enter-release-gate",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "New detail build action tests could be omitted from the current v0.3.x release gate.",
+          "fix": "Update manifest with v0.3.30 and expected 160 passing tests.",
+          "verification": "regression_manifest_updated."
+        }
+      ]
+    },
+    {
+      "id": "detail_build_action_state_fixture",
+      "passed": true,
+      "cases": {
+        "busy": "busy",
+        "add_detail": "add_detail",
+        "confirm_team": "confirm_team",
+        "arm_team": "arm_team",
+        "improve_requirement": "improve_requirement"
+      }
+    },
+    {
+      "id": "detail_build_action_safety_fixture",
+      "passed": true,
+      "new_submit_button": false,
+      "build_guard_preserved": true
+    },
+    {
+      "id": "detail_build_action_source_markers",
+      "path": "platform/frontend/app/applications/[id]/page.tsx",
+      "required_markers": [
+        "detailBuildActionState",
+        "detailBuildAction",
+        "data-detail-build-action-state",
+        "detail-build-action-explainer",
+        "build-intent-guard",
+        "data-build-action=\"detail-start-builder-team\""
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "detail_build_action_i18n_markers",
+      "path": "platform/frontend/lib/i18n.ts",
+      "required_markers": [
+        "detailBuildActionBusyTitle",
+        "detailBuildActionAddDetailTitle",
+        "detailBuildActionArmTitle",
+        "detailBuildActionConfirmTitle",
+        "detailBuildActionConfirmDetail"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "detail_build_action_style_markers",
+      "path": "platform/frontend/app/globals.css",
+      "required_markers": [
+        ".detail-build-action-explainer",
+        ".create-action-explainer",
+        ".build-intent-guard"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "regression_manifest_updated",
+      "path": "docs/testing/regression_lanes.json",
+      "required_markers": [
+        "tests/test_v03_30_detail_build_action.py",
+        "\"pass_count\": 160"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "runtime_health_read_only",
+      "url": "http://127.0.0.1:8001/health",
+      "passed": true,
+      "status_code": 200,
+      "runtime": {
+        "version": "v0.3.6",
+        "product_phase": "v0.3.x",
+        "git": {
+          "commit": "63f75c9",
+          "branch": "usabilityEnhence",
+          "tracked_dirty": false,
+          "untracked_present": true
+        },
+        "route_availability": {
+          "health": true,
+          "applications_list": true,
+          "applications_create": true,
+          "application_detail": true,
+          "draft_detail": true,
+          "smoke_cleanup": true
+        },
+        "current_code_ready": true
+      }
+    },
+    {
+      "id": "safety_no_forbidden_detail_build_action_call",
+      "passed": true,
+      "called_endpoints": [
+        "GET /health"
+      ],
+      "forbidden_endpoint_fragments": [
+        "/builds",
+        "/tests/run",
+        "/runs",
+        "/versions",
+        "/restore",
+        "/draft"
+      ],
+      "model_call_used": false
+    }
+  ],
+  "summary": {
+    "failed_check_count": 0,
+    "open_p0_p1_bug_count": 0,
+    "forbidden_endpoint_called": false,
+    "detail_build_action": {
+      "id": "detail_build_action_state_fixture",
+      "passed": true,
+      "cases": {
+        "busy": "busy",
+        "add_detail": "add_detail",
+        "confirm_team": "confirm_team",
+        "arm_team": "arm_team",
+        "improve_requirement": "improve_requirement"
+      }
+    }
+  }
+}

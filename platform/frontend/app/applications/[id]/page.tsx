@@ -481,6 +481,14 @@ function detailBuildRequirementReadiness(requirement: string, t: Copy) {
   return { signals, readyCount, total: signals.length, ready: readyCount >= 3 }
 }
 
+function detailBuildActionState(requirement: string, readinessReady: boolean, build: Build | null, buildIntentConfirmed: boolean, t: Copy) {
+  if (build && ['queued', 'building'].includes(build.status)) return { id: 'busy', tone: 'busy', title: t.detailBuildActionBusyTitle, detail: t.detailBuildActionBusyDetail }
+  if (requirement.trim().length < 10) return { id: 'add_detail', tone: 'attention', title: t.detailBuildActionAddDetailTitle, detail: t.detailBuildActionAddDetailDetail }
+  if (buildIntentConfirmed) return { id: 'confirm_team', tone: 'warning', title: t.detailBuildActionConfirmTitle, detail: t.detailBuildActionConfirmDetail }
+  if (readinessReady) return { id: 'arm_team', tone: 'ready', title: t.detailBuildActionArmTitle, detail: t.detailBuildActionArmDetail }
+  return { id: 'improve_requirement', tone: 'attention', title: t.detailBuildActionImproveTitle, detail: t.detailBuildActionImproveDetail }
+}
+
 export default function Studio({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
   const [locale, setLocale] = useState<Locale>(defaultLocale)
@@ -1593,6 +1601,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     { label: t.nodeInspectorSafeNext, value: t.nodeInspectorSafeNextValue, detail: t.nodeInspectorSafeNextDetail },
   ] : []
   const detailBuildReadiness = detailBuildRequirementReadiness(requirement, t)
+  const detailBuildAction = detailBuildActionState(requirement, detailBuildReadiness.ready, build, buildIntentConfirmed, t)
 
   return <main className="studio-shell">
     <header className="studio-header">
@@ -1614,6 +1623,10 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
               <b>{signal.label}</b>
               <small>{signal.detail}</small>
             </article>)}</div>
+          </section>
+          <section className={`create-action-explainer detail-build-action-explainer ${detailBuildAction.tone}`} data-detail-build-action-state={detailBuildAction.id}>
+            <strong>{detailBuildAction.title}</strong>
+            <span>{detailBuildAction.detail}</span>
           </section>
           <label className="run-field">
             <span>{t.buildDeadlineLabel}<em>{t.buildDeadlineHelp}</em></span>
