@@ -1313,6 +1313,25 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     },
   ]
   const pendingPermission = useMemo(() => latestPendingPermission(runEvents), [runEvents])
+  const visibleTraceEventsForRun = useMemo(() => visibleRunEvents(runEvents), [runEvents])
+  const traceFailureCount = visibleTraceEventsForRun.filter(event => event.type.includes('failed') || event.type.includes('error') || String(event.data.status || '') === 'failed' || Boolean(event.data.error)).length
+  const tracePermissionCount = visibleTraceEventsForRun.filter(event => event.type.includes('permission')).length
+  const traceWorkflowCount = visibleTraceEventsForRun.filter(event => event.type.startsWith('workflow.')).length
+  const traceNodeCount = visibleTraceEventsForRun.filter(event => event.type.startsWith('node.') && !event.type.includes('permission')).length
+  const traceSummaryItems = [
+    { label: t.traceEvents, ready: visibleTraceEventsForRun.length > 0, detail: String(visibleTraceEventsForRun.length) },
+    { label: t.traceWorkflowEvents, ready: traceWorkflowCount > 0, detail: String(traceWorkflowCount) },
+    { label: t.traceNodeEvents, ready: traceNodeCount > 0, detail: String(traceNodeCount) },
+    { label: t.tracePermissionEvents, ready: tracePermissionCount === 0 && visibleTraceEventsForRun.length > 0, detail: String(tracePermissionCount) },
+    { label: t.traceFailureEvents, ready: traceFailureCount === 0 && visibleTraceEventsForRun.length > 0, detail: String(traceFailureCount) },
+  ]
+  const traceGuidance = pendingPermission
+    ? t.traceGuidancePermission
+    : traceFailureCount > 0
+      ? t.traceGuidanceFailure
+      : visibleTraceEventsForRun.length > 0
+        ? t.traceGuidanceReady
+        : t.traceGuidanceEmpty
   const relatedMonitorTasks = useMemo(
     () => monitorTasks.filter(task => taskIsRelated(task, id, build, run)),
     [build, id, monitorTasks, run],
@@ -1328,6 +1347,19 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     failed: monitorTasks.filter(task => task.status === 'failed').length,
     running: monitorTasks.filter(task => task.status === 'running').length,
   }), [monitorTasks, relatedMonitorTasks.length])
+  const monitorReadabilityItems = [
+    { label: t.monitorGuidanceRelated, ready: monitorSummary.related > 0, detail: t.monitorGuidanceRelatedDetail(monitorSummary.related) },
+    { label: t.monitorGuidanceRunning, ready: monitorSummary.running === 0, detail: t.monitorGuidanceRunningDetail(monitorSummary.running) },
+    { label: t.monitorGuidanceFailed, ready: monitorSummary.failed === 0, detail: t.monitorGuidanceFailedDetail(monitorSummary.failed) },
+    { label: t.monitorGuidanceTotal, ready: monitorSummary.total > 0, detail: t.monitorGuidanceTotalDetail(monitorSummary.total) },
+  ]
+  const monitorGuidance = monitorSummary.failed > 0
+    ? t.monitorGuidanceFailure
+    : monitorSummary.running > 0
+      ? t.monitorGuidanceRunningState
+      : monitorSummary.related > 0
+        ? t.monitorGuidanceHealthy
+        : t.monitorGuidanceEmpty
   const canvasStats = useMemo(() => ({
     nodes: draft?.snapshot.workflow.nodes.length || 0,
     edges: validWorkflowEdges(draft?.snapshot.workflow.nodes || [], draft?.snapshot.workflow.edges || []).length,
@@ -1602,7 +1634,11 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
           {!activeVersion && <p className="muted">{t.noPublishedVersion}</p>}
           {run && <div className="run-result" data-run-status={run.status}><b>{run.status}</b><p className="run-recovery-hint" data-try-guidance="run-result-recovery">{runRecoveryHint}</p><button className="danger-link" onClick={cancelRun} disabled={['succeeded', 'failed', 'paused', 'cancelled'].includes(run.status)}>{t.cancelRun}</button><pre>{JSON.stringify(run.outputs || run.error, null, 2)}</pre>{run.status === 'paused' && <><label>{t.humanInput}</label><textarea value={humanValues} onChange={event => setHumanValues(event.target.value)} /><button onClick={resumeRun}>{t.resume}</button></>}</div>}
           {pendingPermission && <div className="permission-card"><h3>{t.permissionWaiting}</h3><p>{t.permissionHelp}</p><p>{t.permissionTool}: <code>{pendingPermission.tool || '-'}</code>{pendingPermission.node_id ? <> · <code>{pendingPermission.node_id}</code></> : null}</p><pre>{JSON.stringify(pendingPermission.input || {}, null, 2)}</pre><div className="run-actions"><button className="wide" onClick={() => resolvePermission(pendingPermission, 'allow')}>{t.approvePermission}</button><button className="wide secondary" onClick={() => resolvePermission(pendingPermission, 'deny')}>{t.denyPermission}</button></div></div>}
-          {runEvents.length > 0 && <><h3>{t.traceTitle}</h3><pre className="trace-log">{JSON.stringify(visibleRunEvents(runEvents), null, 2)}</pre></>}
+          {visibleTraceEventsForRun.length > 0 && <><h3>{t.traceTitle}</h3><section className="trace-readability-panel" data-trace-guidance="summary">
+            <div className="trace-readability-head"><strong>{t.traceReadabilityTitle}</strong><small>{t.traceReadabilityHelp}</small></div>
+            <div className="trace-readability-list">{traceSummaryItems.map(item => <article className={item.ready ? 'ready' : ''} key={item.label}><span>{item.label}</span><b>{item.ready ? t.tryReady : t.tryNeedsAttention}</b><small>{item.detail}</small></article>)}</div>
+            <p className="trace-guidance" data-trace-guidance="next-action">{traceGuidance}</p>
+          </section><pre className="trace-log">{JSON.stringify(visibleTraceEventsForRun, null, 2)}</pre></>}
         </div>}
         {tab === 'monitor' && <div className="panel-body">
           <div className="panel-kicker">{t.platformHarness}</div><h2>{t.taskMonitor}</h2>
@@ -1613,6 +1649,11 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
             <span><b>{monitorSummary.failed}</b>{t.monitorFailed}</span>
             <span><b>{monitorSummary.total}</b>{t.monitorTotal}</span>
           </div>
+          <section className="monitor-readability-panel" data-monitor-guidance="summary">
+            <div className="monitor-readability-head"><strong>{t.monitorGuidanceTitle}</strong><small>{t.monitorGuidanceHelp}</small></div>
+            <div className="monitor-readability-list">{monitorReadabilityItems.map(item => <article className={item.ready ? 'ready' : ''} key={item.label}><span>{item.label}</span><b>{item.ready ? t.tryReady : t.tryNeedsAttention}</b><small>{item.detail}</small></article>)}</div>
+            <p className="monitor-guidance" data-monitor-guidance="next-action">{monitorGuidance}</p>
+          </section>
           <div className="monitor-toolbar">
             {(['related', 'failed', 'all'] as const).map(filter => <button className={monitorFilter === filter ? 'active' : ''} onClick={() => setMonitorFilter(filter)} key={filter}>{filter === 'related' ? t.monitorFilterRelated : filter === 'failed' ? t.monitorFilterFailed : t.monitorFilterAll}</button>)}
             <button className="refresh" onClick={() => { refreshMonitorTasks().catch(error => setNotice(String(error))); refreshPolicyControls().catch(error => setNotice(String(error))); refreshBenchmarkHistory().catch(error => setNotice(String(error))); refreshAdaptiveMonitoring().catch(error => setNotice(String(error))); refreshGovernedMemoryItems().catch(error => setNotice(String(error))) }} disabled={monitorLoading || policyControlsLoading || benchmarkHistoryLoading || adaptiveMonitoringLoading || governedMemoryLoading}>{monitorLoading || policyControlsLoading || benchmarkHistoryLoading || adaptiveMonitoringLoading || governedMemoryLoading ? t.monitorRefreshing : t.monitorRefresh}</button>
