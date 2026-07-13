@@ -455,6 +455,7 @@ export const messages = {
     safeDraftActionAcceptance: '看验收',
     safeDraftActionTry: '试用草稿',
     safeDraftActionBuildLater: '稍后构建',
+    safeDraftActionDismiss: '知道了',
     canvasGuideSteps: [
       '不知道下一步时，先看左侧当前草稿状态。',
       '想改功能，点击节点或使用自然语言修改草稿。',
@@ -957,6 +958,7 @@ export const messages = {
     safeDraftActionAcceptance: 'Review acceptance',
     safeDraftActionTry: 'Try draft',
     safeDraftActionBuildLater: 'Build later',
+    safeDraftActionDismiss: 'Done',
     canvasGuideSteps: [
       'If unsure, start with the current draft state on the left.',
       'To change behavior, click a node or use natural-language draft edit.',

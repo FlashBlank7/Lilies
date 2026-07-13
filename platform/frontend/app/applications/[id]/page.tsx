@@ -565,6 +565,15 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     setSafeDraftLanding(query.get('safeDraft') === '1')
   }, [])
 
+  function dismissSafeDraftLanding() {
+    setSafeDraftLanding(false)
+    if (typeof window === 'undefined') return
+    const query = new URLSearchParams(window.location.search)
+    query.delete('safeDraft')
+    const nextQuery = query.toString()
+    window.history.replaceState(null, '', `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ''}`)
+  }
+
   function setSelectedNode(value: WorkflowNode | null) {
     selectedId.current = value?.id || null
     selectedEdgeId.current = null
@@ -1933,6 +1942,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
               <button data-safe-draft-action="acceptance" onClick={() => setStudioTab('test')} type="button">{t.safeDraftActionAcceptance}</button>
               <button data-safe-draft-action="try" onClick={() => setStudioTab('run')} type="button">{t.safeDraftActionTry}</button>
               <button data-safe-draft-action="build_later" onClick={() => setStudioTab('build')} type="button">{t.safeDraftActionBuildLater}</button>
+              <button className="dismiss" data-safe-draft-action="dismiss" onClick={dismissSafeDraftLanding} type="button">{t.safeDraftActionDismiss}</button>
             </div>
           </section>}
           <section className="draft-readiness">
