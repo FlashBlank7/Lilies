@@ -1306,6 +1306,78 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
       detail: `${monitorSummary.related} ${t.monitorRelated} · ${monitorSummary.failed} ${t.monitorFailed}`,
     },
   ]
+  const detailSignals = [
+    {
+      label: t.detailSignalStructure,
+      value: t.detailSignalStructureValue(canvasStats.nodes, canvasStats.edges),
+      ready: canvasStats.nodes > 0,
+    },
+    {
+      label: t.detailSignalAcceptance,
+      value: acceptanceCaseViews.length ? t.acceptanceCases(acceptanceCaseViews.length) : t.noRequirementText,
+      ready: acceptanceCaseViews.length > 0,
+    },
+    {
+      label: t.detailSignalRun,
+      value: runInputParsed.error || t.runDraftButton,
+      ready: !runInputParsed.error,
+    },
+    {
+      label: t.detailSignalMonitor,
+      value: `${monitorSummary.related} ${t.monitorRelated} · ${monitorSummary.failed} ${t.monitorFailed}`,
+      ready: monitorSummary.related > 0 || monitorSummary.failed > 0 || monitorSummary.running > 0,
+    },
+  ]
+  const nextActionCards: Array<{
+    id: string
+    label: string
+    detail: string
+    ready: boolean
+    target: StudioTab
+  }> = [
+    {
+      id: 'inspect',
+      label: t.nextActionInspect,
+      detail: canvasStats.nodes ? t.nextActionInspectReady(canvasStats.nodes, canvasStats.edges) : t.nextActionInspectEmpty,
+      ready: canvasStats.nodes > 0,
+      target: 'edit',
+    },
+    {
+      id: 'build',
+      label: t.nextActionBuild,
+      detail: build ? `${build.status} · ${build.team_state.tasks.length} ${t.tasksTitle}` : t.nextActionBuildHelp,
+      ready: Boolean(build),
+      target: 'build',
+    },
+    {
+      id: 'test',
+      label: t.nextActionTest,
+      detail: tested ? t.testsPassed : t.nextActionTestHelp,
+      ready: Boolean(tested),
+      target: 'test',
+    },
+    {
+      id: 'run',
+      label: t.nextActionRun,
+      detail: runInputParsed.error || t.nextActionRunReady,
+      ready: !runInputParsed.error,
+      target: 'run',
+    },
+    {
+      id: 'publish',
+      label: t.nextActionPublish,
+      detail: activeVersion ? t.activeVersion(activeVersion) : tested ? t.nextActionPublishReady : t.nextActionPublishBlocked,
+      ready: Boolean(activeVersion),
+      target: 'test',
+    },
+    {
+      id: 'monitor',
+      label: t.nextActionMonitor,
+      detail: monitorSummary.related || monitorSummary.failed ? t.nextActionMonitorReady(monitorSummary.related, monitorSummary.failed) : t.nextActionMonitorHelp,
+      ready: monitorSummary.related > 0 || monitorSummary.failed > 0,
+      target: 'monitor',
+    },
+  ]
   function toggleLocale() {
     const value = nextLocale(locale)
     setLocale(value)
@@ -1668,10 +1740,29 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
               <small>{card.detail}</small>
             </article>)}</div>
           </section>
-          <section className="canvas-guide">
+          <section className="canvas-guide" data-detail-guidance="first-run-orientation">
             <div><strong>{t.canvasGuideTitle}</strong><small>{t.canvasStats(canvasStats.nodes, canvasStats.edges)}</small></div>
             <p>{t.canvasGuideCopy}</p>
+            <div className="detail-signal-grid">{detailSignals.map(signal => <article className={signal.ready ? 'ready' : 'needs-action'} key={signal.label}>
+              <span>{signal.label}</span>
+              <b>{signal.value}</b>
+            </article>)}</div>
             <ul>{t.canvasGuideSteps.map(item => <li key={item}>{item}</li>)}</ul>
+          </section>
+          <section className="next-action-checklist" data-detail-guidance="next-action-checklist">
+            <div className="next-action-head"><strong>{t.nextActionTitle}</strong><small>{t.nextActionHelp}</small></div>
+            <div className="next-action-list">{nextActionCards.map(action => <button
+              className={action.ready ? 'ready' : 'needs-action'}
+              data-next-action={action.id}
+              key={action.id}
+              onClick={() => setTab(action.target)}
+              type="button"
+            >
+              <span>{action.label}</span>
+              <b>{action.ready ? t.readyLabel : t.needsActionLabel}</b>
+              <small>{action.detail}</small>
+              <em>{t.nextActionOpen}</em>
+            </button>)}</div>
           </section>
         </div>
         <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} deleteKeyCode={['Backspace', 'Delete']} onInit={instance => { flowRef.current = instance; scheduleFitView(nodes) }} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onNodesDelete={deleted => { void persistDeletedNodes(deleted as StudioNode[]) }} onEdgesDelete={deleted => { void persistDeletedEdges(deleted) }} onNodeClick={(_, node) => chooseNode(node)} onEdgeClick={(_, edge) => chooseEdge(edge)} onPaneClick={() => setSelectedNode(null)} onNodeDragStop={(_, node) => mutation('update_node', { node_id: node.id, changes: { position: node.position } })} fitView fitViewOptions={{ padding: 0.22 }} colorMode="dark">
