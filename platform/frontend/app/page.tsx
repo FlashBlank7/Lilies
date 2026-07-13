@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { FormEvent, useEffect, useState } from 'react'
+import { FormEvent, useCallback, useEffect, useState } from 'react'
 import { api, clearClientToken, getClientToken, idempotency, isAuthError, saveClientToken } from '@/lib/platform'
 import { defaultLocale, isLocale, messages, nextLocale, type Locale } from '@/lib/i18n'
 import { classifyRuntimeStatus, runtimeCommit, runtimeVersion, type RuntimeHealth } from '@/lib/runtime-status'
@@ -16,10 +16,13 @@ type Application = {
   content_hash: string
   tested_hash?: string | null
 }
-type AppFilter = 'all' | 'needs_acceptance' | 'ready_to_publish' | 'published'
-type AppSort = 'readiness' | 'revision' | 'name'
+const APP_FILTERS = ['all', 'needs_acceptance', 'ready_to_publish', 'published'] as const
+type AppFilter = typeof APP_FILTERS[number]
+const APP_SORTS = ['readiness', 'revision', 'name'] as const
+type AppSort = typeof APP_SORTS[number]
 type AppActionTab = 'edit' | 'test' | 'run' | 'monitor'
 type AppQuickAction = { id: string; tab: AppActionTab; label: string }
+type AppListUrlState = { filter?: AppFilter; q?: string; sort?: AppSort }
 
 type DraftMutationResult = {
   revision: number
@@ -97,6 +100,14 @@ function appReadinessRank(item: Application) {
   return 2
 }
 
+function isAppFilter(value: string | null): value is AppFilter {
+  return Boolean(value && APP_FILTERS.includes(value as AppFilter))
+}
+
+function isAppSort(value: string | null): value is AppSort {
+  return Boolean(value && APP_SORTS.includes(value as AppSort))
+}
+
 export default function Home() {
   const [locale, setLocale] = useState<Locale>(defaultLocale)
   const t = messages[locale]
@@ -114,6 +125,49 @@ export default function Home() {
   const [tokenInput, setTokenInput] = useState('')
   const [runtimeHealth, setRuntimeHealth] = useState<RuntimeHealth | null>(null)
   const [runtimeUnavailable, setRuntimeUnavailable] = useState(false)
+  const writeAppListUrlState = useCallback((updates: AppListUrlState, options: { replace?: boolean } = {}) => {
+    if (typeof window === 'undefined') return
+    const query = new URLSearchParams(window.location.search)
+    if (updates.filter !== undefined) {
+      if (updates.filter === 'all') query.delete('filter')
+      else query.set('filter', updates.filter)
+    }
+    if (updates.q !== undefined) {
+      const value = updates.q.trim()
+      if (value) query.set('q', value)
+      else query.delete('q')
+    }
+    if (updates.sort !== undefined) {
+      if (updates.sort === 'readiness') query.delete('sort')
+      else query.set('sort', updates.sort)
+    }
+    const nextQuery = query.toString()
+    const nextUrl = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ''}`
+    if (nextUrl === `${window.location.pathname}${window.location.search}`) return
+    if (options.replace) window.history.replaceState(null, '', nextUrl)
+    else window.history.pushState(null, '', nextUrl)
+  }, [])
+  const setAppListFilter = useCallback((value: AppFilter) => {
+    setAppFilter(value)
+    writeAppListUrlState({ filter: value })
+  }, [writeAppListUrlState])
+  const setAppListSearch = useCallback((value: string) => {
+    setAppSearch(value)
+    writeAppListUrlState({ q: value }, { replace: true })
+  }, [writeAppListUrlState])
+  const setAppListSort = useCallback((value: AppSort) => {
+    setAppSort(value)
+    writeAppListUrlState({ sort: value })
+  }, [writeAppListUrlState])
+  const syncAppListStateFromLocation = useCallback(() => {
+    if (typeof window === 'undefined') return
+    const query = new URLSearchParams(window.location.search)
+    const filter = query.get('filter')
+    const sort = query.get('sort')
+    setAppFilter(isAppFilter(filter) ? filter : 'all')
+    setAppSort(isAppSort(sort) ? sort : 'readiness')
+    setAppSearch(query.get('q') || '')
+  }, [])
   const selectedCustomerExample = t.customerExamples.find(item => item.id === selectedExampleId)
   const runtimeStatus = classifyRuntimeStatus(runtimeHealth, { authRequired, unavailable: runtimeUnavailable })
   const runtimeStatusText = runtimeStatus === 'connected'
@@ -199,6 +253,11 @@ export default function Home() {
     void refreshRuntimeStatus()
     void refresh()
   }, [])
+  useEffect(() => {
+    syncAppListStateFromLocation()
+    window.addEventListener('popstate', syncAppListStateFromLocation)
+    return () => window.removeEventListener('popstate', syncAppListStateFromLocation)
+  }, [syncAppListStateFromLocation])
 
   function toggleLocale() {
     const value = nextLocale(locale)
@@ -323,16 +382,16 @@ export default function Home() {
           <span>{item.text}</span>
         </article>)}</div>
       </section>
-      <section className="apps-section">
+      <section className="apps-section" data-app-list-url-state="synced">
         <div className="section-heading"><h2>{t.applications}</h2><span>{t.appCount(apps.length)}</span></div>
         {apps.length > 0 && <div className="app-filter-toolbar" data-app-list-filter="status">
-          {appFilterOptions.map(option => <button className={appFilter === option.id ? 'active' : ''} onClick={() => setAppFilter(option.id)} key={option.id} type="button">
+          {appFilterOptions.map(option => <button className={appFilter === option.id ? 'active' : ''} onClick={() => setAppListFilter(option.id)} key={option.id} type="button">
             <span>{option.label}</span><b>{appFilterCount(option.id)}</b>
           </button>)}
         </div>}
         {apps.length > 0 && <div className="app-search-sort" data-app-list-search-sort="controls">
-          <input aria-label={t.appSearchLabel} placeholder={t.appSearchPlaceholder} value={appSearch} onChange={event => setAppSearch(event.target.value)} />
-          <label>{t.appSortLabel}<select value={appSort} onChange={event => setAppSort(event.target.value as AppSort)}>
+          <input aria-label={t.appSearchLabel} placeholder={t.appSearchPlaceholder} value={appSearch} onChange={event => setAppListSearch(event.target.value)} />
+          <label>{t.appSortLabel}<select value={appSort} onChange={event => setAppListSort(event.target.value as AppSort)}>
             <option value="readiness">{t.appSortReadiness}</option>
             <option value="revision">{t.appSortRevision}</option>
             <option value="name">{t.appSortName}</option>

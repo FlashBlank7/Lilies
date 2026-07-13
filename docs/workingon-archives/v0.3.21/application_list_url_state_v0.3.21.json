@@ -1,0 +1,318 @@
+{
+  "version": "v0.3.21",
+  "stage": "application_list_url_state",
+  "status": "passed",
+  "live_checks_enabled": true,
+  "safety": {
+    "forbidden_endpoint_called": false,
+    "called_endpoints": [
+      "GET /health"
+    ],
+    "forbidden_urls": []
+  },
+  "bug_ledger": [
+    {
+      "id": "P1-app-list-view-state-not-shareable",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Filter/search/sort state vanished from the URL after v0.3.18-v0.3.20.",
+      "fix": "Hydrate and write home app-list `filter`, `q`, and `sort` query state.",
+      "verification": "app_list_url_state_source_markers."
+    },
+    {
+      "id": "P1-app-list-search-history-spam-risk",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "A naive search URL writer would push browser history on every keystroke.",
+      "fix": "Use replaceState for search and pushState for filter/sort.",
+      "verification": "app_list_url_writer_fixture."
+    },
+    {
+      "id": "P1-app-list-query-needs-guards",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Invalid query values could put controls into unsupported filter or sort modes.",
+      "fix": "Add filter and sort allowlists plus parser guards.",
+      "verification": "app_list_query_parser_fixture."
+    },
+    {
+      "id": "P1-v0321-tests-must-enter-release-gate",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "New app-list URL-state tests could be omitted from the current v0.3.x release gate.",
+      "fix": "Update `docs/testing/regression_lanes.json` with v0.3.21 and expected 106 passing tests.",
+      "verification": "regression_manifest_updated."
+    }
+  ],
+  "checks": [
+    {
+      "id": "p0_p1_bug_ledger_app_list_url_state",
+      "passed": true,
+      "bug_count": 4,
+      "blocking_bug_count": 0,
+      "bugs": [
+        {
+          "id": "P1-app-list-view-state-not-shareable",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Filter/search/sort state vanished from the URL after v0.3.18-v0.3.20.",
+          "fix": "Hydrate and write home app-list `filter`, `q`, and `sort` query state.",
+          "verification": "app_list_url_state_source_markers."
+        },
+        {
+          "id": "P1-app-list-search-history-spam-risk",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "A naive search URL writer would push browser history on every keystroke.",
+          "fix": "Use replaceState for search and pushState for filter/sort.",
+          "verification": "app_list_url_writer_fixture."
+        },
+        {
+          "id": "P1-app-list-query-needs-guards",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Invalid query values could put controls into unsupported filter or sort modes.",
+          "fix": "Add filter and sort allowlists plus parser guards.",
+          "verification": "app_list_query_parser_fixture."
+        },
+        {
+          "id": "P1-v0321-tests-must-enter-release-gate",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "New app-list URL-state tests could be omitted from the current v0.3.x release gate.",
+          "fix": "Update `docs/testing/regression_lanes.json` with v0.3.21 and expected 106 passing tests.",
+          "verification": "regression_manifest_updated."
+        }
+      ]
+    },
+    {
+      "id": "app_list_query_parser_fixture",
+      "passed": true,
+      "valid": {
+        "filter": "published",
+        "q": "demo",
+        "sort": "name"
+      },
+      "invalid": {
+        "filter": "all",
+        "q": "demo",
+        "sort": "readiness"
+      },
+      "empty": {
+        "filter": "all",
+        "q": "",
+        "sort": "readiness"
+      }
+    },
+    {
+      "id": "app_list_url_writer_fixture",
+      "passed": true,
+      "filter_push": {
+        "path": "/",
+        "input_query": "team=alpha",
+        "updates": {
+          "filter": "published"
+        },
+        "history_method": "pushState",
+        "url": "/?team=alpha&filter=published",
+        "query": {
+          "team": "alpha",
+          "filter": "published"
+        }
+      },
+      "search_replace": {
+        "path": "/",
+        "input_query": "filter=published",
+        "updates": {
+          "q": " customer demo "
+        },
+        "history_method": "replaceState",
+        "url": "/?filter=published&q=customer+demo",
+        "query": {
+          "filter": "published",
+          "q": "customer demo"
+        }
+      },
+      "sort_push": {
+        "path": "/",
+        "input_query": "filter=published&q=demo",
+        "updates": {
+          "sort": "name"
+        },
+        "history_method": "pushState",
+        "url": "/?filter=published&q=demo&sort=name",
+        "query": {
+          "filter": "published",
+          "q": "demo",
+          "sort": "name"
+        }
+      },
+      "defaults_removed": {
+        "path": "/",
+        "input_query": "filter=published&q=demo&sort=name",
+        "updates": {
+          "filter": "all",
+          "q": "",
+          "sort": "readiness"
+        },
+        "history_method": "pushState",
+        "url": "/",
+        "query": {}
+      },
+      "forbidden_urls": []
+    },
+    {
+      "id": "direct_app_list_setter_guard",
+      "passed": true,
+      "forbidden_markers": [
+        "onClick={() => setAppFilter",
+        "onChange={event => setAppSearch",
+        "onChange={event => setAppSort"
+      ],
+      "found": []
+    },
+    {
+      "id": "app_list_url_state_source_markers",
+      "path": "platform/frontend/app/page.tsx",
+      "required_markers": [
+        "APP_FILTERS",
+        "APP_SORTS",
+        "isAppFilter",
+        "isAppSort",
+        "writeAppListUrlState",
+        "setAppListFilter",
+        "setAppListSearch",
+        "setAppListSort",
+        "syncAppListStateFromLocation",
+        "data-app-list-url-state=\"synced\""
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "app_list_url_history_markers",
+      "path": "platform/frontend/app/page.tsx",
+      "required_markers": [
+        "window.history.pushState",
+        "window.history.replaceState",
+        "window.addEventListener('popstate'",
+        "window.removeEventListener('popstate'"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "regression_manifest_updated",
+      "path": "docs/testing/regression_lanes.json",
+      "required_markers": [
+        "tests/test_v03_21_application_list_url_state.py",
+        "\"pass_count\": 106"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "runtime_health_read_only",
+      "url": "http://127.0.0.1:8001/health",
+      "passed": true,
+      "status_code": 200,
+      "runtime": {
+        "version": "v0.3.6",
+        "product_phase": "v0.3.x",
+        "git": {
+          "commit": "48e7add",
+          "branch": "usabilityEnhence",
+          "tracked_dirty": false,
+          "untracked_present": true
+        },
+        "route_availability": {
+          "health": true,
+          "applications_list": true,
+          "applications_create": true,
+          "application_detail": true,
+          "draft_detail": true,
+          "smoke_cleanup": true
+        },
+        "current_code_ready": true
+      }
+    },
+    {
+      "id": "safety_no_forbidden_app_list_url_call",
+      "passed": true,
+      "called_endpoints": [
+        "GET /health"
+      ],
+      "forbidden_endpoint_fragments": [
+        "/builds",
+        "/tests/run",
+        "/runs",
+        "/versions",
+        "/restore",
+        "/draft"
+      ],
+      "forbidden_urls": []
+    }
+  ],
+  "summary": {
+    "failed_check_count": 0,
+    "open_p0_p1_bug_count": 0,
+    "forbidden_endpoint_called": false,
+    "url_writer": {
+      "id": "app_list_url_writer_fixture",
+      "passed": true,
+      "filter_push": {
+        "path": "/",
+        "input_query": "team=alpha",
+        "updates": {
+          "filter": "published"
+        },
+        "history_method": "pushState",
+        "url": "/?team=alpha&filter=published",
+        "query": {
+          "team": "alpha",
+          "filter": "published"
+        }
+      },
+      "search_replace": {
+        "path": "/",
+        "input_query": "filter=published",
+        "updates": {
+          "q": " customer demo "
+        },
+        "history_method": "replaceState",
+        "url": "/?filter=published&q=customer+demo",
+        "query": {
+          "filter": "published",
+          "q": "customer demo"
+        }
+      },
+      "sort_push": {
+        "path": "/",
+        "input_query": "filter=published&q=demo",
+        "updates": {
+          "sort": "name"
+        },
+        "history_method": "pushState",
+        "url": "/?filter=published&q=demo&sort=name",
+        "query": {
+          "filter": "published",
+          "q": "demo",
+          "sort": "name"
+        }
+      },
+      "defaults_removed": {
+        "path": "/",
+        "input_query": "filter=published&q=demo&sort=name",
+        "updates": {
+          "filter": "all",
+          "q": "",
+          "sort": "readiness"
+        },
+        "history_method": "pushState",
+        "url": "/",
+        "query": {}
+      },
+      "forbidden_urls": []
+    }
+  }
+}
