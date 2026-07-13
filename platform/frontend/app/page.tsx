@@ -122,6 +122,14 @@ function requirementReadiness(requirement: string, t: Copy) {
   return { signals, readyCount, total: signals.length, ready: readyCount >= 3 }
 }
 
+function createActionState(requirement: string, readinessReady: boolean, busy: boolean, draftBusy: boolean, buildIntentConfirmed: boolean, t: Copy) {
+  if (busy || draftBusy) return { id: 'busy', tone: 'busy', title: t.createActionBusyTitle, detail: t.createActionBusyDetail }
+  if (requirement.trim().length < 10) return { id: 'add_detail', tone: 'attention', title: t.createActionAddDetailTitle, detail: t.createActionAddDetailDetail }
+  if (buildIntentConfirmed) return { id: 'confirm_team', tone: 'warning', title: t.createActionConfirmTeamTitle, detail: t.createActionConfirmTeamDetail }
+  if (readinessReady) return { id: 'save_draft', tone: 'ready', title: t.createActionSaveDraftTitle, detail: t.createActionSaveDraftDetail }
+  return { id: 'improve_requirement', tone: 'attention', title: t.createActionImproveTitle, detail: t.createActionImproveDetail }
+}
+
 export default function Home() {
   const [locale, setLocale] = useState<Locale>(defaultLocale)
   const t = messages[locale]
@@ -193,6 +201,7 @@ export default function Home() {
   }, [])
   const selectedCustomerExample = t.customerExamples.find(item => item.id === selectedExampleId)
   const createReadiness = requirementReadiness(requirement, t)
+  const createAction = createActionState(requirement, createReadiness.ready, busy, draftBusy, buildIntentConfirmed, t)
   const runtimeStatus = classifyRuntimeStatus(runtimeHealth, { authRequired, unavailable: runtimeUnavailable })
   const runtimeStatusText = runtimeStatus === 'connected'
     ? t.runtimeStatusConnected(runtimeVersion(runtimeHealth))
@@ -376,6 +385,10 @@ export default function Home() {
               <b>{signal.label}</b>
               <small>{signal.detail}</small>
             </article>)}</div>
+          </section>
+          <section className={`create-action-explainer ${createAction.tone}`} data-create-action-state={createAction.id}>
+            <strong>{createAction.title}</strong>
+            <span>{createAction.detail}</span>
           </section>
           <div className="create-footer">
             <div className="create-copy"><span>{t.createHint}</span><small>{t.safeDraftHint}</small><small className="build-intent-copy" data-build-intent={buildIntentConfirmed ? 'confirmed' : 'needs-confirmation'}>{buildIntentConfirmed ? t.buildIntentHomeArmed : t.buildIntentHomeSafe}</small></div>

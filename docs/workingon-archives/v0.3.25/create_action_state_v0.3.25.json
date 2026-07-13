@@ -1,0 +1,172 @@
+{
+  "version": "v0.3.25",
+  "stage": "create_action_state_explainer",
+  "status": "passed",
+  "live_checks_enabled": true,
+  "safety": {
+    "forbidden_endpoint_called": false,
+    "called_endpoints": [
+      "GET /health"
+    ],
+    "model_call_used": false
+  },
+  "bug_ledger": [
+    {
+      "id": "P1-create-actions-lack-unified-state-explainer",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Readiness and button state were separate, leaving users unsure what to do next.",
+      "fix": "Add create action explainer.",
+      "verification": "create_action_state_fixture."
+    },
+    {
+      "id": "P1-v0325-tests-must-enter-release-gate",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "New create-action tests could be omitted from the current v0.3.x release gate.",
+      "fix": "Update manifest with v0.3.25 and expected 130 passing tests.",
+      "verification": "regression_manifest_updated."
+    }
+  ],
+  "checks": [
+    {
+      "id": "p0_p1_bug_ledger_create_action_state",
+      "passed": true,
+      "bug_count": 2,
+      "blocking_bug_count": 0,
+      "bugs": [
+        {
+          "id": "P1-create-actions-lack-unified-state-explainer",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Readiness and button state were separate, leaving users unsure what to do next.",
+          "fix": "Add create action explainer.",
+          "verification": "create_action_state_fixture."
+        },
+        {
+          "id": "P1-v0325-tests-must-enter-release-gate",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "New create-action tests could be omitted from the current v0.3.x release gate.",
+          "fix": "Update manifest with v0.3.25 and expected 130 passing tests.",
+          "verification": "regression_manifest_updated."
+        }
+      ]
+    },
+    {
+      "id": "create_action_state_fixture",
+      "passed": true,
+      "cases": {
+        "busy": "busy",
+        "add_detail": "add_detail",
+        "confirm_team": "confirm_team",
+        "save_draft": "save_draft",
+        "improve_requirement": "improve_requirement"
+      }
+    },
+    {
+      "id": "create_action_state_source_markers",
+      "path": "platform/frontend/app/page.tsx",
+      "required_markers": [
+        "createActionState",
+        "createAction",
+        "data-create-action-state",
+        "create-action-explainer"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "create_action_state_i18n_markers",
+      "path": "platform/frontend/lib/i18n.ts",
+      "required_markers": [
+        "createActionBusyTitle",
+        "createActionAddDetailTitle",
+        "createActionConfirmTeamTitle",
+        "createActionSaveDraftTitle",
+        "createActionImproveTitle"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "create_action_state_style_markers",
+      "path": "platform/frontend/app/globals.css",
+      "required_markers": [
+        ".create-action-explainer",
+        ".create-action-explainer.attention",
+        ".create-action-explainer.ready",
+        ".create-action-explainer.warning"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "regression_manifest_updated",
+      "path": "docs/testing/regression_lanes.json",
+      "required_markers": [
+        "tests/test_v03_25_create_action_state.py",
+        "\"pass_count\": 130"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "runtime_health_read_only",
+      "url": "http://127.0.0.1:8001/health",
+      "passed": true,
+      "status_code": 200,
+      "runtime": {
+        "version": "v0.3.6",
+        "product_phase": "v0.3.x",
+        "git": {
+          "commit": "3d47ffa",
+          "branch": "usabilityEnhence",
+          "tracked_dirty": false,
+          "untracked_present": true
+        },
+        "route_availability": {
+          "health": true,
+          "applications_list": true,
+          "applications_create": true,
+          "application_detail": true,
+          "draft_detail": true,
+          "smoke_cleanup": true
+        },
+        "current_code_ready": true
+      }
+    },
+    {
+      "id": "safety_no_forbidden_create_action_call",
+      "passed": true,
+      "called_endpoints": [
+        "GET /health"
+      ],
+      "forbidden_endpoint_fragments": [
+        "/builds",
+        "/tests/run",
+        "/runs",
+        "/versions",
+        "/restore",
+        "/draft"
+      ],
+      "model_call_used": false
+    }
+  ],
+  "summary": {
+    "failed_check_count": 0,
+    "open_p0_p1_bug_count": 0,
+    "forbidden_endpoint_called": false,
+    "action_state": {
+      "id": "create_action_state_fixture",
+      "passed": true,
+      "cases": {
+        "busy": "busy",
+        "add_detail": "add_detail",
+        "confirm_team": "confirm_team",
+        "save_draft": "save_draft",
+        "improve_requirement": "improve_requirement"
+      }
+    }
+  }
+}
