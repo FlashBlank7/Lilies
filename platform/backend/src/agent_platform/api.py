@@ -3,9 +3,11 @@ from __future__ import annotations
 import asyncio
 import json
 import shutil
+import subprocess
 from contextlib import asynccontextmanager
-from pathlib import Path
 from dataclasses import asdict, dataclass
+from functools import lru_cache
+from pathlib import Path
 from typing import Any, AsyncIterator, Literal
 from uuid import uuid4
 
@@ -14,6 +16,7 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
+from . import PRODUCT_PHASE, __version__
 from .config import Settings, get_settings
 from .applications import ApplicationService
 from .adaptive_monitoring import (
@@ -79,6 +82,103 @@ from .workflow_models import (
 )
 from .workflow_runtime import WorkflowRuntime
 from .workflow_storage import PublishGateError, RevisionConflict, WorkflowStorage
+
+
+RUNTIME_ROUTE_CHECKS: dict[str, tuple[str, str]] = {
+    "health": ("GET", "/health"),
+    "applications_list": ("GET", "/api/v1/applications"),
+    "applications_create": ("POST", "/api/v1/applications"),
+    "application_detail": ("GET", "/api/v1/applications/{application_id}"),
+    "draft_detail": ("GET", "/api/v1/applications/{application_id}/draft"),
+    "smoke_cleanup": ("POST", "/api/v1/applications/{application_id}/smoke-cleanup"),
+}
+
+
+def _repo_root() -> Path | None:
+    current = Path(__file__).resolve()
+    for parent in current.parents:
+        if (parent / ".git").exists():
+            return parent
+    return None
+
+
+def _git_text(repo_root: Path, *args: str) -> str:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo_root), *args],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=1,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return "unknown"
+    return result.stdout.strip() or "unknown"
+
+
+def _git_has_output(repo_root: Path, *args: str) -> bool:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo_root), *args],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=1,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return bool(result.stdout.strip())
+
+
+def _git_differs(repo_root: Path, *args: str) -> bool:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo_root), *args],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=1,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return result.returncode == 1
+
+
+@lru_cache(maxsize=1)
+def runtime_git_identity() -> dict[str, str | bool]:
+    repo_root = _repo_root()
+    if repo_root is None:
+        return {
+            "commit": "unknown",
+            "branch": "unknown",
+            "tracked_dirty": False,
+            "untracked_present": False,
+        }
+    return {
+        "commit": _git_text(repo_root, "rev-parse", "--short", "HEAD"),
+        "branch": _git_text(repo_root, "rev-parse", "--abbrev-ref", "HEAD"),
+        "tracked_dirty": (
+            _git_differs(repo_root, "diff", "--quiet", "HEAD", "--")
+            or _git_differs(repo_root, "diff", "--cached", "--quiet", "--")
+        ),
+        "untracked_present": _git_has_output(repo_root, "ls-files", "--others", "--exclude-standard"),
+    }
+
+
+def route_available(app: FastAPI, method: str, path: str) -> bool:
+    for route in app.routes:
+        route_path = getattr(route, "path", "")
+        route_methods = set(getattr(route, "methods", set()) or set())
+        if route_path == path and method.upper() in route_methods:
+            return True
+    return False
+
+
+def route_availability(app: FastAPI) -> dict[str, bool]:
+    return {
+        name: route_available(app, method, path)
+        for name, (method, path) in RUNTIME_ROUTE_CHECKS.items()
+    }
 
 
 @dataclass(slots=True)
@@ -384,7 +484,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             services.background_tasks.discard(adaptive_refresh_task)
         await services.sandboxes.close()
 
-    app = FastAPI(title=settings.app_name, version="0.2.0", lifespan=lifespan)
+    app = FastAPI(title=settings.app_name, version=__version__, lifespan=lifespan)
     app.state.services = services
     bearer = HTTPBearer(auto_error=False)
 
@@ -398,8 +498,16 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
 
     @app.get("/health")
     async def health() -> dict[str, Any]:
+        routes = route_availability(app)
         return {
             "status": "ok",
+            "runtime": {
+                "version": __version__,
+                "product_phase": PRODUCT_PHASE,
+                "git": runtime_git_identity(),
+                "route_availability": routes,
+                "current_code_ready": all(routes.values()),
+            },
             "deepseek_configured": bool(settings.deepseek_api_key),
             "docker_available": shutil.which("docker") is not None,
             "provider": services.provider.name,

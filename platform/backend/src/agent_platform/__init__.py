@@ -1,3 +1,4 @@
 """Agent Platform Python backend."""
 
-__version__ = "0.1.0"
+PRODUCT_PHASE = "v0.3.x"
+__version__ = "v0.3.6"

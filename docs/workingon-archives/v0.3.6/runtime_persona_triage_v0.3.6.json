@@ -1,0 +1,311 @@
+{
+  "version": "v0.3.6",
+  "stage": "runtime_product_health_triage",
+  "status": "passed",
+  "live_checks_enabled": true,
+  "token_source": "file:.env:API_TOKEN",
+  "smoke_marker": "v0.3.6-smoke",
+  "expected_runtime_version": "v0.3.6",
+  "personas": [
+    {
+      "id": "confused_first_time_business_owner",
+      "role": "business_owner",
+      "behavior": "starts from home page, needs examples and safe draft language before trusting the product",
+      "expected_signal": "home route and source include customer examples plus save-draft-only affordance"
+    },
+    {
+      "id": "concrete_workflow_builder",
+      "role": "implementation_consultant",
+      "behavior": "creates a concrete workflow draft and expects visible Start to Answer structure without a model build",
+      "expected_signal": "created smoke draft contains start node, answer node, edge, and structural acceptance test"
+    },
+    {
+      "id": "returning_draft_reviewer",
+      "role": "returning_consultant",
+      "behavior": "returns to the application list, opens an existing draft, and expects revision/detail guidance",
+      "expected_signal": "application list, draft API, and detail route are reachable for the smoke app"
+    }
+  ],
+  "bug_ledger": [
+    {
+      "id": "P1-runtime-health-stale-version-label",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "The backend app advertised version 0.2.0 while v0.3.x routes existed.",
+      "fix": "Expose v0.3.6 runtime identity and route availability from /health.",
+      "verification": "runtime_health_current_code check and tests/test_v03_6_runtime_health_identity.py."
+    },
+    {
+      "id": "P1-local-service-drift-invisible",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "The frontend proxy could talk to an old backend on 8001 without a clear machine-readable signal.",
+      "fix": "Frontend proxy /api/platform/health now surfaces the backend runtime identity when 8001 is current.",
+      "verification": "frontend_proxy_health_current_code check."
+    },
+    {
+      "id": "P1-persona-smoke-artifact-retention",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Persona tests create local evidence apps that can accumulate.",
+      "fix": "Use the v0.3.5 smoke-cleanup boundary for the v0.3.6 smoke app.",
+      "verification": "cleanup_smoke_app and verified_smoke_deleted checks."
+    }
+  ],
+  "safety": {
+    "build_endpoint_called": false,
+    "called_endpoints": [
+      "POST /api/v1/applications",
+      "POST /api/v1/applications/{id}/draft:add_node",
+      "POST /api/v1/applications/{id}/draft:add_node",
+      "POST /api/v1/applications/{id}/draft:add_edge",
+      "POST /api/v1/applications/{id}/draft:add_test",
+      "GET /api/v1/applications",
+      "GET /api/v1/applications/{id}/draft",
+      "POST /api/v1/applications/{id}/smoke-cleanup"
+    ],
+    "smoke_marker": "v0.3.6-smoke",
+    "cleanup_attempted": true
+  },
+  "checks": [
+    {
+      "id": "persona_set_defined",
+      "passed": true,
+      "personas": [
+        {
+          "id": "confused_first_time_business_owner",
+          "role": "business_owner",
+          "behavior": "starts from home page, needs examples and safe draft language before trusting the product",
+          "expected_signal": "home route and source include customer examples plus save-draft-only affordance"
+        },
+        {
+          "id": "concrete_workflow_builder",
+          "role": "implementation_consultant",
+          "behavior": "creates a concrete workflow draft and expects visible Start to Answer structure without a model build",
+          "expected_signal": "created smoke draft contains start node, answer node, edge, and structural acceptance test"
+        },
+        {
+          "id": "returning_draft_reviewer",
+          "role": "returning_consultant",
+          "behavior": "returns to the application list, opens an existing draft, and expects revision/detail guidance",
+          "expected_signal": "application list, draft API, and detail route are reachable for the smoke app"
+        }
+      ],
+      "roles": [
+        "business_owner",
+        "implementation_consultant",
+        "returning_consultant"
+      ]
+    },
+    {
+      "id": "p0_p1_bug_ledger_runtime_persona_triage",
+      "passed": true,
+      "bug_count": 3,
+      "blocking_bug_count": 0,
+      "bugs": [
+        {
+          "id": "P1-runtime-health-stale-version-label",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "The backend app advertised version 0.2.0 while v0.3.x routes existed.",
+          "fix": "Expose v0.3.6 runtime identity and route availability from /health.",
+          "verification": "runtime_health_current_code check and tests/test_v03_6_runtime_health_identity.py."
+        },
+        {
+          "id": "P1-local-service-drift-invisible",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "The frontend proxy could talk to an old backend on 8001 without a clear machine-readable signal.",
+          "fix": "Frontend proxy /api/platform/health now surfaces the backend runtime identity when 8001 is current.",
+          "verification": "frontend_proxy_health_current_code check."
+        },
+        {
+          "id": "P1-persona-smoke-artifact-retention",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Persona tests create local evidence apps that can accumulate.",
+          "fix": "Use the v0.3.5 smoke-cleanup boundary for the v0.3.6 smoke app.",
+          "verification": "cleanup_smoke_app and verified_smoke_deleted checks."
+        }
+      ]
+    },
+    {
+      "id": "home_confused_customer_markers",
+      "path": "platform/frontend/app/page.tsx",
+      "required_markers": [
+        "customer-intake-panel",
+        "saveDraftOnly",
+        "data-customer-example"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "copy_persona_markers",
+      "path": "platform/frontend/lib/i18n.ts",
+      "required_markers": [
+        "customerExamples",
+        "business_owner",
+        "implementation_consultant",
+        "operator",
+        "technical_reviewer"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "detail_returning_reviewer_markers",
+      "path": "platform/frontend/app/applications/[id]/page.tsx",
+      "required_markers": [
+        "draftReadinessTitle",
+        "canvasGuideTitle",
+        "bugTriageTitle",
+        "draft?.revision"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "runtime_health_current_code",
+      "url": "http://127.0.0.1:8001/health",
+      "passed": true,
+      "status_code": 200,
+      "runtime": {
+        "version": "v0.3.6",
+        "product_phase": "v0.3.x",
+        "git": {
+          "commit": "86e2725",
+          "branch": "usabilityEnhence",
+          "tracked_dirty": true,
+          "untracked_present": true
+        },
+        "route_availability": {
+          "health": true,
+          "applications_list": true,
+          "applications_create": true,
+          "application_detail": true,
+          "draft_detail": true,
+          "smoke_cleanup": true
+        },
+        "current_code_ready": true
+      }
+    },
+    {
+      "id": "frontend_proxy_health_current_code",
+      "url": "http://127.0.0.1:3000/api/platform/health",
+      "passed": true,
+      "status_code": 200,
+      "runtime": {
+        "version": "v0.3.6",
+        "product_phase": "v0.3.x",
+        "git": {
+          "commit": "86e2725",
+          "branch": "usabilityEnhence",
+          "tracked_dirty": true,
+          "untracked_present": true
+        },
+        "route_availability": {
+          "health": true,
+          "applications_list": true,
+          "applications_create": true,
+          "application_detail": true,
+          "draft_detail": true,
+          "smoke_cleanup": true
+        },
+        "current_code_ready": true
+      }
+    },
+    {
+      "id": "token_available",
+      "passed": true,
+      "token_source": "file:.env:API_TOKEN"
+    },
+    {
+      "id": "persona_confused_first_time_home_visible",
+      "persona": "confused_first_time_business_owner",
+      "url": "http://127.0.0.1:3000/",
+      "passed": true,
+      "status_code": 200
+    },
+    {
+      "id": "persona_builder_created_smoke_draft",
+      "persona": "concrete_workflow_builder",
+      "passed": true,
+      "status_code": 201,
+      "application_id": "1a581199-7bfd-4d71-8ac5-63e0772a8dfe",
+      "draft_revision": 0
+    },
+    {
+      "id": "persona_builder_seeded_visible_structure",
+      "persona": "concrete_workflow_builder",
+      "passed": true,
+      "final_revision": 4,
+      "operation_count": 4
+    },
+    {
+      "id": "persona_returning_list_contains_smoke_app",
+      "persona": "returning_draft_reviewer",
+      "passed": true,
+      "status_code": 200,
+      "application_count": 14
+    },
+    {
+      "id": "persona_returning_opened_structured_draft",
+      "persona": "returning_draft_reviewer",
+      "passed": true,
+      "status_code": 200,
+      "revision": 4,
+      "node_types": [
+        "answer",
+        "start"
+      ],
+      "edge_count": 1,
+      "test_count": 1
+    },
+    {
+      "id": "persona_returning_detail_route_visible",
+      "persona": "returning_draft_reviewer",
+      "url": "http://127.0.0.1:3000/applications/1a581199-7bfd-4d71-8ac5-63e0772a8dfe?safeDraft=1",
+      "passed": true,
+      "status_code": 200
+    },
+    {
+      "id": "cleanup_smoke_app",
+      "passed": true,
+      "status_code": 200,
+      "related_counts": {
+        "application_drafts": 1,
+        "application_versions": 0,
+        "builds": 0,
+        "workflow_runs": 0,
+        "schedule_fires": 0,
+        "draft_idempotency": 4
+      }
+    },
+    {
+      "id": "verified_smoke_deleted",
+      "passed": true,
+      "status_code": 404
+    },
+    {
+      "id": "safety_no_build_call",
+      "passed": true,
+      "called_endpoints": [
+        "POST /api/v1/applications",
+        "POST /api/v1/applications/{id}/draft:add_node",
+        "POST /api/v1/applications/{id}/draft:add_node",
+        "POST /api/v1/applications/{id}/draft:add_edge",
+        "POST /api/v1/applications/{id}/draft:add_test",
+        "GET /api/v1/applications",
+        "GET /api/v1/applications/{id}/draft",
+        "POST /api/v1/applications/{id}/smoke-cleanup"
+      ],
+      "forbidden_endpoint": "POST /api/v1/applications/{id}/builds"
+    }
+  ],
+  "summary": {
+    "failed_check_count": 0,
+    "open_p0_p1_bug_count": 0,
+    "build_endpoint_called": false
+  }
+}
