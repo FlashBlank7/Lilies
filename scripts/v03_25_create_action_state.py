@@ -59,7 +59,7 @@ def source_marker_checks() -> list[dict[str, Any]]:
         ("create_action_state_source_markers", "platform/frontend/app/page.tsx", ("createActionState", "createAction", "data-create-action-state", "create-action-explainer")),
         ("create_action_state_i18n_markers", "platform/frontend/lib/i18n.ts", ("createActionBusyTitle", "createActionAddDetailTitle", "createActionConfirmTeamTitle", "createActionSaveDraftTitle", "createActionImproveTitle")),
         ("create_action_state_style_markers", "platform/frontend/app/globals.css", (".create-action-explainer", ".create-action-explainer.attention", ".create-action-explainer.ready", ".create-action-explainer.warning")),
-        ("regression_manifest_updated", "docs/testing/regression_lanes.json", ("tests/test_v03_25_create_action_state.py", "\"pass_count\": 130")),
+        ("regression_manifest_updated", "docs/testing/regression_lanes.json", ("tests/test_v03_25_create_action_state.py", "v0.3.x_current_release_gate")),
     ]
     evidence: list[dict[str, Any]] = []
     for check_id, relative_path, markers in checks:

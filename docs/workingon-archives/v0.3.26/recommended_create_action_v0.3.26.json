@@ -1,0 +1,234 @@
+{
+  "version": "v0.3.26",
+  "stage": "recommended_create_action_affordance",
+  "status": "passed",
+  "live_checks_enabled": true,
+  "safety": {
+    "forbidden_endpoint_called": false,
+    "called_endpoints": [
+      "GET /health"
+    ],
+    "model_call_used": false
+  },
+  "bug_ledger": [
+    {
+      "id": "P1-create-action-explainer-not-executable",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Users could read the action explanation but still had to infer which control to use.",
+      "fix": "Add recommended create action affordance.",
+      "verification": "recommended_create_action_fixture."
+    },
+    {
+      "id": "P1-recommended-action-must-not-autostart-team",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "A recommended action could accidentally become a one-click model-team startup path.",
+      "fix": "Map confirm-team recommendation to guarded button focus only.",
+      "verification": "recommended_team_start_safety_fixture."
+    },
+    {
+      "id": "P1-v0326-tests-must-enter-release-gate",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "New recommended-action tests could be omitted from the current v0.3.x release gate.",
+      "fix": "Update manifest with v0.3.26 and expected 136 passing tests.",
+      "verification": "regression_manifest_updated."
+    }
+  ],
+  "checks": [
+    {
+      "id": "p0_p1_bug_ledger_recommended_action",
+      "passed": true,
+      "bug_count": 3,
+      "blocking_bug_count": 0,
+      "bugs": [
+        {
+          "id": "P1-create-action-explainer-not-executable",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Users could read the action explanation but still had to infer which control to use.",
+          "fix": "Add recommended create action affordance.",
+          "verification": "recommended_create_action_fixture."
+        },
+        {
+          "id": "P1-recommended-action-must-not-autostart-team",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "A recommended action could accidentally become a one-click model-team startup path.",
+          "fix": "Map confirm-team recommendation to guarded button focus only.",
+          "verification": "recommended_team_start_safety_fixture."
+        },
+        {
+          "id": "P1-v0326-tests-must-enter-release-gate",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "New recommended-action tests could be omitted from the current v0.3.x release gate.",
+          "fix": "Update manifest with v0.3.26 and expected 136 passing tests.",
+          "verification": "regression_manifest_updated."
+        }
+      ]
+    },
+    {
+      "id": "recommended_create_action_fixture",
+      "passed": true,
+      "cases": {
+        "busy": {
+          "target": "wait",
+          "disabled": true
+        },
+        "add_detail": {
+          "target": "requirement_focus",
+          "disabled": false
+        },
+        "improve_requirement": {
+          "target": "requirement_focus",
+          "disabled": false
+        },
+        "save_draft": {
+          "target": "safe_draft",
+          "disabled": false
+        },
+        "confirm_team": {
+          "target": "guarded_build_button",
+          "disabled": false
+        }
+      }
+    },
+    {
+      "id": "recommended_team_start_safety_fixture",
+      "passed": true,
+      "confirm_team": {
+        "target": "guarded_build_button",
+        "disabled": false
+      },
+      "forbidden_direct_targets": [
+        "builds",
+        "model_team_start",
+        "form_submit"
+      ]
+    },
+    {
+      "id": "recommended_action_source_markers",
+      "path": "platform/frontend/app/page.tsx",
+      "required_markers": [
+        "recommendedCreateAction",
+        "runRecommendedCreateAction",
+        "data-recommended-create-action",
+        "data-recommended-action-target",
+        "requirementInputRef",
+        "buildButtonRef",
+        "type=\"button\"",
+        "target: 'guarded_build_button'"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "recommended_action_i18n_markers",
+      "path": "platform/frontend/lib/i18n.ts",
+      "required_markers": [
+        "recommendedActionTitle",
+        "recommendedActionAddDetailLabel",
+        "recommendedActionSaveDraftLabel",
+        "recommendedActionTeamGuardLabel",
+        "recommendedActionTeamGuardDetail"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "recommended_action_style_markers",
+      "path": "platform/frontend/app/globals.css",
+      "required_markers": [
+        ".recommended-create-action",
+        ".recommended-create-action.ready",
+        ".recommended-create-action.warning",
+        ".recommended-create-action.attention"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "regression_manifest_updated",
+      "path": "docs/testing/regression_lanes.json",
+      "required_markers": [
+        "tests/test_v03_26_recommended_create_action.py",
+        "\"pass_count\": 136"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "runtime_health_read_only",
+      "url": "http://127.0.0.1:8001/health",
+      "passed": true,
+      "status_code": 200,
+      "runtime": {
+        "version": "v0.3.6",
+        "product_phase": "v0.3.x",
+        "git": {
+          "commit": "357cf25",
+          "branch": "usabilityEnhence",
+          "tracked_dirty": false,
+          "untracked_present": true
+        },
+        "route_availability": {
+          "health": true,
+          "applications_list": true,
+          "applications_create": true,
+          "application_detail": true,
+          "draft_detail": true,
+          "smoke_cleanup": true
+        },
+        "current_code_ready": true
+      }
+    },
+    {
+      "id": "safety_no_forbidden_recommended_action_call",
+      "passed": true,
+      "called_endpoints": [
+        "GET /health"
+      ],
+      "forbidden_endpoint_fragments": [
+        "/builds",
+        "/tests/run",
+        "/runs",
+        "/versions",
+        "/restore"
+      ],
+      "model_call_used": false
+    }
+  ],
+  "summary": {
+    "failed_check_count": 0,
+    "open_p0_p1_bug_count": 0,
+    "forbidden_endpoint_called": false,
+    "recommended_action": {
+      "id": "recommended_create_action_fixture",
+      "passed": true,
+      "cases": {
+        "busy": {
+          "target": "wait",
+          "disabled": true
+        },
+        "add_detail": {
+          "target": "requirement_focus",
+          "disabled": false
+        },
+        "improve_requirement": {
+          "target": "requirement_focus",
+          "disabled": false
+        },
+        "save_draft": {
+          "target": "safe_draft",
+          "disabled": false
+        },
+        "confirm_team": {
+          "target": "guarded_build_button",
+          "disabled": false
+        }
+      }
+    }
+  }
+}
