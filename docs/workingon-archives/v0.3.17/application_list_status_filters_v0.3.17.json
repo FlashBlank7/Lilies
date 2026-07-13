@@ -1,0 +1,177 @@
+{
+  "version": "v0.3.17",
+  "stage": "application_list_status_filters",
+  "status": "passed",
+  "live_checks_enabled": true,
+  "safety": {
+    "build_endpoint_called": false,
+    "called_endpoints": [
+      "GET /health"
+    ]
+  },
+  "bug_ledger": [
+    {
+      "id": "P1-application-list-readiness-not-filterable",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Demo reviewers had to scan every card after v0.3.16 readiness chips were added.",
+      "fix": "Add status filters for all, needs acceptance, ready to publish, and published apps.",
+      "verification": "application_list_filter_markers."
+    },
+    {
+      "id": "P1-filter-behavior-needs-fixture-coverage",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Filter categories could drift from the application-card readiness logic.",
+      "fix": "Add deterministic fixture checks for draft, ready-to-publish, and published states.",
+      "verification": "filter_fixture_behavior."
+    },
+    {
+      "id": "P1-v0317-tests-must-enter-release-gate",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "New filter tests could be omitted from the current v0.3.x release gate.",
+      "fix": "Update `docs/testing/regression_lanes.json` with v0.3.17 and expected 83 passing tests.",
+      "verification": "regression_manifest_updated."
+    }
+  ],
+  "checks": [
+    {
+      "id": "p0_p1_bug_ledger_app_list_filters",
+      "passed": true,
+      "bug_count": 3,
+      "blocking_bug_count": 0,
+      "bugs": [
+        {
+          "id": "P1-application-list-readiness-not-filterable",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Demo reviewers had to scan every card after v0.3.16 readiness chips were added.",
+          "fix": "Add status filters for all, needs acceptance, ready to publish, and published apps.",
+          "verification": "application_list_filter_markers."
+        },
+        {
+          "id": "P1-filter-behavior-needs-fixture-coverage",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Filter categories could drift from the application-card readiness logic.",
+          "fix": "Add deterministic fixture checks for draft, ready-to-publish, and published states.",
+          "verification": "filter_fixture_behavior."
+        },
+        {
+          "id": "P1-v0317-tests-must-enter-release-gate",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "New filter tests could be omitted from the current v0.3.x release gate.",
+          "fix": "Update `docs/testing/regression_lanes.json` with v0.3.17 and expected 83 passing tests.",
+          "verification": "regression_manifest_updated."
+        }
+      ]
+    },
+    {
+      "id": "filter_fixture_behavior",
+      "passed": true,
+      "counts": {
+        "all": 3,
+        "needs_acceptance": 1,
+        "ready_to_publish": 1,
+        "published": 1
+      },
+      "states": {
+        "draft": "needs_acceptance",
+        "ready": "ready_to_publish",
+        "published": "published"
+      }
+    },
+    {
+      "id": "application_list_filter_markers",
+      "path": "platform/frontend/app/page.tsx",
+      "required_markers": [
+        "type AppFilter",
+        "appReadinessState",
+        "appFilterOptions",
+        "filteredApps",
+        "data-app-list-filter=\"status\""
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "application_list_filter_i18n_markers",
+      "path": "platform/frontend/lib/i18n.ts",
+      "required_markers": [
+        "appFilterAll",
+        "appFilterNeedsAcceptance",
+        "appFilterReadyToPublish",
+        "appFilterPublished",
+        "appFilterEmpty"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "application_list_filter_style_markers",
+      "path": "platform/frontend/app/globals.css",
+      "required_markers": [
+        ".app-filter-toolbar",
+        ".app-filter-toolbar button.active"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "regression_manifest_updated",
+      "path": "docs/testing/regression_lanes.json",
+      "required_markers": [
+        "tests/test_v03_17_application_list_status_filters.py",
+        "\"pass_count\": 83"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "runtime_health_read_only",
+      "url": "http://127.0.0.1:8001/health",
+      "passed": true,
+      "status_code": 200,
+      "runtime": {
+        "version": "v0.3.6",
+        "product_phase": "v0.3.x",
+        "git": {
+          "commit": "f8a2004",
+          "branch": "usabilityEnhence",
+          "tracked_dirty": false,
+          "untracked_present": true
+        },
+        "route_availability": {
+          "health": true,
+          "applications_list": true,
+          "applications_create": true,
+          "application_detail": true,
+          "draft_detail": true,
+          "smoke_cleanup": true
+        },
+        "current_code_ready": true
+      }
+    },
+    {
+      "id": "safety_no_build_call",
+      "passed": true,
+      "called_endpoints": [
+        "GET /health"
+      ],
+      "forbidden_endpoint": "POST /api/v1/applications/{id}/builds"
+    }
+  ],
+  "summary": {
+    "failed_check_count": 0,
+    "open_p0_p1_bug_count": 0,
+    "build_endpoint_called": false,
+    "fixture_counts": {
+      "all": 3,
+      "needs_acceptance": 1,
+      "ready_to_publish": 1,
+      "published": 1
+    }
+  }
+}

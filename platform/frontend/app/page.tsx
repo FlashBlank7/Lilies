@@ -16,6 +16,7 @@ type Application = {
   content_hash: string
   tested_hash?: string | null
 }
+type AppFilter = 'all' | 'needs_acceptance' | 'ready_to_publish' | 'published'
 
 type DraftMutationResult = {
   revision: number
@@ -80,12 +81,19 @@ async function seedSafeDraftSkeleton(applicationId: string, initialRevision: num
   return revision
 }
 
+function appReadinessState(item: Application): Exclude<AppFilter, 'all'> {
+  if (item.active_version) return 'published'
+  if (item.tested_hash) return 'ready_to_publish'
+  return 'needs_acceptance'
+}
+
 export default function Home() {
   const [locale, setLocale] = useState<Locale>(defaultLocale)
   const t = messages[locale]
   const [apps, setApps] = useState<Application[]>([])
   const [requirement, setRequirement] = useState<string>(t.requirementPlaceholder)
   const [selectedExampleId, setSelectedExampleId] = useState<string | null>(null)
+  const [appFilter, setAppFilter] = useState<AppFilter>('all')
   const [busy, setBusy] = useState(false)
   const [draftBusy, setDraftBusy] = useState(false)
   const [buildIntentConfirmed, setBuildIntentConfirmed] = useState(false)
@@ -124,6 +132,14 @@ export default function Home() {
     : item.tested_hash
       ? t.appNextActionPublish
       : t.appNextActionRunAcceptance
+  const appFilterOptions: Array<{ id: AppFilter; label: string }> = [
+    { id: 'all', label: t.appFilterAll },
+    { id: 'needs_acceptance', label: t.appFilterNeedsAcceptance },
+    { id: 'ready_to_publish', label: t.appFilterReadyToPublish },
+    { id: 'published', label: t.appFilterPublished },
+  ]
+  const appFilterCount = (filter: AppFilter) => filter === 'all' ? apps.length : apps.filter(item => appReadinessState(item) === filter).length
+  const filteredApps = appFilter === 'all' ? apps : apps.filter(item => appReadinessState(item) === appFilter)
 
   const refresh = () => api<Application[]>('/api/v1/applications').then(applications => {
     setApps(applications)
@@ -273,8 +289,13 @@ export default function Home() {
       </section>
       <section className="apps-section">
         <div className="section-heading"><h2>{t.applications}</h2><span>{t.appCount(apps.length)}</span></div>
+        {apps.length > 0 && <div className="app-filter-toolbar" data-app-list-filter="status">
+          {appFilterOptions.map(option => <button className={appFilter === option.id ? 'active' : ''} onClick={() => setAppFilter(option.id)} key={option.id} type="button">
+            <span>{option.label}</span><b>{appFilterCount(option.id)}</b>
+          </button>)}
+        </div>}
         <div className="app-grid">
-          {apps.map(item => <Link className="app-card" href={`/applications/${item.id}`} key={item.id}>
+          {filteredApps.map(item => <Link className="app-card" href={`/applications/${item.id}`} key={item.id}>
             <div className="app-icon">{item.name.slice(0, 1).toUpperCase()}</div>
             <div><h3>{item.name}</h3><p>{item.description || t.fallbackDescription}</p>
               <div className="app-readiness" data-app-card-guidance="readiness">{appCardReadiness(item).map(signal => <span className={signal.ready ? 'ready' : ''} key={signal.label}><b>{signal.label}</b>{signal.value}</span>)}</div>
@@ -282,6 +303,7 @@ export default function Home() {
             </div>
             <div className="app-meta"><span>{item.active_version ? t.published(item.active_version) : t.draft}</span><span>r{item.draft_revision}</span></div>
           </Link>)}
+          {apps.length > 0 && !filteredApps.length && <div className="empty-card"><strong>{t.appFilterEmpty}</strong><span>{t.appFilterEmptyHelp}</span></div>}
           {!apps.length && <div className="empty-card"><strong>{t.emptyApps}</strong><span>{t.emptyAppsNextAction}</span></div>}
         </div>
       </section>
