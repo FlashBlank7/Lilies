@@ -88,6 +88,7 @@ export default function Home() {
   const [selectedExampleId, setSelectedExampleId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [draftBusy, setDraftBusy] = useState(false)
+  const [buildIntentConfirmed, setBuildIntentConfirmed] = useState(false)
   const [error, setError] = useState('')
   const [authRequired, setAuthRequired] = useState(false)
   const [tokenInput, setTokenInput] = useState('')
@@ -145,6 +146,11 @@ export default function Home() {
 
   async function create(event: FormEvent) {
     event.preventDefault()
+    if (!buildIntentConfirmed) {
+      setBuildIntentConfirmed(true)
+      setError(t.buildIntentHomeConfirm)
+      return
+    }
     setBusy(true)
     setError('')
     try {
@@ -190,6 +196,7 @@ export default function Home() {
   function applyCustomerExample(example: (typeof t.customerExamples)[number]) {
     setRequirement(example.requirement)
     setSelectedExampleId(example.id)
+    setBuildIntentConfirmed(false)
     setError('')
   }
 
@@ -201,12 +208,12 @@ export default function Home() {
         <h1>{t.heroTitleA}<br/><em>{t.heroTitleB}</em></h1>
         <p>{t.heroCopy}</p>
         <form className="create-card" onSubmit={create}>
-          <textarea aria-label={t.requirementAria} value={requirement} onChange={event => setRequirement(event.target.value)} />
+          <textarea aria-label={t.requirementAria} value={requirement} onChange={event => { setRequirement(event.target.value); setBuildIntentConfirmed(false) }} />
           <div className="create-footer">
-            <div className="create-copy"><span>{t.createHint}</span><small>{t.safeDraftHint}</small></div>
+            <div className="create-copy"><span>{t.createHint}</span><small>{t.safeDraftHint}</small><small className="build-intent-copy" data-build-intent={buildIntentConfirmed ? 'confirmed' : 'needs-confirmation'}>{buildIntentConfirmed ? t.buildIntentHomeArmed : t.buildIntentHomeSafe}</small></div>
             <div className="create-actions">
               <button className="secondary-action" disabled={busy || draftBusy || requirement.length < 10} onClick={saveDraftOnly} type="button">{draftBusy ? t.saveDraftOnlyBusy : t.saveDraftOnlyButton}</button>
-              <button disabled={busy || draftBusy || requirement.length < 10}>{busy ? t.createBusy : t.createButton}</button>
+              <button className={`build-action ${buildIntentConfirmed ? 'armed' : ''}`} data-build-action="home-start-builder-team" data-build-intent={buildIntentConfirmed ? 'confirmed' : 'needs-confirmation'} disabled={busy || draftBusy || requirement.length < 10}>{busy ? t.createBusy : buildIntentConfirmed ? t.createConfirmButton : t.createButton}</button>
             </div>
           </div>
         </form>

@@ -1,0 +1,204 @@
+{
+  "version": "v0.3.9",
+  "stage": "build_action_cost_guard",
+  "status": "passed",
+  "live_checks_enabled": true,
+  "token_source": "file:.env:API_TOKEN",
+  "smoke_marker": "v0.3.9-smoke",
+  "bug_ledger": [
+    {
+      "id": "P1-home-build-start-unguarded",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "The home primary CTA could start the model team from a first exploratory click.",
+      "fix": "Add a first-click confirmation state and keep save-draft as the explicit low-risk path.",
+      "verification": "home_build_intent_markers and rendered_home_build_guard."
+    },
+    {
+      "id": "P1-detail-build-start-unguarded",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "The detail Start Team button did not distinguish inspection from paid model work.",
+      "fix": "Add a visible detail-page build intent guard and confirm label before starting a build.",
+      "verification": "detail_build_intent_markers and rendered_detail_build_guard."
+    },
+    {
+      "id": "P1-v039-smoke-retention",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "A live guard harness creates local smoke applications.",
+      "fix": "Use the smoke cleanup boundary and verify deletion after the no-build check.",
+      "verification": "cleanup_smoke_app and verified_smoke_deleted."
+    }
+  ],
+  "safety": {
+    "build_endpoint_called": false,
+    "called_endpoints": [
+      "POST /api/v1/applications",
+      "POST /api/v1/applications/{id}/smoke-cleanup"
+    ],
+    "smoke_marker": "v0.3.9-smoke",
+    "cleanup_attempted": true
+  },
+  "checks": [
+    {
+      "id": "p0_p1_bug_ledger_build_action_guard",
+      "passed": true,
+      "bug_count": 3,
+      "blocking_bug_count": 0,
+      "bugs": [
+        {
+          "id": "P1-home-build-start-unguarded",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "The home primary CTA could start the model team from a first exploratory click.",
+          "fix": "Add a first-click confirmation state and keep save-draft as the explicit low-risk path.",
+          "verification": "home_build_intent_markers and rendered_home_build_guard."
+        },
+        {
+          "id": "P1-detail-build-start-unguarded",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "The detail Start Team button did not distinguish inspection from paid model work.",
+          "fix": "Add a visible detail-page build intent guard and confirm label before starting a build.",
+          "verification": "detail_build_intent_markers and rendered_detail_build_guard."
+        },
+        {
+          "id": "P1-v039-smoke-retention",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "A live guard harness creates local smoke applications.",
+          "fix": "Use the smoke cleanup boundary and verify deletion after the no-build check.",
+          "verification": "cleanup_smoke_app and verified_smoke_deleted."
+        }
+      ]
+    },
+    {
+      "id": "home_build_intent_markers",
+      "path": "platform/frontend/app/page.tsx",
+      "required_markers": [
+        "buildIntentConfirmed",
+        "data-build-action=\"home-start-builder-team\"",
+        "buildIntentHomeConfirm",
+        "saveDraftOnly"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "detail_build_intent_markers",
+      "path": "platform/frontend/app/applications/[id]/page.tsx",
+      "required_markers": [
+        "buildIntentConfirmed",
+        "data-build-action=\"detail-start-builder-team\"",
+        "buildIntentGuardTitle",
+        "startTeamConfirm"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "build_intent_copy_markers",
+      "path": "platform/frontend/lib/i18n.ts",
+      "required_markers": [
+        "buildIntentHomeConfirm",
+        "buildIntentGuardSafe",
+        "createConfirmButton",
+        "startTeamConfirm"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "build_intent_style_markers",
+      "path": "platform/frontend/app/globals.css",
+      "required_markers": [
+        ".build-intent-guard",
+        ".build-action.armed",
+        ".build-intent-copy"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "token_available",
+      "passed": true,
+      "token_source": "file:.env:API_TOKEN"
+    },
+    {
+      "id": "runtime_health_current_code",
+      "url": "http://127.0.0.1:8001/health",
+      "passed": true,
+      "status_code": 200,
+      "runtime": {
+        "version": "v0.3.6",
+        "product_phase": "v0.3.x",
+        "git": {
+          "commit": "32a1129",
+          "branch": "usabilityEnhence",
+          "tracked_dirty": false,
+          "untracked_present": true
+        },
+        "route_availability": {
+          "health": true,
+          "applications_list": true,
+          "applications_create": true,
+          "application_detail": true,
+          "draft_detail": true,
+          "smoke_cleanup": true
+        },
+        "current_code_ready": true
+      }
+    },
+    {
+      "id": "rendered_home_build_guard",
+      "url": "http://127.0.0.1:3000/",
+      "passed": true,
+      "status_code": 200
+    },
+    {
+      "id": "created_build_guard_smoke_app",
+      "passed": true,
+      "status_code": 201,
+      "application_id": "36883830-d54b-4a83-85e5-8a02435efd9b"
+    },
+    {
+      "id": "rendered_detail_build_guard",
+      "url": "http://127.0.0.1:3000/applications/36883830-d54b-4a83-85e5-8a02435efd9b?safeDraft=1",
+      "passed": true,
+      "status_code": 200
+    },
+    {
+      "id": "cleanup_smoke_app",
+      "passed": true,
+      "status_code": 200,
+      "related_counts": {
+        "application_drafts": 1,
+        "application_versions": 0,
+        "builds": 0,
+        "workflow_runs": 0,
+        "schedule_fires": 0,
+        "draft_idempotency": 0
+      }
+    },
+    {
+      "id": "verified_smoke_deleted",
+      "passed": true,
+      "status_code": 404
+    },
+    {
+      "id": "safety_no_build_call",
+      "passed": true,
+      "called_endpoints": [
+        "POST /api/v1/applications",
+        "POST /api/v1/applications/{id}/smoke-cleanup"
+      ],
+      "forbidden_endpoint": "POST /api/v1/applications/{id}/builds"
+    }
+  ],
+  "summary": {
+    "failed_check_count": 0,
+    "open_p0_p1_bug_count": 0,
+    "build_endpoint_called": false
+  }
+}

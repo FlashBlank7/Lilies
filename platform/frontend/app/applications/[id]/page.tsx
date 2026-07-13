@@ -480,6 +480,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   const [tab, setTab] = useState<StudioTab>('build')
   const [requirement, setRequirement] = useState('')
   const [buildDeadlineSeconds, setBuildDeadlineSeconds] = useState('')
+  const [buildIntentConfirmed, setBuildIntentConfirmed] = useState(false)
   const [runFields, setRunFields] = useState<RunInputFieldState[]>([])
   const [run, setRun] = useState<Run | null>(null)
   const [runEvents, setRunEvents] = useState<StoredEvent[]>([])
@@ -1105,6 +1106,11 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   }
 
   async function startBuild() {
+    if (!buildIntentConfirmed) {
+      setBuildIntentConfirmed(true)
+      setNotice(t.buildIntentDetailConfirm)
+      return
+    }
     const trimmedDeadline = buildDeadlineSeconds.trim()
     let maxElapsedSeconds: number | undefined
     if (trimmedDeadline) {
@@ -1123,6 +1129,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
       }),
     })
     history.replaceState(null, '', `?build=${result.build_id}`)
+    setBuildIntentConfirmed(false)
     void refreshMonitorTasks().catch(error => setNotice(String(error)))
     watchBuild(result.build_id)
   }
@@ -1454,12 +1461,16 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
         <div className="panel-tabs">{(['build', 'edit', 'test', 'run', 'monitor'] as const).map(item => <button className={tab === item ? 'active' : ''} onClick={() => setTab(item)} key={item}>{item === 'build' ? t.buildTab : item === 'edit' ? t.editTab : item === 'test' ? t.testTab : item === 'run' ? t.runTab : t.monitorTab}</button>)}</div>
         {tab === 'build' && <div className="panel-body">
           <div className="panel-kicker">{t.builderTeam}</div><h2>{t.continueBuild}</h2>
-          <textarea className="requirement-input" value={requirement} onChange={event => setRequirement(event.target.value)} />
+          <textarea className="requirement-input" value={requirement} onChange={event => { setRequirement(event.target.value); setBuildIntentConfirmed(false) }} />
           <label className="run-field">
             <span>{t.buildDeadlineLabel}<em>{t.buildDeadlineHelp}</em></span>
-            <input type="number" min="0.001" step="0.1" value={buildDeadlineSeconds} onChange={event => setBuildDeadlineSeconds(event.target.value)} />
+            <input type="number" min="0.001" step="0.1" value={buildDeadlineSeconds} onChange={event => { setBuildDeadlineSeconds(event.target.value); setBuildIntentConfirmed(false) }} />
           </label>
-          <button className="wide" onClick={startBuild}>{t.startTeam}</button>
+          <section className={`build-intent-guard ${buildIntentConfirmed ? 'armed' : ''}`} data-build-intent={buildIntentConfirmed ? 'confirmed' : 'needs-confirmation'}>
+            <strong>{t.buildIntentGuardTitle}</strong>
+            <span>{buildIntentConfirmed ? t.buildIntentGuardArmed : t.buildIntentGuardSafe}</span>
+          </section>
+          <button className={`wide build-action ${buildIntentConfirmed ? 'armed' : ''}`} data-build-action="detail-start-builder-team" data-build-intent={buildIntentConfirmed ? 'confirmed' : 'needs-confirmation'} onClick={startBuild}>{buildIntentConfirmed ? t.startTeamConfirm : t.startTeam}</button>
           {build && <div className="build-status"><b>{build.status}</b><span>{Object.keys(build.team_state.teammates).length} teammates · {build.team_state.tasks.length} tasks · {build.team_state.repair_cycles} repairs</span><span>{build.deadline?.enabled && build.deadline.max_elapsed_seconds ? t.buildDeadlineActive(build.deadline.max_elapsed_seconds) : t.buildDeadlineInactive}</span>{build.error && <p>{build.error}</p>}</div>}
           <h3>{t.tasksTitle}</h3>
           <div className="test-list">{build?.team_state.tasks.map((task, index) => <pre key={index}>{JSON.stringify(task, null, 2)}</pre>) || <p className="muted">{t.tasksEmpty}</p>}</div>
