@@ -114,6 +114,16 @@ export default function Home() {
         : runtimeStatus === 'unavailable'
           ? t.runtimeStatusDetailUnavailable
           : t.runtimeStatusDetailChecking
+  const appCardReadiness = (item: Application) => [
+    { label: t.appCardDraftState, value: `r${item.draft_revision}`, ready: true },
+    { label: t.appCardAcceptanceState, value: item.tested_hash ? t.verified : t.unverified, ready: Boolean(item.tested_hash) },
+    { label: t.appCardPublishState, value: item.active_version ? t.published(item.active_version) : t.draft, ready: Boolean(item.active_version) },
+  ]
+  const appCardNextAction = (item: Application) => item.active_version
+    ? t.appNextActionTryMonitor
+    : item.tested_hash
+      ? t.appNextActionPublish
+      : t.appNextActionRunAcceptance
 
   const refresh = () => api<Application[]>('/api/v1/applications').then(applications => {
     setApps(applications)
@@ -266,7 +276,10 @@ export default function Home() {
         <div className="app-grid">
           {apps.map(item => <Link className="app-card" href={`/applications/${item.id}`} key={item.id}>
             <div className="app-icon">{item.name.slice(0, 1).toUpperCase()}</div>
-            <div><h3>{item.name}</h3><p>{item.description || t.fallbackDescription}</p></div>
+            <div><h3>{item.name}</h3><p>{item.description || t.fallbackDescription}</p>
+              <div className="app-readiness" data-app-card-guidance="readiness">{appCardReadiness(item).map(signal => <span className={signal.ready ? 'ready' : ''} key={signal.label}><b>{signal.label}</b>{signal.value}</span>)}</div>
+              <small className="app-next-action" data-app-card-guidance="next-action">{appCardNextAction(item)}</small>
+            </div>
             <div className="app-meta"><span>{item.active_version ? t.published(item.active_version) : t.draft}</span><span>r{item.draft_revision}</span></div>
           </Link>)}
           {!apps.length && <div className="empty-card"><strong>{t.emptyApps}</strong><span>{t.emptyAppsNextAction}</span></div>}

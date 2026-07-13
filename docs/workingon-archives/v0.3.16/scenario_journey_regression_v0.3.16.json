@@ -1,0 +1,237 @@
+{
+  "version": "v0.3.16",
+  "stage": "scenario_journey_regression_expansion",
+  "status": "passed",
+  "live_checks_enabled": true,
+  "scenario_matrix": [
+    {
+      "id": "business_owner_frontdoor",
+      "role": "business_owner",
+      "behavior": "starts from customer scenario examples and wants a safe first draft",
+      "required_surfaces": [
+        "customer-intake-panel",
+        "saveDraftOnly",
+        "customer-section"
+      ]
+    },
+    {
+      "id": "implementation_consultant_returning_draft",
+      "role": "implementation_consultant",
+      "behavior": "opens an existing app and needs structure, acceptance, and next action",
+      "required_surfaces": [
+        "app-readiness",
+        "draft-readiness",
+        "next-action-checklist"
+      ]
+    },
+    {
+      "id": "operator_run_and_monitor",
+      "role": "operator",
+      "behavior": "tries a draft or published version and reads trace or monitor evidence",
+      "required_surfaces": [
+        "try-readiness-panel",
+        "trace-readability-panel",
+        "monitor-readability-panel"
+      ]
+    },
+    {
+      "id": "technical_reviewer_acceptance_policy",
+      "role": "technical_reviewer",
+      "behavior": "checks acceptance, policy, monitor, and audit evidence before trusting automation",
+      "required_surfaces": [
+        "acceptance-readiness-panel",
+        "policy-controls",
+        "monitor-list"
+      ]
+    },
+    {
+      "id": "investor_demo_reviewer_application_list",
+      "role": "investor_demo_reviewer",
+      "behavior": "scans the application list to decide which workflow is demo-ready",
+      "required_surfaces": [
+        "app-readiness",
+        "app-next-action",
+        "data-app-card-guidance"
+      ]
+    }
+  ],
+  "safety": {
+    "build_endpoint_called": false,
+    "called_endpoints": [
+      "GET /health"
+    ]
+  },
+  "bug_ledger": [
+    {
+      "id": "P1-application-list-demo-readiness-opaque",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Returning users and demo reviewers saw only revision/version metadata on application cards.",
+      "fix": "Add app-card readiness chips and next-action guidance derived from existing application fields.",
+      "verification": "application_card_guidance_markers."
+    },
+    {
+      "id": "P1-scenario-matrix-missing-investor-demo-reviewer",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Persona coverage did not explicitly include investor/demo review behavior.",
+      "fix": "Add investor/demo reviewer to the scenario matrix and home scenario copy.",
+      "verification": "scenario_matrix_roles."
+    },
+    {
+      "id": "P1-new-scenario-tests-must-enter-release-gate",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "New v0.3.x tests could be omitted from the current release-gate manifest.",
+      "fix": "Update `docs/testing/regression_lanes.json` with v0.3.16 and expected 78 passing tests.",
+      "verification": "regression_manifest_updated."
+    }
+  ],
+  "checks": [
+    {
+      "id": "p0_p1_bug_ledger_scenario_journeys",
+      "passed": true,
+      "bug_count": 3,
+      "blocking_bug_count": 0,
+      "bugs": [
+        {
+          "id": "P1-application-list-demo-readiness-opaque",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Returning users and demo reviewers saw only revision/version metadata on application cards.",
+          "fix": "Add app-card readiness chips and next-action guidance derived from existing application fields.",
+          "verification": "application_card_guidance_markers."
+        },
+        {
+          "id": "P1-scenario-matrix-missing-investor-demo-reviewer",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Persona coverage did not explicitly include investor/demo review behavior.",
+          "fix": "Add investor/demo reviewer to the scenario matrix and home scenario copy.",
+          "verification": "scenario_matrix_roles."
+        },
+        {
+          "id": "P1-new-scenario-tests-must-enter-release-gate",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "New v0.3.x tests could be omitted from the current release-gate manifest.",
+          "fix": "Update `docs/testing/regression_lanes.json` with v0.3.16 and expected 78 passing tests.",
+          "verification": "regression_manifest_updated."
+        }
+      ]
+    },
+    {
+      "id": "scenario_matrix_roles",
+      "passed": true,
+      "required_roles": [
+        "business_owner",
+        "implementation_consultant",
+        "investor_demo_reviewer",
+        "operator",
+        "technical_reviewer"
+      ],
+      "roles": [
+        "business_owner",
+        "implementation_consultant",
+        "investor_demo_reviewer",
+        "operator",
+        "technical_reviewer"
+      ],
+      "journey_count": 5,
+      "selected_p1_gap": {
+        "id": "investor_demo_reviewer_application_list",
+        "role": "investor_demo_reviewer",
+        "behavior": "scans the application list to decide which workflow is demo-ready",
+        "required_surfaces": [
+          "app-readiness",
+          "app-next-action",
+          "data-app-card-guidance"
+        ]
+      }
+    },
+    {
+      "id": "application_card_guidance_markers",
+      "path": "platform/frontend/app/page.tsx",
+      "required_markers": [
+        "appCardReadiness",
+        "appCardNextAction",
+        "data-app-card-guidance=\"readiness\"",
+        "data-app-card-guidance=\"next-action\""
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "application_card_i18n_markers",
+      "path": "platform/frontend/lib/i18n.ts",
+      "required_markers": [
+        "appCardDraftState",
+        "appNextActionRunAcceptance",
+        "Investor/demo reviewer",
+        "投资/演示审阅者"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "application_card_style_markers",
+      "path": "platform/frontend/app/globals.css",
+      "required_markers": [
+        ".app-readiness",
+        ".app-next-action",
+        ".app-card{min-height:218px}"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "regression_manifest_updated",
+      "path": "docs/testing/regression_lanes.json",
+      "required_markers": [
+        "tests/test_v03_16_scenario_journey_regression.py",
+        "\"pass_count\": 78"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "runtime_health_read_only",
+      "url": "http://127.0.0.1:8001/health",
+      "passed": true,
+      "status_code": 200,
+      "runtime": {
+        "version": "v0.3.6",
+        "product_phase": "v0.3.x",
+        "git": {
+          "commit": "341dc8e",
+          "branch": "usabilityEnhence",
+          "tracked_dirty": false,
+          "untracked_present": true
+        },
+        "route_availability": {
+          "health": true,
+          "applications_list": true,
+          "applications_create": true,
+          "application_detail": true,
+          "draft_detail": true,
+          "smoke_cleanup": true
+        },
+        "current_code_ready": true
+      }
+    },
+    {
+      "id": "safety_no_build_call",
+      "passed": true,
+      "called_endpoints": [
+        "GET /health"
+      ],
+      "forbidden_endpoint": "POST /api/v1/applications/{id}/builds"
+    }
+  ],
+  "summary": {
+    "failed_check_count": 0,
+    "open_p0_p1_bug_count": 0,
+    "journey_count": 5,
+    "build_endpoint_called": false
+  }
+}

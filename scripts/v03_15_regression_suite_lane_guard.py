@@ -124,7 +124,7 @@ def manifest_checks(manifest: dict[str, Any] | None = None) -> list[dict[str, An
         "passed": loaded.get("version") == "v0.3.15"
         and loaded.get("policy", {}).get("current_gate") == "v0.3.x_current_release_gate"
         and current.get("status") == "gating"
-        and current.get("expected", {}).get("pass_count") == 73
+        and current.get("expected", {}).get("pass_count") == 78
         and not missing_current_files
         and not command_missing_files,
         "missing_current_files": missing_current_files,

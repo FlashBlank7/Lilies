@@ -34,7 +34,7 @@ def test_v03_15_static_evidence_passes_without_live_services() -> None:
     assert evidence["status"] == "passed"
     assert evidence["summary"]["open_p0_p1_bug_count"] == 0
     assert evidence["summary"]["build_endpoint_called"] is False
-    assert evidence["current_gate"]["expected"]["pass_count"] == 73
+    assert evidence["current_gate"]["expected"]["pass_count"] == 78
     assert evidence["diagnostic_lane"]["status"] == "diagnostic_non_gating"
 
 
