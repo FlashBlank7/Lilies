@@ -1,0 +1,164 @@
+{
+  "version": "v0.3.13",
+  "stage": "acceptance_publish_guidance",
+  "status": "passed",
+  "live_checks_enabled": true,
+  "token_source": "file:.env:API_TOKEN",
+  "smoke_marker": "v0.3.13-smoke",
+  "bug_ledger": [
+    {
+      "id": "P1-acceptance-readiness-too-dense",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "The Test tab made users read detailed cards before understanding publish readiness.",
+      "fix": "Add a pre-publish acceptance readiness panel.",
+      "verification": "acceptance_publish_source_markers."
+    },
+    {
+      "id": "P1-publish-blocked-without-next-action",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Publish could be disabled without clear next action.",
+      "fix": "Add blocked/ready/published guidance copy.",
+      "verification": "acceptance_publish_i18n_markers."
+    }
+  ],
+  "safety": {
+    "build_endpoint_called": false,
+    "called_endpoints": [
+      "POST /api/v1/applications",
+      "POST /api/v1/applications/{id}/smoke-cleanup"
+    ],
+    "smoke_marker": "v0.3.13-smoke",
+    "cleanup_attempted": true
+  },
+  "checks": [
+    {
+      "id": "p0_p1_bug_ledger_acceptance_publish",
+      "passed": true,
+      "bug_count": 2,
+      "blocking_bug_count": 0,
+      "bugs": [
+        {
+          "id": "P1-acceptance-readiness-too-dense",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "The Test tab made users read detailed cards before understanding publish readiness.",
+          "fix": "Add a pre-publish acceptance readiness panel.",
+          "verification": "acceptance_publish_source_markers."
+        },
+        {
+          "id": "P1-publish-blocked-without-next-action",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Publish could be disabled without clear next action.",
+          "fix": "Add blocked/ready/published guidance copy.",
+          "verification": "acceptance_publish_i18n_markers."
+        }
+      ]
+    },
+    {
+      "id": "acceptance_publish_source_markers",
+      "path": "platform/frontend/app/applications/[id]/page.tsx",
+      "required_markers": [
+        "acceptanceReadinessItems",
+        "publishGuidance",
+        "data-acceptance-guidance=\"readiness-summary\"",
+        "data-acceptance-guidance=\"publish-next-action\""
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "acceptance_publish_i18n_markers",
+      "path": "platform/frontend/lib/i18n.ts",
+      "required_markers": [
+        "acceptanceReadinessTitle",
+        "publishGuidanceBlocked",
+        "publishGuidanceReady",
+        "publishGuidancePublished"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "acceptance_publish_style_markers",
+      "path": "platform/frontend/app/globals.css",
+      "required_markers": [
+        ".acceptance-readiness-panel",
+        ".acceptance-readiness-list",
+        ".publish-guidance"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "token_available",
+      "passed": true,
+      "token_source": "file:.env:API_TOKEN"
+    },
+    {
+      "id": "runtime_health_current_code",
+      "url": "http://127.0.0.1:8001/health",
+      "passed": true,
+      "status_code": 200,
+      "runtime": {
+        "version": "v0.3.6",
+        "product_phase": "v0.3.x",
+        "git": {
+          "commit": "58c28f1",
+          "branch": "usabilityEnhence",
+          "tracked_dirty": false,
+          "untracked_present": true
+        },
+        "route_availability": {
+          "health": true,
+          "applications_list": true,
+          "applications_create": true,
+          "application_detail": true,
+          "draft_detail": true,
+          "smoke_cleanup": true
+        },
+        "current_code_ready": true
+      }
+    },
+    {
+      "id": "created_acceptance_publish_smoke_app",
+      "passed": true,
+      "status_code": 201,
+      "application_id": "48800d2a-c3d6-4a44-9408-9b46b7d34dfb"
+    },
+    {
+      "id": "cleanup_smoke_app",
+      "passed": true,
+      "status_code": 200,
+      "related_counts": {
+        "application_drafts": 1,
+        "application_versions": 0,
+        "builds": 0,
+        "workflow_runs": 0,
+        "schedule_fires": 0,
+        "draft_idempotency": 0
+      }
+    },
+    {
+      "id": "verified_smoke_deleted",
+      "passed": true,
+      "status_code": 404
+    },
+    {
+      "id": "safety_no_build_call",
+      "passed": true,
+      "called_endpoints": [
+        "POST /api/v1/applications",
+        "POST /api/v1/applications/{id}/smoke-cleanup"
+      ],
+      "forbidden_endpoint": "POST /api/v1/applications/{id}/builds"
+    }
+  ],
+  "summary": {
+    "failed_check_count": 0,
+    "open_p0_p1_bug_count": 0,
+    "build_endpoint_called": false
+  }
+}

@@ -1431,6 +1431,19 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
       target: 'monitor',
     },
   ]
+  const acceptancePassedCount = acceptanceCaseViews.filter(test => test.result?.passed).length
+  const acceptanceFailedCount = acceptanceCaseViews.filter(test => test.result && !test.result.passed).length
+  const acceptanceReadinessItems = [
+    { label: t.acceptanceReadinessCases, ready: acceptanceCaseViews.length > 0, detail: t.acceptanceCases(acceptanceCaseViews.length) },
+    { label: t.acceptanceReadinessPassed, ready: acceptancePassedCount > 0 && acceptanceFailedCount === 0, detail: `${acceptancePassedCount}/${acceptanceCaseViews.length}` },
+    { label: t.acceptanceReadinessFailures, ready: acceptanceFailedCount === 0, detail: String(acceptanceFailedCount) },
+    { label: t.acceptanceReadinessPublish, ready: Boolean(tested), detail: tested ? t.nextActionPublishReady : t.nextActionPublishBlocked },
+  ]
+  const publishGuidance = activeVersion
+    ? t.publishGuidancePublished(activeVersion)
+    : tested
+      ? t.publishGuidanceReady
+      : t.publishGuidanceBlocked
   const runtimeStatus = classifyRuntimeStatus(runtimeHealth, { authRequired, unavailable: runtimeUnavailable })
   const runtimeStatusText = runtimeStatus === 'connected'
     ? t.runtimeStatusConnected(runtimeVersion(runtimeHealth))
@@ -1554,6 +1567,11 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
         {tab === 'test' && <div className="panel-body">
           <div className="panel-kicker">{t.deliveryGate}</div><h2>{t.acceptanceCases(acceptanceCaseViews.length)}</h2>
           <p className="muted">{t.acceptanceHelp}</p>
+          <section className="acceptance-readiness-panel" data-acceptance-guidance="readiness-summary">
+            <div className="acceptance-readiness-head"><strong>{t.acceptanceReadinessTitle}</strong><small>{t.acceptanceReadinessHelp}</small></div>
+            <div className="acceptance-readiness-list">{acceptanceReadinessItems.map(item => <article className={item.ready ? 'ready' : ''} key={item.label}><span>{item.label}</span><b>{item.ready ? t.tryReady : t.tryNeedsAttention}</b><small>{item.detail}</small></article>)}</div>
+            <p className="publish-guidance" data-acceptance-guidance="publish-next-action">{publishGuidance}</p>
+          </section>
           <button className="wide" onClick={runTests}>{t.runAllTests}</button>
           <div className="acceptance-list">{acceptanceCaseViews.map(test => <section className="acceptance-card" key={test.id}>
             <div className="acceptance-card-head"><div><strong>{test.name}</strong><small>{test.requirement || t.noRequirementText}</small></div><span className={test.result ? (test.result.passed ? 'passed' : 'failed') : 'pending'}>{test.result ? (test.result.passed ? t.passedLabel : t.failedLabel) : t.notRunLabel}</span></div>
