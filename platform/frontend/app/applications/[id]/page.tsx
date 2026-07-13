@@ -489,6 +489,13 @@ function detailBuildActionState(requirement: string, readinessReady: boolean, bu
   return { id: 'improve_requirement', tone: 'attention', title: t.detailBuildActionImproveTitle, detail: t.detailBuildActionImproveDetail }
 }
 
+function recommendedDetailBuildAction(actionId: string, t: Copy) {
+  if (actionId === 'busy') return { target: 'wait', tone: 'busy', label: t.detailBuildRecommendedBusyLabel, detail: t.detailBuildRecommendedBusyDetail, disabled: true }
+  if (actionId === 'arm_team' || actionId === 'confirm_team') return { target: 'guarded_build_button', tone: actionId === 'confirm_team' ? 'warning' : 'ready', label: t.detailBuildRecommendedGuardLabel, detail: t.detailBuildRecommendedGuardDetail, disabled: false }
+  if (actionId === 'improve_requirement') return { target: 'requirement_focus', tone: 'attention', label: t.detailBuildRecommendedImproveLabel, detail: t.detailBuildRecommendedImproveDetail, disabled: false }
+  return { target: 'requirement_focus', tone: 'attention', label: t.detailBuildRecommendedAddDetailLabel, detail: t.detailBuildRecommendedAddDetailDetail, disabled: false }
+}
+
 export default function Studio({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
   const [locale, setLocale] = useState<Locale>(defaultLocale)
@@ -563,6 +570,8 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   const selectedEdgeId = useRef<string | null>(null)
   const runFieldsRef = useRef<RunInputFieldState[]>([])
   const flowRef = useRef<ReactFlowInstance<StudioNode, Edge> | null>(null)
+  const detailBuildRequirementRef = useRef<HTMLTextAreaElement>(null)
+  const detailBuildStartButtonRef = useRef<HTMLButtonElement>(null)
   const latestRevision = useRef(0)
   const lastFitSignature = useRef('')
   const buildPoll = useRef<number | null>(null)
@@ -1576,6 +1585,17 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     setNotice(t.authSaved)
     void refresh().catch(error => setNotice(String(error)))
   }
+  function runDetailBuildRecommendedAction() {
+    if (detailBuildRecommendedAction.disabled) return
+    if (detailBuildRecommendedAction.target === 'requirement_focus') {
+      detailBuildRequirementRef.current?.focus()
+      return
+    }
+    if (detailBuildRecommendedAction.target === 'guarded_build_button') {
+      detailBuildStartButtonRef.current?.focus()
+      setNotice(t.detailBuildRecommendedGuardDetail)
+    }
+  }
   function refreshRuntimeStatus() {
     return api<RuntimeHealth>('/health').then(health => {
       setRuntimeHealth(health)
@@ -1602,6 +1622,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   ] : []
   const detailBuildReadiness = detailBuildRequirementReadiness(requirement, t)
   const detailBuildAction = detailBuildActionState(requirement, detailBuildReadiness.ready, build, buildIntentConfirmed, t)
+  const detailBuildRecommendedAction = recommendedDetailBuildAction(detailBuildAction.id, t)
 
   return <main className="studio-shell">
     <header className="studio-header">
@@ -1615,7 +1636,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
         <div className="panel-tabs" data-detail-tab-url-state="synced">{STUDIO_TABS.map(item => <button aria-pressed={tab === item} className={tab === item ? 'active' : ''} onClick={() => setStudioTab(item)} key={item} type="button">{item === 'build' ? t.buildTab : item === 'edit' ? t.editTab : item === 'test' ? t.testTab : item === 'run' ? t.runTab : t.monitorTab}</button>)}</div>
         {tab === 'build' && <div className="panel-body">
           <div className="panel-kicker">{t.builderTeam}</div><h2>{t.continueBuild}</h2>
-          <textarea className="requirement-input" value={requirement} onChange={event => { setRequirement(event.target.value); setBuildIntentConfirmed(false) }} />
+          <textarea ref={detailBuildRequirementRef} className="requirement-input" value={requirement} onChange={event => { setRequirement(event.target.value); setBuildIntentConfirmed(false) }} />
           <section className={`requirement-readiness detail-build-readiness ${detailBuildReadiness.ready ? 'ready' : 'needs-detail'}`} data-detail-build-readiness="summary">
             <div className="requirement-readiness-head"><strong>{t.requirementReadinessTitle}</strong><span>{t.requirementReadinessScore(detailBuildReadiness.readyCount, detailBuildReadiness.total)}</span></div>
             <p>{detailBuildReadiness.ready ? t.requirementReadinessReady : t.requirementReadinessNeedsDetail}</p>
@@ -1628,6 +1649,10 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
             <strong>{detailBuildAction.title}</strong>
             <span>{detailBuildAction.detail}</span>
           </section>
+          <section className={`recommended-create-action detail-build-recommended-action ${detailBuildRecommendedAction.tone}`} data-detail-build-recommended-action={detailBuildAction.id} data-detail-build-recommended-target={detailBuildRecommendedAction.target}>
+            <div><strong>{t.detailBuildRecommendedTitle}</strong><span>{detailBuildRecommendedAction.detail}</span></div>
+            <button type="button" disabled={detailBuildRecommendedAction.disabled} onClick={runDetailBuildRecommendedAction}>{detailBuildRecommendedAction.label}</button>
+          </section>
           <label className="run-field">
             <span>{t.buildDeadlineLabel}<em>{t.buildDeadlineHelp}</em></span>
             <input type="number" min="0.001" step="0.1" value={buildDeadlineSeconds} onChange={event => { setBuildDeadlineSeconds(event.target.value); setBuildIntentConfirmed(false) }} />
@@ -1636,7 +1661,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
             <strong>{t.buildIntentGuardTitle}</strong>
             <span>{buildIntentConfirmed ? t.buildIntentGuardArmed : t.buildIntentGuardSafe}</span>
           </section>
-          <button className={`wide build-action ${buildIntentConfirmed ? 'armed' : ''}`} data-build-action="detail-start-builder-team" data-build-intent={buildIntentConfirmed ? 'confirmed' : 'needs-confirmation'} onClick={startBuild}>{buildIntentConfirmed ? t.startTeamConfirm : t.startTeam}</button>
+          <button ref={detailBuildStartButtonRef} className={`wide build-action ${buildIntentConfirmed ? 'armed' : ''}`} data-build-action="detail-start-builder-team" data-build-intent={buildIntentConfirmed ? 'confirmed' : 'needs-confirmation'} onClick={startBuild}>{buildIntentConfirmed ? t.startTeamConfirm : t.startTeam}</button>
           {build && <div className="build-status"><b>{build.status}</b><span>{Object.keys(build.team_state.teammates).length} teammates · {build.team_state.tasks.length} tasks · {build.team_state.repair_cycles} repairs</span><span>{build.deadline?.enabled && build.deadline.max_elapsed_seconds ? t.buildDeadlineActive(build.deadline.max_elapsed_seconds) : t.buildDeadlineInactive}</span>{build.error && <p>{build.error}</p>}</div>}
           <h3>{t.tasksTitle}</h3>
           <div className="test-list">{build?.team_state.tasks.map((task, index) => <pre key={index}>{JSON.stringify(task, null, 2)}</pre>) || <p className="muted">{t.tasksEmpty}</p>}</div>
