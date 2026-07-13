@@ -201,6 +201,35 @@ function defaultConfig(type: string): Record<string, unknown> {
   return configs[type] || {}
 }
 
+const RUN_MODE_STORAGE_PREFIX = 'lilies.tryRunMode:'
+
+function isRunMode(value: unknown): value is RunMode {
+  return value === 'draft' || value === 'published' || value === 'unknown'
+}
+
+function runModeStorageKey(applicationId: string) {
+  return `${RUN_MODE_STORAGE_PREFIX}${applicationId}`
+}
+
+function readStoredRunMode(applicationId: string): RunMode {
+  if (typeof window === 'undefined') return 'unknown'
+  try {
+    const value = window.localStorage.getItem(runModeStorageKey(applicationId))
+    return value === 'draft' || value === 'published' ? value : 'unknown'
+  } catch {
+    return 'unknown'
+  }
+}
+
+function persistRunMode(applicationId: string, mode: RunMode) {
+  if (typeof window === 'undefined' || !isRunMode(mode) || mode === 'unknown') return
+  try {
+    window.localStorage.setItem(runModeStorageKey(applicationId), mode)
+  } catch {
+    // localStorage may be disabled; visible mode still works for the current session.
+  }
+}
+
 function workflowRef(nodeId: string, sourcePort = 'output') {
   return { $ref: { node_id: nodeId, path: [sourcePort || 'output'] } }
 }
@@ -994,6 +1023,9 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     return () => window.removeEventListener('popstate', syncStudioTabFromLocation)
   }, [syncStudioTabFromLocation])
   useEffect(() => {
+    setLastRunMode(readStoredRunMode(id))
+  }, [id])
+  useEffect(() => {
     syncStudioTabFromLocation()
     const query = new URLSearchParams(window.location.search)
     const buildId = query.get('build')
@@ -1317,7 +1349,9 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     const result = await api<{ run_id: string }>(`/api/v1/applications/${id}/runs`, {
       method: 'POST', body: JSON.stringify({ inputs: parsed.inputs, use_draft: useDraft, workspace_path: '.' }),
     })
-    setLastRunMode(useDraft ? 'draft' : 'published')
+    const mode: RunMode = useDraft ? 'draft' : 'published'
+    setLastRunMode(mode)
+    persistRunMode(id, mode)
     setStudioTab('run')
     setRunEvents([])
     setRun({ id: result.run_id, status: 'queued', outputs: {}, state: {} })

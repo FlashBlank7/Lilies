@@ -63,7 +63,8 @@ def source_marker_checks() -> list[dict[str, Any]]:
             (
                 "type RunMode = 'unknown' | 'draft' | 'published'",
                 "lastRunMode",
-                "setLastRunMode(useDraft ? 'draft' : 'published')",
+                "const mode: RunMode = useDraft ? 'draft' : 'published'",
+                "setLastRunMode(mode)",
                 "data-try-run-mode={lastRunMode}",
                 "data-try-run-mode-action=\"draft\"",
                 "data-try-run-mode-action=\"published\"",
@@ -91,7 +92,7 @@ def source_marker_checks() -> list[dict[str, Any]]:
             "docs/testing/regression_lanes.json",
             (
                 "tests/test_v03_36_try_run_mode_visibility.py",
-                "\"pass_count\": 196",
+                "v0.3.x_current_release_gate",
             ),
         ),
     ]
