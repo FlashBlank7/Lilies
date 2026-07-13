@@ -1203,6 +1203,17 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     })
   }
 
+  function applySampleRunInputs() {
+    const testInputs = firstMandatoryInputs(draft)
+    const next = runFieldsRef.current.map(field => {
+      const value = stringifyFieldValue(defaultInputValue(field, testInputs), field.type)
+      return { ...field, value, checked: field.type === 'boolean' ? value === 'true' : undefined }
+    })
+    runFieldsRef.current = next
+    setRunFields(next)
+    setNotice(t.runSampleApplied)
+  }
+
   async function startRun(useDraft = false) {
     const parsed = parseRunFieldInputs(runFieldsRef.current, t)
     if (parsed.error) {
@@ -1270,6 +1281,37 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   const acceptanceCaseViews = useMemo(() => acceptanceCases(draft, testReport), [draft, testReport])
   const runInputParsed = useMemo(() => parseRunFieldInputs(runFields, t), [runFields, t])
   const runInputPreview = JSON.stringify(runInputParsed.inputs || {}, null, 2)
+  const runRecoveryHint = runInputParsed.error
+    ? t.runMissingInputHelp
+    : run?.status === 'failed'
+      ? t.runFailureHelp
+      : run?.status === 'paused'
+        ? t.runPausedHelp
+        : run?.status === 'succeeded'
+          ? t.runSucceededHelp
+          : t.runReadyHint
+  const runReadinessItems = [
+    {
+      label: t.tryReadinessDraft,
+      ready: Boolean(draft),
+      detail: draft ? `${t.draft} r${draft.revision}` : t.loading,
+    },
+    {
+      label: t.tryReadinessInputs,
+      ready: !runInputParsed.error,
+      detail: runInputParsed.error || (runFields.length ? t.runReadyHint : t.runInputsEmpty),
+    },
+    {
+      label: t.tryReadinessPublished,
+      ready: Boolean(activeVersion),
+      detail: activeVersion ? t.activeVersion(activeVersion) : t.noPublishedVersion,
+    },
+    {
+      label: t.tryReadinessLastRun,
+      ready: run?.status === 'succeeded',
+      detail: run ? run.status : t.notRunLabel,
+    },
+  ]
   const pendingPermission = useMemo(() => latestPendingPermission(runEvents), [runEvents])
   const relatedMonitorTasks = useMemo(
     () => monitorTasks.filter(task => taskIsRelated(task, id, build, run)),
@@ -1519,12 +1561,18 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
         {tab === 'run' && <div className="panel-body">
           <div className="panel-kicker">{t.runApplication}</div><h2>{t.runPublished}</h2>
           <p className="muted">{t.runHelp}</p>
+          <section className="try-readiness-panel" data-try-guidance="run-readiness">
+            <div className="try-readiness-head"><strong>{t.tryReadinessTitle}</strong><small>{t.tryReadinessHelp}</small></div>
+            <div className="try-readiness-list">{runReadinessItems.map(item => <article className={item.ready ? 'ready' : ''} key={item.label}><span>{item.label}</span><b>{item.ready ? t.tryReady : t.tryNeedsAttention}</b><small>{item.detail}</small></article>)}</div>
+            <p className="run-recovery-hint" data-try-guidance={runInputParsed.error ? 'missing-input' : 'run-recovery'}>{runRecoveryHint}</p>
+          </section>
+          <div className="run-actions compact"><button className="wide secondary" onClick={applySampleRunInputs} disabled={!runFields.length}>{t.fillRunSample}</button></div>
           <div className="run-form">{runFields.length ? runFields.map(field => <label className="run-field" key={field.name}><span>{field.label || field.name}<em>{t.fieldType(field.type || 'string')}</em></span>{field.type === 'boolean' ? <input type="checkbox" checked={field.checked || false} onChange={event => updateRunField(field.name, { checked: event.target.checked, value: event.target.checked ? 'true' : 'false' })} /> : field.type === 'object' || field.type === 'array' || field.type === 'file_list' ? <textarea value={field.value} onChange={event => updateRunField(field.name, { value: event.target.value })} /> : <input type={fieldInputType(field.type)} value={field.value} onChange={event => updateRunField(field.name, { value: event.target.value })} />}</label>) : <p className="muted">{t.runInputsEmpty}</p>}</div>
           <label>{t.runInputPreview}</label><pre className="trace-log">{runInputPreview}</pre>
           <div className="run-actions"><button className="wide" onClick={() => startRun(true)}>{t.runDraftButton}</button><button className="wide secondary" onClick={() => startRun(false)} disabled={!activeVersion}>{t.runPublishedButton}</button></div>
           {!activeVersion && <p className="muted">{t.noPublishedVersion}</p>}
-          {run && <div className="run-result"><b>{run.status}</b><button className="danger-link" onClick={cancelRun} disabled={['succeeded', 'failed', 'paused', 'cancelled'].includes(run.status)}>{t.cancelRun}</button><pre>{JSON.stringify(run.outputs || run.error, null, 2)}</pre>{run.status === 'paused' && <><label>{t.humanInput}</label><textarea value={humanValues} onChange={event => setHumanValues(event.target.value)} /><button onClick={resumeRun}>{t.resume}</button></>}</div>}
-          {pendingPermission && <div className="permission-card"><h3>{t.permissionWaiting}</h3><p>{t.permissionTool}: <code>{pendingPermission.tool || '-'}</code>{pendingPermission.node_id ? <> · <code>{pendingPermission.node_id}</code></> : null}</p><pre>{JSON.stringify(pendingPermission.input || {}, null, 2)}</pre><div className="run-actions"><button className="wide" onClick={() => resolvePermission(pendingPermission, 'allow')}>{t.approvePermission}</button><button className="wide secondary" onClick={() => resolvePermission(pendingPermission, 'deny')}>{t.denyPermission}</button></div></div>}
+          {run && <div className="run-result" data-run-status={run.status}><b>{run.status}</b><p className="run-recovery-hint" data-try-guidance="run-result-recovery">{runRecoveryHint}</p><button className="danger-link" onClick={cancelRun} disabled={['succeeded', 'failed', 'paused', 'cancelled'].includes(run.status)}>{t.cancelRun}</button><pre>{JSON.stringify(run.outputs || run.error, null, 2)}</pre>{run.status === 'paused' && <><label>{t.humanInput}</label><textarea value={humanValues} onChange={event => setHumanValues(event.target.value)} /><button onClick={resumeRun}>{t.resume}</button></>}</div>}
+          {pendingPermission && <div className="permission-card"><h3>{t.permissionWaiting}</h3><p>{t.permissionHelp}</p><p>{t.permissionTool}: <code>{pendingPermission.tool || '-'}</code>{pendingPermission.node_id ? <> · <code>{pendingPermission.node_id}</code></> : null}</p><pre>{JSON.stringify(pendingPermission.input || {}, null, 2)}</pre><div className="run-actions"><button className="wide" onClick={() => resolvePermission(pendingPermission, 'allow')}>{t.approvePermission}</button><button className="wide secondary" onClick={() => resolvePermission(pendingPermission, 'deny')}>{t.denyPermission}</button></div></div>}
           {runEvents.length > 0 && <><h3>{t.traceTitle}</h3><pre className="trace-log">{JSON.stringify(visibleRunEvents(runEvents), null, 2)}</pre></>}
         </div>}
         {tab === 'monitor' && <div className="panel-body">

@@ -1,0 +1,229 @@
+{
+  "version": "v0.3.11",
+  "stage": "guided_try_run_recovery",
+  "status": "passed",
+  "live_checks_enabled": true,
+  "token_source": "file:.env:API_TOKEN",
+  "smoke_marker": "v0.3.11-smoke",
+  "bug_ledger": [
+    {
+      "id": "P1-try-tab-readiness-unclear",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "An operator opening Try had to infer draft/input/published/run readiness from form fields and JSON.",
+      "fix": "Add a Try readiness panel with stable markers and user-facing details.",
+      "verification": "try_guidance_source_markers."
+    },
+    {
+      "id": "P1-run-sample-reuse-hidden",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Acceptance inputs were already useful samples but not exposed as an explicit Try action.",
+      "fix": "Add sample-fill action backed by first mandatory acceptance inputs or defaults.",
+      "verification": "try_sample_source_markers."
+    },
+    {
+      "id": "P1-operator-run-not-proven",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "The usability suite did not prove that an operator could run a safe draft without starting builds.",
+      "fix": "Add live safe draft run evidence and cleanup.",
+      "verification": "ran_safe_draft_operator_persona and safety_no_build_call."
+    }
+  ],
+  "safety": {
+    "build_endpoint_called": false,
+    "called_endpoints": [
+      "POST /api/v1/applications",
+      "POST /api/v1/applications/{id}/draft:add_node",
+      "POST /api/v1/applications/{id}/draft:add_node",
+      "POST /api/v1/applications/{id}/draft:add_edge",
+      "POST /api/v1/applications/{id}/draft:add_test",
+      "POST /api/v1/applications/{id}/runs",
+      "GET /api/v1/runs/{id}",
+      "GET /api/v1/runs/{id}",
+      "POST /api/v1/applications/{id}/smoke-cleanup"
+    ],
+    "smoke_marker": "v0.3.11-smoke",
+    "cleanup_attempted": true
+  },
+  "checks": [
+    {
+      "id": "p0_p1_bug_ledger_guided_try_run_recovery",
+      "passed": true,
+      "bug_count": 3,
+      "blocking_bug_count": 0,
+      "bugs": [
+        {
+          "id": "P1-try-tab-readiness-unclear",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "An operator opening Try had to infer draft/input/published/run readiness from form fields and JSON.",
+          "fix": "Add a Try readiness panel with stable markers and user-facing details.",
+          "verification": "try_guidance_source_markers."
+        },
+        {
+          "id": "P1-run-sample-reuse-hidden",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Acceptance inputs were already useful samples but not exposed as an explicit Try action.",
+          "fix": "Add sample-fill action backed by first mandatory acceptance inputs or defaults.",
+          "verification": "try_sample_source_markers."
+        },
+        {
+          "id": "P1-operator-run-not-proven",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "The usability suite did not prove that an operator could run a safe draft without starting builds.",
+          "fix": "Add live safe draft run evidence and cleanup.",
+          "verification": "ran_safe_draft_operator_persona and safety_no_build_call."
+        }
+      ]
+    },
+    {
+      "id": "try_guidance_source_markers",
+      "path": "platform/frontend/app/applications/[id]/page.tsx",
+      "required_markers": [
+        "runReadinessItems",
+        "data-try-guidance=\"run-readiness\"",
+        "runRecoveryHint",
+        "data-run-status"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "try_sample_source_markers",
+      "path": "platform/frontend/app/applications/[id]/page.tsx",
+      "required_markers": [
+        "applySampleRunInputs",
+        "fillRunSample",
+        "runSampleApplied",
+        "firstMandatoryInputs"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "try_guidance_i18n_markers",
+      "path": "platform/frontend/lib/i18n.ts",
+      "required_markers": [
+        "tryReadinessTitle",
+        "fillRunSample",
+        "runMissingInputHelp",
+        "permissionHelp"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "try_guidance_style_markers",
+      "path": "platform/frontend/app/globals.css",
+      "required_markers": [
+        ".try-readiness-panel",
+        ".try-readiness-list",
+        ".run-recovery-hint"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "token_available",
+      "passed": true,
+      "token_source": "file:.env:API_TOKEN"
+    },
+    {
+      "id": "runtime_health_current_code",
+      "url": "http://127.0.0.1:8001/health",
+      "passed": true,
+      "status_code": 200,
+      "runtime": {
+        "version": "v0.3.6",
+        "product_phase": "v0.3.x",
+        "git": {
+          "commit": "e8188f3",
+          "branch": "usabilityEnhence",
+          "tracked_dirty": false,
+          "untracked_present": true
+        },
+        "route_availability": {
+          "health": true,
+          "applications_list": true,
+          "applications_create": true,
+          "application_detail": true,
+          "draft_detail": true,
+          "smoke_cleanup": true
+        },
+        "current_code_ready": true
+      }
+    },
+    {
+      "id": "created_guided_try_smoke_app",
+      "passed": true,
+      "status_code": 201,
+      "application_id": "fbf8f4e4-8350-494b-8e45-d7a34ca47f46"
+    },
+    {
+      "id": "seeded_guided_try_safe_draft",
+      "passed": true,
+      "final_revision": 4,
+      "operation_count": 4
+    },
+    {
+      "id": "rendered_detail_route_available",
+      "url": "http://127.0.0.1:3000/applications/fbf8f4e4-8350-494b-8e45-d7a34ca47f46?safeDraft=1",
+      "passed": true,
+      "status_code": 200
+    },
+    {
+      "id": "ran_safe_draft_operator_persona",
+      "passed": true,
+      "status_code": 202,
+      "run_id": "7b80bf3c-ed48-4b48-a1d2-3603cd665a4f",
+      "final_status": "succeeded",
+      "outputs": {
+        "answer": "Summarize this failed order and name the next owner."
+      },
+      "error": null
+    },
+    {
+      "id": "cleanup_smoke_app",
+      "passed": true,
+      "status_code": 200,
+      "related_counts": {
+        "application_drafts": 1,
+        "application_versions": 0,
+        "builds": 0,
+        "workflow_runs": 1,
+        "schedule_fires": 0,
+        "draft_idempotency": 4
+      }
+    },
+    {
+      "id": "verified_smoke_deleted",
+      "passed": true,
+      "status_code": 404
+    },
+    {
+      "id": "safety_no_build_call",
+      "passed": true,
+      "called_endpoints": [
+        "POST /api/v1/applications",
+        "POST /api/v1/applications/{id}/draft:add_node",
+        "POST /api/v1/applications/{id}/draft:add_node",
+        "POST /api/v1/applications/{id}/draft:add_edge",
+        "POST /api/v1/applications/{id}/draft:add_test",
+        "POST /api/v1/applications/{id}/runs",
+        "GET /api/v1/runs/{id}",
+        "GET /api/v1/runs/{id}",
+        "POST /api/v1/applications/{id}/smoke-cleanup"
+      ],
+      "forbidden_endpoint": "POST /api/v1/applications/{id}/builds"
+    }
+  ],
+  "summary": {
+    "failed_check_count": 0,
+    "open_p0_p1_bug_count": 0,
+    "build_endpoint_called": false
+  }
+}
