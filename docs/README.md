@@ -34,7 +34,7 @@
 
 - 模板：`stage-reports/STAGE_REPORT_TEMPLATE.md`
 - 最新 handoff：`stage-report-archives/v0.2.x/v0.2.144_v02x_closeout_and_v03_handoff.md`
-- 最新 active stage report：`stage-reports/v0.3.44_try_run_input_error_action_guard.md`
+- 最新 active stage report：`stage-reports/v0.3.45_try_run_input_error_recovery_ready_state.md`
 - 当前 `v0.3.x` 方向：产品可用性缓冲期。先解决前端入口、具体草稿/画布理解成本、客户行为模拟、自动测试和 P0/P1 可用性 bug，再推进外部验证、diligence 或云硬化。
 
 ## 已归档 Stage Report Sets

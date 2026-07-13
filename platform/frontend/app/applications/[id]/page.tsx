@@ -620,6 +620,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   const [patchApplyLoading, setPatchApplyLoading] = useState(false)
   const [humanValues, setHumanValues] = useState('{}')
   const [notice, setNotice] = useState('')
+  const [tryInputRecoveryReady, setTryInputRecoveryReady] = useState(false)
   const [authRequired, setAuthRequired] = useState(false)
   const [tokenInput, setTokenInput] = useState('')
   const [runtimeHealth, setRuntimeHealth] = useState<RuntimeHealth | null>(null)
@@ -633,7 +634,9 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   const detailBuildRequirementRef = useRef<HTMLTextAreaElement>(null)
   const detailBuildStartButtonRef = useRef<HTMLButtonElement>(null)
   const runInputFormRef = useRef<HTMLDivElement>(null)
+  const runInputPreviewRef = useRef<HTMLPreElement>(null)
   const tryInputErrorRef = useRef<HTMLElement>(null)
+  const tryInputErrorSeenRef = useRef(false)
   const runControlsRef = useRef<HTMLDivElement>(null)
   const runResultRef = useRef<HTMLDivElement>(null)
   const runPermissionRef = useRef<HTMLDivElement>(null)
@@ -1375,6 +1378,8 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     const mode: RunMode = useDraft ? 'draft' : 'published'
     setLastRunMode(mode)
     persistRunMode(id, mode)
+    tryInputErrorSeenRef.current = false
+    setTryInputRecoveryReady(false)
     setStudioTab('run')
     setRunEvents([])
     setRun({ id: result.run_id, status: 'queued', outputs: {}, state: {} })
@@ -1447,6 +1452,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   const runInputPreview = JSON.stringify(runInputParsed.inputs || {}, null, 2)
   const tryInputErrorVisible = Boolean(runInputParsed.error)
   const tryInputErrorBlockingRun = Boolean(runInputParsed.error)
+  const tryInputRecoveryReadyVisible = tryInputRecoveryReady && !tryInputErrorBlockingRun && runFields.length > 0
   const runRecoveryHint = runInputParsed.error
     ? t.runMissingInputHelp
     : run?.status === 'failed'
@@ -1478,6 +1484,17 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
       detail: run ? run.status : t.notRunLabel,
     },
   ]
+
+  useEffect(() => {
+    if (runInputParsed.error) {
+      tryInputErrorSeenRef.current = true
+      if (tryInputRecoveryReady) setTryInputRecoveryReady(false)
+      return
+    }
+    if (tryInputErrorSeenRef.current && runFields.length > 0 && !tryInputRecoveryReady) {
+      setTryInputRecoveryReady(true)
+    }
+  }, [runInputParsed.error, runFields.length, tryInputRecoveryReady])
   const trySampleSummaryItems = useMemo(() => {
     const testInputs = firstMandatoryInputs(draft)
     return runFields.map(field => {
@@ -1921,10 +1938,11 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
           <section className="try-sample-next-action" data-try-sample-next-action={trySampleNextAction.id}><span>{t.trySampleNextAction}</span><strong>{trySampleNextAction.label}</strong><small>{trySampleNextAction.detail}</small></section>
           <div className="run-actions compact"><button className="wide secondary" data-try-sample-action="fill-sample" onClick={applySampleRunInputs} disabled={!runFields.length}>{t.fillRunSample}</button></div>
           <div className="run-form" ref={runInputFormRef} tabIndex={-1}>{runFields.length ? runFields.map(field => <label className="run-field" key={field.name}><span>{field.label || field.name}<em>{t.fieldType(field.type || 'string')}</em></span>{field.type === 'boolean' ? <input type="checkbox" checked={field.checked || false} onChange={event => updateRunField(field.name, { checked: event.target.checked, value: event.target.checked ? 'true' : 'false' })} /> : field.type === 'object' || field.type === 'array' || field.type === 'file_list' ? <textarea value={field.value} onChange={event => updateRunField(field.name, { value: event.target.value })} /> : <input type={fieldInputType(field.type)} value={field.value} onChange={event => updateRunField(field.name, { value: event.target.value })} />}</label>) : <p className="muted">{t.runInputsEmpty}</p>}</div>
-          <label>{t.runInputPreview}</label><pre className="trace-log">{runInputPreview}</pre>
+          <label>{t.runInputPreview}</label><pre className="trace-log" data-try-input-preview="payload" ref={runInputPreviewRef} tabIndex={-1}>{runInputPreview}</pre>
           {tryInputErrorVisible && <section className="try-input-error" data-try-input-error="inline" data-try-input-error-source="parser" ref={tryInputErrorRef} tabIndex={-1}><strong>{t.tryInputErrorTitle}</strong><small>{runInputParsed.error}</small><span>{t.tryInputErrorDetail}</span><button type="button" data-try-input-error-action="focus-form" onClick={() => runInputFormRef.current?.focus()}>{t.tryInputErrorFocusAction}</button></section>}
           {tryRunActive && <section className="try-run-start-guard" data-try-run-start-guard="active" data-try-run-active-status={tryRunActiveStatus}><strong>{t.tryRunActiveGuardTitle}</strong><span>{t.tryRunActiveStatus(tryRunActiveStatus)}</span><small>{t.tryRunActiveRefreshDetail}</small><small>{t.tryRunActiveStaleDetail}</small></section>}
-          <div className="run-actions" ref={runControlsRef} tabIndex={-1} data-try-input-error-action-guard={tryInputErrorBlockingRun ? 'blocked' : 'ready'}><button className="wide" data-try-run-mode-action="draft" onClick={() => startRun(true)} disabled={tryRunActive || tryInputErrorBlockingRun}>{t.runDraftButton}</button><button className="wide secondary" data-try-run-mode-action="published" onClick={() => startRun(false)} disabled={!activeVersion || tryRunActive || tryInputErrorBlockingRun}>{t.runPublishedButton}</button></div>
+          {tryInputRecoveryReadyVisible && <section className="try-input-recovery-ready" data-try-input-recovery-ready="restored" data-try-input-recovery-confidence="valid-input-preview"><strong>{t.tryInputRecoveryReadyTitle}</strong><small>{t.tryInputRecoveryReadyDetail}</small><button type="button" data-try-input-recovery-ready-action="focus-preview" onClick={() => runInputPreviewRef.current?.focus()}>{t.tryInputRecoveryReadyAction}</button></section>}
+          <div className="run-actions" ref={runControlsRef} tabIndex={-1} data-try-input-error-action-guard={tryInputErrorBlockingRun ? 'blocked' : 'ready'} data-try-input-recovery-ready={tryInputRecoveryReadyVisible ? 'restored' : 'inactive'}><button className="wide" data-try-run-mode-action="draft" onClick={() => startRun(true)} disabled={tryRunActive || tryInputErrorBlockingRun}>{t.runDraftButton}</button><button className="wide secondary" data-try-run-mode-action="published" onClick={() => startRun(false)} disabled={!activeVersion || tryRunActive || tryInputErrorBlockingRun}>{t.runPublishedButton}</button></div>
           {tryInputErrorBlockingRun && <section className="try-input-action-guard" data-try-input-action-guard="blocked"><strong>{t.tryInputErrorGuardTitle}</strong><small>{t.tryInputErrorGuardDetail}</small><button type="button" data-try-input-action-guard-focus="error" onClick={() => tryInputErrorRef.current?.focus()}>{t.tryInputErrorGuardFocusAction}</button></section>}
           {!activeVersion && <p className="muted">{t.noPublishedVersion}</p>}
           {run && <div className="run-result" data-run-status={run.status} ref={runResultRef} tabIndex={-1}><b>{run.status}</b>{tryRunStatusRecencyVisible && <section className="try-status-recency" data-try-status-recency="last-checked" data-try-status-recency-status={run.status}><strong>{t.tryStatusRecencyLabel}: {runStatusCheckedAt}</strong><small>{t.tryStatusRecencyDetail}</small></section>}<section className="try-run-mode" data-try-run-mode={lastRunMode}><span>{t.tryRunModeLabel}</span><strong>{tryRunModeTitle}</strong><small>{tryRunModeDetail}</small></section><section className="try-result-outcome" data-try-result-outcome="summary"><div className="try-result-head"><strong>{t.tryResultOutcomeTitle}</strong><small>{t.tryResultStatusMeaning(run.status)}</small></div><div className="try-result-list">{tryResultOutcomeItems.map(item => <article className={item.ready ? 'ready' : ''} key={item.label}><span>{item.label}</span><b>{item.ready ? t.tryReady : t.tryNeedsAttention}</b><small>{item.detail}</small></article>)}</div><div className="try-result-next-action" data-try-result-next-action={tryResultNextAction.id}><span>{t.tryResultNextAction}</span><strong>{tryResultNextAction.label}</strong><small>{tryResultNextAction.detail}</small><button type="button" data-try-result-focus-target={tryResultNextAction.target} onClick={() => focusTryResultRecoveryTarget(tryResultNextAction.target)}>{t.tryResultFocusAction}</button></div></section><section className="try-result-preview" data-try-result-preview="output" data-try-result-error-preview={tryResultErrorPreview ? 'present' : 'empty'}><div className="try-result-preview-head"><strong>{t.tryResultPreviewTitle}</strong><small>{tryResultOutputPreviewItems.length ? t.tryResultPreviewHelp : tryResultErrorPreview ? t.tryResultErrorPreviewHelp : t.tryResultPreviewEmpty}</small></div>{tryResultOutputPreviewItems.length ? <div className="try-result-preview-list">{tryResultOutputPreviewItems.map(item => <article key={item.key}><span>{item.key}<em>{item.kind}</em></span><code>{item.preview}</code></article>)}</div> : tryResultErrorPreview ? <p className="try-result-error-preview">{tryResultErrorPreview}</p> : <p className="muted">{t.tryResultPreviewEmpty}</p>}{tryResultHiddenOutputCount > 0 && <small className="try-result-preview-more">{t.tryResultPreviewMore(tryResultHiddenOutputCount)}</small>}</section><p className="run-recovery-hint" data-try-guidance="run-result-recovery">{runRecoveryHint}</p>{tryCancelConfirmVisible && <section className="try-cancel-confirm" data-try-cancel-confirm="pending" data-try-cancel-status={run.status}><strong>{t.tryCancelConfirmTitle}</strong><small>{t.tryCancelConfirmDetail}</small><div><button type="button" className="danger-link" data-try-cancel-confirm-action="stop" onClick={cancelRun}>{t.tryCancelConfirmStopAction}</button><button type="button" className="wide secondary" data-try-cancel-confirm-action="keep-waiting" onClick={() => setCancelConfirmRunId(null)}>{t.tryCancelConfirmKeepAction}</button></div></section>}{tryCancelProgressVisible && <section className="try-cancel-progress" data-try-cancel-progress={tryCancelProgressState} data-try-cancel-progress-status={run.status}><strong>{tryCancelProgressState === 'completed' ? t.tryCancelProgressCompletedTitle : t.tryCancelProgressRequestedTitle}</strong><small>{tryCancelProgressState === 'completed' ? t.tryCancelProgressCompletedDetail : t.tryCancelProgressRequestedDetail}</small></section>}<button className="danger-link" data-try-cancel-action="request-confirmation" onClick={cancelRun} disabled={['succeeded', 'failed', 'paused', 'cancelled'].includes(run.status)}>{cancelConfirmRunId === run.id ? t.tryCancelConfirmationPending : t.cancelRun}</button><pre>{JSON.stringify(run.outputs || run.error, null, 2)}</pre>{run.status === 'paused' && <><label>{t.humanInput}</label><textarea ref={runHumanInputRef} value={humanValues} onChange={event => setHumanValues(event.target.value)} /><button onClick={resumeRun}>{t.resume}</button></>}</div>}
