@@ -14,6 +14,7 @@ PatchIntent = Literal[
     "update_workflow_metadata",
     "update_workflow_requirement",
     "update_start_inputs",
+    "upsert_template_transform",
     "unsupported",
 ]
 
@@ -55,6 +56,10 @@ class DraftPatchPreviewer:
         start_input = self._start_input_preview(snapshot, revision, text)
         if start_input:
             return self._with_references(start_input, references)
+
+        transform = self._template_transform_preview(snapshot, revision, text)
+        if transform:
+            return self._with_references(transform, references)
 
         rename = re.search(
             r"(?:rename|重命名)\s+(?:node\s+)?(?P<node>[A-Za-z0-9_-]+)\s+(?:to|为|成)\s+[\"'“”‘’]?(?P<title>[^\"'“”‘’]+)[\"'“”‘’]?",
@@ -142,9 +147,20 @@ class DraftPatchPreviewer:
             )
 
         return DraftPatchPreviewResponse(
-            supported=False,
-            intent="unsupported",
-            message="unsupported instruction; workflow edit preview supports workflow name, description, requirement, start inputs, node title/description, and disconnected node removal.",
+            supported=True,
+            intent="update_workflow_requirement",
+            message="Preview whole-workflow requirement update. This instruction is saved as the workflow edit request instead of being rejected.",
+            operations=[{
+                "expected_revision": revision,
+                "op": "set_metadata",
+                "data": {
+                    "requirement": text,
+                    "description": text[:180],
+                },
+            }],
+            warnings=[
+                "No deterministic structural transform matched this instruction; the workflow-level request remains applicable and can be used for a later builder-team expansion.",
+            ],
             reference_node_ids=references,
         )
 
@@ -228,6 +244,105 @@ class DraftPatchPreviewer:
             }],
         )
 
+    def _template_transform_preview(
+        self, snapshot: ApplicationSnapshot, revision: int, text: str
+    ) -> DraftPatchPreviewResponse | None:
+        if not self._looks_like_template_transform_request(text):
+            return None
+        terminal = self._terminal_node(snapshot)
+        if not terminal:
+            return DraftPatchPreviewResponse(
+                supported=False,
+                intent="upsert_template_transform",
+                message="no end or answer node found for transform insertion",
+            )
+        existing = self._existing_terminal_transform(snapshot, terminal.id)
+        if existing:
+            existing_upstream = next((edge.source for edge in snapshot.workflow.edges if edge.target == existing.id), None)
+            return DraftPatchPreviewResponse(
+                supported=True,
+                intent="upsert_template_transform",
+                message=f"Preview replace existing result transform {existing.id}.",
+                operations=[{
+                    "expected_revision": revision,
+                    "op": "update_node",
+                    "data": {
+                        "node_id": existing.id,
+                        "changes": {
+                            "title": self._transform_title(text),
+                            "description": "Formats the workflow result from a natural-language workflow edit.",
+                            "config": self._transform_config(text, existing_upstream, self._source_output_path(snapshot, existing_upstream)),
+                        },
+                        "merge_config": False,
+                    },
+                }],
+            )
+
+        upstream_edge = next((edge for edge in snapshot.workflow.edges if edge.target == terminal.id), None)
+        upstream_id = upstream_edge.source if upstream_edge else self._last_non_terminal_node_id(snapshot, terminal.id)
+        transform_id = self._unique_node_id(snapshot, "workflow_edit_transform")
+        operations: list[dict[str, Any]] = [{
+            "expected_revision": revision,
+            "op": "add_node",
+            "data": {"node": {
+                "id": transform_id,
+                "type": "template_transform",
+                "block_version": 1,
+                "title": self._transform_title(text),
+                "description": "Formats the workflow result from a natural-language workflow edit.",
+                "config": self._transform_config(text, upstream_id, self._source_output_path(snapshot, upstream_id)),
+                "position": self._insert_position(snapshot, terminal.id),
+                "retry": {"enabled": False, "max_attempts": 1, "delay_seconds": 0.5},
+                "error_strategy": "fail",
+            }},
+        }]
+        if upstream_edge:
+            operations.append({
+                "expected_revision": revision,
+                "op": "remove_edge",
+                "data": {"edge_id": upstream_edge.id},
+            })
+        if upstream_id:
+            operations.append({
+                "expected_revision": revision,
+                "op": "add_edge",
+                "data": {"edge": {
+                    "id": self._unique_edge_id(snapshot, f"{upstream_id}-{transform_id}"),
+                    "source": upstream_id,
+                    "target": transform_id,
+                    "source_port": "output",
+                    "target_port": "input",
+                }},
+            })
+        operations.append({
+            "expected_revision": revision,
+            "op": "add_edge",
+            "data": {"edge": {
+                "id": self._unique_edge_id(snapshot, f"{transform_id}-{terminal.id}"),
+                "source": transform_id,
+                "target": terminal.id,
+                "source_port": "text",
+                "target_port": "input",
+            }},
+        })
+        terminal_config = self._terminal_config_after_transform(terminal, transform_id)
+        if terminal_config is not None:
+            operations.append({
+                "expected_revision": revision,
+                "op": "update_node",
+                "data": {
+                    "node_id": terminal.id,
+                    "changes": {"config": terminal_config},
+                    "merge_config": False,
+                },
+            })
+        return DraftPatchPreviewResponse(
+            supported=True,
+            intent="upsert_template_transform",
+            message=f"Preview insert result transform before {terminal.id}.",
+            operations=operations,
+        )
+
     def _update_node(
         self,
         snapshot: ApplicationSnapshot,
@@ -286,3 +401,101 @@ class DraftPatchPreviewer:
     def _looks_like_workflow_scope(text: str) -> bool:
         lowered = text.casefold()
         return len(text) >= 20 and any(marker in lowered for marker in ("workflow", "工作流", "流程"))
+
+    @staticmethod
+    def _looks_like_template_transform_request(text: str) -> bool:
+        lowered = text.casefold()
+        structural = any(marker in lowered for marker in (
+            "template", "transform", "format", "summary", "summarize", "output",
+            "模板", "转换", "格式", "总结", "摘要", "输出", "结果",
+        ))
+        action = any(marker in lowered for marker in (
+            "add", "insert", "replace", "change", "update", "make", "return",
+            "添加", "增加", "插入", "替换", "改", "修改", "生成", "返回", "整理",
+        ))
+        return structural and action
+
+    @staticmethod
+    def _terminal_node(snapshot: ApplicationSnapshot) -> Any | None:
+        return next((node for node in snapshot.workflow.nodes if node.type in {"end", "answer"}), None)
+
+    @staticmethod
+    def _last_non_terminal_node_id(snapshot: ApplicationSnapshot, terminal_id: str) -> str | None:
+        for node in reversed(snapshot.workflow.nodes):
+            if node.id != terminal_id:
+                return node.id
+        return None
+
+    @staticmethod
+    def _existing_terminal_transform(snapshot: ApplicationSnapshot, terminal_id: str) -> Any | None:
+        incoming_sources = [edge.source for edge in snapshot.workflow.edges if edge.target == terminal_id]
+        transforms = [node for node in snapshot.workflow.nodes if node.type == "template_transform"]
+        return next((node for node in transforms if node.id in incoming_sources), None)
+
+    @staticmethod
+    def _transform_title(text: str) -> str:
+        lowered = text.casefold()
+        if any(marker in lowered for marker in ("日语", "japanese")):
+            return "Daily Japanese Summary"
+        if any(marker in lowered for marker in ("总结", "summary", "summarize")):
+            return "Result Summary"
+        return "Result Formatter"
+
+    @staticmethod
+    def _transform_config(text: str, source_node_id: str | None, source_path: str = "output") -> dict[str, Any]:
+        value_ref: Any = {"$ref": {"node_id": source_node_id, "path": [source_path]}} if source_node_id else ""
+        return {
+            "template": (
+                "Workflow edit result\n\n"
+                "Instruction: {{ instruction }}\n\n"
+                "Upstream result:\n{{ value }}"
+            ),
+            "variables": {
+                "instruction": text,
+                "value": value_ref,
+            },
+        }
+
+    @staticmethod
+    def _terminal_config_after_transform(terminal: Any, transform_id: str) -> dict[str, Any] | None:
+        ref = {"$ref": {"node_id": transform_id, "path": ["text"]}}
+        if terminal.type == "answer":
+            return {"answer": ref}
+        if terminal.type == "end":
+            return {"outputs": {"result": ref}}
+        return None
+
+    @staticmethod
+    def _source_output_path(snapshot: ApplicationSnapshot, node_id: str | None) -> str:
+        node = next((item for item in snapshot.workflow.nodes if item.id == node_id), None)
+        if node and node.type in {"llm", "template_transform", "question_classifier"}:
+            return "text"
+        return "output"
+
+    @staticmethod
+    def _insert_position(snapshot: ApplicationSnapshot, terminal_id: str) -> dict[str, float]:
+        terminal = next((node for node in snapshot.workflow.nodes if node.id == terminal_id), None)
+        if not terminal:
+            return {"x": 380, "y": 120}
+        return {"x": max(90, terminal.position.x - 260), "y": terminal.position.y}
+
+    @staticmethod
+    def _unique_node_id(snapshot: ApplicationSnapshot, prefix: str) -> str:
+        existing = {node.id for node in snapshot.workflow.nodes}
+        if prefix not in existing:
+            return prefix
+        index = 2
+        while f"{prefix}_{index}" in existing:
+            index += 1
+        return f"{prefix}_{index}"
+
+    @staticmethod
+    def _unique_edge_id(snapshot: ApplicationSnapshot, prefix: str) -> str:
+        existing = {edge.id for edge in snapshot.workflow.edges}
+        value = re.sub(r"[^A-Za-z0-9_-]+", "-", prefix).strip("-") or "workflow-edit-edge"
+        if value not in existing:
+            return value
+        index = 2
+        while f"{value}-{index}" in existing:
+            index += 1
+        return f"{value}-{index}"

@@ -1,0 +1,465 @@
+{
+  "version": "v0.3.52",
+  "stage": "workflow_edit_transform_and_node_click_repair",
+  "status": "passed",
+  "safety": {
+    "forbidden_endpoint_called": false,
+    "called_endpoints": [],
+    "model_call_used": false
+  },
+  "bug_ledger": [
+    {
+      "id": "P1-node-click-edit-panel-crash",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Clicking a canvas brick could switch to the edit panel and crash when workflow node fields were not safe strings.",
+      "fix": "Add safe text/type/config helpers before rendering workflow summaries and node inspector fields.",
+      "verification": "node_click_crash_guard_fixture."
+    },
+    {
+      "id": "P1-workflow-edit-too-restricted",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Natural-language workflow edit returned UNSUPPORTED for ordinary workflow-level instructions.",
+      "fix": "Fallback unmatched instructions to an applicable workflow requirement update instead of an unsupported response.",
+      "verification": "workflow_edit_no_unsupported_fallback_fixture."
+    },
+    {
+      "id": "P1-workflow-edit-cannot-change-result-shape",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Instructions to change output/summary format could not create a concrete graph operation.",
+      "fix": "Add deterministic upsert_template_transform preview operations before the terminal node.",
+      "verification": "workflow_edit_transform_preview_fixture."
+    },
+    {
+      "id": "P1-workflow-edit-preview-must-be-applicable",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "A preview that looks supported but cannot be applied would recreate the user's 不可应用 failure.",
+      "fix": "Test operation order against the draft mutation API with a real in-process app.",
+      "verification": "in_process_preview_apply_test."
+    },
+    {
+      "id": "P1-v0352-tests-must-enter-release-gate",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "The reported workflow-edit and node-click regressions could return if omitted from the current v0.3.x gate.",
+      "fix": "Update the current regression lane with v0.3.52 and a higher pass-count floor.",
+      "verification": "regression_manifest_updated."
+    }
+  ],
+  "checks": [
+    {
+      "id": "p0_p1_bug_ledger_workflow_edit_transform_and_node_click_repair",
+      "passed": true,
+      "bug_count": 5,
+      "blocking_bug_count": 0,
+      "bugs": [
+        {
+          "id": "P1-node-click-edit-panel-crash",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Clicking a canvas brick could switch to the edit panel and crash when workflow node fields were not safe strings.",
+          "fix": "Add safe text/type/config helpers before rendering workflow summaries and node inspector fields.",
+          "verification": "node_click_crash_guard_fixture."
+        },
+        {
+          "id": "P1-workflow-edit-too-restricted",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Natural-language workflow edit returned UNSUPPORTED for ordinary workflow-level instructions.",
+          "fix": "Fallback unmatched instructions to an applicable workflow requirement update instead of an unsupported response.",
+          "verification": "workflow_edit_no_unsupported_fallback_fixture."
+        },
+        {
+          "id": "P1-workflow-edit-cannot-change-result-shape",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Instructions to change output/summary format could not create a concrete graph operation.",
+          "fix": "Add deterministic upsert_template_transform preview operations before the terminal node.",
+          "verification": "workflow_edit_transform_preview_fixture."
+        },
+        {
+          "id": "P1-workflow-edit-preview-must-be-applicable",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "A preview that looks supported but cannot be applied would recreate the user's 不可应用 failure.",
+          "fix": "Test operation order against the draft mutation API with a real in-process app.",
+          "verification": "in_process_preview_apply_test."
+        },
+        {
+          "id": "P1-v0352-tests-must-enter-release-gate",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "The reported workflow-edit and node-click regressions could return if omitted from the current v0.3.x gate.",
+          "fix": "Update the current regression lane with v0.3.52 and a higher pass-count floor.",
+          "verification": "regression_manifest_updated."
+        }
+      ]
+    },
+    {
+      "id": "workflow_edit_transform_preview_fixture",
+      "passed": true,
+      "cases": {
+        "supported": true,
+        "intent_is_transform_upsert": true,
+        "adds_template_transform": true,
+        "removes_old_terminal_edge": true,
+        "adds_two_reconnect_edges": true,
+        "updates_terminal_output": true
+      },
+      "preview": {
+        "supported": true,
+        "intent": "upsert_template_transform",
+        "message": "Preview insert result transform before end.",
+        "operations": [
+          {
+            "expected_revision": 7,
+            "op": "add_node",
+            "data": {
+              "node": {
+                "id": "workflow_edit_transform",
+                "type": "template_transform",
+                "block_version": 1,
+                "title": "Result Summary",
+                "description": "Formats the workflow result from a natural-language workflow edit.",
+                "config": {
+                  "template": "Workflow edit result\n\nInstruction: {{ instruction }}\n\nUpstream result:\n{{ value }}",
+                  "variables": {
+                    "instruction": "把工作流输出改成面向客户的今日总结格式",
+                    "value": {
+                      "$ref": {
+                        "node_id": "summarize",
+                        "path": [
+                          "text"
+                        ]
+                      }
+                    }
+                  }
+                },
+                "position": {
+                  "x": 90,
+                  "y": 0
+                },
+                "retry": {
+                  "enabled": false,
+                  "max_attempts": 1,
+                  "delay_seconds": 0.5
+                },
+                "error_strategy": "fail"
+              }
+            }
+          },
+          {
+            "expected_revision": 7,
+            "op": "remove_edge",
+            "data": {
+              "edge_id": "b"
+            }
+          },
+          {
+            "expected_revision": 7,
+            "op": "add_edge",
+            "data": {
+              "edge": {
+                "id": "summarize-workflow_edit_transform",
+                "source": "summarize",
+                "target": "workflow_edit_transform",
+                "source_port": "output",
+                "target_port": "input"
+              }
+            }
+          },
+          {
+            "expected_revision": 7,
+            "op": "add_edge",
+            "data": {
+              "edge": {
+                "id": "workflow_edit_transform-end",
+                "source": "workflow_edit_transform",
+                "target": "end",
+                "source_port": "text",
+                "target_port": "input"
+              }
+            }
+          },
+          {
+            "expected_revision": 7,
+            "op": "update_node",
+            "data": {
+              "node_id": "end",
+              "changes": {
+                "config": {
+                  "outputs": {
+                    "result": {
+                      "$ref": {
+                        "node_id": "workflow_edit_transform",
+                        "path": [
+                          "text"
+                        ]
+                      }
+                    }
+                  }
+                }
+              },
+              "merge_config": false
+            }
+          }
+        ],
+        "warnings": [],
+        "reference_node_ids": []
+      }
+    },
+    {
+      "id": "workflow_edit_no_unsupported_fallback_fixture",
+      "passed": true,
+      "cases": {
+        "fallback_is_supported": true,
+        "fallback_updates_requirement": true,
+        "message_does_not_say_unsupported": true,
+        "apply_button_would_be_enabled": true
+      },
+      "preview": {
+        "supported": true,
+        "intent": "update_workflow_requirement",
+        "message": "Preview whole-workflow requirement update. This instruction is saved as the workflow edit request instead of being rejected.",
+        "operations": [
+          {
+            "expected_revision": 7,
+            "op": "set_metadata",
+            "data": {
+              "requirement": "帮我把这个应用做得更适合普通客户使用",
+              "description": "帮我把这个应用做得更适合普通客户使用"
+            }
+          }
+        ],
+        "warnings": [
+          "No deterministic structural transform matched this instruction; the workflow-level request remains applicable and can be used for a later builder-team expansion."
+        ],
+        "reference_node_ids": []
+      }
+    },
+    {
+      "id": "node_click_crash_guard_fixture",
+      "passed": true,
+      "cases": {
+        "safe_type_helper_present": true,
+        "safe_config_keys_present": true,
+        "workflow_summary_uses_safe_type": true,
+        "node_summary_uses_safe_type": true,
+        "reference_chip_uses_safe_type": true,
+        "raw_replaceall_removed_from_node_type": true
+      }
+    },
+    {
+      "id": "workflow_edit_transform_backend_markers",
+      "path": "platform/backend/src/agent_platform/draft_patch_preview.py",
+      "required_markers": [
+        "upsert_template_transform",
+        "_template_transform_preview",
+        "_looks_like_template_transform_request",
+        "_terminal_config_after_transform",
+        "No deterministic structural transform matched this instruction"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "node_click_frontend_guard_markers",
+      "path": "platform/frontend/app/applications/[id]/page.tsx",
+      "required_markers": [
+        "safeWorkflowNodeType",
+        "safeConfigKeys",
+        "safeText(node.title, node.id)",
+        "const type = safeWorkflowNodeType(node)"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "regression_manifest_updated",
+      "path": "docs/testing/regression_lanes.json",
+      "passed": true,
+      "cases": {
+        "current_gate_present": true,
+        "v0352_test_in_test_files": true,
+        "v0352_test_in_command": true,
+        "pass_count_not_less_than_v0352_floor": true
+      },
+      "pass_count": 304
+    },
+    {
+      "id": "safety_no_live_side_effects_workflow_edit_transform_and_node_click_repair",
+      "passed": true,
+      "called_endpoints": [],
+      "forbidden_endpoint_fragments": [
+        "/builds",
+        "/tests/run",
+        "/runs",
+        "/versions",
+        "/restore",
+        "/cancel"
+      ],
+      "model_call_used": false
+    }
+  ],
+  "summary": {
+    "failed_check_count": 0,
+    "open_p0_p1_bug_count": 0,
+    "transform_preview": {
+      "id": "workflow_edit_transform_preview_fixture",
+      "passed": true,
+      "cases": {
+        "supported": true,
+        "intent_is_transform_upsert": true,
+        "adds_template_transform": true,
+        "removes_old_terminal_edge": true,
+        "adds_two_reconnect_edges": true,
+        "updates_terminal_output": true
+      },
+      "preview": {
+        "supported": true,
+        "intent": "upsert_template_transform",
+        "message": "Preview insert result transform before end.",
+        "operations": [
+          {
+            "expected_revision": 7,
+            "op": "add_node",
+            "data": {
+              "node": {
+                "id": "workflow_edit_transform",
+                "type": "template_transform",
+                "block_version": 1,
+                "title": "Result Summary",
+                "description": "Formats the workflow result from a natural-language workflow edit.",
+                "config": {
+                  "template": "Workflow edit result\n\nInstruction: {{ instruction }}\n\nUpstream result:\n{{ value }}",
+                  "variables": {
+                    "instruction": "把工作流输出改成面向客户的今日总结格式",
+                    "value": {
+                      "$ref": {
+                        "node_id": "summarize",
+                        "path": [
+                          "text"
+                        ]
+                      }
+                    }
+                  }
+                },
+                "position": {
+                  "x": 90,
+                  "y": 0
+                },
+                "retry": {
+                  "enabled": false,
+                  "max_attempts": 1,
+                  "delay_seconds": 0.5
+                },
+                "error_strategy": "fail"
+              }
+            }
+          },
+          {
+            "expected_revision": 7,
+            "op": "remove_edge",
+            "data": {
+              "edge_id": "b"
+            }
+          },
+          {
+            "expected_revision": 7,
+            "op": "add_edge",
+            "data": {
+              "edge": {
+                "id": "summarize-workflow_edit_transform",
+                "source": "summarize",
+                "target": "workflow_edit_transform",
+                "source_port": "output",
+                "target_port": "input"
+              }
+            }
+          },
+          {
+            "expected_revision": 7,
+            "op": "add_edge",
+            "data": {
+              "edge": {
+                "id": "workflow_edit_transform-end",
+                "source": "workflow_edit_transform",
+                "target": "end",
+                "source_port": "text",
+                "target_port": "input"
+              }
+            }
+          },
+          {
+            "expected_revision": 7,
+            "op": "update_node",
+            "data": {
+              "node_id": "end",
+              "changes": {
+                "config": {
+                  "outputs": {
+                    "result": {
+                      "$ref": {
+                        "node_id": "workflow_edit_transform",
+                        "path": [
+                          "text"
+                        ]
+                      }
+                    }
+                  }
+                }
+              },
+              "merge_config": false
+            }
+          }
+        ],
+        "warnings": [],
+        "reference_node_ids": []
+      }
+    },
+    "fallback": {
+      "id": "workflow_edit_no_unsupported_fallback_fixture",
+      "passed": true,
+      "cases": {
+        "fallback_is_supported": true,
+        "fallback_updates_requirement": true,
+        "message_does_not_say_unsupported": true,
+        "apply_button_would_be_enabled": true
+      },
+      "preview": {
+        "supported": true,
+        "intent": "update_workflow_requirement",
+        "message": "Preview whole-workflow requirement update. This instruction is saved as the workflow edit request instead of being rejected.",
+        "operations": [
+          {
+            "expected_revision": 7,
+            "op": "set_metadata",
+            "data": {
+              "requirement": "帮我把这个应用做得更适合普通客户使用",
+              "description": "帮我把这个应用做得更适合普通客户使用"
+            }
+          }
+        ],
+        "warnings": [
+          "No deterministic structural transform matched this instruction; the workflow-level request remains applicable and can be used for a later builder-team expansion."
+        ],
+        "reference_node_ids": []
+      }
+    },
+    "node_click_guard": {
+      "id": "node_click_crash_guard_fixture",
+      "passed": true,
+      "cases": {
+        "safe_type_helper_present": true,
+        "safe_config_keys_present": true,
+        "workflow_summary_uses_safe_type": true,
+        "node_summary_uses_safe_type": true,
+        "reference_chip_uses_safe_type": true,
+        "raw_replaceall_removed_from_node_type": true
+      }
+    }
+  }
+}

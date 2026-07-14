@@ -224,6 +224,18 @@ function validWorkflowEdges(workflowNodes: WorkflowNode[], workflowEdges: Draft[
   return workflowEdges.filter(edge => nodeIds.has(edge.source) && nodeIds.has(edge.target))
 }
 
+function safeText(value: unknown, fallback = '') {
+  return typeof value === 'string' && value.trim() ? value : fallback
+}
+
+function safeWorkflowNodeType(node: Partial<WorkflowNode> | null | undefined) {
+  return safeText(node?.type, 'unknown')
+}
+
+function safeConfigKeys(value: unknown) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? Object.keys(value) : []
+}
+
 function canvasKeyboardPanDelta(key: string, modifiers: { shiftKey?: boolean; altKey?: boolean } = {}) {
   const step = modifiers.shiftKey ? CANVAS_PAN_STEP * 2 : modifiers.altKey ? CANVAS_PAN_STEP / 2 : CANVAS_PAN_STEP
   switch (key.toLowerCase()) {
@@ -1776,9 +1788,9 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
         : null
       return {
         id: node.id,
-        title: scenarioStep?.title || node.title || node.id,
+        title: scenarioStep?.title || safeText(node.title, node.id),
         index: index + 1,
-        type: node.type.replaceAll('_', ' '),
+        type: safeWorkflowNodeType(node).replaceAll('_', ' '),
         status,
         detail: scenarioStep?.detail || (next.length ? t.customerStepFlowsTo(next.join(', ')) : t.terminal),
       }
@@ -2053,16 +2065,17 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     if (!workflow) return []
     return workflow.nodes.map((node, index) => {
       const next = workflow.edges.filter(edge => edge.source === node.id).map(edge => edge.target)
+      const type = safeWorkflowNodeType(node)
       return {
         id: node.id,
-        title: `${index + 1}. ${node.title || node.id}`,
-        detail: `${node.type.replaceAll('_', ' ')}${next.length ? ` -> ${next.join(', ')}` : ` -> ${t.terminal}`}`,
+        title: `${index + 1}. ${safeText(node.title, node.id)}`,
+        detail: `${type.replaceAll('_', ' ')}${next.length ? ` -> ${next.join(', ')}` : ` -> ${t.terminal}`}`,
       }
     })
   }, [draft, t.terminal])
-  const selectedConfigKeys = selected ? Object.keys(selected.config || {}) : []
+  const selectedConfigKeys = safeConfigKeys(selected?.config)
   const selectedNodeSummary = selected ? [
-    { label: t.nodeInspectorRole, value: selected.type, detail: selected.description || t.nodeInspectorNoDescription },
+    { label: t.nodeInspectorRole, value: safeWorkflowNodeType(selected), detail: safeText(selected.description, t.nodeInspectorNoDescription) },
     { label: t.nodeInspectorConfig, value: t.nodeConfigSummary(selectedConfigKeys.length), detail: selectedConfigKeys.length ? selectedConfigKeys.slice(0, 4).join(', ') : t.nodeInspectorNoConfig },
     { label: t.nodeInspectorSafeNext, value: t.nodeInspectorSafeNextValue, detail: t.nodeInspectorSafeNextDetail },
   ] : []
@@ -2130,7 +2143,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
             <div className="patch-panel-head"><strong>{t.patchPreviewTitle}</strong><small>{t.patchPreviewHelp}</small></div>
             <div className="workflow-edit-references" data-workflow-edit-references={workflowEditReferenceIds.length ? 'present' : 'empty'}>
               <div><strong>{t.workflowEditReferenceTitle}</strong><small>{t.workflowEditReferenceHelp}</small></div>
-              {workflowEditReferenceNodes.length ? <div className="workflow-edit-reference-list">{workflowEditReferenceNodes.map(node => <button type="button" key={node.id} data-workflow-edit-reference-node={node.id} onClick={() => removeWorkflowEditReference(node.id)}>{node.title || node.id}<span>{node.type}</span></button>)}</div> : <p className="muted">{t.workflowEditReferenceEmpty}</p>}
+              {workflowEditReferenceNodes.length ? <div className="workflow-edit-reference-list">{workflowEditReferenceNodes.map(node => <button type="button" key={node.id} data-workflow-edit-reference-node={node.id} onClick={() => removeWorkflowEditReference(node.id)}>{safeText(node.title, node.id)}<span>{safeWorkflowNodeType(node)}</span></button>)}</div> : <p className="muted">{t.workflowEditReferenceEmpty}</p>}
               {workflowEditReferenceIds.length > 0 && <button type="button" className="ghost" data-workflow-edit-reference-action="clear" onClick={() => setWorkflowEditReferenceIds([])}>{t.workflowEditReferenceClear}</button>}
             </div>
             <textarea className="patch-input" data-workflow-edit-input="instruction" value={patchInstruction} placeholder={t.patchPreviewPlaceholder} onChange={event => setPatchInstruction(event.target.value)} />

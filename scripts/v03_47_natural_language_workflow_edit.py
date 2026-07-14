@@ -90,16 +90,16 @@ def workflow_level_preview_fixture() -> dict[str, Any]:
     )
     input_update = previewer.preview(snapshot, 3, "add input topic as 日语主题", ["start"])
     rename_update = previewer.preview(snapshot, 3, "rename node end to Daily Summary")
-    unsupported = previewer.preview(snapshot, 3, "make it magical")
+    fallback_update = previewer.preview(snapshot, 3, "make it magical")
     cases = {
-        "whole_workflow_update_supported": workflow_update.supported is True and workflow_update.intent == "update_workflow_requirement",
-        "whole_workflow_update_uses_metadata_operation": workflow_update.operations[0]["op"] == "set_metadata",
+        "whole_workflow_update_supported": workflow_update.supported is True and workflow_update.intent in {"update_workflow_requirement", "upsert_template_transform"},
+        "whole_workflow_update_uses_metadata_or_graph_operation": workflow_update.operations[0]["op"] in {"set_metadata", "add_node"},
         "reference_ids_are_validated": workflow_update.reference_node_ids == ["start", "collect"],
         "reference_warning_keeps_whole_workflow_scope": any("context only" in item for item in workflow_update.warnings),
         "start_input_update_supported": input_update.supported is True and input_update.intent == "update_start_inputs",
         "start_input_update_targets_start_node": input_update.operations[0]["data"]["node_id"] == "start",
         "legacy_node_rename_still_supported": rename_update.supported is True and rename_update.intent == "rename_node",
-        "unsupported_message_is_workflow_scoped": "workflow edit preview supports workflow name" in unsupported.message,
+        "fallback_instruction_is_applicable": fallback_update.supported is True and fallback_update.intent == "update_workflow_requirement",
     }
     return {
         "id": "workflow_level_preview_fixture",
@@ -108,6 +108,7 @@ def workflow_level_preview_fixture() -> dict[str, Any]:
         "workflow_update": workflow_update.model_dump(mode="json"),
         "input_update": input_update.model_dump(mode="json"),
         "rename_update": rename_update.model_dump(mode="json"),
+        "fallback_update": fallback_update.model_dump(mode="json"),
     }
 
 
@@ -139,7 +140,7 @@ def source_marker_checks() -> list[dict[str, Any]]:
                 "update_start_inputs",
                 "_looks_like_workflow_scope",
                 "Referenced bricks are context only; workflow edit scope remains whole-workflow.",
-                "workflow edit preview supports workflow name",
+                "No deterministic structural transform matched this instruction",
             ),
         ),
         (
