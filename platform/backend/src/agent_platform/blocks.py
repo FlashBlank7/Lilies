@@ -225,7 +225,6 @@ _ZH_BLOCKS = {
     "checkpoint_resume": ("检查点/恢复", "记录可恢复状态。"),
     "event_recorder": ("事件记录器", "向 Trace 写入结构化事件。"),
     "hook_point": ("钩子点", "在工作流中插入可被外部系统监听的钩子。"),
-    "soft_block": ("软积木", "通过策略选择，一个积木可以充当多种 Agent 架构积木。"),
 }
 
 
@@ -255,7 +254,6 @@ _AGENT_ARCHITECTURE_BLOCKS: list[tuple[str, str, str, str]] = [
     ("checkpoint_resume", "Checkpoint / Resume", "Persist resumable state for later recovery.", "Session recovery"),
     ("event_recorder", "Event Recorder", "Write structured trace events for observability.", "Telemetry and trace"),
     ("hook_point", "Hook Point", "Expose a named hook for external systems to observe or intercept.", "External hook / plugin"),
-    ("soft_block", "Soft Block", "Design-time macro: one block, many strategies. Expands to discrete blocks at publish time. No runtime variability.", "Design-time meta-block"),
 ]
 
 
@@ -398,6 +396,7 @@ class BlockRegistry:
         }
 
     def template_names(self) -> list[str]:
+        """Deprecated. Use TemplateStore.list() instead."""
         return ["claude_like_coding_agent"]
 
     def expand_template(
@@ -408,9 +407,20 @@ class BlockRegistry:
         x: float = 0,
         y: float = 0,
     ) -> WorkflowSpec:
+        """Deprecated. Use TemplateStore.expand_into_workflow() instead.
+
+        Fallback path — raises if the template is not the legacy hardcoded one.
+        """
         if template_name != "claude_like_coding_agent":
-            raise KeyError(f"unknown workflow template: {template_name}")
-        return _claude_like_coding_agent_template(prefix=prefix, x=x, y=y)
+            raise KeyError(
+                f"unknown workflow template: {template_name}. "
+                f"Use TemplateStore.expand_into_workflow() for JSON-backed templates."
+            )
+        raise RuntimeError(
+            "Legacy hardcoded template has been removed. "
+            "The claude_like_coding_agent template is now at templates/claude_like_coding_agent.json. "
+            "Use TemplateStore.expand_into_workflow() instead."
+        )
 
     def validate_node(self, node: NodeSpec) -> BaseModel:
         definition = self.get(node.type)
@@ -521,8 +531,29 @@ def _definition(
     block_kind: Literal["business_workflow", "agent_architecture", "legacy_compatibility"] = "business_workflow",
     manual: dict[str, Any] | None = None,
     available: bool = True,
+    family: str | None = None,
 ) -> BlockDefinition:
     manual = manual or _manual(block_type, title, description, "Business workflow primitive")
+    editor: dict[str, Any] = {
+        "icon": block_type,
+        "accent": category,
+        "hidden_by_default": block_kind == "legacy_compatibility",
+        "block_kind": block_kind,
+        "i18n": {
+            "zh": {
+                "title": _ZH_BLOCKS.get(block_type, (block_type, description))[0],
+                "description": _ZH_BLOCKS.get(block_type, (block_type, description))[1],
+                "category": _ZH_CATEGORIES[category],
+            },
+            "en": {
+                "title": title,
+                "description": description,
+                "category": category,
+            },
+        },
+    }
+    if family is not None:
+        editor["family"] = family
     return BlockDefinition(
         type=block_type,
         title=title,
@@ -542,24 +573,7 @@ def _definition(
         common_errors=list(manual["common_errors"]),
         claude_architecture_mapping=str(manual["claude_architecture_mapping"]),
         composability_constraints=list(manual["composability_constraints"]),
-        editor={
-            "icon": block_type,
-            "accent": category,
-            "hidden_by_default": block_kind == "legacy_compatibility",
-            "block_kind": block_kind,
-            "i18n": {
-                "zh": {
-                    "title": _ZH_BLOCKS.get(block_type, (block_type, description))[0],
-                    "description": _ZH_BLOCKS.get(block_type, (block_type, description))[1],
-                    "category": _ZH_CATEGORIES[category],
-                },
-                "en": {
-                    "title": title,
-                    "description": description,
-                    "category": category,
-                },
-            },
-        },
+        editor=editor,
     )
 
 
@@ -596,233 +610,33 @@ def build_block_registry() -> BlockRegistry:
         (_definition("end", "End", "Return named workflow outputs.", "output", EndConfig, inputs=[("input", ValueType.any)], outputs=[]), EndConfig),
         (_definition("answer", "Answer", "Return a chat answer.", "output", AnswerConfig, inputs=[("input", ValueType.any)], outputs=[]), AnswerConfig),
     ]
-    from .soft_block import SoftBlockConfig
+    from .block_families import get_family
     for block_type, title, description, mapping in _AGENT_ARCHITECTURE_BLOCKS:
-        is_soft = (block_type == "soft_block")
-        config_model: type[BaseModel] = SoftBlockConfig if is_soft else AgentArchitectureConfig
         blocks.append((
             _definition(
-                block_type, title, description, "agent", config_model,
+                block_type, title, description, "agent", AgentArchitectureConfig,
                 inputs=[("input", ValueType.any)],
                 outputs=[("output", ValueType.any), ("state", ValueType.object)],
                 retry=block_type in {"model_turn", "tool_executor", "mcp_gateway"},
                 error_branch=True,
                 block_kind="agent_architecture",
                 manual=_manual(block_type, title, description, mapping),
+                family=get_family(block_type),
             ),
-            config_model,
+            AgentArchitectureConfig,
         ))
     for definition, model in blocks:
         registry.register(definition, model)
     return registry
 
 
-def _arch_config(input_value: Any = None, settings: dict[str, Any] | None = None) -> dict[str, Any]:
-    config: dict[str, Any] = {"settings": settings or {}}
-    if input_value is not None:
-        config["input"] = input_value
-    return config
-
-
-def _ref(node_id: str, *path: str) -> dict[str, Any]:
-    return {"$ref": {"node_id": node_id, "path": list(path)}}
-
-
-def _claude_like_coding_agent_template(*, prefix: str, x: float, y: float) -> WorkflowSpec:
-    def node(
-        suffix: str,
-        block_type: str,
-        title: str,
-        config: dict[str, Any],
-        column: int,
-        row: int = 0,
-    ) -> NodeSpec:
-        return NodeSpec(
-            id=f"{prefix}_{suffix}",
-            type=block_type,
-            title=title,
-            config=config,
-            position={"x": x + column * 260, "y": y + row * 120},
-        )
-
-    def edge(source: str, target: str, source_port: str = "output", target_port: str = "input") -> EdgeSpec:
-        return EdgeSpec(
-            id=f"{prefix}_{source}_to_{target}",
-            source=f"{prefix}_{source}",
-            target=f"{prefix}_{target}",
-            source_port=source_port,
-            target_port=target_port,
-        )
-
-    nested = WorkflowSpec(
-        nodes=[
-            NodeSpec(
-                id="loop_start",
-                type="start",
-                title="Loop State",
-                config={"inputs": [{"name": "iteration", "type": "number"}, {"name": "previous", "type": "object", "required": False}]},
-            ),
-            NodeSpec(
-                id="loop_model_turn",
-                type="model_turn",
-                title="Model Turn",
-                config=_arch_config(_ref("loop_start", "output"), {"prompt": _ref("loop_start", "output")}),
-            ),
-            NodeSpec(
-                id="loop_tool_router",
-                type="tool_call_router",
-                title="Tool Call Router",
-                config=_arch_config(_ref("loop_model_turn", "output")),
-            ),
-            NodeSpec(
-                id="loop_tool_executor",
-                type="tool_executor",
-                title="Tool Executor",
-                config=_arch_config(_ref("loop_tool_router", "output"), {
-                    "tool_name": "Read",
-                    "tool_input": {"path": "README.md"},
-                }),
-            ),
-            NodeSpec(
-                id="loop_tool_result",
-                type="tool_result_normalizer",
-                title="Tool Result Normalizer",
-                config=_arch_config(_ref("loop_tool_executor", "output")),
-            ),
-            NodeSpec(
-                id="loop_continue",
-                type="stop_continue_controller",
-                title="Stop / Continue",
-                config=_arch_config(_ref("loop_tool_result", "output"), {
-                    "stop_reason": "tool_use",
-                }),
-            ),
-            NodeSpec(
-                id="loop_end",
-                type="end",
-                title="Loop Output",
-                config={"outputs": {"state": _ref("loop_continue", "state"), "tool_result": _ref("loop_tool_result", "output")}},
-            ),
-        ],
-        edges=[
-            EdgeSpec(id="loop_start_model", source="loop_start", target="loop_model_turn", source_port="output", target_port="input"),
-            EdgeSpec(id="loop_model_router", source="loop_model_turn", target="loop_tool_router", source_port="output", target_port="input"),
-            EdgeSpec(id="loop_router_tool", source="loop_tool_router", target="loop_tool_executor", source_port="output", target_port="input"),
-            EdgeSpec(id="loop_tool_result", source="loop_tool_executor", target="loop_tool_result", source_port="output", target_port="input"),
-            EdgeSpec(id="loop_result_continue", source="loop_tool_result", target="loop_continue", source_port="output", target_port="input"),
-            EdgeSpec(id="loop_continue_end", source="loop_continue", target="loop_end", source_port="output", target_port="input"),
-        ],
-    )
-
-    nodes = [
-        node("start", "start", "Agent Input", {"inputs": [
-            {"name": "task", "label": "Task", "type": "string"},
-            {"name": "workspace_path", "label": "Workspace path", "type": "string", "required": False, "default": "."},
-        ]}, 0),
-        node("context", "context_assembler", "Context Assembler", _arch_config(_ref(f"{prefix}_start", "output"), {
-            "fragments": [_ref(f"{prefix}_start", "task")],
-        }), 1),
-        node("workspace", "workspace_context_injector", "Workspace Context", _arch_config(_ref(f"{prefix}_context", "output"), {
-            "scope": "current_workspace",
-            "files": ["README.md", "tests/"],
-        }), 2),
-        node("skills", "skill_loader", "Skill Loader", _arch_config(_ref(f"{prefix}_workspace", "output"), {
-            "skills": ["code-repair", "test-triage"],
-        }), 3),
-        node("mcp", "mcp_gateway", "MCP Gateway", _arch_config(_ref(f"{prefix}_skills", "output"), {
-            "servers": [],
-        }), 4),
-        node("capabilities", "capability_registry", "Capability Registry", _arch_config(_ref(f"{prefix}_mcp", "output"), {
-            "tools": ["Read", "Write", "Bash"],
-        }), 5),
-        node("memory", "conversation_memory", "Conversation Memory", _arch_config(_ref(f"{prefix}_capabilities", "output"), {
-            "facts": ["Preserve tool evidence and user instructions across turns."],
-        }), 6),
-        node("compact", "context_compactor", "Context Compactor", _arch_config(_ref(f"{prefix}_memory", "output"), {
-            "max_chars": 6000,
-            "preserved_facts": ["task", "tool evidence", "failed tests", "permission decisions"],
-        }), 7),
-        node("budget", "budget_gate", "Budget Gate", _arch_config(_ref(f"{prefix}_compact", "output"), {
-            "max_cost_usd": 1.0,
-            "spent_cost_usd": 0,
-        }), 8),
-        node("rounds", "round_limit", "Round Limit", _arch_config(_ref(f"{prefix}_budget", "output"), {
-            "current_round": 0,
-            "max_rounds": 8,
-        }), 9),
-        node("permission", "permission_gate", "Permission Gate", _arch_config(_ref(f"{prefix}_rounds", "output"), {
-            "reason": "Allow workspace reads/writes and test execution for this coding task.",
-            "auto_approve": True,
-        }), 10),
-        node("sandbox", "sandbox_boundary", "Sandbox Boundary", _arch_config(_ref(f"{prefix}_permission", "output"), {
-            "network_policy": "none",
-            "workspace": _ref(f"{prefix}_start", "workspace_path"),
-        }), 11),
-        node("loop", "loop", "Multi-round Agent Loop", {
-            "workflow": nested.model_dump(mode="json"),
-            "variables": {"agent_context": _ref(f"{prefix}_sandbox", "output")},
-            "break_condition": {"value": False, "operator": "equals", "expected": True},
-            "break_value": _ref("loop_continue", "state", "continue"),
-            "max_iterations": 2,
-            "output_node_id": "loop_end",
-        }, 12),
-        node("retry", "retry_error_classifier", "Retry / Error Classifier", _arch_config(_ref(f"{prefix}_loop", "output"), {
-            "error": "",
-        }), 13),
-        node("subagent", "subagent_spawn", "Subagent Spawn", _arch_config(_ref(f"{prefix}_retry", "output"), {
-            "name": "test-triage",
-            "task": "Inspect failing tests and return evidence.",
-            "budget": {"max_rounds": 3},
-        }), 14),
-        node("dispatch", "task_dispatcher", "Task Dispatcher", _arch_config(_ref(f"{prefix}_subagent", "output"), {
-            "tasks": ["read files", "run tests", "patch code", "rerun tests"],
-        }), 15),
-        node("deps", "dependency_gate", "Dependency Gate", _arch_config(_ref(f"{prefix}_dispatch", "output"), {
-            "dependencies": ["read files", "run tests"],
-            "completed": ["read files", "run tests"],
-        }), 16),
-        node("mailbox", "mailbox_wait_wake", "Mailbox Wait / Wake", _arch_config(_ref(f"{prefix}_deps", "output"), {
-            "messages": ["triage complete"],
-        }), 17),
-        node("checkpoint", "checkpoint_resume", "Checkpoint / Resume", _arch_config(_ref(f"{prefix}_mailbox", "output"), {
-            "checkpoint_id": "coding-agent-after-triage",
-        }), 18),
-        node("cancel", "cancellation_point", "Cancellation Point", _arch_config(_ref(f"{prefix}_checkpoint", "output"), {
-            "cancelled": False,
-        }), 19),
-        node("trace", "event_recorder", "Event Recorder", _arch_config(_ref(f"{prefix}_cancel", "output"), {
-            "label": "claude_like_coding_agent_trace",
-        }), 20),
-        node("end", "end", "Agent Output", {"outputs": {
-            "trace": _ref(f"{prefix}_trace", "state"),
-            "loop": _ref(f"{prefix}_loop", "output"),
-            "checkpoint": _ref(f"{prefix}_checkpoint", "state"),
-        }}, 21),
-    ]
-    edges = [
-        edge("start", "context"),
-        edge("context", "workspace"),
-        edge("workspace", "skills"),
-        edge("skills", "mcp"),
-        edge("mcp", "capabilities"),
-        edge("capabilities", "memory"),
-        edge("memory", "compact"),
-        edge("compact", "budget"),
-        edge("budget", "rounds"),
-        edge("rounds", "permission"),
-        edge("permission", "sandbox"),
-        edge("sandbox", "loop"),
-        edge("loop", "retry"),
-        edge("retry", "subagent"),
-        edge("subagent", "dispatch"),
-        edge("dispatch", "deps"),
-        edge("deps", "mailbox"),
-        edge("mailbox", "checkpoint"),
-        edge("checkpoint", "cancel"),
-        edge("cancel", "trace"),
-        edge("trace", "end"),
-    ]
-    return WorkflowSpec(nodes=nodes, edges=edges)
+# ── Previously: _arch_config(), _ref(), _claude_like_coding_agent_template() ──
+# These 206 lines were migrated to templates/claude_like_coding_agent.json
+# (2026-07-14). The data-driven JSON template is loaded by TemplateStore and
+# expanded via TemplateStore.expand_into_workflow().
+#
+# expand_template() and template_names() below are kept as deprecated fallbacks
+# for when TemplateStore is not available.
 
 
 def edge_by_id(workflow: WorkflowSpec, edge_id: str) -> EdgeSpec:

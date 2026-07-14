@@ -445,33 +445,49 @@ Vx+1.0 应该完成什么。
 - `docs/source-materials/2026-07_initial_architecture_research/LANGUAGE_SYSTEM.md`：项目语言系统与术语映射规范原文。
 - `docs/source-materials/2026-07_initial_architecture_research/BUSINESS_LOGIC.md`：业务对象、生命周期和验收边界说明原文。
 - `docs/stage-reports/V1.1_docs_consolidation_and_asset_baseline.md`：本轮文档结构整理的 stage report。
-- `docs/intellectual-assets/asset_blockflow_language_system.md`：从语言系统中提炼的稳定资产。
+- `docs/intellectual-assets/asset_blockflow_language_system.md`：从语言系统中提炼的稳定资产（2026-07-14 更新：新增 BlockFamily 定义）。
 - `docs/intellectual-assets/asset_platform_harness_task_monitor_boundary.md`：从后端报告和 Harness 讨论中提炼的稳定资产。
+- `docs/stage-reports/V1.2_evolution_flywheel_and_blockflow_self_reference.md`：进化飞轮修复、SoftBlock 重构、进化流水线 BlockFlow 自引用（2026-07-14 完成）。
+- `docs/current-design/design_evolution_pipeline_blockflow.md`：进化流水线 BlockFlow 的具体设计。
+- `docs/workingon/plan_evolution_flywheel_closure.md`：进化飞轮闭合任务计划。
+- `docs/workingon/plan_softblock_to_family_property.md`：SoftBlock 属性化任务计划。
+- `docs/workingon/plan_evolution_pipeline_as_blockflow.md`：进化流水线 BlockFlow 化任务计划。
 
 source materials 保存原文和证据链；stage report 说明阶段完成了什么；intellectual assets 只保存后续设计会反复引用的精炼结论。
 
-### 8.2 下一阶段任务
+### 8.2 当前完成阶段 (V1.2)
+
+2026-07-14 完成 V1.2：进化飞轮修复、SoftBlock 重构、进化流水线 BlockFlow 自引用。
+
+详细内容见 `docs/stage-reports/V1.2_evolution_flywheel_and_blockflow_self_reference.md`。
+
+### 8.3 下一阶段任务 (V1.3)
 
 可以进入下一 stage 的任务池：
 
 - Platform Harness 生产化：把预算、权限、沙盒、网络、审计、取消和调度纳入硬边界。
+- 进化任务纳入 task monitor boundary：`_auto_extract_from_build` 从裸 asyncio 任务升级为有状态机、预算、取消的治理任务。
 - Builder benchmark v1：建立可衡量 `Builder Team 创建 BlockFlow` 能力边界的测试集。
 - Template quality_score v2：把测试覆盖、使用、评分、成本和 Harness 完整性纳入模板质量。
+- 降级信号：连续 N 次使用模板构建失败时自动降低 confidence。
+- 前端模板市场：可视化浏览/搜索/评分/展开。
 - Workflow-as-tool 产品化：让已发布 Version 作为上层 `BlockFlow` 的工具稳定复用。
 
 这些内容不应直接进入智力资产，因为它们仍是待执行任务。
 
-### 8.3 智力资产候选
+### 8.4 智力资产候选处理
 
-可以作为候选，但必须在归档时再筛选：
+已进入资产：
 
-| 候选 | 进入条件 | 可能资产名 |
-| --- | --- | --- |
-| Harness+LLM 复合体 | 已有设计报告、论文草稿和工程映射能证明它可指导多个设计。 | `docs/intellectual-assets/asset_harness_llm_composite.md` |
-| `BlockFlow` 语言系统 | 已被多个文档和团队沟通复用，能显著降低歧义。 | `docs/intellectual-assets/asset_blockflow_language_system.md` |
-| task monitor boundary | 来自 token 消耗事故、scheduler 风险、Builder/Run/Test 资源边界的综合结论。 | `docs/intellectual-assets/asset_platform_harness_task_monitor_boundary.md` |
+- `BlockFlow` 语言系统（2026-07-14 更新：新增 BlockFamily 定义）。
+- Platform Harness 与 task monitor boundary。
+- Harness+LLM 复合体。
+- Lilies 竞品定位与路线优先级。
 
-如果某个候选只是“这次阶段做了什么”，不要进入智力资产；放在 stage report 即可。
+已从候选处理完毕：
+
+- `”家族是积木的属性”` — 已并入 `asset_blockflow_language_system.md` 的 BlockFamily 定义。
+- 进化流水线 BlockFlow 设计模式 — 已进入 `docs/current-design/design_evolution_pipeline_blockflow.md`。
 
 ## 9. 运行纪律
 

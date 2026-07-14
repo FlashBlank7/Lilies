@@ -1152,32 +1152,6 @@ class WorkflowRuntime:
                 "state": {"mechanism": node.type, "allowed": allowed, "current_round": current_round, "max_rounds": max_rounds},
             }
 
-        if node.type == "soft_block":
-            from .soft_block import get_discrete_block_type
-            strategy = str(settings.get("strategy", "context_assemble"))
-            discrete_type = get_discrete_block_type(strategy)
-            if discrete_type is None:
-                raise RuntimeError(f"soft_block: unknown strategy: {strategy}")
-
-            # SoftBlock is a design-time macro: at runtime it delegates directly
-            # to the equivalent discrete block. No runtime strategy selection.
-            return await self._execute_agent_architecture_block(
-                AgentArchitectureConfig(
-                    input=config.input,
-                    settings=settings,
-                ),
-                snapshot,
-                NodeSpec(
-                    id=node.id, type=discrete_type, title=node.title,
-                    config={"input": config.input, "settings": settings},
-                ),
-                context,
-                workspace_path,
-                run_id,
-                scoped_id,
-                state,
-            )
-
         if node.type == "hook_point":
             hook_name = str(settings.get("hook_name", node.title))
             direction = str(settings.get("direction", "before"))

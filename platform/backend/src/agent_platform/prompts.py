@@ -57,7 +57,7 @@ CRITICAL RULES:
 - Do NOT generate Python plugin code.
 - Include a REALISTIC validation prompt (one sentence).
 - Include deterministic shell validation commands when the requirement involves code.
-- Never include API keys or secrets. Use provider=deepseek.
+- Never include API keys or secrets. Use the platform's configured provider.
 - Output VALID JSON only. The AgentSpec must parse correctly.
 """
 

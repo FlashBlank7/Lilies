@@ -272,3 +272,217 @@ class TestExtractionPipeline:
         assert merged is not None
         assert merged.meta.confidence > 0.70
         assert merged.meta.version >= 2
+
+
+# ── EvolutionGate tests (v2: WorkflowSpec-based) ───────────────
+
+class TestEvolutionGate:
+    def test_rejects_trivial_linear_workflow(self):
+        """Gate 1: start→llm→end is too simple to template."""
+        from agent_platform.evolution_engine import EvolutionGate
+        wf = make_workflow(["start", "llm", "end"])
+        ok, reason = EvolutionGate.check_complexity(wf)
+        assert not ok
+        assert "insufficient_complexity" in reason or "no branching" in reason
+
+    def test_accepts_branching_workflow(self):
+        """Gate 1: start→llm→if_else→template→aggregator→end passes."""
+        from agent_platform.evolution_engine import EvolutionGate
+        wf = make_workflow(["start", "llm", "if_else", "template_transform", "variable_aggregator", "end"])
+        ok, reason = EvolutionGate.check_complexity(wf)
+        assert ok, f"Gate rejected: {reason}"
+
+    def test_accepts_tool_workflow(self):
+        """Gate 1: workflow with tool nodes passes complexity check."""
+        from agent_platform.evolution_engine import EvolutionGate
+        wf = make_workflow(["start", "tool", "llm", "template_transform", "end"])
+        ok, reason = EvolutionGate.check_complexity(wf)
+        assert ok, f"Gate rejected: {reason}"
+
+    def test_rejects_near_duplicate(self, tmp_path):
+        """Gate 2: candidate too similar to existing template."""
+        from agent_platform.evolution_engine import EvolutionGate
+        store = TemplateStore()
+        wf_a = make_workflow(["start", "llm", "if_else", "template_transform", "end"])
+        store.register("tpl_a", wf_a, meta_overrides={"title": "A"})
+        # Same node types → should be detected as near-duplicate
+        wf_b = make_workflow(["start", "llm", "if_else", "template_transform", "end"])
+        ok, reason = EvolutionGate.check_dedup(wf_b, store)
+        # Jaccard = 5/5 = 1.0 → rejected
+        assert not ok
+        assert "near_duplicate" in reason
+
+    def test_passes_novelty_check_for_new_types(self, tmp_path):
+        """Gate 3 (novelty): candidate with new node types passes."""
+        from agent_platform.evolution_engine import EvolutionGate
+        store = TemplateStore()
+        wf_a = make_workflow(["start", "llm", "end"])
+        store.register("tpl_a", wf_a, meta_overrides={"title": "A"})
+        # Different node types → novel
+        wf_b = make_workflow(["start", "tool", "http_request", "llm", "template_transform", "end"])
+        ok, reason = EvolutionGate.check_novelty(wf_b, store)
+        assert ok, f"Gate rejected: {reason}"
+
+
+# ── MergeEngine graph merge tests ──────────────────────────────
+
+class TestWorkflowGraphMerge:
+    def test_merge_adds_novel_nodes(self):
+        """merge_workflow_graph adds candidate nodes not in template."""
+        engine = MergeEngine()
+        tmpl = make_workflow(["start", "llm", "template_transform", "end"])
+        cand = make_workflow(["start", "llm", "tool", "template_transform", "end"])
+        merged = engine.merge_workflow_graph(tmpl, cand)
+        # Template has 4 nodes; candidate adds a new "tool" node
+        assert len(merged.nodes) >= 5  # start + llm + template_transform + end + tool
+        merged_types = {n.type for n in merged.nodes}
+        assert "tool" in merged_types
+
+    def test_merge_preserves_template_structure(self):
+        """merge_workflow_graph keeps all original template nodes."""
+        engine = MergeEngine()
+        tmpl = make_workflow(["start", "llm", "template_transform", "end"])
+        cand = make_workflow(["start", "tool", "llm", "if_else", "end"])
+        merged = engine.merge_workflow_graph(tmpl, cand)
+        # All template node IDs must still be present
+        tmpl_ids = {n.id for n in tmpl.nodes}
+        merged_ids = {n.id for n in merged.nodes}
+        for tid in tmpl_ids:
+            assert tid in merged_ids, f"Template node {tid} lost during merge"
+
+    def test_merge_handles_id_conflicts(self):
+        """merge_workflow_graph renames conflicting node IDs."""
+        engine = MergeEngine()
+        # Both have a node with the same ID pattern
+        tmpl = make_workflow(["start", "llm", "end"])
+        cand = make_workflow(["start", "llm", "if_else", "end"])
+        merged = engine.merge_workflow_graph(tmpl, cand)
+        # All node IDs must be unique
+        ids = [n.id for n in merged.nodes]
+        assert len(ids) == len(set(ids)), f"Duplicate node IDs: {ids}"
+
+    def test_merge_skips_duplicate_terminal_nodes(self):
+        """merge_workflow_graph doesn't add duplicate start/end nodes."""
+        engine = MergeEngine()
+        tmpl = make_workflow(["start", "llm", "end"])
+        cand = make_workflow(["start", "llm", "if_else", "template_transform", "end"])
+        merged = engine.merge_workflow_graph(tmpl, cand)
+        # Should still have exactly 1 start and 1 end
+        start_count = sum(1 for n in merged.nodes if n.type == "start")
+        end_count = sum(1 for n in merged.nodes if n.type == "end")
+        assert start_count == 1, f"Expected 1 start, got {start_count}"
+        assert end_count == 1, f"Expected 1 end, got {end_count}"
+
+    def test_merge_with_real_template_structure(self):
+        """merge_workflow_graph works with dingtalk-like template structure."""
+        engine = MergeEngine()
+        # Simulate a dingtalk-style tiered degradation template
+        tmpl = make_workflow([
+            "start", "llm", "if_else", "tool",
+            "template_transform", "variable_aggregator", "end",
+        ])
+        # Candidate adds an extra tool + http_request
+        cand = make_workflow([
+            "start", "llm", "if_else", "tool", "tool",
+            "http_request", "template_transform", "variable_aggregator", "end",
+        ])
+        merged = engine.merge_workflow_graph(tmpl, cand)
+        merged_types = {n.type for n in merged.nodes}
+        assert "http_request" in merged_types
+        # Count tool nodes — should increase
+        tmpl_tool_count = sum(1 for n in tmpl.nodes if n.type == "tool")
+        merged_tool_count = sum(1 for n in merged.nodes if n.type == "tool")
+        assert merged_tool_count > tmpl_tool_count, \
+            f"Expected more tool nodes, got {merged_tool_count} (template had {tmpl_tool_count})"
+
+    def test_edge_structure_similarity_detects_wiring_patterns(self):
+        """_compute_similarity with edge structure distinguishes wiring patterns."""
+        # Two workflows with same node types but different wiring
+        wf_a = make_workflow(["start", "llm", "if_else", "template_transform", "end"])
+        wf_b = make_workflow(["start", "llm", "if_else", "template_transform", "end"])
+        score = MergeEngine._compute_similarity(wf_a, wf_b)
+        # Same types and same linear wiring → high similarity
+        assert score >= 0.8, f"Expected high similarity, got {score}"
+
+
+# ── EvolutionEngine integration tests ──────────────────────────
+
+class TestEvolutionEngine:
+    def test_evolve_or_create_evolves_similar_workflow(self, tmp_path):
+        """Similar workflow merges into existing template."""
+        from agent_platform.evolution_engine import EvolutionEngine
+        store = TemplateStore()
+        wf_a = make_workflow([
+            "start", "llm", "if_else", "template_transform",
+            "variable_aggregator", "end",
+        ])
+        store.register("router_tpl", wf_a, meta_overrides={
+            "title": "Router", "tags": ["routing"], "confidence": 0.70,
+        })
+        # Candidate is structurally similar but adds a tool
+        wf_b = make_workflow([
+            "start", "llm", "if_else", "tool",
+            "template_transform", "variable_aggregator", "end",
+        ])
+        evo_engine = EvolutionEngine(store)
+        result = evo_engine.evolve_or_create(wf_b, "Add tool to router", "build-1")
+        assert result.evolved
+        assert result.mode == "evolve"
+        assert result.template_name == "router_tpl"
+        assert result.nodes_added >= 1  # tool node added
+
+    def test_evolve_or_create_creates_new_when_no_match(self, tmp_path):
+        """Novel workflow creates a new template."""
+        from agent_platform.evolution_engine import EvolutionEngine
+        store = TemplateStore()
+        # Register a simple linear template
+        wf_a = make_workflow(["start", "llm", "end"])
+        store.register("simple", wf_a, meta_overrides={
+            "title": "Simple", "tags": ["simple"], "confidence": 0.70,
+        })
+        # Candidate is very different — should create new
+        wf_b = make_workflow([
+            "start", "tool", "http_request", "tool",
+            "template_transform", "variable_aggregator", "end",
+        ])
+        evo_engine = EvolutionEngine(store)
+        result = evo_engine.evolve_or_create(wf_b, "HTTP automation workflow", "build-2")
+        assert result.evolved
+        assert result.mode == "create_new"
+        assert result.template_name is not None
+        # Should not match "simple" (Jaccard too low)
+        assert result.template_name != "simple"
+
+    def test_evolve_or_create_rejects_trivial_workflow(self, tmp_path):
+        """start→llm→end is too trivial to evolve."""
+        from agent_platform.evolution_engine import EvolutionEngine
+        store = TemplateStore()
+        wf = make_workflow(["start", "llm", "end"])
+        evo_engine = EvolutionEngine(store)
+        result = evo_engine.evolve_or_create(wf, "Simple task", "build-3")
+        assert not result.evolved
+        assert result.mode == "rejected"
+
+    def test_merge_increases_confidence(self, tmp_path):
+        """Evolution bumps template confidence."""
+        from agent_platform.evolution_engine import EvolutionEngine
+        store = TemplateStore()
+        wf = make_workflow([
+            "start", "llm", "if_else", "template_transform",
+            "variable_aggregator", "end",
+        ])
+        store.register("evolve_me", wf, meta_overrides={
+            "title": "Evolve me", "confidence": 0.70,
+        })
+        initial_conf = store.get("evolve_me").meta.confidence
+        # Build a similar candidate
+        cand = make_workflow([
+            "start", "llm", "tool", "if_else",
+            "template_transform", "variable_aggregator", "end",
+        ])
+        evo_engine = EvolutionEngine(store)
+        result = evo_engine.evolve_or_create(cand, "Enhanced router", "build-4")
+        if result.evolved and result.mode == "evolve":
+            final_conf = store.get("evolve_me").meta.confidence
+            assert final_conf > initial_conf, \
+                f"Confidence didn't increase: {initial_conf} → {final_conf}"

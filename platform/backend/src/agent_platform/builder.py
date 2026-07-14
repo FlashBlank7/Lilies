@@ -27,9 +27,6 @@ from .workflow_storage import WorkflowStorage
 from .tools import ToolRegistry
 
 
-from .meta_cognition import DecisionTracker
-
-
 BUILDER_SYSTEM_PROMPT = """You coordinate a persistent team that builds production-ready agent workflows.
 
 You do not generate source code or a whole workflow JSON document. You and your teammates can only build by
@@ -113,8 +110,6 @@ class WorkflowBuilder:
         self.on_build_complete = on_build_complete
         self.template_store = template_store
         self.active: dict[str, asyncio.Task[None]] = {}
-        self._trackers: dict[str, DecisionTracker] = {}  # build_id → tracker
-
     def start(self, build_id: str) -> None:
         if build_id in self.active and not self.active[build_id].done():
             raise RuntimeError("build is already running")
@@ -149,8 +144,6 @@ class WorkflowBuilder:
                     f"Application id: {build['application_id']}. Auto publish: {build['auto_publish']}."
                 ),
             )])]
-        # Create a DecisionTracker to record the Builder's choices
-        tracker = DecisionTracker(f"Build-{build_id[:8]}")
         try:
             await self._agent_loop(
                 build_id,
@@ -161,9 +154,7 @@ class WorkflowBuilder:
                 max_repair_cycles=int(build["max_repair_cycles"]),
                 auto_publish=bool(build["auto_publish"]),
                 teammate=None,
-                tracker=tracker,
             )
-            self._trackers[build_id] = tracker
             if state.published_version is not None:
                 status = "published"
             else:
@@ -181,10 +172,27 @@ class WorkflowBuilder:
                 else:
                     status = "ready"
             await self.workflow_store.update_build(build_id, status=status, team_state=state)
+            # Collect build quality metadata for evolution signal
+            draft = await self.workflow_store.get_draft(build["application_id"])
+            build_metadata = {
+                "node_count": len(draft["snapshot"].workflow.nodes),
+                "edge_count": len(draft["snapshot"].workflow.edges),
+                "test_count": len(draft["snapshot"].tests),
+                "repair_cycles_used": state.repair_cycles,
+                "node_types": sorted({n.type for n in draft["snapshot"].workflow.nodes}),
+            }
             await self._emit(build_id, "build.completed", {
-                "status": status, "published_version": state.published_version
+                "status": status,
+                "published_version": state.published_version,
+                "build_metadata": build_metadata,
             })
-            # Meta-cognition: try to extract a reusable template from this build
+            # Recommendation flywheel: close the loop — update template success_rate
+            if state.expanded_from_template and self.template_store:
+                build_success = status == "published"
+                self.template_store.record_usage(
+                    state.expanded_from_template, success=build_success,
+                )
+            # Meta-cognition: try to evolve templates from the ACTUAL built workflow
             if self.on_build_complete and (status == "published" or status == "ready"):
                 asyncio.create_task(self.on_build_complete(build_id))
         except asyncio.CancelledError:
@@ -210,7 +218,6 @@ class WorkflowBuilder:
         max_repair_cycles: int,
         auto_publish: bool,
         teammate: str | None,
-        tracker: DecisionTracker | None = None,
     ) -> str:
         final = ""
         tools = self._definitions(allow_team=teammate is None)
@@ -255,7 +262,6 @@ class WorkflowBuilder:
                         call.input or {},
                         max_repair_cycles=max_repair_cycles,
                         auto_publish=auto_publish,
-                        tracker=tracker,
                     )
                     content = json.dumps(value, ensure_ascii=False, default=str)
                     is_error = False
@@ -295,7 +301,6 @@ class WorkflowBuilder:
         *,
         max_repair_cycles: int,
         auto_publish: bool,
-        tracker: DecisionTracker | None = None,
     ) -> Any:
         if tool == "catalog_search":
             query = str(data.get("query", "")).casefold()
@@ -381,25 +386,34 @@ class WorkflowBuilder:
                      "relevance": round(s, 3), "tags": m.tags}
                     for s, m in scored[:5]]
         if tool == "template_list":
+            if self.template_store:
+                return [
+                    {"name": m.name, "title": m.title, "description": m.description,
+                     "category": m.category, "tags": m.tags}
+                    for m in self.template_store.list()
+                ]
+            # Fallback for when template_store is not configured
             return [
-                {
-                    "name": name,
-                    "description": "Editable Claude-like coding agent architecture subgraph."
-                    if name == "claude_like_coding_agent"
-                    else "",
-                }
+                {"name": name, "description": "Workflow subgraph template."}
                 for name in self.blocks.template_names()
             ]
         if tool == "template_expand":
             template_name = str(data["name"])
+            # Track which template was expanded for the recommendation flywheel
+            state.expanded_from_template = template_name
             prefix = str(data.get("prefix") or template_name)
             position = data.get("position") if isinstance(data.get("position"), dict) else {}
-            workflow = self.blocks.expand_template(
-                template_name,
-                prefix=prefix,
-                x=float(position.get("x", 0)),
-                y=float(position.get("y", 0)),
-            )
+            x_pos = float(position.get("x", 0))
+            y_pos = float(position.get("y", 0))
+            if self.template_store:
+                workflow = self.template_store.expand_into_workflow(
+                    template_name, prefix=prefix, x=x_pos, y=y_pos,
+                )
+            else:
+                # Fallback to legacy BlockRegistry path
+                workflow = self.blocks.expand_template(
+                    template_name, prefix=prefix, x=x_pos, y=y_pos,
+                )
             draft = await self.workflow_store.get_draft(application_id)
             revision = int(draft["revision"])
             for node in workflow.nodes:
@@ -488,16 +502,6 @@ class WorkflowBuilder:
                     data=payload,
                 ),
             )
-            # Record design decisions for meta-cognition
-            if tracker and tool in ("draft_add_node", "draft_connect", "draft_publish", "template_expand"):
-                decision_label = {
-                    "draft_add_node": f"Add node: {data.get('node', {}).get('type', '?')}",
-                    "draft_connect": f"Connect: {data.get('edge', {}).get('source', '?')}→{data.get('edge', {}).get('target', '?')}",
-                    "draft_publish": "Publish workflow",
-                    "template_expand": f"Expand template: {data.get('name', '?')}",
-                }.get(tool, tool)
-                tracker._current = tracker.ask(decision_label, f"Build {build_id[:8]}")
-                tracker.answer("proceed", f"Revision {result['revision']}", f"{tool} succeeded")
             state.revision = result["revision"]
             return result
         if tool == "draft_validate":

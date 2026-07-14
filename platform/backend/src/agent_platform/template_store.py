@@ -6,12 +6,15 @@ Published applications can also be registered as templates via the API.
 
 from __future__ import annotations
 
-import json
+import threading
 from pathlib import Path
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 from .template_models import Template, TemplateMeta
 from .workflow_models import WorkflowSpec
+
+if TYPE_CHECKING:
+    from .template_models import ProvenanceSource
 
 
 class TemplateStore:
@@ -20,6 +23,7 @@ class TemplateStore:
     def __init__(self, templates_dir: Path | str | None = None) -> None:
         self._templates: dict[str, Template] = {}
         self._dir = Path(templates_dir) if templates_dir else None
+        self._lock = threading.Lock()
 
     # ── load / reload ──────────────────────────────────────────
 
@@ -73,22 +77,113 @@ class TemplateStore:
     ) -> Template:
         """Register (or replace) a template from an existing workflow."""
         overrides = meta_overrides or {}
-        meta = TemplateMeta(
-            name=name,
-            title=overrides.get("title", name),
-            description=overrides.get("description", ""),
-            category=overrides.get("category", "task_management"),
-            tags=overrides.get("tags", []),
-            icon=overrides.get("icon", "workflow"),
-            author=overrides.get("author", "user"),
-            version=overrides.get("version", 1),
-        )
-        template = Template(meta=meta, workflow=workflow)
-        self._templates[name] = template
-        return template
+        with self._lock:
+            meta = TemplateMeta(
+                name=name,
+                title=overrides.get("title", name),
+                description=overrides.get("description", ""),
+                category=overrides.get("category", "task_management"),
+                tags=overrides.get("tags", []),
+                icon=overrides.get("icon", "workflow"),
+                author=overrides.get("author", "user"),
+                version=overrides.get("version", 1),
+            )
+            template = Template(meta=meta, workflow=workflow)
+            self._templates[name] = template
+            return template
 
     def names(self) -> list[str]:
         return sorted(self._templates)
+
+    def record_usage(self, name: str, *, success: bool = True) -> None:
+        """Close the recommendation flywheel.
+
+        Called after a build that started from this template completes.
+        Updates total_uses, total_successes, and success_rate so that
+        quality_score reflects actual downstream value, not just search
+        popularity.
+
+        Also applies auto-degradation: repeated failures (>3 consecutive)
+        lower the confidence score to prevent unreliable templates from
+        being recommended to new builds.
+        """
+        if name not in self._templates:
+            return
+        with self._lock:
+            meta = self._templates[name].meta
+            meta.total_uses += 1
+            if success:
+                meta.total_successes += 1
+                meta.consecutive_failures = 0
+            else:
+                meta.consecutive_failures += 1
+            if meta.total_uses > 0:
+                meta.success_rate = round(meta.total_successes / meta.total_uses, 3)
+
+            # Auto-degrade confidence on repeated failures
+            # Only activate after enough samples to avoid noise
+            MIN_USES = 5
+            if meta.total_uses >= MIN_USES:
+                if meta.consecutive_failures >= 5:
+                    meta.confidence = max(0.15, meta.confidence)
+                elif meta.consecutive_failures >= 3:
+                    meta.confidence = round(max(0.30, meta.confidence - 0.10), 3)
+                elif meta.success_rate < 0.5:
+                    meta.confidence = round(max(0.40, meta.confidence - 0.05), 3)
+
+    # ── Evolution support ───────────────────────────────────────
+
+    def snapshot(self, name: str) -> "Template":
+        """Return a deep copy of the template for rollback purposes.
+
+        The caller is responsible for storing this snapshot and calling
+        rollback() if the evolution attempt fails.
+        """
+        return self.get(name).model_copy(deep=True)
+
+    def rollback(self, name: str, snapshot: "Template") -> "Template":
+        """Restore a template to a previously-saved snapshot.
+
+        This is used when an evolution merge produces an invalid result
+        and needs to be reverted.
+        """
+        with self._lock:
+            if name not in self._templates:
+                raise KeyError(f"template not found for rollback: {name}")
+            self._templates[name] = snapshot.model_copy(deep=True)
+            return self._templates[name]
+
+    def evolve(
+        self,
+        name: str,
+        merged_workflow: "WorkflowSpec",
+        source: "ProvenanceSource",
+    ) -> "Template":
+        """Apply an evolved workflow to a template, with confidence update.
+
+        This is the atomic commit step after merge_workflow_graph() has been
+        validated. It updates the template's workflow and metadata in one step.
+        """
+        with self._lock:
+            template = self.get(name)
+            template.workflow = merged_workflow
+            template.meta.provenance.append(source)
+            boost = 0.15 if template.meta.confidence < 0.80 else (
+                0.10 if template.meta.confidence < 0.90 else 0.03
+            )
+            template.meta.confidence = round(min(0.99, template.meta.confidence + boost), 3)
+            template.meta.version += 1
+            template.meta.usage_count += 1
+            template.meta.total_uses += 1
+            template.meta.total_successes += 1
+            if template.meta.total_uses > 0:
+                template.meta.success_rate = round(
+                    template.meta.total_successes / template.meta.total_uses, 3
+                )
+            return template
+
+    def __len__(self) -> int:
+        return len(self._templates)
 
     def categories(self) -> list[str]:
         cats: set[str] = set()
@@ -124,7 +219,8 @@ class TemplateStore:
         values inside node configurations are rewritten.
         """
         template = self.get(name)
-        template.meta.usage_count += 1
+        with self._lock:
+            template.meta.usage_count += 1
         wf = template.workflow.model_copy(deep=True)
         if prefix:
             id_map: dict[str, str] = {}
@@ -144,6 +240,3 @@ class TemplateStore:
                 pos.x += x
                 pos.y += y
         return wf
-
-    def __len__(self) -> int:
-        return len(self._templates)

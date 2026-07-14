@@ -25,7 +25,7 @@ from .models import (
     SessionCreateRequest,
 )
 from .permissions import PermissionBroker
-from .providers import DeepSeekProvider, ModelProvider
+from .providers import ModelProvider
 from .providers.multi import MultiProvider
 from .runtime import AgentRuntime
 from .sandbox import SandboxManager
@@ -68,12 +68,22 @@ class Services:
 
 def build_services(settings: Settings, provider: ModelProvider | None = None) -> Services:
     storage = Storage(settings.data_dir)
-    tools = build_core_registry()
+    # Templates must be created before tools so EvolutionGateTool gets the store
+    templates = TemplateStore()
+    templates_dir = settings.templates_dir
+    if templates_dir and templates_dir.is_dir():
+        loaded = templates.load_builtins(templates_dir)
+        print(f"[api] Loaded {loaded} built-in templates from {templates_dir}")
+    tools = build_core_registry(template_store=templates)
     sandboxes = SandboxManager(settings)
     permissions = PermissionBroker()
     provider = provider or MultiProvider(
         deepseek_api_key=settings.deepseek_api_key,
         deepseek_base_url=settings.deepseek_base_url,
+        openai_api_key=settings.openai_api_key,
+        openai_base_url=settings.openai_base_url,
+        anthropic_api_key=settings.anthropic_api_key,
+        anthropic_base_url=settings.anthropic_base_url,
         timeout_seconds=settings.deepseek_timeout_seconds,
     )
     runtime = AgentRuntime(
@@ -106,12 +116,6 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         sandboxes=sandboxes,
         runtime_model=settings.deepseek_runtime_model,
     )
-    templates = TemplateStore()
-    templates_dir = settings.templates_dir
-    if templates_dir and templates_dir.is_dir():
-        loaded = templates.load_builtins(templates_dir)
-        print(f"[api] Loaded {loaded} built-in templates from {templates_dir}")
-
     builder = WorkflowBuilder(
         storage=storage,
         workflow_store=workflow_store,
@@ -184,10 +188,15 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
     async def health() -> dict[str, Any]:
         return {
             "status": "ok",
-            "deepseek_configured": bool(settings.deepseek_api_key),
             "docker_available": shutil.which("docker") is not None,
             "provider": services.provider.name,
             "tools": services.tools.names(),
+            "configured_providers": getattr(services.provider, "configured_providers", []),
+            "providers": {
+                "deepseek": bool(settings.deepseek_api_key),
+                "openai": bool(settings.openai_api_key),
+                "anthropic": bool(settings.anthropic_api_key),
+            },
         }
 
     @app.get("/v1/models", dependencies=[Depends(require_token)])
@@ -575,39 +584,45 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             "has_module_name": "module_name" in parsed,
         }
 
-    # ── Soft Block Strategies ──────────────────────────────────
+    # ── Block Families (agent architecture grouping) ───────────
 
     @app.get(
-        "/api/v1/soft-block/strategies",
+        "/api/v1/blocks/families",
         dependencies=[Depends(require_token)],
     )
-    async def list_soft_block_strategies(
+    async def list_block_families(
         family: str | None = None,
     ) -> dict[str, Any]:
-        """List available soft-block strategies, grouped by family."""
-        from .soft_block import (
-            FAMILY_MAP, list_strategies, strategy_help, get_discrete_block_type,
+        """List agent-architecture block families and their member blocks.
+
+        Families are a *property of blocks*, not blocks themselves. Each
+        family groups discrete, independently testable runtime blocks that
+        share a common architectural concern (context, model loop, tools,
+        governance, multi-agent, skill/MCP).
+        """
+        from .block_families import (
+            FAMILY_MAP, list_families, strategy_help, get_discrete_block_type,
         )
         if family and family in FAMILY_MAP:
-            strategies = {
+            members = {
                 s: {
                     "help": strategy_help(s),
-                    "maps_to": get_discrete_block_type(s),
+                    "block_type": get_discrete_block_type(s),
                 }
                 for s in FAMILY_MAP[family]
             }
-            return {"family": family, "strategies": strategies}
+            return {"family": family, "members": members}
 
         result = {}
         for fam, strategies in FAMILY_MAP.items():
             result[fam] = {
                 s: {
                     "help": strategy_help(s),
-                    "maps_to": get_discrete_block_type(s),
+                    "block_type": get_discrete_block_type(s),
                 }
                 for s in strategies
             }
-        return {"families": list(FAMILY_MAP.keys()), "strategies": result}
+        return {"families": list_families(), "members_by_family": result}
 
     # ── Tools ────────────────────────────────────────────────
 
@@ -988,10 +1003,14 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         events = await services.storage.list_events(stream_id, after)
         return [event.model_dump(mode="json") for event in events]
 
-    # ── Auto meta-cognition hook: Builder → template extraction ──
+    # ── Auto meta-cognition hook: Builder → template evolution ──
 
     async def _auto_extract_from_build(build_id: str) -> None:
-        """After a build publishes, try to extract a reusable template from it.
+        """After a build publishes, evolve templates from the ACTUAL built workflow.
+
+        Uses the real WorkflowSpec from the draft (what Builder actually built),
+        NOT the DecisionTracker's derived decision-tree workflow.
+
         Runs as a fire-and-forget background task — never blocks the build response.
         """
         try:
@@ -999,55 +1018,62 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             if build.get("status") not in ("published", "ready"):
                 return
 
-            from .extraction_gate import ExtractionGate
-            from .merge_engine import MergeEngine
-            from .template_models import ProvenanceSource
-            from datetime import datetime, timezone
+            from .evolution_engine import EvolutionEngine
 
-            # Use the real DecisionTracker from Builder — each draft_add_node,
-            # draft_connect, template_expand, and draft_publish call was recorded.
-            tracker = services.builder._trackers.pop(build_id, None)
-            if tracker is None or len(tracker.roots) == 0:
-                print(f"[auto-extract] Build {build_id[:8]}: no decision data")
-                return
-
-            requirement = build.get("requirement", "")
+            # Use the ACTUAL built workflow, not DecisionTracker's derived version
             draft = await services.workflow_store.get_draft(build["application_id"])
-            node_types = [n["type"] for n in draft["snapshot"]["workflow"]["nodes"]]
+            candidate_wf = draft["snapshot"].workflow
+            requirement = build.get("requirement", "")
 
-            gate = ExtractionGate(services.templates)
-            should, reason = gate.should_propose(tracker.roots)
-            if not should:
-                print(f"[auto-extract] Build {build_id[:8]}: not proposed ({reason})")
-                return
+            await services.storage.append_event(build_id, "template.evolution.started", {
+                "build_id": build_id,
+                "node_count": len(candidate_wf.nodes),
+                "edge_count": len(candidate_wf.edges),
+                "requirement": requirement[:200],
+            })
 
-            wf = tracker.extract_workflow()
-            engine = MergeEngine(services.templates)
-            sim = engine.check_similarity(wf)
+            engine = EvolutionEngine(services.templates)
+            result = engine.evolve_or_create(candidate_wf, requirement, build_id)
 
-            if sim.should_merge and sim.target_template:
-                source = ProvenanceSource(
-                    source_type="session_extract",
-                    identifier=build_id,
-                    created_at=datetime.now(timezone.utc).isoformat(),
-                )
-                merged = engine.merge(wf, sim.target_template, source)
-                if merged:
-                    print(f"[auto-extract] Build {build_id[:8]}: merged into {sim.target_template} v{merged.meta.version} conf={merged.meta.confidence}")
-            elif all(not t.name.startswith("build-") for t in services.templates.list()):
-                # Register as new template if no obvious match
-                tname = f"build-extracted-{build_id[:8]}"
-                services.templates.register(tname, wf, meta_overrides={
-                    "title": f"Extracted: {requirement[:50]}",
-                    "category": "task_management",
-                    "tags": node_types[:5],
-                    "author": "auto-extract",
+            if result.evolved:
+                await services.storage.append_event(build_id, "template.evolved", {
+                    "build_id": build_id,
+                    "mode": result.mode,
+                    "template_name": result.template_name,
+                    "similarity_score": result.similarity_score,
+                    "confidence_after": result.confidence_after,
+                    "nodes_added": result.nodes_added,
+                    "edges_added": result.edges_added,
                 })
-                print(f"[auto-extract] Build {build_id[:8]}: registered as {tname}")
+                print(
+                    f"[auto-evolve] Build {build_id[:8]}: {result.mode} → "
+                    f"{result.template_name} "
+                    f"(sim={result.similarity_score:.2f}, "
+                    f"conf={result.confidence_after:.2f}, "
+                    f"+{result.nodes_added}n/+{result.edges_added}e)"
+                )
+            else:
+                await services.storage.append_event(build_id, "template.evolution.skipped", {
+                    "build_id": build_id,
+                    "reason": result.gate_reason,
+                    "mode": result.mode,
+                })
+                print(
+                    f"[auto-evolve] Build {build_id[:8]}: skipped "
+                    f"({result.mode}: {result.gate_reason})"
+                )
         except Exception as exc:
-            print(f"[auto-extract] Build {build_id[:8]} failed: {exc}")
+            print(f"[auto-evolve] Build {build_id[:8]} failed: {exc}")
+            try:
+                await services.storage.append_event(build_id, "template.evolution.failed", {
+                    "build_id": build_id,
+                    "error": str(exc),
+                    "error_type": type(exc).__name__,
+                })
+            except Exception:
+                pass
 
-    # Wire the meta-cognition hook: every completed build triggers extraction
+    # Wire the evolution hook: every completed build triggers template evolution
     services.builder.on_build_complete = _auto_extract_from_build
 
     # ── PWA DingTalk App ─────────────────────────────────────

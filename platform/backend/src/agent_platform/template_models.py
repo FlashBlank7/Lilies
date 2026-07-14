@@ -6,7 +6,7 @@ their sources — whether hand-crafted by an expert or extracted from a session.
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -47,6 +47,13 @@ class TemplateMeta(BaseModel):
     pending_branches_count: int = Field(default=0, ge=0)
     rating_sum: float = Field(default=0.0, ge=0.0)
     rating_count: int = Field(default=0, ge=0)
+    # ── Evolution quality tracking ──────────────────────────────
+    success_rate: float = Field(default=0.0, ge=0.0, le=1.0)
+    total_uses: int = Field(default=0, ge=0)
+    total_successes: int = Field(default=0, ge=0)
+    consecutive_failures: int = Field(default=0, ge=0)
+    last_validated_at: str = ""
+    evolution_history: list[dict] = Field(default_factory=list)
 
     @property
     def rating(self) -> float:
@@ -59,15 +66,17 @@ class TemplateMeta(BaseModel):
     def quality_score(self) -> float:
         """Composite quality score for ranking.
 
-        Formula: confidence (0.1-1.0) × log2(1+usage_count) × (1 + rating/10)
+        Formula: confidence (0.1-1.0) × log2(1+usage_count) × (1 + rating/10) × success_bonus
         - confidence: 直接来自溯源追踪
         - usage_count: 对数增长（1次=0, 3次≈1, 7次≈2, 15次≈3）
         - rating: 0-5分，最多贡献+0.5倍
+        - success_bonus: 0.5-1.0, based on actual build success rate
         """
         import math
         usage_bonus = math.log2(1 + self.usage_count)
         rating_bonus = 1.0 + (self.rating / 10.0) if self.rating > 0 else 1.0
-        return round(self.confidence * max(usage_bonus, 1.0) * rating_bonus, 3)
+        success_bonus = 0.5 + 0.5 * self.success_rate if self.total_uses > 0 else 0.5
+        return round(self.confidence * max(usage_bonus, 1.0) * rating_bonus * success_bonus, 3)
 
 
 class Template(BaseModel):

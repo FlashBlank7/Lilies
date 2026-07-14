@@ -20,6 +20,7 @@
 ## 当前阶段报告
 
 - `stage-reports/V1.1_docs_consolidation_and_asset_baseline.md`
+- `stage-reports/V1.2_evolution_flywheel_and_blockflow_self_reference.md`
 
 ## 使用原则
 

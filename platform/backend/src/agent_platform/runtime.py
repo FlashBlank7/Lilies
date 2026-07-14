@@ -476,13 +476,18 @@ class AgentRuntime:
         total.cache_creation_input_tokens += current.cache_creation_input_tokens
         total.cost_usd += current.cost_usd
 
-    @staticmethod
-    def _price_usage(usage: Usage, model: str) -> None:
-        # Current defaults; observability only. Provider billing remains authoritative.
-        if "pro" in model:
-            input_rate, output_rate = 0.435, 0.87
-        else:
-            input_rate, output_rate = 0.14, 0.28
+    def _price_usage(self, usage: Usage, model: str) -> None:
+        """Estimate USD cost from provider capabilities.
+
+        Provider billing is authoritative; this is an observability estimate.
+        Falls back to conservative defaults for unknown models.
+        """
+        try:
+            caps = self.provider.capabilities(model)
+            input_rate = caps.input_price_per_1m
+            output_rate = caps.output_price_per_1m
+        except Exception:
+            input_rate, output_rate = 0.5, 1.0
         usage.cost_usd = (
             usage.input_tokens * input_rate + usage.output_tokens * output_rate
         ) / 1_000_000

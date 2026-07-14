@@ -1476,12 +1476,18 @@ def test_builder_must_read_manual_before_agent_architecture_blocks(tmp_path: Pat
 
 
 def test_claude_like_coding_agent_template_is_valid_and_covers_architecture() -> None:
+    from pathlib import Path as _Path
+    from agent_platform.template_store import TemplateStore
+
     registry = build_block_registry()
-    template = registry.expand_template("claude_like_coding_agent", prefix="coding")
-    errors = registry.validate_workflow(template)
+    store = TemplateStore()
+    templates_dir = _Path(__file__).parent.parent / "templates"
+    store.load_builtins(templates_dir)
+    template_wf = store.expand_into_workflow("claude_like_coding_agent", prefix="coding")
+    errors = registry.validate_workflow(template_wf)
     assert errors == []
-    node_types = {node.type for node in template.nodes}
-    nested_loop = next(node for node in template.nodes if node.type == "loop")
+    node_types = {node.type for node in template_wf.nodes}
+    nested_loop = next(node for node in template_wf.nodes if node.type == "loop")
     nested_types = {node["type"] for node in nested_loop.config["workflow"]["nodes"]}
     required = {
         "context_assembler",
