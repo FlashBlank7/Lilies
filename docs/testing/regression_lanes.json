@@ -12,11 +12,12 @@
       "id": "v0.3.x_current_release_gate",
       "status": "gating",
       "phase": "v0.3.x",
-      "reason": "Current product usability evolution gate from v0.3.47 through v0.3.0 plus stage-report template validation.",
+      "reason": "Current product usability evolution gate from v0.3.48 through v0.3.0 plus stage-report template validation.",
       "command": [
         ".venv/bin/python",
         "-m",
         "pytest",
+        "tests/test_v03_48_customer_facing_workflow_run_interface.py",
         "tests/test_v03_47_natural_language_workflow_edit.py",
         "tests/test_v03_46_api_token_proxy_env_resolution.py",
         "tests/test_v03_45_try_run_input_error_recovery_ready_state.py",
@@ -70,6 +71,7 @@
         "-q"
       ],
       "test_files": [
+        "tests/test_v03_48_customer_facing_workflow_run_interface.py",
         "tests/test_v03_47_natural_language_workflow_edit.py",
         "tests/test_v03_46_api_token_proxy_env_resolution.py",
         "tests/test_v03_45_try_run_input_error_recovery_ready_state.py",
@@ -122,7 +124,7 @@
         "tests/test_stage_report_template_validation.py"
       ],
       "expected": {
-        "pass_count": 263,
+        "pass_count": 271,
         "warning_count": 1
       }
     },

@@ -1591,6 +1591,55 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   const tryCancelProgressState = run && cancelRequestedRunId === run.id ? tryRunActive ? 'requested' : run.status === 'cancelled' ? 'completed' : 'none' : 'none'
   const tryCancelProgressVisible = tryCancelProgressState !== 'none'
   const tryRunStatusRecencyVisible = Boolean(run && runStatusCheckedAt)
+  const customerRunOverviewItems = [
+    { label: t.customerRunMetricInputs, value: String(runFields.length), detail: runFields.length ? t.customerRunInputsReady(runFields.length) : t.runInputsEmpty },
+    { label: t.customerRunMetricSteps, value: String(draft?.snapshot.workflow.nodes.length || 0), detail: t.customerRunStepsReady(draft?.snapshot.workflow.nodes.length || 0) },
+    { label: t.customerRunMetricMode, value: tryRunModeTitle, detail: tryRunModeDetail },
+    { label: t.customerRunMetricStatus, value: run?.status || t.notRunLabel, detail: runStatusCheckedAt ? `${t.tryStatusRecencyLabel}: ${runStatusCheckedAt}` : t.customerRunNoStatusYet },
+  ]
+  const customerStepProgressItems = useMemo(() => {
+    const workflow = draft?.snapshot.workflow
+    if (!workflow) return []
+    const statusForNode = (nodeId: string) => {
+      const related = visibleTraceEventsForRun.filter(event => {
+        const eventNodeId = String(event.data.node_id || '')
+        return eventNodeId === nodeId || event.type.startsWith(`node.${nodeId}.`)
+      })
+      if (related.some(event => event.type.includes('failed') || event.type.includes('error') || Boolean(event.data.error))) return 'blocked'
+      if (pendingPermission?.node_id === nodeId || run?.state.waiting_node_id === nodeId) return 'waiting'
+      if (related.some(event => event.type === 'node.completed' || event.type.includes('.completed') || event.type === 'node.skipped' || event.type === 'node.degraded')) return 'completed'
+      if (related.some(event => event.type === 'node.started' || event.type.includes('.started'))) return 'running'
+      return run ? 'not_started' : 'idle'
+    }
+    return workflow.nodes.map((node, index) => {
+      const status = statusForNode(node.id)
+      const next = workflow.edges.filter(edge => edge.source === node.id).map(edge => edge.target)
+      return {
+        id: node.id,
+        title: node.title || node.id,
+        index: index + 1,
+        type: node.type.replaceAll('_', ' '),
+        status,
+        detail: next.length ? t.customerStepFlowsTo(next.join(', ')) : t.terminal,
+      }
+    })
+  }, [draft, pendingPermission?.node_id, run, t, visibleTraceEventsForRun])
+  const customerCurrentStep = customerStepProgressItems.find(item => item.status === 'running' || item.status === 'waiting' || item.status === 'blocked')
+    || customerStepProgressItems.find(item => item.status === 'not_started')
+    || customerStepProgressItems.at(-1)
+  const customerDataFlowItems = [
+    { label: t.customerDataFlowInput, ready: !runInputParsed.error, detail: runInputParsed.error || (runFields.length ? t.customerRunInputsReady(runFields.length) : t.runInputsEmpty) },
+    { label: t.customerDataFlowProgress, ready: visibleTraceEventsForRun.length > 0, detail: t.customerTraceEventCount(visibleTraceEventsForRun.length) },
+    { label: t.customerDataFlowCurrentStep, ready: Boolean(customerCurrentStep && customerCurrentStep.status !== 'idle'), detail: customerCurrentStep ? `${customerCurrentStep.index}. ${customerCurrentStep.title} · ${t.customerStepStatus(customerCurrentStep.status)}` : t.customerNoWorkflowSteps },
+    { label: t.customerDataFlowResult, ready: tryResultOutputCount > 0, detail: tryResultOutputCount > 0 ? t.customerOutputReady(tryResultOutputCount) : tryResultErrorPreview || t.tryResultPreviewEmpty },
+  ]
+  const customerResultState = run?.status === 'succeeded' && tryResultOutputCount > 0
+    ? 'ready'
+    : tryResultErrorPreview
+      ? 'error'
+      : run
+        ? run.status
+        : 'empty'
   const relatedMonitorTasks = useMemo(
     () => monitorTasks.filter(task => taskIsRelated(task, id, build, run)),
     [build, id, monitorTasks, run],
@@ -1966,29 +2015,48 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
           <h3>{t.versionHistory}</h3>{versions.map(version => <div className="version-row" key={version.version}><span>v{version.version}</span><small>{version.content_hash.slice(0, 9)}</small><button onClick={async () => { await api(`/api/v1/applications/${id}/versions/${version.version}/restore`, { method: 'POST' }); await refresh() }}>{t.loadEdit}</button></div>)}
         </div>}
         {tab === 'run' && <div className="panel-body">
-          <div className="panel-kicker">{t.runApplication}</div><h2>{t.runPublished}</h2>
-          <p className="muted">{t.runHelp}</p>
+          <div className="panel-kicker">{t.customerRunKicker}</div><h2>{t.customerRunTitle}</h2>
+          <section className="customer-run-overview" data-customer-run-interface="overview">
+            <div className="customer-run-head"><strong>{draft?.snapshot.name || t.runApplication}</strong><small>{t.customerRunHelp}</small></div>
+            <p><b>{t.workflowReadablePurpose}</b>{draft?.snapshot.requirement || draft?.snapshot.description || t.fallbackDescription}</p>
+            <div className="customer-run-metrics">{customerRunOverviewItems.map(item => <article key={item.label}><span>{item.label}</span><b>{item.value}</b><small>{item.detail}</small></article>)}</div>
+            <div className="customer-run-step-preview">{customerStepProgressItems.length ? customerStepProgressItems.slice(0, 5).map(item => <article key={item.id}><span>{item.index}</span><div><strong>{item.title}</strong><small>{item.type} · {item.detail}</small></div></article>) : <p className="muted">{t.customerNoWorkflowSteps}</p>}</div>
+          </section>
           <section className="try-readiness-panel" data-try-guidance="run-readiness">
             <div className="try-readiness-head"><strong>{t.tryReadinessTitle}</strong><small>{t.tryReadinessHelp}</small></div>
             <div className="try-readiness-list">{runReadinessItems.map(item => <article className={item.ready ? 'ready' : ''} key={item.label}><span>{item.label}</span><b>{item.ready ? t.tryReady : t.tryNeedsAttention}</b><small>{item.detail}</small></article>)}</div>
             <p className="run-recovery-hint" data-try-guidance={runInputParsed.error ? 'missing-input' : 'run-recovery'}>{runRecoveryHint}</p>
           </section>
+          <section className="customer-start-panel" data-customer-run-interface="start-controls" ref={runControlsRef} tabIndex={-1} data-try-input-error-action-guard={tryInputErrorBlockingRun ? 'blocked' : 'ready'} data-try-input-recovery-ready={tryInputRecoveryReadyVisible ? 'restored' : 'inactive'}>
+            <div className="customer-start-head"><strong>{t.customerStartTitle}</strong><small>{runFields.length ? t.customerStartHelp : t.customerStartNoInputHelp}</small></div>
+            <section className="try-sample-next-action" data-try-sample-next-action={trySampleNextAction.id}><span>{t.trySampleNextAction}</span><strong>{trySampleNextAction.label}</strong><small>{trySampleNextAction.detail}</small></section>
           <section className="try-sample-summary" data-try-sample-input="summary">
             <div className="try-sample-head"><strong>{t.trySampleSummaryTitle}</strong><small>{runFields.length ? t.trySampleSummaryHelp : t.runInputsEmpty}</small></div>
             <div className="try-sample-metrics"><span><b>{trySampleSummaryItems.length}</b>{t.trySampleFields}</span><span><b>{trySampleRequiredCount}</b>{t.trySampleRequired}</span><span><b>{trySampleAcceptanceCount}</b>{t.trySampleAcceptance}</span></div>
             {trySampleVisibleItems.length ? <div className="try-sample-list">{trySampleVisibleItems.map(item => <article key={item.name}><div><strong>{item.label}</strong><small>{t.fieldType(item.type)} · {item.required ? t.trySampleRequiredField : t.trySampleOptionalField}</small></div><code>{item.preview}</code><span>{item.sourceLabel}</span></article>)}</div> : <p className="muted">{t.runInputsEmpty}</p>}
             {trySampleHiddenCount > 0 && <small className="try-sample-more">{t.trySampleMoreFields(trySampleHiddenCount)}</small>}
           </section>
-          <section className="try-sample-next-action" data-try-sample-next-action={trySampleNextAction.id}><span>{t.trySampleNextAction}</span><strong>{trySampleNextAction.label}</strong><small>{trySampleNextAction.detail}</small></section>
           <div className="run-actions compact"><button className="wide secondary" data-try-sample-action="fill-sample" onClick={applySampleRunInputs} disabled={!runFields.length}>{t.fillRunSample}</button></div>
           <div className="run-form" ref={runInputFormRef} tabIndex={-1}>{runFields.length ? runFields.map(field => <label className="run-field" key={field.name}><span>{field.label || field.name}<em>{t.fieldType(field.type || 'string')}</em></span>{field.type === 'boolean' ? <input type="checkbox" checked={field.checked || false} onChange={event => updateRunField(field.name, { checked: event.target.checked, value: event.target.checked ? 'true' : 'false' })} /> : field.type === 'object' || field.type === 'array' || field.type === 'file_list' ? <textarea value={field.value} onChange={event => updateRunField(field.name, { value: event.target.value })} /> : <input type={fieldInputType(field.type)} value={field.value} onChange={event => updateRunField(field.name, { value: event.target.value })} />}</label>) : <p className="muted">{t.runInputsEmpty}</p>}</div>
-          <label>{t.runInputPreview}</label><pre className="trace-log" data-try-input-preview="payload" ref={runInputPreviewRef} tabIndex={-1}>{runInputPreview}</pre>
+          <details className="customer-raw-details" data-customer-run-interface="raw-payload"><summary>{t.runInputPreview}</summary><pre className="trace-log" data-try-input-preview="payload" ref={runInputPreviewRef} tabIndex={-1}>{runInputPreview}</pre></details>
           {tryInputErrorVisible && <section className="try-input-error" data-try-input-error="inline" data-try-input-error-source="parser" ref={tryInputErrorRef} tabIndex={-1}><strong>{t.tryInputErrorTitle}</strong><small>{runInputParsed.error}</small><span>{t.tryInputErrorDetail}</span><button type="button" data-try-input-error-action="focus-form" onClick={() => runInputFormRef.current?.focus()}>{t.tryInputErrorFocusAction}</button></section>}
           {tryRunActive && <section className="try-run-start-guard" data-try-run-start-guard="active" data-try-run-active-status={tryRunActiveStatus}><strong>{t.tryRunActiveGuardTitle}</strong><span>{t.tryRunActiveStatus(tryRunActiveStatus)}</span><small>{t.tryRunActiveRefreshDetail}</small><small>{t.tryRunActiveStaleDetail}</small></section>}
           {tryInputRecoveryReadyVisible && <section className="try-input-recovery-ready" data-try-input-recovery-ready="restored" data-try-input-recovery-confidence="valid-input-preview"><strong>{t.tryInputRecoveryReadyTitle}</strong><small>{t.tryInputRecoveryReadyDetail}</small><button type="button" data-try-input-recovery-ready-action="focus-preview" onClick={() => runInputPreviewRef.current?.focus()}>{t.tryInputRecoveryReadyAction}</button></section>}
-          <div className="run-actions" ref={runControlsRef} tabIndex={-1} data-try-input-error-action-guard={tryInputErrorBlockingRun ? 'blocked' : 'ready'} data-try-input-recovery-ready={tryInputRecoveryReadyVisible ? 'restored' : 'inactive'}><button className="wide" data-try-run-mode-action="draft" onClick={() => startRun(true)} disabled={tryRunActive || tryInputErrorBlockingRun}>{t.runDraftButton}</button><button className="wide secondary" data-try-run-mode-action="published" onClick={() => startRun(false)} disabled={!activeVersion || tryRunActive || tryInputErrorBlockingRun}>{t.runPublishedButton}</button></div>
+          <div className="run-actions"><button className="wide" data-try-run-mode-action="draft" onClick={() => startRun(true)} disabled={tryRunActive || tryInputErrorBlockingRun}>{t.runDraftButton}</button><button className="wide secondary" data-try-run-mode-action="published" onClick={() => startRun(false)} disabled={!activeVersion || tryRunActive || tryInputErrorBlockingRun}>{t.runPublishedButton}</button></div>
           {tryInputErrorBlockingRun && <section className="try-input-action-guard" data-try-input-action-guard="blocked"><strong>{t.tryInputErrorGuardTitle}</strong><small>{t.tryInputErrorGuardDetail}</small><button type="button" data-try-input-action-guard-focus="error" onClick={() => tryInputErrorRef.current?.focus()}>{t.tryInputErrorGuardFocusAction}</button></section>}
           {!activeVersion && <p className="muted">{t.noPublishedVersion}</p>}
+          </section>
+          <section className="customer-progress-panel" data-customer-run-interface="step-progress" data-customer-run-current-step={customerCurrentStep?.id || 'none'}>
+            <div className="customer-progress-head"><strong>{t.customerProgressTitle}</strong><small>{t.customerProgressHelp}</small></div>
+            <div className="customer-data-flow">{customerDataFlowItems.map(item => <article className={item.ready ? 'ready' : ''} key={item.label}><span>{item.label}</span><b>{item.ready ? t.tryReady : t.tryNeedsAttention}</b><small>{item.detail}</small></article>)}</div>
+            <div className="customer-step-list">{customerStepProgressItems.length ? customerStepProgressItems.map(item => <article className={item.status} key={item.id} data-customer-run-step-status={item.status}><span>{item.index}</span><div><strong>{item.title}</strong><small>{item.type} · {item.detail}</small></div><b>{t.customerStepStatus(item.status)}</b></article>) : <p className="muted">{t.customerNoWorkflowSteps}</p>}</div>
+          </section>
+          <section className="customer-result-panel" data-customer-run-interface="result-card" data-customer-result-state={customerResultState}>
+            <div className="customer-result-head"><strong>{t.customerResultTitle}</strong><small>{run ? t.customerResultStatus(run.status) : t.customerResultEmpty}</small></div>
+            {tryResultOutputPreviewItems.length ? <div className="customer-result-list">{tryResultOutputPreviewItems.map(item => <article key={item.key}><span>{item.key}<em>{item.kind}</em></span><code>{item.preview}</code></article>)}</div> : tryResultErrorPreview ? <p className="try-result-error-preview">{tryResultErrorPreview}</p> : <p className="muted">{t.customerResultEmpty}</p>}
+            {tryResultHiddenOutputCount > 0 && <small className="try-result-preview-more">{t.tryResultPreviewMore(tryResultHiddenOutputCount)}</small>}
+            <div className="try-result-next-action" data-try-result-next-action={tryResultNextAction.id}><span>{t.tryResultNextAction}</span><strong>{tryResultNextAction.label}</strong><small>{tryResultNextAction.detail}</small><button type="button" data-try-result-focus-target={tryResultNextAction.target} onClick={() => focusTryResultRecoveryTarget(tryResultNextAction.target)}>{t.tryResultFocusAction}</button></div>
+          </section>
           {run && <div className="run-result" data-run-status={run.status} ref={runResultRef} tabIndex={-1}><b>{run.status}</b>{tryRunStatusRecencyVisible && <section className="try-status-recency" data-try-status-recency="last-checked" data-try-status-recency-status={run.status}><strong>{t.tryStatusRecencyLabel}: {runStatusCheckedAt}</strong><small>{t.tryStatusRecencyDetail}</small></section>}<section className="try-run-mode" data-try-run-mode={lastRunMode}><span>{t.tryRunModeLabel}</span><strong>{tryRunModeTitle}</strong><small>{tryRunModeDetail}</small></section><section className="try-result-outcome" data-try-result-outcome="summary"><div className="try-result-head"><strong>{t.tryResultOutcomeTitle}</strong><small>{t.tryResultStatusMeaning(run.status)}</small></div><div className="try-result-list">{tryResultOutcomeItems.map(item => <article className={item.ready ? 'ready' : ''} key={item.label}><span>{item.label}</span><b>{item.ready ? t.tryReady : t.tryNeedsAttention}</b><small>{item.detail}</small></article>)}</div><div className="try-result-next-action" data-try-result-next-action={tryResultNextAction.id}><span>{t.tryResultNextAction}</span><strong>{tryResultNextAction.label}</strong><small>{tryResultNextAction.detail}</small><button type="button" data-try-result-focus-target={tryResultNextAction.target} onClick={() => focusTryResultRecoveryTarget(tryResultNextAction.target)}>{t.tryResultFocusAction}</button></div></section><section className="try-result-preview" data-try-result-preview="output" data-try-result-error-preview={tryResultErrorPreview ? 'present' : 'empty'}><div className="try-result-preview-head"><strong>{t.tryResultPreviewTitle}</strong><small>{tryResultOutputPreviewItems.length ? t.tryResultPreviewHelp : tryResultErrorPreview ? t.tryResultErrorPreviewHelp : t.tryResultPreviewEmpty}</small></div>{tryResultOutputPreviewItems.length ? <div className="try-result-preview-list">{tryResultOutputPreviewItems.map(item => <article key={item.key}><span>{item.key}<em>{item.kind}</em></span><code>{item.preview}</code></article>)}</div> : tryResultErrorPreview ? <p className="try-result-error-preview">{tryResultErrorPreview}</p> : <p className="muted">{t.tryResultPreviewEmpty}</p>}{tryResultHiddenOutputCount > 0 && <small className="try-result-preview-more">{t.tryResultPreviewMore(tryResultHiddenOutputCount)}</small>}</section><p className="run-recovery-hint" data-try-guidance="run-result-recovery">{runRecoveryHint}</p>{tryCancelConfirmVisible && <section className="try-cancel-confirm" data-try-cancel-confirm="pending" data-try-cancel-status={run.status}><strong>{t.tryCancelConfirmTitle}</strong><small>{t.tryCancelConfirmDetail}</small><div><button type="button" className="danger-link" data-try-cancel-confirm-action="stop" onClick={cancelRun}>{t.tryCancelConfirmStopAction}</button><button type="button" className="wide secondary" data-try-cancel-confirm-action="keep-waiting" onClick={() => setCancelConfirmRunId(null)}>{t.tryCancelConfirmKeepAction}</button></div></section>}{tryCancelProgressVisible && <section className="try-cancel-progress" data-try-cancel-progress={tryCancelProgressState} data-try-cancel-progress-status={run.status}><strong>{tryCancelProgressState === 'completed' ? t.tryCancelProgressCompletedTitle : t.tryCancelProgressRequestedTitle}</strong><small>{tryCancelProgressState === 'completed' ? t.tryCancelProgressCompletedDetail : t.tryCancelProgressRequestedDetail}</small></section>}<button className="danger-link" data-try-cancel-action="request-confirmation" onClick={cancelRun} disabled={['succeeded', 'failed', 'paused', 'cancelled'].includes(run.status)}>{cancelConfirmRunId === run.id ? t.tryCancelConfirmationPending : t.cancelRun}</button><pre>{JSON.stringify(run.outputs || run.error, null, 2)}</pre>{run.status === 'paused' && <><label>{t.humanInput}</label><textarea ref={runHumanInputRef} value={humanValues} onChange={event => setHumanValues(event.target.value)} /><button onClick={resumeRun}>{t.resume}</button></>}</div>}
           {pendingPermission && <div className="permission-card" ref={runPermissionRef} tabIndex={-1}><h3>{t.permissionWaiting}</h3><p>{t.permissionHelp}</p><p>{t.permissionTool}: <code>{pendingPermission.tool || '-'}</code>{pendingPermission.node_id ? <> · <code>{pendingPermission.node_id}</code></> : null}</p><pre>{JSON.stringify(pendingPermission.input || {}, null, 2)}</pre><div className="run-actions"><button className="wide" onClick={() => resolvePermission(pendingPermission, 'allow')}>{t.approvePermission}</button><button className="wide secondary" onClick={() => resolvePermission(pendingPermission, 'deny')}>{t.denyPermission}</button></div></div>}
           {visibleTraceEventsForRun.length > 0 && <><h3>{t.traceTitle}</h3><section className="trace-readability-panel" data-trace-guidance="summary" ref={runTraceRef} tabIndex={-1}>
