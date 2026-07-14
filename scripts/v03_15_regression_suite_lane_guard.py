@@ -119,18 +119,24 @@ def manifest_checks(manifest: dict[str, Any] | None = None) -> list[dict[str, An
     current_files = [str(item) for item in current.get("test_files", [])]
     missing_current_files = [path for path in current_files if not (ROOT / path).exists()]
     command_missing_files = [path for path in current_files if path not in current.get("command", [])]
+    source_stage_report = str(loaded.get("source_stage_report", ""))
     checks.append({
         "id": "regression_lane_manifest",
-        "passed": loaded.get("version") == "v0.3.15"
+        "passed": str(loaded.get("version", "")).startswith("v0.3.")
         and loaded.get("policy", {}).get("current_gate") == "v0.3.x_current_release_gate"
         and current.get("status") == "gating"
+        and "tests/test_v03_15_regression_suite_lane_guard.py" in current_files
         and isinstance(current.get("expected", {}).get("pass_count"), int)
         and current.get("expected", {}).get("pass_count") >= 73
+        and bool(source_stage_report)
+        and (ROOT / source_stage_report).exists()
         and not missing_current_files
         and not command_missing_files,
         "missing_current_files": missing_current_files,
         "command_missing_files": command_missing_files,
         "expected": current.get("expected"),
+        "manifest_version": loaded.get("version"),
+        "source_stage_report": source_stage_report,
     })
     families = diagnostic.get("known_conflict_families", [])
     family_files = [

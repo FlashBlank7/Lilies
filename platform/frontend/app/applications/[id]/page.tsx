@@ -19,7 +19,7 @@ import {
   useEdgesState,
   useNodesState,
 } from '@xyflow/react'
-import { use, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { use, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type MouseEvent } from 'react'
 import {
   api,
   clearClientToken,
@@ -145,6 +145,10 @@ function BrickNode({ data, selected }: NodeProps<StudioNode>) {
 }
 
 const nodeTypes = { brick: BrickNode }
+const CANVAS_LAYOUT_ORIGIN = { x: 90, y: 110 }
+const CANVAS_LAYOUT_COLUMN_WIDTH = 300
+const CANVAS_LAYOUT_ROW_HEIGHT = 150
+const CANVAS_PAN_STEP = 80
 
 function visiblePositions(workflowNodes: WorkflowNode[], workflowEdges: Draft['snapshot']['workflow']['edges']) {
   const depth = new Map(workflowNodes.map(node => [node.id, 0]))
@@ -176,9 +180,70 @@ function visiblePositions(workflowNodes: WorkflowNode[], workflowEdges: Draft['s
   }))
 }
 
+function arrangedCanvasPositions(workflowNodes: WorkflowNode[], workflowEdges: Draft['snapshot']['workflow']['edges']) {
+  const depth = new Map(workflowNodes.map(node => [node.id, 0]))
+  const incoming = new Map(workflowNodes.map(node => [node.id, 0]))
+  const outgoing = new Map(workflowNodes.map(node => [node.id, [] as string[]]))
+
+  workflowEdges.forEach(edge => {
+    incoming.set(edge.target, (incoming.get(edge.target) || 0) + 1)
+    outgoing.get(edge.source)?.push(edge.target)
+  })
+
+  const queue = workflowNodes.filter(node => incoming.get(node.id) === 0).map(node => node.id)
+  const visited = new Set<string>()
+  for (let index = 0; index < queue.length; index += 1) {
+    const source = queue[index]
+    visited.add(source)
+    for (const target of outgoing.get(source) || []) {
+      depth.set(target, Math.max(depth.get(target) || 0, (depth.get(source) || 0) + 1))
+      incoming.set(target, (incoming.get(target) || 1) - 1)
+      if (incoming.get(target) === 0) queue.push(target)
+    }
+  }
+
+  const maxResolvedDepth = Math.max(0, ...Array.from(depth.values()))
+  workflowNodes.filter(node => !visited.has(node.id)).forEach((node, index) => {
+    depth.set(node.id, maxResolvedDepth + 1 + Math.floor(index / 4))
+  })
+
+  const rows = new Map<number, number>()
+  return new Map(workflowNodes.map(node => {
+    const column = depth.get(node.id) || 0
+    const row = rows.get(column) || 0
+    rows.set(column, row + 1)
+    return [node.id, {
+      x: CANVAS_LAYOUT_ORIGIN.x + column * CANVAS_LAYOUT_COLUMN_WIDTH,
+      y: CANVAS_LAYOUT_ORIGIN.y + row * CANVAS_LAYOUT_ROW_HEIGHT,
+    }]
+  }))
+}
+
 function validWorkflowEdges(workflowNodes: WorkflowNode[], workflowEdges: Draft['snapshot']['workflow']['edges']) {
   const nodeIds = new Set(workflowNodes.map(node => node.id))
   return workflowEdges.filter(edge => nodeIds.has(edge.source) && nodeIds.has(edge.target))
+}
+
+function canvasKeyboardPanDelta(key: string, modifiers: { shiftKey?: boolean; altKey?: boolean } = {}) {
+  const step = modifiers.shiftKey ? CANVAS_PAN_STEP * 2 : modifiers.altKey ? CANVAS_PAN_STEP / 2 : CANVAS_PAN_STEP
+  switch (key.toLowerCase()) {
+    case 'w': return { x: 0, y: step }
+    case 'a': return { x: step, y: 0 }
+    case 's': return { x: 0, y: -step }
+    case 'd': return { x: -step, y: 0 }
+    default: return null
+  }
+}
+
+function shouldIgnoreCanvasKeyboardTarget(target: EventTarget | null) {
+  return target instanceof HTMLElement && Boolean(target.closest('button, a, input, textarea, select, [contenteditable="true"], [role="textbox"]'))
+}
+
+function panCanvasViewport(instance: ReactFlowInstance<StudioNode, Edge> | null, delta: { x: number; y: number }) {
+  if (!instance) return false
+  const viewport = instance.getViewport()
+  void instance.setViewport({ ...viewport, x: viewport.x + delta.x, y: viewport.y + delta.y }, { duration: 110 })
+  return true
 }
 
 function defaultConfig(type: string): Record<string, unknown> {
@@ -626,6 +691,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   const [patchPreview, setPatchPreview] = useState<DraftPatchPreview | null>(null)
   const [patchPreviewLoading, setPatchPreviewLoading] = useState(false)
   const [patchApplyLoading, setPatchApplyLoading] = useState(false)
+  const [canvasArranging, setCanvasArranging] = useState(false)
   const [humanValues, setHumanValues] = useState('{}')
   const [notice, setNotice] = useState('')
   const [tryInputRecoveryReady, setTryInputRecoveryReady] = useState(false)
@@ -639,6 +705,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   const selectedEdgeId = useRef<string | null>(null)
   const runFieldsRef = useRef<RunInputFieldState[]>([])
   const flowRef = useRef<ReactFlowInstance<StudioNode, Edge> | null>(null)
+  const canvasWrapRef = useRef<HTMLElement>(null)
   const detailBuildRequirementRef = useRef<HTMLTextAreaElement>(null)
   const detailBuildStartButtonRef = useRef<HTMLButtonElement>(null)
   const runInputFormRef = useRef<HTMLDivElement>(null)
@@ -1125,6 +1192,70 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
       description: blockDescription(block), config: defaultConfig(block.type), position: { x: 120 + index * 55, y: 120 + (index % 4) * 90 },
       retry: { enabled: false, max_attempts: 1, delay_seconds: 0.5 }, error_strategy: 'fail',
     } })
+  }
+
+  async function arrangeCanvasNodes() {
+    const current = draftRef.current
+    const workflowNodes = current?.snapshot.workflow.nodes || []
+    if (!current || !workflowNodes.length) {
+      setNotice(t.canvasArrangeEmpty)
+      return
+    }
+    const workflowEdges = validWorkflowEdges(workflowNodes, current.snapshot.workflow.edges)
+    const positions = arrangedCanvasPositions(workflowNodes, workflowEdges)
+    const changedNodes = workflowNodes.filter(node => {
+      const position = positions.get(node.id)
+      return position && (position.x !== node.position.x || position.y !== node.position.y)
+    })
+    setNodes(renderNodes => renderNodes.map(node => ({ ...node, position: positions.get(node.id) || node.position })))
+    canvasWrapRef.current?.focus({ preventScroll: true })
+    window.setTimeout(() => flowRef.current?.fitView({ padding: 0.24, duration: 260 }), 30)
+    if (!changedNodes.length) {
+      setNotice(t.canvasArrangeDone)
+      return
+    }
+    setCanvasArranging(true)
+    try {
+      let expectedRevision = current.revision
+      for (const node of changedNodes) {
+        const position = positions.get(node.id)
+        if (!position) continue
+        const next = await api<Draft>(`/api/v1/applications/${id}/draft`, {
+          method: 'POST',
+          body: JSON.stringify({
+            expected_revision: expectedRevision,
+            idempotency_key: idempotency(),
+            op: 'update_node',
+            data: { node_id: node.id, changes: { position } },
+          }),
+        })
+        expectedRevision = next.revision
+        draftRef.current = next
+      }
+      await refresh()
+      setNotice(t.canvasArrangeDone)
+      window.setTimeout(() => flowRef.current?.fitView({ padding: 0.24, duration: 260 }), 40)
+    } catch (error) {
+      setNotice(String(error))
+      await refresh().catch(() => undefined)
+    } finally {
+      setCanvasArranging(false)
+    }
+  }
+
+  function handleCanvasKeyDown(event: KeyboardEvent<HTMLElement>) {
+    if (event.defaultPrevented || event.metaKey || event.ctrlKey || shouldIgnoreCanvasKeyboardTarget(event.target)) return
+    const delta = canvasKeyboardPanDelta(event.key, { shiftKey: event.shiftKey, altKey: event.altKey })
+    if (!delta) return
+    event.preventDefault()
+    event.stopPropagation()
+    panCanvasViewport(flowRef.current, delta)
+  }
+
+  function focusCanvasForKeyboard(event: MouseEvent<HTMLElement>) {
+    const target = event.target
+    if (shouldIgnoreCanvasKeyboardTarget(target)) return
+    canvasWrapRef.current?.focus({ preventScroll: true })
   }
 
   function chooseNode(node: StudioNode) {
@@ -2355,12 +2486,24 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
           }) : <p className="muted">{t.monitorEmpty}</p>}</div>
         </div>}
       </aside>
-      <section className="canvas-wrap">
+      <section
+        aria-label={t.canvasKeyboardLabel}
+        className="canvas-wrap"
+        data-canvas-keyboard="wasd-pan"
+        onKeyDownCapture={handleCanvasKeyDown}
+        onMouseDown={focusCanvasForKeyboard}
+        ref={canvasWrapRef}
+        tabIndex={0}
+      >
         {authRequired && <form className="auth-card studio-auth-card" onSubmit={saveToken}>
           <div><strong>{t.authTitle}</strong><p>{t.authCopy}</p></div>
           <input type="password" value={tokenInput} placeholder={t.authPlaceholder} onChange={event => setTokenInput(event.target.value)} />
           <div className="auth-actions"><button>{t.authSave}</button><button type="button" className="ghost" onClick={() => { clearClientToken(); setTokenInput('') }}>{t.authClear}</button></div>
         </form>}
+        <div className="canvas-toolbar" data-canvas-toolbar="layout-navigation">
+          <button data-canvas-action="arrange" disabled={!nodes.length || canvasArranging} onClick={arrangeCanvasNodes} type="button">{canvasArranging ? t.canvasArrangeBusy : t.canvasArrangeButton}</button>
+          <span className="canvas-keyboard-hint" data-canvas-keyboard-hint="wasd-pan" title={t.canvasKeyboardHintDetail}>{t.canvasKeyboardHint}</span>
+        </div>
         <div className="canvas-guidance">
           {safeDraftLanding && <section className="safe-draft-landing" data-safe-draft-landing="active">
             <div>

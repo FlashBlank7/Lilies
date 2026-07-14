@@ -1,0 +1,154 @@
+{
+  "version": "v0.3.15",
+  "stage": "regression_suite_lane_guard",
+  "status": "passed",
+  "live_checks_enabled": false,
+  "safety": {
+    "build_endpoint_called": false,
+    "called_endpoints": []
+  },
+  "bug_ledger": [
+    {
+      "id": "P1-current-release-gate-is-tribal-knowledge",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Automatic evolution needed manually remembered v0.3.x pytest commands.",
+      "fix": "Add a machine-readable regression lane manifest.",
+      "verification": "regression_lane_manifest."
+    },
+    {
+      "id": "P1-full-historical-suite-false-red-blocks-current-evolution",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Full historical pytest mixed archived assertions with current defaults and produced 25 known failures.",
+      "fix": "Classify full historical sweep as diagnostic and enumerate known conflict families.",
+      "verification": "historical_conflict_detector."
+    },
+    {
+      "id": "P1-regression-governance-must-not-trigger-builds",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "A regression-governance harness could accidentally mutate product state.",
+      "fix": "Keep v0.3.15 live evidence to read-only health checks.",
+      "verification": "safety_no_build_call."
+    }
+  ],
+  "current_gate": {
+    "id": "v0.3.x_current_release_gate",
+    "expected": {
+      "pass_count": 296,
+      "warning_count": 1
+    },
+    "test_file_count": 54
+  },
+  "diagnostic_lane": {
+    "id": "full_historical_diagnostic",
+    "status": "diagnostic_non_gating",
+    "last_observed": {
+      "source_stage_report": "docs/stage-reports/v0.3.14_monitor_trace_readability.md",
+      "command": ".venv/bin/python -m pytest tests -q",
+      "passed_count": 403,
+      "failed_count": 25,
+      "warning_count": 1
+    }
+  },
+  "checks": [
+    {
+      "id": "p0_p1_bug_ledger_regression_lanes",
+      "passed": true,
+      "bug_count": 3,
+      "blocking_bug_count": 0,
+      "bugs": [
+        {
+          "id": "P1-current-release-gate-is-tribal-knowledge",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Automatic evolution needed manually remembered v0.3.x pytest commands.",
+          "fix": "Add a machine-readable regression lane manifest.",
+          "verification": "regression_lane_manifest."
+        },
+        {
+          "id": "P1-full-historical-suite-false-red-blocks-current-evolution",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Full historical pytest mixed archived assertions with current defaults and produced 25 known failures.",
+          "fix": "Classify full historical sweep as diagnostic and enumerate known conflict families.",
+          "verification": "historical_conflict_detector."
+        },
+        {
+          "id": "P1-regression-governance-must-not-trigger-builds",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "A regression-governance harness could accidentally mutate product state.",
+          "fix": "Keep v0.3.15 live evidence to read-only health checks.",
+          "verification": "safety_no_build_call."
+        }
+      ]
+    },
+    {
+      "id": "regression_lane_docs_markers",
+      "path": "docs/testing/README.md",
+      "required_markers": [
+        "regression_lanes.json",
+        "v0.3.x_current_release_gate",
+        "full_historical_diagnostic",
+        "Unknown failures"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "regression_lane_script_markers",
+      "path": "scripts/v03_15_regression_suite_lane_guard.py",
+      "required_markers": [
+        "classify_full_sweep_failures",
+        "safety_no_build_call",
+        "diagnostic_non_gating",
+        "v0.3.x_current_release_gate"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "regression_lane_manifest",
+      "passed": true,
+      "missing_current_files": [],
+      "command_missing_files": [],
+      "expected": {
+        "pass_count": 296,
+        "warning_count": 1
+      },
+      "manifest_version": "v0.3.51",
+      "source_stage_report": "docs/stage-reports/v0.3.50_bounded_japanese_learning_runtime_validation.md"
+    },
+    {
+      "id": "historical_conflict_detector",
+      "passed": true,
+      "known_failure_count": 25,
+      "missing_current_behavior_evidence": [],
+      "classification": {
+        "known_count": 25,
+        "unknown_count": 0,
+        "unknown_failures": [],
+        "blocking": false
+      }
+    },
+    {
+      "id": "full_historical_sweep_non_gating",
+      "passed": true,
+      "status": "diagnostic_non_gating",
+      "unknown_policy": "blocking_until_classified"
+    },
+    {
+      "id": "safety_no_build_call",
+      "passed": true,
+      "called_endpoints": [],
+      "forbidden_endpoint": "POST /api/v1/applications/{id}/builds"
+    }
+  ],
+  "summary": {
+    "failed_check_count": 0,
+    "open_p0_p1_bug_count": 0,
+    "build_endpoint_called": false
+  }
+}
