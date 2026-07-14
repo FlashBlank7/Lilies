@@ -41,6 +41,7 @@ from .complexity_router import (
 )
 from .factory import AgentFactory
 from .draft_patch_preview import DraftPatchPreviewer, DraftPatchPreviewRequest
+from .acceptance_repair import AcceptanceRepairPreviewer, AcceptanceRepairPreviewRequest
 from .governed_memory import (
     GovernedMemoryPermission,
     GovernedMemorySource,
@@ -201,6 +202,7 @@ class Services:
     templates: TemplateStore
     benchmark: BuilderBenchmark
     draft_patcher: DraftPatchPreviewer
+    acceptance_repairer: AcceptanceRepairPreviewer
     governed_memory: GovernedMemorySurface
     worker_supervisor: Any | None
     worker_process_manager: Any | None
@@ -373,6 +375,7 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
     templates = TemplateStore()
     benchmark = BuilderBenchmark()
     draft_patcher = DraftPatchPreviewer()
+    acceptance_repairer = AcceptanceRepairPreviewer(blocks)
     templates_dir = settings.templates_dir
     if templates_dir and templates_dir.is_dir():
         loaded = templates.load_builtins(templates_dir)
@@ -419,6 +422,7 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         templates=templates,
         benchmark=benchmark,
         draft_patcher=draft_patcher,
+        acceptance_repairer=acceptance_repairer,
         governed_memory=governed_memory,
         worker_supervisor=None,
         worker_process_manager=None,
@@ -1597,6 +1601,24 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
     async def run_application_tests(application_id: str) -> dict[str, Any]:
         try:
             return await services.workflow_runtime.run_test_suite(application_id)
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+
+    @app.post(
+        "/api/v1/applications/{application_id}/tests/repair-preview",
+        dependencies=[Depends(require_token)],
+    )
+    async def preview_application_test_repair(
+        application_id: str, body: AcceptanceRepairPreviewRequest
+    ) -> dict[str, Any]:
+        try:
+            draft = await services.workflow_store.get_draft(application_id)
+            response = services.acceptance_repairer.preview(
+                draft["snapshot"],
+                int(draft["revision"]),
+                body.report,
+            )
+            return response.model_dump(mode="json")
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
 

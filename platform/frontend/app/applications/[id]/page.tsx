@@ -27,6 +27,7 @@ import {
   idempotency,
   isAuthError,
   saveClientToken,
+  type AcceptanceRepairPreview,
   type AdaptiveMonitoringStatus,
   type BuilderBenchmarkHistoryRecord,
   type Block,
@@ -746,6 +747,9 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   const [patchPreview, setPatchPreview] = useState<DraftPatchPreview | null>(null)
   const [patchPreviewLoading, setPatchPreviewLoading] = useState(false)
   const [patchApplyLoading, setPatchApplyLoading] = useState(false)
+  const [acceptanceRepairPreview, setAcceptanceRepairPreview] = useState<AcceptanceRepairPreview | null>(null)
+  const [acceptanceRepairLoading, setAcceptanceRepairLoading] = useState(false)
+  const [acceptanceRepairApplying, setAcceptanceRepairApplying] = useState(false)
   const [canvasArranging, setCanvasArranging] = useState(false)
   const [humanValues, setHumanValues] = useState('{}')
   const [notice, setNotice] = useState('')
@@ -1397,6 +1401,55 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     }
   }
 
+  async function previewAcceptanceRepair(report: Record<string, unknown> | null = testReport) {
+    setAcceptanceRepairLoading(true)
+    setAcceptanceRepairPreview(null)
+    try {
+      const result = await api<AcceptanceRepairPreview>(`/api/v1/applications/${id}/tests/repair-preview`, {
+        method: 'POST',
+        body: JSON.stringify({ report }),
+      })
+      setAcceptanceRepairPreview(result)
+      setNotice(result.supported ? t.acceptanceRepairReady : t.acceptanceRepairUnavailable)
+      return result
+    } catch (error) {
+      setNotice(String(error))
+      return null
+    } finally {
+      setAcceptanceRepairLoading(false)
+    }
+  }
+
+  async function applyAcceptanceRepair() {
+    if (!acceptanceRepairPreview?.supported || !acceptanceRepairPreview.operations.length) return
+    setAcceptanceRepairApplying(true)
+    try {
+      let current = draftRef.current
+      for (const operation of acceptanceRepairPreview.operations) {
+        await api(`/api/v1/applications/${id}/draft`, {
+          method: 'POST',
+          body: JSON.stringify({
+            expected_revision: current?.revision ?? operation.expected_revision,
+            idempotency_key: idempotency(),
+            op: operation.op,
+            data: operation.data,
+          }),
+        })
+        current = await refresh()
+      }
+      setAcceptanceRepairPreview(null)
+      setTestReport(null)
+      setNotice(t.acceptanceRepairApplied)
+      setStudioTab('edit')
+      await refreshMonitorTasks().catch(error => setNotice(String(error)))
+    } catch (error) {
+      setNotice(String(error))
+      await refresh().catch(() => undefined)
+    } finally {
+      setAcceptanceRepairApplying(false)
+    }
+  }
+
   async function reconcileIncomingEdges(nodeId: string, config: Record<string, unknown>, next: Draft | null) {
     const current = next || draftRef.current
     const node = current?.snapshot.workflow.nodes.find(item => item.id === nodeId)
@@ -1536,9 +1589,11 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
 
   async function runTests() {
     setNotice(t.testing)
+    setAcceptanceRepairPreview(null)
     const result = await api<{ passed: boolean } & Record<string, unknown>>(`/api/v1/applications/${id}/tests/run`, { method: 'POST' })
     setTestReport(result)
     setNotice(result.passed ? t.testsPassed : t.testsFailed)
+    if (!result.passed) await previewAcceptanceRepair(result)
     await refresh()
     await refreshMonitorTasks().catch(error => setNotice(String(error)))
   }
@@ -2217,6 +2272,24 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
             <div className="acceptance-readiness-list">{acceptanceReadinessItems.map(item => <article className={item.ready ? 'ready' : ''} key={item.label}><span>{item.label}</span><b>{item.ready ? t.tryReady : t.tryNeedsAttention}</b><small>{item.detail}</small></article>)}</div>
             <p className="publish-guidance" data-acceptance-guidance="publish-next-action">{publishGuidance}</p>
           </section>
+          {testReport && !Boolean(testReport.passed) && <section className={`acceptance-repair-panel ${acceptanceRepairPreview?.supported ? 'supported' : ''}`} data-acceptance-repair="failed-gate-preview">
+            <div className="acceptance-repair-head">
+              <div><strong>{t.acceptanceRepairTitle}</strong><small>{t.acceptanceRepairHelp}</small></div>
+              <span>{acceptanceRepairPreview ? (acceptanceRepairPreview.supported ? t.patchSupported : t.patchUnsupported) : t.tryNeedsAttention}</span>
+            </div>
+            {acceptanceRepairPreview ? <div className="acceptance-repair-body">
+              <p>{acceptanceRepairPreview.message}</p>
+              {acceptanceRepairPreview.missing_node_types.length > 0 && <div><b>{t.acceptanceRepairMissingNodes}</b><code>{acceptanceRepairPreview.missing_node_types.join(', ')}</code></div>}
+              {acceptanceRepairPreview.unsupported_node_types.length > 0 && <div><b>{t.acceptanceRepairUnsupportedNodes}</b><code>{acceptanceRepairPreview.unsupported_node_types.join(', ')}</code></div>}
+              {acceptanceRepairPreview.fixes.length > 0 && <details open><summary>{t.acceptanceRepairFixes}</summary><ul>{acceptanceRepairPreview.fixes.map((fix, index) => <li key={index}><code>{String(fix.kind || 'repair')}</code>{fix.node_type ? ` · ${String(fix.node_type)}` : ''}{fix.node_id ? ` · ${String(fix.node_id)}` : ''}</li>)}</ul></details>}
+              {acceptanceRepairPreview.warnings.length > 0 && <ul>{acceptanceRepairPreview.warnings.map(item => <li key={item}>{item}</li>)}</ul>}
+              {acceptanceRepairPreview.operations.length > 0 && <details><summary>{t.acceptanceRepairOperations}</summary><pre>{JSON.stringify(acceptanceRepairPreview.operations, null, 2)}</pre></details>}
+            </div> : <p className="muted">{t.acceptanceRepairNoPreview}</p>}
+            <div className="acceptance-repair-actions">
+              <button className="wide secondary" onClick={() => previewAcceptanceRepair()} disabled={acceptanceRepairLoading}>{acceptanceRepairLoading ? t.acceptanceRepairPreviewing : t.acceptanceRepairPreview}</button>
+              <button className="wide" onClick={applyAcceptanceRepair} disabled={!acceptanceRepairPreview?.supported || acceptanceRepairPreview.operations.length === 0 || acceptanceRepairApplying}>{acceptanceRepairApplying ? t.acceptanceRepairApplying : t.acceptanceRepairApply}</button>
+            </div>
+          </section>}
           <button className="wide" onClick={runTests}>{t.runAllTests}</button>
           <div className="acceptance-list">{acceptanceCaseViews.map(test => <section className="acceptance-card" key={test.id}>
             <div className="acceptance-card-head"><div><strong>{test.name}</strong><small>{test.requirement || t.noRequirementText}</small></div><span className={test.result ? (test.result.passed ? 'passed' : 'failed') : 'pending'}>{test.result ? (test.result.passed ? t.passedLabel : t.failedLabel) : t.notRunLabel}</span></div>

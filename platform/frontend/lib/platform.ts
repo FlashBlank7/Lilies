@@ -188,6 +188,16 @@ export type DraftPatchPreview = {
   reference_node_ids?: string[]
 }
 
+export type AcceptanceRepairPreview = {
+  supported: boolean
+  message: string
+  operations: DraftPatchOperation[]
+  warnings: string[]
+  fixes: Array<Record<string, unknown>>
+  missing_node_types: string[]
+  unsupported_node_types: string[]
+}
+
 export type BuilderBenchmarkHistoryRecord = {
   id: string
   status: string

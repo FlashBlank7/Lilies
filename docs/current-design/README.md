@@ -2,7 +2,7 @@
 
 本目录是当前 stage 的 active design 工作区。
 
-当前状态：v0.3.53 已归档，暂无 active design。
+当前状态：v0.3.54 已归档，暂无 active design。
 
 Active designs:
 
