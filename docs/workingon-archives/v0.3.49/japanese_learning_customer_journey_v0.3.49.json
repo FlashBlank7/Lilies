@@ -1,0 +1,287 @@
+{
+  "version": "v0.3.49",
+  "stage": "japanese_learning_customer_journey",
+  "status": "passed",
+  "live_checks_enabled": false,
+  "safety": {
+    "forbidden_endpoint_called": false,
+    "called_endpoints": [],
+    "model_call_used": false
+  },
+  "bug_ledger": [
+    {
+      "id": "P1-japanese-learner-intake-missing",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "The homepage examples did not include the user's Japanese-language-student journey.",
+      "fix": "Add a Japanese learner customer example with topic input, public video comments, spoken expression extraction, and learner-facing output.",
+      "verification": "japanese_learning_intake_fixture."
+    },
+    {
+      "id": "P1-safe-draft-is-generic-for-learning-demand",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Saving a draft for the Japanese-learning prompt produced a generic request-to-answer skeleton.",
+      "fix": "Route matching requirements to a topic -> public comment clues -> spoken expression extraction -> daily summary skeleton.",
+      "verification": "japanese_learning_safe_draft_fixture."
+    },
+    {
+      "id": "P1-run-page-does-not-explain-learning-workflow",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "A learner entering the Run tab saw generic node names and fields instead of what to enter and what the workflow was doing.",
+      "fix": "Detect the Japanese-learning workflow and show scenario guidance, topic labeling, and learning-specific step progress.",
+      "verification": "japanese_learning_run_guidance_fixture."
+    },
+    {
+      "id": "P1-result-expectation-is-structure-not-learning-output",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "The result area did not state that the final answer must be expressions, meanings, examples, tone/context, and learning reminders.",
+      "fix": "Add a learner result expectation checklist before the raw output preview.",
+      "verification": "japanese_learning_result_expectation_fixture."
+    },
+    {
+      "id": "P1-v0349-tests-must-enter-release-gate",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Scenario-specific usability could regress if omitted from the current v0.3.x gate.",
+      "fix": "Update the regression lane with v0.3.49 and the new pass-count floor.",
+      "verification": "regression_manifest_updated."
+    }
+  ],
+  "checks": [
+    {
+      "id": "p0_p1_bug_ledger_japanese_learning_customer_journey",
+      "passed": true,
+      "bug_count": 5,
+      "blocking_bug_count": 0,
+      "bugs": [
+        {
+          "id": "P1-japanese-learner-intake-missing",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "The homepage examples did not include the user's Japanese-language-student journey.",
+          "fix": "Add a Japanese learner customer example with topic input, public video comments, spoken expression extraction, and learner-facing output.",
+          "verification": "japanese_learning_intake_fixture."
+        },
+        {
+          "id": "P1-safe-draft-is-generic-for-learning-demand",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Saving a draft for the Japanese-learning prompt produced a generic request-to-answer skeleton.",
+          "fix": "Route matching requirements to a topic -> public comment clues -> spoken expression extraction -> daily summary skeleton.",
+          "verification": "japanese_learning_safe_draft_fixture."
+        },
+        {
+          "id": "P1-run-page-does-not-explain-learning-workflow",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "A learner entering the Run tab saw generic node names and fields instead of what to enter and what the workflow was doing.",
+          "fix": "Detect the Japanese-learning workflow and show scenario guidance, topic labeling, and learning-specific step progress.",
+          "verification": "japanese_learning_run_guidance_fixture."
+        },
+        {
+          "id": "P1-result-expectation-is-structure-not-learning-output",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "The result area did not state that the final answer must be expressions, meanings, examples, tone/context, and learning reminders.",
+          "fix": "Add a learner result expectation checklist before the raw output preview.",
+          "verification": "japanese_learning_result_expectation_fixture."
+        },
+        {
+          "id": "P1-v0349-tests-must-enter-release-gate",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Scenario-specific usability could regress if omitted from the current v0.3.x gate.",
+          "fix": "Update the regression lane with v0.3.49 and the new pass-count floor.",
+          "verification": "regression_manifest_updated."
+        }
+      ]
+    },
+    {
+      "id": "japanese_learning_intake_fixture",
+      "passed": true,
+      "cases": {
+        "homepage_has_japanese_learner_role": true,
+        "example_requirement_mentions_topic_input": true,
+        "example_requirement_mentions_public_video_comments": true,
+        "example_requirement_mentions_spoken_expression_extraction": true,
+        "acceptance_requires_learner_readable_summary": true
+      }
+    },
+    {
+      "id": "japanese_learning_safe_draft_fixture",
+      "passed": true,
+      "cases": {
+        "safe_draft_detects_japanese_learning_requirements": true,
+        "topic_input_is_first_visible_field": true,
+        "comment_clue_step_is_visible": true,
+        "spoken_expression_step_is_visible": true,
+        "daily_summary_answer_step_is_visible": true,
+        "structural_test_uses_learning_topic_sample": true
+      }
+    },
+    {
+      "id": "japanese_learning_run_guidance_fixture",
+      "passed": true,
+      "cases": {
+        "run_page_detects_japanese_learning_workflow": true,
+        "scenario_guidance_visible_after_overview": true,
+        "topic_field_label_is_customer_language": true,
+        "progress_steps_are_learning_steps_not_raw_node_ids": true,
+        "technical_payload_remains_secondary": true
+      }
+    },
+    {
+      "id": "japanese_learning_result_expectation_fixture",
+      "passed": true,
+      "cases": {
+        "result_expectation_card_visible": true,
+        "checklist_includes_real_expressions": true,
+        "checklist_includes_meaning_examples_tone": true,
+        "checklist_includes_learning_reminders": true,
+        "raw_json_does_not_replace_learner_expectation": true
+      }
+    },
+    {
+      "id": "japanese_learning_home_and_safe_draft_markers",
+      "path": "platform/frontend/app/page.tsx",
+      "required_markers": [
+        "isJapaneseLearningRequirement",
+        "seedJapaneseLearningDraftSkeleton",
+        "关注的日语主题",
+        "jp_collect_comments",
+        "jp_extract_expressions",
+        "jp_daily_summary",
+        "Japanese learning scenario structure",
+        "await seedSafeDraftSkeleton(app.id, app.draft_revision, requirement)",
+        "学生|学习者",
+        "learner|student"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "japanese_learning_run_page_markers",
+      "path": "platform/frontend/app/applications/[id]/page.tsx",
+      "required_markers": [
+        "isJapaneseLearningWorkflowText",
+        "japaneseLearningWorkflow",
+        "data-customer-scenario=\"japanese-learning\"",
+        "data-japanese-learning-topic-input=\"expected\"",
+        "data-japanese-learning-result-expectation=\"spoken-summary\"",
+        "japaneseLearningProgressSteps",
+        "japaneseLearningTopicInputLabel",
+        "scenarioStep?.title",
+        "scenarioStep?.detail"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "japanese_learning_i18n_markers",
+      "path": "platform/frontend/lib/i18n.ts",
+      "required_markers": [
+        "日语学习者",
+        "今日日语口语总结",
+        "真实口语表达、含义、例句、语气和学习提醒",
+        "Japanese learner",
+        "Daily spoken Japanese summary",
+        "Real spoken expressions, meanings, examples, tone notes, and learning reminders",
+        "japaneseLearningResultChecklist"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "japanese_learning_style_markers",
+      "path": "platform/frontend/app/globals.css",
+      "required_markers": [
+        ".scenario-run-guidance",
+        ".scenario-topic-hint",
+        ".scenario-result-expectation",
+        ".scenario-result-expectation ul"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "regression_manifest_updated",
+      "path": "docs/testing/regression_lanes.json",
+      "passed": true,
+      "cases": {
+        "current_gate_present": true,
+        "v0349_test_in_test_files": true,
+        "v0349_test_in_command": true,
+        "pass_count_not_less_than_v0349_floor": true
+      },
+      "pass_count": 279
+    },
+    {
+      "id": "safety_no_forbidden_japanese_learning_call",
+      "passed": true,
+      "called_endpoints": [],
+      "forbidden_endpoint_fragments": [
+        "/builds",
+        "/tests/run",
+        "/runs",
+        "/versions",
+        "/restore",
+        "/draft",
+        "/cancel"
+      ],
+      "model_call_used": false
+    }
+  ],
+  "summary": {
+    "failed_check_count": 0,
+    "open_p0_p1_bug_count": 0,
+    "forbidden_endpoint_called": false,
+    "japanese_learning_intake": {
+      "id": "japanese_learning_intake_fixture",
+      "passed": true,
+      "cases": {
+        "homepage_has_japanese_learner_role": true,
+        "example_requirement_mentions_topic_input": true,
+        "example_requirement_mentions_public_video_comments": true,
+        "example_requirement_mentions_spoken_expression_extraction": true,
+        "acceptance_requires_learner_readable_summary": true
+      }
+    },
+    "japanese_learning_safe_draft": {
+      "id": "japanese_learning_safe_draft_fixture",
+      "passed": true,
+      "cases": {
+        "safe_draft_detects_japanese_learning_requirements": true,
+        "topic_input_is_first_visible_field": true,
+        "comment_clue_step_is_visible": true,
+        "spoken_expression_step_is_visible": true,
+        "daily_summary_answer_step_is_visible": true,
+        "structural_test_uses_learning_topic_sample": true
+      }
+    },
+    "japanese_learning_run_guidance": {
+      "id": "japanese_learning_run_guidance_fixture",
+      "passed": true,
+      "cases": {
+        "run_page_detects_japanese_learning_workflow": true,
+        "scenario_guidance_visible_after_overview": true,
+        "topic_field_label_is_customer_language": true,
+        "progress_steps_are_learning_steps_not_raw_node_ids": true,
+        "technical_payload_remains_secondary": true
+      }
+    },
+    "japanese_learning_result_expectation": {
+      "id": "japanese_learning_result_expectation_fixture",
+      "passed": true,
+      "cases": {
+        "result_expectation_card_visible": true,
+        "checklist_includes_real_expressions": true,
+        "checklist_includes_meaning_examples_tone": true,
+        "checklist_includes_learning_reminders": true,
+        "raw_json_does_not_replace_learner_expectation": true
+      }
+    }
+  }
+}

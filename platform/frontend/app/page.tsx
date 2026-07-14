@@ -48,7 +48,84 @@ async function applyDraftOperation(applicationId: string, expectedRevision: numb
   return result.revision
 }
 
-async function seedSafeDraftSkeleton(applicationId: string, initialRevision: number) {
+function isJapaneseLearningRequirement(requirement: string) {
+  const text = requirement.toLocaleLowerCase()
+  return /(日语|日本語|日本人|口语|口語|视频|影片|评论区|コメント|japanese|spoken|expression|video|comment)/i.test(text)
+    && /(学生|学习|學習|learner|student|study|summary|总结|表达|表現)/i.test(text)
+}
+
+async function seedJapaneseLearningDraftSkeleton(applicationId: string, initialRevision: number) {
+  const suffix = Date.now()
+  const startId = `jp_topic_${suffix}`
+  const collectId = `jp_collect_comments_${suffix}`
+  const extractId = `jp_extract_expressions_${suffix}`
+  const summaryId = `jp_daily_summary_${suffix}`
+  const testId = `jp_acceptance_${suffix}`
+  let revision = initialRevision
+  revision = await applyDraftOperation(applicationId, revision, 'add_node', { node: {
+    id: startId, type: 'start', block_version: 1, title: '关注的日语主题',
+    description: '学习者输入今天想关注的日语话题，例如校园生活、打工、旅行或敬语。',
+    config: { inputs: [{ name: 'topic', label: '关注的日语主题', type: 'string', required: true, default: '校园生活' }] },
+    position: { x: 100, y: 160 },
+    retry: { enabled: false, max_attempts: 1, delay_seconds: 0.5 }, error_strategy: 'fail',
+  } })
+  revision = await applyDraftOperation(applicationId, revision, 'add_node', { node: {
+    id: collectId, type: 'template_transform', block_version: 1, title: '收集公开视频评论线索',
+    description: '占位步骤：围绕主题整理主流视频网站公开评论区中的真实表达线索。',
+    config: {
+      template: '围绕「{{ topic }}」整理主流视频网站公开评论区中的真实日语表达线索。',
+      variables: { topic: { $ref: { node_id: startId, path: ['output', 'topic'] } } },
+    },
+    position: { x: 390, y: 160 },
+    retry: { enabled: false, max_attempts: 1, delay_seconds: 0.5 }, error_strategy: 'fail',
+  } })
+  revision = await applyDraftOperation(applicationId, revision, 'add_node', { node: {
+    id: extractId, type: 'template_transform', block_version: 1, title: '提取真实口语表达',
+    description: '占位步骤：从评论线索里提取自然说法、语气、使用场景和注意点。',
+    config: {
+      template: '从「{{ topic }}」相关评论线索中提取自然口语表达、语气和使用场景。',
+      variables: { topic: { $ref: { node_id: startId, path: ['output', 'topic'] } } },
+    },
+    position: { x: 680, y: 160 },
+    retry: { enabled: false, max_attempts: 1, delay_seconds: 0.5 }, error_strategy: 'fail',
+  } })
+  revision = await applyDraftOperation(applicationId, revision, 'add_node', { node: {
+    id: summaryId, type: 'answer', block_version: 1, title: '今日日语口语总结',
+    description: '面向学习者的最终交付：表达、含义、例句、语气和使用提醒。',
+    config: { answer: { $ref: { node_id: extractId, path: ['text'] } } },
+    position: { x: 970, y: 160 },
+    retry: { enabled: false, max_attempts: 1, delay_seconds: 0.5 }, error_strategy: 'fail',
+  } })
+  for (const [edgeId, source, target, sourcePort] of [
+    [`jp_edge_collect_${suffix}`, startId, collectId, 'output'],
+    [`jp_edge_extract_${suffix}`, collectId, extractId, 'text'],
+    [`jp_edge_summary_${suffix}`, extractId, summaryId, 'text'],
+  ] as const) {
+    revision = await applyDraftOperation(applicationId, revision, 'add_edge', { edge: {
+      id: edgeId, source, target, source_port: sourcePort, target_port: 'input',
+    } })
+  }
+  revision = await applyDraftOperation(applicationId, revision, 'add_test', { test: {
+    id: testId,
+    name: 'Japanese learning scenario structure',
+    requirement: 'Safe draft exposes a topic input and visible steps for collecting comments, extracting spoken expressions, and producing a daily Japanese summary.',
+    inputs: { topic: '校园生活' },
+    assertions: [],
+    required_node_types: ['start', 'template_transform', 'answer'],
+    required_tool_nodes: [],
+    required_tools: [],
+    minimum_tool_calls: 0,
+    mandatory: true,
+    structural_only: true,
+    feedback_hints: ['Replace placeholder transform steps with real collection/extraction tools when enabling live external-video evidence.'],
+  } })
+  return revision
+}
+
+async function seedSafeDraftSkeleton(applicationId: string, initialRevision: number, requirement = '') {
+  if (isJapaneseLearningRequirement(requirement)) {
+    return seedJapaneseLearningDraftSkeleton(applicationId, initialRevision)
+  }
   const suffix = Date.now()
   const startId = `safe_start_${suffix}`
   const answerId = `safe_answer_${suffix}`
@@ -113,7 +190,7 @@ function requirementReadiness(requirement: string, t: Copy) {
   const text = requirement.trim()
   const normalized = text.toLocaleLowerCase()
   const signals = [
-    { id: 'audience', label: t.requirementSignalAudience, detail: t.requirementSignalAudienceHint, ready: /(客户|用户|负责人|顾问|运营|审阅|customer|user|owner|operator|consultant|reviewer)/i.test(normalized) },
+    { id: 'audience', label: t.requirementSignalAudience, detail: t.requirementSignalAudienceHint, ready: /(客户|用户|负责人|顾问|运营|审阅|学生|学习者|customer|user|owner|operator|consultant|reviewer|learner|student)/i.test(normalized) },
     { id: 'outcome', label: t.requirementSignalOutcome, detail: t.requirementSignalOutcomeHint, ready: /(输出|生成|给出|判断|分类|摘要|清单|result|output|generate|classify|summary|checklist)/i.test(normalized) },
     { id: 'acceptance', label: t.requirementSignalAcceptance, detail: t.requirementSignalAcceptanceHint, ready: /(验收|测试|必须|覆盖|acceptance|test|must|cover|verify)/i.test(normalized) },
     { id: 'detail', label: t.requirementSignalDetail, detail: t.requirementSignalDetailHint, ready: text.length >= 80 },
@@ -354,7 +431,7 @@ export default function Home() {
         method: 'POST',
         body: JSON.stringify({ name, description: requirement.slice(0, 180), requirement, mode: 'workflow' }),
       })
-      await seedSafeDraftSkeleton(app.id, app.draft_revision)
+      await seedSafeDraftSkeleton(app.id, app.draft_revision, requirement)
       window.location.href = `/applications/${app.id}?safeDraft=1`
     } catch (cause) {
       setError(String(cause))

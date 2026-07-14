@@ -525,11 +525,17 @@ function visibleRunEvents(events: StoredEvent[]) {
   )
 }
 
+function isJapaneseLearningWorkflowText(value: string) {
+  const text = value.toLocaleLowerCase()
+  return /(日语|日本語|日本人|口语|口語|動画|视频|评论|コメント|japanese|spoken|expression|video|comment)/i.test(text)
+    && /(学生|学习|學習|learner|student|summary|总结|表达|表現)/i.test(text)
+}
+
 function detailBuildRequirementReadiness(requirement: string, t: Copy) {
   const text = requirement.trim()
   const normalized = text.toLocaleLowerCase()
   const signals = [
-    { id: 'audience', label: t.requirementSignalAudience, detail: t.requirementSignalAudienceHint, ready: /(客户|用户|负责人|顾问|运营|审阅|customer|user|owner|operator|consultant|reviewer)/i.test(normalized) },
+    { id: 'audience', label: t.requirementSignalAudience, detail: t.requirementSignalAudienceHint, ready: /(客户|用户|负责人|顾问|运营|审阅|学生|学习者|customer|user|owner|operator|consultant|reviewer|learner|student)/i.test(normalized) },
     { id: 'outcome', label: t.requirementSignalOutcome, detail: t.requirementSignalOutcomeHint, ready: /(输出|生成|给出|判断|分类|摘要|清单|result|output|generate|classify|summary|checklist)/i.test(normalized) },
     { id: 'acceptance', label: t.requirementSignalAcceptance, detail: t.requirementSignalAcceptanceHint, ready: /(验收|测试|必须|覆盖|acceptance|test|must|cover|verify)/i.test(normalized) },
     { id: 'detail', label: t.requirementSignalDetail, detail: t.requirementSignalDetailHint, ready: text.length >= 80 },
@@ -1477,6 +1483,23 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
         : run?.status === 'succeeded'
           ? t.runSucceededHelp
           : t.runReadyHint
+  const japaneseLearningWorkflow = useMemo(() => {
+    const snapshot = draft?.snapshot
+    if (!snapshot) return false
+    const nodeText = snapshot.workflow.nodes.flatMap(node => [
+      node.id,
+      node.type,
+      node.title,
+      node.description,
+      JSON.stringify(node.config),
+    ])
+    return isJapaneseLearningWorkflowText([
+      snapshot.name,
+      snapshot.description,
+      snapshot.requirement,
+      ...nodeText,
+    ].join(' '))
+  }, [draft])
   const runReadinessItems = [
     {
       label: t.tryReadinessDraft,
@@ -1515,9 +1538,12 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     return runFields.map(field => {
       const value = defaultInputValue(field, testInputs)
       const source = sampleSourceKind(field, testInputs)
+      const label = japaneseLearningWorkflow && /^(topic|query|customer_request)$/i.test(field.name)
+        ? t.japaneseLearningTopicInputLabel
+        : field.label || field.name
       return {
         name: field.name,
-        label: field.label || field.name,
+        label,
         type: field.type || 'string',
         required: field.required !== false,
         preview: compactSampleValue(value),
@@ -1525,7 +1551,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
         sourceLabel: t.trySampleSource(source),
       }
     })
-  }, [draft, runFields, t])
+  }, [draft, japaneseLearningWorkflow, runFields, t])
   const trySampleRequiredCount = trySampleSummaryItems.filter(item => item.required).length
   const trySampleAcceptanceCount = trySampleSummaryItems.filter(item => item.source === 'acceptance_sample').length
   const trySampleVisibleItems = trySampleSummaryItems.slice(0, 3)
@@ -1614,16 +1640,19 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     return workflow.nodes.map((node, index) => {
       const status = statusForNode(node.id)
       const next = workflow.edges.filter(edge => edge.source === node.id).map(edge => edge.target)
+      const scenarioStep = japaneseLearningWorkflow
+        ? t.japaneseLearningProgressSteps[Math.min(index, t.japaneseLearningProgressSteps.length - 1)]
+        : null
       return {
         id: node.id,
-        title: node.title || node.id,
+        title: scenarioStep?.title || node.title || node.id,
         index: index + 1,
         type: node.type.replaceAll('_', ' '),
         status,
-        detail: next.length ? t.customerStepFlowsTo(next.join(', ')) : t.terminal,
+        detail: scenarioStep?.detail || (next.length ? t.customerStepFlowsTo(next.join(', ')) : t.terminal),
       }
     })
-  }, [draft, pendingPermission?.node_id, run, t, visibleTraceEventsForRun])
+  }, [draft, japaneseLearningWorkflow, pendingPermission?.node_id, run, t, visibleTraceEventsForRun])
   const customerCurrentStep = customerStepProgressItems.find(item => item.status === 'running' || item.status === 'waiting' || item.status === 'blocked')
     || customerStepProgressItems.find(item => item.status === 'not_started')
     || customerStepProgressItems.at(-1)
@@ -2022,6 +2051,10 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
             <div className="customer-run-metrics">{customerRunOverviewItems.map(item => <article key={item.label}><span>{item.label}</span><b>{item.value}</b><small>{item.detail}</small></article>)}</div>
             <div className="customer-run-step-preview">{customerStepProgressItems.length ? customerStepProgressItems.slice(0, 5).map(item => <article key={item.id}><span>{item.index}</span><div><strong>{item.title}</strong><small>{item.type} · {item.detail}</small></div></article>) : <p className="muted">{t.customerNoWorkflowSteps}</p>}</div>
           </section>
+          {japaneseLearningWorkflow && <section className="scenario-run-guidance" data-customer-scenario="japanese-learning">
+            <div><strong>{t.japaneseLearningScenarioTitle}</strong><small>{t.japaneseLearningScenarioHelp}</small></div>
+            <span>{t.japaneseLearningTopicInputLabel}: <b>{t.japaneseLearningSampleTopic}</b></span>
+          </section>}
           <section className="try-readiness-panel" data-try-guidance="run-readiness">
             <div className="try-readiness-head"><strong>{t.tryReadinessTitle}</strong><small>{t.tryReadinessHelp}</small></div>
             <div className="try-readiness-list">{runReadinessItems.map(item => <article className={item.ready ? 'ready' : ''} key={item.label}><span>{item.label}</span><b>{item.ready ? t.tryReady : t.tryNeedsAttention}</b><small>{item.detail}</small></article>)}</div>
@@ -2029,6 +2062,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
           </section>
           <section className="customer-start-panel" data-customer-run-interface="start-controls" ref={runControlsRef} tabIndex={-1} data-try-input-error-action-guard={tryInputErrorBlockingRun ? 'blocked' : 'ready'} data-try-input-recovery-ready={tryInputRecoveryReadyVisible ? 'restored' : 'inactive'}>
             <div className="customer-start-head"><strong>{t.customerStartTitle}</strong><small>{runFields.length ? t.customerStartHelp : t.customerStartNoInputHelp}</small></div>
+            {japaneseLearningWorkflow && <p className="scenario-topic-hint" data-japanese-learning-topic-input="expected"><b>{t.japaneseLearningTopicInputLabel}</b><span>{t.japaneseLearningTopicInputHelp}</span></p>}
             <section className="try-sample-next-action" data-try-sample-next-action={trySampleNextAction.id}><span>{t.trySampleNextAction}</span><strong>{trySampleNextAction.label}</strong><small>{trySampleNextAction.detail}</small></section>
           <section className="try-sample-summary" data-try-sample-input="summary">
             <div className="try-sample-head"><strong>{t.trySampleSummaryTitle}</strong><small>{runFields.length ? t.trySampleSummaryHelp : t.runInputsEmpty}</small></div>
@@ -2037,7 +2071,12 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
             {trySampleHiddenCount > 0 && <small className="try-sample-more">{t.trySampleMoreFields(trySampleHiddenCount)}</small>}
           </section>
           <div className="run-actions compact"><button className="wide secondary" data-try-sample-action="fill-sample" onClick={applySampleRunInputs} disabled={!runFields.length}>{t.fillRunSample}</button></div>
-          <div className="run-form" ref={runInputFormRef} tabIndex={-1}>{runFields.length ? runFields.map(field => <label className="run-field" key={field.name}><span>{field.label || field.name}<em>{t.fieldType(field.type || 'string')}</em></span>{field.type === 'boolean' ? <input type="checkbox" checked={field.checked || false} onChange={event => updateRunField(field.name, { checked: event.target.checked, value: event.target.checked ? 'true' : 'false' })} /> : field.type === 'object' || field.type === 'array' || field.type === 'file_list' ? <textarea value={field.value} onChange={event => updateRunField(field.name, { value: event.target.value })} /> : <input type={fieldInputType(field.type)} value={field.value} onChange={event => updateRunField(field.name, { value: event.target.value })} />}</label>) : <p className="muted">{t.runInputsEmpty}</p>}</div>
+          <div className="run-form" ref={runInputFormRef} tabIndex={-1}>{runFields.length ? runFields.map(field => {
+            const displayLabel = japaneseLearningWorkflow && /^(topic|query|customer_request)$/i.test(field.name)
+              ? t.japaneseLearningTopicInputLabel
+              : field.label || field.name
+            return <label className="run-field" key={field.name}><span>{displayLabel}<em>{t.fieldType(field.type || 'string')}</em></span>{field.type === 'boolean' ? <input type="checkbox" checked={field.checked || false} onChange={event => updateRunField(field.name, { checked: event.target.checked, value: event.target.checked ? 'true' : 'false' })} /> : field.type === 'object' || field.type === 'array' || field.type === 'file_list' ? <textarea value={field.value} onChange={event => updateRunField(field.name, { value: event.target.value })} /> : <input type={fieldInputType(field.type)} value={field.value} onChange={event => updateRunField(field.name, { value: event.target.value })} />}</label>
+          }) : <p className="muted">{t.runInputsEmpty}</p>}</div>
           <details className="customer-raw-details" data-customer-run-interface="raw-payload"><summary>{t.runInputPreview}</summary><pre className="trace-log" data-try-input-preview="payload" ref={runInputPreviewRef} tabIndex={-1}>{runInputPreview}</pre></details>
           {tryInputErrorVisible && <section className="try-input-error" data-try-input-error="inline" data-try-input-error-source="parser" ref={tryInputErrorRef} tabIndex={-1}><strong>{t.tryInputErrorTitle}</strong><small>{runInputParsed.error}</small><span>{t.tryInputErrorDetail}</span><button type="button" data-try-input-error-action="focus-form" onClick={() => runInputFormRef.current?.focus()}>{t.tryInputErrorFocusAction}</button></section>}
           {tryRunActive && <section className="try-run-start-guard" data-try-run-start-guard="active" data-try-run-active-status={tryRunActiveStatus}><strong>{t.tryRunActiveGuardTitle}</strong><span>{t.tryRunActiveStatus(tryRunActiveStatus)}</span><small>{t.tryRunActiveRefreshDetail}</small><small>{t.tryRunActiveStaleDetail}</small></section>}
@@ -2053,6 +2092,10 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
           </section>
           <section className="customer-result-panel" data-customer-run-interface="result-card" data-customer-result-state={customerResultState}>
             <div className="customer-result-head"><strong>{t.customerResultTitle}</strong><small>{run ? t.customerResultStatus(run.status) : t.customerResultEmpty}</small></div>
+            {japaneseLearningWorkflow && <section className="scenario-result-expectation" data-japanese-learning-result-expectation="spoken-summary">
+              <div><strong>{t.japaneseLearningResultExpectationTitle}</strong><small>{t.japaneseLearningResultExpectationHelp}</small></div>
+              <ul>{t.japaneseLearningResultChecklist.map(item => <li key={item}>{item}</li>)}</ul>
+            </section>}
             {tryResultOutputPreviewItems.length ? <div className="customer-result-list">{tryResultOutputPreviewItems.map(item => <article key={item.key}><span>{item.key}<em>{item.kind}</em></span><code>{item.preview}</code></article>)}</div> : tryResultErrorPreview ? <p className="try-result-error-preview">{tryResultErrorPreview}</p> : <p className="muted">{t.customerResultEmpty}</p>}
             {tryResultHiddenOutputCount > 0 && <small className="try-result-preview-more">{t.tryResultPreviewMore(tryResultHiddenOutputCount)}</small>}
             <div className="try-result-next-action" data-try-result-next-action={tryResultNextAction.id}><span>{t.tryResultNextAction}</span><strong>{tryResultNextAction.label}</strong><small>{tryResultNextAction.detail}</small><button type="button" data-try-result-focus-target={tryResultNextAction.target} onClick={() => focusTryResultRecoveryTarget(tryResultNextAction.target)}>{t.tryResultFocusAction}</button></div>
