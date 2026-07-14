@@ -1,6 +1,6 @@
 {
-  "version": "v0.3.54",
-  "source_stage_report": "docs/stage-reports/v0.3.53_markdown_result_renderer.md",
+  "version": "v0.3.55",
+  "source_stage_report": "docs/stage-reports/v0.3.54_acceptance_auto_repair.md",
   "policy": {
     "current_gate": "v0.3.x_current_release_gate",
     "full_historical_sweep": "diagnostic_non_gating",
@@ -12,11 +12,12 @@
       "id": "v0.3.x_current_release_gate",
       "status": "gating",
       "phase": "v0.3.x",
-      "reason": "Current product usability evolution gate from v0.3.54 through v0.3.0 plus stage-report template validation.",
+      "reason": "Current product usability evolution gate from v0.3.55 through v0.3.0 plus stage-report template validation.",
       "command": [
         ".venv/bin/python",
         "-m",
         "pytest",
+        "tests/test_v03_55_remove_japanese_learner_customer_group.py",
         "tests/test_v03_54_acceptance_auto_repair.py",
         "tests/test_v03_53_markdown_result_renderer.py",
         "tests/test_v03_52_workflow_edit_transform_and_node_click_repair.py",
@@ -77,6 +78,7 @@
         "-q"
       ],
       "test_files": [
+        "tests/test_v03_55_remove_japanese_learner_customer_group.py",
         "tests/test_v03_54_acceptance_auto_repair.py",
         "tests/test_v03_53_markdown_result_renderer.py",
         "tests/test_v03_52_workflow_edit_transform_and_node_click_repair.py",
@@ -136,7 +138,7 @@
         "tests/test_stage_report_template_validation.py"
       ],
       "expected": {
-        "pass_count": 315,
+        "pass_count": 319,
         "warning_count": 1
       }
     },

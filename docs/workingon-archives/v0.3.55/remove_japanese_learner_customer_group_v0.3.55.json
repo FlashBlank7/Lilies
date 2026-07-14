@@ -1,0 +1,126 @@
+{
+  "version": "v0.3.55",
+  "stage": "remove_japanese_learner_customer_group",
+  "status": "passed",
+  "bug_ledger": [
+    {
+      "id": "P1-japanese-learner-should-not-be-customer-persona",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "The homepage customer group list and requirement examples still included Japanese learner / 日语学习者.",
+      "fix": "Remove the Japanese learner persona and japanese_language_student example from bilingual customer intake copy.",
+      "verification": "customer_group_removal_checks."
+    },
+    {
+      "id": "P1-archived-japanese-tests-conflict-with-current-persona-decision",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "v0.3.49 tests required the removed Japanese learner customer example to remain visible.",
+      "fix": "Update the v0.3.49 compatibility check to treat the customer persona as superseded while preserving explicit workflow support.",
+      "verification": "v0349_supersession_checks."
+    }
+  ],
+  "checks": [
+    {
+      "id": "p0_p1_bug_ledger_remove_japanese_learner_customer_group",
+      "passed": true,
+      "bug_count": 2,
+      "blocking_bug_count": 0,
+      "bugs": [
+        {
+          "id": "P1-japanese-learner-should-not-be-customer-persona",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "The homepage customer group list and requirement examples still included Japanese learner / 日语学习者.",
+          "fix": "Remove the Japanese learner persona and japanese_language_student example from bilingual customer intake copy.",
+          "verification": "customer_group_removal_checks."
+        },
+        {
+          "id": "P1-archived-japanese-tests-conflict-with-current-persona-decision",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "v0.3.49 tests required the removed Japanese learner customer example to remain visible.",
+          "fix": "Update the v0.3.49 compatibility check to treat the customer persona as superseded while preserving explicit workflow support.",
+          "verification": "v0349_supersession_checks."
+        }
+      ]
+    },
+    {
+      "id": "customer_group_removal_checks",
+      "path": "platform/frontend/lib/i18n.ts",
+      "passed": true,
+      "cases": {
+        "zh_customer_scenarios_do_not_include_japanese_learner": true,
+        "en_customer_scenarios_do_not_include_japanese_learner": true,
+        "zh_customer_examples_do_not_include_japanese_student": true,
+        "en_customer_examples_do_not_include_japanese_student": true,
+        "core_customer_groups_remain": true
+      }
+    },
+    {
+      "id": "explicit_japanese_workflow_support_preserved_checks",
+      "passed": true,
+      "cases": {
+        "typed_requirement_detector_remains": true,
+        "safe_draft_seed_remains_for_explicit_requirement": true,
+        "run_guidance_remains_for_existing_workflows": true,
+        "scenario_copy_remains_outside_customer_groups": true
+      }
+    },
+    {
+      "id": "v0349_supersession_checks",
+      "passed": true,
+      "cases": {
+        "v0349_fixture_checks_removal": true,
+        "v0349_fixture_checks_example_id_removed": true,
+        "v0349_tests_expect_removal": true,
+        "old_presence_assertion_removed": true
+      }
+    },
+    {
+      "id": "regression_manifest_check",
+      "path": "docs/testing/regression_lanes.json",
+      "passed": true,
+      "cases": {
+        "manifest_version_is_v0355": true,
+        "source_stage_report_is_v0354": true,
+        "v0355_test_in_command": true,
+        "v0355_test_in_test_files": true,
+        "pass_count_not_less_than_v0355_floor": true
+      },
+      "pass_count": 319
+    },
+    {
+      "id": "safety_no_runtime_mutation",
+      "passed": true,
+      "called_endpoints": [],
+      "model_call_used": false
+    }
+  ],
+  "summary": {
+    "failed_check_count": 0,
+    "open_p0_p1_bug_count": 0,
+    "customer_group_removal": {
+      "id": "customer_group_removal_checks",
+      "path": "platform/frontend/lib/i18n.ts",
+      "passed": true,
+      "cases": {
+        "zh_customer_scenarios_do_not_include_japanese_learner": true,
+        "en_customer_scenarios_do_not_include_japanese_learner": true,
+        "zh_customer_examples_do_not_include_japanese_student": true,
+        "en_customer_examples_do_not_include_japanese_student": true,
+        "core_customer_groups_remain": true
+      }
+    },
+    "explicit_support_preserved": {
+      "id": "explicit_japanese_workflow_support_preserved_checks",
+      "passed": true,
+      "cases": {
+        "typed_requirement_detector_remains": true,
+        "safe_draft_seed_remains_for_explicit_requirement": true,
+        "run_guidance_remains_for_existing_workflows": true,
+        "scenario_copy_remains_outside_customer_groups": true
+      }
+    }
+  }
+}

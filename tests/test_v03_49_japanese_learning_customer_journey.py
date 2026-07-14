@@ -24,12 +24,13 @@ def test_v03_49_source_and_manifest_markers_pass() -> None:
     assert all(check["passed"] for check in module.source_marker_checks())
 
 
-def test_v03_49_intake_exposes_japanese_learner_customer_example() -> None:
+def test_v03_49_intake_no_longer_exposes_japanese_learner_customer_example() -> None:
     module = load_audit_module()
     fixture = module.japanese_learning_intake_fixture()
     assert fixture["passed"] is True
-    assert fixture["cases"]["homepage_has_japanese_learner_role"] is True
-    assert fixture["cases"]["acceptance_requires_learner_readable_summary"] is True
+    assert fixture["cases"]["homepage_removed_japanese_learner_role"] is True
+    assert fixture["cases"]["customer_examples_removed_japanese_language_student"] is True
+    assert fixture["cases"]["scenario_specific_runtime_support_is_not_customer_intake"] is True
 
 
 def test_v03_49_safe_draft_is_scenario_specific() -> None:

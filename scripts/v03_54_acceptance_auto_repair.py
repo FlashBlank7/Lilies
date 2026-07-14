@@ -61,6 +61,18 @@ def read_text(relative_path: str) -> str:
     return (ROOT / relative_path).read_text(encoding="utf-8")
 
 
+def version_at_least(version: str, floor: str) -> bool:
+    def parts(value: str) -> tuple[int, int, int]:
+        cleaned = value.removeprefix("v")
+        major, minor, patch = cleaned.split(".")
+        return int(major), int(minor), int(patch)
+
+    try:
+        return parts(version) >= parts(floor)
+    except (AttributeError, ValueError):
+        return False
+
+
 def bug_ledger_evidence() -> dict[str, Any]:
     blocking = [
         item
@@ -152,8 +164,8 @@ def regression_manifest_check() -> dict[str, Any]:
     test_files = set(current_lane.get("test_files", []))
     pass_count = current_lane.get("expected", {}).get("pass_count", 0)
     cases = {
-        "manifest_version_is_v0354": manifest.get("version") == "v0.3.54",
-        "source_stage_report_is_v0353": manifest.get("source_stage_report") == "docs/stage-reports/v0.3.53_markdown_result_renderer.md",
+        "manifest_version_is_v0354_or_later": version_at_least(str(manifest.get("version", "")), "v0.3.54"),
+        "source_stage_report_is_recorded": bool(manifest.get("source_stage_report")),
         "v0354_test_in_command": "tests/test_v03_54_acceptance_auto_repair.py" in command,
         "v0354_test_in_test_files": "tests/test_v03_54_acceptance_auto_repair.py" in test_files,
         "pass_count_not_less_than_v0354_floor": isinstance(pass_count, int) and pass_count >= 315,

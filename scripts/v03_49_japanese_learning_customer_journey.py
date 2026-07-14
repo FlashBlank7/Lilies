@@ -30,13 +30,23 @@ def read_text(relative_path: str) -> str:
     return (ROOT / relative_path).read_text(encoding="utf-8")
 
 
+def section_between(text: str, start_marker: str, end_marker: str) -> str:
+    start = text.index(start_marker)
+    end = text.index(end_marker, start)
+    return text[start:end]
+
+
 def japanese_learning_intake_fixture() -> dict[str, Any]:
+    text = read_text("platform/frontend/lib/i18n.ts")
+    zh_scenarios = section_between(text, "customerScenarios: [", "customerIntakeTitle: '客户需求样例'")
+    zh_examples = section_between(text, "customerExamples: [", "patchPreviewTitle: '自然语言工作流编辑'")
+    en_scenarios = section_between(text, "customerScenarios: [", "customerIntakeTitle: 'Customer requirement examples'")
+    en_examples = section_between(text, "customerExamples: [", "patchPreviewTitle: 'Natural-language workflow edit'")
     cases = {
-        "homepage_has_japanese_learner_role": True,
-        "example_requirement_mentions_topic_input": True,
-        "example_requirement_mentions_public_video_comments": True,
-        "example_requirement_mentions_spoken_expression_extraction": True,
-        "acceptance_requires_learner_readable_summary": True,
+        "homepage_removed_japanese_learner_role": "日语学习者" not in zh_scenarios and "Japanese learner" not in en_scenarios,
+        "customer_examples_removed_japanese_language_student": "japanese_language_student" not in zh_examples and "japanese_language_student" not in en_examples,
+        "customer_examples_keep_business_roles": all(marker in text for marker in ("business_owner", "implementation_consultant", "operator", "technical_reviewer")),
+        "scenario_specific_runtime_support_is_not_customer_intake": "japaneseLearningScenarioTitle" in text and "seedJapaneseLearningDraftSkeleton" in read_text("platform/frontend/app/page.tsx"),
     }
     return {"id": "japanese_learning_intake_fixture", "passed": all(cases.values()), "cases": cases}
 
@@ -128,12 +138,10 @@ def source_marker_checks() -> list[dict[str, Any]]:
             "japanese_learning_i18n_markers",
             "platform/frontend/lib/i18n.ts",
             (
-                "日语学习者",
-                "今日日语口语总结",
-                "真实口语表达、含义、例句、语气和学习提醒",
-                "Japanese learner",
-                "Daily spoken Japanese summary",
-                "Real spoken expressions, meanings, examples, tone notes, and learning reminders",
+                "japaneseLearningScenarioTitle",
+                "japaneseLearningScenarioHelp",
+                "japaneseLearningControlledFixtureTitle",
+                "japaneseLearningControlledFixtureHelp",
                 "japaneseLearningResultChecklist",
             ),
         ),
