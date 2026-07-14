@@ -9,6 +9,7 @@ import {
   MiniMap,
   Position,
   ReactFlow,
+  SelectionMode,
   addEdge,
   type Connection,
   type Edge,
@@ -615,6 +616,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     expires_at: localDateTimeInDays(30),
   })
   const [patchInstruction, setPatchInstruction] = useState('')
+  const [workflowEditReferenceIds, setWorkflowEditReferenceIds] = useState<string[]>([])
   const [patchPreview, setPatchPreview] = useState<DraftPatchPreview | null>(null)
   const [patchPreviewLoading, setPatchPreviewLoading] = useState(false)
   const [patchApplyLoading, setPatchApplyLoading] = useState(false)
@@ -1129,6 +1131,19 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     setSelectedWorkflowEdge(edge)
   }
 
+  function addWorkflowEditReference(nodeId: string) {
+    setWorkflowEditReferenceIds(current => current.includes(nodeId) ? current : [...current, nodeId])
+  }
+
+  function removeWorkflowEditReference(nodeId: string) {
+    setWorkflowEditReferenceIds(current => current.filter(item => item !== nodeId))
+  }
+
+  function setWorkflowEditReferencesFromSelection(selectedNodes: StudioNode[]) {
+    const ids = selectedNodes.map(node => node.id)
+    if (ids.length) setWorkflowEditReferenceIds(ids)
+  }
+
   async function saveConfig() {
     if (!selected) return
     try {
@@ -1149,7 +1164,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     try {
       const result = await api<DraftPatchPreview>(`/api/v1/applications/${id}/draft/preview-patch`, {
         method: 'POST',
-        body: JSON.stringify({ instruction }),
+        body: JSON.stringify({ instruction, reference_node_ids: workflowEditReferenceIds }),
       })
       setPatchPreview(result)
       setNotice(result.supported ? t.patchPreviewReady : t.patchPreviewUnsupported)
@@ -1818,6 +1833,24 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
       return `${node.id}: ${node.type}${detail} → ${next}`
     })
   }, [draft, t.terminal, t.unboundTool])
+  const workflowEditReferenceNodes = useMemo(() => {
+    const workflow = draft?.snapshot.workflow
+    if (!workflow) return []
+    const byId = new Map(workflow.nodes.map(node => [node.id, node]))
+    return workflowEditReferenceIds.map(nodeId => byId.get(nodeId)).filter(Boolean) as WorkflowNode[]
+  }, [draft, workflowEditReferenceIds])
+  const workflowStepSummaryItems = useMemo(() => {
+    const workflow = draft?.snapshot.workflow
+    if (!workflow) return []
+    return workflow.nodes.map((node, index) => {
+      const next = workflow.edges.filter(edge => edge.source === node.id).map(edge => edge.target)
+      return {
+        id: node.id,
+        title: `${index + 1}. ${node.title || node.id}`,
+        detail: `${node.type.replaceAll('_', ' ')}${next.length ? ` -> ${next.join(', ')}` : ` -> ${t.terminal}`}`,
+      }
+    })
+  }, [draft, t.terminal])
   const selectedConfigKeys = selected ? Object.keys(selected.config || {}) : []
   const selectedNodeSummary = selected ? [
     { label: t.nodeInspectorRole, value: selected.type, detail: selected.description || t.nodeInspectorNoDescription },
@@ -1878,15 +1911,20 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
           <div className="event-log">{events.map((event, index) => <div key={index}><span>{event.type}</span><pre>{JSON.stringify(event.data, null, 2)}</pre></div>)}</div>
         </div>}
         {tab === 'edit' && <div className="panel-body">
-          <div className="panel-kicker">{t.nodeInspector}</div><h2>{selected?.title || t.selectBrick}</h2>
-          <section className="node-inspector-guide" data-node-inspector={selected ? 'selection-summary' : selectedEdge ? 'edge-summary' : 'empty-selection'}>
-            <div className="node-inspector-guide-head"><strong>{selected ? t.nodeInspectorSummaryTitle : selectedEdge ? t.nodeInspectorEdgeTitle : t.nodeInspectorNoSelectionTitle}</strong><small>{selected ? t.nodeInspectorSummaryHelp : selectedEdge ? t.nodeInspectorEdgeHelp : t.nodeInspectorNoSelectionHelp}</small></div>
-            {selected && <div className="node-summary-grid">{selectedNodeSummary.map(item => <article key={item.label}><span>{item.label}</span><b>{item.value}</b><small>{item.detail}</small></article>)}</div>}
-            {selectedEdge && <div className="edge-summary"><code>{selectedEdge.source} → {selectedEdge.target}</code>{selectedEdge.label && <span>{selectedEdge.label}</span>}</div>}
+          <div className="panel-kicker">{t.workflowEditKicker}</div><h2>{t.patchPreviewTitle}</h2>
+          <section className="workflow-readable-summary" data-workflow-readable-summary="natural-language">
+            <div className="workflow-readable-head"><strong>{t.workflowReadableTitle}</strong><small>{t.workflowReadableHelp}</small></div>
+            <p><b>{t.workflowReadablePurpose}</b>{draft?.snapshot.requirement || draft?.snapshot.description || t.fallbackDescription}</p>
+            <div className="workflow-readable-steps">{workflowStepSummaryItems.length ? workflowStepSummaryItems.map(item => <article key={item.id}><strong>{item.title}</strong><small>{item.detail}</small></article>) : <p className="muted">{t.nodeInspectorNoConfig}</p>}</div>
           </section>
-          <section className="patch-panel">
+          <section className="workflow-edit-dialog" data-workflow-edit-dialog="whole-workflow" data-workflow-edit-reference-count={workflowEditReferenceIds.length}>
             <div className="patch-panel-head"><strong>{t.patchPreviewTitle}</strong><small>{t.patchPreviewHelp}</small></div>
-            <textarea className="patch-input" value={patchInstruction} placeholder={t.patchPreviewPlaceholder} onChange={event => setPatchInstruction(event.target.value)} />
+            <div className="workflow-edit-references" data-workflow-edit-references={workflowEditReferenceIds.length ? 'present' : 'empty'}>
+              <div><strong>{t.workflowEditReferenceTitle}</strong><small>{t.workflowEditReferenceHelp}</small></div>
+              {workflowEditReferenceNodes.length ? <div className="workflow-edit-reference-list">{workflowEditReferenceNodes.map(node => <button type="button" key={node.id} data-workflow-edit-reference-node={node.id} onClick={() => removeWorkflowEditReference(node.id)}>{node.title || node.id}<span>{node.type}</span></button>)}</div> : <p className="muted">{t.workflowEditReferenceEmpty}</p>}
+              {workflowEditReferenceIds.length > 0 && <button type="button" className="ghost" data-workflow-edit-reference-action="clear" onClick={() => setWorkflowEditReferenceIds([])}>{t.workflowEditReferenceClear}</button>}
+            </div>
+            <textarea className="patch-input" data-workflow-edit-input="instruction" value={patchInstruction} placeholder={t.patchPreviewPlaceholder} onChange={event => setPatchInstruction(event.target.value)} />
             <div className="run-actions"><button className="wide" onClick={previewDraftPatch} disabled={patchPreviewLoading}>{patchPreviewLoading ? t.patchPreviewing : t.patchPreviewButton}</button><button className="wide secondary" onClick={applyDraftPatch} disabled={!patchPreview?.supported || patchPreview.operations.length === 0 || patchApplyLoading}>{patchApplyLoading ? t.patchApplying : t.patchApplyButton}</button></div>
             {patchPreview && <div className={`patch-result ${patchPreview.supported ? 'supported' : 'unsupported'}`}>
               <div><b>{patchPreview.intent.replaceAll('_', ' ')}</b><span>{patchPreview.supported ? t.patchSupported : t.patchUnsupported}</span></div>
@@ -1895,6 +1933,12 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
               {patchPreview.warnings.length > 0 && <ul>{patchPreview.warnings.map(item => <li key={item}>{item}</li>)}</ul>}
               {patchPreview.operations.length > 0 && <details open><summary>{t.patchOperations}</summary><pre>{JSON.stringify(patchPreview.operations, null, 2)}</pre></details>}
             </div>}
+          </section>
+          <h3>{t.nodeInspector}</h3>
+          <section className="node-inspector-guide" data-node-inspector={selected ? 'selection-summary' : selectedEdge ? 'edge-summary' : 'empty-selection'}>
+            <div className="node-inspector-guide-head"><strong>{selected ? t.nodeInspectorSummaryTitle : selectedEdge ? t.nodeInspectorEdgeTitle : t.nodeInspectorNoSelectionTitle}</strong><small>{selected ? t.nodeInspectorSummaryHelp : selectedEdge ? t.nodeInspectorEdgeHelp : t.nodeInspectorNoSelectionHelp}</small></div>
+            {selected && <><div className="node-summary-grid">{selectedNodeSummary.map(item => <article key={item.label}><span>{item.label}</span><b>{item.value}</b><small>{item.detail}</small></article>)}</div><button type="button" className="ghost" data-workflow-edit-reference-action="add-selected" onClick={() => addWorkflowEditReference(selected.id)}>{t.workflowEditReferenceAddSelected}</button></>}
+            {selectedEdge && <div className="edge-summary"><code>{selectedEdge.source} → {selectedEdge.target}</code>{selectedEdge.label && <span>{selectedEdge.label}</span>}</div>}
           </section>
           {selected ? <><section className="safe-edit-guide" data-node-inspector="safe-edit-guide"><strong>{t.nodeInspectorSafeEditTitle}</strong><span>{t.nodeInspectorSafeEditHelp}</span></section><label>{t.configLabel}</label><textarea className="json-editor" value={configText} onChange={event => setConfigText(event.target.value)} /><button className="wide" onClick={saveConfig}>{t.saveConfig}</button><button className="danger-link" onClick={deleteSelectedNode}>{t.deleteNode}</button></> : <p className="muted">{selectedEdge ? t.edgeSelectedHint : t.nodeHelp}</p>}
         </div>}
@@ -2253,7 +2297,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
             </button>)}</div>
           </section>
         </div>
-        <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} deleteKeyCode={['Backspace', 'Delete']} onInit={instance => { flowRef.current = instance; scheduleFitView(nodes) }} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onNodesDelete={deleted => { void persistDeletedNodes(deleted as StudioNode[]) }} onEdgesDelete={deleted => { void persistDeletedEdges(deleted) }} onNodeClick={(_, node) => chooseNode(node)} onEdgeClick={(_, edge) => chooseEdge(edge)} onPaneClick={() => setSelectedNode(null)} onNodeDragStop={(_, node) => mutation('update_node', { node_id: node.id, changes: { position: node.position } })} fitView fitViewOptions={{ padding: 0.22 }} colorMode="dark">
+        <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} deleteKeyCode={['Backspace', 'Delete']} onInit={instance => { flowRef.current = instance; scheduleFitView(nodes) }} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onNodesDelete={deleted => { void persistDeletedNodes(deleted as StudioNode[]) }} onEdgesDelete={deleted => { void persistDeletedEdges(deleted) }} onNodeClick={(_, node) => chooseNode(node)} onNodeContextMenu={(event, node) => { event.preventDefault(); addWorkflowEditReference(node.id); chooseNode(node); setNotice(t.workflowEditReferenceAdded(node.data.title || node.id)) }} onSelectionChange={({ nodes: selectedNodes }) => setWorkflowEditReferencesFromSelection(selectedNodes as StudioNode[])} onEdgeClick={(_, edge) => chooseEdge(edge)} onPaneClick={() => setSelectedNode(null)} onNodeDragStop={(_, node) => mutation('update_node', { node_id: node.id, changes: { position: node.position } })} selectionOnDrag selectionMode={SelectionMode.Partial} fitView fitViewOptions={{ padding: 0.22 }} colorMode="dark">
           <Background color="#283142" gap={24} size={1}/><MiniMap pannable zoomable nodeColor={node => accents[(node.data as { blockType?: string } | undefined)?.blockType || ''] || '#64748b'}/><Controls/>
         </ReactFlow>
         {notice && <button className="toast" onClick={() => setNotice('')}>{notice}</button>}

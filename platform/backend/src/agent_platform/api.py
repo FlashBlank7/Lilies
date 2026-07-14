@@ -1485,7 +1485,10 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         try:
             draft = await services.workflow_store.get_draft(application_id)
             response = services.draft_patcher.preview(
-                draft["snapshot"], int(draft["revision"]), body.instruction
+                draft["snapshot"],
+                int(draft["revision"]),
+                body.instruction,
+                body.reference_node_ids,
             )
             await services.harness.finish_task(
                 task_id,

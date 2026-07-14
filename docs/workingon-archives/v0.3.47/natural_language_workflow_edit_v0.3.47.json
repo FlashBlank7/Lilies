@@ -1,0 +1,440 @@
+{
+  "version": "v0.3.47",
+  "stage": "natural_language_workflow_edit",
+  "status": "passed",
+  "live_checks_enabled": true,
+  "safety": {
+    "forbidden_endpoint_called": false,
+    "called_endpoints": [
+      "GET /health"
+    ],
+    "model_call_used": false
+  },
+  "bug_ledger": [
+    {
+      "id": "P1-workflow-edit-name-misframes-product",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "The UI called the feature natural-language draft edit, implying a narrow patch tool instead of a workflow-level editor.",
+      "fix": "Rename the customer-facing surface to natural-language workflow editing in zh/en copy.",
+      "verification": "workflow_edit_surface_fixture."
+    },
+    {
+      "id": "P1-per-brick-editing-hides-whole-workflow-intent",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Users had to think in selected bricks, not whole-workflow changes.",
+      "fix": "Add a whole-workflow dialog, readable workflow summary, and workflow-level preview intents.",
+      "verification": "workflow_level_preview_fixture."
+    },
+    {
+      "id": "P1-reference-context-missing",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Users could not point at relevant bricks as context for a natural-language edit.",
+      "fix": "Add right-click and canvas selection reference capture; references are sent as context only.",
+      "verification": "workflow_reference_context_fixture."
+    },
+    {
+      "id": "P1-v0347-tests-must-enter-release-gate",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "The product could regress to the old unsupported-instruction preview if v0.3.47 was omitted from the current release gate.",
+      "fix": "Update manifest with v0.3.47 and expected gate growth.",
+      "verification": "regression_manifest_updated."
+    }
+  ],
+  "checks": [
+    {
+      "id": "p0_p1_bug_ledger_natural_language_workflow_edit",
+      "passed": true,
+      "bug_count": 4,
+      "blocking_bug_count": 0,
+      "bugs": [
+        {
+          "id": "P1-workflow-edit-name-misframes-product",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "The UI called the feature natural-language draft edit, implying a narrow patch tool instead of a workflow-level editor.",
+          "fix": "Rename the customer-facing surface to natural-language workflow editing in zh/en copy.",
+          "verification": "workflow_edit_surface_fixture."
+        },
+        {
+          "id": "P1-per-brick-editing-hides-whole-workflow-intent",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Users had to think in selected bricks, not whole-workflow changes.",
+          "fix": "Add a whole-workflow dialog, readable workflow summary, and workflow-level preview intents.",
+          "verification": "workflow_level_preview_fixture."
+        },
+        {
+          "id": "P1-reference-context-missing",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Users could not point at relevant bricks as context for a natural-language edit.",
+          "fix": "Add right-click and canvas selection reference capture; references are sent as context only.",
+          "verification": "workflow_reference_context_fixture."
+        },
+        {
+          "id": "P1-v0347-tests-must-enter-release-gate",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "The product could regress to the old unsupported-instruction preview if v0.3.47 was omitted from the current release gate.",
+          "fix": "Update manifest with v0.3.47 and expected gate growth.",
+          "verification": "regression_manifest_updated."
+        }
+      ]
+    },
+    {
+      "id": "workflow_edit_surface_fixture",
+      "passed": true,
+      "cases": {
+        "feature_name_is_workflow_editing": true,
+        "edit_dialog_is_whole_workflow": true,
+        "readable_summary_exists_before_json": true,
+        "copy_removes_draft_edit_framing": true,
+        "customer_can_understand_steps_without_opening_bricks": true
+      }
+    },
+    {
+      "id": "workflow_reference_context_fixture",
+      "passed": true,
+      "cases": {
+        "right_click_adds_reference_context": true,
+        "canvas_selection_updates_reference_context": true,
+        "references_are_sent_to_preview_api": true,
+        "references_do_not_limit_edit_scope": true,
+        "chips_can_be_removed_or_cleared": true
+      }
+    },
+    {
+      "id": "workflow_level_preview_fixture",
+      "passed": true,
+      "cases": {
+        "whole_workflow_update_supported": true,
+        "whole_workflow_update_uses_metadata_operation": true,
+        "reference_ids_are_validated": true,
+        "reference_warning_keeps_whole_workflow_scope": true,
+        "start_input_update_supported": true,
+        "start_input_update_targets_start_node": true,
+        "legacy_node_rename_still_supported": true,
+        "unsupported_message_is_workflow_scoped": true
+      },
+      "workflow_update": {
+        "supported": true,
+        "intent": "update_workflow_requirement",
+        "message": "Preview whole-workflow requirement update from this natural-language edit.",
+        "operations": [
+          {
+            "expected_revision": 3,
+            "op": "set_metadata",
+            "data": {
+              "requirement": "Update this workflow to collect public video comments, extract real Japanese spoken expressions, and return a daily summary",
+              "description": "Update this workflow to collect public video comments, extract real Japanese spoken expressions, and return a daily summary"
+            }
+          }
+        ],
+        "warnings": [
+          "This deterministic preview records the workflow-level edit request; run the builder team for architecture-wide regeneration.",
+          "Referenced bricks are context only; workflow edit scope remains whole-workflow."
+        ],
+        "reference_node_ids": [
+          "start",
+          "collect"
+        ]
+      },
+      "input_update": {
+        "supported": true,
+        "intent": "update_start_inputs",
+        "message": "Preview add workflow input topic.",
+        "operations": [
+          {
+            "expected_revision": 3,
+            "op": "update_node",
+            "data": {
+              "node_id": "start",
+              "changes": {
+                "config": {
+                  "inputs": [
+                    {
+                      "name": "topic",
+                      "label": "日语主题",
+                      "type": "string",
+                      "required": false
+                    }
+                  ]
+                }
+              },
+              "merge_config": true
+            }
+          }
+        ],
+        "warnings": [
+          "Referenced bricks are context only; workflow edit scope remains whole-workflow."
+        ],
+        "reference_node_ids": [
+          "start"
+        ]
+      },
+      "rename_update": {
+        "supported": true,
+        "intent": "rename_node",
+        "message": "Preview rename_node for node end.",
+        "operations": [
+          {
+            "expected_revision": 3,
+            "op": "update_node",
+            "data": {
+              "node_id": "end",
+              "changes": {
+                "title": "Daily Summary"
+              },
+              "merge_config": true
+            }
+          }
+        ],
+        "warnings": [],
+        "reference_node_ids": []
+      }
+    },
+    {
+      "id": "workflow_edit_backend_preview_markers",
+      "path": "platform/backend/src/agent_platform/draft_patch_preview.py",
+      "required_markers": [
+        "reference_node_ids: list[str]",
+        "update_workflow_metadata",
+        "update_workflow_requirement",
+        "update_start_inputs",
+        "_looks_like_workflow_scope",
+        "Referenced bricks are context only; workflow edit scope remains whole-workflow.",
+        "workflow edit preview supports workflow name"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "workflow_edit_api_reference_markers",
+      "path": "platform/backend/src/agent_platform/api.py",
+      "required_markers": [
+        "body.reference_node_ids",
+        "kind=\"draft_patch_preview\""
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "workflow_edit_frontend_surface_markers",
+      "path": "platform/frontend/app/applications/[id]/page.tsx",
+      "required_markers": [
+        "data-workflow-edit-dialog=\"whole-workflow\"",
+        "data-workflow-readable-summary=\"natural-language\"",
+        "workflowStepSummaryItems",
+        "workflowEditReferenceIds",
+        "reference_node_ids: workflowEditReferenceIds",
+        "data-workflow-edit-input=\"instruction\"",
+        "onNodeContextMenu",
+        "onSelectionChange",
+        "selectionOnDrag",
+        "SelectionMode.Partial"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "workflow_edit_i18n_markers",
+      "path": "platform/frontend/lib/i18n.ts",
+      "required_markers": [
+        "自然语言工作流编辑",
+        "Natural-language workflow edit",
+        "参考积木",
+        "references are context, not an edit boundary",
+        "只是上下文，不限制修改范围"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "workflow_edit_style_markers",
+      "path": "platform/frontend/app/globals.css",
+      "required_markers": [
+        ".workflow-readable-summary",
+        ".workflow-edit-dialog",
+        ".workflow-edit-reference-list",
+        "[data-workflow-edit-reference-action=\"add-selected\"]"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "regression_manifest_updated",
+      "path": "docs/testing/regression_lanes.json",
+      "passed": true,
+      "cases": {
+        "current_gate_present": true,
+        "v0347_test_in_test_files": true,
+        "v0347_test_in_command": true,
+        "pass_count_not_less_than_v0347_floor": true
+      },
+      "pass_count": 263
+    },
+    {
+      "id": "runtime_health_read_only",
+      "url": "http://127.0.0.1:8001/health",
+      "passed": true,
+      "status_code": 200,
+      "runtime": {
+        "version": "v0.3.6",
+        "product_phase": "v0.3.x",
+        "git": {
+          "commit": "8a727cf",
+          "branch": "usabilityEnhence",
+          "tracked_dirty": false,
+          "untracked_present": true
+        },
+        "route_availability": {
+          "health": true,
+          "applications_list": true,
+          "applications_create": true,
+          "application_detail": true,
+          "draft_detail": true,
+          "smoke_cleanup": true
+        },
+        "current_code_ready": true
+      }
+    },
+    {
+      "id": "safety_no_forbidden_workflow_edit_call",
+      "passed": true,
+      "called_endpoints": [
+        "GET /health"
+      ],
+      "forbidden_endpoint_fragments": [
+        "/builds",
+        "/tests/run",
+        "/runs",
+        "/versions",
+        "/restore",
+        "/draft",
+        "/cancel"
+      ],
+      "model_call_used": false
+    }
+  ],
+  "summary": {
+    "failed_check_count": 0,
+    "open_p0_p1_bug_count": 0,
+    "forbidden_endpoint_called": false,
+    "workflow_edit_surface": {
+      "id": "workflow_edit_surface_fixture",
+      "passed": true,
+      "cases": {
+        "feature_name_is_workflow_editing": true,
+        "edit_dialog_is_whole_workflow": true,
+        "readable_summary_exists_before_json": true,
+        "copy_removes_draft_edit_framing": true,
+        "customer_can_understand_steps_without_opening_bricks": true
+      }
+    },
+    "workflow_reference_context": {
+      "id": "workflow_reference_context_fixture",
+      "passed": true,
+      "cases": {
+        "right_click_adds_reference_context": true,
+        "canvas_selection_updates_reference_context": true,
+        "references_are_sent_to_preview_api": true,
+        "references_do_not_limit_edit_scope": true,
+        "chips_can_be_removed_or_cleared": true
+      }
+    },
+    "workflow_level_preview": {
+      "id": "workflow_level_preview_fixture",
+      "passed": true,
+      "cases": {
+        "whole_workflow_update_supported": true,
+        "whole_workflow_update_uses_metadata_operation": true,
+        "reference_ids_are_validated": true,
+        "reference_warning_keeps_whole_workflow_scope": true,
+        "start_input_update_supported": true,
+        "start_input_update_targets_start_node": true,
+        "legacy_node_rename_still_supported": true,
+        "unsupported_message_is_workflow_scoped": true
+      },
+      "workflow_update": {
+        "supported": true,
+        "intent": "update_workflow_requirement",
+        "message": "Preview whole-workflow requirement update from this natural-language edit.",
+        "operations": [
+          {
+            "expected_revision": 3,
+            "op": "set_metadata",
+            "data": {
+              "requirement": "Update this workflow to collect public video comments, extract real Japanese spoken expressions, and return a daily summary",
+              "description": "Update this workflow to collect public video comments, extract real Japanese spoken expressions, and return a daily summary"
+            }
+          }
+        ],
+        "warnings": [
+          "This deterministic preview records the workflow-level edit request; run the builder team for architecture-wide regeneration.",
+          "Referenced bricks are context only; workflow edit scope remains whole-workflow."
+        ],
+        "reference_node_ids": [
+          "start",
+          "collect"
+        ]
+      },
+      "input_update": {
+        "supported": true,
+        "intent": "update_start_inputs",
+        "message": "Preview add workflow input topic.",
+        "operations": [
+          {
+            "expected_revision": 3,
+            "op": "update_node",
+            "data": {
+              "node_id": "start",
+              "changes": {
+                "config": {
+                  "inputs": [
+                    {
+                      "name": "topic",
+                      "label": "日语主题",
+                      "type": "string",
+                      "required": false
+                    }
+                  ]
+                }
+              },
+              "merge_config": true
+            }
+          }
+        ],
+        "warnings": [
+          "Referenced bricks are context only; workflow edit scope remains whole-workflow."
+        ],
+        "reference_node_ids": [
+          "start"
+        ]
+      },
+      "rename_update": {
+        "supported": true,
+        "intent": "rename_node",
+        "message": "Preview rename_node for node end.",
+        "operations": [
+          {
+            "expected_revision": 3,
+            "op": "update_node",
+            "data": {
+              "node_id": "end",
+              "changes": {
+                "title": "Daily Summary"
+              },
+              "merge_config": true
+            }
+          }
+        ],
+        "warnings": [],
+        "reference_node_ids": []
+      }
+    }
+  }
+}

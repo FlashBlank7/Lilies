@@ -181,10 +181,11 @@ export type DraftPatchOperation = {
 export type DraftPatchPreview = {
   task_id: string
   supported: boolean
-  intent: 'rename_node' | 'update_node_description' | 'remove_disconnected_node' | 'unsupported'
+  intent: 'rename_node' | 'update_node_description' | 'remove_disconnected_node' | 'update_workflow_metadata' | 'update_workflow_requirement' | 'update_start_inputs' | 'unsupported'
   message: string
   operations: DraftPatchOperation[]
   warnings: string[]
+  reference_node_ids?: string[]
 }
 
 export type BuilderBenchmarkHistoryRecord = {
