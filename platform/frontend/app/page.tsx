@@ -54,6 +54,39 @@ function isJapaneseLearningRequirement(requirement: string) {
     && /(学生|学习|學習|learner|student|study|summary|总结|表达|表現)/i.test(text)
 }
 
+const JAPANESE_LEARNING_COMMENT_FIXTURE_TEMPLATE = `受控样例评论线索（离线验证用，不代表已经抓取真实视频网站）
+主题：{{ topic }}
+- 评论 A：「それな、課題多すぎてしんどい」用于朋友间强烈附和。
+- 评论 B：「ワンチャン間に合う？」表示也许还有机会，语气很口语。
+- 评论 C：「普通に助かる」表示真的很有帮助，语气自然但偏随意。
+
+来源边界：这是受控样例评论集，用来验证学习总结的结果形状；接入真实公开视频评论前，不宣称外部采集已完成。`
+
+const JAPANESE_LEARNING_SUMMARY_TEMPLATE = `# 今日日语口语总结：{{ topic }}
+
+受控样例来源：离线评论夹具，用于验证结果形状；真实公开视频评论采集需要在后续版本单独接入证据。
+
+## 1. それな
+- 中文含义：对，就是这样；我懂你说的。
+- 自然例句：A「課題、今日も多すぎない？」B「それな、ちょっとしんどい。」
+- 语气/场景：朋友、同学之间强烈附和，不适合正式汇报。
+- 学习提醒：可以理解成比「そうだね」更口语、更有共鸣感。
+
+## 2. ワンチャン
+- 中文含义：也许有机会；说不定能成。
+- 自然例句：「今から図書館行けば、ワンチャン間に合うかも。」
+- 语气/场景：年轻人聊天里常见，带一点侥幸和轻松感。
+- 学习提醒：正式场合改用「可能性があります」更安全。
+
+## 3. 普通に助かる
+- 中文含义：真的挺有帮助；老实说很救命。
+- 自然例句：「ノート共有してくれるの、普通に助かる。」
+- 语气/场景：自然表达感谢，比直译的“普通地”更接近“其实很/真的”。
+- 学习提醒：这里的「普通に」不是普通程度，而是强调自然真实的评价。
+
+## 来源上下文
+{{ comment_clues }}`
+
 async function seedJapaneseLearningDraftSkeleton(applicationId: string, initialRevision: number) {
   const suffix = Date.now()
   const startId = `jp_topic_${suffix}`
@@ -73,7 +106,7 @@ async function seedJapaneseLearningDraftSkeleton(applicationId: string, initialR
     id: collectId, type: 'template_transform', block_version: 1, title: '收集公开视频评论线索',
     description: '占位步骤：围绕主题整理主流视频网站公开评论区中的真实表达线索。',
     config: {
-      template: '围绕「{{ topic }}」整理主流视频网站公开评论区中的真实日语表达线索。',
+      template: JAPANESE_LEARNING_COMMENT_FIXTURE_TEMPLATE,
       variables: { topic: { $ref: { node_id: startId, path: ['output', 'topic'] } } },
     },
     position: { x: 390, y: 160 },
@@ -83,8 +116,11 @@ async function seedJapaneseLearningDraftSkeleton(applicationId: string, initialR
     id: extractId, type: 'template_transform', block_version: 1, title: '提取真实口语表达',
     description: '占位步骤：从评论线索里提取自然说法、语气、使用场景和注意点。',
     config: {
-      template: '从「{{ topic }}」相关评论线索中提取自然口语表达、语气和使用场景。',
-      variables: { topic: { $ref: { node_id: startId, path: ['output', 'topic'] } } },
+      template: JAPANESE_LEARNING_SUMMARY_TEMPLATE,
+      variables: {
+        topic: { $ref: { node_id: startId, path: ['output', 'topic'] } },
+        comment_clues: { $ref: { node_id: collectId, path: ['text'] } },
+      },
     },
     position: { x: 680, y: 160 },
     retry: { enabled: false, max_attempts: 1, delay_seconds: 0.5 }, error_strategy: 'fail',
@@ -107,17 +143,25 @@ async function seedJapaneseLearningDraftSkeleton(applicationId: string, initialR
   }
   revision = await applyDraftOperation(applicationId, revision, 'add_test', { test: {
     id: testId,
-    name: 'Japanese learning scenario structure',
-    requirement: 'Safe draft exposes a topic input and visible steps for collecting comments, extracting spoken expressions, and producing a daily Japanese summary.',
+    name: 'Japanese learning scenario structure and summary quality',
+    requirement: 'Safe draft exposes a topic input, controlled comment fixture, spoken-expression extraction, and a learner-readable daily Japanese summary.',
     inputs: { topic: '校园生活' },
-    assertions: [],
+    assertions: [
+      { path: ['answer'], operator: 'contains', expected: '今日日语口语总结：校园生活' },
+      { path: ['answer'], operator: 'contains', expected: 'それな' },
+      { path: ['answer'], operator: 'contains', expected: '中文含义' },
+      { path: ['answer'], operator: 'contains', expected: '自然例句' },
+      { path: ['answer'], operator: 'contains', expected: '语气/场景' },
+      { path: ['answer'], operator: 'contains', expected: '学习提醒' },
+      { path: ['answer'], operator: 'contains', expected: '受控样例来源' },
+    ],
     required_node_types: ['start', 'template_transform', 'answer'],
     required_tool_nodes: [],
     required_tools: [],
     minimum_tool_calls: 0,
     mandatory: true,
-    structural_only: true,
-    feedback_hints: ['Replace placeholder transform steps with real collection/extraction tools when enabling live external-video evidence.'],
+    structural_only: false,
+    feedback_hints: ['Keep the controlled fixture boundary visible until live external-video evidence is explicitly implemented.'],
   } })
   return revision
 }

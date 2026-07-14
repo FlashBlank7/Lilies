@@ -2054,6 +2054,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
           {japaneseLearningWorkflow && <section className="scenario-run-guidance" data-customer-scenario="japanese-learning">
             <div><strong>{t.japaneseLearningScenarioTitle}</strong><small>{t.japaneseLearningScenarioHelp}</small></div>
             <span>{t.japaneseLearningTopicInputLabel}: <b>{t.japaneseLearningSampleTopic}</b></span>
+            <small className="scenario-fixture-note"><b>{t.japaneseLearningControlledFixtureTitle}</b>{t.japaneseLearningControlledFixtureHelp}</small>
           </section>}
           <section className="try-readiness-panel" data-try-guidance="run-readiness">
             <div className="try-readiness-head"><strong>{t.tryReadinessTitle}</strong><small>{t.tryReadinessHelp}</small></div>
