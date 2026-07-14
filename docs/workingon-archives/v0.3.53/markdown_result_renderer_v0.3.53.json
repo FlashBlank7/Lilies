@@ -1,0 +1,241 @@
+{
+  "version": "v0.3.53",
+  "stage": "markdown_result_renderer",
+  "status": "passed",
+  "bug_ledger": [
+    {
+      "id": "P1-try-run-result-small-unreadable-box",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Workflow try-run output was only visible through compact code/JSON boxes.",
+      "fix": "Render run outputs through a reusable MarkdownResultCard with a full-screen readable dialog.",
+      "verification": "workflow_run_integration_checks."
+    },
+    {
+      "id": "P1-markdown-rendering-not-reusable",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Markdown rendering capability did not exist as a reusable frontend module.",
+      "fix": "Add platform/frontend/lib/markdown.tsx with MarkdownDocument and MarkdownResultCard exports.",
+      "verification": "markdown_module_checks."
+    },
+    {
+      "id": "P1-user-facing-result-still-technical-first",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Customer result panel exposed field previews instead of a readable result document.",
+      "fix": "Customer final result now uses the same Markdown rendering card.",
+      "verification": "workflow_run_integration_checks."
+    },
+    {
+      "id": "P1-markdown-renderer-xss-risk",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "A Markdown renderer implemented with raw HTML injection would be unsafe for model outputs.",
+      "fix": "Render React nodes without dangerouslySetInnerHTML and restrict link hrefs.",
+      "verification": "markdown_safety_checks."
+    },
+    {
+      "id": "P1-v0353-tests-must-enter-release-gate",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "The Markdown output usability repair could regress if omitted from the current gate.",
+      "fix": "Add v0.3.53 tests to docs/testing/regression_lanes.json.",
+      "verification": "regression_manifest_check."
+    }
+  ],
+  "checks": [
+    {
+      "id": "p0_p1_bug_ledger_markdown_result_renderer",
+      "passed": true,
+      "bug_count": 5,
+      "blocking_bug_count": 0,
+      "bugs": [
+        {
+          "id": "P1-try-run-result-small-unreadable-box",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Workflow try-run output was only visible through compact code/JSON boxes.",
+          "fix": "Render run outputs through a reusable MarkdownResultCard with a full-screen readable dialog.",
+          "verification": "workflow_run_integration_checks."
+        },
+        {
+          "id": "P1-markdown-rendering-not-reusable",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Markdown rendering capability did not exist as a reusable frontend module.",
+          "fix": "Add platform/frontend/lib/markdown.tsx with MarkdownDocument and MarkdownResultCard exports.",
+          "verification": "markdown_module_checks."
+        },
+        {
+          "id": "P1-user-facing-result-still-technical-first",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Customer result panel exposed field previews instead of a readable result document.",
+          "fix": "Customer final result now uses the same Markdown rendering card.",
+          "verification": "workflow_run_integration_checks."
+        },
+        {
+          "id": "P1-markdown-renderer-xss-risk",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "A Markdown renderer implemented with raw HTML injection would be unsafe for model outputs.",
+          "fix": "Render React nodes without dangerouslySetInnerHTML and restrict link hrefs.",
+          "verification": "markdown_safety_checks."
+        },
+        {
+          "id": "P1-v0353-tests-must-enter-release-gate",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "The Markdown output usability repair could regress if omitted from the current gate.",
+          "fix": "Add v0.3.53 tests to docs/testing/regression_lanes.json.",
+          "verification": "regression_manifest_check."
+        }
+      ]
+    },
+    {
+      "id": "markdown_module_checks",
+      "path": "platform/frontend/lib/markdown.tsx",
+      "passed": true,
+      "cases": {
+        "module_exists": true,
+        "exports_reusable_document": true,
+        "exports_reusable_result_card": true,
+        "supports_block_markdown_shapes": true,
+        "supports_inline_markdown_shapes": true,
+        "has_click_open_dialog": true,
+        "has_escape_close": true,
+        "required_markers_present": true
+      },
+      "required_markers": [
+        "export function MarkdownDocument",
+        "export function MarkdownResultCard",
+        "parseMarkdownBlocks",
+        "function renderInline",
+        "function safeHref",
+        "kind: 'table'",
+        "kind: 'code'",
+        "role=\"dialog\"",
+        "Escape"
+      ]
+    },
+    {
+      "id": "markdown_safety_checks",
+      "passed": true,
+      "cases": {
+        "does_not_use_dangerously_set_inner_html": true,
+        "links_are_sanitized": true,
+        "raw_html_is_not_injected": true,
+        "code_fences_render_as_text_nodes": true
+      }
+    },
+    {
+      "id": "workflow_run_integration_checks",
+      "path": "platform/frontend/app/applications/[id]/page.tsx",
+      "passed": true,
+      "cases": {
+        "imports_markdown_card": true,
+        "converts_outputs_to_markdown": true,
+        "customer_result_uses_markdown_card": true,
+        "try_run_result_uses_markdown_card": true,
+        "raw_json_is_collapsible": true,
+        "old_primary_run_output_pre_removed": true,
+        "complex_outputs_become_json_code_blocks": true
+      }
+    },
+    {
+      "id": "frontend_copy_checks",
+      "path": "platform/frontend/lib/i18n.ts",
+      "passed": true,
+      "cases": {
+        "zh_en_key_customerResultRenderedTitle": true,
+        "zh_en_key_customerResultRenderedHelp": true,
+        "zh_en_key_markdownOpenRendered": true,
+        "zh_en_key_markdownCloseRendered": true,
+        "zh_en_key_tryResultRenderedTitle": true,
+        "zh_en_key_tryResultRenderedHelp": true,
+        "zh_en_key_tryResultRawJsonTitle": true,
+        "zh_en_key_tryResultErrorMarkdownTitle": true,
+        "preview_copy_mentions_rendered_first": true
+      }
+    },
+    {
+      "id": "frontend_style_checks",
+      "path": "platform/frontend/app/globals.css",
+      "passed": true,
+      "cases": {
+        "selector_.markdown-result-card": true,
+        "selector_.markdown-document": true,
+        "selector_.markdown-dialog-backdrop": true,
+        "selector_.markdown-dialog": true,
+        "selector_.markdown-raw-details": true,
+        "selector_.markdown-table-wrap": true,
+        "dialog_is_fixed_width_independent": true,
+        "compact_preview_has_readable_height": true
+      }
+    },
+    {
+      "id": "regression_manifest_check",
+      "path": "docs/testing/regression_lanes.json",
+      "passed": true,
+      "cases": {
+        "manifest_version_is_v0353": true,
+        "source_stage_report_is_v0352": true,
+        "v0353_test_in_command": true,
+        "v0353_test_in_test_files": true,
+        "pass_count_not_less_than_v0353_floor": true
+      },
+      "pass_count": 310
+    },
+    {
+      "id": "safety_no_live_side_effects_markdown_result_renderer",
+      "passed": true,
+      "called_endpoints": [],
+      "model_call_used": false
+    }
+  ],
+  "summary": {
+    "failed_check_count": 0,
+    "open_p0_p1_bug_count": 0,
+    "markdown_module": {
+      "id": "markdown_module_checks",
+      "path": "platform/frontend/lib/markdown.tsx",
+      "passed": true,
+      "cases": {
+        "module_exists": true,
+        "exports_reusable_document": true,
+        "exports_reusable_result_card": true,
+        "supports_block_markdown_shapes": true,
+        "supports_inline_markdown_shapes": true,
+        "has_click_open_dialog": true,
+        "has_escape_close": true,
+        "required_markers_present": true
+      },
+      "required_markers": [
+        "export function MarkdownDocument",
+        "export function MarkdownResultCard",
+        "parseMarkdownBlocks",
+        "function renderInline",
+        "function safeHref",
+        "kind: 'table'",
+        "kind: 'code'",
+        "role=\"dialog\"",
+        "Escape"
+      ]
+    },
+    "try_run_integration": {
+      "id": "workflow_run_integration_checks",
+      "path": "platform/frontend/app/applications/[id]/page.tsx",
+      "passed": true,
+      "cases": {
+        "imports_markdown_card": true,
+        "converts_outputs_to_markdown": true,
+        "customer_result_uses_markdown_card": true,
+        "try_run_result_uses_markdown_card": true,
+        "raw_json_is_collapsible": true,
+        "old_primary_run_output_pre_removed": true,
+        "complex_outputs_become_json_code_blocks": true
+      }
+    }
+  }
+}

@@ -91,19 +91,17 @@ def read_text(relative_path: str) -> str:
 
 
 def source_marker_checks() -> list[dict[str, Any]]:
+    page = read_text("platform/frontend/app/applications/[id]/page.tsx")
+    source_cases = {
+        "keeps_output_preview_items": "tryResultOutputPreviewItems" in page,
+        "keeps_error_preview": "tryResultErrorPreview" in page,
+        "keeps_error_preview_marker": "data-try-result-error-preview" in page,
+        "keeps_hidden_output_count": "tryResultPreviewMore" in page,
+        "current_preview_surface_is_markdown_or_legacy": "data-try-result-preview=\"markdown-rendered-output\"" in page or "data-try-result-preview=\"output\"" in page,
+        "markdown_result_card_integrated": "MarkdownResultCard" in page and "tryResultMarkdownSource" in page,
+    }
     checks = [
-        (
-            "try_result_output_source_markers",
-            "platform/frontend/app/applications/[id]/page.tsx",
-            (
-                "valueKind",
-                "tryResultOutputPreviewItems",
-                "tryResultErrorPreview",
-                "data-try-result-preview=\"output\"",
-                "data-try-result-error-preview",
-                "tryResultPreviewMore",
-            ),
-        ),
+        {"id": "try_result_output_source_markers", "path": "platform/frontend/app/applications/[id]/page.tsx", "required_markers": list(source_cases), "missing_markers": [key for key, passed in source_cases.items() if not passed], "passed": all(source_cases.values()), "cases": source_cases},
         (
             "try_result_output_i18n_markers",
             "platform/frontend/lib/i18n.ts",
@@ -133,7 +131,11 @@ def source_marker_checks() -> list[dict[str, Any]]:
         ),
     ]
     evidence: list[dict[str, Any]] = []
-    for check_id, relative_path, markers in checks:
+    for item in checks:
+        if isinstance(item, dict):
+            evidence.append(item)
+            continue
+        check_id, relative_path, markers = item
         text = read_text(relative_path)
         missing = [marker for marker in markers if marker not in text]
         evidence.append({"id": check_id, "path": relative_path, "required_markers": list(markers), "missing_markers": missing, "passed": not missing})

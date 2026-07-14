@@ -1,0 +1,213 @@
+{
+  "version": "v0.3.35",
+  "stage": "try_result_output_preview",
+  "status": "passed",
+  "live_checks_enabled": false,
+  "safety": {
+    "forbidden_endpoint_called": false,
+    "called_endpoints": [],
+    "model_call_used": false
+  },
+  "bug_ledger": [
+    {
+      "id": "P1-try-result-output-raw-json-first",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Successful Try results exposed raw JSON before readable output values.",
+      "fix": "Add readable top-level output preview before raw JSON.",
+      "verification": "try_result_output_preview_fixture."
+    },
+    {
+      "id": "P1-try-result-error-preview-absent",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Failed Try results did not show a short error summary before raw JSON.",
+      "fix": "Add error preview with fallback unknown-error copy.",
+      "verification": "try_result_error_preview_fixture."
+    },
+    {
+      "id": "P1-v0335-tests-must-enter-release-gate",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Try result output preview could regress if omitted from the current v0.3.x release gate.",
+      "fix": "Update manifest with v0.3.35 and expected 190 passing tests.",
+      "verification": "regression_manifest_updated."
+    }
+  ],
+  "checks": [
+    {
+      "id": "p0_p1_bug_ledger_try_result_output_preview",
+      "passed": true,
+      "bug_count": 3,
+      "blocking_bug_count": 0,
+      "bugs": [
+        {
+          "id": "P1-try-result-output-raw-json-first",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Successful Try results exposed raw JSON before readable output values.",
+          "fix": "Add readable top-level output preview before raw JSON.",
+          "verification": "try_result_output_preview_fixture."
+        },
+        {
+          "id": "P1-try-result-error-preview-absent",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Failed Try results did not show a short error summary before raw JSON.",
+          "fix": "Add error preview with fallback unknown-error copy.",
+          "verification": "try_result_error_preview_fixture."
+        },
+        {
+          "id": "P1-v0335-tests-must-enter-release-gate",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Try result output preview could regress if omitted from the current v0.3.x release gate.",
+          "fix": "Update manifest with v0.3.35 and expected 190 passing tests.",
+          "verification": "regression_manifest_updated."
+        }
+      ]
+    },
+    {
+      "id": "try_result_output_preview_fixture",
+      "passed": true,
+      "preview": {
+        "items": [
+          {
+            "key": "answer",
+            "kind": "string",
+            "preview": "Renewal risk is high because usage dropped."
+          },
+          {
+            "key": "score",
+            "kind": "number",
+            "preview": "0.91"
+          },
+          {
+            "key": "drivers",
+            "kind": "array",
+            "preview": "[\"usage_drop\", \"late_payment\"]"
+          }
+        ],
+        "hidden_count": 1,
+        "output_count": 4
+      }
+    },
+    {
+      "id": "try_result_error_preview_fixture",
+      "passed": true,
+      "cases": {
+        "explicit_error": "Tool failed because the credential expired.",
+        "unknown_failed": "unknown error",
+        "succeeded": ""
+      }
+    },
+    {
+      "id": "try_result_output_source_markers",
+      "path": "platform/frontend/app/applications/[id]/page.tsx",
+      "required_markers": [
+        "keeps_output_preview_items",
+        "keeps_error_preview",
+        "keeps_error_preview_marker",
+        "keeps_hidden_output_count",
+        "current_preview_surface_is_markdown_or_legacy",
+        "markdown_result_card_integrated"
+      ],
+      "missing_markers": [],
+      "passed": true,
+      "cases": {
+        "keeps_output_preview_items": true,
+        "keeps_error_preview": true,
+        "keeps_error_preview_marker": true,
+        "keeps_hidden_output_count": true,
+        "current_preview_surface_is_markdown_or_legacy": true,
+        "markdown_result_card_integrated": true
+      }
+    },
+    {
+      "id": "try_result_output_i18n_markers",
+      "path": "platform/frontend/lib/i18n.ts",
+      "required_markers": [
+        "tryResultPreviewTitle",
+        "tryResultErrorPreviewHelp",
+        "tryResultUnknownError",
+        "tryResultPreviewMore"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "try_result_output_style_markers",
+      "path": "platform/frontend/app/globals.css",
+      "required_markers": [
+        ".try-result-preview",
+        ".try-result-preview-list",
+        ".try-result-error-preview"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "regression_manifest_updated",
+      "path": "docs/testing/regression_lanes.json",
+      "required_markers": [
+        "tests/test_v03_35_try_result_output_preview.py",
+        "v0.3.x_current_release_gate"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "safety_no_forbidden_try_output_preview_call",
+      "passed": true,
+      "called_endpoints": [],
+      "forbidden_endpoint_fragments": [
+        "/builds",
+        "/tests/run",
+        "/runs",
+        "/versions",
+        "/restore",
+        "/draft"
+      ],
+      "model_call_used": false
+    }
+  ],
+  "summary": {
+    "failed_check_count": 0,
+    "open_p0_p1_bug_count": 0,
+    "forbidden_endpoint_called": false,
+    "try_result_output_preview": {
+      "id": "try_result_output_preview_fixture",
+      "passed": true,
+      "preview": {
+        "items": [
+          {
+            "key": "answer",
+            "kind": "string",
+            "preview": "Renewal risk is high because usage dropped."
+          },
+          {
+            "key": "score",
+            "kind": "number",
+            "preview": "0.91"
+          },
+          {
+            "key": "drivers",
+            "kind": "array",
+            "preview": "[\"usage_drop\", \"late_payment\"]"
+          }
+        ],
+        "hidden_count": 1,
+        "output_count": 4
+      }
+    },
+    "try_result_error_preview": {
+      "id": "try_result_error_preview_fixture",
+      "passed": true,
+      "cases": {
+        "explicit_error": "Tool failed because the credential expired.",
+        "unknown_failed": "unknown error",
+        "succeeded": ""
+      }
+    }
+  }
+}

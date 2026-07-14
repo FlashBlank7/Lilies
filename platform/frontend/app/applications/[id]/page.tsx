@@ -41,6 +41,7 @@ import {
   withFrontendToken,
 } from '@/lib/platform'
 import { defaultLocale, isLocale, messages, nextLocale, type Locale } from '@/lib/i18n'
+import { MarkdownResultCard } from '@/lib/markdown'
 import { classifyRuntimeStatus, runtimeCommit, runtimeVersion, type RuntimeHealth } from '@/lib/runtime-status'
 
 type StudioNode = Node<{ title: string; blockType: string; description: string; status?: string }>
@@ -480,6 +481,48 @@ function compactSampleValue(value: unknown) {
   const raw = typeof value === 'string' ? value : JSON.stringify(value)
   const text = raw === undefined || raw === '' ? '""' : raw
   return text.length > 62 ? `${text.slice(0, 59)}...` : text
+}
+
+function markdownFence(value: string, language = '') {
+  return `\`\`\`${language}\n${value.replace(/```/g, '``\\`')}\n\`\`\``
+}
+
+function markdownInlineScalar(value: unknown) {
+  if (value === null) return '`null`'
+  if (value === undefined) return '`undefined`'
+  const text = String(value)
+  return text.includes('\n') ? markdownFence(text) : text
+}
+
+function markdownValue(value: unknown): string {
+  if (typeof value === 'string') return value.trim() || '""'
+  if (typeof value === 'number' || typeof value === 'boolean' || value === null || value === undefined) return markdownInlineScalar(value)
+  if (Array.isArray(value)) {
+    if (value.length === 0) return '[]'
+    if (value.every(item => item === null || ['string', 'number', 'boolean'].includes(typeof item))) {
+      return value.map(item => `- ${String(item).replace(/\n/g, ' ')}`).join('\n')
+    }
+  }
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    const entries = Object.entries(value as Record<string, unknown>)
+    if (entries.length && entries.every(([, item]) => item === null || ['string', 'number', 'boolean'].includes(typeof item))) {
+      return entries.map(([key, item]) => `- **${key}:** ${String(item).replace(/\n/g, ' ')}`).join('\n')
+    }
+  }
+  return markdownFence(JSON.stringify(value, null, 2), 'json')
+}
+
+function workflowRunResultMarkdown(run: Run | null, t: Copy) {
+  if (!run) return ''
+  const outputs = Object.entries(run.outputs || {})
+  if (outputs.length) {
+    return outputs.map(([key, value]) => {
+      const body = markdownValue(value)
+      return outputs.length === 1 ? body : `## ${key}\n\n${body}`
+    }).join('\n\n---\n\n')
+  }
+  if (run.error) return `## ${t.tryResultErrorMarkdownTitle}\n\n${markdownValue(run.error)}`
+  return ''
 }
 
 function sampleSourceKind(field: InputField, testInputs: Record<string, unknown>) {
@@ -1752,6 +1795,8 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   })), [run])
   const tryResultHiddenOutputCount = Math.max(0, tryResultOutputCount - tryResultOutputPreviewItems.length)
   const tryResultErrorPreview = run?.error ? compactSampleValue(run.error) : run?.status === 'failed' ? t.tryResultUnknownError : ''
+  const tryResultMarkdownSource = useMemo(() => workflowRunResultMarkdown(run, t), [run, t])
+  const tryResultRawPayload = run ? JSON.stringify(tryResultOutputCount ? run.outputs : run.error || {}, null, 2) : ''
   const tryRunModeTitle = lastRunMode === 'draft' ? t.tryRunModeDraft : lastRunMode === 'published' ? t.tryRunModePublished : t.tryRunModeUnknown
   const tryRunModeDetail = lastRunMode === 'draft' ? t.tryRunModeDraftDetail : lastRunMode === 'published' ? t.tryRunModePublishedDetail : t.tryRunModeUnknownDetail
   const tryRunActive = isActiveRunStatus(run?.status)
@@ -2241,11 +2286,10 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
               <div><strong>{t.japaneseLearningResultExpectationTitle}</strong><small>{t.japaneseLearningResultExpectationHelp}</small></div>
               <ul>{t.japaneseLearningResultChecklist.map(item => <li key={item}>{item}</li>)}</ul>
             </section>}
-            {tryResultOutputPreviewItems.length ? <div className="customer-result-list">{tryResultOutputPreviewItems.map(item => <article key={item.key}><span>{item.key}<em>{item.kind}</em></span><code>{item.preview}</code></article>)}</div> : tryResultErrorPreview ? <p className="try-result-error-preview">{tryResultErrorPreview}</p> : <p className="muted">{t.customerResultEmpty}</p>}
-            {tryResultHiddenOutputCount > 0 && <small className="try-result-preview-more">{t.tryResultPreviewMore(tryResultHiddenOutputCount)}</small>}
+            {tryResultMarkdownSource ? <MarkdownResultCard className="customer-result-markdown" dataSurface="customer-run-result" source={tryResultMarkdownSource} emptyLabel={t.tryResultPreviewEmpty} title={t.customerResultRenderedTitle} description={t.customerResultRenderedHelp} openLabel={t.markdownOpenRendered} closeLabel={t.markdownCloseRendered} /> : tryResultErrorPreview ? <p className="try-result-error-preview">{tryResultErrorPreview}</p> : <p className="muted">{t.customerResultEmpty}</p>}
             <div className="try-result-next-action" data-try-result-next-action={tryResultNextAction.id}><span>{t.tryResultNextAction}</span><strong>{tryResultNextAction.label}</strong><small>{tryResultNextAction.detail}</small><button type="button" data-try-result-focus-target={tryResultNextAction.target} onClick={() => focusTryResultRecoveryTarget(tryResultNextAction.target)}>{t.tryResultFocusAction}</button></div>
           </section>
-          {run && <div className="run-result" data-run-status={run.status} ref={runResultRef} tabIndex={-1}><b>{run.status}</b>{tryRunStatusRecencyVisible && <section className="try-status-recency" data-try-status-recency="last-checked" data-try-status-recency-status={run.status}><strong>{t.tryStatusRecencyLabel}: {runStatusCheckedAt}</strong><small>{t.tryStatusRecencyDetail}</small></section>}<section className="try-run-mode" data-try-run-mode={lastRunMode}><span>{t.tryRunModeLabel}</span><strong>{tryRunModeTitle}</strong><small>{tryRunModeDetail}</small></section><section className="try-result-outcome" data-try-result-outcome="summary"><div className="try-result-head"><strong>{t.tryResultOutcomeTitle}</strong><small>{t.tryResultStatusMeaning(run.status)}</small></div><div className="try-result-list">{tryResultOutcomeItems.map(item => <article className={item.ready ? 'ready' : ''} key={item.label}><span>{item.label}</span><b>{item.ready ? t.tryReady : t.tryNeedsAttention}</b><small>{item.detail}</small></article>)}</div><div className="try-result-next-action" data-try-result-next-action={tryResultNextAction.id}><span>{t.tryResultNextAction}</span><strong>{tryResultNextAction.label}</strong><small>{tryResultNextAction.detail}</small><button type="button" data-try-result-focus-target={tryResultNextAction.target} onClick={() => focusTryResultRecoveryTarget(tryResultNextAction.target)}>{t.tryResultFocusAction}</button></div></section><section className="try-result-preview" data-try-result-preview="output" data-try-result-error-preview={tryResultErrorPreview ? 'present' : 'empty'}><div className="try-result-preview-head"><strong>{t.tryResultPreviewTitle}</strong><small>{tryResultOutputPreviewItems.length ? t.tryResultPreviewHelp : tryResultErrorPreview ? t.tryResultErrorPreviewHelp : t.tryResultPreviewEmpty}</small></div>{tryResultOutputPreviewItems.length ? <div className="try-result-preview-list">{tryResultOutputPreviewItems.map(item => <article key={item.key}><span>{item.key}<em>{item.kind}</em></span><code>{item.preview}</code></article>)}</div> : tryResultErrorPreview ? <p className="try-result-error-preview">{tryResultErrorPreview}</p> : <p className="muted">{t.tryResultPreviewEmpty}</p>}{tryResultHiddenOutputCount > 0 && <small className="try-result-preview-more">{t.tryResultPreviewMore(tryResultHiddenOutputCount)}</small>}</section><p className="run-recovery-hint" data-try-guidance="run-result-recovery">{runRecoveryHint}</p>{tryCancelConfirmVisible && <section className="try-cancel-confirm" data-try-cancel-confirm="pending" data-try-cancel-status={run.status}><strong>{t.tryCancelConfirmTitle}</strong><small>{t.tryCancelConfirmDetail}</small><div><button type="button" className="danger-link" data-try-cancel-confirm-action="stop" onClick={cancelRun}>{t.tryCancelConfirmStopAction}</button><button type="button" className="wide secondary" data-try-cancel-confirm-action="keep-waiting" onClick={() => setCancelConfirmRunId(null)}>{t.tryCancelConfirmKeepAction}</button></div></section>}{tryCancelProgressVisible && <section className="try-cancel-progress" data-try-cancel-progress={tryCancelProgressState} data-try-cancel-progress-status={run.status}><strong>{tryCancelProgressState === 'completed' ? t.tryCancelProgressCompletedTitle : t.tryCancelProgressRequestedTitle}</strong><small>{tryCancelProgressState === 'completed' ? t.tryCancelProgressCompletedDetail : t.tryCancelProgressRequestedDetail}</small></section>}<button className="danger-link" data-try-cancel-action="request-confirmation" onClick={cancelRun} disabled={['succeeded', 'failed', 'paused', 'cancelled'].includes(run.status)}>{cancelConfirmRunId === run.id ? t.tryCancelConfirmationPending : t.cancelRun}</button><pre>{JSON.stringify(run.outputs || run.error, null, 2)}</pre>{run.status === 'paused' && <><label>{t.humanInput}</label><textarea ref={runHumanInputRef} value={humanValues} onChange={event => setHumanValues(event.target.value)} /><button onClick={resumeRun}>{t.resume}</button></>}</div>}
+          {run && <div className="run-result" data-run-status={run.status} ref={runResultRef} tabIndex={-1}><b>{run.status}</b>{tryRunStatusRecencyVisible && <section className="try-status-recency" data-try-status-recency="last-checked" data-try-status-recency-status={run.status}><strong>{t.tryStatusRecencyLabel}: {runStatusCheckedAt}</strong><small>{t.tryStatusRecencyDetail}</small></section>}<section className="try-run-mode" data-try-run-mode={lastRunMode}><span>{t.tryRunModeLabel}</span><strong>{tryRunModeTitle}</strong><small>{tryRunModeDetail}</small></section><section className="try-result-outcome" data-try-result-outcome="summary"><div className="try-result-head"><strong>{t.tryResultOutcomeTitle}</strong><small>{t.tryResultStatusMeaning(run.status)}</small></div><div className="try-result-list">{tryResultOutcomeItems.map(item => <article className={item.ready ? 'ready' : ''} key={item.label}><span>{item.label}</span><b>{item.ready ? t.tryReady : t.tryNeedsAttention}</b><small>{item.detail}</small></article>)}</div><div className="try-result-next-action" data-try-result-next-action={tryResultNextAction.id}><span>{t.tryResultNextAction}</span><strong>{tryResultNextAction.label}</strong><small>{tryResultNextAction.detail}</small><button type="button" data-try-result-focus-target={tryResultNextAction.target} onClick={() => focusTryResultRecoveryTarget(tryResultNextAction.target)}>{t.tryResultFocusAction}</button></div></section><section className="try-result-preview" data-try-result-preview="markdown-rendered-output" data-try-result-error-preview={tryResultErrorPreview ? 'present' : 'empty'}><div className="try-result-preview-head"><strong>{t.tryResultPreviewTitle}</strong><small>{tryResultMarkdownSource ? t.tryResultPreviewHelp : tryResultErrorPreview ? t.tryResultErrorPreviewHelp : t.tryResultPreviewEmpty}</small></div>{tryResultMarkdownSource ? <MarkdownResultCard dataSurface="try-run-result" source={tryResultMarkdownSource} emptyLabel={t.tryResultPreviewEmpty} title={t.tryResultRenderedTitle} description={t.tryResultRenderedHelp} openLabel={t.markdownOpenRendered} closeLabel={t.markdownCloseRendered} rawLabel={t.tryResultRawJsonTitle} rawSource={tryResultRawPayload} /> : tryResultErrorPreview ? <p className="try-result-error-preview">{tryResultErrorPreview}</p> : <p className="muted">{t.tryResultPreviewEmpty}</p>}{tryResultHiddenOutputCount > 0 && <small className="try-result-preview-more">{t.tryResultPreviewMore(tryResultHiddenOutputCount)}</small>}</section><p className="run-recovery-hint" data-try-guidance="run-result-recovery">{runRecoveryHint}</p>{tryCancelConfirmVisible && <section className="try-cancel-confirm" data-try-cancel-confirm="pending" data-try-cancel-status={run.status}><strong>{t.tryCancelConfirmTitle}</strong><small>{t.tryCancelConfirmDetail}</small><div><button type="button" className="danger-link" data-try-cancel-confirm-action="stop" onClick={cancelRun}>{t.tryCancelConfirmStopAction}</button><button type="button" className="wide secondary" data-try-cancel-confirm-action="keep-waiting" onClick={() => setCancelConfirmRunId(null)}>{t.tryCancelConfirmKeepAction}</button></div></section>}{tryCancelProgressVisible && <section className="try-cancel-progress" data-try-cancel-progress={tryCancelProgressState} data-try-cancel-progress-status={run.status}><strong>{tryCancelProgressState === 'completed' ? t.tryCancelProgressCompletedTitle : t.tryCancelProgressRequestedTitle}</strong><small>{tryCancelProgressState === 'completed' ? t.tryCancelProgressCompletedDetail : t.tryCancelProgressRequestedDetail}</small></section>}<button className="danger-link" data-try-cancel-action="request-confirmation" onClick={cancelRun} disabled={['succeeded', 'failed', 'paused', 'cancelled'].includes(run.status)}>{cancelConfirmRunId === run.id ? t.tryCancelConfirmationPending : t.cancelRun}</button>{run.status === 'paused' && <><label>{t.humanInput}</label><textarea ref={runHumanInputRef} value={humanValues} onChange={event => setHumanValues(event.target.value)} /><button onClick={resumeRun}>{t.resume}</button></>}</div>}
           {pendingPermission && <div className="permission-card" ref={runPermissionRef} tabIndex={-1}><h3>{t.permissionWaiting}</h3><p>{t.permissionHelp}</p><p>{t.permissionTool}: <code>{pendingPermission.tool || '-'}</code>{pendingPermission.node_id ? <> · <code>{pendingPermission.node_id}</code></> : null}</p><pre>{JSON.stringify(pendingPermission.input || {}, null, 2)}</pre><div className="run-actions"><button className="wide" onClick={() => resolvePermission(pendingPermission, 'allow')}>{t.approvePermission}</button><button className="wide secondary" onClick={() => resolvePermission(pendingPermission, 'deny')}>{t.denyPermission}</button></div></div>}
           {visibleTraceEventsForRun.length > 0 && <><h3>{t.traceTitle}</h3><section className="trace-readability-panel" data-trace-guidance="summary" ref={runTraceRef} tabIndex={-1}>
             <div className="trace-readability-head"><strong>{t.traceReadabilityTitle}</strong><small>{t.traceReadabilityHelp}</small></div>
