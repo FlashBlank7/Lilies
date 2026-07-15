@@ -364,6 +364,10 @@ class BuildPlanModule(BaseModel):
     evidence: list[str] = Field(default_factory=list)
     capability_ids: list[str] = Field(default_factory=list)
     carrier_type: CarrierType | None = None
+    reusable_module_ref: str | None = Field(
+        default=None,
+        pattern=r"^module:[A-Za-z][A-Za-z0-9_.-]{1,119}@[1-9][0-9]*$",
+    )
     evidence_targets: list[AcceptanceEvidenceTarget] = Field(default_factory=list)
 
 

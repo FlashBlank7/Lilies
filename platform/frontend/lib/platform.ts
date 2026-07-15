@@ -87,6 +87,70 @@ export type Draft = {
   snapshot: Snapshot
 }
 
+export type ModulePort = {
+  name: string
+  value_type: string
+  required: boolean
+  description: string
+}
+
+export type ModuleKnownBoundary = {
+  id: string
+  title: string
+  description: string
+  effect: 'unsupported' | 'blocked_by_environment' | 'degraded' | 'requires_approval'
+  capability_ids: string[]
+}
+
+export type ReusableModuleContract = {
+  schema_version: '1.0'
+  capability_ids: string[]
+  inputs: ModulePort[]
+  outputs: ModulePort[]
+  dependencies: Array<{
+    module_id: string
+    version: number
+    capability_ids: string[]
+    reason: string
+  }>
+  required_envelope: 'E0' | 'E1' | 'E2' | 'E3' | 'E4' | 'E5'
+  risk_level: 'low' | 'medium' | 'high' | 'critical'
+  known_boundaries: ModuleKnownBoundary[]
+  claims: Array<{
+    capability_id: string
+    statement: string
+    requested_status: string
+    claim_scope: string
+  }>
+}
+
+export type CapabilityModule = {
+  module_id: string
+  version: number
+  module_ref: string
+  content_hash: string
+  source: 'builtin' | 'system' | 'user' | 'session_extract'
+  status: 'legacy_unverified' | 'draft' | 'verified' | 'deprecated' | 'quarantined'
+  created_at: string
+  verified_at?: string | null
+  verification_errors: string[]
+  evidence_record_ids: string[]
+  meta: {
+    title: string
+    description: string
+    category: string
+    tags: string[]
+  }
+  contract?: ReusableModuleContract | null
+}
+
+export type CapabilityModuleInsertResult = {
+  module: CapabilityModule
+  inserted_node_ids: string[]
+  inserted_edge_ids: string[]
+  draft: Draft
+}
+
 export type BlockEditorField = {
   path: string
   label: string

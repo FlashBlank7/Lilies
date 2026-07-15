@@ -31,11 +31,16 @@ from .builder import WorkflowBuilder
 from .builder_benchmark import BuilderBenchmark, BuilderBenchmarkCase, BuilderBenchmarkSuiteCase
 from .capability_contracts import (
     CapabilityBuildContract,
+    VerificationStatus,
     capability_contract_routing,
     evaluate_capability_contract,
     legacy_intake_capability_contract,
     reference_capability_contracts,
     render_workflow_build_plan,
+)
+from .capability_evidence import (
+    ArtifactCategory,
+    CapabilityEvidenceCreateRequest,
 )
 from .complexity_router import (
     classify_requirement,
@@ -76,6 +81,7 @@ from .platform_harness import PlatformHarness, PlatformHarnessViolation
 from .providers import ModelProvider
 from .providers.multi import MultiProvider
 from .runtime import AgentRuntime
+from .reference_modules import ensure_codex_reference_module
 from .sandbox import SandboxManager
 from .scenarios import ScenarioCatalog
 from .scheduler import WorkflowScheduler
@@ -114,6 +120,8 @@ RUNTIME_ROUTE_CHECKS: dict[str, tuple[str, str]] = {
     "scenario_apply": ("POST", "/api/v1/applications/{application_id}/scenarios/{scenario_id}/apply"),
     "capability_contract_validate": ("POST", "/api/v1/capability-contracts/validate"),
     "application_capability_contract": ("GET", "/api/v1/applications/{application_id}/capability-contract"),
+    "capability_modules": ("GET", "/api/v1/capability-modules"),
+    "capability_evidence": ("GET", "/api/v1/capability-evidence"),
 }
 
 
@@ -261,6 +269,15 @@ class ScenarioApplyRequest(BaseModel):
     expected_revision: int = Field(ge=0)
     expected_content_hash: str = Field(min_length=64, max_length=64)
     replace_existing: bool = False
+    idempotency_key: str = Field(default_factory=lambda: str(uuid4()), min_length=1, max_length=200)
+
+
+class ModuleInsertRequest(BaseModel):
+    expected_revision: int = Field(ge=0)
+    expected_content_hash: str = Field(min_length=64, max_length=64)
+    prefix: str = Field(min_length=1, max_length=80, pattern=r"^[A-Za-z][A-Za-z0-9_-]*$")
+    x: float = 0
+    y: float = 0
     idempotency_key: str = Field(default_factory=lambda: str(uuid4()), min_length=1, max_length=200)
 
 
@@ -732,7 +749,11 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         runtime_model=settings.deepseek_runtime_model,
         governed_memory=governed_memory,
     )
-    templates = TemplateStore()
+    templates = TemplateStore(
+        settings.data_dir / "module_registry",
+        evidence_root=_repo_root() or Path.cwd(),
+        workflow_validator=blocks.validate_workflow,
+    )
     scenarios = ScenarioCatalog(blocks)
     benchmark = BuilderBenchmark()
     draft_patcher = DraftPatchPreviewer()
@@ -741,6 +762,11 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
     if templates_dir and templates_dir.is_dir():
         loaded = templates.load_builtins(templates_dir)
         print(f"[api] Loaded {loaded} built-in templates from {templates_dir}")
+    reference_module = ensure_codex_reference_module(templates, blocks)
+    print(
+        f"[api] Reference module {reference_module.module_ref} "
+        f"status={reference_module.state.status}"
+    )
 
     builder = WorkflowBuilder(
         storage=storage,
@@ -1400,12 +1426,236 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
 
     # ── Templates ───────────────────────────────────────────
 
+    def module_record_payload(record: Any, *, include_workflow: bool = False) -> dict[str, Any]:
+        template = record.template
+        contract = template.module_contract
+        payload: dict[str, Any] = {
+            "module_id": record.state.module_id,
+            "version": record.state.version,
+            "module_ref": record.module_ref,
+            "content_hash": record.state.content_hash,
+            "source": record.state.source,
+            "status": record.state.status,
+            "created_at": record.state.created_at,
+            "verified_at": record.state.verified_at,
+            "verification_errors": record.state.verification_errors,
+            "evidence_record_ids": record.state.evidence_record_ids,
+            "meta": template.meta.model_dump(mode="json"),
+            "contract": contract.model_dump(mode="json") if contract else None,
+        }
+        if include_workflow:
+            payload["workflow"] = template.workflow.model_dump(mode="json")
+        return payload
+
+    @app.get("/api/v1/capability-modules", dependencies=[Depends(require_token)])
+    async def list_capability_modules(
+        all_versions: bool = False,
+        status: str | None = None,
+        query: str = "",
+    ) -> list[dict[str, Any]]:
+        allowed_statuses = {
+            "legacy_unverified", "draft", "verified", "deprecated", "quarantined"
+        }
+        if status is not None and status not in allowed_statuses:
+            raise HTTPException(422, f"unknown module status: {status}")
+        records = services.templates.list_records(
+            all_versions=all_versions,
+            status=status,  # type: ignore[arg-type]
+            query=query,
+        )
+        return [module_record_payload(record) for record in records]
+
+    @app.get(
+        "/api/v1/capability-modules/{module_id}/versions",
+        dependencies=[Depends(require_token)],
+    )
+    async def list_capability_module_versions(module_id: str) -> list[dict[str, Any]]:
+        try:
+            versions = services.templates.versions(module_id)
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+        return [
+            module_record_payload(services.templates.get_record(module_id, version))
+            for version in versions
+        ]
+
+    @app.get(
+        "/api/v1/capability-modules/{module_id}/versions/{version}",
+        dependencies=[Depends(require_token)],
+    )
+    async def get_capability_module_version(
+        module_id: str,
+        version: int,
+    ) -> dict[str, Any]:
+        try:
+            return module_record_payload(
+                services.templates.get_record(module_id, version),
+                include_workflow=True,
+            )
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+
+    @app.post(
+        "/api/v1/applications/{application_id}/capability-modules/{module_id}/versions/{version}/insert",
+        dependencies=[Depends(require_token)],
+    )
+    async def insert_capability_module_version(
+        application_id: str,
+        module_id: str,
+        version: int,
+        body: ModuleInsertRequest,
+    ) -> dict[str, Any]:
+        try:
+            record = services.templates.get_record(module_id, version)
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+        if record.state.status != "verified":
+            raise HTTPException(
+                409,
+                f"only verified exact module versions can be inserted: {record.module_ref}",
+            )
+        workflow = services.templates.expand_into_workflow(
+            module_id,
+            version=version,
+            prefix=body.prefix,
+            x=body.x,
+            y=body.y,
+        )
+        operations = [
+            {"op": "add_node", "data": {"node": node.model_dump(mode="json")}}
+            for node in workflow.nodes
+        ] + [
+            {"op": "add_edge", "data": {"edge": edge.model_dump(mode="json")}}
+            for edge in workflow.edges
+        ]
+        try:
+            result = await services.applications.apply_operations_atomically(
+                application_id,
+                expected_revision=body.expected_revision,
+                expected_content_hash=body.expected_content_hash,
+                idempotency_key=body.idempotency_key,
+                change_context_operation="verified_module_insert",
+                operations=operations,
+            )
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+        except RevisionConflict as error:
+            raise HTTPException(409, str(error)) from error
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from error
+        updated_draft = await services.workflow_store.get_draft(application_id)
+        return {
+            "module": module_record_payload(record),
+            "inserted_node_ids": [node.id for node in workflow.nodes],
+            "inserted_edge_ids": [edge.id for edge in workflow.edges],
+            "draft": {
+                **updated_draft,
+                "operations_applied": result["operations_applied"],
+                "previous_content_hash": result["previous_content_hash"],
+            },
+        }
+
+    @app.post(
+        "/api/v1/capability-modules/{module_id}/versions/{version}/evidence",
+        status_code=201,
+        dependencies=[Depends(require_token)],
+    )
+    async def add_capability_module_evidence(
+        module_id: str,
+        version: int,
+        body: CapabilityEvidenceCreateRequest,
+    ) -> dict[str, Any]:
+        try:
+            return services.templates.add_evidence(
+                module_id,
+                version,
+                body,
+            ).model_dump(mode="json")
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from error
+
+    @app.post(
+        "/api/v1/capability-modules/{module_id}/versions/{version}/verify",
+        dependencies=[Depends(require_token)],
+    )
+    async def verify_capability_module_version(
+        module_id: str,
+        version: int,
+    ) -> dict[str, Any]:
+        try:
+            return module_record_payload(services.templates.verify(module_id, version))
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+        except ValueError as error:
+            try:
+                record = services.templates.get_record(module_id, version)
+                detail = {
+                    "message": str(error),
+                    "module": module_record_payload(record),
+                }
+            except KeyError:
+                detail = str(error)
+            raise HTTPException(422, detail) from error
+
+    @app.get("/api/v1/capability-evidence", dependencies=[Depends(require_token)])
+    async def list_capability_evidence(
+        capability_id: str | None = None,
+        module_id: str | None = None,
+        module_version: int | None = None,
+        verification_status: VerificationStatus | None = None,
+        category: ArtifactCategory | None = None,
+    ) -> list[dict[str, Any]]:
+        records = services.templates.evidence.list(
+            capability_id=capability_id,
+            module_id=module_id,
+            module_version=module_version,
+            verification_status=verification_status,
+            category=category,
+        )
+        return [
+            {
+                **record.model_dump(mode="json"),
+                "artifact_categories": record.artifact_categories,
+            }
+            for record in records
+        ]
+
+    @app.get(
+        "/api/v1/capability-evidence/{record_id}",
+        dependencies=[Depends(require_token)],
+    )
+    async def get_capability_evidence(record_id: str) -> dict[str, Any]:
+        try:
+            record = services.templates.evidence.get(record_id)
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+        return {
+            **record.model_dump(mode="json"),
+            "artifact_categories": record.artifact_categories,
+        }
+
     @app.get("/api/v1/templates", dependencies=[Depends(require_token)])
     async def list_templates(
         category: str | None = None,
         query: str = "",
     ) -> list[dict[str, Any]]:
-        return [meta.model_dump(mode="json") for meta in services.templates.list(category=category, query=query)]
+        payloads: list[dict[str, Any]] = []
+        for meta in services.templates.list(category=category, query=query):
+            record = services.templates.get_record(meta.name, meta.version)
+            payloads.append({
+                **meta.model_dump(mode="json"),
+                "module_ref": record.module_ref,
+                "module_status": record.state.status,
+                "content_hash": record.state.content_hash,
+                "module_contract": (
+                    record.template.module_contract.model_dump(mode="json")
+                    if record.template.module_contract
+                    else None
+                ),
+            })
+        return payloads
 
     @app.get("/api/v1/templates/categories", dependencies=[Depends(require_token)])
     async def template_categories() -> list[str]:
@@ -1443,11 +1693,28 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             raise HTTPException(422, "reuse_depth must be one of: adaptive, deep, none, shallow")
         if reuse_depth == "none":
             return []
-        scored = score_template_matches(requirement, services.templates.list())
-        return [
-            build_suggestion_payload(meta, score, reuse_depth, default_metadata=default_metadata)
-            for score, meta in scored[:5]
-        ]
+        scored = score_template_matches(
+            requirement,
+            [
+                record.template.meta
+                for record in services.templates.list_records(all_versions=True)
+            ],
+        )
+        payloads: list[dict[str, Any]] = []
+        for score, meta in scored[:5]:
+            record = services.templates.get_record(meta.name, meta.version)
+            payloads.append({
+                **build_suggestion_payload(
+                    meta,
+                    score,
+                    reuse_depth,
+                    default_metadata=default_metadata,
+                ),
+                "module_ref": record.module_ref,
+                "module_status": record.state.status,
+                "verified_capability_carrier": record.state.status == "verified",
+            })
+        return payloads
 
     @app.get("/api/v1/templates/adaptive-monitoring", dependencies=[Depends(require_token)])
     async def get_adaptive_template_monitoring() -> dict[str, Any]:
@@ -1477,9 +1744,13 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         return adaptive_monitoring_schedule_status(services.settings.data_dir, interval, running=running)
 
     @app.get("/api/v1/templates/{name}", dependencies=[Depends(require_token)])
-    async def get_template(name: str) -> dict[str, Any]:
+    async def get_template(name: str, version: int | None = None) -> dict[str, Any]:
         try:
-            return services.templates.get(name).model_dump(mode="json")
+            record = services.templates.get_record(name, version)
+            return {
+                **record.template.model_dump(mode="json"),
+                "registry": module_record_payload(record),
+            }
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
 
@@ -1489,12 +1760,19 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
     )
     async def expand_template(
         name: str,
+        version: int | None = None,
         prefix: str = "",
         x: float = 0,
         y: float = 0,
     ) -> dict[str, Any]:
         try:
-            wf = services.templates.expand_into_workflow(name, prefix=prefix, x=x, y=y)
+            wf = services.templates.expand_into_workflow(
+                name,
+                version=version,
+                prefix=prefix,
+                x=x,
+                y=y,
+            )
             return wf.model_dump(mode="json")
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
@@ -1524,8 +1802,13 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                 "icon": body.icon,
                 "author": "user",
             },
+            module_contract=body.module_contract,
         )
-        return template.model_dump(mode="json")
+        record = services.templates.get_record(template.meta.name, template.meta.version)
+        return {
+            **template.model_dump(mode="json"),
+            "registry": module_record_payload(record),
+        }
 
     # ── Meta-Cognition (session extraction) ──────────────────
 

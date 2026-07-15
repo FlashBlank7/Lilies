@@ -32,6 +32,8 @@ import {
   type BuilderBenchmarkHistoryRecord,
   type Block,
   type BlockEditorField,
+  type CapabilityModule,
+  type CapabilityModuleInsertResult,
   type Draft,
   type DraftPatchPreview,
   type DeliveryMode,
@@ -939,6 +941,10 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   const [adaptiveMonitoring, setAdaptiveMonitoring] = useState<AdaptiveMonitoringStatus | null>(null)
   const [adaptiveMonitoringLoading, setAdaptiveMonitoringLoading] = useState(false)
   const [adaptiveMonitoringError, setAdaptiveMonitoringError] = useState('')
+  const [capabilityModules, setCapabilityModules] = useState<CapabilityModule[]>([])
+  const [capabilityModulesLoading, setCapabilityModulesLoading] = useState(false)
+  const [capabilityModulesError, setCapabilityModulesError] = useState('')
+  const [insertingModuleRef, setInsertingModuleRef] = useState('')
   const [governedMemoryItems, setGovernedMemoryItems] = useState<GovernedMemoryItem[]>([])
   const [governedMemoryAudit, setGovernedMemoryAudit] = useState<StoredEvent[]>([])
   const [governedMemoryFilter, setGovernedMemoryFilter] = useState<GovernedMemoryFilter>('active')
@@ -995,6 +1001,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   const runPermissionRef = useRef<HTMLDivElement>(null)
   const runHumanInputRef = useRef<HTMLTextAreaElement>(null)
   const runTraceRef = useRef<HTMLElement>(null)
+  const initialLoadStartedRef = useRef(false)
   const latestRevision = useRef(0)
   const lastFitSignature = useRef('')
   const buildPoll = useRef<number | null>(null)
@@ -1250,6 +1257,23 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     }
   }, [])
 
+  const refreshCapabilityModules = useCallback(async () => {
+    setCapabilityModulesLoading(true)
+    setCapabilityModulesError('')
+    try {
+      const modules = await api<CapabilityModule[]>('/api/v1/capability-modules?all_versions=true')
+      setCapabilityModules(modules)
+      setAuthRequired(false)
+      return modules
+    } catch (error) {
+      if (isAuthError(error)) setAuthRequired(true)
+      setCapabilityModulesError(String(error))
+      throw error
+    } finally {
+      setCapabilityModulesLoading(false)
+    }
+  }, [])
+
   const recordAdaptiveMonitoringRefresh = useCallback(async () => {
     setAdaptiveMonitoringLoading(true)
     setAdaptiveMonitoringError('')
@@ -1387,6 +1411,8 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   }, [governedMemoryForm.reason, governedMemoryPermission, refreshGovernedMemoryItems, t.governedMemoryMissingReason, t.governedMemoryRevoked])
 
   useEffect(() => {
+    if (initialLoadStartedRef.current) return
+    initialLoadStartedRef.current = true
     const stored = globalThis.localStorage?.getItem('foundry.locale')
     if (isLocale(stored)) setLocale(stored)
     setTokenInput(getClientToken())
@@ -1396,7 +1422,8 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     refreshPolicyControls().catch(error => setNotice(String(error)))
     refreshBenchmarkHistory().catch(error => setNotice(String(error)))
     refreshAdaptiveMonitoring().catch(error => setNotice(String(error)))
-  }, [refresh, refreshAdaptiveMonitoring, refreshBenchmarkHistory, refreshMonitorTasks, refreshPolicyControls])
+    refreshCapabilityModules().catch(error => setNotice(String(error)))
+  }, [refresh, refreshAdaptiveMonitoring, refreshBenchmarkHistory, refreshCapabilityModules, refreshMonitorTasks, refreshPolicyControls])
   useEffect(() => {
     window.addEventListener('popstate', syncStudioTabFromLocation)
     return () => window.removeEventListener('popstate', syncStudioTabFromLocation)
@@ -1499,6 +1526,40 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
       description: blockDescription(block), config: defaultConfig(block.type), position: { x: 120 + index * 55, y: 120 + (index % 4) * 90 },
       retry: { enabled: false, max_attempts: 1, delay_seconds: 0.5 }, error_strategy: 'fail',
     } })
+  }
+
+  async function insertCapabilityModule(module: CapabilityModule) {
+    const current = draftRef.current
+    if (!current || module.status !== 'verified' || insertingModuleRef) return
+    setInsertingModuleRef(module.module_ref)
+    setCapabilityModulesError('')
+    const base = module.module_id.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 42)
+    const prefix = `module_${base}_${module.version}_${Date.now().toString(36)}`.slice(0, 80)
+    try {
+      const result = await api<CapabilityModuleInsertResult>(
+        `/api/v1/applications/${id}/capability-modules/${encodeURIComponent(module.module_id)}/versions/${module.version}/insert`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            expected_revision: current.revision,
+            expected_content_hash: current.content_hash,
+            prefix,
+            x: 120,
+            y: 120,
+            idempotency_key: idempotency(),
+          }),
+        },
+      )
+      syncCanvas(result.draft)
+      setNotice(t.moduleRegistryInserted(module.meta.title, module.version))
+      setStudioTab('edit')
+    } catch (error) {
+      if (isAuthError(error)) setAuthRequired(true)
+      setCapabilityModulesError(String(error))
+      await refresh()
+    } finally {
+      setInsertingModuleRef('')
+    }
   }
 
   async function arrangeCanvasNodes() {
@@ -2581,6 +2642,27 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
           </section>
           <button ref={detailBuildStartButtonRef} className={`wide build-action ${buildIntentConfirmed ? 'armed' : ''}`} data-build-action="detail-start-builder-team" data-build-intent={buildIntentConfirmed ? 'confirmed' : 'needs-confirmation'} onClick={startBuild}>{buildIntentConfirmed ? t.startTeamConfirm : t.startTeam}</button>
           {build && <div className="build-status"><b>{build.status}</b><span>{Object.keys(build.team_state.teammates).length} teammates · {build.team_state.tasks.length} tasks · {build.team_state.repair_cycles} repairs</span><span>{build.deadline?.enabled && build.deadline.max_elapsed_seconds ? t.buildDeadlineActive(build.deadline.max_elapsed_seconds) : t.buildDeadlineInactive}</span>{build.error && <p>{build.error}</p>}</div>}
+          <section className="module-registry" data-module-registry="versioned-evidence">
+            <div className="module-registry-head"><div><strong>{t.moduleRegistryTitle}</strong><small>{t.moduleRegistryHelp}</small></div><button type="button" onClick={() => void refreshCapabilityModules()} disabled={capabilityModulesLoading}>{capabilityModulesLoading ? t.moduleRegistryLoading : t.moduleRegistryRefresh}</button></div>
+            {capabilityModulesError && <p className="error-banner">{capabilityModulesError}</p>}
+            <div className="module-registry-list">{capabilityModules.map(module => {
+              const contract = module.contract
+              const statusLabel = module.status === 'verified' ? t.moduleRegistryVerified : module.status === 'legacy_unverified' ? t.moduleRegistryLegacy : module.status === 'quarantined' ? t.moduleRegistryQuarantined : module.status === 'deprecated' ? t.moduleRegistryDeprecated : t.moduleRegistryDraft
+              return <article className={`module-registry-item ${module.status}`} data-module-ref={module.module_ref} data-module-status={module.status} key={module.module_ref}>
+                <div className="module-registry-item-head"><div><strong>{module.meta.title}</strong><code>{module.module_ref}</code></div><span>{statusLabel}</span></div>
+                <p>{module.meta.description}</p>
+                {contract ? <>
+                  <div className="module-contract-facts"><span><b>{contract.required_envelope}</b>{t.moduleRegistryEnvelope}</span><span><b>{contract.risk_level}</b>{t.moduleRegistryRisk}</span><span><b>{module.evidence_record_ids.length}</b>{t.moduleRegistryEvidence}</span></div>
+                  <div className="module-capability-list" aria-label={t.moduleRegistryCapabilities}>{contract.capability_ids.map(capability => <code key={capability}>{capability}</code>)}</div>
+                  <dl className="module-port-list"><div><dt>{t.moduleRegistryInputs}</dt><dd>{contract.inputs.map(port => `${port.name}:${port.value_type}`).join(', ')}</dd></div><div><dt>{t.moduleRegistryOutputs}</dt><dd>{contract.outputs.map(port => `${port.name}:${port.value_type}`).join(', ')}</dd></div></dl>
+                  <div className="module-boundary-list"><strong>{t.moduleRegistryBoundaries}</strong>{contract.known_boundaries.map(boundary => <p key={boundary.id}><b>{boundary.title}</b><span>{boundary.description}</span></p>)}</div>
+                </> : <p className="module-contract-missing">{t.moduleRegistryContractMissing}</p>}
+                {module.verification_errors.length > 0 && <ul className="module-verification-errors">{module.verification_errors.map(error => <li key={error}>{error}</li>)}</ul>}
+                <button type="button" className="module-insert-action" disabled={module.status !== 'verified' || Boolean(insertingModuleRef)} onClick={() => void insertCapabilityModule(module)}>{insertingModuleRef === module.module_ref ? t.moduleRegistryInserting : module.status === 'verified' ? t.moduleRegistryInsert(module.version) : t.moduleRegistryUnavailable}</button>
+              </article>
+            })}</div>
+            {!capabilityModulesLoading && capabilityModules.length === 0 && <p className="muted">{t.moduleRegistryEmpty}</p>}
+          </section>
           <h3>{t.tasksTitle}</h3>
           <div className="test-list">{build?.team_state.tasks.map((task, index) => <pre key={index}>{JSON.stringify(task, null, 2)}</pre>) || <p className="muted">{t.tasksEmpty}</p>}</div>
           <section className="bug-triage-panel">

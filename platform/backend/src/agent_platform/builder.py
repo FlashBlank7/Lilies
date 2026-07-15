@@ -77,11 +77,10 @@ Core rules:
 - For complex or multi-module requirements, call build_plan with action="set" before mutating the draft.
   The build plan should name modules, expected blocks, reuse_depth, complexity, risks, and how each module
   will be tested. Keep the plan updated as modules are built and tested.
-- **Before building a workflow from scratch**, call template_suggestions with the
-  requirement text and intended reuse_depth to check if a matching template already exists. If a template
-  with confidence >= 0.7 matches the requirement, prefer expanding it via
-  template_expand instead of building from scratch. This saves time and reuses
-  proven patterns.
+- **Before building a workflow from scratch**, call template_suggestions with the requirement text and intended
+  reuse_depth. A name, keyword score, usage count, or confidence value is not implementation evidence. When a
+  Capability Build Contract exists, only a suggestion with eligible_for_reuse=true may satisfy a reusable-module
+  carrier. Preserve its exact module:<id>@<version> reference in the BuildPlan and carrier binding.
 - Unless the requirement or an experiment explicitly asks for a fixed reuse depth, prefer
   template_suggestions with reuse_depth="adaptive" as the default suggestion mode.
   If it returns effective_reuse_depth and policy_reason, update the BuildPlan to that concrete depth
@@ -92,8 +91,9 @@ Core rules:
   and perform the returned recommended_action before more broad search.
 - For agent architecture bricks, call manual_search or manual_get first, then add one brick at a time.
 - Use architecture_blueprint when reconstructing a Claude-like agent loop from explicit bricks.
-- Use template_list and template_expand when a known Codex-like workspace-agent or legacy Claude-like subgraph template fits; the expanded graph is
-  editable and must still be validated, tested, and repaired incrementally.
+- Use template_list and template_expand when a known module or legacy subgraph fits. Legacy or draft templates may
+  be expanded for editing, but cannot be bound as verified reusable-module evidence. The expanded graph must still
+  be validated, tested, and repaired incrementally.
 - After template_expand, read the returned validation, node_types, and template_contract. Preserve
   template_contract.min_blocks_required unless you deliberately replace that capability with another visible
   block and then update tests to match the current draft.
@@ -368,8 +368,8 @@ class WorkflowBuilder:
                 raise
 
     def _capability_resource_inventory(self, snapshot: Any) -> dict[str, Any]:
-        marketplace_templates = (
-            [f"template:marketplace:{name}" for name in self.template_store.names()]
+        verified_modules = (
+            self.template_store.verified_module_refs()
             if self.template_store
             else []
         )
@@ -386,7 +386,8 @@ class WorkflowBuilder:
                 f"template:server_defined:{name}"
                 for name in self.blocks.template_names()
             ],
-            "marketplace_templates": marketplace_templates,
+            "marketplace_templates": verified_modules,
+            "verified_modules": verified_modules,
             "runtime_services": [
                 "runtime:workflow_runtime",
                 "runtime:agent_runtime",
@@ -415,8 +416,7 @@ class WorkflowBuilder:
         allowed_by_type = {
             CarrierType.atomic_block: node_refs,
             CarrierType.reusable_module: node_refs
-            | set(inventory["server_templates"])
-            | set(inventory["marketplace_templates"]),
+            | set(inventory["verified_modules"]),
             CarrierType.runtime_service: node_refs | set(inventory["runtime_services"]),
             CarrierType.platform_control: node_refs | set(inventory["platform_controls"]),
             CarrierType.connector_external_contract: node_refs
@@ -662,7 +662,12 @@ class WorkflowBuilder:
             "test_count": validation["test_count"],
         }
 
-    def _template_contract(self, template_name: str, source: str) -> dict[str, Any] | None:
+    def _template_contract(
+        self,
+        template_name: str,
+        source: str,
+        version: int | None = None,
+    ) -> dict[str, Any] | None:
         if source == "server_defined" and template_name == "codex_like_workspace_agent":
             return {
                 "name": template_name,
@@ -671,15 +676,20 @@ class WorkflowBuilder:
                 "expected_inputs": ["task", "workspace_path", "network_policy", "cancel_requested"],
                 "expected_outputs": ["answer"],
                 "min_blocks_required": 13,
-                "evidence_level": "component_verified",
-                "claim_scope": "deterministic local workspace; live and production environments not implied",
+                "evidence_level": "design_only",
+                "module_status": "legacy_unverified",
+                "claim_scope": (
+                    "editable server template only; use the exact verified capability module "
+                    "for implementation evidence"
+                ),
             }
         if source != "marketplace" or not self.template_store:
             return None
         try:
-            template = self.template_store.get(template_name)
+            record = self.template_store.get_record(template_name, version)
         except KeyError:
             return None
+        template = record.template
         meta = template.meta
         return {
             "name": meta.name,
@@ -690,6 +700,16 @@ class WorkflowBuilder:
             "min_blocks_required": meta.min_blocks_required,
             "confidence": meta.confidence,
             "tags": meta.tags,
+            "module_ref": record.module_ref,
+            "module_status": record.state.status,
+            "content_hash": record.state.content_hash,
+            "capability_contract": (
+                template.module_contract.model_dump(mode="json")
+                if template.module_contract
+                else None
+            ),
+            "evidence_record_ids": record.state.evidence_record_ids,
+            "verification_errors": record.state.verification_errors,
         }
 
     async def _agent_loop(
@@ -934,7 +954,14 @@ class WorkflowBuilder:
                     **default_metadata,
                     "templates": [],
                 }
-            templates = self.template_store.list() if self.template_store else []
+            templates = (
+                [
+                    record.template.meta
+                    for record in self.template_store.list_records(all_versions=True)
+                ]
+                if self.template_store
+                else []
+            )
             scored = score_template_matches(requirement, templates)
             # Bump usage_count for top matches (feedback: Builder selected this template)
             for _, meta in scored[:3]:
@@ -942,31 +969,69 @@ class WorkflowBuilder:
                     meta.usage_count += 1  # recommendation flywheel: template was chosen
             top_meta = scored[0][1] if scored else None
             effective_reuse_depth, policy_reason = resolve_effective_reuse_depth(reuse_depth, top_meta)
+            suggestion_payloads: list[dict[str, Any]] = []
+            for score, meta in scored[:5]:
+                payload = {
+                    **build_suggestion_payload(
+                        meta,
+                        score,
+                        reuse_depth,
+                        default_metadata=default_metadata,
+                    ),
+                    "source": "marketplace",
+                    "relevance": round(score, 3),
+                }
+                if self.template_store:
+                    record = self.template_store.get_record(meta.name, meta.version)
+                    compatibility = self.template_store.compatibility(
+                        record,
+                        state.capability_build_contract,
+                    )
+                    payload.update({
+                        "module_ref": record.module_ref,
+                        "module_status": record.state.status,
+                        "content_hash": record.state.content_hash,
+                        "compatibility": compatibility.model_dump(mode="json"),
+                        "eligible_for_reuse": compatibility.eligible_for_reuse,
+                        "evidence_record_ids": record.state.evidence_record_ids,
+                    })
+                    if (
+                        state.capability_build_contract is not None
+                        and not compatibility.eligible_for_reuse
+                    ):
+                        payload["recommended_action"] = "inspect_only"
+                suggestion_payloads.append(payload)
+            if state.capability_build_contract is not None:
+                suggestion_payloads.sort(
+                    key=lambda item: (
+                        bool(item.get("eligible_for_reuse")),
+                        float(item.get("relevance", 0.0)),
+                    ),
+                    reverse=True,
+                )
+            verified_match_available = any(
+                bool(item.get("eligible_for_reuse"))
+                for item in suggestion_payloads
+            )
             result = {
                 "reuse_depth": reuse_depth,
                 "effective_reuse_depth": effective_reuse_depth,
-                "recommended_action": recommended_action_for_depth(effective_reuse_depth),
+                "recommended_action": (
+                    recommended_action_for_depth(effective_reuse_depth)
+                    if state.capability_build_contract is None or verified_match_available
+                    else "build_from_scratch"
+                ),
                 "policy_reason": policy_reason,
                 **default_metadata,
-                "templates": [
-                    {
-                        **build_suggestion_payload(
-                            m,
-                            s,
-                            reuse_depth,
-                            default_metadata=default_metadata,
-                        ),
-                        "source": "marketplace",
-                        "relevance": round(s, 3),
-                    }
-                    for s, m in scored[:5]
-                ],
+                "templates": suggestion_payloads,
             }
             if default_metadata.get("defaulted_by_policy"):
                 result["execution_contract"] = policy_default_execution_contract(
                     effective_reuse_depth,
                     reuse_depth_source=str(default_metadata.get("reuse_depth_source") or "policy_default"),
                 )
+                if state.capability_build_contract is not None and not verified_match_available:
+                    result["execution_contract"]["then"] = "build_from_scratch"
             return result
         if tool == "template_list":
             templates = [
@@ -983,7 +1048,8 @@ class WorkflowBuilder:
                 for name in self.blocks.template_names()
             ]
             if self.template_store:
-                for meta in self.template_store.list():
+                for record in self.template_store.list_records(all_versions=True):
+                    meta = record.template.meta
                     templates.append({
                         "name": meta.name,
                         "title": meta.title,
@@ -993,11 +1059,33 @@ class WorkflowBuilder:
                         "tags": meta.tags,
                         "confidence": meta.confidence,
                         "recommended_action": "expand_template",
+                        "version": record.state.version,
+                        "module_ref": record.module_ref,
+                        "module_status": record.state.status,
+                        "verified_capability_carrier": record.state.status == "verified",
+                        "capability_ids": (
+                            record.template.module_contract.capability_ids
+                            if record.template.module_contract
+                            else []
+                        ),
+                        "known_boundaries": (
+                            [
+                                item.model_dump(mode="json")
+                                for item in record.template.module_contract.known_boundaries
+                            ]
+                            if record.template.module_contract
+                            else []
+                        ),
                     })
             return templates
         if tool == "template_expand":
             self._enforce_planning_required(state, tool)
             template_name = str(data["name"])
+            requested_version = (
+                int(data["version"])
+                if data.get("version") is not None
+                else None
+            )
             prefix = str(data.get("prefix") or template_name)
             position = data.get("position") if isinstance(data.get("position"), dict) else {}
             x = float(position.get("x", 0))
@@ -1007,6 +1095,7 @@ class WorkflowBuilder:
                 source = "marketplace"
                 workflow = self.template_store.expand_into_workflow(
                     template_name,
+                    version=requested_version,
                     prefix=prefix,
                     x=x,
                     y=y,
@@ -1050,6 +1139,22 @@ class WorkflowBuilder:
             validation_errors = self.blocks.validate_workflow(workflow)
             return {
                 "template": template_name,
+                "version": (
+                    self.template_store.get_record(
+                        template_name,
+                        requested_version,
+                    ).state.version
+                    if source == "marketplace" and self.template_store
+                    else None
+                ),
+                "module_ref": (
+                    self.template_store.get_record(
+                        template_name,
+                        requested_version,
+                    ).module_ref
+                    if source == "marketplace" and self.template_store
+                    else None
+                ),
                 "source": source,
                 "revision": revision,
                 "nodes": [node.id for node in workflow.nodes],
@@ -1061,7 +1166,11 @@ class WorkflowBuilder:
                     "errors": validation_errors,
                 },
                 "draft_validation": await self._draft_validation_summary(application_id),
-                "template_contract": self._template_contract(template_name, source),
+                "template_contract": self._template_contract(
+                    template_name,
+                    source,
+                    requested_version,
+                ),
             }
         if tool == "capability_contract":
             action = str(data["action"])
@@ -1336,6 +1445,37 @@ class WorkflowBuilder:
                         raise RuntimeError(
                             f"BuildPlan references unknown capability ids: {unknown}"
                         )
+                    for module in plan.modules:
+                        if module.carrier_type != CarrierType.reusable_module:
+                            continue
+                        if not module.reusable_module_ref:
+                            # The plan may describe a module that will be built from nodes.
+                            # Exact references are mandatory only when selecting registry reuse.
+                            continue
+                        if not self.template_store:
+                            raise RuntimeError("reusable module registry is unavailable")
+                        try:
+                            reusable = self.template_store.get_record_by_ref(
+                                module.reusable_module_ref
+                            )
+                        except KeyError as error:
+                            raise RuntimeError(str(error)) from error
+                        if reusable.state.status != "verified":
+                            raise RuntimeError(
+                                f"BuildPlan reusable module is not verified: "
+                                f"{module.reusable_module_ref}"
+                            )
+                        declared = set(
+                            reusable.template.module_contract.capability_ids
+                            if reusable.template.module_contract
+                            else []
+                        )
+                        unsupported = sorted(set(module.capability_ids) - declared)
+                        if unsupported:
+                            raise RuntimeError(
+                                f"BuildPlan module {module.id} assigns capabilities not "
+                                f"declared by {module.reusable_module_ref}: {unsupported}"
+                            )
                 state.build_plan = plan
                 return state.build_plan.model_dump(mode="json")
             if action == "get":
@@ -1464,9 +1604,9 @@ class WorkflowBuilder:
             ToolDefinition(name="manual_search", description="Search block manuals before selecting agent architecture bricks.", input_schema={"type": "object", "properties": {"query": {"type": "string"}, "block_kind": {"enum": ["business_workflow", "agent_architecture", "legacy_compatibility"]}}}),
             ToolDefinition(name="manual_get", description="Read one block manual, including when to use it, examples, anti-patterns, and Claude architecture mapping.", input_schema={"type": "object", "properties": {"type": {"type": "string"}}, "required": ["type"]}),
             ToolDefinition(name="architecture_blueprint", description="Read the Claude-like runtime blueprint made from explicit composable bricks.", input_schema={"type": "object", "properties": {}}),
-            ToolDefinition(name="template_suggestions", description="Search template marketplace for matching templates. Use BEFORE building from scratch.", input_schema={"type": "object", "properties": {"requirement": {"type": "string", "description": "Natural language requirement to match against templates"}, "reuse_depth": {"enum": ["none", "shallow", "deep", "adaptive"], "description": "How aggressively to reuse templates."}}, "required": ["requirement"]}),
-            ToolDefinition(name="template_list", description="List expandable server-defined and marketplace workflow templates.", input_schema={"type": "object", "properties": {}}),
-            ToolDefinition(name="template_expand", description="Expand one server-defined or marketplace workflow template into the draft.", input_schema={"type": "object", "properties": {"name": {"type": "string"}, "prefix": {"type": "string"}, "position": {"type": "object", "additionalProperties": True}}, "required": ["name"]}),
+            ToolDefinition(name="template_suggestions", description="Search reusable modules and legacy templates. With a Capability Build Contract, only eligible_for_reuse=true is verified carrier evidence.", input_schema={"type": "object", "properties": {"requirement": {"type": "string", "description": "Natural language requirement to match against templates"}, "reuse_depth": {"enum": ["none", "shallow", "deep", "adaptive"], "description": "How aggressively to reuse templates."}}, "required": ["requirement"]}),
+            ToolDefinition(name="template_list", description="List exact module versions, verification state, capability coverage, and legacy templates.", input_schema={"type": "object", "properties": {}}),
+            ToolDefinition(name="template_expand", description="Expand one exact reusable-module version or legacy template into the editable draft.", input_schema={"type": "object", "properties": {"name": {"type": "string"}, "version": {"type": "integer", "minimum": 1}, "prefix": {"type": "string"}, "position": {"type": "object", "additionalProperties": True}}, "required": ["name"]}),
             ToolDefinition(name="capability_contract", description="Inspect, bind, or validate the authoritative F/G/X Capability Build Contract. Bind only real node/module/runtime/platform/external references and use require_bound before completion.", input_schema={"type": "object", "properties": {"action": {"enum": ["get", "bind", "validate"]}, "capability_id": {"type": "string"}, "carrier_type": {"enum": [item.value for item in CarrierType]}, "resource_hint": {"type": "string"}, "rationale": {"type": "string"}, "status": {"enum": [item.value for item in CarrierStatus]}, "implementation_refs": {"type": "array", "items": {"type": "string"}}, "owner": {"enum": [item.value for item in CoverageOwner]}, "coverage_status": {"enum": [item.value for item in CoverageStatus]}, "surface": {"type": "string"}, "notes": {"type": "string"}, "require_bound": {"type": "boolean"}}, "required": ["action"]}),
             ToolDefinition(name="draft_inspect", description="Inspect the current shared draft and revision.", input_schema={"type": "object", "properties": {}}),
             ToolDefinition(name="draft_add_node", description="Add exactly one configured node to the draft.", input_schema={"type": "object", "properties": {"node": NodeSpec.model_json_schema()}, "required": ["node"]}),

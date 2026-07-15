@@ -6,11 +6,22 @@ their sources — whether hand-crafted by an expert or extracted from a session.
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
+from .capability_evidence import ReusableModuleContract
 from .workflow_models import WorkflowSpec
+
+
+TemplateCategory = Literal[
+    "code_engineering",
+    "data_analysis",
+    "customer_service",
+    "content_creation",
+    "task_management",
+    "agent_architecture",
+]
 
 
 class ProvenanceSource(BaseModel):
@@ -28,16 +39,13 @@ class TemplateMeta(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     title: str = Field(min_length=1, max_length=200)
     description: str = Field(default="", max_length=2000)
-    category: Literal[
-        "code_engineering", "data_analysis", "customer_service",
-        "content_creation", "task_management", "agent_architecture",
-    ] = "task_management"
+    category: TemplateCategory = "task_management"
     icon: str = "workflow"
     tags: list[str] = Field(default_factory=list)
     expected_inputs: dict[str, str] = Field(default_factory=dict)
     expected_outputs: dict[str, str] = Field(default_factory=dict)
     author: str = "platform"
-    version: int = 1
+    version: int = Field(default=1, ge=1)
     min_blocks_required: list[str] = Field(default_factory=list)
     # Provenance tracking
     provenance: list[ProvenanceSource] = Field(default_factory=list)
@@ -75,8 +83,9 @@ class Template(BaseModel):
 
     meta: TemplateMeta
     workflow: WorkflowSpec
+    module_contract: ReusableModuleContract | None = None
 
-    model_config = {"extra": "forbid"}
+    model_config = ConfigDict(extra="forbid")
 
 
 class TemplateCreateRequest(BaseModel):
@@ -84,6 +93,7 @@ class TemplateCreateRequest(BaseModel):
 
     title: str = Field(min_length=1, max_length=200)
     description: str = Field(default="", max_length=2000)
-    category: TemplateMeta.model_fields["category"].annotation = "task_management"
+    category: TemplateCategory = "task_management"
     tags: list[str] = Field(default_factory=list)
     icon: str = "workflow"
+    module_contract: ReusableModuleContract | None = None
