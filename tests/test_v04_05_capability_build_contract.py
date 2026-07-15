@@ -643,7 +643,12 @@ def test_frontend_carries_option_effects_and_contract_into_creation() -> None:
     assert "question.decision_axis" in home
     assert "data-capability-build-contract" in home
     assert "data-capability-kind={kind}" in home
+    assert "data-capability-ownership=\"separated-harness-layers\"" in home
+    assert "data-capability-coverage-owner={coverage.owner}" in home
+    assert "data-capability-evidence-plan=\"scoped\"" in home
+    assert "'workflow_runtime' | 'evaluation_harness' | 'platform_harness' | 'external_system'" in home
     assert "capability_build_contract: capabilityBuildContract" in home
     assert "isCodexWorkspaceRequirement(requirement) && !capabilityBuildContract" in home
     assert ".capability-build-contract" in styles
+    assert ".capability-contract-ownership" in styles
     assert ".requirement-option-effects" in styles

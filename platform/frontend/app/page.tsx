@@ -67,6 +67,7 @@ type CapabilityContractItem = {
   required_envelope: string
   availability?: string
 }
+type CapabilityCoverageOwner = 'workflow_runtime' | 'evaluation_harness' | 'platform_harness' | 'external_system'
 type CapabilityBuildContract = {
   contract_id: string
   source_requirement: string
@@ -78,6 +79,8 @@ type CapabilityBuildContract = {
   required_envelope: string
   risk_level: string
   carrier_decisions: { capability_id: string; carrier_type: string; resource_hint: string }[]
+  platform_coverage: { capability_id: string; owner: CapabilityCoverageOwner; status: string; surface: string }[]
+  evidence_plan: { capability_ids: string[]; target_level: string; environment: string; expected_status: string; claim_scope: string }[]
   claim_scope: { ceiling: string; verified: string[]; excluded: string[] }
   unresolved_decisions: string[]
 }
@@ -870,6 +873,24 @@ export default function Home() {
                   <b>{kind}</b>
                   {items.map(item => <span key={item.id}><code>{item.id}</code>{item.title}<small>{item.required_envelope}{item.availability ? ` · ${item.availability}` : ''}</small></span>)}
                 </article>)}
+              </div>
+              <div className="capability-contract-ownership" data-capability-ownership="separated-harness-layers">
+                <strong>{locale === 'zh' ? '责任归属' : 'Responsibility ownership'}</strong>
+                <dl>
+                  {displayedCapabilityContract.platform_coverage.map(coverage => <div key={`${coverage.capability_id}-${coverage.owner}`} data-capability-coverage-owner={coverage.owner}>
+                    <dt><code>{coverage.capability_id}</code></dt>
+                    <dd>{coverage.owner} · {coverage.status}<small>{coverage.surface}</small></dd>
+                  </div>)}
+                </dl>
+              </div>
+              <div className="capability-contract-evidence" data-capability-evidence-plan="scoped">
+                <strong>{locale === 'zh' ? '证据目标' : 'Evidence targets'}</strong>
+                <dl>
+                  {displayedCapabilityContract.evidence_plan.map((evidence, index) => <div key={`${evidence.capability_ids.join('-')}-${index}`}>
+                    <dt>{evidence.capability_ids.join(', ')}</dt>
+                    <dd>{evidence.target_level} · {evidence.environment} · {evidence.expected_status}<small>{evidence.claim_scope}</small></dd>
+                  </div>)}
+                </dl>
               </div>
               <footer>
                 <span>{displayedCapabilityContract.carrier_decisions.length} carriers</span>
