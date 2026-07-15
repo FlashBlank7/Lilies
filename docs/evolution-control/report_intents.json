@@ -2,7 +2,9 @@
   "schema_version": "1.0",
   "registry_id": "LILIES-SCENARIO-CAPABILITY-REPORT-2026-07",
   "source_report": "docs/lilies_agent_scenario_capability_boundary_v0_4_x_latest.docx",
-  "program_charter_lock": "docs/evolution-control/program_charter_lock.json",
+  "campaign_objective": "Implement and verify every capability-boundary report intent in Lilies; all stage, contract, test, archive, and evidence mechanisms are subordinate to this outcome.",
+  "priority_rule": "latest_user_instruction > report_campaign_and_intent_registry > stage_report_sequence > stage_contract > current_design > working_evidence",
+  "program_charter_lock": "docs/evolution-control/program_charter_lock_v1_2.json",
   "task_authority": "stage_report_only",
   "terminal_statuses": [
     "implemented_verified",
@@ -353,6 +355,34 @@
         "docs/stage-report-archives/v0.3.x/README.md",
         "scripts/validate_evolution_control.py",
         "tests/test_evolution_control.py"
+      ]
+    },
+    {
+      "id": "EVOL-007",
+      "category": "evolution",
+      "priority": "P0",
+      "statement": "Separate implementation completion from external evidence availability and preserve unavailable higher evidence as scoped debt.",
+      "acceptance": "An unavailable browser, model, tool, customer environment, or live integration records blocked_by_environment, achieved level, claim ceiling, and recheck trigger without stopping unrelated report work or fabricating a pass.",
+      "status": "in_progress",
+      "evidence": [
+        "docs/evolution-control/PROGRAM_CHARTER.md",
+        "AGENTS.md",
+        "skills-tempmask/lilies-evolution-development/SKILL.md"
+      ]
+    },
+    {
+      "id": "EVOL-008",
+      "category": "evolution",
+      "priority": "P0",
+      "statement": "Permit campaign-wide blocking only when every remaining authorized report-intent route is blocked.",
+      "acceptance": "Validators and resume hooks preserve the report campaign as highest priority, reject stage-local evidence-provider self-blocking, and prevent repeated unchanged external probes from replacing implementation progress.",
+      "status": "in_progress",
+      "evidence": [
+        "scripts/validate_evolution_control.py",
+        "scripts/evolution_session_context.py",
+        "scripts/evolution_stop_guard.py",
+        "tests/test_evolution_control.py",
+        "tests/test_evolution_hooks.py"
       ]
     }
   ]

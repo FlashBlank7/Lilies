@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -12,7 +13,9 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def load_validator() -> Any:
     module_path = ROOT / "scripts" / "validate_evolution_control.py"
-    spec = importlib.util.spec_from_file_location("evolution_control_validator_under_test", module_path)
+    spec = importlib.util.spec_from_file_location(
+        "evolution_control_validator_under_test", module_path
+    )
     assert spec is not None
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
@@ -27,11 +30,59 @@ def test_report_intent_registry_is_valid() -> None:
     assert module.validate_registry() == []
 
 
+def test_campaign_priority_outranks_stage_mechanics_and_external_evidence() -> None:
+    registry = json.loads(
+        (ROOT / "docs/evolution-control/report_intents.json").read_text(encoding="utf-8")
+    )
+    agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    skill = (ROOT / "skills-tempmask/lilies-evolution-development/SKILL.md").read_text(
+        encoding="utf-8"
+    )
+    gates = (
+        ROOT / "skills-tempmask/lilies-evolution-development/references/operating-gates.md"
+    ).read_text(encoding="utf-8")
+
+    assert (
+        "Implement and verify every capability-boundary report intent"
+        in registry["campaign_objective"]
+    )
+    assert "Campaign Supremacy" in agents
+    assert "Campaign Objective Is Supreme" in skill
+    assert "Evidence Ceiling Gate" in gates
+    assert "Do not retry the same unchanged external condition" in skill
+    assert "Only classify the campaign as blocked" in gates
+
+
+def test_external_evidence_stop_cannot_freeze_authorized_campaign_tasks(tmp_path: Path) -> None:
+    module = load_validator()
+    source = (
+        ROOT / "docs/stage-reports/v0.4.3_usability_modes_evidence_and_regression_stabilization.md"
+    )
+    text = source.read_text(encoding="utf-8")
+    text = re.sub(r"^- Continue:.*$", "- Continue: no", text, flags=re.MULTILINE)
+    text = re.sub(
+        r"^- Stop reason, if any:.*$",
+        "- Stop reason, if any: Browser evidence provider is unavailable",
+        text,
+        flags=re.MULTILINE,
+    )
+    report = tmp_path / source.name
+    report.write_text(text, encoding="utf-8")
+
+    errors = module.validate_stage_report(report)
+
+    assert any(
+        "evidence unavailability cannot block the report campaign" in error for error in errors
+    )
+
+
 def test_current_contract_lock_is_frozen_in_its_first_git_commit() -> None:
     module = load_validator()
     report = ROOT / "docs/stage-reports/v0.4.2_report_baseline_and_evolution_control.md"
     text = report.read_text(encoding="utf-8")
-    source = module.parse_first_table(module.section_text(text, "Source Task Set", ["Stage Contract"]))
+    source = module.parse_first_table(
+        module.section_text(text, "Source Task Set", ["Stage Contract"])
+    )
     contract = module.section_text(text, "Stage Contract", ["Stage Objective"])
     mandatory, optional = module.contract_tables(contract)
 
@@ -108,7 +159,10 @@ def test_closure_pass_rejects_incomplete_mandatory_task(tmp_path: Path) -> None:
     module = load_validator()
     template = (ROOT / "docs/stage-reports/STAGE_REPORT_TEMPLATE.md").read_text(encoding="utf-8")
     text = (
-        template.replace("Explain why this is a serious version-sized unit. A prerequisite-only or repeated one-design version is invalid unless it is an explicit hotfix exception.", "Vertical process repair across docs, validator, tests, and runtime instructions.")
+        template.replace(
+            "Explain why this is a serious version-sized unit. A prerequisite-only or repeated one-design version is invalid unless it is an explicit hotfix exception.",
+            "Vertical process repair across docs, validator, tests, and runtime instructions.",
+        )
         .replace("`TASK-001`", "`V04-02-T01`")
         .replace("`INTENT-001`", "`EVOL-001`")
         .replace("process / backend / frontend / runtime / test / report / operations", "process")
@@ -158,7 +212,8 @@ def test_masked_skill_cannot_legalize_drift_or_tiny_versions() -> None:
     assert "open the smallest next stage" not in combined
     assert "Shrink the next stage" not in combined
     assert "explicitly blocked/deferred with evidence" not in combined
-    assert "If a mandatory task is blocked" in combined
+    assert "If mandatory behavior is blocked" in combined
+    assert "higher external evidence" in combined
     assert "keep the stage open" in combined.lower()
 
 
@@ -166,7 +221,9 @@ def test_frozen_lock_rejects_deleted_or_reclassified_mandatory_task(tmp_path: Pa
     module = load_validator()
     source = ROOT / "docs/stage-reports/v0.4.2_report_baseline_and_evolution_control.md"
     text = source.read_text(encoding="utf-8")
-    row = next(line for line in text.splitlines() if "`V04-02-T01A`" in line and "| report |" in line)
+    row = next(
+        line for line in text.splitlines() if "`V04-02-T01A`" in line and "| report |" in line
+    )
     report = tmp_path / "v0.4.2_tampered.md"
     report.write_text(text.replace(row + "\n", "", 1), encoding="utf-8")
 
@@ -242,7 +299,9 @@ def test_workingon_cannot_define_next_stage_authority(tmp_path: Path) -> None:
     module = load_validator()
     workingon = tmp_path / "docs/workingon"
     workingon.mkdir(parents=True)
-    (workingon / "bad.md").write_text("## Next-stage Task Set\n\n- Next version: v9.9.9\n", encoding="utf-8")
+    (workingon / "bad.md").write_text(
+        "## Next-stage Task Set\n\n- Next version: v9.9.9\n", encoding="utf-8"
+    )
     (workingon / "bad.json").write_text(json.dumps({"next_task_id": "TASK-999"}), encoding="utf-8")
 
     errors = module.validate_workingon_authority(tmp_path)
@@ -253,7 +312,9 @@ def test_workingon_cannot_define_next_stage_authority(tmp_path: Path) -> None:
 
 def test_terminal_registry_intent_requires_evidence(tmp_path: Path) -> None:
     module = load_validator()
-    registry = json.loads((ROOT / "docs/evolution-control/report_intents.json").read_text(encoding="utf-8"))
+    registry = json.loads(
+        (ROOT / "docs/evolution-control/report_intents.json").read_text(encoding="utf-8")
+    )
     registry["source_report"] = "docs/source.docx"
     registry["intents"][0]["status"] = "implemented_verified"
     registry["intents"][0]["evidence"] = []

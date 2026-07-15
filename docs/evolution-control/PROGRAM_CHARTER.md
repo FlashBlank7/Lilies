@@ -5,13 +5,27 @@
 | Field | Value |
 | --- | --- |
 | Charter ID | `LILIES-REPORT-APPLICATION-2026-07` |
-| Charter version | `1.1` |
+| Charter version | `1.2` |
 | Status | `frozen` |
 | Source report | `docs/lilies_agent_scenario_capability_boundary_v0_4_x_latest.docx` |
-| Source instruction | User instruction on 2026-07-16 to absorb the report annotations and apply the complete report to Lilies |
+| Source instruction | User instructions on 2026-07-16 to absorb the report annotations, apply the complete report to Lilies, and make that campaign outrank local process or evidence gates |
 | Task authority | Latest valid stage report only |
 
 This charter is an intent constraint and completion contract. It is not a backlog and must not be used to select a next version directly.
+
+## Campaign Objective And Priority
+
+The campaign's highest-priority outcome is to implement and verify every intent extracted from the source capability-boundary report. Stage reports sequence that work; they do not compete with it.
+
+Authority is ordered as follows:
+
+1. the latest explicit user instruction;
+2. this report-application campaign objective and `report_intents.json`;
+3. the latest valid stage report's task sequencing;
+4. the locked Stage Contract;
+5. current-design expansion and working evidence.
+
+A lower layer may constrain how a claim is verified, but it may not silently narrow the campaign, turn its own mechanism into the product goal, or indefinitely stop unrelated report intents.
 
 ## Product North Star
 
@@ -41,6 +55,8 @@ Engineering Harness mechanisms must improve delivery reliability without making 
 4. `EVOL-004`: Implementation-route changes are allowed when objective and acceptance remain unchanged; goal, boundary, priority, or acceptance changes require the recorded authority defined below.
 5. `EVOL-005`: Resume, context compaction, or a new session reloads this charter, the current Stage Contract, current task ID, and current evidence before planning.
 6. `EVOL-006`: A version advances only for a coherent vertical capability, complete experiment, process-architecture repair, or explicit hotfix exception; repeated prerequisite-only versions are prohibited, and major-version closure includes the complete stage-report archive and unresolved-intent audit.
+7. `EVOL-007`: Evidence availability and implementation completion are separate. An unavailable browser, provider, customer environment, or live integration produces a scoped evidence ceiling and debt record; it does not become a campaign blocker while another authorized report-intent route remains.
+8. `EVOL-008`: A blocker is campaign-wide only when no remaining report intent can make meaningful progress, or when safety, irreversible action, or a genuine product decision requires user authority. Repeating an unchanged external probe is not progress.
 
 ## Deviation Authority
 
@@ -57,11 +73,13 @@ A stage is complete only when all conditions hold:
 
 1. Every accepted mandatory task has status `completed` and points to evidence.
 2. Every mandatory acceptance criterion has a deterministic result.
-3. Relevant focused, regression, integration, browser, live-model, or real-tool checks have run; skipped checks state why and cannot support a broader claim.
+3. Relevant focused, regression, integration, browser, live-model, or real-tool checks have run at the contracted closure floor. Unavailable higher evidence is recorded as `blocked_by_environment`, carries a claim ceiling and recheck trigger, and cannot support a broader claim.
 4. Behavior-affecting changes invalidate stale evidence and rerun the applicable checks.
 5. Closure Audit reports no missing mandatory task, weakened acceptance, unsupported claim, or disappearing intent ID.
 6. The stage is large enough under its declared closure type.
 7. The stage report passes the current template and evolution-control validators.
+
+The contracted closure floor must be honest and useful. It may not claim product-level browser, live-model, real-tool, customer-environment, or production behavior without that evidence. A user-approved contract revision may convert an accidentally over-specified external evidence requirement into scoped evidence debt while preserving the implemented behavior and original report intent.
 
 ## Campaign Completion Contract
 
@@ -83,7 +101,7 @@ On startup, resume, or context compaction:
 3. Load the current mandatory task ID and source intent IDs.
 4. Inspect current-design and workingon evidence for that task.
 5. Verify repository status and existing user changes.
-6. Continue the same task. Do not generate a new next step while the current mandatory task remains open.
+6. Continue the same task while it has an actionable implementation route. If only a higher external evidence level is unavailable, persist the claim ceiling and evidence debt, then continue the authorized report campaign instead of repeatedly probing or declaring the campaign blocked.
 
 ## Relationship To Codex Long-Running Work
 

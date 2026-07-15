@@ -7,7 +7,9 @@ from typing import Any
 
 
 def load_validator() -> Any:
-    module_path = Path(__file__).resolve().parents[1] / "scripts" / "validate_stage_report_template.py"
+    module_path = (
+        Path(__file__).resolve().parents[1] / "scripts" / "validate_stage_report_template.py"
+    )
     spec = importlib.util.spec_from_file_location("stage_report_validator_under_test", module_path)
     assert spec is not None
     module = importlib.util.module_from_spec(spec)
@@ -19,10 +21,16 @@ def load_validator() -> Any:
 
 def test_stage_report_template_contains_required_sections() -> None:
     module = load_validator()
-    template = Path(__file__).resolve().parents[1] / "docs" / "stage-reports" / "STAGE_REPORT_TEMPLATE.md"
+    template = (
+        Path(__file__).resolve().parents[1] / "docs" / "stage-reports" / "STAGE_REPORT_TEMPLATE.md"
+    )
 
     assert module.validate_stage_report(template) == []
     assert module.report_template_version(template.read_text(encoding="utf-8")) == 2
+    text = template.read_text(encoding="utf-8")
+    assert "## Campaign Alignment" in text
+    assert "## Evidence Debt" in text
+    assert "Claim ceiling" in text
 
 
 def test_stage_report_validator_rejects_missing_sections(tmp_path: Path) -> None:
@@ -38,7 +46,9 @@ def test_stage_report_validator_rejects_missing_sections(tmp_path: Path) -> None
 
 def test_stage_report_validator_rejects_unlocked_v2_contract(tmp_path: Path) -> None:
     module = load_validator()
-    template = Path(__file__).resolve().parents[1] / "docs" / "stage-reports" / "STAGE_REPORT_TEMPLATE.md"
+    template = (
+        Path(__file__).resolve().parents[1] / "docs" / "stage-reports" / "STAGE_REPORT_TEMPLATE.md"
+    )
     report = tmp_path / "bad_v2.md"
     text = template.read_text(encoding="utf-8").replace(
         "- Contract status: locked",
@@ -53,7 +63,9 @@ def test_stage_report_validator_rejects_unlocked_v2_contract(tmp_path: Path) -> 
 
 def test_stage_report_validator_requires_frozen_contract_markers(tmp_path: Path) -> None:
     module = load_validator()
-    template = Path(__file__).resolve().parents[1] / "docs" / "stage-reports" / "STAGE_REPORT_TEMPLATE.md"
+    template = (
+        Path(__file__).resolve().parents[1] / "docs" / "stage-reports" / "STAGE_REPORT_TEMPLATE.md"
+    )
     report = tmp_path / "missing_lock.md"
     text = template.read_text(encoding="utf-8").replace("- Contract lock:", "- Removed lock:")
     report.write_text(text, encoding="utf-8")
@@ -65,7 +77,9 @@ def test_stage_report_validator_requires_frozen_contract_markers(tmp_path: Path)
 
 def test_stage_report_validator_rejects_workingon_handoff(tmp_path: Path) -> None:
     module = load_validator()
-    template = Path(__file__).resolve().parents[1] / "docs" / "stage-reports" / "STAGE_REPORT_TEMPLATE.md"
+    template = (
+        Path(__file__).resolve().parents[1] / "docs" / "stage-reports" / "STAGE_REPORT_TEMPLATE.md"
+    )
     report = tmp_path / "bad_handoff.md"
     text = template.read_text(encoding="utf-8").replace(
         "- First task ID:",

@@ -41,11 +41,7 @@ def is_v2_stage_report(path: Path) -> bool:
 
 def v2_stage_reports(root: Path) -> list[Path]:
     return sorted(
-        [
-            path
-            for path in (root / "docs/stage-reports").glob("v*.md")
-            if is_v2_stage_report(path)
-        ],
+        [path for path in (root / "docs/stage-reports").glob("v*.md") if is_v2_stage_report(path)],
         key=version_key,
     )
 
@@ -56,6 +52,18 @@ def stage_report_errors(root: Path, path: Path) -> list[str]:
         return validate_stage_report(path, registry)
     except (OSError, ValueError, KeyError, json.JSONDecodeError) as error:
         return [f"validator error: {error}"]
+
+
+def campaign_state(root: Path) -> dict[str, str]:
+    registry_path = root / "docs/evolution-control/report_intents.json"
+    try:
+        registry = json.loads(registry_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {"campaign_objective": "missing", "campaign_priority_rule": "missing"}
+    return {
+        "campaign_objective": str(registry.get("campaign_objective", "missing")),
+        "campaign_priority_rule": str(registry.get("priority_rule", "missing")),
+    }
 
 
 def latest_v2_stage_report(root: Path) -> Path | None:
@@ -79,6 +87,7 @@ def bullet_value(block: str, label: str) -> str:
 
 
 def active_stage_state(root: Path) -> dict[str, str]:
+    campaign = campaign_state(root)
     candidates = v2_stage_reports(root)
     report = latest_v2_stage_report(root)
     invalid = [path for path in candidates if stage_report_errors(root, path)]
@@ -89,6 +98,7 @@ def active_stage_state(root: Path) -> dict[str, str]:
     ]
     if report is None:
         return {
+            **campaign,
             "stage_report": "none",
             "current_task_id": "none",
             "closure_verdict": "none",
@@ -101,6 +111,7 @@ def active_stage_state(root: Path) -> dict[str, str]:
     closure = section_text(text, "Closure Audit", "Deviations")
     contract = section_text(text, "Stage Contract", "Stage Objective")
     return {
+        **campaign,
         "stage_report": report.relative_to(root).as_posix(),
         "current_task_id": bullet_value(handoff, "Current task ID") or "none",
         "closure_verdict": bullet_value(closure, "Verdict") or "missing",

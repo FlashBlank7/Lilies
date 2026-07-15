@@ -7,14 +7,35 @@ description: Execute Lilies report-driven development workflows. Use in the Lili
 
 Use this skill to run Lilies work as an execution process, not passive documentation. A `current-design` file is an implementation contract for one accepted task; after writing it, implement and verify it unless the user explicitly asks for design-only work.
 
+## Campaign Objective Is Supreme
+
+Treat completion of every intent in the capability-boundary report as the highest objective. Use this authority order:
+
+1. latest explicit user instruction;
+2. report campaign objective and `report_intents.json`;
+3. latest valid stage report for sequencing;
+4. Stage Contract;
+5. current design and working evidence.
+
+Never let a stage mechanism, test provider, archive rule, or repeated diagnostic become a competing mission. Stage reports still select the next task, but they must serve the campaign and cannot indefinitely freeze unrelated report work.
+
+Separate implementation state from evidence level:
+
+- Fix implementation failures inside the current task.
+- When browser, model, tool, customer environment, or another external evidence surface is unavailable, record `blocked_by_environment`, achieved level, claim ceiling, and recheck trigger.
+- Do not claim the unavailable level passed.
+- Do not retry the same unchanged external condition on later turns. Continue an authorized report-intent route.
+- Treat the whole campaign as blocked only when no remaining intent has a valid implementation, design, deterministic-test, or contract route, or when safety, irreversible action, or a genuine product decision requires user authority.
+- If an earlier contract accidentally made an external evidence provider a campaign lock, use explicit user authority to revise it to truthful scoped closure and preserved evidence debt.
+
 ## Required Repo Context
 
 Operate in `/Users/zhonghaoyang/Code/agent/Lilies` unless the user gives another Lilies checkout.
 
 Before substantial work, read the smallest authoritative set first, in authority order:
 
-1. `docs/evolution-control/PROGRAM_CHARTER.md`
-2. `docs/evolution-control/report_intents.json`
+1. `docs/evolution-control/PROGRAM_CHARTER.md`, especially Campaign Objective And Priority
+2. `docs/evolution-control/report_intents.json`, especially `campaign_objective`
 3. the current `docs/stage-reports/v*.md`, especially its locked `Stage Contract`, `Closure Audit`, and `Automatic Evolution Handoff`
 4. `docs/PROJECT_EVOLUTION_STRATEGY.md`
 5. `docs/README.md`
@@ -96,6 +117,7 @@ Use **Rapid Result Report** mode when the user asks what happened across version
    - Use deterministic tests for implementation correctness.
    - Use bounded paid/live model tests when behavior depends on model output, Builder quality, benchmark validity, workflow generation, tool execution, or Platform Harness enforcement.
    - Record provider/model, budget boundary, command, result, failure mode, and evidence path.
+   - Distinguish the contracted closure floor from desired higher evidence. External unavailability limits claims and creates evidence debt; it is not implementation failure.
 
 6. Run a closure audit against the locked contract.
    - Use a fresh-context read-only reviewer when available. The reviewer reads the Program Charter, current stage contract, diff, and evidence instead of trusting the implementation summary.
@@ -125,7 +147,7 @@ Use **Rapid Result Report** mode when the user asks what happened across version
   - a P0 process/architecture repair touching the skill, templates, gates, and validation,
   - or an explicit emergency/hotfix/blocker exception with written justification.
 - If a version would archive only one historical design, record why that is legitimate. If recent history repeatedly has one-design versions, treat it as a process smell and consolidate the next stage instead of advancing another tiny version.
-- Every mandatory task must be completed and pass its acceptance criteria. A blocked or deferred mandatory task keeps the version open; it cannot be converted into completion by documentation.
+- Every mandatory implementation task must be completed and pass its contracted acceptance criteria. Documentation cannot convert missing behavior into completion. A higher external evidence target may close only as explicit evidence debt under a user-approved scoped contract, and the unavailable level must remain unclaimed.
 - Optional tasks may be rejected, deferred, or superseded with evidence, but their source intent must remain visible in `Intent Coverage` and a later stable task when still applicable.
 - Every experiment must produce the required report artifact before it is called complete; for Lilies this normally means a concise `.docx` plus evidence.
 - Never use an unfinished experiment as the basis for broad engineering improvement.
@@ -145,6 +167,8 @@ For detailed gates, read `references/operating-gates.md`, `references/archive-an
 
 Automatic Evolution Mode is a chain of finite, contract-locked stages: select the next version from the latest stage report's `Next-stage Task Set`, write source-linked designs, implement them, verify, run closure audit, archive with the mandatory stage-report template, commit, then resume from the next stable task ID. It continues until the user explicitly pauses/stops, the in-scope campaign reaches a terminal state, or a real blocker leaves no valid task route.
 
+`Real blocker` means campaign-wide, not stage-local. Missing optional Browser infrastructure, a single unavailable provider, or a desired higher evidence level is not campaign-wide while other report intents can progress. Probe once, persist the evidence ceiling, and move on. Do not spend consecutive turns reconfirming unchanged infrastructure.
+
 Automatic evolution is not permission to invent an unbounded mission. The Program Charter and intent registry preserve the campaign, while each stage report defines a bounded task set and definition of done. Use small implementation batches inside a serious version; do not create a new tiny version merely to report progress.
 
 If a phase closeout is selected, complete the phase archive before stopping or starting the next major version: phase report, stage-report set archive, archive README files, docs index updates, and skill/process gate updates when a process gap caused the issue.
@@ -155,7 +179,7 @@ A final answer is allowed only when:
 
 - the user explicitly pauses/stops or asks to stop after the current version,
 - every in-scope campaign intent has one of the allowed terminal statuses: `implemented_verified`, `experiment_rejected`, `superseded_preserved`, or `user_rejected`,
-- a real blocker exists: credentials/services missing, unbounded cost, destructive action needing consent, safety/privacy/legal risk, merge conflict, or no valid next-stage source.
+- a real campaign blocker exists: every authorized report-intent route is exhausted by the same missing dependency, unbounded cost, destructive action needing consent, safety/privacy/legal risk, unrecoverable merge conflict, or absent/contradictory campaign authority.
 
 Before each final answer in this mode, ask: "Does the active stage have a current stable task ID, an unfinished mandatory contract item, or an authorized next stable task ID?" If yes and the user did not ask to pause, keep going. Never derive this answer from `workingon`.
 

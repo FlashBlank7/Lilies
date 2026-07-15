@@ -29,9 +29,10 @@ def stop_warning(root: Path) -> str:
         f"Stage {state['stage_report']} remains open with closure={state['closure_verdict']} "
         f"and current task={state['current_task_id']}; invalid newer reports={invalid_newer}. "
         "Do not claim stage or campaign completion. "
-        "Persist intermediate evidence, resume the same mandatory task, and run the closure validators "
-        "before archive or version advancement. An explicit user pause may stop execution without "
-        "changing the stage status."
+        "Persist intermediate evidence, resume actionable implementation, and run the closure validators "
+        "before archive or version advancement. A stage-local external evidence ceiling is not a campaign "
+        "blocker: cap the claim, record evidence debt, and continue authorized report work. An explicit user "
+        "pause may stop execution without changing the stage status."
     )
 
 

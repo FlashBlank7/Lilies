@@ -49,10 +49,25 @@ def repository_root_for_registry(path: Path) -> Path:
     return ROOT
 
 
-def validate_registry(path: Path = DEFAULT_REGISTRY, *, require_terminal: bool = False) -> list[str]:
+def validate_registry(
+    path: Path = DEFAULT_REGISTRY, *, require_terminal: bool = False
+) -> list[str]:
     data = load_registry(path)
     root = repository_root_for_registry(path)
     errors: list[str] = []
+    if not str(data.get("campaign_objective", "")).strip():
+        errors.append("registry campaign_objective is missing")
+    priority_rule = str(data.get("priority_rule", ""))
+    required_priority_layers = (
+        "latest_user_instruction",
+        "report_campaign_and_intent_registry",
+        "stage_report_sequence",
+        "stage_contract",
+    )
+    if not all(layer in priority_rule for layer in required_priority_layers):
+        errors.append(
+            "registry priority_rule does not keep the report campaign above stage mechanics"
+        )
     if data.get("task_authority") != "stage_report_only":
         errors.append("registry task_authority must be stage_report_only")
     terminal = set(data.get("terminal_statuses", []))
@@ -264,7 +279,9 @@ def validate_program_charter_lock(
     if lock.get("charter_sha256") != digest:
         errors.append("Program Charter differs from its frozen SHA-256 lock")
     charter_text = charter_path.read_text(encoding="utf-8")
-    version_match = re.search(r"^\| Charter version \| `([^`]+)` \|$", charter_text, flags=re.MULTILINE)
+    version_match = re.search(
+        r"^\| Charter version \| `([^`]+)` \|$", charter_text, flags=re.MULTILINE
+    )
     charter_version = version_match.group(1) if version_match else ""
     if lock.get("charter_version") != charter_version:
         errors.append("Program Charter version does not match its lock")
@@ -283,7 +300,9 @@ def validate_program_charter_lock(
             frozen_lock = git_file_at_commit(root, baseline_commit, relative_lock)
             if frozen_lock != lock_path.read_bytes():
                 errors.append("Program Charter lock differs from its first Git commit")
-            frozen_charter = git_file_at_commit(root, baseline_commit, charter_path.relative_to(root).as_posix())
+            frozen_charter = git_file_at_commit(
+                root, baseline_commit, charter_path.relative_to(root).as_posix()
+            )
             if frozen_charter != charter_path.read_bytes():
                 errors.append("Program Charter differs from the Charter-lock baseline commit")
     return errors
@@ -320,12 +339,14 @@ def validate_workingon_authority(root: Path) -> list[str]:
             forbidden = sorted(set(json_keys(payload)) & FORBIDDEN_WORKINGON_KEYS)
             for key in forbidden:
                 errors.append(f"workingon contains authoritative next-task key {key}: {relative}")
-            for key, value in (payload.items() if isinstance(payload, dict) else []):
+            for key, value in payload.items() if isinstance(payload, dict) else []:
                 if key == "task_authority" and value != "stage_report_only":
                     errors.append(f"workingon claims task authority: {relative}")
         if FORBIDDEN_WORKINGON_HEADINGS.search(text):
             errors.append(f"workingon contains authoritative next-task heading: {relative}")
-        if re.search(r"^- (?:First task ID|Next version):", text, flags=re.MULTILINE | re.IGNORECASE):
+        if re.search(
+            r"^- (?:First task ID|Next version):", text, flags=re.MULTILINE | re.IGNORECASE
+        ):
             errors.append(f"workingon contains authoritative handoff field: {relative}")
     return errors
 
@@ -340,7 +361,9 @@ def validate_prior_major_archives(root: Path, current_version: str) -> list[str]
     for path in sorted(active_dir.glob(f"v{major}.*.*.md")):
         path_match = re.match(rf"v{major}\.(\d+)\.(\d+)", path.name)
         if path_match and int(path_match.group(1)) < current_minor:
-            errors.append(f"completed prior-major stage report remains active: {path.relative_to(root)}")
+            errors.append(
+                f"completed prior-major stage report remains active: {path.relative_to(root)}"
+            )
     archive_index = root / "docs/stage-report-archives/README.md"
     archive_index_text = archive_index.read_text(encoding="utf-8") if archive_index.exists() else ""
     for minor in range(2, current_minor):
@@ -396,7 +419,11 @@ def validate_contract_lock(
         errors.append("stage contract lock version does not match the report")
     if str(lock.get("contract_revision", "")) != revision:
         errors.append("stage contract revision does not match the lock")
-    if lock.get("approval_ref") != approval or not approval or approval.lower() in {"none", "pending"}:
+    if (
+        lock.get("approval_ref") != approval
+        or not approval
+        or approval.lower() in {"none", "pending"}
+    ):
         errors.append("stage contract approval record is missing or does not match the lock")
     report_source = [normalized_task_row(row, source=True) for row in source_rows]
     report_mandatory = [normalized_task_row(row) for row in mandatory_rows]
@@ -465,7 +492,9 @@ def validate_stage_report(path: Path, registry_path: Path = DEFAULT_REGISTRY) ->
         disposition = clean_code(row.get("Disposition in this stage", "")).lower()
         if "accepted" in disposition and "mandatory" in disposition:
             accepted_mandatory_intents.update(intent_ids)
-        if any(marker in disposition for marker in ("carried", "deferred", "blocked", "superseded")):
+        if any(
+            marker in disposition for marker in ("carried", "deferred", "blocked", "superseded")
+        ):
             carried_source_rows.append(row)
 
     contract = section_text(text, "Stage Contract", ["Stage Objective"])
@@ -500,7 +529,13 @@ def validate_stage_report(path: Path, registry_path: Path = DEFAULT_REGISTRY) ->
         if not clean_code(row.get("Required evidence", "")):
             errors.append(f"mandatory task {task_id} has no required evidence")
         status = clean_code(row.get("Status", "")).lower()
-        if status not in {"accepted", "in_progress", "completed", "implemented_verified", "blocked"}:
+        if status not in {
+            "accepted",
+            "in_progress",
+            "completed",
+            "implemented_verified",
+            "blocked",
+        }:
             errors.append(f"mandatory task {task_id} has invalid status: {status or 'missing'}")
 
     optional_ids: set[str] = set()
@@ -556,7 +591,10 @@ def validate_stage_report(path: Path, registry_path: Path = DEFAULT_REGISTRY) ->
         for intent_id in split_ids(row.get("Source intent ID", ""), INTENT_ID_RE)
     }
     missing_coverage = sorted((source_intents | contract_intents) - covered_intents)
-    errors.extend(f"source or contract intent missing from Intent Coverage: {item}" for item in missing_coverage)
+    errors.extend(
+        f"source or contract intent missing from Intent Coverage: {item}"
+        for item in missing_coverage
+    )
 
     next_block = section_text(text, "Next-stage Task Set", ["Archive Commit"])
     next_table = parse_first_table(next_block)
@@ -576,14 +614,40 @@ def validate_stage_report(path: Path, registry_path: Path = DEFAULT_REGISTRY) ->
         next_intents.update(intent_ids)
 
     handoff = section_text(text, "Automatic Evolution Handoff")
+    continue_value = bullet_value(handoff, "Continue").lower()
     current_task = bullet_value(handoff, "Current task ID")
     first_task = bullet_value(handoff, "First task ID")
-    if verdict != "pass" and current_task and current_task.lower() != "none" and current_task not in mandatory_ids:
+    stop_reason = bullet_value(handoff, "Stop reason, if any")
+    if (
+        verdict != "pass"
+        and current_task
+        and current_task.lower() != "none"
+        and current_task not in mandatory_ids
+    ):
         errors.append(f"handoff Current task ID is not in the Stage Contract: {current_task}")
     if first_task and first_task.lower() != "none" and first_task not in next_task_ids:
         errors.append(f"handoff First task ID is not in Next-stage Task Set: {first_task}")
     if "First workingon" in handoff:
         errors.append("workingon cannot be used as handoff task authority")
+    evidence_only_stop = any(
+        marker in stop_reason.lower()
+        for marker in ("browser", "evidence provider", "verification environment", "live evidence")
+    )
+    if continue_value == "no" and next_rows and evidence_only_stop:
+        errors.append(
+            "stage-local evidence unavailability cannot block the report campaign while authorized next-stage tasks remain"
+        )
+
+    evidence_debt_block = section_text(text, "Evidence Debt", ["Intent Coverage"])
+    evidence_debt_table = parse_first_table(evidence_debt_block)
+    evidence_debt_rows = non_none_rows(evidence_debt_table, "Evidence debt ID")
+    if "blocked_by_environment" in text and not evidence_debt_rows:
+        errors.append("blocked_by_environment requires an Evidence Debt row")
+    for row in evidence_debt_rows:
+        debt_id = clean_code(row.get("Evidence debt ID", ""))
+        for field in ("Achieved level", "Claim ceiling", "Recheck trigger"):
+            if clean_code(row.get(field, "")).lower() in {"", "none", "pending"}:
+                errors.append(f"evidence debt {debt_id} is missing {field.lower()}")
 
     errors.extend(
         validate_contract_lock(
@@ -607,8 +671,13 @@ def validate_stage_report(path: Path, registry_path: Path = DEFAULT_REGISTRY) ->
         if len(mandatory_rows) < 3 or len(surfaces) < 3:
             errors.append("closure pass requires at least three distinct mandatory task surfaces")
         for task_id in sorted(mandatory_ids):
-            contract_row = next(row for row in mandatory_rows if clean_code(row.get("Task ID", "")) == task_id)
-            if clean_code(contract_row.get("Status", "")).lower() not in {"completed", "implemented_verified"}:
+            contract_row = next(
+                row for row in mandatory_rows if clean_code(row.get("Task ID", "")) == task_id
+            )
+            if clean_code(contract_row.get("Status", "")).lower() not in {
+                "completed",
+                "implemented_verified",
+            }:
                 errors.append(f"mandatory contract task not marked completed: {task_id}")
             completed_row = completed.get(task_id)
             if completed_row is None or clean_code(completed_row.get("Status", "")).lower() not in {
@@ -623,7 +692,8 @@ def validate_stage_report(path: Path, registry_path: Path = DEFAULT_REGISTRY) ->
                 check
                 for check in task_checks
                 if clean_code(check.get("Result", "")).lower() == "pass"
-                and clean_code(check.get("Evidence / exact command", "")).lower() not in {"", "none", "pending"}
+                and clean_code(check.get("Evidence / exact command", "")).lower()
+                not in {"", "none", "pending"}
             ]
             if not valid_checks:
                 errors.append(f"mandatory task has no passing verification evidence: {task_id}")
@@ -635,17 +705,25 @@ def validate_stage_report(path: Path, registry_path: Path = DEFAULT_REGISTRY) ->
                 errors.append(f"mandatory task acceptance did not pass: {task_id}")
             if clean_code(row.get("Evidence valid", "")).lower() not in {"yes", "pass", "true"}:
                 errors.append(f"mandatory task evidence is not valid: {task_id}")
-            if clean_code(row.get("Auditor finding", "")).lower() in {"", "none", "pending", "unknown"}:
+            if clean_code(row.get("Auditor finding", "")).lower() in {
+                "",
+                "none",
+                "pending",
+                "unknown",
+            }:
                 errors.append(f"mandatory task has no auditor finding: {task_id}")
         for row in mandatory_unresolved:
-            errors.append(f"mandatory unresolved item prevents closure: {clean_code(row.get('Task ID', ''))}")
+            errors.append(
+                f"mandatory unresolved item prevents closure: {clean_code(row.get('Task ID', ''))}"
+            )
         for source_row in carried_source_rows:
             task_id = clean_code(source_row.get("Task ID", ""))
             intent_ids = set(split_ids(source_row.get("Source intent IDs", ""), INTENT_ID_RE))
             unpreserved = sorted(
                 intent_id
                 for intent_id in intent_ids
-                if intent_id not in next_intents and intent_statuses.get(intent_id) not in terminal_statuses
+                if intent_id not in next_intents
+                and intent_statuses.get(intent_id) not in terminal_statuses
             )
             errors.extend(
                 f"carried source intent is absent from Next-stage Task Set: {task_id}/{intent_id}"
@@ -664,10 +742,15 @@ def main() -> None:
     parser.add_argument("--campaign-closure", action="store_true")
     args = parser.parse_args()
     failures = [
-        *(f"registry: {error}" for error in validate_registry(args.registry, require_terminal=args.campaign_closure))
+        *(
+            f"registry: {error}"
+            for error in validate_registry(args.registry, require_terminal=args.campaign_closure)
+        )
     ]
     for report in args.stage_reports:
-        failures.extend(f"{report}: {error}" for error in validate_stage_report(report, args.registry))
+        failures.extend(
+            f"{report}: {error}" for error in validate_stage_report(report, args.registry)
+        )
     if failures:
         print("\n".join(failures))
         raise SystemExit(1)

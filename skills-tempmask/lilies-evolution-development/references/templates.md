@@ -66,9 +66,10 @@ Always instantiate the canonical repository template at `docs/stage-reports/STAG
 3. A locked `Stage Contract` separating mandatory and optional tasks, with measurable acceptance criteria, required evidence, a contract-lock SHA-256 fingerprint, and a Git baseline commit.
 4. `Completed Work`, `Verification`, and a fresh-context `Closure Audit` mapped back to every mandatory task ID.
 5. `Deviations`, `Unresolved / Blocked / Deferred`, and `Intent Coverage`; mandatory unresolved work prevents archive.
-6. Product/experiment updates, historical-design recycling, and workingon archive records.
-7. `Next-stage Task Set` as the only next-task authority, again using stable task IDs and source intent IDs.
-8. `Automatic Evolution Handoff` with `Current task ID`, `Next version`, `First task ID`, and `Resume from stage report`.
+6. `Evidence Debt` for desired evidence above the contracted closure floor: achieved level, unavailable environment, claim ceiling, owner, and recheck trigger. Evidence debt cannot hide missing mandatory behavior.
+7. Product/experiment updates, historical-design recycling, and workingon archive records.
+8. `Next-stage Task Set` as the only next-task sequencing authority beneath the campaign objective, again using stable task IDs and source intent IDs.
+9. `Automatic Evolution Handoff` with `Current task ID`, `Next version`, `First task ID`, and `Resume from stage report`.
 
 Rule: a stage report is the next-stage authority. If a section has no content, write an explicit `none` row instead of omitting it. Workingon stores evidence only. Before archive, run both `scripts/validate_stage_report_template.py` and `scripts/validate_evolution_control.py`; a passing closure audit is mandatory.
 

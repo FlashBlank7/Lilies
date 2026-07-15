@@ -1,0 +1,7 @@
+{
+  "schema_version": "1.0",
+  "charter_path": "docs/evolution-control/PROGRAM_CHARTER.md",
+  "charter_version": "1.2",
+  "charter_sha256": "6f0c0de78fef1c2bea969a5a063fe00c6ee10d15ecd81d3cdc6d8bc7870505b2",
+  "approval_ref": "user instruction on 2026-07-16 that completing the capability-boundary report is the highest priority and all local gates are subordinate"
+}

@@ -2,6 +2,26 @@
 
 Use this reference for automatic evolution, full task expansion, design execution, closure checks, and continuation behavior.
 
+## Campaign Priority Gate
+
+- Completing and verifying the capability-boundary report is the highest objective.
+- Stage reports sequence campaign work; they do not outrank or redefine the campaign.
+- A local gate may limit a claim or keep one implementation task open. It may not stop unrelated authorized report intents unless no valid campaign route remains.
+- Before stopping, enumerate remaining non-terminal report intents and prove that none has an actionable implementation, design, deterministic-test, or contract route.
+
+## Evidence Ceiling Gate
+
+Classify an unavailable browser, model, tool, customer tenant, or live service as an evidence condition, not automatically as implementation failure.
+
+1. Probe the dependency once and record the exact result.
+2. Record achieved evidence level, intended level, `blocked_by_environment`, claim ceiling, evidence debt owner, and a concrete recheck trigger.
+3. Never report the unavailable level as passed.
+4. Do not repeat the same probe until the recheck trigger or external state changes.
+5. If the Stage Contract accidentally requires the unavailable provider itself, obtain or apply explicit user authority for a scoped contract revision. Preserve behavior acceptance and carry the higher evidence target as debt.
+6. Continue from the next authorized report task after truthful scoped closure.
+
+Only classify the campaign as blocked when the condition prevents every remaining authorized intent or requires user authority for safety, irreversible action, or product scope.
+
 ## Stage Authority
 
 - `stage-reports/` is the only layer that may guide the next stage.
@@ -23,7 +43,7 @@ Before implementation for every small version:
 6. Every current-design file must cite the source stage report and stable task ID.
 7. If the task set is too large for one version, obtain user approval for a contract revision; do not silently drop tasks or move them through workingon.
 8. Record disposition in `Source Task Set`, `Unresolved / Blocked / Deferred`, and `Intent Coverage`.
-9. Do not advance versions while any mandatory task is incomplete, blocked, deferred, unsupported by evidence, or absent from the closure audit.
+9. Do not advance versions while mandatory behavior is incomplete or unsupported at the contracted closure floor. Higher unavailable evidence may be carried only as explicit scoped debt under recorded user authority and a strict claim ceiling.
 
 ## Design Execution Gate
 
@@ -59,7 +79,7 @@ Before every small-version archive:
 4. If the version objective includes an experiment, do not mark it complete without its required report artifact.
 5. If an experiment result is used for engineering, confirm the ledger marks `已应用` or `验证应用`.
 6. If only a prerequisite was completed, continue the current version with the next bounded implementation batch; do not increment the version.
-7. If a mandatory task is blocked, record the blocker and decision authority and keep the stage open. Only optional work may be deferred or carried forward without a user-approved contract revision.
+7. If mandatory behavior is blocked, record the blocker and decision authority and keep the stage open. If only higher external evidence is unavailable, use a user-approved scoped contract revision, record evidence debt and claim ceiling, and continue the campaign.
 8. Run a fresh-context closure review against the locked contract, diff, and evidence.
 9. Validate the new stage report with `scripts/validate_stage_report_template.py` and `scripts/validate_evolution_control.py`.
 10. Archive only when every mandatory task is completed, evidence is valid, intent coverage is explicit, and both the closure audit and version-size gate pass.
@@ -131,7 +151,7 @@ After every archive commit in Automatic Evolution Mode:
 5. If an active `Current task ID` exists, resume that task before interpreting any summary or next-step prose.
 6. If the handoff says continue and a stable next task ID is authorized, do not final-answer. Select the declared next version, lock its contract, and start implementation.
 7. If a lane-selection, phase-report, governance, cleanup, or other decision task has a stable ID in the task set, execute that task inside the declared serious version. Do not invent a tiny planning version.
-8. Final answer only on explicit pause/stop, campaign terminal closure, or a real blocker.
+8. Final answer only on explicit pause/stop, campaign terminal closure, or a proven campaign-wide blocker. A stage-local evidence ceiling is not enough.
 
 Context pressure, long runtime, or fatigue is not a valid stop reason. Write a deterministic checkpoint, compact, and resume the same stable task and stage contract.
 
@@ -143,7 +163,7 @@ Context pressure, long runtime, or fatigue is not a valid stop reason. Write a d
 - Do not advance a version merely because one useful design is done. Continue within the same version until the selected stage scope is a serious closure unit or record an explicit exception.
 - Do not turn a mandatory task into optional, deferred, superseded, or complete without explicit user-approved contract revision.
 - Do not make unbounded paid calls; set budgets and record evidence.
-- Stop only for explicit user pause/stop, campaign terminal closure, irreversible action needing consent, missing credentials/services, unbounded cost, safety/privacy/legal risk, merge conflicts, or no valid next-stage source. "No meaningful single next task" is not a stop condition when an authorized selection or meta-planning task exists.
+- Stop only for explicit user pause/stop, campaign terminal closure, irreversible action needing consent, a dependency that blocks every remaining report intent, unbounded cost, safety/privacy/legal risk, unrecoverable merge conflicts, or absent/contradictory campaign authority. A missing service for one evidence level is not enough. "No meaningful single next task" is not a stop condition when an authorized selection or meta-planning task exists.
 
 ## Performance Rules
 

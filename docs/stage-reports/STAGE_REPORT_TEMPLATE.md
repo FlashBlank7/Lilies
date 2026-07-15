@@ -13,6 +13,15 @@
 | Closure level | backend slice / vertical slice / platform boundary / product capability / research experiment / process architecture |
 | Stage scope justification | Explain why this is a serious version-sized unit. A prerequisite-only or repeated one-design version is invalid unless it is an explicit hotfix exception. |
 
+## Campaign Alignment
+
+| Field | Value |
+| --- | --- |
+| Campaign objective | Implement and verify every intent in the capability-boundary report. |
+| Stage contribution | State which report intents become more true in this stage. |
+| Claim boundary | State the strongest evidence level this stage can honestly claim. |
+| Campaign blocker test | State why remaining gaps do or do not block every other authorized report intent. |
+
 ## Source Task Set
 
 | Task ID | Source intent IDs | Source task from previous stage report | Disposition in this stage | Design / evidence | Authority / reason |
@@ -82,6 +91,14 @@ State the single coherent version outcome and its customer, architecture, or exp
 | `none` | none | none | none | none | none |
 
 Mandatory tasks in this section prevent archive unless a user-approved Stage Contract revision removes or replaces them while preserving the original intent.
+
+## Evidence Debt
+
+| Evidence debt ID | Task ID | Intended level | Achieved level | Status | Unavailable dependency | Claim ceiling | Owner / carry target | Recheck trigger |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `none` | `none` | none | none | none | none | none | none | none |
+
+Evidence debt records desired verification above the contracted closure floor. It cannot hide missing mandatory behavior, and the unavailable level must never be reported as passed.
 
 ## Intent Coverage
 

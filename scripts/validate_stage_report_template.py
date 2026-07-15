@@ -24,6 +24,7 @@ LEGACY_REQUIRED_SECTIONS = [
 
 V2_REQUIRED_SECTIONS = [
     "Stage Identity",
+    "Campaign Alignment",
     "Source Task Set",
     "Stage Contract",
     "Stage Objective",
@@ -32,6 +33,7 @@ V2_REQUIRED_SECTIONS = [
     "Closure Audit",
     "Deviations",
     "Unresolved / Blocked / Deferred",
+    "Evidence Debt",
     "Intent Coverage",
     "Experiment / Product Status Updates",
     "Historical Designs",
@@ -71,12 +73,14 @@ def validate_stage_report(path: Path) -> list[str]:
     if version == 2:
         required_markers = {
             "stage contract must be locked": "- Contract status: locked",
+            "campaign alignment must state Campaign objective": "| Campaign objective |",
             "stage contract lock is missing": "- Contract lock:",
             "stage contract fingerprint is missing": "- Contract fingerprint:",
             "stage contract approval is missing": "- Contract approval:",
             "stage contract baseline commit is missing": "- Contract baseline commit:",
             "closure audit verdict is missing": "- Verdict:",
             "intent coverage table must include Source intent ID": "| Source intent ID | Before stage | After stage |",
+            "evidence debt table must include claim controls": "| Evidence debt ID | Task ID | Intended level | Achieved level | Status | Unavailable dependency | Claim ceiling | Owner / carry target | Recheck trigger |",
             "next-stage task table must include Task ID": "| Task ID | Source intent IDs | Task |",
             "handoff must identify Current task ID": "- Current task ID:",
             "handoff must identify First task ID": "- First task ID:",

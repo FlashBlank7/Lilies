@@ -1,4 +1,4 @@
 interface:
   display_name: "Lilies Evolution Development"
-  short_description: "Run and archive Lilies version evolution"
-  default_prompt: "Use $lilies-evolution-development to run a Lilies task through stage authority, current design, implementation evidence, small-version archive, major-version stage-report archive, and automatic next-version evolution when requested."
+  short_description: "Implement the Lilies report campaign without drift"
+  default_prompt: "Use $lilies-evolution-development to implement every capability-boundary report intent, keep stage sequencing subordinate to that campaign, track unavailable external evidence as scoped debt, verify honestly, archive coherent versions, and continue automatically without self-created blockers."
