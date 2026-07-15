@@ -1,0 +1,46 @@
+# v0.4.7 Governance Console and platform evidence
+
+Status: active
+Source task: `V04-07-T01`
+Mandatory tasks: `V04-07-T01F`, `V04-07-T01G`
+Source intents: `GOV-001`, `GOV-002`, `GOV-003`
+
+## Console information architecture
+
+The independent `/governance` console uses compact operational navigation:
+
+1. Overview: active, queued, failed, queue delay, p50/p95 duration, current workers, recent incidents.
+2. Cost & Tokens: input, output, cache-read, cache-creation, reasoning, cost source, spent and remaining budget over time with dimension filters.
+3. Reliability: retry, timeout, cancellation, stale task, lease expiry, resume, schedule deduplication, and worker heartbeat evidence.
+4. Policy & Risk: mutable policy controls, permission and policy outcomes, sandbox/egress/secret boundaries, and policy-change audit.
+5. Trace Explorer: global task search and parent-child drill-down into build, run, test, scheduler, model, node, and tool records.
+6. Capability Evidence: capability claim, implementation, default/config, API, automated test, integration, live evidence, telemetry, known gap, integrity, and claim level.
+7. Alerts & Incidents: budget, error-rate, queue, worker, tool, policy, and human-handoff signals, each with source and support status.
+
+The first implementation can use one route with internal tabs, but each tab must query typed APIs and show real empty/partial states. Static numbers and application-local monitor cards do not satisfy the design.
+
+## Platform capability enrollment
+
+Register governance-visible platform capabilities for the mechanisms implemented and tested in the repository, including task durability, queue leasing, worker heartbeat, policy controls, model usage telemetry, three-interface routing, and module evidence. Each claim has stable capability ID, bounded level, artifact links, known gaps, and integrity checks. Missing production telemetry caps the claim at local integration.
+
+## Alert derivation
+
+Initial alerts are deterministic observations over recorded state, not a production paging claim:
+
+- active budget exhausted or under a configurable remaining threshold;
+- failed task and recent failure concentration;
+- stale worker or expired lease;
+- queued task older than threshold;
+- denied policy action recorded in events;
+- unsupported token or cost field where a view requires it.
+
+Every alert identifies its detector, source timestamp, affected task/application/owner where available, severity, and resolution status. The console labels locally derived observations separately from production incidents.
+
+## Verification and closure
+
+- API contract tests for every console view and filter.
+- Evidence integrity and claim-ceiling tests for platform registrations.
+- Frontend static and production-build checks.
+- Browser filter, drill-down, empty-state, partial-support, policy, desktop, and mobile runs.
+- Current release gate, evolution-control suite, and full repository diagnostic.
+- Fresh closure audit reconstructing each mandatory result from code and evidence.

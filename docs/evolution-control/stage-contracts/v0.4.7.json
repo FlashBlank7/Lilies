@@ -1,0 +1,89 @@
+{
+  "schema_version": "1.0",
+  "stage_version": "v0.4.7",
+  "stage_report": "docs/stage-reports/v0.4.7_three_interface_governance_console.md",
+  "contract_revision": 1,
+  "approval_ref": "v0.4.6 closure handoff V04-07-T01 under the capability-boundary report campaign",
+  "source_tasks": [
+    {
+      "task_id": "V04-07-T01",
+      "source_intent_ids": ["GOV-001", "GOV-002", "GOV-003", "PRODUCT-008"],
+      "source_task": "Separate Customer Runtime, Engineer Studio, and Governance Console and expose platform task/cost/evidence views.",
+      "disposition": "accepted mandatory",
+      "authority": "v0.4.6 closure handoff and capability-boundary report campaign."
+    },
+    {
+      "task_id": "V04-08-T01",
+      "source_intent_ids": ["EVAL-001", "EVAL-002", "EVAL-003", "EVAL-004"],
+      "source_task": "Productize Evaluation Harness profiles, scoped verification states, generated tests, and environment selection.",
+      "disposition": "carried forward",
+      "authority": "Carried unchanged from v0.4.6."
+    },
+    {
+      "task_id": "V04-09-T01",
+      "source_intent_ids": ["ARCH-007", "EVAL-003", "EVAL-004", "SCENARIO-002"],
+      "source_task": "Implement the daily web-collection pressure scenario on a durable job substrate.",
+      "disposition": "carried forward",
+      "authority": "Carried unchanged from v0.4.6."
+    },
+    {
+      "task_id": "V04-10-T01",
+      "source_intent_ids": ["ARCH-008", "EVAL-002", "EVAL-004", "GOV-004", "SCENARIO-003"],
+      "source_task": "Implement the customer-system embedding pressure scenario and Connector/Embedding SDK boundary.",
+      "disposition": "carried forward",
+      "authority": "Carried unchanged from v0.4.6."
+    }
+  ],
+  "mandatory_tasks": [
+    {
+      "task_id": "V04-07-T01A",
+      "source_intent_ids": ["PRODUCT-008"],
+      "surface": "product architecture / routing / audience contract",
+      "acceptance": "Customer Runtime, Engineer Studio, and Governance Console have independent routes, navigation, responsibilities, and disclosure rules; legacy run and monitor deep links resolve to the correct surface instead of mixing all audiences in one application detail page.",
+      "required_evidence": "Route and source assertions, legacy-link behavior tests, production frontend build, and desktop/mobile browser evidence for all three interfaces."
+    },
+    {
+      "task_id": "V04-07-T01B",
+      "source_intent_ids": ["GOV-001"],
+      "surface": "backend / governance query / reliability",
+      "acceptance": "Authenticated platform APIs aggregate cross-application tasks, statuses, durations, queue delay, workers, leases, retries, timeouts, cancellations, stale reconciliation, failures, policy controls, and parent-child traces with time, kind, status, owner, application, workflow, model, and task filters where applicable.",
+      "required_evidence": "Typed aggregation tests over durable task records, filter and pagination API tests, parent-child trace tests, queue and worker liveness tests, empty-state tests, and truthful unavailable-field assertions."
+    },
+    {
+      "task_id": "V04-07-T01C",
+      "source_intent_ids": ["GOV-002", "GOV-003"],
+      "surface": "runtime / metering / cost and budget evidence",
+      "acceptance": "Every governed model call records durable input, output, cached, and reasoning token fields, model and provider identity, cost provenance, task ownership, workflow and application dimensions, and remaining configured budget when available; governance queries return time series and dimensions while unsupported or estimated fields stay explicit and model-call counts never masquerade as token limits.",
+      "required_evidence": "Provider-stream usage extraction tests, workflow and builder metering integration tests, restart persistence, time and dimension query tests, budget boundary tests, unsupported-field tests, and rejection of call-count token approximation."
+    },
+    {
+      "task_id": "V04-07-T01D",
+      "source_intent_ids": ["PRODUCT-008"],
+      "surface": "frontend / Customer Runtime",
+      "acceptance": "A non-technical user can open a dedicated runtime, understand the workflow purpose and natural-language steps, provide only customer inputs, start or approve work, follow business-step progress, recover from actionable errors, and inspect a readable Markdown result without node JSON, test internals, token quotas, worker leases, or engineering controls.",
+      "required_evidence": "Customer-journey component tests, real API run-state tests, Markdown result assertions, recoverable-error states, accessibility checks, and desktop/mobile browser walkthroughs proving forbidden internals are absent."
+    },
+    {
+      "task_id": "V04-07-T01E",
+      "source_intent_ids": ["PRODUCT-008"],
+      "surface": "frontend / Engineer Studio",
+      "acceptance": "Engineer Studio remains dedicated to requirements, capability plans, editable canvas, block configuration, build gaps, traces, acceptance evidence, and engineering environments, and links explicitly to Customer Runtime and Governance Console without embedding platform-wide governance controls.",
+      "required_evidence": "Studio route and tab assertions, workflow-edit regression tests, cross-surface navigation tests, production build, and browser evidence that platform-global controls no longer occupy the application editor."
+    },
+    {
+      "task_id": "V04-07-T01F",
+      "source_intent_ids": ["GOV-001", "GOV-002", "GOV-003"],
+      "surface": "frontend / Governance Console / capability evidence",
+      "acceptance": "An independent Governance Console exposes overview, cost and tokens, reliability, policy and risk, trace explorer, capability evidence, and alerts across applications; filters and drill-down use real APIs, unsupported telemetry is visibly bounded, and module plus platform capability claims link to implementation, defaults, API, tests, live evidence, telemetry, gaps, and claim level without inflation.",
+      "required_evidence": "Governance API and frontend tests, evidence-category and claim-ceiling tests, filter/drill-down browser runs, empty and partial-support states, responsive screenshots, and no console or failed-request errors."
+    },
+    {
+      "task_id": "V04-07-T01G",
+      "source_intent_ids": ["GOV-001", "GOV-002", "GOV-003", "PRODUCT-008"],
+      "surface": "test / evidence / regression / closure",
+      "acceptance": "The three-interface and governance vertical survives restart, existing workflow generation, editing, execution, acceptance, publication, module-registry, scheduler, and platform-harness behavior remain green, and closure records exact commands, artifacts, known gaps, and the strongest honest evidence level.",
+      "required_evidence": "Focused v0.4.7 suite, current release gate, evolution-control suite, full repository diagnostic, frontend lint and build, browser artifacts, restart evidence, and a fresh contract-first closure audit."
+    }
+  ],
+  "optional_tasks": []
+}

@@ -2,9 +2,13 @@
 
 本目录是当前 stage 的 active design 工作区。
 
-当前状态：`v0.4.6` 已完成并归档，等待 `v0.4.7` 从 stage report 建立新的 active design；本目录不产生新的任务来源。
+当前状态：`v0.4.7` 正在实现三界面与平台治理纵向；本目录只展开 Stage Contract 已接受任务，不产生新的任务来源。
 
-Active designs: none.
+Active designs:
+
+- `design_v0.4.7_three_interface_information_architecture_v1.md`
+- `design_v0.4.7_governance_query_and_usage_telemetry_v1.md`
+- `design_v0.4.7_governance_console_evidence_registry_v1.md`
 
 归档规则：
 

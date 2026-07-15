@@ -2,7 +2,7 @@
 
 本目录是当前 stage 的 active intermediate 工作区。
 
-当前状态：`v0.4.6` 已完成并归档；实现、测试与浏览器证据保存在 `docs/workingon-archives/v0.4.6/`。下一任务只从 `docs/stage-reports/v0.4.6_versioned_module_evidence_registry.md` 的 Next-stage Task Set 读取，本目录不拆解任务。
+当前状态：`v0.4.7` 正在执行；权威任务来自 `docs/stage-reports/v0.4.7_three_interface_governance_console.md` 的锁定 Stage Contract。实现中间证据可以进入本目录，但本目录不拆解或新增任务。
 
 归档规则：
 

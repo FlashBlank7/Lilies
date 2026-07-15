@@ -1,0 +1,47 @@
+# v0.4.7 Three-interface information architecture
+
+Status: active
+Source task: `V04-07-T01`
+Mandatory tasks: `V04-07-T01A`, `V04-07-T01D`, `V04-07-T01E`
+Source intents: `PRODUCT-008`
+
+## Decision
+
+Lilies exposes three first-class products with separate routes and disclosure contracts:
+
+| Surface | Route | Primary user | Owns | Must not expose |
+| --- | --- | --- | --- | --- |
+| Customer Runtime | `/runtime/{application_id}` | workflow user | purpose, inputs, start/approval, business-step progress, recoverable errors, readable result | node JSON, acceptance internals, token quotas, leases, worker/process controls |
+| Engineer Studio | `/applications/{application_id}` | workflow engineer | requirement, capability plan, canvas, block configuration, build gaps, acceptance evidence, engineering trace | platform-global worker, queue, tenant, and policy operation |
+| Governance Console | `/governance` | platform operator | cross-application task, usage, reliability, policy, trace, capability evidence, alerts | workflow editing and customer input operation |
+
+Legacy `?tab=run` and `?tab=monitor` links remain resolvable but hand off to the correct product route. They do not preserve the old mixed page.
+
+## Customer Runtime flow
+
+1. Load the application and latest runnable version or draft summary.
+2. Present the workflow purpose and derive human-readable business steps from the graph without showing node types or raw configuration.
+3. Render only declared start inputs, with sample/default values where present.
+4. Start one run, poll its status and events, and map node lifecycle events to the business-step list.
+5. Present actionable retry/correction guidance for recoverable input, permission, tool, and transient failures.
+6. Render final text or structured output through the reusable Markdown renderer.
+
+## Engineer Studio boundary
+
+The existing application detail becomes explicitly Engineer Studio. Build, Edit, and Test remain local. Customer operation and platform governance become prominent cross-surface links. Dead or unreachable copies of customer and platform controls are removed after migration so the source boundary is testable, not cosmetic.
+
+## Responsive and accessibility rules
+
+- Use the existing neutral product palette and icon library.
+- Keep fixed navigation and controls from overlapping at 390 px and desktop widths.
+- Every icon-only action has an accessible label and tooltip.
+- Loading, empty, denied, running, paused, succeeded, failed, and cancelled states have stable dimensions.
+- Customer-facing language describes work and recovery, not internal architecture.
+
+## Verification map
+
+- Static route and forbidden-copy assertions.
+- Component/source checks for input, progress, error, and Markdown result states.
+- Backend-integrated browser run using a deterministic local workflow.
+- Desktop and mobile screenshots for all three surfaces.
+- Legacy-link redirect checks and zero console/page/network errors.

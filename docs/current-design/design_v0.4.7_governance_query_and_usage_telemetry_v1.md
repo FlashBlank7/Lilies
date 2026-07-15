@@ -1,0 +1,52 @@
+# v0.4.7 Governance query and usage telemetry
+
+Status: active
+Source task: `V04-07-T01`
+Mandatory tasks: `V04-07-T01B`, `V04-07-T01C`
+Source intents: `GOV-001`, `GOV-002`, `GOV-003`
+
+## Governance read model
+
+Add a typed governance service over durable Platform Harness records rather than duplicating execution state. It provides:
+
+- overview counts, p50/p95 duration, queue delay, recent failures, and active alerts;
+- filterable tasks with application, workflow, model, owner, status, kind, and time dimensions;
+- a parent/child trace tree rooted at any platform task;
+- queue semantics, worker heartbeat/liveness, lease expiry, stale reconciliation, retry, timeout, cancellation, and deduplication evidence;
+- policy controls and recent policy-change audit events;
+- capability evidence merged from versioned module claims and explicitly enrolled platform claims.
+
+Every response declares support metadata. A missing dimension is `unsupported` or `not_recorded`, never zero by implication.
+
+## Durable model usage
+
+Extend provider usage without breaking existing `Usage` consumers:
+
+- `input_tokens`
+- `output_tokens`
+- `cache_read_input_tokens`
+- `cache_creation_input_tokens`
+- `reasoning_tokens` as nullable when the provider does not report it
+- `cost_usd` plus `cost_source`: provider-reported, configured-price estimate, or unsupported
+- provider/model identity and a support map for each field
+
+After each governed model response, append a dedicated durable usage record to the owning Platform Harness task. Metadata binds the sample to task, owner, resource, application/workflow when known, node or phase, provider, model, timestamp, budget limit, spent amount, and remaining amount. The existing `model_call` counter remains a rate/quantity guard only.
+
+Builder, requirement intake, benchmark, draft repair, and workflow runtime model paths must all use one metering helper. This prevents one product path from disappearing from governance.
+
+## Query contract
+
+The usage endpoint accepts `from`, `to`, `model`, `provider`, `workflow_id`, `application_id`, `owner_id`, `task_id`, and interval. It returns samples, bucketed series, dimension totals, support states, and budget observations. Cached-token totals combine cache-read and cache-creation only in an explicitly named aggregate; raw fields remain available.
+
+## Honest cost boundary
+
+Provider billing is authoritative. Existing hard-coded price estimates may be displayed only with `cost_source=estimated_configured_price`, never as billed cost. If no price or provider amount exists, cost is null and unsupported. Reasoning tokens are null when absent; emitted thinking text is not tokenized as a substitute.
+
+## Verification map
+
+- Synthetic SSE fixtures for full, partial, and missing usage payloads.
+- Metering tests for workflow, Builder, intake, benchmark, and repair paths.
+- Durable restart and time/filter query tests.
+- Parent-child trace and reliability derivation tests.
+- Budget spent/remaining and exhausted-boundary tests.
+- Regression proving call counts cannot satisfy token capability claims.
