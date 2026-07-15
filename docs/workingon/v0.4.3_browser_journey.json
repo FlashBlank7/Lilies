@@ -1,0 +1,97 @@
+{
+  "schema_version": "1.0",
+  "stage": "v0.4.3",
+  "task_id": "V04-03-T01F",
+  "base_url": "http://127.0.0.1:3001",
+  "screenshot_root": "docs/workingon/browser-screenshots/v0.4.3",
+  "viewports": {
+    "desktop": {
+      "width": 1440,
+      "height": 900
+    },
+    "mobile": {
+      "width": 390,
+      "height": 844
+    }
+  },
+  "interactions": [
+    {
+      "id": "mode_policy",
+      "fixture": "stale_config_application_id",
+      "route": "/applications/{application_id}",
+      "required_viewports": ["desktop", "mobile"],
+      "steps": [
+        "Open the application Studio.",
+        "Confirm Guided is visible as a delivery policy distinct from workflow mode.",
+        "Confirm the primary actions and policy text fit without overlap."
+      ]
+    },
+    {
+      "id": "stale_evidence_publish",
+      "fixture": "stale_config_application_id",
+      "route": "/applications/{application_id}",
+      "required_viewports": ["desktop", "mobile"],
+      "steps": [
+        "Confirm prior passing evidence remains visible and is labelled stale.",
+        "Open the evidence details and return to the Studio.",
+        "Invoke Publish and confirm an explicit warning acknowledgement is required rather than a universal denial."
+      ]
+    },
+    {
+      "id": "acceptance_progress_repair",
+      "fixture": "repair_application_id",
+      "route": "/applications/{application_id}",
+      "required_viewports": ["desktop", "mobile"],
+      "steps": [
+        "Run all real acceptance cases and observe a visible running state before the result.",
+        "Open the failed permission-boundary case and inspect its structured failure context.",
+        "Open repair preview, confirm the whole-workflow instruction and referenced context, then apply the repair once.",
+        "Confirm the resulting draft hash or revision changes and stale evidence is visible."
+      ]
+    },
+    {
+      "id": "schema_block_forms",
+      "fixture": "stale_config_application_id",
+      "route": "/applications/{application_id}",
+      "required_viewports": ["desktop", "mobile"],
+      "steps": [
+        "Click the model, HTTP request, and Loop blocks without a frontend crash.",
+        "Confirm each common block opens in a human-readable form by default.",
+        "Switch to Expert JSON and back, confirm unknown extension fields remain, and leave the saved workflow valid."
+      ]
+    },
+    {
+      "id": "governed_publication_block",
+      "fixture": "governed_application_id",
+      "route": "/applications/{application_id}",
+      "required_viewports": ["desktop", "mobile"],
+      "steps": [
+        "Confirm Governed and its explicit hard-gate policy are visible.",
+        "Invoke Publish and confirm the missing-evidence denial is actionable and matches the backend decision."
+      ]
+    },
+    {
+      "id": "canvas_and_console_stability",
+      "fixture": "stale_config_application_id",
+      "route": "/applications/{application_id}",
+      "required_viewports": ["desktop", "mobile"],
+      "steps": [
+        "Select multiple blocks, pan the canvas, and open and close the inspector.",
+        "Confirm no incoherent overlap, uncaught exception, or console error appears."
+      ]
+    }
+  ],
+  "required_screenshots": {
+    "desktop": [
+      "mode-and-stale-evidence",
+      "failed-acceptance-repair",
+      "schema-driven-block-form",
+      "governed-publication-block"
+    ],
+    "mobile": [
+      "mobile-acceptance-repair",
+      "mobile-block-form",
+      "mobile-governed-block"
+    ]
+  }
+}

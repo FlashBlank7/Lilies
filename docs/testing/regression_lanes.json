@@ -23,6 +23,7 @@
         "tests/test_v04_03_acceptance_repair_context.py",
         "tests/test_v04_03_schema_driven_block_config.py",
         "tests/test_v04_03_integrated_browser_closure.py",
+        "tests/test_v04_03_browser_closure_gate.py",
         "tests/test_v04_00_ai_requirement_intake.py",
         "tests/test_workflow.py::test_application_placeholder_name_is_derived_from_requirement",
         "tests/test_workflow.py::test_application_placeholder_name_uses_markdown_business_goal",
@@ -41,6 +42,7 @@
         "tests/test_v04_03_acceptance_repair_context.py",
         "tests/test_v04_03_schema_driven_block_config.py",
         "tests/test_v04_03_integrated_browser_closure.py",
+        "tests/test_v04_03_browser_closure_gate.py",
         "tests/test_v04_00_ai_requirement_intake.py",
         "tests/test_workflow.py::test_application_placeholder_name_is_derived_from_requirement",
         "tests/test_workflow.py::test_application_placeholder_name_uses_markdown_business_goal",
@@ -52,7 +54,7 @@
         "tests/test_stage_report_template_validation.py"
       ],
       "expected": {
-        "pass_count": 45,
+        "pass_count": 48,
         "warning_count": 1
       }
     },
@@ -70,8 +72,8 @@
       ],
       "last_observed": {
         "source_stage_report": "docs/stage-reports/v0.4.3_usability_modes_evidence_and_regression_stabilization.md",
-        "command": ".venv/bin/python -m pytest -q --tb=short --junitxml=/tmp/lilies-v043-task-f-final3.xml",
-        "passed_count": 729,
+        "command": ".venv/bin/python -m pytest -q --tb=short --junitxml=/tmp/lilies-v043-task-f-final5.xml",
+        "passed_count": 732,
         "failed_count": 0,
         "expected_failure_count": 17,
         "warning_count": 1,

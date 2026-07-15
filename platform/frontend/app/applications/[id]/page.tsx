@@ -2526,28 +2526,28 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
       <Link href="/" className="back">←</Link>
       <div className="studio-title"><strong>{draft?.snapshot.name || t.loading}</strong><span>{draft?.snapshot.mode === 'chat' ? t.modeChat : t.modeWorkflow} · {currentDeliveryModeOption.label} · {t.draft} r{draft?.revision ?? 0}</span></div>
       <div className="header-center"><span className={`evidence-state ${evidenceState}`} data-evidence-state={evidenceState}>{evidenceStateLabel}</span>{activeVersion && <span>{t.activeVersion(activeVersion)}</span>}<span className={`runtime-chip ${runtimeStatus}`} data-runtime-status={runtimeStatus} title={runtimeStatusDetail}>{runtimeStatusText}</span></div>
-      <div className="header-actions"><button className="lang-toggle" onClick={toggleLocale}>{t.switchLabel}</button><button className="ghost" onClick={() => setStudioTab('run')} type="button">{t.debugDraft}</button><button onClick={() => void publish()} disabled={publicationBusy}>{publicationBusy ? t.publicationChecking : t.publishVersion}</button></div>
+      <div className="header-actions"><button className="lang-toggle" onClick={toggleLocale}>{t.switchLabel}</button><button className="ghost" onClick={() => setStudioTab('run')} type="button">{t.debugDraft}</button><button data-publication-action="open" onClick={() => void publish()} disabled={publicationBusy}>{publicationBusy ? t.publicationChecking : t.publishVersion}</button></div>
     </header>
     {publicationDecision && (publicationDecision.requires_confirmation || publicationDecision.blocked) && <section className={`publication-decision-banner ${publicationDecision.blocked ? 'blocked' : 'warning'}`} data-publication-decision={publicationDecision.blocked ? 'blocked' : 'confirmation'}>
       <div><strong>{publicationDecision.blocked ? t.publicationBlockedTitle : t.publicationConfirmationTitle}</strong><span>{publicationDecision.evidence_state === 'stale' ? t.publicationStaleDetail : t.publicationMissingDetail}</span></div>
       <ul>{publicationDecision.warnings.map(warning => <li key={warning.code}>{warning.message}</li>)}</ul>
       <div className="publication-decision-actions">
-        <button type="button" onClick={() => { setStudioTab('test'); void runTests() }}>{t.evidenceRevalidate}</button>
-        <button type="button" className="ghost" onClick={() => setStudioTab('test')}>{t.evidenceInspect}</button>
-        {!publicationDecision.blocked && <button type="button" onClick={() => void publish(true)}>{t.publicationConfirm}</button>}
-        <button type="button" className="ghost" aria-label={t.publicationDismiss} onClick={() => setPublicationDecision(null)}>×</button>
+        <button type="button" data-publication-action="revalidate" onClick={() => { setStudioTab('test'); void runTests() }}>{t.evidenceRevalidate}</button>
+        <button type="button" className="ghost" data-publication-action="inspect" onClick={() => setStudioTab('test')}>{t.evidenceInspect}</button>
+        {!publicationDecision.blocked && <button type="button" data-publication-action="confirm" onClick={() => void publish(true)}>{t.publicationConfirm}</button>}
+        <button type="button" className="ghost" data-publication-action="dismiss" aria-label={t.publicationDismiss} onClick={() => setPublicationDecision(null)}>×</button>
       </div>
     </section>}
     <div className="studio-grid">
       <aside className="left-panel">
-        <div className="panel-tabs" data-detail-tab-url-state="synced">{STUDIO_TABS.map(item => <button aria-pressed={tab === item} className={tab === item ? 'active' : ''} onClick={() => setStudioTab(item)} key={item} type="button">{item === 'build' ? t.buildTab : item === 'edit' ? t.editTab : item === 'test' ? t.testTab : item === 'run' ? t.runTab : t.monitorTab}</button>)}</div>
+        <div className="panel-tabs" data-detail-tab-url-state="synced">{STUDIO_TABS.map(item => <button aria-pressed={tab === item} className={tab === item ? 'active' : ''} data-studio-tab={item} onClick={() => setStudioTab(item)} key={item} type="button">{item === 'build' ? t.buildTab : item === 'edit' ? t.editTab : item === 'test' ? t.testTab : item === 'run' ? t.runTab : t.monitorTab}</button>)}</div>
         {tab === 'build' && <div className="panel-body">
           <div className="panel-kicker">{t.builderTeam}</div><h2>{t.continueBuild}</h2>
           <textarea ref={detailBuildRequirementRef} className="requirement-input" value={requirement} onChange={event => { setRequirement(event.target.value); setBuildIntentConfirmed(false) }} />
           <section className="delivery-mode-picker studio-delivery-mode" data-delivery-mode={currentDeliveryMode}>
             <div className="delivery-mode-heading"><strong>{t.deliveryModeTitle}</strong><small>{t.deliveryModeHelp}</small></div>
             <div className="delivery-mode-segments" role="group" aria-label={t.deliveryModeTitle}>
-              {deliveryModeOptions.map(option => <button aria-pressed={currentDeliveryMode === option.id} className={currentDeliveryMode === option.id ? 'active' : ''} disabled={deliveryModeSaving} key={option.id} onClick={() => void updateDeliverySettings(option.id)} type="button">{option.label}</button>)}
+              {deliveryModeOptions.map(option => <button aria-pressed={currentDeliveryMode === option.id} className={currentDeliveryMode === option.id ? 'active' : ''} data-delivery-mode-option={option.id} disabled={deliveryModeSaving} key={option.id} onClick={() => void updateDeliverySettings(option.id)} type="button">{option.label}</button>)}
             </div>
             <small className="delivery-mode-detail">{currentDeliveryModeOption.detail}</small>
             {currentDeliveryMode === 'governed' && <label className="delivery-mode-governed-toggle">
@@ -2644,7 +2644,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
                 </label>
               }) : <p className="muted">{t.configFormNoFields}</p>}
             </div> : <div className="config-expert" data-config-editor="expert-json"><p className="muted">{t.configExpertHelp}</p><textarea className="json-editor" value={configText} onChange={event => setConfigText(event.target.value)} /></div>}
-            <button className="wide" onClick={saveConfig}>{t.saveConfig}</button><button className="danger-link" onClick={deleteSelectedNode}>{t.deleteNode}</button>
+            <button className="wide" data-config-editor-action="save" onClick={saveConfig}>{t.saveConfig}</button><button className="danger-link" onClick={deleteSelectedNode}>{t.deleteNode}</button>
           </> : <p className="muted">{selectedEdge ? t.edgeSelectedHint : t.nodeHelp}</p>}
         </div>}
         {tab === 'test' && <div className="panel-body">
@@ -2688,11 +2688,11 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
               <details><summary>{t.acceptanceRepairContext}</summary><pre>{JSON.stringify({ task_id: acceptanceRepairPreview.task_id, preview_source: acceptanceRepairPreview.preview_source, repair_context: acceptanceRepairPreview.repair_context, workflow_edit_preview: acceptanceRepairPreview.workflow_edit_preview }, null, 2)}</pre></details>
             </div> : <p className="muted">{t.acceptanceRepairNoPreview}</p>}
             <div className="acceptance-repair-actions">
-              <button className="wide secondary" onClick={() => previewAcceptanceRepair()} disabled={acceptanceRepairLoading}>{acceptanceRepairLoading ? t.acceptanceRepairPreviewing : t.acceptanceRepairPreview}</button>
-              <button className="wide" onClick={applyAcceptanceRepair} disabled={!acceptanceRepairPreview?.supported || acceptanceRepairPreview.operations.length === 0 || acceptanceRepairApplying}>{acceptanceRepairApplying ? t.acceptanceRepairApplying : t.acceptanceRepairApply}</button>
+              <button className="wide secondary" data-acceptance-repair-action="preview" onClick={() => previewAcceptanceRepair()} disabled={acceptanceRepairLoading}>{acceptanceRepairLoading ? t.acceptanceRepairPreviewing : t.acceptanceRepairPreview}</button>
+              <button className="wide" data-acceptance-repair-action="apply" onClick={applyAcceptanceRepair} disabled={!acceptanceRepairPreview?.supported || acceptanceRepairPreview.operations.length === 0 || acceptanceRepairApplying}>{acceptanceRepairApplying ? t.acceptanceRepairApplying : t.acceptanceRepairApply}</button>
             </div>
           </section>}
-          <button className="wide" onClick={runTests} disabled={testsRunning}>{testsRunning ? t.testing : t.runAllTests}</button>
+          <button className="wide" data-acceptance-action="run-all" data-acceptance-running={testsRunning ? 'true' : 'false'} onClick={runTests} disabled={testsRunning}>{testsRunning ? t.testing : t.runAllTests}</button>
           <div className="acceptance-list">{acceptanceCaseViews.map(test => {
             const statusClass = testsRunning ? 'running' : test.result ? (test.result.passed ? 'passed' : 'failed') : 'pending'
             const statusText = testsRunning ? t.testing : test.result ? (test.result.passed ? t.passedLabel : t.failedLabel) : t.notRunLabel
@@ -2704,7 +2704,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
                 <div><h4>{t.structureGate}</h4>{test.requiredNodeTypes.length || test.requiredToolNodes.length ? <ul>{test.requiredNodeTypes.length > 0 && <li>{t.requiredBrickTypes}: <code>{test.requiredNodeTypes.join(', ')}</code></li>}{test.requiredToolNodes.length > 0 && <li>{t.requiredToolNodes}: <code>{test.requiredToolNodes.join(', ')}</code></li>}</ul> : <p>{t.noStructureGate}</p>}</div>
                 <div><h4>{t.toolEvidence}</h4>{test.requiredTools.length || test.minimumToolCalls || test.requireCitedToolUrls ? <ul>{test.requiredTools.length > 0 && <li>{t.requiredRuntimeTools}: <code>{test.requiredTools.join(', ')}</code></li>}{test.minimumToolCalls > 0 && <li>{t.minToolCalls}: <code>{test.minimumToolCalls}</code></li>}<li>{test.requireCitedToolUrls ? t.citedUrlsRequired : t.citedUrlsNotRequired}</li></ul> : <p>{t.noToolGate}</p>}</div>
               </div>
-              {test.result && <div className="acceptance-result"><h4>{t.latestResult}</h4><p>{t.runId}: <code>{test.result.run_id || '-'}</code></p><p>{t.usedTools}: <code>{asStringArray(asRecord(test.result.tool_evidence).used_tools).join(', ') || '-'}</code></p><p>{t.assertionPassCount}: <code>{(test.result.assertions || []).filter(item => item.passed).length}/{(test.result.assertions || []).length}</code></p>{!test.result.passed && <button type="button" className="acceptance-case-repair" onClick={() => void previewAcceptanceRepair(testReport, test.id)}>{t.acceptanceRepairThisCase}</button>}</div>}
+              {test.result && <div className="acceptance-result"><h4>{t.latestResult}</h4><p>{t.runId}: <code>{test.result.run_id || '-'}</code></p><p>{t.usedTools}: <code>{asStringArray(asRecord(test.result.tool_evidence).used_tools).join(', ') || '-'}</code></p><p>{t.assertionPassCount}: <code>{(test.result.assertions || []).filter(item => item.passed).length}/{(test.result.assertions || []).length}</code></p>{!test.result.passed && <button type="button" className="acceptance-case-repair" data-acceptance-repair-case={test.id} onClick={() => void previewAcceptanceRepair(testReport, test.id)}>{t.acceptanceRepairThisCase}</button>}</div>}
               <details><summary>{t.engineeringDetails}</summary><pre>{JSON.stringify(test.raw, null, 2)}</pre></details>
             </section>
           })}</div>

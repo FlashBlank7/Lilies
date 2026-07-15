@@ -39,7 +39,9 @@ Component tests can all pass while a customer still sees a confusing or broken s
 - Invalid-draft acceptance no longer returns an empty test list. It returns case-level preflight failures without fabricating a run, allowing the real UI report to enter repair preview.
 - Worker completion now reports the persisted terminal state: an expired lease cannot produce a succeeded return value, and the full-suite-discovered timing regression remains preserved as a classified failure artifact.
 - A deterministic fixture script creates isolated stale/configuration, failed-repair, and governed-publication applications for repeatable browser checks.
-- The frontend passes TypeScript and production build checks, the current release gate passes 45 tests, process controls pass 28 tests, and the full suite passes 729 tests with exactly 17 strict historical xfails.
+- A machine-readable journey fixes six required interactions across 1440x900 desktop and 390x844 mobile viewports, with seven named screenshots.
+- `scripts/v04_03_browser_closure_gate.py` rejects closure unless every interaction passes in both viewports, screenshot PNGs exist under versioned evidence with matching SHA-256, the browser console is observed cleanly, and overlap inspection covers both viewports.
+- The frontend passes current TypeScript and isolated Webpack production-build checks, the current release gate passes 48 tests, process controls pass 28 tests, and the full suite passes 732 tests with exactly 17 strict historical xfails.
 - Runtime health on the dedicated current-code instance reports `v0.4.3`.
 - The isolated frontend fixture at `http://127.0.0.1:3001` returns HTTP 200 from an ignored source copy, avoiding interference with the user's existing Next.js development server.
 
@@ -48,4 +50,5 @@ Component tests can all pass while a customer still sees a confusing or broken s
 - Browser runtime setup succeeded, but URL selection returned `No browser is available` and discovery returned an empty list.
 - Desktop/mobile screenshots, overlap inspection, interaction assertions, and browser-console checks were not run and are not claimed.
 - Evidence: `docs/workingon/v0.4.3_browser_fixture.json` and `docs/workingon/v0.4.3_browser_verification.json`.
+- The closure gate currently exits non-zero with all missing Browser observations enumerated; this is expected blocker evidence, not a failed implementation test.
 - This mandatory task remains active; the stage cannot archive until a supported Browser runtime completes the prepared journey and a fresh closure audit passes.

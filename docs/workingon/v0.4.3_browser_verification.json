@@ -2,6 +2,7 @@
   "schema_version": "1.0",
   "stage": "v0.4.3",
   "task_id": "V04-03-T01F",
+  "journey_manifest": "docs/workingon/v0.4.3_browser_journey.json",
   "status": "blocked",
   "target": "http://127.0.0.1:3001",
   "api_target": "http://127.0.0.1:8002",
@@ -25,23 +26,41 @@
   },
   "browser_discovery": {
     "browser_runtime_setup": "completed",
+    "last_checked": "2026-07-16",
     "get_for_url_result": "No browser is available",
     "available_browsers": [],
-    "troubleshooting_followed": true
+    "selected_browser": null,
+    "troubleshooting_followed": true,
+    "troubleshooting_note": "The runtime documentation lookup referenced missing cache version 26.707.31428; the current 26.707.41301 troubleshooting document was read directly, then the single permitted browser list check returned an empty list."
+  },
+  "interactions": {
+    "mode_policy": {"desktop": "not_run", "mobile": "not_run"},
+    "stale_evidence_publish": {"desktop": "not_run", "mobile": "not_run"},
+    "acceptance_progress_repair": {"desktop": "not_run", "mobile": "not_run"},
+    "schema_block_forms": {"desktop": "not_run", "mobile": "not_run"},
+    "governed_publication_block": {"desktop": "not_run", "mobile": "not_run"},
+    "canvas_and_console_stability": {"desktop": "not_run", "mobile": "not_run"}
   },
   "desktop": {
     "status": "not_run",
-    "screenshot": null,
+    "viewport": {"width": 1440, "height": 900},
+    "screenshots": [],
     "reason": "The Browser runtime exposed no available browser instance."
   },
   "mobile": {
     "status": "not_run",
-    "screenshot": null,
+    "viewport": {"width": 390, "height": 844},
+    "screenshots": [],
     "reason": "The Browser runtime exposed no available browser instance."
   },
   "console_errors": {
     "status": "not_observed",
+    "uncaught": null,
     "reason": "No browser page could be opened."
+  },
+  "overlap_check": {
+    "status": "not_run",
+    "viewports": []
   },
   "claim_boundary": "API integration, TypeScript compilation, and production build passed; desktop/mobile interaction, screenshots, layout overlap, and browser console remain unverified. This evidence is not a browser pass."
 }
