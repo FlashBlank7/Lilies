@@ -27,6 +27,28 @@ def test_report_intent_registry_is_valid() -> None:
     assert module.validate_registry() == []
 
 
+def test_current_contract_lock_is_frozen_in_its_first_git_commit() -> None:
+    module = load_validator()
+    report = ROOT / "docs/stage-reports/v0.4.2_report_baseline_and_evolution_control.md"
+    text = report.read_text(encoding="utf-8")
+    source = module.parse_first_table(module.section_text(text, "Source Task Set", ["Stage Contract"]))
+    contract = module.section_text(text, "Stage Contract", ["Stage Objective"])
+    mandatory, optional = module.contract_tables(contract)
+
+    errors = module.validate_contract_lock(
+        root=ROOT,
+        report_path=report,
+        version="v0.4.2",
+        contract=contract,
+        source_rows=module.non_none_rows(source, "Task ID"),
+        mandatory_rows=module.non_none_rows(mandatory, "Task ID"),
+        optional_rows=module.non_none_rows(optional, "Task ID"),
+        require_git_baseline=True,
+    )
+
+    assert errors == []
+
+
 def test_campaign_closure_rejects_non_terminal_intents() -> None:
     module = load_validator()
 
@@ -142,7 +164,31 @@ def test_closure_pass_rejects_unresolved_mandatory_and_missing_verification(tmp_
     errors = module.validate_stage_report(report)
 
     assert any(error.startswith("mandatory unresolved item prevents closure:") for error in errors)
-    assert "mandatory task has no passing verification evidence: V04-02-T01D" in errors
+    assert "mandatory task has no passing verification evidence: V04-02-T01E" in errors
+
+
+def test_closure_pass_rejects_empty_completed_work_evidence(tmp_path: Path) -> None:
+    module = load_validator()
+    source = ROOT / "docs/stage-reports/v0.4.2_report_baseline_and_evolution_control.md"
+    text = source.read_text(encoding="utf-8")
+    row = next(
+        line
+        for line in text.splitlines()
+        if line.startswith("| `V04-02-T01E` | Independent closure audit and blocker remediation")
+    )
+    cells = row.split("|")
+    cells[3] = " completed "
+    cells[4] = " none "
+    text = text.replace(row, "|".join(cells), 1)
+    text = text.replace("- Verdict: pending", "- Verdict: pass", 1).replace(
+        "- Version-size gate: pending", "- Version-size gate: pass", 1
+    )
+    report = tmp_path / "v0.4.2_empty_evidence.md"
+    report.write_text(text, encoding="utf-8")
+
+    errors = module.validate_stage_report(report)
+
+    assert "mandatory completed work has no evidence: V04-02-T01E" in errors
 
 
 def test_workingon_cannot_define_next_stage_authority(tmp_path: Path) -> None:

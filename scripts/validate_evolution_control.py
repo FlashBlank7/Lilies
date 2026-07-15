@@ -91,6 +91,7 @@ def validate_registry(path: Path = DEFAULT_REGISTRY, *, require_terminal: bool =
     source_report = data.get("source_report", "")
     if not source_report or not (root / source_report).exists():
         errors.append(f"source report does not exist: {source_report}")
+    errors.extend(validate_program_charter_lock(root, data, require_git_baseline=require_terminal))
     return errors
 
 
@@ -226,6 +227,68 @@ def git_file_at_commit(root: Path, commit: str, relative_path: str) -> bytes | N
         return None
 
 
+def git_first_path_commit(root: Path, relative_path: str) -> str | None:
+    try:
+        commits = subprocess.run(
+            ["git", "log", "--diff-filter=A", "--format=%H", "--reverse", "--", relative_path],
+            cwd=root,
+            check=True,
+            text=True,
+            capture_output=True,
+        ).stdout.splitlines()
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    return commits[0] if commits else None
+
+
+def validate_program_charter_lock(
+    root: Path,
+    registry: dict,
+    *,
+    require_git_baseline: bool,
+) -> list[str]:
+    errors: list[str] = []
+    lock_value = str(registry.get("program_charter_lock", ""))
+    lock_path = safe_repo_path(root, lock_value)
+    if lock_path is None or not lock_path.exists():
+        return [f"program charter lock does not exist: {lock_value or 'missing'}"]
+    try:
+        lock = json.loads(lock_path.read_text(encoding="utf-8"))
+    except ValueError:
+        return ["program charter lock is not valid JSON"]
+    charter_value = str(lock.get("charter_path", ""))
+    charter_path = safe_repo_path(root, charter_value)
+    if charter_path is None or not charter_path.exists():
+        return [f"program charter does not exist: {charter_value or 'missing'}"]
+    digest = hashlib.sha256(charter_path.read_bytes()).hexdigest()
+    if lock.get("charter_sha256") != digest:
+        errors.append("Program Charter differs from its frozen SHA-256 lock")
+    charter_text = charter_path.read_text(encoding="utf-8")
+    version_match = re.search(r"^\| Charter version \| `([^`]+)` \|$", charter_text, flags=re.MULTILINE)
+    charter_version = version_match.group(1) if version_match else ""
+    if lock.get("charter_version") != charter_version:
+        errors.append("Program Charter version does not match its lock")
+    if not str(lock.get("approval_ref", "")).strip():
+        errors.append("Program Charter lock has no approval reference")
+    known_intents = {intent.get("id") for intent in registry.get("intents", [])}
+    charter_intents = set(INTENT_ID_RE.findall(charter_text))
+    for intent_id in sorted(charter_intents - known_intents):
+        errors.append(f"Program Charter references unknown intent id: {intent_id}")
+    if require_git_baseline:
+        relative_lock = lock_path.relative_to(root).as_posix()
+        baseline_commit = git_first_path_commit(root, relative_lock)
+        if baseline_commit is None:
+            errors.append("Program Charter lock has no Git baseline commit")
+        else:
+            frozen_lock = git_file_at_commit(root, baseline_commit, relative_lock)
+            if frozen_lock != lock_path.read_bytes():
+                errors.append("Program Charter lock differs from its first Git commit")
+            frozen_charter = git_file_at_commit(root, baseline_commit, charter_path.relative_to(root).as_posix())
+            if frozen_charter != charter_path.read_bytes():
+                errors.append("Program Charter differs from the Charter-lock baseline commit")
+    return errors
+
+
 def json_keys(value: object) -> Iterable[str]:
     if isinstance(value, dict):
         for key, nested in value.items():
@@ -320,6 +383,9 @@ def validate_contract_lock(
             errors.append("closure pass requires a 40-character Contract baseline commit")
         else:
             relative_lock = lock_path.relative_to(root).as_posix()
+            first_commit = git_first_path_commit(root, relative_lock)
+            if first_commit != baseline_commit:
+                errors.append("Contract baseline commit is not the lock file's first Git commit")
             frozen = git_file_at_commit(root, baseline_commit, relative_lock)
             if frozen is None:
                 errors.append("contract lock is absent from the baseline commit")
@@ -503,6 +569,7 @@ def validate_stage_report(path: Path, registry_path: Path = DEFAULT_REGISTRY) ->
     )
 
     if verdict == "pass":
+        errors.extend(validate_program_charter_lock(root, registry, require_git_baseline=True))
         if current_task and current_task.lower() != "none":
             errors.append("closure pass requires Current task ID to be none")
         if version_gate != "pass":

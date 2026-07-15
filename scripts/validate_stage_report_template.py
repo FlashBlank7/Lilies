@@ -71,7 +71,12 @@ def validate_stage_report(path: Path) -> list[str]:
     if version == 2:
         required_markers = {
             "stage contract must be locked": "- Contract status: locked",
+            "stage contract lock is missing": "- Contract lock:",
+            "stage contract fingerprint is missing": "- Contract fingerprint:",
+            "stage contract approval is missing": "- Contract approval:",
+            "stage contract baseline commit is missing": "- Contract baseline commit:",
             "closure audit verdict is missing": "- Verdict:",
+            "intent coverage table must include Source intent ID": "| Source intent ID | Before stage | After stage |",
             "next-stage task table must include Task ID": "| Task ID | Source intent IDs | Task |",
             "handoff must identify Current task ID": "- Current task ID:",
             "handoff must identify First task ID": "- First task ID:",

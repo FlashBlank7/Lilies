@@ -51,6 +51,18 @@ def test_stage_report_validator_rejects_unlocked_v2_contract(tmp_path: Path) -> 
     assert "stage contract must be locked" in errors
 
 
+def test_stage_report_validator_requires_frozen_contract_markers(tmp_path: Path) -> None:
+    module = load_validator()
+    template = Path(__file__).resolve().parents[1] / "docs" / "stage-reports" / "STAGE_REPORT_TEMPLATE.md"
+    report = tmp_path / "missing_lock.md"
+    text = template.read_text(encoding="utf-8").replace("- Contract lock:", "- Removed lock:")
+    report.write_text(text, encoding="utf-8")
+
+    errors = module.validate_stage_report(report)
+
+    assert "stage contract lock is missing" in errors
+
+
 def test_stage_report_validator_rejects_workingon_handoff(tmp_path: Path) -> None:
     module = load_validator()
     template = Path(__file__).resolve().parents[1] / "docs" / "stage-reports" / "STAGE_REPORT_TEMPLATE.md"

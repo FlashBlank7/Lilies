@@ -3,6 +3,7 @@
 This directory is the durable control layer for the report-application campaign.
 
 - `PROGRAM_CHARTER.md` freezes product intent, completion rules, and deviation authority.
+- `program_charter_lock.json` fingerprints that charter and is checked against the lock file's first Git commit before stage closure.
 - `report_intents.json` is the machine-readable coverage registry for the latest scenario/capability report.
 - `stage-contracts/` stores immutable task/acceptance locks; each stage report records the lock fingerprint and its first Git baseline commit.
 - Stage reports remain the only authority for selecting the next stage and version.

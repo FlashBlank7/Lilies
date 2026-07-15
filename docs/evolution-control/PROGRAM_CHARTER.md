@@ -5,7 +5,7 @@
 | Field | Value |
 | --- | --- |
 | Charter ID | `LILIES-REPORT-APPLICATION-2026-07` |
-| Charter version | `1.0` |
+| Charter version | `1.1` |
 | Status | `frozen` |
 | Source report | `docs/lilies_agent_scenario_capability_boundary_v0_4_x_latest.docx` |
 | Source instruction | User instruction on 2026-07-16 to absorb the report annotations and apply the complete report to Lilies |
@@ -24,30 +24,23 @@ Engineering Harness mechanisms must improve delivery reliability without making 
 1. `PRODUCT-001`: Model intelligence remains the primary source of requirement understanding, planning, composition, and repair.
 2. `PRODUCT-002`: Workflow-internal Harness blocks, Evaluation Harness, and Platform Harness are separate concepts and may coexist.
 3. `PRODUCT-003`: Quick, Guided, and Governed modes coexist. A new heavy path does not silently replace a simpler path before comparative evidence supports the change.
-4. `PRODUCT-004`: In Quick and Guided modes, acceptance evidence informs the user's publishing decision but does not universally block publishing.
-5. `PRODUCT-005`: Governed mode may enforce non-bypassable policies only when the workflow or organization explicitly opts into the relevant risk boundary.
+4. `PRODUCT-004`: In Quick and Guided modes, acceptance evidence informs the user's publishing decision but does not universally block publishing; Governed mode may enforce only an explicitly selected hard-policy boundary.
+5. `PRODUCT-005`: Failed cases produce actionable repair guidance and can return workflow, node, trace, and failure context to Builder Team through a natural-language edit preview.
 6. `PRODUCT-006`: Common configurable blocks expose human-readable controls. Raw JSON is an optional expert surface, not the default inspector.
 7. `PRODUCT-007`: A behavior-affecting edit makes prior acceptance evidence stale and recommends revalidation without deleting the draft or hiding the user's publishing choice.
-8. `PRODUCT-008`: Failed cases produce actionable repair guidance and can be returned to Builder Team through natural-language workflow editing with a preview before application.
-9. `PRODUCT-009`: Customer Runtime, Engineer Studio, and Governance Console have distinct information architectures.
-10. `PRODUCT-010`: Reusable workflow modules and templates are first-class capability carriers. Not every missing capability becomes an atomic block.
-11. `PRODUCT-011`: Capability placement is explicit: atomic block, module/subworkflow, runtime/platform service, platform hard control, or connector/external contract.
-12. `PRODUCT-012`: Product claims never exceed available code, test, integration, live-run, and telemetry evidence.
+8. `PRODUCT-008`: Customer Runtime, Engineer Studio, and Governance Console have distinct information architectures.
+9. `PRODUCT-009`: Reusable workflow modules and templates are first-class capability carriers.
+10. `ARCH-003`: Capability placement is explicit: atomic block, module/subworkflow, runtime/platform service, platform hard control, or connector/external contract; not every missing capability becomes an atomic block.
+11. `GOV-003`: Product claims never exceed available code, test, integration, live-run, telemetry, and evidence-registry support.
 
 ## Evolution Invariants
 
-1. `EVOL-001`: The latest valid stage report is the only source of the next-stage task set.
-2. `EVOL-002`: Workingon stores intermediate results and execution evidence only. It never selects or decomposes the next stage.
-3. `EVOL-003`: Every stage task carries stable task IDs and source intent IDs from `report_intents.json` or a newer explicit user instruction.
-4. `EVOL-004`: A Stage Contract is frozen before implementation and distinguishes mandatory from optional tasks.
-5. `EVOL-005`: The agent cannot defer, remove, weaken, or relabel a mandatory task to close a version. A user-approved scope change or a replacement preserving the original acceptance criteria is required.
-6. `EVOL-006`: `blocked`, `not_run`, `partial`, `deferred`, and `documented` do not mean `completed`.
-7. `EVOL-007`: A version advances only after all mandatory tasks pass their acceptance criteria and the Closure Audit verdict is `pass`.
-8. `EVOL-008`: A product version closes a coherent vertical capability across its required model/API/runtime/UI/test/evidence surfaces. Repeated one-design or prerequisite-only versions are prohibited.
-9. `EVOL-009`: Implementation-route changes are allowed when objective and acceptance remain unchanged. Goal, boundary, priority, or acceptance changes require a recorded deviation and the authority defined below.
-10. `EVOL-010`: Resume, context compaction, or a new session reloads this charter, the current Stage Contract, the current task ID, and current evidence before any new planning.
-11. `EVOL-011`: The implementation summary is not completion proof. Closure Audit reconstructs required work from the Stage Contract and evidence.
-12. `EVOL-012`: A major-version closeout includes phase report, stage-report set archive, index repair, unresolved-intent audit, and next-phase handoff.
+1. `EVOL-001`: The latest valid stage report is the only next-task authority; Workingon stores evidence only, and every stage task carries stable task and source-intent IDs.
+2. `EVOL-002`: A Stage Contract is frozen before implementation, distinguishes mandatory from optional work, and cannot close while mandatory work is incomplete, blocked, deferred, weakened, or unsupported without a user-approved revision.
+3. `EVOL-003`: Closure Audit reconstructs work from the frozen contract and evidence rather than trusting a summary; relevant tests and stale-evidence checks must run before a `pass` verdict.
+4. `EVOL-004`: Implementation-route changes are allowed when objective and acceptance remain unchanged; goal, boundary, priority, or acceptance changes require the recorded authority defined below.
+5. `EVOL-005`: Resume, context compaction, or a new session reloads this charter, the current Stage Contract, current task ID, and current evidence before planning.
+6. `EVOL-006`: A version advances only for a coherent vertical capability, complete experiment, process-architecture repair, or explicit hotfix exception; repeated prerequisite-only versions are prohibited, and major-version closure includes the complete stage-report archive and unresolved-intent audit.
 
 ## Deviation Authority
 

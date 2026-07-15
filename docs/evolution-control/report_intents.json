@@ -2,6 +2,7 @@
   "schema_version": "1.0",
   "registry_id": "LILIES-SCENARIO-CAPABILITY-REPORT-2026-07",
   "source_report": "docs/lilies_agent_scenario_capability_boundary_v0_4_x_latest.docx",
+  "program_charter_lock": "docs/evolution-control/program_charter_lock.json",
   "task_authority": "stage_report_only",
   "terminal_statuses": [
     "implemented_verified",

@@ -1,0 +1,7 @@
+{
+  "schema_version": "1.0",
+  "charter_path": "docs/evolution-control/PROGRAM_CHARTER.md",
+  "charter_version": "1.1",
+  "charter_sha256": "5846c96e5fe50757732401e6e901244042a3c062174b63eaca6cfdea2a0ae78d",
+  "approval_ref": "user instruction on 2026-07-16 to apply the annotated report with anti-drift long-task control"
+}
