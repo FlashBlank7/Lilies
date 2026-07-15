@@ -363,7 +363,7 @@
       "priority": "P0",
       "statement": "Separate implementation completion from external evidence availability and preserve unavailable higher evidence as scoped debt.",
       "acceptance": "An unavailable browser, model, tool, customer environment, or live integration records blocked_by_environment, achieved level, claim ceiling, and recheck trigger without stopping unrelated report work or fabricating a pass.",
-      "status": "in_progress",
+      "status": "implemented_verified",
       "evidence": [
         "docs/evolution-control/PROGRAM_CHARTER.md",
         "AGENTS.md",
@@ -376,7 +376,7 @@
       "priority": "P0",
       "statement": "Permit campaign-wide blocking only when every remaining authorized report-intent route is blocked.",
       "acceptance": "Validators and resume hooks preserve the report campaign as highest priority, reject stage-local evidence-provider self-blocking, and prevent repeated unchanged external probes from replacing implementation progress.",
-      "status": "in_progress",
+      "status": "implemented_verified",
       "evidence": [
         "scripts/validate_evolution_control.py",
         "scripts/evolution_session_context.py",

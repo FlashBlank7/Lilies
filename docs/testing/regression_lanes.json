@@ -76,8 +76,8 @@
       ],
       "last_observed": {
         "source_stage_report": "docs/stage-reports/v0.4.3_usability_modes_evidence_and_regression_stabilization.md",
-        "command": ".venv/bin/python -m pytest -q --tb=short --junitxml=/tmp/lilies-v043-task-f-final7.xml",
-        "passed_count": 738,
+        "command": ".venv/bin/python -m pytest -q --tb=short --junitxml=/tmp/lilies-v043-task-f-final8.xml",
+        "passed_count": 740,
         "failed_count": 0,
         "expected_failure_count": 17,
         "warning_count": 1,

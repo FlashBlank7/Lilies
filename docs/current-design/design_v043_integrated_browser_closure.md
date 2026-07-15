@@ -43,15 +43,15 @@ Component tests can all pass while a customer still sees a confusing or broken s
 - `scripts/v04_03_browser_closure_gate.py` rejects closure unless every interaction passes in both viewports, screenshot PNGs exist under versioned evidence with matching SHA-256, the browser console is observed cleanly, and overlap inspection covers both viewports.
 - `scripts/v04_03_browser_evidence_recorder.py` records browser selection, per-viewport interactions, screenshots, console state, and overlap checks through atomic JSON replacement. Partial updates always retain `blocked`; only `finalize` can produce `passed`, and it delegates to the closure validator.
 - `scripts/v04_03_browser_environment.py` prepares the isolated Next standalone assets, starts the current backend and frontend on dedicated ports, waits for real HTTP health, supervises both processes, and cleans up both children on interruption or failure. Its `check` command distinguishes a ready product target from Browser-provider availability.
-- The frontend passes current TypeScript and isolated Webpack production-build checks, the current release gate passes 54 tests, process controls pass 28 tests, and the full suite passes 738 tests with exactly 17 strict historical xfails.
+- The frontend passes current TypeScript and isolated Webpack production-build checks, the current release gate passes 54 tests, process controls pass 30 tests, and the full suite passes 740 tests with exactly 17 strict historical xfails.
 - Runtime health on the dedicated current-code instance reports `v0.4.3`.
 - The supervised isolated frontend fixture at `http://127.0.0.1:3001` and backend health endpoint at `http://127.0.0.1:8002/health` both return HTTP 200; a concrete application route also returns HTTP 200. The environment runs from ignored build/data paths and stops cleanly without interfering with the user's existing development services.
 
-## Active Blocker
+## Evidence Ceiling
 
 - Browser runtime setup succeeded, but URL selection returned `No browser is available` and discovery returned an empty list.
-- A fresh retry against the supervised standalone target produced the same Browser-provider result. This removes project startup as the current cause but does not satisfy browser acceptance.
+- Repeated retries against the supervised standalone target produced the same Browser-provider result. Revision 2 classifies this as `blocked_by_environment` evidence debt, forbids another retry without a recheck trigger, and does not treat it as a campaign blocker.
 - Desktop/mobile screenshots, overlap inspection, interaction assertions, and browser-console checks were not run and are not claimed.
 - Evidence: `docs/workingon/v0.4.3_browser_fixture.json` and `docs/workingon/v0.4.3_browser_verification.json`.
 - The closure gate currently exits non-zero with all missing Browser observations enumerated; this is expected blocker evidence, not a failed implementation test.
-- This mandatory task remains active; the stage cannot archive until a supported Browser runtime completes the prepared journey and a fresh closure audit passes.
+- Component/integration implementation is complete. Browser-level usability, crash, console, screenshot, and overlap claims remain unavailable and capped until a supported provider completes the prepared journey.

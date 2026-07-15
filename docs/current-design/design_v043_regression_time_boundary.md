@@ -49,4 +49,4 @@ The current full suite mixes three different questions: whether current product 
 - Final inventory: `docs/workingon/v0.4.3_full_suite_failure_inventory.json` records zero current blockers, zero unknown expected conflicts, and all 17 expected historical conflicts observed.
 - Historical v0.3 evidence: `.venv/bin/python -m pytest tests/test_v03_*.py -q` -> `321 passed, 1 warning`; active `workingon` contains only v0.4.3 files afterward.
 - Current v0.4.x gate: the command in `docs/testing/regression_lanes.json` -> `54 passed, 1 warning`.
-- Final full suite: `.venv/bin/python -m pytest -q --tb=short --junitxml=/tmp/lilies-v043-task-f-final7.xml` -> `738 passed, 17 xfailed, 1 warning`; classifier covers 755 tests with no current, unknown, or missing failure.
+- Final full suite: `.venv/bin/python -m pytest -q --tb=short --junitxml=/tmp/lilies-v043-task-f-final8.xml` -> `740 passed, 17 xfailed, 1 warning`; classifier covers 757 tests with no current, unknown, or missing failure.
