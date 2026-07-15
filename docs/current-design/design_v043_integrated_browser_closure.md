@@ -41,7 +41,8 @@ Component tests can all pass while a customer still sees a confusing or broken s
 - A deterministic fixture script creates isolated stale/configuration, failed-repair, and governed-publication applications for repeatable browser checks.
 - A machine-readable journey fixes six required interactions across 1440x900 desktop and 390x844 mobile viewports, with seven named screenshots.
 - `scripts/v04_03_browser_closure_gate.py` rejects closure unless every interaction passes in both viewports, screenshot PNGs exist under versioned evidence with matching SHA-256, the browser console is observed cleanly, and overlap inspection covers both viewports.
-- The frontend passes current TypeScript and isolated Webpack production-build checks, the current release gate passes 48 tests, process controls pass 28 tests, and the full suite passes 732 tests with exactly 17 strict historical xfails.
+- `scripts/v04_03_browser_evidence_recorder.py` records browser selection, per-viewport interactions, screenshots, console state, and overlap checks through atomic JSON replacement. Partial updates always retain `blocked`; only `finalize` can produce `passed`, and it delegates to the closure validator.
+- The frontend passes current TypeScript and isolated Webpack production-build checks, the current release gate passes 51 tests, process controls pass 28 tests, and the full suite passes 735 tests with exactly 17 strict historical xfails.
 - Runtime health on the dedicated current-code instance reports `v0.4.3`.
 - The isolated frontend fixture at `http://127.0.0.1:3001` returns HTTP 200 from an ignored source copy, avoiding interference with the user's existing Next.js development server.
 
