@@ -154,7 +154,8 @@
 - `v0.2.140_*`：来自 `docs/stage-report-archives/v0.2.x/v0.2.140_global_completion_audit_after_e10_productization.md`。
 - `v0.2.141_*`：来自 `docs/stage-report-archives/v0.2.x/v0.2.141_e02_true_human_panel_execution_package.md`。
 - `v0.2.142_*`：来自 `docs/stage-report-archives/v0.2.x/v0.2.142_e02_panel_result_validator_analyzer.md`。
-- `v0.3.0_*` 到 `v0.3.50_*`：来自当前 active `docs/stage-reports/` 的 v0.3.x 产品可用性缓冲期。
+- `v0.3.0_*` 到 `v0.3.50_*`：来自已归档的 v0.3.x 产品可用性缓冲期。
+- `v0.4.2_*`：已通过独立 closure audit 的报告应用与自动演进控制架构。
 
 Active workspace rule:
 

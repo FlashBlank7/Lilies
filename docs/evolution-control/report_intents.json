@@ -278,8 +278,13 @@
       "priority": "P0",
       "statement": "Keep Program Charter as an immutable intent constraint and stage reports as the only next-task authority.",
       "acceptance": "Validators reject a stage report with unknown source intents or a next task without a stable task ID; workingon contains no authoritative next-stage task set.",
-      "status": "in_progress",
-      "evidence": ["docs/evolution-control/PROGRAM_CHARTER.md"]
+      "status": "implemented_verified",
+      "evidence": [
+        "docs/evolution-control/PROGRAM_CHARTER.md",
+        "docs/stage-reports/STAGE_REPORT_TEMPLATE.md",
+        "scripts/validate_evolution_control.py",
+        "tests/test_evolution_control.py"
+      ]
     },
     {
       "id": "EVOL-002",
@@ -287,8 +292,12 @@
       "priority": "P0",
       "statement": "Freeze a mandatory/optional Stage Contract before implementation.",
       "acceptance": "A version cannot close while any mandatory task lacks completed evidence or a user-approved contract revision.",
-      "status": "planned",
-      "evidence": []
+      "status": "implemented_verified",
+      "evidence": [
+        "docs/evolution-control/stage-contracts/v0.4.2.json",
+        "scripts/validate_evolution_control.py",
+        "tests/test_evolution_control.py"
+      ]
     },
     {
       "id": "EVOL-003",
@@ -296,8 +305,12 @@
       "priority": "P0",
       "statement": "Use a deterministic Closure Audit and stable intent coverage to prevent self-declared or summary-only completion.",
       "acceptance": "Closure validation finds missing mandatory tasks, disappearing intent IDs, unsupported claims, stale evidence, and invalid version advancement.",
-      "status": "planned",
-      "evidence": []
+      "status": "implemented_verified",
+      "evidence": [
+        "docs/stage-reports/v0.4.2_report_baseline_and_evolution_control.md",
+        "scripts/validate_evolution_control.py",
+        "tests/test_evolution_control.py"
+      ]
     },
     {
       "id": "EVOL-004",
@@ -305,8 +318,12 @@
       "priority": "P0",
       "statement": "Classify implementation, substitution, scope, and safety deviations with explicit authority.",
       "acceptance": "Implementation changes can proceed with records; scope or acceptance changes cannot proceed without user decision.",
-      "status": "documented",
-      "evidence": ["docs/evolution-control/PROGRAM_CHARTER.md"]
+      "status": "implemented_verified",
+      "evidence": [
+        "docs/evolution-control/PROGRAM_CHARTER.md",
+        "docs/stage-reports/v0.4.2_report_baseline_and_evolution_control.md",
+        "tests/test_evolution_control.py"
+      ]
     },
     {
       "id": "EVOL-005",
@@ -314,8 +331,15 @@
       "priority": "P0",
       "statement": "Resume long work from the current Stage Contract and task ID after interruption or context compaction.",
       "acceptance": "Startup/resume checks load charter, stage contract, task ID, evidence, and git status before new planning; an open mandatory task is continued rather than replaced.",
-      "status": "planned",
-      "evidence": []
+      "status": "implemented_verified",
+      "evidence": [
+        "AGENTS.md",
+        ".codex/hooks.json",
+        "scripts/evolution_session_context.py",
+        "scripts/evolution_checkpoint.py",
+        "scripts/evolution_stop_guard.py",
+        "tests/test_evolution_hooks.py"
+      ]
     },
     {
       "id": "EVOL-006",
@@ -323,8 +347,13 @@
       "priority": "P0",
       "statement": "Advance versions only for coherent vertical capability, complete experiment, process-architecture repair, or explicit hotfix exception.",
       "acceptance": "Repeated one-design and prerequisite-only versions fail the version advancement validator; major versions archive their complete stage-report set.",
-      "status": "planned",
-      "evidence": []
+      "status": "implemented_verified",
+      "evidence": [
+        "docs/phase-reports/v0.3.0_product_usability_buffer_closeout.md",
+        "docs/stage-report-archives/v0.3.x/README.md",
+        "scripts/validate_evolution_control.py",
+        "tests/test_evolution_control.py"
+      ]
     }
   ]
 }

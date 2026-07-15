@@ -1,0 +1,164 @@
+{
+  "version": "v0.3.56",
+  "stage": "legacy_canvas_requirement_completion",
+  "status": "passed",
+  "bug_ledger": [
+    {
+      "id": "P1-clicking-legacy-brick-can-crash-frontend",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Older draft nodes can miss blockType/type/position fields; clicking or rendering a brick could call replaceAll or x/y on undefined.",
+      "fix": "Route node data and canvas positions through safeStudioNodeData and safeCanvasPosition before render, selection, context menu, arrange, and drag persistence.",
+      "verification": "legacy_canvas_compatibility_markers."
+    },
+    {
+      "id": "P1-requirement-intake-has-no-customer-clarification-loop",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "A vague customer request only showed readiness hints; it did not ask targeted questions or generate a workflow-aligned requirement.",
+      "fix": "Add requirement completion questions for audience, inputs, outcome, acceptance, boundary, and steps, then apply a workflow requirement draft back to the input.",
+      "verification": "requirement_completion_markers."
+    },
+    {
+      "id": "P1-claude-plan-reference-must-not-leak-code-plan-shape",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Borrowing Claude Code plan-mode behavior too literally would produce a code-execution plan rather than workflow-generation requirements.",
+      "fix": "Use the needs_input/plan_ready interaction idea as reference, but keep Lilies output fields aligned to workflow generation.",
+      "verification": "claude_plan_reference_boundary_markers."
+    }
+  ],
+  "checks": [
+    {
+      "id": "p0_p1_bug_ledger_legacy_canvas_requirement_completion",
+      "passed": true,
+      "bug_count": 3,
+      "blocking_bug_count": 0,
+      "bugs": [
+        {
+          "id": "P1-clicking-legacy-brick-can-crash-frontend",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Older draft nodes can miss blockType/type/position fields; clicking or rendering a brick could call replaceAll or x/y on undefined.",
+          "fix": "Route node data and canvas positions through safeStudioNodeData and safeCanvasPosition before render, selection, context menu, arrange, and drag persistence.",
+          "verification": "legacy_canvas_compatibility_markers."
+        },
+        {
+          "id": "P1-requirement-intake-has-no-customer-clarification-loop",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "A vague customer request only showed readiness hints; it did not ask targeted questions or generate a workflow-aligned requirement.",
+          "fix": "Add requirement completion questions for audience, inputs, outcome, acceptance, boundary, and steps, then apply a workflow requirement draft back to the input.",
+          "verification": "requirement_completion_markers."
+        },
+        {
+          "id": "P1-claude-plan-reference-must-not-leak-code-plan-shape",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Borrowing Claude Code plan-mode behavior too literally would produce a code-execution plan rather than workflow-generation requirements.",
+          "fix": "Use the needs_input/plan_ready interaction idea as reference, but keep Lilies output fields aligned to workflow generation.",
+          "verification": "claude_plan_reference_boundary_markers."
+        }
+      ]
+    },
+    {
+      "id": "legacy_canvas_compatibility_markers",
+      "path": "platform/frontend/app/applications/[id]/page.tsx",
+      "passed": true,
+      "cases": {
+        "brick_node_uses_safe_block_type": true,
+        "raw_block_type_replace_removed": true,
+        "canvas_position_sanitizer_exists": true,
+        "studio_node_data_sanitizer_exists": true,
+        "sync_canvas_uses_sanitized_data": true,
+        "arrange_uses_sanitized_position": true,
+        "context_menu_uses_safe_title": true,
+        "drag_persistence_uses_safe_position": true,
+        "architecture_uses_safe_config": true
+      }
+    },
+    {
+      "id": "requirement_completion_markers",
+      "path": "platform/frontend/app/page.tsx",
+      "passed": true,
+      "cases": {
+        "question_builder_exists": true,
+        "plan_builder_exists": true,
+        "customer_answers_state_exists": true,
+        "panel_is_rendered": true,
+        "apply_writes_back_to_requirement": true,
+        "question_catalog_covers_workflow_generation": true,
+        "workflow_draft_fields_are_bilingual": true,
+        "styles_present": true,
+        "output_mentions_workflow_not_code_plan": true
+      }
+    },
+    {
+      "id": "claude_plan_reference_boundary_markers",
+      "path": "references/claude-code/src/utils/ultraplan/ccrSession.ts",
+      "passed": true,
+      "cases": {
+        "reference_has_needs_input_phase": true,
+        "reference_tracks_user_iteration": true,
+        "lilies_does_not_copy_exit_plan_mode_markers": true,
+        "lilies_keeps_workflow_fields": true,
+        "no_remote_session_dependency": true
+      }
+    },
+    {
+      "id": "regression_manifest_check",
+      "path": "docs/testing/regression_lanes.json",
+      "passed": true,
+      "cases": {
+        "manifest_version_is_v0356_or_later": true,
+        "source_stage_report_is_v0355": true,
+        "v0356_test_in_command": true,
+        "v0356_test_in_test_files": true,
+        "pass_count_not_less_than_v0356_floor": true
+      },
+      "pass_count": 323
+    },
+    {
+      "id": "runtime_cleanup_policy",
+      "passed": true,
+      "model_call_used": false,
+      "notes": "Legacy local application data is archived as a runtime operation outside unit tests, then a clean safe draft is created for verification."
+    }
+  ],
+  "summary": {
+    "failed_check_count": 0,
+    "open_p0_p1_bug_count": 0,
+    "legacy_canvas": {
+      "id": "legacy_canvas_compatibility_markers",
+      "path": "platform/frontend/app/applications/[id]/page.tsx",
+      "passed": true,
+      "cases": {
+        "brick_node_uses_safe_block_type": true,
+        "raw_block_type_replace_removed": true,
+        "canvas_position_sanitizer_exists": true,
+        "studio_node_data_sanitizer_exists": true,
+        "sync_canvas_uses_sanitized_data": true,
+        "arrange_uses_sanitized_position": true,
+        "context_menu_uses_safe_title": true,
+        "drag_persistence_uses_safe_position": true,
+        "architecture_uses_safe_config": true
+      }
+    },
+    "requirement_completion": {
+      "id": "requirement_completion_markers",
+      "path": "platform/frontend/app/page.tsx",
+      "passed": true,
+      "cases": {
+        "question_builder_exists": true,
+        "plan_builder_exists": true,
+        "customer_answers_state_exists": true,
+        "panel_is_rendered": true,
+        "apply_writes_back_to_requirement": true,
+        "question_catalog_covers_workflow_generation": true,
+        "workflow_draft_fields_are_bilingual": true,
+        "styles_present": true,
+        "output_mentions_workflow_not_code_plan": true
+      }
+    }
+  }
+}

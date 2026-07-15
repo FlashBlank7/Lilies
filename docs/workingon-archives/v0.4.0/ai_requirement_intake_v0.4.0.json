@@ -1,0 +1,89 @@
+{
+  "version": "v0.4.0",
+  "stage": "ai_requirement_intake",
+  "status": "passed",
+  "checks": [
+    {
+      "id": "backend_ai_intake_markers",
+      "path": "platform/backend/src/agent_platform/api.py",
+      "passed": true,
+      "cases": {
+        "runtime_phase_is_v04": true,
+        "route_exists": true,
+        "typed_request_exists": true,
+        "typed_response_exists": true,
+        "model_prompt_references_plan_mode": true,
+        "no_generic_placeholder_instruction": true,
+        "needs_input_requires_questions": true,
+        "ready_requires_completed_requirement": true,
+        "harness_kind_exists": true,
+        "usage_recorded": true
+      }
+    },
+    {
+      "id": "frontend_ai_intake_markers",
+      "path": "platform/frontend/app/page.tsx",
+      "passed": true,
+      "cases": {
+        "frontend_calls_ai_endpoint": true,
+        "old_template_builder_removed": true,
+        "old_question_builder_removed": true,
+        "old_fallback_fields_not_used": true,
+        "panel_declares_ai_intake": true,
+        "status_tracks_ai_result": true,
+        "apply_requires_ready": true,
+        "ai_question_fields_rendered": true,
+        "copy_mentions_ai_plan_mode": true,
+        "copy_rejects_template_guessing": true,
+        "styles_for_ai_summary_present": true
+      }
+    },
+    {
+      "id": "corrected_v0356_boundary_markers",
+      "path": "docs/stage-report-archives/v0.3.x/v0.3.56_legacy_canvas_requirement_completion.md",
+      "passed": true,
+      "cases": {
+        "v0356_report_kept_as_history": true,
+        "v04_report_will_record_supersession": true
+      }
+    }
+  ],
+  "summary": {
+    "failed_check_count": 0,
+    "backend": {
+      "id": "backend_ai_intake_markers",
+      "path": "platform/backend/src/agent_platform/api.py",
+      "passed": true,
+      "cases": {
+        "runtime_phase_is_v04": true,
+        "route_exists": true,
+        "typed_request_exists": true,
+        "typed_response_exists": true,
+        "model_prompt_references_plan_mode": true,
+        "no_generic_placeholder_instruction": true,
+        "needs_input_requires_questions": true,
+        "ready_requires_completed_requirement": true,
+        "harness_kind_exists": true,
+        "usage_recorded": true
+      }
+    },
+    "frontend": {
+      "id": "frontend_ai_intake_markers",
+      "path": "platform/frontend/app/page.tsx",
+      "passed": true,
+      "cases": {
+        "frontend_calls_ai_endpoint": true,
+        "old_template_builder_removed": true,
+        "old_question_builder_removed": true,
+        "old_fallback_fields_not_used": true,
+        "panel_declares_ai_intake": true,
+        "status_tracks_ai_result": true,
+        "apply_requires_ready": true,
+        "ai_question_fields_rendered": true,
+        "copy_mentions_ai_plan_mode": true,
+        "copy_rejects_template_guessing": true,
+        "styles_for_ai_summary_present": true
+      }
+    }
+  }
+}

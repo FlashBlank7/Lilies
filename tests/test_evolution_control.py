@@ -192,15 +192,25 @@ def test_closure_pass_rejects_unresolved_mandatory_and_missing_verification(tmp_
     module = load_validator()
     source = ROOT / "docs/stage-reports/v0.4.2_report_baseline_and_evolution_control.md"
     text = source.read_text(encoding="utf-8")
-    text = text.replace("- Verdict: pending", "- Verdict: pass", 1).replace(
-        "- Version-size gate: pending", "- Version-size gate: pass", 1
+    unresolved_row = next(
+        line
+        for line in text.splitlines()
+        if line.startswith("| `V04-03-T01` | Dirty-worktree product regression debt")
     )
+    text = text.replace("| next-stage mandatory |", "| mandatory |", 1)
+    final_audit_row = next(
+        line
+        for line in text.splitlines()
+        if line.startswith("| `V04-02-T01E` | Independent final closure audit")
+    )
+    text = text.replace(final_audit_row, final_audit_row.replace("| pass |", "| fail |", 1), 1)
     report = tmp_path / "v0.4.2_false_pass.md"
     report.write_text(text, encoding="utf-8")
 
     errors = module.validate_stage_report(report)
 
-    assert any(error.startswith("mandatory unresolved item prevents closure:") for error in errors)
+    assert unresolved_row
+    assert "mandatory unresolved item prevents closure: V04-03-T01" in errors
     assert "mandatory task has no passing verification evidence: V04-02-T01E" in errors
 
 

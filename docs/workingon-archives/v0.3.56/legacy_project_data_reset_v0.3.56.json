@@ -1,0 +1,45 @@
+{
+  "version": "v0.3.56",
+  "stage": "legacy_canvas_requirement_completion",
+  "status": "passed",
+  "legacy_data_reset": {
+    "reason": "The node-click crash was consistent with old draft compatibility risk, and the local database still contained old smoke and superseded scenario projects.",
+    "method": "Stopped local API and Studio, moved the whole data directory out of runtime state, recreated an empty data directory, then restarted local API and Studio.",
+    "archive_path": ".tmp/legacy-project-data-v0.3.56-20260714122639/data",
+    "archived_application_count": 19,
+    "archived_event_file_count": 7272,
+    "destructive_delete_used": false
+  },
+  "runtime_after_reset": {
+    "api_url": "http://127.0.0.1:8001",
+    "studio_url": "http://127.0.0.1:3000",
+    "health_status": "ok",
+    "frontend_detail_http_status": 200,
+    "application_count_after_reset_before_create": 0,
+    "application_count_after_clean_create": 1
+  },
+  "clean_draft": {
+    "application_id": "0d508f70-ed89-4161-8d71-e4eca995ae01",
+    "name": "v0.3.56 clean requirement completion draft",
+    "revision": 4,
+    "node_types": ["start", "answer"],
+    "node_count": 2,
+    "edge_count": 1,
+    "test_count": 1,
+    "acceptance": {
+      "passed": true,
+      "total": 1,
+      "failed": 0,
+      "run_id": "e6c66264-0104-40ae-88ff-d6fb1107edc3"
+    }
+  },
+  "commands": [
+    "kill 81502 1415",
+    "mv data .tmp/legacy-project-data-v0.3.56-20260714122639/data && mkdir -p data",
+    ".venv/bin/uvicorn agent_platform.api:app --host 127.0.0.1 --port 8001",
+    "AGENT_PLATFORM_URL=http://127.0.0.1:8001 npm run dev -- --hostname 127.0.0.1 --port 3000",
+    "POST /api/v1/applications",
+    "POST /api/v1/applications/{id}/draft",
+    "POST /api/v1/applications/{id}/tests/run"
+  ]
+}

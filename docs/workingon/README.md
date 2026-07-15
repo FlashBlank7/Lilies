@@ -2,7 +2,7 @@
 
 本目录是当前 stage 的 active intermediate 工作区。
 
-当前状态：v0.3.55 已归档，暂无 active workingon。
+当前状态：`v0.4.2` 仍在 closure audit；除自动生成的 `evolution_checkpoint.json` 外，不保留历史版本中间材料。
 
 归档规则：
 
@@ -11,7 +11,7 @@
 - 下一阶段指导权只属于 `docs/stage-reports/`。
 - 每个小版本归档时，所有中间文件必须移动到 `docs/workingon-archives/v<version>/` 或更合适的版本化证据目录。
 - 实验报告和实验原始证据应进入 `docs/experiment-status/`。
-- 归档完成后，本目录应只剩本 README。
+- 阶段执行中可保留当前版本的 checkpoint；归档完成后必须连同 checkpoint 一起迁入版本归档，本目录只剩本 README。
 
 历史 workingon 证据见：
 

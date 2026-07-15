@@ -1,0 +1,360 @@
+{
+  "version": "v0.3.51",
+  "stage": "canvas_layout_keyboard_navigation",
+  "status": "passed",
+  "safety": {
+    "forbidden_endpoint_called": false,
+    "called_endpoints": [],
+    "model_call_used": false
+  },
+  "bug_ledger": [
+    {
+      "id": "P1-canvas-manual-layout-friction",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "A non-technical user had to drag every workflow brick by hand after generation.",
+      "fix": "Add a one-click canvas arrange action that recomputes a readable topological layout.",
+      "verification": "layout_algorithm_fixture."
+    },
+    {
+      "id": "P1-canvas-arrange-not-persistent",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "A visual-only layout cleanup would disappear after refresh.",
+      "fix": "Persist arranged positions through the same update_node draft mutation used by manual node dragging.",
+      "verification": "layout_persistence_contract_fixture."
+    },
+    {
+      "id": "P1-canvas-keyboard-navigation-missing",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Keyboard-first users could not move around a large workflow canvas with WASD.",
+      "fix": "Add focused-canvas WASD viewport panning with accelerated and fine movement modifiers.",
+      "verification": "keyboard_pan_contract_fixture."
+    },
+    {
+      "id": "P1-keyboard-pan-must-not-break-text-entry",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Global WASD shortcuts would corrupt typing in workflow edit, JSON, or run input fields.",
+      "fix": "Scope WASD handling to the canvas and ignore form/editable targets.",
+      "verification": "keyboard_guard_contract_fixture."
+    },
+    {
+      "id": "P1-v0351-tests-must-enter-release-gate",
+      "severity": "P1",
+      "status": "fixed",
+      "reproduction": "Canvas usability could regress if v0.3.51 was omitted from the current v0.3.x gate.",
+      "fix": "Update the current regression lane with v0.3.51 and a higher pass-count floor.",
+      "verification": "regression_manifest_updated."
+    }
+  ],
+  "checks": [
+    {
+      "id": "p0_p1_bug_ledger_canvas_layout_keyboard_navigation",
+      "passed": true,
+      "bug_count": 5,
+      "blocking_bug_count": 0,
+      "bugs": [
+        {
+          "id": "P1-canvas-manual-layout-friction",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "A non-technical user had to drag every workflow brick by hand after generation.",
+          "fix": "Add a one-click canvas arrange action that recomputes a readable topological layout.",
+          "verification": "layout_algorithm_fixture."
+        },
+        {
+          "id": "P1-canvas-arrange-not-persistent",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "A visual-only layout cleanup would disappear after refresh.",
+          "fix": "Persist arranged positions through the same update_node draft mutation used by manual node dragging.",
+          "verification": "layout_persistence_contract_fixture."
+        },
+        {
+          "id": "P1-canvas-keyboard-navigation-missing",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Keyboard-first users could not move around a large workflow canvas with WASD.",
+          "fix": "Add focused-canvas WASD viewport panning with accelerated and fine movement modifiers.",
+          "verification": "keyboard_pan_contract_fixture."
+        },
+        {
+          "id": "P1-keyboard-pan-must-not-break-text-entry",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Global WASD shortcuts would corrupt typing in workflow edit, JSON, or run input fields.",
+          "fix": "Scope WASD handling to the canvas and ignore form/editable targets.",
+          "verification": "keyboard_guard_contract_fixture."
+        },
+        {
+          "id": "P1-v0351-tests-must-enter-release-gate",
+          "severity": "P1",
+          "status": "fixed",
+          "reproduction": "Canvas usability could regress if v0.3.51 was omitted from the current v0.3.x gate.",
+          "fix": "Update the current regression lane with v0.3.51 and a higher pass-count floor.",
+          "verification": "regression_manifest_updated."
+        }
+      ]
+    },
+    {
+      "id": "layout_algorithm_fixture",
+      "passed": true,
+      "cases": {
+        "start_is_left_of_collect": true,
+        "collect_is_left_of_extract": true,
+        "extract_is_left_of_end": true,
+        "disconnected_node_gets_deterministic_position": true,
+        "layout_uses_stable_spacing": true
+      },
+      "positions": {
+        "start": {
+          "x": 90,
+          "y": 110
+        },
+        "collect": {
+          "x": 390,
+          "y": 110
+        },
+        "extract": {
+          "x": 690,
+          "y": 110
+        },
+        "end": {
+          "x": 990,
+          "y": 110
+        },
+        "side_note": {
+          "x": 90,
+          "y": 260
+        }
+      }
+    },
+    {
+      "id": "keyboard_pan_contract_fixture",
+      "passed": true,
+      "cases": {
+        "w_moves_view_up": true,
+        "a_moves_view_left": true,
+        "s_moves_view_down": true,
+        "d_moves_view_right": true,
+        "shift_accelerates": true,
+        "alt_fine_tunes": true
+      },
+      "deltas": {
+        "w": {
+          "x": 0,
+          "y": 80
+        },
+        "a": {
+          "x": 80,
+          "y": 0
+        },
+        "s": {
+          "x": 0,
+          "y": -80
+        },
+        "d": {
+          "x": -80,
+          "y": 0
+        },
+        "shift_w": {
+          "x": 0,
+          "y": 160
+        },
+        "alt_d": {
+          "x": -40.0,
+          "y": 0
+        }
+      }
+    },
+    {
+      "id": "layout_persistence_contract_fixture",
+      "passed": true,
+      "cases": {
+        "arrange_uses_draft_update_endpoint": true,
+        "arrange_persists_position_changes": true,
+        "arrange_updates_local_nodes_optimistically": true,
+        "arrange_uses_safe_legacy_position_fallback": true,
+        "arrange_refits_canvas_after_layout": true
+      }
+    },
+    {
+      "id": "keyboard_guard_contract_fixture",
+      "passed": true,
+      "cases": {
+        "keyboard_handler_is_canvas_scoped": true,
+        "text_targets_are_ignored": true,
+        "ctrl_and_meta_are_ignored": true,
+        "pan_uses_viewport_not_node_mutation": true
+      }
+    },
+    {
+      "id": "canvas_layout_frontend_markers",
+      "path": "platform/frontend/app/applications/[id]/page.tsx",
+      "required_markers": [
+        "arrangedCanvasPositions",
+        "CANVAS_LAYOUT_COLUMN_WIDTH",
+        "CANVAS_LAYOUT_ROW_HEIGHT",
+        "arrangeCanvasNodes",
+        "data-canvas-action=\"arrange\"",
+        "canvasArrangeButton",
+        "canvasArrangeDone"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "canvas_keyboard_frontend_markers",
+      "path": "platform/frontend/app/applications/[id]/page.tsx",
+      "required_markers": [
+        "canvasKeyboardPanDelta",
+        "panCanvasViewport",
+        "shouldIgnoreCanvasKeyboardTarget",
+        "data-canvas-keyboard=\"wasd-pan\"",
+        "onKeyDownCapture={handleCanvasKeyDown}",
+        "instance.setViewport"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "canvas_i18n_markers",
+      "path": "platform/frontend/lib/i18n.ts",
+      "required_markers": [
+        "整理画布",
+        "画布已整理",
+        "WASD 移动",
+        "Workflow canvas, WASD moves the view",
+        "Arrange canvas",
+        "Canvas arranged"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "canvas_style_markers",
+      "path": "platform/frontend/app/globals.css",
+      "required_markers": [
+        ".canvas-toolbar",
+        ".canvas-keyboard-hint",
+        ".canvas-wrap:focus-visible",
+        ".canvas-toolbar button"
+      ],
+      "missing_markers": [],
+      "passed": true
+    },
+    {
+      "id": "regression_manifest_updated",
+      "path": "docs/testing/regression_lanes.json",
+      "passed": true,
+      "cases": {
+        "current_gate_present": true,
+        "v0351_test_in_test_files": true,
+        "v0351_test_in_command": true,
+        "pass_count_not_less_than_v0351_floor": true
+      },
+      "pass_count": 323
+    },
+    {
+      "id": "safety_no_live_side_effects_canvas_layout_keyboard_navigation",
+      "passed": true,
+      "called_endpoints": [],
+      "forbidden_endpoint_fragments": [
+        "/builds",
+        "/tests/run",
+        "/runs",
+        "/versions",
+        "/restore",
+        "/cancel"
+      ],
+      "model_call_used": false
+    }
+  ],
+  "summary": {
+    "failed_check_count": 0,
+    "open_p0_p1_bug_count": 0,
+    "layout": {
+      "id": "layout_algorithm_fixture",
+      "passed": true,
+      "cases": {
+        "start_is_left_of_collect": true,
+        "collect_is_left_of_extract": true,
+        "extract_is_left_of_end": true,
+        "disconnected_node_gets_deterministic_position": true,
+        "layout_uses_stable_spacing": true
+      },
+      "positions": {
+        "start": {
+          "x": 90,
+          "y": 110
+        },
+        "collect": {
+          "x": 390,
+          "y": 110
+        },
+        "extract": {
+          "x": 690,
+          "y": 110
+        },
+        "end": {
+          "x": 990,
+          "y": 110
+        },
+        "side_note": {
+          "x": 90,
+          "y": 260
+        }
+      }
+    },
+    "keyboard_pan": {
+      "id": "keyboard_pan_contract_fixture",
+      "passed": true,
+      "cases": {
+        "w_moves_view_up": true,
+        "a_moves_view_left": true,
+        "s_moves_view_down": true,
+        "d_moves_view_right": true,
+        "shift_accelerates": true,
+        "alt_fine_tunes": true
+      },
+      "deltas": {
+        "w": {
+          "x": 0,
+          "y": 80
+        },
+        "a": {
+          "x": 80,
+          "y": 0
+        },
+        "s": {
+          "x": 0,
+          "y": -80
+        },
+        "d": {
+          "x": -80,
+          "y": 0
+        },
+        "shift_w": {
+          "x": 0,
+          "y": 160
+        },
+        "alt_d": {
+          "x": -40.0,
+          "y": 0
+        }
+      }
+    },
+    "keyboard_guard": {
+      "id": "keyboard_guard_contract_fixture",
+      "passed": true,
+      "cases": {
+        "keyboard_handler_is_canvas_scoped": true,
+        "text_targets_are_ignored": true,
+        "ctrl_and_meta_are_ignored": true,
+        "pan_uses_viewport_not_node_mutation": true
+      }
+    }
+  }
+}

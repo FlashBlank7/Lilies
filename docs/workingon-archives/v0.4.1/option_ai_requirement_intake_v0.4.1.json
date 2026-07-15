@@ -1,0 +1,127 @@
+{
+  "version": "v0.4.1",
+  "stage": "option_ai_requirement_intake",
+  "status": "passed",
+  "checks": [
+    {
+      "id": "backend_ai_intake_markers",
+      "path": "platform/backend/src/agent_platform/api.py",
+      "passed": true,
+      "cases": {
+        "runtime_phase_is_v04": true,
+        "route_exists": true,
+        "typed_option_exists": true,
+        "typed_request_exists": true,
+        "typed_response_exists": true,
+        "answer_schema_carries_selected_options": true,
+        "question_schema_carries_choice_type": true,
+        "model_prompt_references_plan_mode": true,
+        "model_prompt_forbids_open_text_primary": true,
+        "model_prompt_requires_options": true,
+        "model_prompt_targets_workflow_plan": true,
+        "no_generic_placeholder_instruction": true,
+        "needs_input_requires_option_questions": true,
+        "needs_input_requires_option_count": true,
+        "ready_requires_completed_requirement": true,
+        "harness_kind_exists": true,
+        "usage_recorded": true
+      }
+    },
+    {
+      "id": "frontend_ai_intake_markers",
+      "path": "platform/frontend/app/page.tsx",
+      "passed": true,
+      "cases": {
+        "frontend_calls_ai_endpoint": true,
+        "old_template_builder_removed": true,
+        "old_question_builder_removed": true,
+        "old_fallback_fields_not_used": true,
+        "panel_declares_ai_intake": true,
+        "status_tracks_ai_result": true,
+        "apply_requires_ready": true,
+        "ai_question_fields_rendered": true,
+        "option_fields_rendered": true,
+        "radio_checkbox_controls_rendered": true,
+        "selection_payload_sent": true,
+        "ai_apply_arms_team_start": true,
+        "created_app_visible_before_build": true,
+        "build_failure_opens_created_draft": true,
+        "app_list_defaults_to_recent": true,
+        "app_list_recent_uses_updated_at": true,
+        "markdown_ai_plan_name_cleanup": true,
+        "old_textarea_answer_state_removed": true,
+        "copy_mentions_ai_plan_mode": true,
+        "copy_mentions_choices": true,
+        "copy_rejects_template_guessing": true,
+        "styles_for_ai_summary_present": true,
+        "styles_for_option_cards_present": true
+      }
+    },
+    {
+      "id": "corrected_v0356_boundary_markers",
+      "path": "docs/stage-report-archives/v0.3.x/v0.3.56_legacy_canvas_requirement_completion.md",
+      "passed": true,
+      "cases": {
+        "v0356_report_kept_as_history": true,
+        "v04_report_will_record_supersession": true
+      }
+    }
+  ],
+  "summary": {
+    "failed_check_count": 0,
+    "backend": {
+      "id": "backend_ai_intake_markers",
+      "path": "platform/backend/src/agent_platform/api.py",
+      "passed": true,
+      "cases": {
+        "runtime_phase_is_v04": true,
+        "route_exists": true,
+        "typed_option_exists": true,
+        "typed_request_exists": true,
+        "typed_response_exists": true,
+        "answer_schema_carries_selected_options": true,
+        "question_schema_carries_choice_type": true,
+        "model_prompt_references_plan_mode": true,
+        "model_prompt_forbids_open_text_primary": true,
+        "model_prompt_requires_options": true,
+        "model_prompt_targets_workflow_plan": true,
+        "no_generic_placeholder_instruction": true,
+        "needs_input_requires_option_questions": true,
+        "needs_input_requires_option_count": true,
+        "ready_requires_completed_requirement": true,
+        "harness_kind_exists": true,
+        "usage_recorded": true
+      }
+    },
+    "frontend": {
+      "id": "frontend_ai_intake_markers",
+      "path": "platform/frontend/app/page.tsx",
+      "passed": true,
+      "cases": {
+        "frontend_calls_ai_endpoint": true,
+        "old_template_builder_removed": true,
+        "old_question_builder_removed": true,
+        "old_fallback_fields_not_used": true,
+        "panel_declares_ai_intake": true,
+        "status_tracks_ai_result": true,
+        "apply_requires_ready": true,
+        "ai_question_fields_rendered": true,
+        "option_fields_rendered": true,
+        "radio_checkbox_controls_rendered": true,
+        "selection_payload_sent": true,
+        "ai_apply_arms_team_start": true,
+        "created_app_visible_before_build": true,
+        "build_failure_opens_created_draft": true,
+        "app_list_defaults_to_recent": true,
+        "app_list_recent_uses_updated_at": true,
+        "markdown_ai_plan_name_cleanup": true,
+        "old_textarea_answer_state_removed": true,
+        "copy_mentions_ai_plan_mode": true,
+        "copy_mentions_choices": true,
+        "copy_rejects_template_guessing": true,
+        "styles_for_ai_summary_present": true,
+        "styles_for_option_cards_present": true
+      }
+    }
+  }
+}
