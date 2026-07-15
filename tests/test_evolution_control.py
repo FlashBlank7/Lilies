@@ -35,22 +35,19 @@ def test_campaign_priority_outranks_stage_mechanics_and_external_evidence() -> N
         (ROOT / "docs/evolution-control/report_intents.json").read_text(encoding="utf-8")
     )
     agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
-    skill = (ROOT / "skills-tempmask/lilies-evolution-development/SKILL.md").read_text(
-        encoding="utf-8"
-    )
-    gates = (
-        ROOT / "skills-tempmask/lilies-evolution-development/references/operating-gates.md"
-    ).read_text(encoding="utf-8")
+    charter = (ROOT / "docs/evolution-control/PROGRAM_CHARTER.md").read_text(encoding="utf-8")
+    template = (ROOT / "docs/stage-reports/STAGE_REPORT_TEMPLATE.md").read_text(encoding="utf-8")
 
     assert (
         "Implement and verify every capability-boundary report intent"
         in registry["campaign_objective"]
     )
     assert "Campaign Supremacy" in agents
-    assert "Campaign Objective Is Supreme" in skill
-    assert "Evidence Ceiling Gate" in gates
-    assert "Do not retry the same unchanged external condition" in skill
-    assert "Only classify the campaign as blocked" in gates
+    assert "Campaign Objective And Priority" in charter
+    assert "blocked_by_environment" in charter
+    assert "Do not retry an unchanged external blocker" in agents
+    assert "## Evidence Debt" in template
+    assert "forbids restoring, editing, or using" in agents
 
 
 def test_external_evidence_stop_cannot_freeze_authorized_campaign_tasks(tmp_path: Path) -> None:
@@ -197,12 +194,11 @@ def test_next_stage_task_requires_known_intent(tmp_path: Path) -> None:
     assert "unknown source intent id: PRODUCT-999" in errors
 
 
-def test_masked_skill_cannot_legalize_drift_or_tiny_versions() -> None:
-    skill_root = ROOT / "skills-tempmask" / "lilies-evolution-development"
-    skill = (skill_root / "SKILL.md").read_text(encoding="utf-8")
-    gates = (skill_root / "references" / "operating-gates.md").read_text(encoding="utf-8")
-    templates = (skill_root / "references" / "templates.md").read_text(encoding="utf-8")
-    combined = "\n".join((skill, gates, templates))
+def test_repository_rules_cannot_legalize_drift_or_tiny_versions() -> None:
+    agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    charter = (ROOT / "docs/evolution-control/PROGRAM_CHARTER.md").read_text(encoding="utf-8")
+    template = (ROOT / "docs/stage-reports/STAGE_REPORT_TEMPLATE.md").read_text(encoding="utf-8")
+    combined = "\n".join((agents, charter, template))
 
     assert "PROGRAM_CHARTER.md" in combined
     assert "report_intents.json" in combined
@@ -212,9 +208,10 @@ def test_masked_skill_cannot_legalize_drift_or_tiny_versions() -> None:
     assert "open the smallest next stage" not in combined
     assert "Shrink the next stage" not in combined
     assert "explicitly blocked/deferred with evidence" not in combined
-    assert "If mandatory behavior is blocked" in combined
-    assert "higher external evidence" in combined
-    assert "keep the stage open" in combined.lower()
+    assert "campaign blocker exists only when no remaining report intent" in combined.lower()
+    assert "higher-level evidence limits the claim" in combined
+    assert "serious version-sized unit" in combined
+    assert not (ROOT / "skills-tempmask/lilies-evolution-development").exists()
 
 
 def test_frozen_lock_rejects_deleted_or_reclassified_mandatory_task(tmp_path: Path) -> None:

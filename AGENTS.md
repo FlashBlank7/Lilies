@@ -50,4 +50,4 @@ Before substantial Lilies work, read in this order:
 
 - Preserve unrelated user changes in the dirty worktree.
 - Never use destructive git commands to simplify the stage.
-- The Lilies Skill remains temp-masked. The user explicitly authorized editing it to improve campaign execution; editing does not activate or restore it.
+- The user deleted the Lilies evolution Skill and explicitly forbids restoring, editing, or using it for this campaign. Repository instructions, intent registry, code, tests, and deterministic validators are the complete execution mechanism.

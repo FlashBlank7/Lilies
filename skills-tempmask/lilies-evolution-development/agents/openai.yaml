@@ -1,4 +1,0 @@
-interface:
-  display_name: "Lilies Evolution Development"
-  short_description: "Implement the Lilies report campaign without drift"
-  default_prompt: "Use $lilies-evolution-development to implement every capability-boundary report intent, keep stage sequencing subordinate to that campaign, track unavailable external evidence as scoped debt, verify honestly, archive coherent versions, and continue automatically without self-created blockers."

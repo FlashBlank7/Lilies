@@ -5,7 +5,7 @@
 | Field | Value |
 | --- | --- |
 | Charter ID | `LILIES-REPORT-APPLICATION-2026-07` |
-| Charter version | `1.2` |
+| Charter version | `1.3` |
 | Status | `frozen` |
 | Source report | `docs/lilies_agent_scenario_capability_boundary_v0_4_x_latest.docx` |
 | Source instruction | User instructions on 2026-07-16 to absorb the report annotations, apply the complete report to Lilies, and make that campaign outrank local process or evidence gates |
@@ -105,4 +105,4 @@ On startup, resume, or context compaction:
 
 ## Relationship To Codex Long-Running Work
 
-The campaign follows the official long-running-work pattern: a clear outcome, explicit constraints, measurable definition of done, one continuous goal context when available, and durable repository state that survives interruption. Repository invariants belong in `AGENTS.md`; reusable execution instructions belong in a Skill; deterministic resume and closure checks belong in lifecycle hooks and scripts.
+The campaign follows the long-running-work pattern: a clear outcome, explicit constraints, measurable definition of done, one continuous goal context when available, and durable repository state that survives interruption. For this project, the user has explicitly removed Skill-based execution. Repository invariants belong in `AGENTS.md`; campaign intent belongs in the charter and registry; deterministic resume and closure checks belong in lifecycle hooks, scripts, and tests.

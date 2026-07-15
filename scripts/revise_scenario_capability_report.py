@@ -395,7 +395,7 @@ def main() -> None:
         "报告与批注是需求证据，Program Charter 是不可随阶段改写的意图约束，stage-report 仍是唯一下一阶段任务来源。每个报告结论使用稳定 INTENT/CAP/UX/GOV/EVOL ID，并在每份 stage-report 中携带覆盖状态，防止递归摘要让任务消失。",
         "每个版本开始前冻结 Stage Contract：目标、mandatory 任务、验收标准、证据和允许偏移。技术路线可以调整，但删除 mandatory 任务、降低验收、改变目标客户或产品边界必须请求用户决定。blocked 不等于 completed，也不能单独支持版本晋级。",
         "实施者不能以自己的总结作为完成证明。Closure Auditor 在新的审查上下文中从 Stage Contract 反向检查代码、测试、真实运行和遗留项；机器校验负责稳定 ID、任务覆盖、模板和证据路径。中断、恢复或上下文压缩后先加载 Program Charter、当前 Stage Contract 和当前任务 ID，再继续原任务。",
-        "使用 Codex 长任务时，先用 Plan 明确 outcome、constraints 和 definition of done，再以 Goal 持续执行；AGENTS.md 保存仓库级不变量，Skill 保存可复用流程，SessionStart/PreCompact/Stop Hooks 负责恢复上下文和机械闭环检查。定时任务只做巡检或审计，不取代同一 Goal 的执行状态。",
+        "使用 Codex 长任务时，先明确 outcome、constraints 和 definition of done，再以持续目标执行；本项目不使用 Skill，AGENTS.md 保存仓库级不变量，Program Charter 与意图注册表保存最高目标，SessionStart/PreCompact/Stop Hooks 负责恢复上下文和机械闭环检查。定时任务只做巡检或审计，不取代同一目标的执行状态。",
     ]:
         anchor = insert_paragraph_after(anchor, text)
 
@@ -428,9 +428,9 @@ def main() -> None:
     )
     append_source_row(
         sources,
-        "OpenAI - AGENTS.md / Build skills / Hooks",
-        "把仓库不变量、可复用流程、恢复和停止校验分别放入持久指令、Skill 与确定性生命周期脚本。",
-        "https://learn.chatgpt.com/docs/agent-configuration/agents-md ; https://learn.chatgpt.com/docs/build-skills ; https://learn.chatgpt.com/docs/hooks",
+        "OpenAI - AGENTS.md / Hooks",
+        "本项目按用户决定不使用 Skill；仓库不变量、目标约束、恢复和停止校验分别放入 AGENTS.md、Program Charter、意图注册表与确定性生命周期脚本。",
+        "https://learn.chatgpt.com/docs/agent-configuration/agents-md ; https://learn.chatgpt.com/docs/hooks",
     )
 
     document.core_properties.title = "Lilies 智能体需求能力模型与平台演进边界分析"
