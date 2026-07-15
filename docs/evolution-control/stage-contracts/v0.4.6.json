@@ -1,0 +1,82 @@
+{
+  "schema_version": "1.0",
+  "stage_version": "v0.4.6",
+  "stage_report": "docs/stage-reports/v0.4.6_versioned_module_evidence_registry.md",
+  "contract_revision": 1,
+  "approval_ref": "v0.4.5 closure handoff V04-06-T01 under the capability-boundary report campaign",
+  "source_tasks": [
+    {
+      "task_id": "V04-06-T01",
+      "source_intent_ids": ["ARCH-003", "GOV-003", "PRODUCT-009"],
+      "source_task": "Introduce a versioned reusable module and verified-template registry.",
+      "disposition": "accepted mandatory",
+      "authority": "v0.4.5 closure handoff and capability-boundary report campaign."
+    },
+    {
+      "task_id": "V04-07-T01",
+      "source_intent_ids": ["GOV-001", "GOV-002", "GOV-003", "PRODUCT-008"],
+      "source_task": "Separate Customer Runtime, Engineer Studio, and Governance Console and expose platform task/cost/evidence views.",
+      "disposition": "carried forward",
+      "authority": "Carried unchanged from v0.4.5."
+    },
+    {
+      "task_id": "V04-08-T01",
+      "source_intent_ids": ["EVAL-001", "EVAL-002", "EVAL-003", "EVAL-004"],
+      "source_task": "Productize Evaluation Harness profiles, scoped verification states, generated tests, and environment selection.",
+      "disposition": "carried forward",
+      "authority": "Carried unchanged from v0.4.5."
+    },
+    {
+      "task_id": "V04-09-T01",
+      "source_intent_ids": ["ARCH-007", "EVAL-003", "EVAL-004", "SCENARIO-002"],
+      "source_task": "Implement the daily web-collection pressure scenario on a durable job substrate.",
+      "disposition": "carried forward",
+      "authority": "Carried unchanged from v0.4.5."
+    },
+    {
+      "task_id": "V04-10-T01",
+      "source_intent_ids": ["ARCH-008", "EVAL-002", "EVAL-004", "GOV-004", "SCENARIO-003"],
+      "source_task": "Implement the customer-system embedding pressure scenario and Connector/Embedding SDK boundary.",
+      "disposition": "carried forward",
+      "authority": "Carried unchanged from v0.4.5."
+    }
+  ],
+  "mandatory_tasks": [
+    {
+      "task_id": "V04-06-T01A",
+      "source_intent_ids": ["GOV-003", "PRODUCT-009"],
+      "surface": "architecture / backend / data contract",
+      "acceptance": "A reusable module version declares typed inputs, outputs, capability IDs, dependencies, execution envelope, risk, known boundaries, and capability claims; evidence records separately link implementation, defaults, API, tests, integration, live evidence, telemetry, and explicit gaps, and deterministic claim ceilings reject unsupported status inflation.",
+      "required_evidence": "Schema and unit tests for complete declarations, evidence grouping, H0-H5/status derivation, missing artifacts, mismatched capability or module version, and token or cost claims backed only by approximation."
+    },
+    {
+      "task_id": "V04-06-T01B",
+      "source_intent_ids": ["GOV-003", "PRODUCT-009"],
+      "surface": "backend / persistence / lifecycle",
+      "acceptance": "Published module content is stored as immutable monotonically increasing versions, survives process restart, detects content tampering, keeps verification metadata separate from immutable content, and classifies old templates as visible but unverified instead of silently trusted.",
+      "required_evidence": "Temporary-data-directory restart tests, exact-version reads and expansion, version immutability/hash checks, verification transition tests, legacy-template classification, and atomic persistence assertions."
+    },
+    {
+      "task_id": "V04-06-T01C",
+      "source_intent_ids": ["GOV-003", "PRODUCT-009"],
+      "surface": "api / publication / evidence query",
+      "acceptance": "Authenticated APIs publish module versions, append validated evidence, verify a version, list version history, retrieve exact contracts and known boundaries, and query capability claims by capability, module, version, status, and evidence category without overstating unavailable evidence.",
+      "required_evidence": "API integration tests covering publication, evidence registration, failed and successful verification, filtered queries, exact-version retrieval, restart persistence, and legacy endpoint compatibility."
+    },
+    {
+      "task_id": "V04-06-T01D",
+      "source_intent_ids": ["ARCH-003", "GOV-003", "PRODUCT-009"],
+      "surface": "builder / planning / carrier binding",
+      "acceptance": "Builder suggestions compare required Capability Build Contract IDs and envelope against module contracts, expose coverage and evidence gaps, select and expand an exact module version, and permit reusable-module carrier binding only to a registered verified version; names, confidence scores, or draft modules cannot become implementation evidence.",
+      "required_evidence": "Builder tool tests for compatible verified selection, incompatible envelope, partial capability coverage, unverified rejection, exact-version expansion, resource inventory references, and strict completion with a verified module carrier."
+    },
+    {
+      "task_id": "V04-06-T01E",
+      "source_intent_ids": ["GOV-003", "PRODUCT-009"],
+      "surface": "frontend / studio / migration / regression",
+      "acceptance": "Engineer Studio exposes module version, verification state, declared capability coverage, ports, envelope, evidence level, and known boundaries before reuse; a verified module can be inserted by exact version while unverified legacy templates remain clearly bounded; release and full regressions remain green.",
+      "required_evidence": "Frontend assertions and build, browser verification of registry and exact-version insertion states, built-in verified reference-module evidence, current release gate, evolution-control suite, and full repository diagnostic."
+    }
+  ],
+  "optional_tasks": []
+}

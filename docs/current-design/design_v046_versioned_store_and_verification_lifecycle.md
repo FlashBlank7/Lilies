@@ -1,0 +1,24 @@
+# v0.4.6 Versioned Store And Verification Lifecycle
+
+Status: active
+
+Tasks: `V04-06-T01B`, `V04-06-T01C`
+
+## Storage Boundary
+
+The local registry persists under the configured data directory, not inside source-controlled built-in templates. Every module version has a canonical JSON content record, SHA-256 content hash, source, creation time, and separate mutable registry state. Atomic replacement protects index and evidence writes.
+
+Existing built-in JSON templates load as `legacy_unverified` unless they carry a full contract and registered evidence. They remain discoverable and manually expandable for compatibility, but cannot satisfy a verified reusable-module carrier binding.
+
+## Lifecycle
+
+1. Publish creates the next monotonically increasing immutable version.
+2. Evidence registration resolves every artifact against the local evidence root, records a digest, and rejects missing or escaping paths.
+3. Verify checks contract completeness, capability/claim consistency, evidence record ownership, claim ceilings, dependency declarations, and content hash integrity.
+4. Successful verification changes only registry metadata to `verified`; it does not rewrite module content.
+5. Any later workflow or contract change creates a new version. Earlier versions remain retrievable and expandable by exact version.
+6. Startup reload validates stored hashes. Tampered records are quarantined from verified selection and reported instead of silently accepted.
+
+## API Boundary
+
+New capability-module and capability-evidence APIs expose exact versions, history, lifecycle state, grouped evidence, gaps, and filters. Existing template APIs remain compatible and return latest versions while adding explicit verification metadata.

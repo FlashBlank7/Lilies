@@ -1,0 +1,30 @@
+# v0.4.6 Module Contract And Evidence Registry
+
+Status: active
+
+Tasks: `V04-06-T01A`, `V04-06-T01C`
+
+## Problem
+
+The current template model mixes a mutable confidence score with a decorative integer version. It does not say which F/G/X capabilities a template carries, what inputs and outputs it accepts, what it depends on, where it can run, what it cannot promise, or which evidence justifies a claim. A name match or usage count therefore cannot be implementation evidence.
+
+## Decisions
+
+1. A module contract declares stable capability IDs, typed input/output ports, module dependencies with version constraints, required E0-E5 envelope, orthogonal risk, and at least one known boundary.
+2. A module version is an immutable content record. Verification state, deprecation, ratings, and usage are mutable registry metadata and are excluded from the content hash.
+3. Capability evidence is stored as separate records. Each record identifies one capability claim, exact module version when applicable, claim scope, evidence environment, and artifact references grouped as implementation, defaults, API, test, integration, live, or telemetry. Missing support is an explicit gap, not an empty success.
+4. The registry computes the strongest honest verification status. Static evidence cannot imply component behavior; component evidence cannot imply integration; integration cannot imply live behavior; live runs cannot imply production observation without telemetry.
+5. Token and cost claims cannot be promoted from call-count approximations. Such records stay unsupported or explicitly approximate.
+
+## Claim Ladder
+
+| Required evidence | Maximum status |
+| --- | --- |
+| No verified artifact | `design_only` |
+| Implementation, default, or API artifact | `static_verified` |
+| Static evidence plus executable test artifact | `component_verified` |
+| Component evidence plus integration artifact | `integration_verified` |
+| Integration evidence plus live-run artifact | `live_verified` |
+| Live evidence plus production telemetry artifact | `production_observed` |
+
+`blocked_by_environment` and `unsupported` require explicit gap records and never count as verified implementation.

@@ -2,7 +2,7 @@
 
 本目录是当前 stage 的 active intermediate 工作区。
 
-当前状态：`v0.4.5` 已完成并归档；当前没有活动中间证据。后续任务只从最新 stage report 读取。
+当前状态：`v0.4.6` 正在执行；尚无需要保留的中间实验结果。任务与下一步只从 `docs/stage-reports/v0.4.6_versioned_module_evidence_registry.md` 读取，本目录不拆解任务。
 
 归档规则：
 
