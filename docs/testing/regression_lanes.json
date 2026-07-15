@@ -80,7 +80,7 @@
       ],
       "last_observed": {
         "source_stage_report": "docs/stage-reports/v0.4.5_capability_build_contract.md",
-        "command": ".venv/bin/python -m pytest -q --tb=short --junitxml=/tmp/lilies-v045-working-full.xml",
+        "command": ".venv/bin/python -m pytest -q --tb=short --junitxml=/tmp/lilies-v045-08ce34b-full.xml",
         "passed_count": 754,
         "failed_count": 0,
         "expected_failure_count": 17,

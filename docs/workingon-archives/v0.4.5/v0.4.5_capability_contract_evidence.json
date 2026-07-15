@@ -1,0 +1,162 @@
+{
+  "schema_version": "1.0",
+  "stage": "v0.4.5",
+  "task_ids": [
+    "V04-05-T01A",
+    "V04-05-T01B",
+    "V04-05-T01C",
+    "V04-05-T01D",
+    "V04-05-T01E"
+  ],
+  "verified_source_commit": "08ce34b042628a34ac4ed163f1128611fbed75ea",
+  "archive_status": "archived_with_v0.4.5_closure",
+  "evidence_profile": {
+    "selected_level": "H2",
+    "status": "component_verified",
+    "environment": "single-process FastAPI tests, isolated SQLite/workspace fixtures, scripted model providers, and a compiled Next.js frontend",
+    "model_boundary": "deterministic payload providers verify protocol and propagation; no live-model semantic-quality claim",
+    "carrier_boundary": "strict Builder validation accepts actual draft nodes or registered resource inventory entries and rejects plausible but fabricated prefixes",
+    "claim_scope": "F/G/X contract structure and closure, local API persistence/routing, Builder planning/binding, frontend ownership/evidence display, and acceptance-repair propagation"
+  },
+  "reference_closures": [
+    {
+      "contract_id": "reference.codex_workspace.v1",
+      "envelope": "E2",
+      "risk": "medium",
+      "capability_counts": {"F": 2, "G": 2, "X": 2},
+      "structural_closure": "valid",
+      "strict_reference_closure": "pending_real_binding",
+      "unavailable_external_contracts": []
+    },
+    {
+      "contract_id": "reference.daily_web_collection.v1",
+      "envelope": "E3",
+      "risk": "medium",
+      "capability_counts": {"F": 2, "G": 3, "X": 3},
+      "structural_closure": "valid",
+      "strict_reference_closure": "pending_real_binding",
+      "unavailable_external_contracts": ["X.site_access"]
+    },
+    {
+      "contract_id": "reference.customer_embedding.v1",
+      "envelope": "E5",
+      "risk": "high",
+      "capability_counts": {"F": 2, "G": 4, "X": 4},
+      "structural_closure": "valid",
+      "strict_reference_closure": "pending_real_binding",
+      "unavailable_external_contracts": [
+        "X.customer_identity",
+        "X.customer_schema",
+        "X.customer_writeback",
+        "X.deployment"
+      ]
+    }
+  ],
+  "model_first_intake": {
+    "typed_question_axes": true,
+    "typed_option_effects": true,
+    "model_contract_required_on_new_ready_fixture": true,
+    "original_source_requirement_preserved": true,
+    "customer_plan_rendered_from_same_contract": true,
+    "legacy_compatibility_marked_explicitly": true
+  },
+  "persistence_and_routing": {
+    "draft_snapshot": true,
+    "content_hash_changes_with_contract": true,
+    "publication_version": true,
+    "builder_team_state": true,
+    "read_and_validate_api": true,
+    "routing_source": "capability_build_contract",
+    "envelope_and_risk_reported_separately": true,
+    "legacy_router_used_when_contract_present": false
+  },
+  "builder_binding": {
+    "contract_inspection_required": true,
+    "resource_inventory_exposed": true,
+    "build_plan_covers_required_capability_ids": true,
+    "fabricated_prefix_rejected": "module:invented-but-not-registered",
+    "codex_actual_node_bindings_strictly_validated": true,
+    "unavailable_external_contracts_are_scoped_gaps": true
+  },
+  "product_propagation": {
+    "frontend_displays_fgx": true,
+    "frontend_displays_option_effects": true,
+    "frontend_displays_separate_ownership_layers": [
+      "workflow_runtime",
+      "evaluation_harness",
+      "platform_harness",
+      "external_system"
+    ],
+    "frontend_displays_evidence_targets": true,
+    "application_creation_carries_exact_contract": true,
+    "acceptance_cases_carry_capability_ids_and_evidence_target": true,
+    "repair_context_carries_contract_id_envelope_claim_ceiling_and_external_gaps": true
+  },
+  "verification": [
+    {
+      "check": "Python static analysis",
+      "command": ".venv/bin/ruff check <all v0.4.5 changed Python files>",
+      "result": "passed"
+    },
+    {
+      "check": "Capability contract focused suite",
+      "command": ".venv/bin/python -m pytest -q tests/test_v04_05_capability_build_contract.py",
+      "result": "9 passed, 1 warning"
+    },
+    {
+      "check": "Current v0.4.x release gate",
+      "command": ".venv/bin/python -c '<load and execute current gate command from docs/testing/regression_lanes.json>'",
+      "result": "68 passed, 1 warning"
+    },
+    {
+      "check": "Evolution and stage-report consistency suite",
+      "command": ".venv/bin/python -m pytest -q tests/test_evolution_control.py tests/test_evolution_hooks.py tests/test_stage_report_template_validation.py tests/test_stage_report_template_adoption_audit.py",
+      "result": "30 passed"
+    },
+    {
+      "check": "Full repository diagnostic on verified_source_commit",
+      "command": ".venv/bin/python -m pytest -q --tb=short --junitxml=/tmp/lilies-v045-08ce34b-full.xml",
+      "result": "754 passed, 17 xfailed, 0 failed, 1 warning in 69.75s",
+      "junit": {
+        "tests": 771,
+        "failures": 0,
+        "errors": 0,
+        "skipped_or_xfailed": 17,
+        "timestamp": "2026-07-16T07:11:16.807035+09:00"
+      }
+    },
+    {
+      "check": "Frontend TypeScript",
+      "command": "PATH=/Users/zhonghaoyang/.nvm/versions/node/v24.15.0/bin:$PATH npm run lint",
+      "working_directory": "platform/frontend",
+      "result": "passed"
+    },
+    {
+      "check": "Frontend production build",
+      "command": "PATH=/Users/zhonghaoyang/.nvm/versions/node/v24.15.0/bin:$PATH npm run build",
+      "working_directory": "platform/frontend",
+      "result": "compiled, type-checked, rendered static pages, and finalized successfully"
+    }
+  ],
+  "evidence_debt": [
+    {
+      "scenario": "daily_web_collection",
+      "unavailable": "live approved-site access and restart-bound durable execution",
+      "claim_ceiling": "blocked_by_environment",
+      "carry_target": "v0.4.9"
+    },
+    {
+      "scenario": "customer_system_embedding",
+      "unavailable": "test tenant identity, schema, writeback endpoint, compensation target, and deployment profile",
+      "claim_ceiling": "blocked_by_environment",
+      "carry_target": "v0.4.10"
+    }
+  ],
+  "excluded_claims": [
+    "general live-model requirement quality",
+    "permission to collect arbitrary Web sites",
+    "restart-safe scheduled production execution",
+    "real customer identity or writeback",
+    "production tenant isolation, compliance, reliability, or SLO"
+  ]
+}

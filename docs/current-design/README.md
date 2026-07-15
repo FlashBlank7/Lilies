@@ -2,13 +2,9 @@
 
 本目录是当前 stage 的 active design 工作区。
 
-当前状态：`v0.4.5` 正在实现 F/G/X Capability Build Contract 纵向能力。
+当前状态：`v0.4.5` 已完成并归档；当前没有活动 design。后续阶段只从最新 stage report 接续。
 
-Active designs:
-
-- `design_v045_capability_model_and_closure.md` -> `V04-05-T01A/C`
-- `design_v045_model_first_intake_and_routing.md` -> `V04-05-T01B/C`
-- `design_v045_builder_frontend_and_repair_contract.md` -> `V04-05-T01D/E`
+Active designs: none.
 
 归档规则：
 

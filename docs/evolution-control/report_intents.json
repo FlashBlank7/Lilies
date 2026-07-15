@@ -28,8 +28,14 @@
       "priority": "P0",
       "statement": "Keep model intelligence as the primary requirement-understanding, planning, workflow-composition, and repair mechanism.",
       "acceptance": "Builder behavior and product flows do not reduce complex requirements to fixed templates when model reasoning is available.",
-      "status": "documented",
-      "evidence": ["docs/evolution-control/PROGRAM_CHARTER.md"]
+      "status": "implemented_verified",
+      "evidence": [
+        "docs/stage-reports/v0.4.5_capability_build_contract.md",
+        "docs/workingon-archives/v0.4.5/v0.4.5_capability_contract_evidence.json",
+        "platform/backend/src/agent_platform/api.py",
+        "platform/backend/src/agent_platform/builder.py",
+        "tests/test_v04_05_capability_build_contract.py"
+      ]
     },
     {
       "id": "PRODUCT-002",
@@ -37,8 +43,14 @@
       "priority": "P0",
       "statement": "Separate workflow-internal Harness blocks, Evaluation Harness, and Platform Harness in data contracts, UI labels, and claims.",
       "acceptance": "Users and engineers can identify which layer owns each control; no generic Harness label conflates all three.",
-      "status": "documented",
-      "evidence": ["docs/lilies_agent_scenario_capability_boundary_v0_4_x_latest.docx"]
+      "status": "implemented_verified",
+      "evidence": [
+        "docs/stage-reports/v0.4.5_capability_build_contract.md",
+        "docs/workingon-archives/v0.4.5/v0.4.5_capability_contract_evidence.json",
+        "platform/backend/src/agent_platform/capability_contracts.py",
+        "platform/frontend/app/page.tsx",
+        "tests/test_v04_05_capability_build_contract.py"
+      ]
     },
     {
       "id": "PRODUCT-003",
@@ -74,7 +86,9 @@
       "evidence": [
         "docs/stage-report-archives/v0.3.x/v0.3.54_acceptance_auto_repair.md",
         "docs/stage-reports/v0.4.3_usability_modes_evidence_and_regression_stabilization.md",
-        "tests/test_v04_03_acceptance_repair_context.py"
+        "docs/stage-reports/v0.4.5_capability_build_contract.md",
+        "tests/test_v04_03_acceptance_repair_context.py",
+        "tests/test_v04_05_capability_build_contract.py"
       ]
     },
     {
@@ -126,8 +140,12 @@
       "priority": "P0",
       "statement": "Model requirements as functional capabilities, runtime guarantees, and external contracts (F/G/X).",
       "acceptance": "Codex-like, scheduled crawler, and customer-embedded scenarios produce materially different typed F/G/X closures while retaining original natural language.",
-      "status": "planned",
-      "evidence": []
+      "status": "implemented_verified",
+      "evidence": [
+        "platform/backend/src/agent_platform/capability_contracts.py",
+        "docs/workingon-archives/v0.4.5/v0.4.5_capability_contract_evidence.json",
+        "tests/test_v04_05_capability_build_contract.py"
+      ]
     },
     {
       "id": "ARCH-002",
@@ -135,8 +153,12 @@
       "priority": "P0",
       "statement": "Represent capability dependencies, requires/excludes relationships, required execution envelope, and environment availability.",
       "acceptance": "Capability closure is deterministic, missing dependencies are explicit, and unavailable external contracts are not misreported as workflow defects.",
-      "status": "planned",
-      "evidence": []
+      "status": "implemented_verified",
+      "evidence": [
+        "platform/backend/src/agent_platform/capability_contracts.py",
+        "docs/workingon-archives/v0.4.5/v0.4.5_capability_contract_evidence.json",
+        "tests/test_v04_05_capability_build_contract.py"
+      ]
     },
     {
       "id": "ARCH-003",
@@ -144,8 +166,12 @@
       "priority": "P0",
       "statement": "Choose a capability carrier before adding a block: atomic block, reusable module, runtime/platform service, hard platform control, or connector/external contract.",
       "acceptance": "Builder output records the selected carrier and rationale; a capability is not automatically converted into a new atomic block.",
-      "status": "documented",
-      "evidence": ["docs/lilies_agent_scenario_capability_boundary_v0_4_x_latest.docx"]
+      "status": "implemented_verified",
+      "evidence": [
+        "platform/backend/src/agent_platform/builder.py",
+        "docs/workingon-archives/v0.4.5/v0.4.5_capability_contract_evidence.json",
+        "tests/test_v04_05_capability_build_contract.py"
+      ]
     },
     {
       "id": "ARCH-004",
@@ -153,8 +179,13 @@
       "priority": "P0",
       "statement": "Produce a Capability Build Contract from Builder Team.",
       "acceptance": "Builder output contains target capabilities, envelope, external contracts, platform coverage, evidence plan, carrier choices, and claim scope.",
-      "status": "planned",
-      "evidence": []
+      "status": "implemented_verified",
+      "evidence": [
+        "platform/backend/src/agent_platform/capability_contracts.py",
+        "platform/backend/src/agent_platform/workflow_models.py",
+        "platform/backend/src/agent_platform/builder.py",
+        "tests/test_v04_05_capability_build_contract.py"
+      ]
     },
     {
       "id": "ARCH-005",
@@ -162,8 +193,13 @@
       "priority": "P1",
       "statement": "Use E0-E5 as cumulative execution envelopes while keeping risk and functional capability orthogonal.",
       "acceptance": "Routing and claims distinguish one-shot cognition, stateful workflow, tool loop, durable task, governed automation, and production embedding without treating them as one keyword complexity score.",
-      "status": "documented",
-      "evidence": ["docs/lilies_agent_scenario_capability_boundary_v0_4_x_latest.docx"]
+      "status": "implemented_verified",
+      "evidence": [
+        "platform/backend/src/agent_platform/capability_contracts.py",
+        "platform/backend/src/agent_platform/api.py",
+        "docs/workingon-archives/v0.4.5/v0.4.5_capability_contract_evidence.json",
+        "tests/test_v04_05_capability_build_contract.py"
+      ]
     },
     {
       "id": "ARCH-006",
@@ -215,8 +251,14 @@
       "priority": "P0",
       "statement": "Represent component_verified, integration_verified, live_verified, blocked_by_environment, design_only, and unsupported states.",
       "acceptance": "Unavailable customer environments produce a scoped status and contract gap instead of forced pass/fail or fabricated evidence.",
-      "status": "planned",
-      "evidence": []
+      "status": "implemented_verified",
+      "evidence": [
+        "platform/backend/src/agent_platform/capability_contracts.py",
+        "platform/backend/src/agent_platform/acceptance_repair.py",
+        "platform/frontend/app/page.tsx",
+        "docs/workingon-archives/v0.4.5/v0.4.5_capability_contract_evidence.json",
+        "tests/test_v04_05_capability_build_contract.py"
+      ]
     },
     {
       "id": "EVAL-003",
