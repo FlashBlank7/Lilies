@@ -1,0 +1,20 @@
+# v0.4.4 Scenario Evaluation And Frontend
+
+Status: active
+
+Tasks: `V04-04-T01C`, `V04-04-T01D`, `V04-04-T01E`
+
+## Decision
+
+Expose the Codex scenario as a real customer choice and label its evidence honestly. Saving a draft from that choice applies the server preset; the generic Builder Team path can discover the same template. The run form exposes task, workspace, network policy, and permission behavior through existing Customer Runtime controls.
+
+## Evaluation Slice
+
+Generate separate structure, feedback-loop, permission/sandbox, and customer-result cases. The version proves `component_verified` in a deterministic local workspace. Live Web, unrestricted host access, cross-process durability, and production evidence stay outside the claim and remain for later Evaluation Harness work.
+
+## Acceptance
+
+- Chinese and English scenario copy describe the actual workspace boundary.
+- The frontend calls the atomic scenario-apply API rather than recreating the graph in React.
+- The resulting draft is immediately editable and has meaningful acceptance cases.
+- Lint/build and an API replay cover the customer path without relying on Browser availability.

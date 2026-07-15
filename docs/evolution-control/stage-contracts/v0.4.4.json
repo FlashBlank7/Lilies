@@ -1,0 +1,96 @@
+{
+  "schema_version": "1.0",
+  "stage_version": "v0.4.4",
+  "stage_report": "docs/stage-reports/v0.4.4_codex_feedback_loop_scenario.md",
+  "contract_revision": 1,
+  "approval_ref": "v0.4.3 closure handoff V04-04-T01 under the capability-boundary report campaign",
+  "source_tasks": [
+    {
+      "task_id": "V04-04-T01",
+      "source_intent_ids": ["ARCH-006", "EVAL-001", "EVAL-003", "SCENARIO-001"],
+      "source_task": "Build and validate the editable Codex-like feedback-loop workflow scenario.",
+      "disposition": "accepted mandatory",
+      "authority": "v0.4.3 closure handoff and capability-boundary report campaign."
+    },
+    {
+      "task_id": "V04-05-T01",
+      "source_intent_ids": ["ARCH-001", "ARCH-002", "ARCH-003", "ARCH-004", "ARCH-005", "EVAL-002", "PRODUCT-001", "PRODUCT-002", "PRODUCT-005"],
+      "source_task": "Implement the shared F/G/X capability model and Builder Capability Build Contract, then rebuild option intake against it.",
+      "disposition": "carried forward",
+      "authority": "Carried unchanged from v0.4.3."
+    },
+    {
+      "task_id": "V04-06-T01",
+      "source_intent_ids": ["ARCH-003", "GOV-003", "PRODUCT-009"],
+      "source_task": "Introduce a versioned reusable module and verified-template registry.",
+      "disposition": "carried forward",
+      "authority": "Carried unchanged from v0.4.3."
+    },
+    {
+      "task_id": "V04-07-T01",
+      "source_intent_ids": ["GOV-001", "GOV-002", "GOV-003", "PRODUCT-008"],
+      "source_task": "Separate Customer Runtime, Engineer Studio, and Governance Console and expose platform task/cost/evidence views.",
+      "disposition": "carried forward",
+      "authority": "Carried unchanged from v0.4.3."
+    },
+    {
+      "task_id": "V04-08-T01",
+      "source_intent_ids": ["EVAL-001", "EVAL-002", "EVAL-003", "EVAL-004"],
+      "source_task": "Productize Evaluation Harness profiles, scoped verification states, generated tests, and environment selection.",
+      "disposition": "carried forward",
+      "authority": "Carried unchanged from v0.4.3; v0.4.4 implements only the Codex scenario profile slice."
+    },
+    {
+      "task_id": "V04-09-T01",
+      "source_intent_ids": ["ARCH-007", "EVAL-003", "EVAL-004", "SCENARIO-002"],
+      "source_task": "Implement the daily web-collection pressure scenario on a durable job substrate.",
+      "disposition": "carried forward",
+      "authority": "Carried unchanged from v0.4.3."
+    },
+    {
+      "task_id": "V04-10-T01",
+      "source_intent_ids": ["ARCH-008", "EVAL-002", "EVAL-004", "GOV-004", "SCENARIO-003"],
+      "source_task": "Implement the customer-system embedding pressure scenario and Connector/Embedding SDK boundary.",
+      "disposition": "carried forward",
+      "authority": "Carried unchanged from v0.4.3."
+    }
+  ],
+  "mandatory_tasks": [
+    {
+      "task_id": "V04-04-T01A",
+      "source_intent_ids": ["ARCH-006"],
+      "surface": "backend / runtime / schema",
+      "acceptance": "Loop/Subflow exposes explicit initial state, state update, tool-result feedback, stop and cancel conditions, max iterations, per-iteration checkpoint, and per-iteration trace while the outer WorkflowSpec remains acyclic and existing Loop drafts remain compatible.",
+      "required_evidence": "Schema validation, backward-compatibility tests, state/feedback/cancel runtime assertions, checkpoint records, and iteration events."
+    },
+    {
+      "task_id": "V04-04-T01B",
+      "source_intent_ids": ["ARCH-006", "SCENARIO-001"],
+      "surface": "backend / template / builder",
+      "acceptance": "A server-defined codex_like_workspace_agent template exposes context, planning, capability discovery, permission, sandbox, structured model-tool-result-model feedback, stop control, trace, and customer-facing answer as editable blocks without an opaque legacy agent node.",
+      "required_evidence": "Template graph validation, nested-loop contract assertions, Builder template-list/expand coverage, and no legacy macro."
+    },
+    {
+      "task_id": "V04-04-T01C",
+      "source_intent_ids": ["EVAL-001", "EVAL-003", "SCENARIO-001"],
+      "surface": "backend / api / data contract",
+      "acceptance": "A Codex scenario catalog entry declares E2/E3 boundary, runtime inputs, component evidence profile, generated scenario-specific acceptance cases, and can atomically replace a new draft under revision/hash guards without partial mutation.",
+      "required_evidence": "Catalog/API schema tests, atomic apply and stale-guard tests, generated-test assertions, and draft validation."
+    },
+    {
+      "task_id": "V04-04-T01D",
+      "source_intent_ids": ["SCENARIO-001"],
+      "surface": "frontend / product",
+      "acceptance": "The creation experience offers a Codex-like workspace scenario, saving a draft applies the real editable preset, and the resulting Studio/Runtime path exposes task, workspace, network, approval, progress, and final result without claiming unrestricted host execution.",
+      "required_evidence": "Frontend contract tests, API wiring, localized customer copy, TypeScript lint, and production build."
+    },
+    {
+      "task_id": "V04-04-T01E",
+      "source_intent_ids": ["ARCH-006", "EVAL-001", "EVAL-003", "SCENARIO-001"],
+      "surface": "integration / runtime / evidence",
+      "acceptance": "A deterministic scenario run performs a real registered workspace Read tool call, feeds its normalized result into the next model turn, stops on a model final answer, returns that answer, and records permission, sandbox, two loop iterations, checkpoint, tool, and trace evidence; the result is labelled component_verified rather than live or production verified.",
+      "required_evidence": "End-to-end API run with deterministic provider and local sandbox, event/trace assertions, focused gate, regression suite, and evidence record."
+    }
+  ],
+  "optional_tasks": []
+}

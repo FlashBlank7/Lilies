@@ -2,7 +2,7 @@
 
 本目录是当前 stage 的 active intermediate 工作区。
 
-当前状态：`v0.4.3` 已完成 closure audit 并归档。本目录没有 active intermediate；下一任务只从阶段报告读取。
+当前状态：`v0.4.4` 已锁定，当前任务是 `V04-04-T01A`。本目录只保存实现证据；下一任务仍只从阶段报告读取。
 
 归档规则：
 
