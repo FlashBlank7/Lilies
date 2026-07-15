@@ -2,13 +2,9 @@
 
 本目录是当前 stage 的 active design 工作区。
 
-当前状态：`v0.4.4` 正在实现 Codex-like 结构化反馈循环场景。
+当前状态：`v0.4.4` 已完成并归档；目录已清空，等待 `v0.4.5` 合同任务展开。
 
-Active designs:
-
-- `design_v044_structured_loop_feedback.md` -> `V04-04-T01A/E`
-- `design_v044_codex_scenario_catalog.md` -> `V04-04-T01B/C`
-- `design_v044_scenario_evaluation_and_frontend.md` -> `V04-04-T01C/D/E`
+Active designs: none.
 
 归档规则：
 

@@ -1,0 +1,105 @@
+{
+  "schema_version": "1.0",
+  "stage": "v0.4.4",
+  "scenario_id": "codex_like_workspace_agent",
+  "task_ids": [
+    "V04-04-T01A",
+    "V04-04-T01B",
+    "V04-04-T01C",
+    "V04-04-T01D",
+    "V04-04-T01E"
+  ],
+  "verified_source_commit": "6c6d174f15b6fc5ca6a68e14d379413df9cdaf00",
+  "archive_status": "archived_with_v0.4.4_closure",
+  "evidence_profile": {
+    "selected_level": "H2",
+    "status": "component_verified",
+    "environment": "single-process FastAPI test runtime with a deterministic model provider and isolated local workspace adapter",
+    "model_boundary": "scripted two-turn provider; no paid or live model quality claim",
+    "tool_boundary": "registered Read tool executed against a workspace-root-contained README fixture",
+    "claim_scope": "editable Codex-like graph, structured state and tool feedback, permission/sandbox declarations, stop/cancel boundaries, checkpoints, traces, and customer result flow"
+  },
+  "runtime_replay": {
+    "test": "tests/test_v04_04_codex_feedback_loop.py::test_codex_feedback_loop_reads_then_feeds_tool_result_to_next_turn",
+    "model_turns": 2,
+    "registered_tool": "Read",
+    "tool_calls": 1,
+    "tool_result_observed_by_second_turn": true,
+    "loop_iteration_started_events": 2,
+    "loop_iteration_completed_events": 2,
+    "checkpoint_records": 2,
+    "permission_plan_recorded": true,
+    "permission_resolution_recorded": true,
+    "sandbox_boundary_recorded": true,
+    "stop_reasons": [
+      "continue",
+      "break_condition"
+    ],
+    "final_answer_contains_workspace_evidence": true
+  },
+  "atomic_apply": {
+    "workflow_and_tests_replaced_together": true,
+    "generated_acceptance_cases": 3,
+    "stale_revision_rejected": true,
+    "stale_request_left_content_hash_unchanged": true,
+    "resulting_workflow_valid": true
+  },
+  "verification": [
+    {
+      "check": "Python static analysis",
+      "command": ".venv/bin/ruff check platform/backend/src/agent_platform/__init__.py platform/backend/src/agent_platform/api.py platform/backend/src/agent_platform/applications.py platform/backend/src/agent_platform/blocks.py platform/backend/src/agent_platform/builder.py platform/backend/src/agent_platform/scenarios.py platform/backend/src/agent_platform/workflow_runtime.py tests/test_v04_03_regression_time_boundary.py tests/test_v04_04_codex_feedback_loop.py tests/test_workflow.py",
+      "result": "passed"
+    },
+    {
+      "check": "Codex scenario focused suite",
+      "command": ".venv/bin/python -m pytest -q tests/test_v04_04_codex_feedback_loop.py",
+      "result": "5 passed, 1 warning"
+    },
+    {
+      "check": "Current v0.4.x release gate from docs/testing/regression_lanes.json",
+      "command": ".venv/bin/python -c '<load and execute current gate command from docs/testing/regression_lanes.json>'",
+      "result": "59 passed, 1 warning"
+    },
+    {
+      "check": "Evolution and stage-report consistency suite",
+      "command": ".venv/bin/python -m pytest -q tests/test_evolution_control.py tests/test_evolution_hooks.py tests/test_stage_report_template_validation.py tests/test_stage_report_template_adoption_audit.py",
+      "result": "30 passed"
+    },
+    {
+      "check": "Full repository diagnostic on verified_source_commit",
+      "command": ".venv/bin/python -m pytest -q --tb=short --junitxml=/tmp/lilies-v044-6c6d174-full.xml",
+      "result": "745 passed, 17 xfailed, 0 failed, 1 warning in 51.90s",
+      "junit": {
+        "tests": 762,
+        "failures": 0,
+        "errors": 0,
+        "skipped_or_xfailed": 17,
+        "timestamp": "2026-07-16T06:34:25.695627+09:00"
+      }
+    },
+    {
+      "check": "Frontend TypeScript",
+      "command": "PATH=.tmp/toolchains/node-v22.23.1-darwin-arm64/bin:$PATH npm run lint",
+      "working_directory": "platform/frontend",
+      "result": "passed"
+    },
+    {
+      "check": "Frontend production build",
+      "command": "PATH=.tmp/toolchains/node-v22.23.1-darwin-arm64/bin:$PATH npm run build -- --webpack",
+      "working_directory": "platform/frontend",
+      "result": "compiled, type-checked, rendered static pages, and collected build traces successfully"
+    }
+  ],
+  "regression_repair": {
+    "issue": "v0.4.3 browser gate tests still read evidence from docs/workingon after that evidence was archived",
+    "resolution": "the gate now resolves active evidence first and falls back to docs/workingon-archives/v0.4.3",
+    "verified_by_current_gate": true
+  },
+  "excluded_claims": [
+    "unrestricted host execution",
+    "live Web access",
+    "live model quality",
+    "cross-process durable completion",
+    "production reliability or SLO"
+  ]
+}

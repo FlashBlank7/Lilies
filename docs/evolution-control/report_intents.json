@@ -171,8 +171,13 @@
       "priority": "P1",
       "statement": "Make structured Loop/Subflow semantics first class without opening unrestricted cyclic graphs.",
       "acceptance": "Loop exposes state, condition, max iterations, break, cancel, checkpoint, and per-iteration trace with tool-result feedback.",
-      "status": "partial",
-      "evidence": ["platform/backend/src/agent_platform/workflow_runtime.py"]
+      "status": "implemented_verified",
+      "evidence": [
+        "docs/stage-reports/v0.4.4_codex_feedback_loop_scenario.md",
+        "docs/workingon-archives/v0.4.4/v0.4.4_component_evidence.json",
+        "platform/backend/src/agent_platform/workflow_runtime.py",
+        "tests/test_v04_04_codex_feedback_loop.py"
+      ]
     },
     {
       "id": "ARCH-007",
@@ -198,8 +203,11 @@
       "priority": "P0",
       "statement": "Make Evaluation Harness profiles selectable and capable of H0-H5 evidence levels.",
       "acceptance": "Users or policy select whether and how far evaluation runs; results state design, static, component, contract, live, or production evidence without conflation.",
-      "status": "planned",
-      "evidence": []
+      "status": "partial",
+      "evidence": [
+        "platform/backend/src/agent_platform/scenarios.py",
+        "docs/workingon-archives/v0.4.4/v0.4.4_component_evidence.json"
+      ]
     },
     {
       "id": "EVAL-002",
@@ -216,8 +224,11 @@
       "priority": "P1",
       "statement": "Generate tests from capability signals, runtime envelope, external contracts, and selected evidence level.",
       "acceptance": "Loop, tool, scheduler, customer writeback, and high-risk workflows generate different tests and evidence requirements.",
-      "status": "planned",
-      "evidence": []
+      "status": "partial",
+      "evidence": [
+        "platform/backend/src/agent_platform/scenarios.py",
+        "tests/test_v04_04_codex_feedback_loop.py"
+      ]
     },
     {
       "id": "EVAL-004",
@@ -270,8 +281,13 @@
       "priority": "P0",
       "statement": "Use a Codex-like workflow as an E2/E3 capability-closure and tool-feedback-loop acceptance scenario.",
       "acceptance": "The generated editable workflow exposes context, planning, tools, permission boundaries, feedback loop, stop conditions, trace, and user-facing result flow.",
-      "status": "partial",
-      "evidence": ["docs/stage-reports/v0.4.1_option_ai_requirement_intake.md"]
+      "status": "implemented_verified",
+      "evidence": [
+        "docs/stage-reports/v0.4.1_option_ai_requirement_intake.md",
+        "docs/stage-reports/v0.4.4_codex_feedback_loop_scenario.md",
+        "docs/workingon-archives/v0.4.4/v0.4.4_component_evidence.json",
+        "tests/test_v04_04_codex_feedback_loop.py"
+      ]
     },
     {
       "id": "SCENARIO-002",
