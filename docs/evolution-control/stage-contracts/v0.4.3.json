@@ -1,0 +1,110 @@
+{
+  "schema_version": "1.0",
+  "stage_version": "v0.4.3",
+  "stage_report": "docs/stage-reports/v0.4.3_usability_modes_evidence_and_regression_stabilization.md",
+  "contract_revision": 1,
+  "approval_ref": "v0.4.2 closure handoff V04-03-T01",
+  "source_tasks": [
+    {
+      "task_id": "V04-03-T01",
+      "source_intent_ids": ["PRODUCT-003", "PRODUCT-004", "PRODUCT-005", "PRODUCT-006", "PRODUCT-007"],
+      "source_task": "Deliver the first usability and stabilization vertical: Quick/Guided/Governed modes, advisory versus governed publication, actionable acceptance repair, human block configuration, stale-evidence visibility, and regression restoration.",
+      "disposition": "accepted mandatory",
+      "authority": "v0.4.2 closure handoff and current report campaign priority."
+    },
+    {
+      "task_id": "V04-04-T01",
+      "source_intent_ids": ["ARCH-006", "EVAL-001", "EVAL-003", "SCENARIO-001"],
+      "source_task": "Build and validate the editable Codex-like feedback-loop workflow scenario.",
+      "disposition": "carried forward",
+      "authority": "Carried unchanged from v0.4.2; this stage must not absorb later campaign scope."
+    },
+    {
+      "task_id": "V04-05-T01",
+      "source_intent_ids": ["ARCH-001", "ARCH-002", "ARCH-003", "ARCH-004", "ARCH-005", "EVAL-002", "PRODUCT-001", "PRODUCT-002", "PRODUCT-005"],
+      "source_task": "Implement the shared F/G/X capability model and Builder Capability Build Contract, then rebuild option intake against it.",
+      "disposition": "carried forward",
+      "authority": "Carried unchanged from v0.4.2; this stage must not absorb later campaign scope."
+    },
+    {
+      "task_id": "V04-06-T01",
+      "source_intent_ids": ["ARCH-003", "GOV-003", "PRODUCT-009"],
+      "source_task": "Introduce a versioned reusable module and verified-template registry.",
+      "disposition": "carried forward",
+      "authority": "Carried unchanged from v0.4.2; this stage must not absorb later campaign scope."
+    },
+    {
+      "task_id": "V04-07-T01",
+      "source_intent_ids": ["GOV-001", "GOV-002", "GOV-003", "PRODUCT-008"],
+      "source_task": "Separate Customer Runtime, Engineer Studio, and Governance Console and expose platform task/cost/evidence views.",
+      "disposition": "carried forward",
+      "authority": "Carried unchanged from v0.4.2; this stage must not absorb later campaign scope."
+    },
+    {
+      "task_id": "V04-08-T01",
+      "source_intent_ids": ["EVAL-001", "EVAL-002", "EVAL-003", "EVAL-004"],
+      "source_task": "Productize Evaluation Harness profiles, scoped verification states, generated tests, and environment selection.",
+      "disposition": "carried forward",
+      "authority": "Carried unchanged from v0.4.2; this stage must not absorb later campaign scope."
+    },
+    {
+      "task_id": "V04-09-T01",
+      "source_intent_ids": ["ARCH-007", "EVAL-003", "EVAL-004", "SCENARIO-002"],
+      "source_task": "Implement the daily web-collection pressure scenario on a durable job substrate.",
+      "disposition": "carried forward",
+      "authority": "Carried unchanged from v0.4.2; this stage must not absorb later campaign scope."
+    },
+    {
+      "task_id": "V04-10-T01",
+      "source_intent_ids": ["ARCH-008", "EVAL-002", "EVAL-004", "GOV-004", "SCENARIO-003"],
+      "source_task": "Implement the customer-system embedding pressure scenario and Connector/Embedding SDK boundary.",
+      "disposition": "carried forward",
+      "authority": "Carried unchanged from v0.4.2; this stage must not absorb later campaign scope."
+    }
+  ],
+  "mandatory_tasks": [
+    {
+      "task_id": "V04-03-T01A",
+      "source_intent_ids": ["PRODUCT-003", "PRODUCT-004", "PRODUCT-007"],
+      "surface": "test / process / evidence",
+      "acceptance": "Every current full-suite failure is classified as a current regression, archived-expectation conflict, or environment issue; historical tests stop reading mutable current release metadata; the v0.4.x gate count matches execution and no unknown diagnostic failure is hidden.",
+      "required_evidence": "Failure inventory, regression-lane schema and migration, focused gate, and full-suite result."
+    },
+    {
+      "task_id": "V04-03-T01B",
+      "source_intent_ids": ["PRODUCT-003", "PRODUCT-004"],
+      "surface": "backend / data / api",
+      "acceptance": "Lilies persists a delivery mode distinct from workflow or chat shape; Quick, Guided, and Governed policies have explicit API semantics and legacy applications receive a deterministic default.",
+      "required_evidence": "Schema migration, storage and API tests, policy matrix, and backward-compatibility test."
+    },
+    {
+      "task_id": "V04-03-T01C",
+      "source_intent_ids": ["PRODUCT-004", "PRODUCT-007"],
+      "surface": "backend / frontend / policy",
+      "acceptance": "Quick and Guided publication can proceed with explicit missing or stale evidence warnings; Governed publication blocks only under an explicitly configured hard policy; behavior-affecting edits retain prior evidence as stale with change context and a revalidation action.",
+      "required_evidence": "Publish-policy tests, stale-evidence lifecycle tests, API payloads, and Studio interaction evidence."
+    },
+    {
+      "task_id": "V04-03-T01D",
+      "source_intent_ids": ["PRODUCT-005"],
+      "surface": "backend / frontend / builder repair",
+      "acceptance": "Each failed acceptance case exposes structured repair guidance and can open and apply a one-click Builder Team workflow-edit preview carrying workflow, node, trace, and failure context; unsupported or failed previews remain explicit.",
+      "required_evidence": "Repair API and context tests, apply-path test, failure-state UI evidence, and resulting draft hash change."
+    },
+    {
+      "task_id": "V04-03-T01E",
+      "source_intent_ids": ["PRODUCT-006"],
+      "surface": "frontend / schema / runtime",
+      "acceptance": "Common model, HTTP or tool, and Loop blocks use schema-driven human-readable controls by default, retain raw JSON as an expert view, save canonical WorkflowSpec values, and affect runtime behavior.",
+      "required_evidence": "Block-schema mapping tests, frontend control tests, persistence round trip, and runtime behavior assertions."
+    },
+    {
+      "task_id": "V04-03-T01F",
+      "source_intent_ids": ["PRODUCT-003", "PRODUCT-004", "PRODUCT-005", "PRODUCT-006", "PRODUCT-007"],
+      "surface": "frontend / browser / integration / report",
+      "acceptance": "A non-technical user can select an appropriate mode, understand evidence state, run acceptance with visible progress, invoke repair, configure common blocks, and publish according to policy without a frontend crash; desktop and mobile browser checks pass and no current failure remains unclassified.",
+      "required_evidence": "End-to-end API flow, Playwright desktop and mobile screenshots, frontend lint or build, focused regression gate, full-suite classification, and fresh closure audit."
+    }
+  ],
+  "optional_tasks": []
+}
