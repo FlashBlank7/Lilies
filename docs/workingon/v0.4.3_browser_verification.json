@@ -10,7 +10,7 @@
     "status": "ok",
     "version": "v0.4.3",
     "product_phase": "v0.4.x",
-    "commit": "4e288db",
+    "commit": "f13ce98",
     "tracked_dirty": false,
     "current_code_ready": true
   },
@@ -78,7 +78,7 @@
   },
   "latest_resumed_audit": {
     "date": "2026-07-16",
-    "same_condition_goal_turns": 2,
+    "same_condition_goal_turns": 3,
     "environment_supervisor_test": "3 passed in 0.65s",
     "current_gate": "54 passed, 1 warning in 8.68s",
     "full_suite": "738 passed, 17 xfailed, 1 warning in 78.85s",
@@ -87,7 +87,8 @@
     "fixture_http_status": 200,
     "browser_result": "No browser is available",
     "browser_documentation_lookup": "The runtime helper still points to missing cache 26.707.31428; the current 26.707.41301 bootstrap troubleshooting document was read directly and forbids an unrelated browser fallback.",
-    "claim": "Project startup and cleanup are reproducible; actual Browser interaction remains unavailable and unverified."
+    "goal_state_action": "blocked_after_third_consecutive_resumed_audit",
+    "claim": "Project startup and cleanup are reproducible; actual Browser interaction remains unavailable and unverified. The persistent goal is blocked until the supported Browser provider exposes an instance."
   },
   "claim_boundary": "API integration, TypeScript compilation, and production build passed; desktop/mobile interaction, screenshots, layout overlap, and browser console remain unverified. This evidence is not a browser pass."
 }
