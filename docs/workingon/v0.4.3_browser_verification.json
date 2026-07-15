@@ -10,6 +10,8 @@
     "status": "ok",
     "version": "v0.4.3",
     "product_phase": "v0.4.x",
+    "commit": "c41d4cc",
+    "tracked_dirty": false,
     "current_code_ready": true
   },
   "frontend_runtime": {
@@ -27,6 +29,7 @@
   "browser_discovery": {
     "browser_runtime_setup": "completed",
     "last_checked": "2026-07-16",
+    "consecutive_goal_turns_unavailable": 3,
     "get_for_url_result": "No browser is available",
     "available_browsers": [],
     "selected_browser": null,
@@ -61,6 +64,13 @@
   "overlap_check": {
     "status": "not_run",
     "viewports": []
+  },
+  "blocker_audit": {
+    "status": "confirmed_external_blocker",
+    "target_http_status": 200,
+    "runtime_health_status": 200,
+    "same_condition_goal_turns": 3,
+    "reason": "The current application target is reachable and current-code-ready, but the supported Browser runtime exposes no browser backend."
   },
   "claim_boundary": "API integration, TypeScript compilation, and production build passed; desktop/mobile interaction, screenshots, layout overlap, and browser console remain unverified. This evidence is not a browser pass."
 }
