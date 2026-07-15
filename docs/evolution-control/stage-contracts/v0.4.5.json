@@ -1,0 +1,89 @@
+{
+  "schema_version": "1.0",
+  "stage_version": "v0.4.5",
+  "stage_report": "docs/stage-reports/v0.4.5_capability_build_contract.md",
+  "contract_revision": 1,
+  "approval_ref": "v0.4.4 closure handoff V04-05-T01 under the capability-boundary report campaign",
+  "source_tasks": [
+    {
+      "task_id": "V04-05-T01",
+      "source_intent_ids": ["ARCH-001", "ARCH-002", "ARCH-003", "ARCH-004", "ARCH-005", "EVAL-002", "PRODUCT-001", "PRODUCT-002", "PRODUCT-005"],
+      "source_task": "Implement the shared F/G/X capability model and Builder Capability Build Contract, then rebuild option intake against it.",
+      "disposition": "accepted mandatory",
+      "authority": "v0.4.4 closure handoff and capability-boundary report campaign."
+    },
+    {
+      "task_id": "V04-06-T01",
+      "source_intent_ids": ["ARCH-003", "GOV-003", "PRODUCT-009"],
+      "source_task": "Introduce a versioned reusable module and verified-template registry.",
+      "disposition": "carried forward",
+      "authority": "Carried unchanged from v0.4.4."
+    },
+    {
+      "task_id": "V04-07-T01",
+      "source_intent_ids": ["GOV-001", "GOV-002", "GOV-003", "PRODUCT-008"],
+      "source_task": "Separate Customer Runtime, Engineer Studio, and Governance Console and expose platform task/cost/evidence views.",
+      "disposition": "carried forward",
+      "authority": "Carried unchanged from v0.4.4."
+    },
+    {
+      "task_id": "V04-08-T01",
+      "source_intent_ids": ["EVAL-001", "EVAL-002", "EVAL-003", "EVAL-004"],
+      "source_task": "Productize Evaluation Harness profiles, scoped verification states, generated tests, and environment selection.",
+      "disposition": "carried forward",
+      "authority": "Carried unchanged from v0.4.4."
+    },
+    {
+      "task_id": "V04-09-T01",
+      "source_intent_ids": ["ARCH-007", "EVAL-003", "EVAL-004", "SCENARIO-002"],
+      "source_task": "Implement the daily web-collection pressure scenario on a durable job substrate.",
+      "disposition": "carried forward",
+      "authority": "Carried unchanged from v0.4.4."
+    },
+    {
+      "task_id": "V04-10-T01",
+      "source_intent_ids": ["ARCH-008", "EVAL-002", "EVAL-004", "GOV-004", "SCENARIO-003"],
+      "source_task": "Implement the customer-system embedding pressure scenario and Connector/Embedding SDK boundary.",
+      "disposition": "carried forward",
+      "authority": "Carried unchanged from v0.4.4."
+    }
+  ],
+  "mandatory_tasks": [
+    {
+      "task_id": "V04-05-T01A",
+      "source_intent_ids": ["ARCH-001", "ARCH-002", "ARCH-003", "ARCH-005", "EVAL-002", "PRODUCT-002"],
+      "surface": "architecture / backend / data contract",
+      "acceptance": "A typed F/G/X Capability Build Contract models dependencies, exclusions, E0-E5 envelope, orthogonal risk, environment availability, carrier decisions, platform/evaluation ownership, evidence plan, and claim scope; deterministic closure and three materially different reference scenarios are inspectable.",
+      "required_evidence": "Pydantic schema and closure tests for dependency order, missing/excluded capabilities, envelope calculation, unavailable external contracts, carrier gaps, and Codex/daily-collection/embedding reference contracts."
+    },
+    {
+      "task_id": "V04-05-T01B",
+      "source_intent_ids": ["ARCH-001", "ARCH-004", "PRODUCT-001"],
+      "surface": "model / requirement intake / api",
+      "acceptance": "AI option intake emits typed decision axes and option effects, and a ready response contains a valid model-produced Capability Build Contract plus a customer-readable workflow-building plan rendered from that same contract without replacing model reasoning with a fixed template.",
+      "required_evidence": "Prompt/schema assertions, deterministic needs_input and ready provider replays, answer snapshot checks, compatibility normalization, and plan/contract consistency assertions."
+    },
+    {
+      "task_id": "V04-05-T01C",
+      "source_intent_ids": ["ARCH-002", "ARCH-004", "ARCH-005", "EVAL-002"],
+      "surface": "storage / api / routing",
+      "acceptance": "The exact contract persists through application draft, content hash, publication version, and Builder state; read/validate APIs expose closure, and contract-aware routing reports envelope and risk separately while legacy complexity routing remains only a no-contract fallback.",
+      "required_evidence": "Round-trip storage/version tests, API validation tests, content-hash mutation test, contract-derived planning/routing tests, and legacy compatibility tests."
+    },
+    {
+      "task_id": "V04-05-T01D",
+      "source_intent_ids": ["ARCH-003", "ARCH-004", "PRODUCT-001", "PRODUCT-002"],
+      "surface": "builder / planning / carrier binding",
+      "acceptance": "Builder Team can inspect the authoritative contract, maps BuildPlan modules to capability IDs, chooses and binds a declared carrier before completion, exposes platform/evaluation/external ownership, and treats unavailable X contracts as scoped evidence gaps rather than workflow graph defects.",
+      "required_evidence": "Builder tool schema/operation tests, carrier-binding validation, build output/state assertions, strict missing-binding result, and unavailable-contract bounded-claim case."
+    },
+    {
+      "task_id": "V04-05-T01E",
+      "source_intent_ids": ["ARCH-001", "ARCH-004", "EVAL-002", "PRODUCT-005"],
+      "surface": "frontend / acceptance repair / integration / regression",
+      "acceptance": "The customer flow displays F/G/X option effects and final contract, sends it into application creation, and preserves capability IDs, evidence target, and claim scope through generated acceptance and repair context; all three reference requirements remain distinct and the repository regression gate stays green.",
+      "required_evidence": "Frontend contract tests, acceptance-repair context test, three-scenario integration replay, TypeScript lint/build, current release gate, and full repository diagnostic."
+    }
+  ],
+  "optional_tasks": []
+}
