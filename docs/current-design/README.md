@@ -2,11 +2,16 @@
 
 本目录是当前 stage 的 active design 工作区。
 
-当前状态：v0.3.55 已归档，暂无 active design。
+当前状态：`v0.4.3` 已冻结合同，六个 mandatory task 正在展开。
 
 Active designs:
 
-- none
+- `design_v043_regression_time_boundary.md` -> `V04-03-T01A`
+- `design_v043_delivery_mode_policy.md` -> `V04-03-T01B`
+- `design_v043_evidence_publish_lifecycle.md` -> `V04-03-T01C`
+- `design_v043_acceptance_repair_context.md` -> `V04-03-T01D`
+- `design_v043_schema_driven_block_config.md` -> `V04-03-T01E`
+- `design_v043_integrated_browser_closure.md` -> `V04-03-T01F`
 
 归档规则：
 
