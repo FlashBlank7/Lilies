@@ -2,7 +2,7 @@
   "schema_version": "1.0",
   "stage": "v0.4.3",
   "task_id": "V04-03-T01F",
-  "journey_manifest": "docs/workingon/v0.4.3_browser_journey.json",
+  "journey_manifest": "docs/workingon-archives/v0.4.3/v0.4.3_browser_journey.json",
   "status": "blocked_by_environment",
   "target": "http://127.0.0.1:3001",
   "api_target": "http://127.0.0.1:8002",

@@ -156,6 +156,7 @@
 - `v0.2.142_*`：来自 `docs/stage-report-archives/v0.2.x/v0.2.142_e02_panel_result_validator_analyzer.md`。
 - `v0.3.0_*` 到 `v0.3.50_*`：来自已归档的 v0.3.x 产品可用性缓冲期。
 - `v0.4.2_*`：已通过独立 closure audit 的报告应用与自动演进控制架构。
+- `v0.4.3_*`：已完成可用性模式、发布证据生命周期、验收修复、积木配置与回归稳定化；实际浏览器观察按严格宣称边界保留为证据债。
 
 Active workspace rule:
 

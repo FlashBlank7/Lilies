@@ -2,7 +2,7 @@
 
 本目录是当前 stage 的 active intermediate 工作区。
 
-当前状态：`v0.4.3` 正在执行已锁定 Stage Contract；`V04-03-T01C` 至 `T01E` 的实现已完成但产品交互证据待补，当前权威任务是最终集成与浏览器闭环 `V04-03-T01F`。支持的 Browser runtime 当前没有可用浏览器，因此阶段被强制阻塞且不得归档或推进版本。本目录只保留本阶段的中间证据，不提供下一任务。
+当前状态：`v0.4.3` 已完成 closure audit 并归档。本目录没有 active intermediate；下一任务只从阶段报告读取。
 
 归档规则：
 

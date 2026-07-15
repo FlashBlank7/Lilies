@@ -46,8 +46,11 @@
       "priority": "P0",
       "statement": "Provide coexisting Quick, Guided, and Governed workflow construction and operation modes.",
       "acceptance": "Simple low-risk requirements can reach a runnable workflow without mandatory heavy acceptance; higher-risk workflows can opt into stronger evidence and controls.",
-      "status": "planned",
-      "evidence": []
+      "status": "implemented_verified",
+      "evidence": [
+        "docs/stage-reports/v0.4.3_usability_modes_evidence_and_regression_stabilization.md",
+        "tests/test_v04_03_delivery_modes.py"
+      ]
     },
     {
       "id": "PRODUCT-004",
@@ -55,8 +58,11 @@
       "priority": "P0",
       "statement": "Make acceptance advisory for Quick and Guided modes while preserving explicit governed hard-policy gates.",
       "acceptance": "A user can publish with visible warnings in Quick/Guided mode; a configured Governed policy can still deny publication with an explicit reason.",
-      "status": "planned",
-      "evidence": []
+      "status": "implemented_verified",
+      "evidence": [
+        "docs/stage-reports/v0.4.3_usability_modes_evidence_and_regression_stabilization.md",
+        "tests/test_v04_03_evidence_publish_lifecycle.py"
+      ]
     },
     {
       "id": "PRODUCT-005",
@@ -64,8 +70,12 @@
       "priority": "P0",
       "statement": "Turn failed acceptance cases into actionable repair suggestions and a one-click Builder Team workflow-edit preview.",
       "acceptance": "A failed case exposes structured advice and can open a natural-language workflow edit preview carrying the relevant workflow, node, trace, and failure context.",
-      "status": "partial",
-      "evidence": ["docs/stage-report-archives/v0.3.x/v0.3.54_acceptance_auto_repair.md"]
+      "status": "implemented_verified",
+      "evidence": [
+        "docs/stage-report-archives/v0.3.x/v0.3.54_acceptance_auto_repair.md",
+        "docs/stage-reports/v0.4.3_usability_modes_evidence_and_regression_stabilization.md",
+        "tests/test_v04_03_acceptance_repair_context.py"
+      ]
     },
     {
       "id": "PRODUCT-006",
@@ -73,8 +83,11 @@
       "priority": "P0",
       "statement": "Expose human-readable, schema-driven configuration for common blocks and keep raw JSON as an expert view.",
       "acceptance": "LLM, HTTP/tool, and Loop blocks can be configured through purpose-built controls whose saved values change the canonical WorkflowSpec and runtime behavior.",
-      "status": "planned",
-      "evidence": []
+      "status": "implemented_verified",
+      "evidence": [
+        "docs/stage-reports/v0.4.3_usability_modes_evidence_and_regression_stabilization.md",
+        "tests/test_v04_03_schema_driven_block_config.py"
+      ]
     },
     {
       "id": "PRODUCT-007",
@@ -82,8 +95,12 @@
       "priority": "P0",
       "statement": "Invalidate acceptance evidence after behavior-affecting workflow edits and recommend revalidation without deleting publication choice.",
       "acceptance": "Editing behavior changes tested evidence to stale, displays what changed, and offers revalidation while keeping the draft usable.",
-      "status": "partial",
-      "evidence": ["platform/backend/src/agent_platform/workflow_storage.py"]
+      "status": "implemented_verified",
+      "evidence": [
+        "platform/backend/src/agent_platform/workflow_storage.py",
+        "docs/stage-reports/v0.4.3_usability_modes_evidence_and_regression_stabilization.md",
+        "tests/test_v04_03_evidence_publish_lifecycle.py"
+      ]
     },
     {
       "id": "PRODUCT-008",
