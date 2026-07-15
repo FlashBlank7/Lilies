@@ -1,0 +1,1207 @@
+{
+  "schema_version": "1.0",
+  "stage": "v0.4.3",
+  "source_junit": "/tmp/lilies-v043-entry.xml",
+  "manifest": "/Users/zhonghaoyang/Code/agent/Lilies/docs/testing/regression_lanes.json",
+  "totals": {
+    "tests": 716,
+    "failures": 150,
+    "errors": 0,
+    "skipped": 0
+  },
+  "classification_counts": {
+    "archived_expectation_conflict": 17,
+    "current_regression": 133
+  },
+  "blocking_current_regressions": [
+    "tests/test_v03_10_frontend_verification_recovery.py::test_v03_10_hydrated_guard_fallback_passes",
+    "tests/test_v03_10_frontend_verification_recovery.py::test_v03_10_static_evidence_passes_without_live_services",
+    "tests/test_v03_10_frontend_verification_recovery.py::test_v03_10_writes_json",
+    "tests/test_v03_15_regression_suite_lane_guard.py::test_v03_15_manifest_and_source_markers_pass",
+    "tests/test_v03_15_regression_suite_lane_guard.py::test_v03_15_static_evidence_passes_without_live_services",
+    "tests/test_v03_15_regression_suite_lane_guard.py::test_v03_15_writes_json",
+    "tests/test_v03_16_scenario_journey_regression.py::test_v03_16_source_and_manifest_markers_pass",
+    "tests/test_v03_16_scenario_journey_regression.py::test_v03_16_static_evidence_passes_without_live_services",
+    "tests/test_v03_16_scenario_journey_regression.py::test_v03_16_writes_json",
+    "tests/test_v03_17_application_list_status_filters.py::test_v03_17_source_and_manifest_markers_pass",
+    "tests/test_v03_17_application_list_status_filters.py::test_v03_17_static_evidence_passes_without_live_services",
+    "tests/test_v03_17_application_list_status_filters.py::test_v03_17_writes_json",
+    "tests/test_v03_18_application_list_search_sort.py::test_v03_18_source_and_manifest_markers_pass",
+    "tests/test_v03_18_application_list_search_sort.py::test_v03_18_static_evidence_passes_without_live_services",
+    "tests/test_v03_18_application_list_search_sort.py::test_v03_18_writes_json",
+    "tests/test_v03_19_application_card_quick_actions.py::test_v03_19_source_and_manifest_markers_pass",
+    "tests/test_v03_19_application_card_quick_actions.py::test_v03_19_static_evidence_passes_without_live_services",
+    "tests/test_v03_19_application_card_quick_actions.py::test_v03_19_writes_json",
+    "tests/test_v03_20_detail_tab_url_state.py::test_v03_20_source_and_manifest_markers_pass",
+    "tests/test_v03_20_detail_tab_url_state.py::test_v03_20_static_evidence_passes_without_live_services",
+    "tests/test_v03_20_detail_tab_url_state.py::test_v03_20_writes_json",
+    "tests/test_v03_21_application_list_url_state.py::test_v03_21_source_and_manifest_markers_pass",
+    "tests/test_v03_21_application_list_url_state.py::test_v03_21_static_evidence_passes_without_live_services",
+    "tests/test_v03_21_application_list_url_state.py::test_v03_21_writes_json",
+    "tests/test_v03_22_application_list_view_reset.py::test_v03_22_source_and_manifest_markers_pass",
+    "tests/test_v03_22_application_list_view_reset.py::test_v03_22_static_evidence_passes_without_live_services",
+    "tests/test_v03_22_application_list_view_reset.py::test_v03_22_writes_json",
+    "tests/test_v03_23_customer_scenario_selection.py::test_v03_23_source_and_manifest_markers_pass",
+    "tests/test_v03_23_customer_scenario_selection.py::test_v03_23_static_evidence_passes_without_live_services",
+    "tests/test_v03_23_customer_scenario_selection.py::test_v03_23_writes_json",
+    "tests/test_v03_24_requirement_readiness.py::test_v03_24_source_and_manifest_markers_pass",
+    "tests/test_v03_24_requirement_readiness.py::test_v03_24_static_evidence_passes_without_live_services",
+    "tests/test_v03_24_requirement_readiness.py::test_v03_24_writes_json",
+    "tests/test_v03_25_create_action_state.py::test_v03_25_source_and_manifest_markers_pass",
+    "tests/test_v03_25_create_action_state.py::test_v03_25_static_evidence_passes_without_live_services",
+    "tests/test_v03_25_create_action_state.py::test_v03_25_writes_json",
+    "tests/test_v03_26_recommended_create_action.py::test_v03_26_source_and_manifest_markers_pass",
+    "tests/test_v03_26_recommended_create_action.py::test_v03_26_static_evidence_passes_without_live_services",
+    "tests/test_v03_26_recommended_create_action.py::test_v03_26_writes_json",
+    "tests/test_v03_27_safe_draft_landing.py::test_v03_27_source_and_manifest_markers_pass",
+    "tests/test_v03_27_safe_draft_landing.py::test_v03_27_static_evidence_passes_without_live_services",
+    "tests/test_v03_27_safe_draft_landing.py::test_v03_27_writes_json",
+    "tests/test_v03_28_safe_draft_dismissal.py::test_v03_28_source_and_manifest_markers_pass",
+    "tests/test_v03_28_safe_draft_dismissal.py::test_v03_28_static_evidence_passes_without_live_services",
+    "tests/test_v03_28_safe_draft_dismissal.py::test_v03_28_writes_json",
+    "tests/test_v03_29_detail_build_readiness.py::test_v03_29_source_and_manifest_markers_pass",
+    "tests/test_v03_29_detail_build_readiness.py::test_v03_29_static_evidence_passes_without_live_services",
+    "tests/test_v03_29_detail_build_readiness.py::test_v03_29_writes_json",
+    "tests/test_v03_30_detail_build_action.py::test_v03_30_source_and_manifest_markers_pass",
+    "tests/test_v03_30_detail_build_action.py::test_v03_30_static_evidence_passes_without_live_services",
+    "tests/test_v03_30_detail_build_action.py::test_v03_30_writes_json",
+    "tests/test_v03_31_detail_build_recommended_action.py::test_v03_31_source_and_manifest_markers_pass",
+    "tests/test_v03_31_detail_build_recommended_action.py::test_v03_31_static_evidence_passes_without_live_services",
+    "tests/test_v03_31_detail_build_recommended_action.py::test_v03_31_writes_json",
+    "tests/test_v03_32_try_run_sample_input.py::test_v03_32_source_and_manifest_markers_pass",
+    "tests/test_v03_32_try_run_sample_input.py::test_v03_32_static_evidence_passes_without_live_services",
+    "tests/test_v03_32_try_run_sample_input.py::test_v03_32_writes_json",
+    "tests/test_v03_33_try_run_result_interpretation.py::test_v03_33_source_and_manifest_markers_pass",
+    "tests/test_v03_33_try_run_result_interpretation.py::test_v03_33_static_evidence_passes_without_live_services",
+    "tests/test_v03_33_try_run_result_interpretation.py::test_v03_33_writes_json",
+    "tests/test_v03_34_try_result_recovery_affordance.py::test_v03_34_source_and_manifest_markers_pass",
+    "tests/test_v03_34_try_result_recovery_affordance.py::test_v03_34_static_evidence_passes_without_live_services",
+    "tests/test_v03_34_try_result_recovery_affordance.py::test_v03_34_writes_json",
+    "tests/test_v03_35_try_result_output_preview.py::test_v03_35_source_and_manifest_markers_pass",
+    "tests/test_v03_35_try_result_output_preview.py::test_v03_35_static_evidence_passes_without_live_services",
+    "tests/test_v03_35_try_result_output_preview.py::test_v03_35_writes_json",
+    "tests/test_v03_36_try_run_mode_visibility.py::test_v03_36_source_and_manifest_markers_pass",
+    "tests/test_v03_36_try_run_mode_visibility.py::test_v03_36_static_evidence_passes_without_live_services",
+    "tests/test_v03_36_try_run_mode_visibility.py::test_v03_36_writes_json",
+    "tests/test_v03_37_try_run_mode_persistence.py::test_v03_37_source_and_manifest_markers_pass",
+    "tests/test_v03_37_try_run_mode_persistence.py::test_v03_37_static_evidence_passes_without_live_services",
+    "tests/test_v03_37_try_run_mode_persistence.py::test_v03_37_writes_json",
+    "tests/test_v03_38_try_run_duplicate_start_guard.py::test_v03_38_source_and_manifest_markers_pass",
+    "tests/test_v03_38_try_run_duplicate_start_guard.py::test_v03_38_static_evidence_passes_without_live_services",
+    "tests/test_v03_38_try_run_duplicate_start_guard.py::test_v03_38_writes_json",
+    "tests/test_v03_39_try_run_active_status_refresh.py::test_v03_39_source_and_manifest_markers_pass",
+    "tests/test_v03_39_try_run_active_status_refresh.py::test_v03_39_static_evidence_passes_without_live_services",
+    "tests/test_v03_39_try_run_active_status_refresh.py::test_v03_39_writes_json",
+    "tests/test_v03_40_try_run_cancel_safety_confirmation.py::test_v03_40_source_and_manifest_markers_pass",
+    "tests/test_v03_40_try_run_cancel_safety_confirmation.py::test_v03_40_static_evidence_passes_without_live_services",
+    "tests/test_v03_40_try_run_cancel_safety_confirmation.py::test_v03_40_writes_json",
+    "tests/test_v03_41_try_run_cancel_progress_feedback.py::test_v03_41_source_and_manifest_markers_pass",
+    "tests/test_v03_41_try_run_cancel_progress_feedback.py::test_v03_41_static_evidence_passes_without_live_services",
+    "tests/test_v03_41_try_run_cancel_progress_feedback.py::test_v03_41_writes_json",
+    "tests/test_v03_42_try_run_status_last_updated.py::test_v03_42_source_and_manifest_markers_pass",
+    "tests/test_v03_42_try_run_status_last_updated.py::test_v03_42_static_evidence_passes_without_live_services",
+    "tests/test_v03_42_try_run_status_last_updated.py::test_v03_42_writes_json",
+    "tests/test_v03_43_try_run_input_error_visibility.py::test_v03_43_source_and_manifest_markers_pass",
+    "tests/test_v03_43_try_run_input_error_visibility.py::test_v03_43_static_evidence_passes_without_live_services",
+    "tests/test_v03_43_try_run_input_error_visibility.py::test_v03_43_writes_json",
+    "tests/test_v03_44_try_run_input_error_action_guard.py::test_v03_44_source_and_manifest_markers_pass",
+    "tests/test_v03_44_try_run_input_error_action_guard.py::test_v03_44_static_evidence_passes_without_live_services",
+    "tests/test_v03_44_try_run_input_error_action_guard.py::test_v03_44_writes_json",
+    "tests/test_v03_45_try_run_input_error_recovery_ready_state.py::test_v03_45_source_and_manifest_markers_pass",
+    "tests/test_v03_45_try_run_input_error_recovery_ready_state.py::test_v03_45_static_evidence_passes_without_live_services",
+    "tests/test_v03_45_try_run_input_error_recovery_ready_state.py::test_v03_45_writes_json",
+    "tests/test_v03_46_api_token_proxy_env_resolution.py::test_v03_46_source_and_manifest_markers_pass",
+    "tests/test_v03_46_api_token_proxy_env_resolution.py::test_v03_46_static_evidence_passes_without_live_services",
+    "tests/test_v03_46_api_token_proxy_env_resolution.py::test_v03_46_writes_json",
+    "tests/test_v03_47_natural_language_workflow_edit.py::test_v03_47_source_and_manifest_markers_pass",
+    "tests/test_v03_47_natural_language_workflow_edit.py::test_v03_47_static_evidence_passes_without_live_services",
+    "tests/test_v03_47_natural_language_workflow_edit.py::test_v03_47_writes_json",
+    "tests/test_v03_48_customer_facing_workflow_run_interface.py::test_v03_48_source_and_manifest_markers_pass",
+    "tests/test_v03_48_customer_facing_workflow_run_interface.py::test_v03_48_static_evidence_passes_without_live_services",
+    "tests/test_v03_48_customer_facing_workflow_run_interface.py::test_v03_48_writes_json",
+    "tests/test_v03_49_japanese_learning_customer_journey.py::test_v03_49_source_and_manifest_markers_pass",
+    "tests/test_v03_49_japanese_learning_customer_journey.py::test_v03_49_static_evidence_passes_without_live_services",
+    "tests/test_v03_49_japanese_learning_customer_journey.py::test_v03_49_writes_json",
+    "tests/test_v03_50_bounded_japanese_learning_runtime_validation.py::test_v03_50_source_and_manifest_markers_pass",
+    "tests/test_v03_50_bounded_japanese_learning_runtime_validation.py::test_v03_50_static_evidence_passes_without_live_services",
+    "tests/test_v03_50_bounded_japanese_learning_runtime_validation.py::test_v03_50_writes_json",
+    "tests/test_v03_51_canvas_layout_keyboard_navigation.py::test_v03_51_source_and_manifest_markers_pass",
+    "tests/test_v03_51_canvas_layout_keyboard_navigation.py::test_v03_51_static_evidence_passes_without_live_services",
+    "tests/test_v03_51_canvas_layout_keyboard_navigation.py::test_v03_51_writes_json",
+    "tests/test_v03_52_workflow_edit_transform_and_node_click_repair.py::test_v03_52_source_and_manifest_markers_pass",
+    "tests/test_v03_52_workflow_edit_transform_and_node_click_repair.py::test_v03_52_static_evidence_passes_without_live_services",
+    "tests/test_v03_52_workflow_edit_transform_and_node_click_repair.py::test_v03_52_writes_json",
+    "tests/test_v03_53_markdown_result_renderer.py::test_v03_53_regression_manifest_contains_current_test",
+    "tests/test_v03_53_markdown_result_renderer.py::test_v03_53_static_evidence_passes_and_writes_json",
+    "tests/test_v03_54_acceptance_auto_repair.py::test_v03_54_static_evidence_passes_and_writes_json",
+    "tests/test_v03_54_acceptance_auto_repair.py::test_v03_54_regression_manifest_contains_current_test",
+    "tests/test_v03_55_remove_japanese_learner_customer_group.py::test_v03_55_static_evidence_passes_and_writes_json",
+    "tests/test_v03_56_legacy_canvas_requirement_completion.py::test_v03_56_requirement_completion_markers_pass",
+    "tests/test_v03_56_legacy_canvas_requirement_completion.py::test_v03_56_static_evidence_passes_and_writes_json",
+    "tests/test_workflow.py::test_platform_harness_worker_runner_skips_unsupported_task",
+    "tests/test_workflow.py::test_builder_uses_incremental_brick_operations_and_publishes",
+    "tests/test_workflow.py::test_builder_adds_preflight_smoke_test_when_model_omits_tests",
+    "tests/test_workflow.py::test_builder_must_read_manual_before_agent_architecture_blocks",
+    "tests/test_workflow.py::test_builder_rejects_tests_requiring_unavailable_node_types",
+    "tests/test_workflow.py::test_builder_allows_confirmation_test_after_repair_revision",
+    "tests/test_workflow.py::test_builder_can_expand_claude_like_template_into_editable_draft",
+    "tests/test_workflow.py::test_builder_template_suggestions_default_to_adaptive_when_omitted",
+    "tests/test_workflow.py::test_builder_customer_support_template_expand_returns_contract_and_validation"
+  ],
+  "expected_conflicts": [],
+  "expected_conflict_count": 0,
+  "unknown_expected_conflicts": [],
+  "missing_expected_conflicts": [],
+  "failures": [
+    {
+      "nodeid": "tests/test_v02_120_e08_draft_patch_preview_worker_offload_handler.py::test_v02_120_draft_patch_preview_worker_handler_fails_unsupported",
+      "message": "AssertionError: assert [('worker-pre... 'succeeded')] == [('worker-pre...1', 'failed')]\n  \n  At index 0 diff: ('worker-preview-unsupported-1', 'succeeded') != ('worker-preview-unsupported-1', 'failed')\n  Use -v to get more diff",
+      "classification": "archived_expectation_conflict",
+      "family_id": "draft_patch_preview_support_timeline",
+      "reason": "v0.2.120 expected draft patch preview to remain unsupported, while later natural-language workflow editing and acceptance repair made the worker task supported."
+    },
+    {
+      "nodeid": "tests/test_v02_75_complexity_router_default_enablement_boundary.py::test_v02_75_decision_requires_live_validation_before_default_change",
+      "message": "assert True is False",
+      "classification": "archived_expectation_conflict",
+      "family_id": "complexity_router_default_timeline",
+      "reason": "Older v0.2.75-v0.2.88 artifacts expected disabled defaults, while current settings and v0.2.93 guarded rollout expect limited default enabled."
+    },
+    {
+      "nodeid": "tests/test_v02_76_complexity_router_live_validation_plan.py::test_v02_76_plan_defines_cases_budget_and_default_disabled_status",
+      "message": "assert True is False",
+      "classification": "archived_expectation_conflict",
+      "family_id": "complexity_router_default_timeline",
+      "reason": "Older v0.2.75-v0.2.88 artifacts expected disabled defaults, while current settings and v0.2.93 guarded rollout expect limited default enabled."
+    },
+    {
+      "nodeid": "tests/test_v02_77_complexity_router_live_validation_execution_decision.py::test_v02_77_decision_selects_bounded_live_validation_next",
+      "message": "assert True is False",
+      "classification": "archived_expectation_conflict",
+      "family_id": "complexity_router_default_timeline",
+      "reason": "Older v0.2.75-v0.2.88 artifacts expected disabled defaults, while current settings and v0.2.93 guarded rollout expect limited default enabled."
+    },
+    {
+      "nodeid": "tests/test_v02_78_complexity_router_bounded_live_validation.py::test_v02_78_skip_result_records_provider_command_and_cases",
+      "message": "assert True is False",
+      "classification": "archived_expectation_conflict",
+      "family_id": "complexity_router_default_timeline",
+      "reason": "Older v0.2.75-v0.2.88 artifacts expected disabled defaults, while current settings and v0.2.93 guarded rollout expect limited default enabled."
+    },
+    {
+      "nodeid": "tests/test_v02_79_complexity_router_default_enablement_review_decision.py::test_v02_79_decision_selects_staged_rollout_preparation",
+      "message": "assert True is False",
+      "classification": "archived_expectation_conflict",
+      "family_id": "complexity_router_default_timeline",
+      "reason": "Older v0.2.75-v0.2.88 artifacts expected disabled defaults, while current settings and v0.2.93 guarded rollout expect limited default enabled."
+    },
+    {
+      "nodeid": "tests/test_v02_80_complexity_router_staged_rollout_preparation.py::test_v02_80_rollout_preparation_defines_three_non_default_stages",
+      "message": "assert True is False",
+      "classification": "archived_expectation_conflict",
+      "family_id": "complexity_router_default_timeline",
+      "reason": "Older v0.2.75-v0.2.88 artifacts expected disabled defaults, while current settings and v0.2.93 guarded rollout expect limited default enabled."
+    },
+    {
+      "nodeid": "tests/test_v02_81_complexity_router_staged_rollout_execution_decision.py::test_v02_81_decision_selects_shadow_only_rollout",
+      "message": "assert True is False",
+      "classification": "archived_expectation_conflict",
+      "family_id": "complexity_router_default_timeline",
+      "reason": "Older v0.2.75-v0.2.88 artifacts expected disabled defaults, while current settings and v0.2.93 guarded rollout expect limited default enabled."
+    },
+    {
+      "nodeid": "tests/test_v02_82_complexity_router_shadow_only_rollout.py::test_v02_82_shadow_only_rollout_executes_stage_0_without_behavior_change",
+      "message": "AssertionError: assert 'failed' == 'completed'\n  \n  - completed\n  + failed",
+      "classification": "archived_expectation_conflict",
+      "family_id": "complexity_router_default_timeline",
+      "reason": "Older v0.2.75-v0.2.88 artifacts expected disabled defaults, while current settings and v0.2.93 guarded rollout expect limited default enabled."
+    },
+    {
+      "nodeid": "tests/test_v02_82_complexity_router_shadow_only_rollout.py::test_v02_82_shadow_only_rollout_records_metrics_and_exit_criteria",
+      "message": "assert 3 == 0",
+      "classification": "archived_expectation_conflict",
+      "family_id": "complexity_router_default_timeline",
+      "reason": "Older v0.2.75-v0.2.88 artifacts expected disabled defaults, while current settings and v0.2.93 guarded rollout expect limited default enabled."
+    },
+    {
+      "nodeid": "tests/test_v02_83_complexity_router_post_shadow_rollout_decision.py::test_v02_83_decision_selects_operator_opt_in_rollout",
+      "message": "assert True is False",
+      "classification": "archived_expectation_conflict",
+      "family_id": "complexity_router_default_timeline",
+      "reason": "Older v0.2.75-v0.2.88 artifacts expected disabled defaults, while current settings and v0.2.93 guarded rollout expect limited default enabled."
+    },
+    {
+      "nodeid": "tests/test_v02_84_complexity_router_operator_opt_in_rollout.py::test_v02_84_operator_opt_in_rollout_executes_stage_1_without_default_enablement",
+      "message": "AssertionError: assert 'failed' == 'completed'\n  \n  - completed\n  + failed",
+      "classification": "archived_expectation_conflict",
+      "family_id": "complexity_router_default_timeline",
+      "reason": "Older v0.2.75-v0.2.88 artifacts expected disabled defaults, while current settings and v0.2.93 guarded rollout expect limited default enabled."
+    },
+    {
+      "nodeid": "tests/test_v02_84_complexity_router_operator_opt_in_rollout.py::test_v02_84_operator_opt_in_rollout_records_exit_metrics",
+      "message": "assert 3 == 0",
+      "classification": "archived_expectation_conflict",
+      "family_id": "complexity_router_default_timeline",
+      "reason": "Older v0.2.75-v0.2.88 artifacts expected disabled defaults, while current settings and v0.2.93 guarded rollout expect limited default enabled."
+    },
+    {
+      "nodeid": "tests/test_v02_85_complexity_router_post_operator_opt_in_decision.py::test_v02_85_decision_selects_frontend_verification_environment_repair",
+      "message": "assert True is False",
+      "classification": "archived_expectation_conflict",
+      "family_id": "complexity_router_default_timeline",
+      "reason": "Older v0.2.75-v0.2.88 artifacts expected disabled defaults, while current settings and v0.2.93 guarded rollout expect limited default enabled."
+    },
+    {
+      "nodeid": "tests/test_v02_87_complexity_router_default_enablement_review_decision.py::test_v02_87_decision_enters_default_enablement_review_when_gates_pass",
+      "message": "assert False is True",
+      "classification": "archived_expectation_conflict",
+      "family_id": "complexity_router_default_timeline",
+      "reason": "Older v0.2.75-v0.2.88 artifacts expected disabled defaults, while current settings and v0.2.93 guarded rollout expect limited default enabled."
+    },
+    {
+      "nodeid": "tests/test_v02_88_complexity_router_limited_default_enablement_plan.py::test_v02_88_plan_defines_limited_default_contract_without_enabling_runtime_default",
+      "message": "assert True is False",
+      "classification": "archived_expectation_conflict",
+      "family_id": "complexity_router_default_timeline",
+      "reason": "Older v0.2.75-v0.2.88 artifacts expected disabled defaults, while current settings and v0.2.93 guarded rollout expect limited default enabled."
+    },
+    {
+      "nodeid": "tests/test_v02_88_complexity_router_limited_default_enablement_plan.py::test_v02_88_plan_has_controls_rollback_and_verification_gates",
+      "message": "AssertionError: assert {'default_rev...abled': False} == {'default_rev...sabled': True}\n  \n  Omitting 3 identical items, use -vv to show\n  Differing items:\n  {'runtime_default_still_disabled': False} != {'runtime_default_still_disabled': True}\n  Use -v to get more diff",
+      "classification": "archived_expectation_conflict",
+      "family_id": "complexity_router_default_timeline",
+      "reason": "Older v0.2.75-v0.2.88 artifacts expected disabled defaults, while current settings and v0.2.93 guarded rollout expect limited default enabled."
+    },
+    {
+      "nodeid": "tests/test_v03_10_frontend_verification_recovery.py::test_v03_10_hydrated_guard_fallback_passes",
+      "message": "assert False is True",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_10_frontend_verification_recovery.py::test_v03_10_static_evidence_passes_without_live_services",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_10_frontend_verification_recovery.py::test_v03_10_writes_json",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_15_regression_suite_lane_guard.py::test_v03_15_manifest_and_source_markers_pass",
+      "message": "KeyError: 'v0.3.x_current_release_gate'",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_15_regression_suite_lane_guard.py::test_v03_15_static_evidence_passes_without_live_services",
+      "message": "KeyError: 'v0.3.x_current_release_gate'",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_15_regression_suite_lane_guard.py::test_v03_15_writes_json",
+      "message": "KeyError: 'v0.3.x_current_release_gate'",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_16_scenario_journey_regression.py::test_v03_16_source_and_manifest_markers_pass",
+      "message": "assert False\n +  where False = all(<generator object test_v03_16_source_and_manifest_markers_pass.<locals>.<genexpr> at 0x107618ee0>)",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_16_scenario_journey_regression.py::test_v03_16_static_evidence_passes_without_live_services",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_16_scenario_journey_regression.py::test_v03_16_writes_json",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_17_application_list_status_filters.py::test_v03_17_source_and_manifest_markers_pass",
+      "message": "assert False\n +  where False = all(<generator object test_v03_17_source_and_manifest_markers_pass.<locals>.<genexpr> at 0x107619f20>)",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_17_application_list_status_filters.py::test_v03_17_static_evidence_passes_without_live_services",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_17_application_list_status_filters.py::test_v03_17_writes_json",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_18_application_list_search_sort.py::test_v03_18_source_and_manifest_markers_pass",
+      "message": "assert False\n +  where False = all(<generator object test_v03_18_source_and_manifest_markers_pass.<locals>.<genexpr> at 0x10761aa80>)",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_18_application_list_search_sort.py::test_v03_18_static_evidence_passes_without_live_services",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_18_application_list_search_sort.py::test_v03_18_writes_json",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_19_application_card_quick_actions.py::test_v03_19_source_and_manifest_markers_pass",
+      "message": "assert False\n +  where False = all(<generator object test_v03_19_source_and_manifest_markers_pass.<locals>.<genexpr> at 0x1073fb6b0>)",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_19_application_card_quick_actions.py::test_v03_19_static_evidence_passes_without_live_services",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_19_application_card_quick_actions.py::test_v03_19_writes_json",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_20_detail_tab_url_state.py::test_v03_20_source_and_manifest_markers_pass",
+      "message": "assert False\n +  where False = all(<generator object test_v03_20_source_and_manifest_markers_pass.<locals>.<genexpr> at 0x10761b920>)",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_20_detail_tab_url_state.py::test_v03_20_static_evidence_passes_without_live_services",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_20_detail_tab_url_state.py::test_v03_20_writes_json",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_21_application_list_url_state.py::test_v03_21_source_and_manifest_markers_pass",
+      "message": "assert False\n +  where False = all(<generator object test_v03_21_source_and_manifest_markers_pass.<locals>.<genexpr> at 0x1076198a0>)",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_21_application_list_url_state.py::test_v03_21_static_evidence_passes_without_live_services",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_21_application_list_url_state.py::test_v03_21_writes_json",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_22_application_list_view_reset.py::test_v03_22_source_and_manifest_markers_pass",
+      "message": "assert False\n +  where False = all(<generator object test_v03_22_source_and_manifest_markers_pass.<locals>.<genexpr> at 0x107c69f20>)",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_22_application_list_view_reset.py::test_v03_22_static_evidence_passes_without_live_services",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_22_application_list_view_reset.py::test_v03_22_writes_json",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_23_customer_scenario_selection.py::test_v03_23_source_and_manifest_markers_pass",
+      "message": "assert False\n +  where False = all(<generator object test_v03_23_source_and_manifest_markers_pass.<locals>.<genexpr> at 0x10761a5a0>)",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_23_customer_scenario_selection.py::test_v03_23_static_evidence_passes_without_live_services",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_23_customer_scenario_selection.py::test_v03_23_writes_json",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_24_requirement_readiness.py::test_v03_24_source_and_manifest_markers_pass",
+      "message": "assert False\n +  where False = all(<generator object test_v03_24_source_and_manifest_markers_pass.<locals>.<genexpr> at 0x107c682b0>)",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_24_requirement_readiness.py::test_v03_24_static_evidence_passes_without_live_services",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_24_requirement_readiness.py::test_v03_24_writes_json",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_25_create_action_state.py::test_v03_25_source_and_manifest_markers_pass",
+      "message": "assert False\n +  where False = all(<generator object test_v03_25_source_and_manifest_markers_pass.<locals>.<genexpr> at 0x107619e50>)",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_25_create_action_state.py::test_v03_25_static_evidence_passes_without_live_services",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_25_create_action_state.py::test_v03_25_writes_json",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_26_recommended_create_action.py::test_v03_26_source_and_manifest_markers_pass",
+      "message": "assert False\n +  where False = all(<generator object test_v03_26_source_and_manifest_markers_pass.<locals>.<genexpr> at 0x1076181e0>)",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_26_recommended_create_action.py::test_v03_26_static_evidence_passes_without_live_services",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_26_recommended_create_action.py::test_v03_26_writes_json",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_27_safe_draft_landing.py::test_v03_27_source_and_manifest_markers_pass",
+      "message": "assert False\n +  where False = all(<generator object test_v03_27_source_and_manifest_markers_pass.<locals>.<genexpr> at 0x107619d80>)",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_27_safe_draft_landing.py::test_v03_27_static_evidence_passes_without_live_services",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_27_safe_draft_landing.py::test_v03_27_writes_json",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_28_safe_draft_dismissal.py::test_v03_28_source_and_manifest_markers_pass",
+      "message": "assert False\n +  where False = all(<generator object test_v03_28_source_and_manifest_markers_pass.<locals>.<genexpr> at 0x107619630>)",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_28_safe_draft_dismissal.py::test_v03_28_static_evidence_passes_without_live_services",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_28_safe_draft_dismissal.py::test_v03_28_writes_json",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_29_detail_build_readiness.py::test_v03_29_source_and_manifest_markers_pass",
+      "message": "assert False\n +  where False = all(<generator object test_v03_29_source_and_manifest_markers_pass.<locals>.<genexpr> at 0x107619150>)",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_29_detail_build_readiness.py::test_v03_29_static_evidence_passes_without_live_services",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_29_detail_build_readiness.py::test_v03_29_writes_json",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_30_detail_build_action.py::test_v03_30_source_and_manifest_markers_pass",
+      "message": "assert False\n +  where False = all(<generator object test_v03_30_source_and_manifest_markers_pass.<locals>.<genexpr> at 0x10761a330>)",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_30_detail_build_action.py::test_v03_30_static_evidence_passes_without_live_services",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_30_detail_build_action.py::test_v03_30_writes_json",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_31_detail_build_recommended_action.py::test_v03_31_source_and_manifest_markers_pass",
+      "message": "assert False\n +  where False = all(<generator object test_v03_31_source_and_manifest_markers_pass.<locals>.<genexpr> at 0x107c68c70>)",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_31_detail_build_recommended_action.py::test_v03_31_static_evidence_passes_without_live_services",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_31_detail_build_recommended_action.py::test_v03_31_writes_json",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_32_try_run_sample_input.py::test_v03_32_source_and_manifest_markers_pass",
+      "message": "assert False\n +  where False = all(<generator object test_v03_32_source_and_manifest_markers_pass.<locals>.<genexpr> at 0x107618d40>)",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_32_try_run_sample_input.py::test_v03_32_static_evidence_passes_without_live_services",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_32_try_run_sample_input.py::test_v03_32_writes_json",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_33_try_run_result_interpretation.py::test_v03_33_source_and_manifest_markers_pass",
+      "message": "assert False\n +  where False = all(<generator object test_v03_33_source_and_manifest_markers_pass.<locals>.<genexpr> at 0x107c68930>)",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_33_try_run_result_interpretation.py::test_v03_33_static_evidence_passes_without_live_services",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_33_try_run_result_interpretation.py::test_v03_33_writes_json",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_34_try_result_recovery_affordance.py::test_v03_34_source_and_manifest_markers_pass",
+      "message": "assert False\n +  where False = all(<generator object test_v03_34_source_and_manifest_markers_pass.<locals>.<genexpr> at 0x107c692f0>)",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_34_try_result_recovery_affordance.py::test_v03_34_static_evidence_passes_without_live_services",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_34_try_result_recovery_affordance.py::test_v03_34_writes_json",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_35_try_result_output_preview.py::test_v03_35_source_and_manifest_markers_pass",
+      "message": "assert False\n +  where False = all(<generator object test_v03_35_source_and_manifest_markers_pass.<locals>.<genexpr> at 0x107c69560>)",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_35_try_result_output_preview.py::test_v03_35_static_evidence_passes_without_live_services",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_35_try_result_output_preview.py::test_v03_35_writes_json",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_36_try_run_mode_visibility.py::test_v03_36_source_and_manifest_markers_pass",
+      "message": "assert False\n +  where False = all(<generator object test_v03_36_source_and_manifest_markers_pass.<locals>.<genexpr> at 0x107c6b1d0>)",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_36_try_run_mode_visibility.py::test_v03_36_static_evidence_passes_without_live_services",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_36_try_run_mode_visibility.py::test_v03_36_writes_json",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_37_try_run_mode_persistence.py::test_v03_37_source_and_manifest_markers_pass",
+      "message": "assert False\n +  where False = all(<generator object test_v03_37_source_and_manifest_markers_pass.<locals>.<genexpr> at 0x107c6b850>)",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_37_try_run_mode_persistence.py::test_v03_37_static_evidence_passes_without_live_services",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_37_try_run_mode_persistence.py::test_v03_37_writes_json",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_38_try_run_duplicate_start_guard.py::test_v03_38_source_and_manifest_markers_pass",
+      "message": "assert False\n +  where False = all(<generator object test_v03_38_source_and_manifest_markers_pass.<locals>.<genexpr> at 0x107c6af60>)",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_38_try_run_duplicate_start_guard.py::test_v03_38_static_evidence_passes_without_live_services",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_38_try_run_duplicate_start_guard.py::test_v03_38_writes_json",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_39_try_run_active_status_refresh.py::test_v03_39_source_and_manifest_markers_pass",
+      "message": "assert False\n +  where False = all(<generator object test_v03_39_source_and_manifest_markers_pass.<locals>.<genexpr> at 0x107c6b370>)",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_39_try_run_active_status_refresh.py::test_v03_39_static_evidence_passes_without_live_services",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_39_try_run_active_status_refresh.py::test_v03_39_writes_json",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_40_try_run_cancel_safety_confirmation.py::test_v03_40_source_and_manifest_markers_pass",
+      "message": "assert False\n +  where False = all(<generator object test_v03_40_source_and_manifest_markers_pass.<locals>.<genexpr> at 0x107c6ae90>)",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_40_try_run_cancel_safety_confirmation.py::test_v03_40_static_evidence_passes_without_live_services",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_40_try_run_cancel_safety_confirmation.py::test_v03_40_writes_json",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_41_try_run_cancel_progress_feedback.py::test_v03_41_source_and_manifest_markers_pass",
+      "message": "assert False\n +  where False = all(<generator object test_v03_41_source_and_manifest_markers_pass.<locals>.<genexpr> at 0x107ce8110>)",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_41_try_run_cancel_progress_feedback.py::test_v03_41_static_evidence_passes_without_live_services",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_41_try_run_cancel_progress_feedback.py::test_v03_41_writes_json",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_42_try_run_status_last_updated.py::test_v03_42_source_and_manifest_markers_pass",
+      "message": "assert False\n +  where False = all(<generator object test_v03_42_source_and_manifest_markers_pass.<locals>.<genexpr> at 0x107ce8e10>)",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_42_try_run_status_last_updated.py::test_v03_42_static_evidence_passes_without_live_services",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_42_try_run_status_last_updated.py::test_v03_42_writes_json",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_43_try_run_input_error_visibility.py::test_v03_43_source_and_manifest_markers_pass",
+      "message": "assert False\n +  where False = all(<generator object test_v03_43_source_and_manifest_markers_pass.<locals>.<genexpr> at 0x107cea670>)",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_43_try_run_input_error_visibility.py::test_v03_43_static_evidence_passes_without_live_services",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_43_try_run_input_error_visibility.py::test_v03_43_writes_json",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_44_try_run_input_error_action_guard.py::test_v03_44_source_and_manifest_markers_pass",
+      "message": "assert False\n +  where False = all(<generator object test_v03_44_source_and_manifest_markers_pass.<locals>.<genexpr> at 0x107ce8110>)",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_44_try_run_input_error_action_guard.py::test_v03_44_static_evidence_passes_without_live_services",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_44_try_run_input_error_action_guard.py::test_v03_44_writes_json",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_45_try_run_input_error_recovery_ready_state.py::test_v03_45_source_and_manifest_markers_pass",
+      "message": "assert False\n +  where False = all(<generator object test_v03_45_source_and_manifest_markers_pass.<locals>.<genexpr> at 0x1073f8930>)",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_45_try_run_input_error_recovery_ready_state.py::test_v03_45_static_evidence_passes_without_live_services",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_45_try_run_input_error_recovery_ready_state.py::test_v03_45_writes_json",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_46_api_token_proxy_env_resolution.py::test_v03_46_source_and_manifest_markers_pass",
+      "message": "assert False\n +  where False = all(<generator object test_v03_46_source_and_manifest_markers_pass.<locals>.<genexpr> at 0x107c6bc60>)",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_46_api_token_proxy_env_resolution.py::test_v03_46_static_evidence_passes_without_live_services",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_46_api_token_proxy_env_resolution.py::test_v03_46_writes_json",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_47_natural_language_workflow_edit.py::test_v03_47_source_and_manifest_markers_pass",
+      "message": "assert False\n +  where False = all(<generator object test_v03_47_source_and_manifest_markers_pass.<locals>.<genexpr> at 0x1073f8ee0>)",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_47_natural_language_workflow_edit.py::test_v03_47_static_evidence_passes_without_live_services",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_47_natural_language_workflow_edit.py::test_v03_47_writes_json",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_48_customer_facing_workflow_run_interface.py::test_v03_48_source_and_manifest_markers_pass",
+      "message": "assert False\n +  where False = all(<generator object test_v03_48_source_and_manifest_markers_pass.<locals>.<genexpr> at 0x1066cf370>)",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_48_customer_facing_workflow_run_interface.py::test_v03_48_static_evidence_passes_without_live_services",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_48_customer_facing_workflow_run_interface.py::test_v03_48_writes_json",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_49_japanese_learning_customer_journey.py::test_v03_49_source_and_manifest_markers_pass",
+      "message": "assert False\n +  where False = all(<generator object test_v03_49_source_and_manifest_markers_pass.<locals>.<genexpr> at 0x1073f8e10>)",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_49_japanese_learning_customer_journey.py::test_v03_49_static_evidence_passes_without_live_services",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_49_japanese_learning_customer_journey.py::test_v03_49_writes_json",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_50_bounded_japanese_learning_runtime_validation.py::test_v03_50_source_and_manifest_markers_pass",
+      "message": "assert False\n +  where False = all(<generator object test_v03_50_source_and_manifest_markers_pass.<locals>.<genexpr> at 0x107045630>)",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_50_bounded_japanese_learning_runtime_validation.py::test_v03_50_static_evidence_passes_without_live_services",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_50_bounded_japanese_learning_runtime_validation.py::test_v03_50_writes_json",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_51_canvas_layout_keyboard_navigation.py::test_v03_51_source_and_manifest_markers_pass",
+      "message": "assert False\n +  where False = all(<generator object test_v03_51_source_and_manifest_markers_pass.<locals>.<genexpr> at 0x1066cf510>)",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_51_canvas_layout_keyboard_navigation.py::test_v03_51_static_evidence_passes_without_live_services",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_51_canvas_layout_keyboard_navigation.py::test_v03_51_writes_json",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_52_workflow_edit_transform_and_node_click_repair.py::test_v03_52_source_and_manifest_markers_pass",
+      "message": "assert False\n +  where False = all(<generator object test_v03_52_source_and_manifest_markers_pass.<locals>.<genexpr> at 0x107685f20>)",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_52_workflow_edit_transform_and_node_click_repair.py::test_v03_52_static_evidence_passes_without_live_services",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_52_workflow_edit_transform_and_node_click_repair.py::test_v03_52_writes_json",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_53_markdown_result_renderer.py::test_v03_53_regression_manifest_contains_current_test",
+      "message": "assert False is True",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_53_markdown_result_renderer.py::test_v03_53_static_evidence_passes_and_writes_json",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_54_acceptance_auto_repair.py::test_v03_54_static_evidence_passes_and_writes_json",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_54_acceptance_auto_repair.py::test_v03_54_regression_manifest_contains_current_test",
+      "message": "assert False is True",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_55_remove_japanese_learner_customer_group.py::test_v03_55_static_evidence_passes_and_writes_json",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_56_legacy_canvas_requirement_completion.py::test_v03_56_requirement_completion_markers_pass",
+      "message": "assert False is True",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_v03_56_legacy_canvas_requirement_completion.py::test_v03_56_static_evidence_passes_and_writes_json",
+      "message": "AssertionError: assert 'failed' == 'passed'\n  \n  - passed\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_workflow.py::test_platform_harness_worker_runner_skips_unsupported_task",
+      "message": "AssertionError: assert 4 == 2\n +  where 4 = PlatformTaskRecord(id='runner-skip-1', kind='benchmark', owner_id='owner-a', resource_id='case-a', status='queued', pa...sion=4, created_at='2026-07-15T17:58:30.129147+00:00', updated_at='2026-07-15T17:58:30.134447+00:00', finished_at=None).lease_version",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_workflow.py::test_builder_uses_incremental_brick_operations_and_publishes",
+      "message": "AssertionError: {'application_id': '26437b01-2e6c-4451-ba12-ad4ba88d33ab', 'auto_publish': True, 'created_at': '2026-07-15T17:58:32.931103+00:00', 'deadline': {'enabled': False, 'max_elapsed_seconds': None}, ...}\nassert 'needs_attention' == 'published'\n  \n  - published\n  + needs_attention",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_workflow.py::test_builder_adds_preflight_smoke_test_when_model_omits_tests",
+      "message": "AssertionError: {'application_id': '3a471308-f0bc-435f-a970-03aff24ec927', 'auto_publish': False, 'created_at': '2026-07-15T17:58:33.252684+00:00', 'deadline': {'enabled': False, 'max_elapsed_seconds': None}, ...}\nassert 'needs_attention' == 'ready'\n  \n  - ready\n  + needs_attention",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_workflow.py::test_builder_must_read_manual_before_agent_architecture_blocks",
+      "message": "assert False\n +  where False = any(<generator object test_builder_must_read_manual_before_agent_architecture_blocks.<locals>.<genexpr> at 0x107687440>)",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_workflow.py::test_builder_rejects_tests_requiring_unavailable_node_types",
+      "message": "AssertionError: {'application_id': '5cc7af8e-a58b-4000-a6cb-bf6435dcdf49', 'auto_publish': False, 'created_at': '2026-07-15T17:58:33.912303+00:00', 'deadline': {'enabled': False, 'max_elapsed_seconds': None}, ...}\nassert 'needs_attention' == 'ready'\n  \n  - ready\n  + needs_attention",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_workflow.py::test_builder_allows_confirmation_test_after_repair_revision",
+      "message": "AssertionError: {'application_id': 'f8559e11-3933-4ae2-8e01-fd13932b7345', 'auto_publish': False, 'created_at': '2026-07-15T17:58:34.012272+00:00', 'deadline': {'enabled': False, 'max_elapsed_seconds': None}, ...}\nassert 'needs_attention' == 'ready'\n  \n  - ready\n  + needs_attention",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_workflow.py::test_builder_can_expand_claude_like_template_into_editable_draft",
+      "message": "AssertionError: assert {'context_com...bagent_spawn'} <= set()\n  \n  Extra items in the left set:\n  'subagent_spawn'\n  'context_compactor'\n  'loop'\n  'mailbox_wait_wake'\n  'permission_gate'",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_workflow.py::test_builder_template_suggestions_default_to_adaptive_when_omitted",
+      "message": "AssertionError: assert 'complexity_router' == 'policy_default'\n  \n  - policy_default\n  + complexity_router",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    },
+    {
+      "nodeid": "tests/test_workflow.py::test_builder_customer_support_template_expand_returns_contract_and_validation",
+      "message": "AssertionError: assert ([{'created_at': '2026-07-15T17:58:34.492034+00:00', 'data': {'actor': 'coordinator', 'input': {'name': 'customer_suppo...en planning_mode=required', 'success': False, ...}, 'id': 3, 'stream_id': '704302fd-5593-4347-8115-cc9ad9d2308f', ...}] and False is True)",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    }
+  ]
+}

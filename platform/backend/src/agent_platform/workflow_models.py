@@ -27,6 +27,12 @@ class ApplicationMode(str, Enum):
     chat = "chat"
 
 
+class DeliveryMode(str, Enum):
+    quick = "quick"
+    guided = "guided"
+    governed = "governed"
+
+
 class ErrorStrategy(str, Enum):
     fail = "fail"
     continue_on_error = "continue"
@@ -239,6 +245,8 @@ class ApplicationSnapshot(BaseModel):
     name: str
     description: str
     mode: ApplicationMode = ApplicationMode.workflow
+    delivery_mode: DeliveryMode = DeliveryMode.guided
+    governed_hard_gate: bool = False
     requirement: str
     workflow: WorkflowSpec = Field(default_factory=WorkflowSpec)
     agents: dict[str, AgentSpec] = Field(default_factory=dict)
@@ -255,6 +263,12 @@ class ApplicationCreateRequest(BaseModel):
     description: str = Field(default="", max_length=1000)
     requirement: str = Field(default="", max_length=30_000)
     mode: ApplicationMode = ApplicationMode.workflow
+    delivery_mode: DeliveryMode = DeliveryMode.guided
+    governed_hard_gate: bool = False
+
+
+class PublishApplicationRequest(BaseModel):
+    acknowledge_warnings: bool = False
 
 
 class DraftOperation(BaseModel):

@@ -143,6 +143,7 @@ class LoopConfig(BaseModel):
     break_value: Any
     max_iterations: int = Field(default=10, ge=1, le=100)
     output_node_id: str
+    checkpoint_each_iteration: bool = False
 
 
 class HumanField(BaseModel):
@@ -170,6 +171,36 @@ class AnswerConfig(BaseModel):
 class AgentArchitectureConfig(BaseModel):
     input: Any = None
     settings: dict[str, Any] = Field(default_factory=dict)
+
+
+class ModelTurnConfig(AgentArchitectureConfig):
+    @field_validator("settings")
+    @classmethod
+    def validate_model_turn_settings(cls, value: dict[str, Any]) -> dict[str, Any]:
+        for key in ("system", "system_prompt", "model", "output_format"):
+            if key in value and not isinstance(value[key], str):
+                raise ValueError(f"model_turn.settings.{key} must be a string")
+        if value.get("output_format") not in {None, "", "text", "json"}:
+            raise ValueError("model_turn.settings.output_format must be text or json")
+        tools = value.get("tools")
+        if tools is not None and (
+            not isinstance(tools, list) or any(not isinstance(item, str) for item in tools)
+        ):
+            raise ValueError("model_turn.settings.tools must be an array of tool names")
+        return value
+
+
+class ToolExecutorConfig(AgentArchitectureConfig):
+    @field_validator("settings")
+    @classmethod
+    def validate_tool_executor_settings(cls, value: dict[str, Any]) -> dict[str, Any]:
+        if "tool_name" in value and value["tool_name"] is not None and not isinstance(value["tool_name"], str):
+            raise ValueError("tool_executor.settings.tool_name must be a string")
+        if "tool_input" in value and not isinstance(value["tool_input"], dict):
+            raise ValueError("tool_executor.settings.tool_input must be an object")
+        if "workspace_path" in value and value["workspace_path"] is not None and not isinstance(value["workspace_path"], str):
+            raise ValueError("tool_executor.settings.workspace_path must be a string")
+        return value
 
 
 _ZH_CATEGORIES = {
@@ -226,6 +257,67 @@ _ZH_BLOCKS = {
     "event_recorder": ("事件记录器", "向 Trace 写入结构化事件。"),
     "hook_point": ("钩子点", "在工作流中插入可被外部系统监听的钩子。"),
     "soft_block": ("软积木", "通过策略选择，一个积木可以充当多种 Agent 架构积木。"),
+}
+
+
+_EDITOR_FIELDS: dict[str, list[dict[str, Any]]] = {
+    "llm": [
+        {"path": "system", "label": "System instruction", "label_zh": "系统指令", "control": "textarea", "description": "Persistent instruction for this model call.", "required": True},
+        {"path": "prompt", "label": "Prompt", "label_zh": "用户提示", "control": "reference_or_text", "description": "Text or a workflow value reference.", "required": True},
+        {"path": "model", "label": "Model override", "label_zh": "模型覆盖", "control": "text", "description": "Leave empty to use the runtime default."},
+        {"path": "temperature", "label": "Temperature", "label_zh": "温度", "control": "number", "minimum": 0, "maximum": 2, "step": 0.1},
+        {"path": "seed", "label": "Seed", "label_zh": "随机种子", "control": "number", "minimum": 0, "step": 1},
+        {"path": "structured_output", "label": "Structured output schema", "label_zh": "结构化输出 Schema", "control": "json", "description": "Optional JSON schema for structured output."},
+    ],
+    "model_turn": [
+        {"path": "settings.system", "label": "System instruction", "label_zh": "系统指令", "control": "textarea", "description": "Instruction applied to this observable model turn."},
+        {"path": "settings.prompt", "label": "Prompt", "label_zh": "用户提示", "control": "reference_or_text", "description": "Text or a workflow value reference."},
+        {"path": "settings.model", "label": "Model override", "label_zh": "模型覆盖", "control": "text"},
+        {"path": "settings.tools", "label": "Available tools", "label_zh": "可用工具", "control": "string_list", "description": "One registered tool name per line."},
+        {"path": "settings.output_format", "label": "Output format", "label_zh": "输出格式", "control": "enum", "options": ["text", "json"]},
+    ],
+    "http_request": [
+        {"path": "method", "label": "HTTP method", "label_zh": "HTTP 方法", "control": "enum", "options": ["GET", "POST", "PUT", "PATCH", "DELETE"], "required": True},
+        {"path": "url", "label": "URL", "label_zh": "请求 URL", "control": "reference_or_text", "description": "Literal URL or a workflow value reference.", "required": True},
+        {"path": "headers", "label": "Headers", "label_zh": "请求头", "control": "json"},
+        {"path": "query", "label": "Query parameters", "label_zh": "查询参数", "control": "json"},
+        {"path": "body", "label": "Request body", "label_zh": "请求体", "control": "json"},
+        {"path": "timeout_seconds", "label": "Timeout (seconds)", "label_zh": "超时秒数", "control": "number", "minimum": 1, "maximum": 300, "step": 1, "required": True},
+    ],
+    "tool": [
+        {"path": "tool_name", "label": "Tool name", "label_zh": "工具名称", "control": "text", "description": "Registered core, MCP, or workflow tool name.", "required": True},
+        {"path": "input", "label": "Tool input", "label_zh": "工具输入", "control": "json", "description": "JSON values and workflow references passed to the tool."},
+    ],
+    "tool_executor": [
+        {"path": "settings.tool_name", "label": "Tool name", "label_zh": "工具名称", "control": "text", "description": "Leave empty when a Tool Call Router supplies the tool dynamically."},
+        {"path": "settings.tool_input", "label": "Tool input", "label_zh": "工具输入", "control": "json"},
+        {"path": "settings.workspace_path", "label": "Workspace path", "label_zh": "工作区路径", "control": "text"},
+    ],
+    "loop": [
+        {"path": "max_iterations", "label": "Maximum iterations", "label_zh": "最大循环次数", "control": "number", "minimum": 1, "maximum": 100, "step": 1, "required": True},
+        {"path": "output_node_id", "label": "Output node", "label_zh": "输出积木 ID", "control": "text", "required": True},
+        {"path": "break_condition.operator", "label": "Break operator", "label_zh": "退出判断", "control": "enum", "options": ["equals", "not_equals", "contains", "not_contains", "gt", "gte", "lt", "lte", "exists", "empty"], "required": True},
+        {"path": "break_condition.expected", "label": "Expected break value", "label_zh": "预期退出值", "control": "reference_or_text"},
+        {"path": "break_value", "label": "Observed break value", "label_zh": "实际判断值", "control": "reference_or_text", "required": True},
+        {"path": "variables", "label": "Loop variables", "label_zh": "循环变量", "control": "json"},
+        {"path": "checkpoint_each_iteration", "label": "Checkpoint every iteration", "label_zh": "每轮保存检查点", "control": "boolean", "description": "Persist iteration state for inspection and recovery."},
+    ],
+}
+
+
+_EDITOR_NOTICES: dict[str, list[dict[str, str]]] = {
+    "loop": [
+        {
+            "kind": "boundary",
+            "text": "Run cancellation remains controlled by the run-level cancel action and is checked at async node boundaries.",
+            "text_zh": "取消由运行级停止操作控制，并在异步积木边界生效。",
+        },
+        {
+            "kind": "expert",
+            "text": "Edit the nested workflow in Expert JSON until nested-canvas editing is available.",
+            "text_zh": "嵌套工作流暂时在专家 JSON 中编辑，后续再接入嵌套画布。",
+        },
+    ],
 }
 
 
@@ -547,6 +639,8 @@ def _definition(
             "accent": category,
             "hidden_by_default": block_kind == "legacy_compatibility",
             "block_kind": block_kind,
+            "fields": _EDITOR_FIELDS.get(block_type, []),
+            "notices": _EDITOR_NOTICES.get(block_type, []),
             "i18n": {
                 "zh": {
                     "title": _ZH_BLOCKS.get(block_type, (block_type, description))[0],
@@ -599,7 +693,15 @@ def build_block_registry() -> BlockRegistry:
     from .soft_block import SoftBlockConfig
     for block_type, title, description, mapping in _AGENT_ARCHITECTURE_BLOCKS:
         is_soft = (block_type == "soft_block")
-        config_model: type[BaseModel] = SoftBlockConfig if is_soft else AgentArchitectureConfig
+        config_model: type[BaseModel]
+        if is_soft:
+            config_model = SoftBlockConfig
+        elif block_type == "model_turn":
+            config_model = ModelTurnConfig
+        elif block_type == "tool_executor":
+            config_model = ToolExecutorConfig
+        else:
+            config_model = AgentArchitectureConfig
         blocks.append((
             _definition(
                 block_type, title, description, "agent", config_model,

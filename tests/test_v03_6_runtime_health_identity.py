@@ -28,7 +28,7 @@ def test_v03_6_fastapi_version_uses_runtime_identity() -> None:
         client = make_client(Path(temp_dir))
 
         assert client.app.version == __version__
-        assert client.app.version.startswith("v0.3.")
+        assert client.app.version.startswith(("v0.3.", "v0.4."))
 
 
 def test_v03_6_health_exposes_current_code_route_identity() -> None:

@@ -10,6 +10,32 @@ from .workflow_models import ApplicationSnapshot, EdgeSpec, NodeSpec, WorkflowSp
 
 class AcceptanceRepairPreviewRequest(BaseModel):
     report: dict[str, Any] | None = None
+    test_id: str | None = None
+    instruction: str | None = Field(default=None, max_length=4000)
+    reference_node_ids: list[str] = Field(default_factory=list, max_length=50)
+
+
+class AcceptanceRepairApplyRequest(BaseModel):
+    expected_revision: int = Field(ge=0)
+    expected_content_hash: str = Field(min_length=1, max_length=128)
+    operations: list[dict[str, Any]] = Field(min_length=1, max_length=200)
+    idempotency_key: str = Field(min_length=1, max_length=200)
+
+
+class AcceptanceRepairContext(BaseModel):
+    test_id: str = ""
+    test_name: str = ""
+    requirement: str = ""
+    failed_assertions: list[dict[str, Any]] = Field(default_factory=list)
+    failed_checks: list[str] = Field(default_factory=list)
+    required_node_types: list[str] = Field(default_factory=list)
+    required_tool_nodes: list[str] = Field(default_factory=list)
+    required_tools: list[str] = Field(default_factory=list)
+    run_id: str = ""
+    trace_excerpts: list[str] = Field(default_factory=list)
+    relevant_node_ids: list[str] = Field(default_factory=list)
+    current_revision: int = 0
+    current_content_hash: str = ""
 
 
 class AcceptanceRepairPreviewResponse(BaseModel):
@@ -20,6 +46,14 @@ class AcceptanceRepairPreviewResponse(BaseModel):
     fixes: list[dict[str, Any]] = Field(default_factory=list)
     missing_node_types: list[str] = Field(default_factory=list)
     unsupported_node_types: list[str] = Field(default_factory=list)
+    expected_revision: int = 0
+    expected_content_hash: str = ""
+    instruction: str = ""
+    rationale_markdown: str = ""
+    repair_context: AcceptanceRepairContext = Field(default_factory=AcceptanceRepairContext)
+    reference_node_ids: list[str] = Field(default_factory=list)
+    preview_source: str = "acceptance_structural"
+    workflow_edit_preview: dict[str, Any] | None = None
 
 
 SAFE_REPAIR_ORDER = [
@@ -72,8 +106,24 @@ class AcceptanceRepairPreviewer:
         snapshot: ApplicationSnapshot,
         revision: int,
         report: dict[str, Any] | None = None,
+        *,
+        content_hash: str = "",
+        test_id: str | None = None,
+        instruction: str | None = None,
+        reference_node_ids: list[str] | None = None,
+        trace_excerpts: list[str] | None = None,
     ) -> AcceptanceRepairPreviewResponse:
-        del report
+        context = self._repair_context(
+            snapshot,
+            revision,
+            content_hash,
+            report or {},
+            test_id=test_id,
+            reference_node_ids=reference_node_ids or [],
+            trace_excerpts=trace_excerpts or [],
+        )
+        repair_instruction = (instruction or "").strip() or self._repair_instruction(context)
+        rationale_markdown = self._repair_rationale(context)
         existing_types = [node.type for node in snapshot.workflow.nodes]
         missing_node_types = self._missing_required_node_types(snapshot, existing_types)
         assertion_paths = self._assertion_paths(snapshot)
@@ -122,6 +172,12 @@ class AcceptanceRepairPreviewer:
                 fixes=fixes,
                 missing_node_types=missing_node_types,
                 unsupported_node_types=sorted(set(unsupported)),
+                expected_revision=revision,
+                expected_content_hash=content_hash,
+                instruction=repair_instruction,
+                rationale_markdown=rationale_markdown,
+                repair_context=context,
+                reference_node_ids=context.relevant_node_ids,
             )
 
         previous_id = source_id
@@ -252,6 +308,118 @@ class AcceptanceRepairPreviewer:
             fixes=fixes,
             missing_node_types=missing_node_types,
             unsupported_node_types=sorted(set(unsupported)),
+            expected_revision=revision,
+            expected_content_hash=content_hash,
+            instruction=repair_instruction,
+            rationale_markdown=rationale_markdown,
+            repair_context=context,
+            reference_node_ids=context.relevant_node_ids,
+        )
+
+    @staticmethod
+    def _dict_items(value: Any) -> list[dict[str, Any]]:
+        return [item for item in value if isinstance(item, dict)] if isinstance(value, list) else []
+
+    @classmethod
+    def _repair_context(
+        cls,
+        snapshot: ApplicationSnapshot,
+        revision: int,
+        content_hash: str,
+        report: dict[str, Any],
+        *,
+        test_id: str | None,
+        reference_node_ids: list[str],
+        trace_excerpts: list[str],
+    ) -> AcceptanceRepairContext:
+        report_tests = cls._dict_items(report.get("tests"))
+        selected_result = next(
+            (item for item in report_tests if test_id and str(item.get("test_id")) == test_id),
+            None,
+        )
+        if selected_result is None:
+            selected_result = next(
+                (item for item in report_tests if item.get("passed") is False),
+                None,
+            )
+        selected_id = str((selected_result or {}).get("test_id") or test_id or "")
+        test_spec = next((item for item in snapshot.tests if item.id == selected_id), None)
+        if test_spec is None and not selected_result:
+            test_spec = next((item for item in snapshot.tests if item.mandatory), None)
+            selected_id = test_spec.id if test_spec else "validation"
+
+        readable = (selected_result or {}).get("readable_report")
+        readable = readable if isinstance(readable, dict) else {}
+        failed_assertions = [
+            item
+            for item in cls._dict_items((selected_result or {}).get("assertions"))
+            if item.get("passed") is False
+        ]
+        failed_checks = [str(item) for item in readable.get("failed_checks", [])]
+        validation = report.get("validation")
+        if isinstance(validation, dict):
+            failed_checks.extend(str(item) for item in validation.get("errors", []))
+        required_node_types = list(test_spec.required_node_types) if test_spec else []
+        required_tool_nodes = list(test_spec.required_tool_nodes) if test_spec else []
+        required_tools = list(test_spec.required_tools) if test_spec else []
+        if not test_spec:
+            required_node_types = cls._required_node_types(snapshot)
+
+        known_nodes = {node.id: node for node in snapshot.workflow.nodes}
+        relevant: list[str] = []
+        for node_id in reference_node_ids:
+            value = str(node_id)
+            if value in known_nodes and value not in relevant:
+                relevant.append(value)
+        for node in snapshot.workflow.nodes:
+            if node.type in required_node_types and node.id not in relevant:
+                relevant.append(node.id)
+        failure_target = str(readable.get("failure_target") or "")
+        if failure_target in known_nodes and failure_target not in relevant:
+            relevant.append(failure_target)
+
+        combined_trace = [str(item)[:500] for item in trace_excerpts]
+        combined_trace.extend(item[:500] for item in failed_checks if item[:500] not in combined_trace)
+        return AcceptanceRepairContext(
+            test_id=selected_id,
+            test_name=str((selected_result or {}).get("name") or (test_spec.name if test_spec else "Draft validation")),
+            requirement=str(test_spec.requirement if test_spec else snapshot.requirement),
+            failed_assertions=failed_assertions,
+            failed_checks=failed_checks,
+            required_node_types=required_node_types,
+            required_tool_nodes=required_tool_nodes,
+            required_tools=required_tools,
+            run_id=str((selected_result or {}).get("run_id") or ""),
+            trace_excerpts=combined_trace[:20],
+            relevant_node_ids=relevant[:50],
+            current_revision=revision,
+            current_content_hash=content_hash,
+        )
+
+    @staticmethod
+    def _repair_instruction(context: AcceptanceRepairContext) -> str:
+        requirements = ", ".join(context.required_node_types) or "the failed output contract"
+        failures = "; ".join(context.failed_checks[:4]) or f"{len(context.failed_assertions)} failed assertions"
+        return (
+            f"Repair acceptance case '{context.test_name}' ({context.test_id}) across the whole workflow. "
+            f"Requirement: {context.requirement} Required workflow elements: {requirements}. "
+            f"Observed failures: {failures}. Use referenced nodes as context, preserve unrelated behavior, "
+            "and return an inspectable draft edit preview rather than mutating the workflow automatically."
+        )
+
+    @staticmethod
+    def _repair_rationale(context: AcceptanceRepairContext) -> str:
+        node_types = ", ".join(context.required_node_types) or "None declared"
+        tools = ", ".join(context.required_tools) or "None declared"
+        return (
+            f"## Failed acceptance\n\n"
+            f"**{context.test_name or context.test_id}**\n\n"
+            f"{context.requirement}\n\n"
+            f"- Required blocks: {node_types}\n"
+            f"- Required tools: {tools}\n"
+            f"- Failed checks: {len(context.failed_checks)}\n"
+            f"- Failed assertions: {len(context.failed_assertions)}\n"
+            f"- Run: {context.run_id or 'No run record'}"
         )
 
     @staticmethod

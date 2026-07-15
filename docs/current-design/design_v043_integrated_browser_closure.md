@@ -33,3 +33,19 @@ Component tests can all pass while a customer still sees a confusing or broken s
 - No frontend crash or incoherent overlap appears.
 - The final report distinguishes deterministic, browser, model, and unavailable evidence levels.
 
+## Implemented So Far
+
+- One public-API integration scenario migrates a legacy application and exercises all three delivery modes, current-to-stale evidence, acknowledgement publication, governed denial, real failed-case repair, and immutable publication decisions.
+- Invalid-draft acceptance no longer returns an empty test list. It returns case-level preflight failures without fabricating a run, allowing the real UI report to enter repair preview.
+- Worker completion now reports the persisted terminal state: an expired lease cannot produce a succeeded return value, and the full-suite-discovered timing regression remains preserved as a classified failure artifact.
+- A deterministic fixture script creates isolated stale/configuration, failed-repair, and governed-publication applications for repeatable browser checks.
+- The frontend passes TypeScript and production build checks, the current release gate passes 45 tests, process controls pass 28 tests, and the full suite passes 729 tests with exactly 17 strict historical xfails.
+- Runtime health on the dedicated current-code instance reports `v0.4.3`.
+- The isolated frontend fixture at `http://127.0.0.1:3001` returns HTTP 200 from an ignored source copy, avoiding interference with the user's existing Next.js development server.
+
+## Active Blocker
+
+- Browser runtime setup succeeded, but URL selection returned `No browser is available` and discovery returned an empty list.
+- Desktop/mobile screenshots, overlap inspection, interaction assertions, and browser-console checks were not run and are not claimed.
+- Evidence: `docs/workingon/v0.4.3_browser_fixture.json` and `docs/workingon/v0.4.3_browser_verification.json`.
+- This mandatory task remains active; the stage cannot archive until a supported Browser runtime completes the prepared journey and a fresh closure audit passes.

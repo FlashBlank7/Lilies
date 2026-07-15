@@ -1,0 +1,47 @@
+{
+  "schema_version": "1.0",
+  "stage": "v0.4.3",
+  "task_id": "V04-03-T01F",
+  "status": "blocked",
+  "target": "http://127.0.0.1:3001",
+  "api_target": "http://127.0.0.1:8002",
+  "runtime_health": {
+    "status": "ok",
+    "version": "v0.4.3",
+    "product_phase": "v0.4.x",
+    "current_code_ready": true
+  },
+  "frontend_runtime": {
+    "status": "ready",
+    "http_status": 200,
+    "proxy_fixture_status": 200,
+    "served_from": ".tmp/v043-frontend",
+    "isolation_reason": "The existing user development server owns the primary Next.js build directory, so the v0.4.3 fixture uses an ignored source copy and its own build state."
+  },
+  "fixtures": {
+    "stale_config_application_id": "28ea467f-0f89-4401-8431-634df8107e48",
+    "repair_application_id": "9c85032f-a5a6-4a8c-a6de-39c6b494141c",
+    "governed_application_id": "66398de5-5379-4d8f-9f8e-023597eb1d95"
+  },
+  "browser_discovery": {
+    "browser_runtime_setup": "completed",
+    "get_for_url_result": "No browser is available",
+    "available_browsers": [],
+    "troubleshooting_followed": true
+  },
+  "desktop": {
+    "status": "not_run",
+    "screenshot": null,
+    "reason": "The Browser runtime exposed no available browser instance."
+  },
+  "mobile": {
+    "status": "not_run",
+    "screenshot": null,
+    "reason": "The Browser runtime exposed no available browser instance."
+  },
+  "console_errors": {
+    "status": "not_observed",
+    "reason": "No browser page could be opened."
+  },
+  "claim_boundary": "API integration, TypeScript compilation, and production build passed; desktop/mobile interaction, screenshots, layout overlap, and browser console remain unverified. This evidence is not a browser pass."
+}

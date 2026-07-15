@@ -5,13 +5,15 @@ from typing import Any
 from .blocks import BlockRegistry
 from .models import AgentSpec
 from .workflow_models import (
+    ApplicationMode,
     ApplicationSnapshot,
+    DeliveryMode,
     DraftOperation,
     EdgeSpec,
     NodeSpec,
     WorkflowTestCase,
 )
-from .workflow_storage import WorkflowStorage
+from .workflow_storage import RevisionConflict, WorkflowStorage
 from .tools import ToolRegistry
 
 
@@ -25,14 +27,83 @@ class ApplicationService:
         draft = await self.store.get_draft(application_id)
         snapshot: ApplicationSnapshot = draft["snapshot"].model_copy(deep=True)
         data = operation.data
+        self._apply_to_snapshot(snapshot, operation.op, data)
 
-        if operation.op == "add_node":
+        snapshot = ApplicationSnapshot.model_validate(snapshot.model_dump(mode="json"))
+        result = await self.store.save_draft(
+            application_id,
+            snapshot,
+            expected_revision=operation.expected_revision,
+            idempotency_key=operation.idempotency_key,
+            change_context=self._change_context(operation.op, data),
+        )
+        result["operation"] = operation.op
+        return result
+
+    async def apply_operations_atomically(
+        self,
+        application_id: str,
+        *,
+        expected_revision: int,
+        expected_content_hash: str,
+        operations: list[dict[str, Any]],
+        idempotency_key: str,
+    ) -> dict[str, Any]:
+        if not operations:
+            raise ValueError("acceptance repair has no operations")
+        draft = await self.store.get_draft(application_id)
+        if int(draft["revision"]) != expected_revision:
+            raise RevisionConflict(
+                f"repair revision conflict: expected {expected_revision}, current {draft['revision']}"
+            )
+        if draft["content_hash"] != expected_content_hash:
+            raise RevisionConflict("repair content hash no longer matches the current draft")
+        snapshot: ApplicationSnapshot = draft["snapshot"].model_copy(deep=True)
+        operation_names: list[str] = []
+        for raw in operations:
+            operation_revision = int(raw.get("expected_revision", expected_revision))
+            if operation_revision != expected_revision:
+                raise RevisionConflict(
+                    f"repair operation revision conflict: expected {expected_revision}, got {operation_revision}"
+                )
+            operation_name = str(raw.get("op", ""))
+            data = raw.get("data")
+            if not isinstance(data, dict):
+                raise ValueError("repair operation data must be an object")
+            self._apply_to_snapshot(snapshot, operation_name, data)
+            operation_names.append(operation_name)
+        snapshot = ApplicationSnapshot.model_validate(snapshot.model_dump(mode="json"))
+        result = await self.store.save_draft(
+            application_id,
+            snapshot,
+            expected_revision=expected_revision,
+            idempotency_key=idempotency_key,
+            change_context={
+                "operation": "acceptance_repair",
+                "operation_count": len(operation_names),
+                "operation_types": operation_names[:20],
+            },
+        )
+        result.update({
+            "operations_applied": len(operation_names),
+            "previous_content_hash": expected_content_hash,
+        })
+        return result
+
+    def _apply_to_snapshot(
+        self,
+        snapshot: ApplicationSnapshot,
+        operation: str,
+        data: dict[str, Any],
+    ) -> None:
+
+        if operation == "add_node":
             node = NodeSpec.model_validate(data["node"])
             if any(item.id == node.id for item in snapshot.workflow.nodes):
                 raise ValueError(f"node already exists: {node.id}")
             self.blocks.validate_node(node)
             snapshot.workflow.nodes.append(node)
-        elif operation.op == "update_node":
+        elif operation == "update_node":
             node = self._node(snapshot, str(data["node_id"]))
             changes = dict(data.get("changes") or {})
             if "config" in changes and data.get("merge_config", True):
@@ -41,51 +112,75 @@ class ApplicationService:
             self.blocks.validate_node(updated)
             index = snapshot.workflow.nodes.index(node)
             snapshot.workflow.nodes[index] = updated
-        elif operation.op == "remove_node":
+        elif operation == "remove_node":
             node_id = str(data["node_id"])
             self._node(snapshot, node_id)
             snapshot.workflow.nodes = [node for node in snapshot.workflow.nodes if node.id != node_id]
             snapshot.workflow.edges = [
                 edge for edge in snapshot.workflow.edges if node_id not in {edge.source, edge.target}
             ]
-        elif operation.op == "add_edge":
+        elif operation == "add_edge":
             edge = EdgeSpec.model_validate(data["edge"])
             if any(item.id == edge.id for item in snapshot.workflow.edges):
                 raise ValueError(f"edge already exists: {edge.id}")
             self._node(snapshot, edge.source)
             self._node(snapshot, edge.target)
             snapshot.workflow.edges.append(edge)
-        elif operation.op == "remove_edge":
+        elif operation == "remove_edge":
             edge_id = str(data["edge_id"])
             if not any(edge.id == edge_id for edge in snapshot.workflow.edges):
                 raise KeyError(f"edge not found: {edge_id}")
             snapshot.workflow.edges = [edge for edge in snapshot.workflow.edges if edge.id != edge_id]
-        elif operation.op == "set_metadata":
-            for field in ("name", "description", "mode", "requirement"):
+        elif operation == "set_metadata":
+            for field in (
+                "name",
+                "description",
+                "mode",
+                "delivery_mode",
+                "governed_hard_gate",
+                "requirement",
+            ):
                 if field in data:
-                    setattr(snapshot, field, data[field])
-        elif operation.op == "upsert_agent":
+                    value = data[field]
+                    if field == "mode":
+                        value = ApplicationMode(value)
+                    elif field == "delivery_mode":
+                        value = DeliveryMode(value)
+                    elif field == "governed_hard_gate" and not isinstance(value, bool):
+                        raise ValueError("governed_hard_gate must be a boolean")
+                    setattr(snapshot, field, value)
+        elif operation == "upsert_agent":
             agent = AgentSpec.model_validate(data["agent"])
             snapshot.agents[agent.id] = agent
-        elif operation.op == "add_test":
+        elif operation == "add_test":
             test = WorkflowTestCase.model_validate(data["test"])
             snapshot.tests = [item for item in snapshot.tests if item.id != test.id]
             snapshot.tests.append(test)
-        elif operation.op == "remove_test":
+        elif operation == "remove_test":
             test_id = str(data["test_id"])
             snapshot.tests = [item for item in snapshot.tests if item.id != test_id]
         else:
-            raise ValueError(f"unsupported draft operation: {operation.op}")
+            raise ValueError(f"unsupported draft operation: {operation}")
 
-        snapshot = ApplicationSnapshot.model_validate(snapshot.model_dump(mode="json"))
-        result = await self.store.save_draft(
-            application_id,
-            snapshot,
-            expected_revision=operation.expected_revision,
-            idempotency_key=operation.idempotency_key,
-        )
-        result["operation"] = operation.op
-        return result
+    @staticmethod
+    def _change_context(operation: str, data: dict[str, Any]) -> dict[str, Any]:
+        context: dict[str, Any] = {
+            "operation": operation,
+            "fields": sorted(str(key) for key in data),
+        }
+        for key in ("node_id", "edge_id", "test_id"):
+            if data.get(key):
+                context[key] = str(data[key])[:200]
+        nested_key = {
+            "add_node": "node",
+            "add_edge": "edge",
+            "add_test": "test",
+            "upsert_agent": "agent",
+        }.get(operation)
+        nested = data.get(nested_key) if nested_key else None
+        if isinstance(nested, dict) and nested.get("id"):
+            context["target_id"] = str(nested["id"])[:200]
+        return context
 
     async def validate_draft(self, application_id: str) -> dict[str, Any]:
         draft = await self.store.get_draft(application_id)

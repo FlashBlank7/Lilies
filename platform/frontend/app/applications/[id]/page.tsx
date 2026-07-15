@@ -31,12 +31,15 @@ import {
   type AdaptiveMonitoringStatus,
   type BuilderBenchmarkHistoryRecord,
   type Block,
+  type BlockEditorField,
   type Draft,
   type DraftPatchPreview,
+  type DeliveryMode,
   type GovernedMemoryItem,
   type PlatformPolicyControls,
   type PlatformPolicyControlsUpdate,
   type PlatformPolicyControlsUpdateResponse,
+  type PublicationDecision,
   type PlatformTaskRecord,
   type WorkflowNode,
   withFrontendToken,
@@ -45,14 +48,16 @@ import { defaultLocale, isLocale, messages, nextLocale, type Locale } from '@/li
 import { MarkdownResultCard } from '@/lib/markdown'
 import { classifyRuntimeStatus, runtimeCommit, runtimeVersion, type RuntimeHealth } from '@/lib/runtime-status'
 
+type CanvasPoint = { x: number; y: number }
 type StudioNode = Node<{ title: string; blockType: string; description: string; status?: string }>
 type Copy = (typeof messages)[Locale]
 const STUDIO_TABS = ['build', 'edit', 'test', 'run', 'monitor'] as const
 type StudioTab = typeof STUDIO_TABS[number]
+type ConfigEditorMode = 'form' | 'json'
 type MonitorFilter = 'related' | 'failed' | 'all'
 type GovernedMemoryFilter = 'active' | 'revoked' | 'expired' | 'all'
 type RunMode = 'unknown' | 'draft' | 'published'
-type Version = { version: number; content_hash: string; created_at: string; validation_report: Record<string, unknown> }
+type Version = { version: number; content_hash: string; created_at: string; validation_report: Record<string, unknown>; publication_decision?: PublicationDecision }
 type Build = {
   id: string
   status: string
@@ -135,12 +140,15 @@ const accents: Record<string, string> = {
 }
 
 function BrickNode({ data, selected }: NodeProps<StudioNode>) {
-  const accent = accents[data.blockType] || '#64748b'
+  const blockType = safeText(data?.blockType, 'unknown')
+  const title = safeText(data?.title, blockType)
+  const description = safeText(data?.description, '已配置积木')
+  const accent = accents[blockType] || '#64748b'
   return <div className={`brick-node ${selected ? 'selected' : ''}`} style={{ '--accent': accent } as React.CSSProperties}>
     <Handle type="target" position={Position.Left} />
-    <div className="brick-type">{data.blockType.replaceAll('_', ' ')}</div>
-    <strong>{data.title}</strong>
-    <small>{data.description || '已配置积木'}</small>
+    <div className="brick-type">{blockType.replaceAll('_', ' ')}</div>
+    <strong>{title}</strong>
+    <small>{description}</small>
     {data.status && <span className={`node-status ${data.status}`}>{data.status}</span>}
     <Handle type="source" position={Position.Right} />
   </div>
@@ -151,6 +159,24 @@ const CANVAS_LAYOUT_ORIGIN = { x: 90, y: 110 }
 const CANVAS_LAYOUT_COLUMN_WIDTH = 300
 const CANVAS_LAYOUT_ROW_HEIGHT = 150
 const CANVAS_PAN_STEP = 80
+
+function safeCanvasPosition(value: unknown, fallback: CanvasPoint = CANVAS_LAYOUT_ORIGIN): CanvasPoint {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return fallback
+  const record = value as Record<string, unknown>
+  const x = typeof record.x === 'number' && Number.isFinite(record.x) ? record.x : fallback.x
+  const y = typeof record.y === 'number' && Number.isFinite(record.y) ? record.y : fallback.y
+  return { x, y }
+}
+
+function safeStudioNodeData(node: Partial<WorkflowNode>, fallbackDescription: string) {
+  const blockType = safeWorkflowNodeType(node)
+  const title = safeText(node.title, blockType)
+  return {
+    title,
+    blockType,
+    description: safeText(node.description, fallbackDescription),
+  }
+}
 
 function visiblePositions(workflowNodes: WorkflowNode[], workflowEdges: Draft['snapshot']['workflow']['edges']) {
   const depth = new Map(workflowNodes.map(node => [node.id, 0]))
@@ -174,7 +200,8 @@ function visiblePositions(workflowNodes: WorkflowNode[], workflowEdges: Draft['s
 
   const rows = new Map<number, number>()
   return new Map(workflowNodes.map(node => {
-    if (node.position.x !== 0 || node.position.y !== 0) return [node.id, node.position]
+    const position = safeCanvasPosition(node.position, { x: 0, y: 0 })
+    if (position.x !== 0 || position.y !== 0) return [node.id, position]
     const column = depth.get(node.id) || 0
     const row = rows.get(column) || 0
     rows.set(column, row + 1)
@@ -236,6 +263,139 @@ function safeWorkflowNodeType(node: Partial<WorkflowNode> | null | undefined) {
 
 function safeConfigKeys(value: unknown) {
   return value && typeof value === 'object' && !Array.isArray(value) ? Object.keys(value) : []
+}
+
+type ConfigEditorValue = string | boolean
+type ConfigEditorValues = Record<string, ConfigEditorValue>
+
+function schemaFieldControl(path: string, schema: Record<string, unknown>): BlockEditorField['control'] {
+  if (Array.isArray(schema.enum)) return 'enum'
+  if (schema.type === 'boolean') return 'boolean'
+  if (schema.type === 'integer' || schema.type === 'number') return 'number'
+  if (schema.type === 'object' || schema.type === 'array' || schema.$ref || schema.anyOf) return 'json'
+  return /(prompt|system|template|description|instruction)/i.test(path) ? 'textarea' : 'text'
+}
+
+function editorFieldsForBlock(block: Block | undefined): BlockEditorField[] {
+  if (!block) return []
+  const hints = block.editor?.fields
+  if (hints?.length) return hints
+  const schema = asRecord(block.config_schema)
+  const properties = asRecord(schema.properties)
+  const required = new Set(asStringArray(schema.required))
+  return Object.entries(properties).map(([path, raw]) => {
+    const fieldSchema = asRecord(raw)
+    return {
+      path,
+      label: safeText(fieldSchema.title, path.replaceAll('_', ' ')),
+      description: safeText(fieldSchema.description),
+      control: schemaFieldControl(path, fieldSchema),
+      required: required.has(path),
+      minimum: typeof fieldSchema.minimum === 'number' ? fieldSchema.minimum : undefined,
+      maximum: typeof fieldSchema.maximum === 'number' ? fieldSchema.maximum : undefined,
+      step: fieldSchema.type === 'integer' ? 1 : undefined,
+      options: Array.isArray(fieldSchema.enum) ? fieldSchema.enum.map(String) : undefined,
+    }
+  })
+}
+
+function configValueAtPath(config: Record<string, unknown>, path: string): unknown {
+  return path.split('.').reduce<unknown>((current, part) => asRecord(current)[part], config)
+}
+
+function serializeConfigEditorValue(field: BlockEditorField, value: unknown): ConfigEditorValue {
+  if (field.control === 'boolean') return value === true
+  if (field.control === 'string_list') return Array.isArray(value) ? value.map(String).join('\n') : ''
+  if (field.control === 'json') return value === undefined ? '' : JSON.stringify(value, null, 2)
+  if (field.control === 'reference_or_text' && value !== undefined && typeof value !== 'string') return JSON.stringify(value, null, 2)
+  if (value === undefined || value === null) return ''
+  return String(value)
+}
+
+function configEditorValues(fields: BlockEditorField[], config: Record<string, unknown>): ConfigEditorValues {
+  return Object.fromEntries(fields.map(field => [field.path, serializeConfigEditorValue(field, configValueAtPath(config, field.path))]))
+}
+
+function cloneConfig(config: Record<string, unknown>): Record<string, unknown> {
+  return JSON.parse(JSON.stringify(config || {})) as Record<string, unknown>
+}
+
+function parseConfigObject(source: string): Record<string, unknown> {
+  const value: unknown = JSON.parse(source)
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('configuration must be a JSON object')
+  }
+  return value as Record<string, unknown>
+}
+
+function setConfigValueAtPath(config: Record<string, unknown>, path: string, value: unknown) {
+  const parts = path.split('.')
+  const leaf = parts.pop()
+  if (!leaf) return
+  let current = config
+  for (const part of parts) {
+    const next = asRecord(current[part])
+    current[part] = next
+    current = next
+  }
+  current[leaf] = value
+}
+
+function deleteConfigValueAtPath(config: Record<string, unknown>, path: string) {
+  const parts = path.split('.')
+  const leaf = parts.pop()
+  if (!leaf) return
+  let current = config
+  for (const part of parts) {
+    const next = current[part]
+    if (!next || typeof next !== 'object' || Array.isArray(next)) return
+    current = next as Record<string, unknown>
+  }
+  delete current[leaf]
+}
+
+function parseReferenceOrText(value: string): unknown {
+  const trimmed = value.trim()
+  if (/^(true|false|null|-?\d+(\.\d+)?)$/.test(trimmed) || trimmed.startsWith('{') || trimmed.startsWith('[')) {
+    return JSON.parse(trimmed)
+  }
+  return value
+}
+
+function configFromEditorValues(base: Record<string, unknown>, fields: BlockEditorField[], values: ConfigEditorValues) {
+  const config = cloneConfig(base)
+  for (const field of fields) {
+    const raw = values[field.path]
+    const text = typeof raw === 'string' ? raw : ''
+    if (field.control !== 'boolean' && !text.trim() && !field.required) {
+      deleteConfigValueAtPath(config, field.path)
+      continue
+    }
+    if (field.control !== 'boolean' && !text.trim() && field.required) throw new Error(`${field.label}: required`)
+    let value: unknown
+    if (field.control === 'boolean') value = raw === true
+    else if (field.control === 'number') {
+      const numeric = Number(text)
+      if (!Number.isFinite(numeric)) throw new Error(`${field.label}: expected a number`)
+      if (field.step === 1 && !Number.isInteger(numeric)) throw new Error(`${field.label}: expected an integer`)
+      if (field.minimum !== undefined && numeric < field.minimum) throw new Error(`${field.label}: minimum ${field.minimum}`)
+      if (field.maximum !== undefined && numeric > field.maximum) throw new Error(`${field.label}: maximum ${field.maximum}`)
+      value = numeric
+    } else if (field.control === 'enum') {
+      if (field.options?.length && !field.options.includes(text)) throw new Error(`${field.label}: unsupported option`)
+      value = text
+    } else if (field.control === 'string_list') {
+      value = text.split(/[\n,]/).map(item => item.trim()).filter(Boolean)
+    } else if (field.control === 'json') {
+      try { value = JSON.parse(text) } catch { throw new Error(`${field.label}: invalid JSON`) }
+    } else if (field.control === 'reference_or_text') {
+      try { value = parseReferenceOrText(text) } catch { throw new Error(`${field.label}: invalid reference or JSON value`) }
+    } else {
+      value = text
+    }
+    setConfigValueAtPath(config, field.path, value)
+  }
+  return config
 }
 
 function canvasKeyboardPanDelta(key: string, modifiers: { shiftKey?: boolean; altKey?: boolean } = {}) {
@@ -610,6 +770,56 @@ function acceptanceCases(draft: Draft | null, testReport: Record<string, unknown
   })
 }
 
+function acceptanceRunErrorReport(draft: Draft | null, error: unknown): Record<string, unknown> {
+  const tests = workflowTests(draft)
+  const message = String(error)
+  return {
+    passed: false,
+    validation: {
+      valid: false,
+      errors: [message],
+      warnings: [],
+      revision: draft?.revision ?? null,
+      content_hash: draft?.content_hash ?? null,
+      test_count: tests.length,
+    },
+    summary: {
+      total: tests.length,
+      passed: 0,
+      failed: tests.length,
+      mandatory_failed: tests.filter(test => test.mandatory !== false).length,
+      frames: tests.map((test, index) => ({
+        test_id: String(test.id || `test-${index}`),
+        title: String(test.name || test.id || `test-${index}`),
+        category: 'runtime',
+        status: 'failed',
+      })),
+    },
+    tests: tests.map((test, index) => ({
+      test_id: String(test.id || `test-${index}`),
+      name: String(test.name || test.id || `test-${index}`),
+      mandatory: test.mandatory !== false,
+      passed: false,
+      run_id: '',
+      assertions: (Array.isArray(test.assertions) ? test.assertions : []).map(item => ({
+        ...asRecord(item),
+        passed: false,
+        error: message,
+      })),
+      tool_evidence: { used_tools: [] },
+      readable_report: {
+        title: String(test.name || test.id || `test-${index}`),
+        category: 'runtime',
+        purpose: String(test.requirement || ''),
+        status: 'failed',
+        mandatory: test.mandatory !== false,
+        failed_checks: [message],
+        failed_assertions: [],
+      },
+    })),
+  }
+}
+
 function fieldInputType(type?: string) {
   if (type === 'number') return 'number'
   return 'text'
@@ -692,6 +902,9 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   const [selected, setSelected] = useState<WorkflowNode | null>(null)
   const [selectedEdge, setSelectedEdge] = useState<Edge | null>(null)
   const [configText, setConfigText] = useState('{}')
+  const [configEditorMode, setConfigEditorMode] = useState<ConfigEditorMode>('json')
+  const [configFieldValues, setConfigFieldValues] = useState<ConfigEditorValues>({})
+  const [configEditorBase, setConfigEditorBase] = useState<Record<string, unknown>>({})
   const [build, setBuild] = useState<Build | null>(null)
   const [events, setEvents] = useState<Array<{ type: string; data: Record<string, unknown> }>>([])
   const [tab, setTab] = useState<StudioTab>('build')
@@ -699,6 +912,9 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   const [requirement, setRequirement] = useState('')
   const [buildDeadlineSeconds, setBuildDeadlineSeconds] = useState('')
   const [buildIntentConfirmed, setBuildIntentConfirmed] = useState(false)
+  const [deliveryModeSaving, setDeliveryModeSaving] = useState(false)
+  const [publicationDecision, setPublicationDecision] = useState<PublicationDecision | null>(null)
+  const [publicationBusy, setPublicationBusy] = useState(false)
   const [runFields, setRunFields] = useState<RunInputFieldState[]>([])
   const [run, setRun] = useState<Run | null>(null)
   const [runStatusCheckedAt, setRunStatusCheckedAt] = useState('')
@@ -748,8 +964,11 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   const [patchPreviewLoading, setPatchPreviewLoading] = useState(false)
   const [patchApplyLoading, setPatchApplyLoading] = useState(false)
   const [acceptanceRepairPreview, setAcceptanceRepairPreview] = useState<AcceptanceRepairPreview | null>(null)
+  const [acceptanceRepairInstruction, setAcceptanceRepairInstruction] = useState('')
+  const [acceptanceRepairTestId, setAcceptanceRepairTestId] = useState<string | null>(null)
   const [acceptanceRepairLoading, setAcceptanceRepairLoading] = useState(false)
   const [acceptanceRepairApplying, setAcceptanceRepairApplying] = useState(false)
+  const [testsRunning, setTestsRunning] = useState(false)
   const [canvasArranging, setCanvasArranging] = useState(false)
   const [humanValues, setHumanValues] = useState('{}')
   const [notice, setNotice] = useState('')
@@ -814,6 +1033,10 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     setSelected(value)
     setSelectedEdge(null)
     setConfigText(JSON.stringify(value?.config || {}, null, 2))
+    setConfigEditorBase(cloneConfig(value?.config || {}))
+    const fields = editorFieldsForBlock(blocks.find(block => block.type === value?.type))
+    setConfigFieldValues(configEditorValues(fields, value?.config || {}))
+    setConfigEditorMode(fields.length ? 'form' : 'json')
   }
 
   function setSelectedWorkflowEdge(value: Edge | null) {
@@ -852,8 +1075,10 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     const workflowEdges = validWorkflowEdges(next.snapshot.workflow.nodes, next.snapshot.workflow.edges)
     const positions = visiblePositions(next.snapshot.workflow.nodes, workflowEdges)
     const renderNodes: StudioNode[] = next.snapshot.workflow.nodes.map(item => ({
-      id: item.id, type: 'brick', position: positions.get(item.id) || item.position,
-      data: { title: item.title, blockType: item.type, description: item.description || t.configuredBrick },
+      id: item.id,
+      type: 'brick',
+      position: positions.get(item.id) || safeCanvasPosition(item.position),
+      data: safeStudioNodeData(item, t.configuredBrick),
     }))
     setNodes(renderNodes)
     setEdges(workflowEdges.map(item => {
@@ -870,10 +1095,15 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
       if (updated) {
         setSelected(updated)
         setConfigText(JSON.stringify(updated.config || {}, null, 2))
+        setConfigEditorBase(cloneConfig(updated.config || {}))
+        const fields = editorFieldsForBlock(blocks.find(block => block.type === updated.type))
+        setConfigFieldValues(configEditorValues(fields, updated.config || {}))
       } else {
         selectedId.current = null
         setSelected(null)
         setConfigText('{}')
+        setConfigEditorBase({})
+        setConfigFieldValues({})
       }
     }
     if (selectedEdgeId.current) {
@@ -886,7 +1116,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
       }
     }
     scheduleFitView(renderNodes)
-  }, [setEdges, setNodes, t.configuredBrick])
+  }, [blocks, setEdges, setNodes, t.configuredBrick])
 
   const refresh = useCallback(async () => {
     try {
@@ -1226,6 +1456,24 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     }
   }
 
+  async function updateDeliverySettings(
+    deliveryMode: DeliveryMode,
+    governedHardGate = draftRef.current?.snapshot.governed_hard_gate || false,
+  ) {
+    if (!draftRef.current || deliveryModeSaving) return
+    setDeliveryModeSaving(true)
+    setNotice(t.deliveryModeSaving)
+    try {
+      const next = await mutation('set_metadata', {
+        delivery_mode: deliveryMode,
+        governed_hard_gate: governedHardGate,
+      })
+      if (next) setNotice(t.deliveryModeSaved)
+    } finally {
+      setDeliveryModeSaving(false)
+    }
+  }
+
   const onConnect = useCallback(async (connection: Connection) => {
     if (!connection.source || !connection.target) return
     const edgeId = idempotency()
@@ -1264,9 +1512,10 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     const positions = arrangedCanvasPositions(workflowNodes, workflowEdges)
     const changedNodes = workflowNodes.filter(node => {
       const position = positions.get(node.id)
-      return position && (position.x !== node.position.x || position.y !== node.position.y)
+      const currentPosition = safeCanvasPosition(node.position, { x: 0, y: 0 })
+      return position && (position.x !== currentPosition.x || position.y !== currentPosition.y)
     })
-    setNodes(renderNodes => renderNodes.map(node => ({ ...node, position: positions.get(node.id) || node.position })))
+    setNodes(renderNodes => renderNodes.map(node => ({ ...node, position: positions.get(node.id) || safeCanvasPosition(node.position) })))
     canvasWrapRef.current?.focus({ preventScroll: true })
     window.setTimeout(() => flowRef.current?.fitView({ padding: 0.24, duration: 260 }), 30)
     if (!changedNodes.length) {
@@ -1337,16 +1586,46 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
 
   function setWorkflowEditReferencesFromSelection(selectedNodes: StudioNode[]) {
     const ids = selectedNodes.map(node => node.id)
-    if (ids.length) setWorkflowEditReferenceIds(ids)
+    if (!ids.length) return
+    setWorkflowEditReferenceIds(current => {
+      if (current.length === ids.length && current.every((id, index) => id === ids[index])) return current
+      return ids
+    })
+  }
+
+  function switchConfigEditorMode(nextMode: ConfigEditorMode) {
+    if (!selected || nextMode === configEditorMode) return
+    const fields = editorFieldsForBlock(blocks.find(block => block.type === selected.type))
+    try {
+      if (nextMode === 'json') {
+        const config = configFromEditorValues(configEditorBase, fields, configFieldValues)
+        setConfigText(JSON.stringify(config, null, 2))
+        setConfigEditorBase(config)
+      } else {
+        const config = parseConfigObject(configText)
+        setConfigEditorBase(config)
+        setConfigFieldValues(configEditorValues(fields, config))
+      }
+      setConfigEditorMode(nextMode)
+    } catch (error) {
+      setNotice(nextMode === 'form' ? t.invalidJson(String(error)) : t.configFieldInvalid(String(error)))
+    }
   }
 
   async function saveConfig() {
     if (!selected) return
     try {
-      const config = JSON.parse(configText)
+      const fields = editorFieldsForBlock(blocks.find(block => block.type === selected.type))
+      const config = configEditorMode === 'form' && fields.length
+        ? configFromEditorValues(configEditorBase, fields, configFieldValues)
+        : parseConfigObject(configText)
+      setConfigText(JSON.stringify(config, null, 2))
+      setConfigEditorBase(config)
       const next = await mutation('update_node', { node_id: selected.id, changes: { config }, merge_config: false })
       await reconcileIncomingEdges(selected.id, config, next)
-    } catch (error) { setNotice(t.invalidJson(String(error))) }
+    } catch (error) {
+      setNotice(configEditorMode === 'form' ? t.configFieldInvalid(String(error)) : t.invalidJson(String(error)))
+    }
   }
 
   async function previewDraftPatch() {
@@ -1401,15 +1680,25 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     }
   }
 
-  async function previewAcceptanceRepair(report: Record<string, unknown> | null = testReport) {
+  async function previewAcceptanceRepair(
+    report: Record<string, unknown> | null = testReport,
+    testId: string | null = acceptanceRepairTestId,
+  ) {
     setAcceptanceRepairLoading(true)
     setAcceptanceRepairPreview(null)
+    if (testId) setAcceptanceRepairTestId(testId)
     try {
       const result = await api<AcceptanceRepairPreview>(`/api/v1/applications/${id}/tests/repair-preview`, {
         method: 'POST',
-        body: JSON.stringify({ report }),
+        body: JSON.stringify({
+          report,
+          test_id: testId,
+          instruction: acceptanceRepairInstruction.trim() || undefined,
+          reference_node_ids: workflowEditReferenceIds,
+        }),
       })
       setAcceptanceRepairPreview(result)
+      setAcceptanceRepairInstruction(result.instruction)
       setNotice(result.supported ? t.acceptanceRepairReady : t.acceptanceRepairUnavailable)
       return result
     } catch (error) {
@@ -1424,20 +1713,20 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     if (!acceptanceRepairPreview?.supported || !acceptanceRepairPreview.operations.length) return
     setAcceptanceRepairApplying(true)
     try {
-      let current = draftRef.current
-      for (const operation of acceptanceRepairPreview.operations) {
-        await api(`/api/v1/applications/${id}/draft`, {
-          method: 'POST',
-          body: JSON.stringify({
-            expected_revision: current?.revision ?? operation.expected_revision,
-            idempotency_key: idempotency(),
-            op: operation.op,
-            data: operation.data,
-          }),
-        })
-        current = await refresh()
-      }
+      const result = await api<{ revision: number; content_hash: string; evidence_state: string }>(`/api/v1/applications/${id}/tests/repair-apply`, {
+        method: 'POST',
+        body: JSON.stringify({
+          expected_revision: acceptanceRepairPreview.expected_revision,
+          expected_content_hash: acceptanceRepairPreview.expected_content_hash,
+          operations: acceptanceRepairPreview.operations,
+          idempotency_key: idempotency(),
+        }),
+      })
+      if (result.content_hash === acceptanceRepairPreview.expected_content_hash) throw new Error(t.acceptanceRepairNoHashChange)
+      await refresh()
       setAcceptanceRepairPreview(null)
+      setAcceptanceRepairInstruction('')
+      setAcceptanceRepairTestId(null)
       setTestReport(null)
       setNotice(t.acceptanceRepairApplied)
       setStudioTab('edit')
@@ -1590,18 +1879,53 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   async function runTests() {
     setNotice(t.testing)
     setAcceptanceRepairPreview(null)
-    const result = await api<{ passed: boolean } & Record<string, unknown>>(`/api/v1/applications/${id}/tests/run`, { method: 'POST' })
-    setTestReport(result)
-    setNotice(result.passed ? t.testsPassed : t.testsFailed)
-    if (!result.passed) await previewAcceptanceRepair(result)
-    await refresh()
-    await refreshMonitorTasks().catch(error => setNotice(String(error)))
+    setAcceptanceRepairInstruction('')
+    setAcceptanceRepairTestId(null)
+    setTestReport(null)
+    setTestsRunning(true)
+    try {
+      const result = await api<{ passed: boolean } & Record<string, unknown>>(`/api/v1/applications/${id}/tests/run`, { method: 'POST' })
+      setTestReport(result)
+      setPublicationDecision(null)
+      setNotice(result.passed ? t.testsPassed : t.testsFailed)
+      if (!result.passed) await previewAcceptanceRepair(result)
+      await refresh()
+      await refreshMonitorTasks().catch(error => setNotice(String(error)))
+    } catch (error) {
+      setTestReport(acceptanceRunErrorReport(draftRef.current, error))
+      setNotice(String(error))
+      await refreshMonitorTasks().catch(() => undefined)
+    } finally {
+      setTestsRunning(false)
+    }
   }
 
-  async function publish() {
-    const result = await api<{ version: number }>(`/api/v1/applications/${id}/versions`, { method: 'POST' })
-    setNotice(t.published(result.version))
-    await refresh()
+  async function publish(acknowledgeWarnings = false) {
+    if (publicationBusy) return
+    setPublicationBusy(true)
+    try {
+      const decision = await api<PublicationDecision>(`/api/v1/applications/${id}/publication-decision`)
+      setPublicationDecision(decision)
+      if (decision.blocked) {
+        setNotice(t.publicationBlockedNotice)
+        return
+      }
+      if (decision.requires_confirmation && !acknowledgeWarnings) {
+        setNotice(t.publicationConfirmationNotice)
+        return
+      }
+      const result = await api<{ version: number; publication_decision: PublicationDecision }>(`/api/v1/applications/${id}/versions`, {
+        method: 'POST',
+        body: JSON.stringify({ acknowledge_warnings: acknowledgeWarnings }),
+      })
+      setNotice(t.published(result.version))
+      setPublicationDecision(null)
+      await refresh()
+    } catch (error) {
+      setNotice(String(error))
+    } finally {
+      setPublicationBusy(false)
+    }
   }
 
   function updateRunField(name: string, changes: Partial<RunInputFieldState>) {
@@ -1708,6 +2032,8 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
 
   const grouped = useMemo(() => groupBlocks(blocks), [blocks])
   const tested = draft?.tested_hash && draft.tested_hash === draft.content_hash
+  const evidenceState = draft?.evidence?.state || (tested ? 'current' : 'missing')
+  const evidenceStateLabel = evidenceState === 'current' ? t.evidenceStateCurrent : evidenceState === 'stale' ? t.evidenceStateStale : t.evidenceStateMissing
   const activeVersion = versions[0]?.version
   const acceptanceCaseViews = useMemo(() => acceptanceCases(draft, testReport), [draft, testReport])
   const runInputParsed = useMemo(() => parseRunFieldInputs(runFields, t), [runFields, t])
@@ -2150,8 +2476,10 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     if (!workflow) return []
     return workflow.nodes.map(node => {
       const next = workflow.edges.filter(edge => edge.source === node.id).map(edge => edge.target).join(', ') || t.terminal
-      const detail = node.type === 'tool' ? ` · ${(node.config.tool_name as string) || t.unboundTool}` : ''
-      return `${node.id}: ${node.type}${detail} → ${next}`
+      const config = node.config && typeof node.config === 'object' && !Array.isArray(node.config) ? node.config as Record<string, unknown> : {}
+      const type = safeWorkflowNodeType(node)
+      const detail = type === 'tool' ? ` · ${safeText(config.tool_name, t.unboundTool)}` : ''
+      return `${node.id}: ${type}${detail} → ${next}`
     })
   }, [draft, t.terminal, t.unboundTool])
   const workflowEditReferenceNodes = useMemo(() => {
@@ -2173,6 +2501,9 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
       }
     })
   }, [draft, t.terminal])
+  const selectedBlockDefinition = blocks.find(block => block.type === selected?.type)
+  const selectedEditorFields = editorFieldsForBlock(selectedBlockDefinition)
+  const selectedEditorNotices = selectedBlockDefinition?.editor?.notices || []
   const selectedConfigKeys = safeConfigKeys(selected?.config)
   const selectedNodeSummary = selected ? [
     { label: t.nodeInspectorRole, value: safeWorkflowNodeType(selected), detail: safeText(selected.description, t.nodeInspectorNoDescription) },
@@ -2182,20 +2513,48 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   const detailBuildReadiness = detailBuildRequirementReadiness(requirement, t)
   const detailBuildAction = detailBuildActionState(requirement, detailBuildReadiness.ready, build, buildIntentConfirmed, t)
   const detailBuildRecommendedAction = recommendedDetailBuildAction(detailBuildAction.id, t)
+  const deliveryModeOptions: Array<{ id: DeliveryMode; label: string; detail: string }> = [
+    { id: 'quick', label: t.deliveryModeQuick, detail: t.deliveryModeQuickDetail },
+    { id: 'guided', label: t.deliveryModeGuided, detail: t.deliveryModeGuidedDetail },
+    { id: 'governed', label: t.deliveryModeGoverned, detail: t.deliveryModeGovernedDetail },
+  ]
+  const currentDeliveryMode = draft?.snapshot.delivery_mode || 'guided'
+  const currentDeliveryModeOption = deliveryModeOptions.find(option => option.id === currentDeliveryMode) || deliveryModeOptions[1]
 
   return <main className="studio-shell">
     <header className="studio-header">
       <Link href="/" className="back">←</Link>
-      <div className="studio-title"><strong>{draft?.snapshot.name || t.loading}</strong><span>{draft?.snapshot.mode === 'chat' ? t.modeChat : t.modeWorkflow} · {t.draft} r{draft?.revision ?? 0}</span></div>
-      <div className="header-center"><span className={tested ? 'verified' : 'unverified'}>{tested ? t.verified : t.unverified}</span>{activeVersion && <span>{t.activeVersion(activeVersion)}</span>}<span className={`runtime-chip ${runtimeStatus}`} data-runtime-status={runtimeStatus} title={runtimeStatusDetail}>{runtimeStatusText}</span></div>
-      <div className="header-actions"><button className="lang-toggle" onClick={toggleLocale}>{t.switchLabel}</button><button className="ghost" onClick={() => setStudioTab('run')} type="button">{t.debugDraft}</button><button onClick={publish} disabled={!tested}>{t.publishVersion}</button></div>
+      <div className="studio-title"><strong>{draft?.snapshot.name || t.loading}</strong><span>{draft?.snapshot.mode === 'chat' ? t.modeChat : t.modeWorkflow} · {currentDeliveryModeOption.label} · {t.draft} r{draft?.revision ?? 0}</span></div>
+      <div className="header-center"><span className={`evidence-state ${evidenceState}`} data-evidence-state={evidenceState}>{evidenceStateLabel}</span>{activeVersion && <span>{t.activeVersion(activeVersion)}</span>}<span className={`runtime-chip ${runtimeStatus}`} data-runtime-status={runtimeStatus} title={runtimeStatusDetail}>{runtimeStatusText}</span></div>
+      <div className="header-actions"><button className="lang-toggle" onClick={toggleLocale}>{t.switchLabel}</button><button className="ghost" onClick={() => setStudioTab('run')} type="button">{t.debugDraft}</button><button onClick={() => void publish()} disabled={publicationBusy}>{publicationBusy ? t.publicationChecking : t.publishVersion}</button></div>
     </header>
+    {publicationDecision && (publicationDecision.requires_confirmation || publicationDecision.blocked) && <section className={`publication-decision-banner ${publicationDecision.blocked ? 'blocked' : 'warning'}`} data-publication-decision={publicationDecision.blocked ? 'blocked' : 'confirmation'}>
+      <div><strong>{publicationDecision.blocked ? t.publicationBlockedTitle : t.publicationConfirmationTitle}</strong><span>{publicationDecision.evidence_state === 'stale' ? t.publicationStaleDetail : t.publicationMissingDetail}</span></div>
+      <ul>{publicationDecision.warnings.map(warning => <li key={warning.code}>{warning.message}</li>)}</ul>
+      <div className="publication-decision-actions">
+        <button type="button" onClick={() => { setStudioTab('test'); void runTests() }}>{t.evidenceRevalidate}</button>
+        <button type="button" className="ghost" onClick={() => setStudioTab('test')}>{t.evidenceInspect}</button>
+        {!publicationDecision.blocked && <button type="button" onClick={() => void publish(true)}>{t.publicationConfirm}</button>}
+        <button type="button" className="ghost" aria-label={t.publicationDismiss} onClick={() => setPublicationDecision(null)}>×</button>
+      </div>
+    </section>}
     <div className="studio-grid">
       <aside className="left-panel">
         <div className="panel-tabs" data-detail-tab-url-state="synced">{STUDIO_TABS.map(item => <button aria-pressed={tab === item} className={tab === item ? 'active' : ''} onClick={() => setStudioTab(item)} key={item} type="button">{item === 'build' ? t.buildTab : item === 'edit' ? t.editTab : item === 'test' ? t.testTab : item === 'run' ? t.runTab : t.monitorTab}</button>)}</div>
         {tab === 'build' && <div className="panel-body">
           <div className="panel-kicker">{t.builderTeam}</div><h2>{t.continueBuild}</h2>
           <textarea ref={detailBuildRequirementRef} className="requirement-input" value={requirement} onChange={event => { setRequirement(event.target.value); setBuildIntentConfirmed(false) }} />
+          <section className="delivery-mode-picker studio-delivery-mode" data-delivery-mode={currentDeliveryMode}>
+            <div className="delivery-mode-heading"><strong>{t.deliveryModeTitle}</strong><small>{t.deliveryModeHelp}</small></div>
+            <div className="delivery-mode-segments" role="group" aria-label={t.deliveryModeTitle}>
+              {deliveryModeOptions.map(option => <button aria-pressed={currentDeliveryMode === option.id} className={currentDeliveryMode === option.id ? 'active' : ''} disabled={deliveryModeSaving} key={option.id} onClick={() => void updateDeliverySettings(option.id)} type="button">{option.label}</button>)}
+            </div>
+            <small className="delivery-mode-detail">{currentDeliveryModeOption.detail}</small>
+            {currentDeliveryMode === 'governed' && <label className="delivery-mode-governed-toggle">
+              <input checked={Boolean(draft?.snapshot.governed_hard_gate)} disabled={deliveryModeSaving} onChange={event => void updateDeliverySettings('governed', event.target.checked)} type="checkbox" />
+              <span><strong>{t.governedHardGateLabel}</strong><small>{t.governedHardGateHelp}</small></span>
+            </label>}
+          </section>
           <section className={`requirement-readiness detail-build-readiness ${detailBuildReadiness.ready ? 'ready' : 'needs-detail'}`} data-detail-build-readiness="summary">
             <div className="requirement-readiness-head"><strong>{t.requirementReadinessTitle}</strong><span>{t.requirementReadinessScore(detailBuildReadiness.readyCount, detailBuildReadiness.total)}</span></div>
             <p>{detailBuildReadiness.ready ? t.requirementReadinessReady : t.requirementReadinessNeedsDetail}</p>
@@ -2262,9 +2621,39 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
             {selected && <><div className="node-summary-grid">{selectedNodeSummary.map(item => <article key={item.label}><span>{item.label}</span><b>{item.value}</b><small>{item.detail}</small></article>)}</div><button type="button" className="ghost" data-workflow-edit-reference-action="add-selected" onClick={() => addWorkflowEditReference(selected.id)}>{t.workflowEditReferenceAddSelected}</button></>}
             {selectedEdge && <div className="edge-summary"><code>{selectedEdge.source} → {selectedEdge.target}</code>{selectedEdge.label && <span>{selectedEdge.label}</span>}</div>}
           </section>
-          {selected ? <><section className="safe-edit-guide" data-node-inspector="safe-edit-guide"><strong>{t.nodeInspectorSafeEditTitle}</strong><span>{t.nodeInspectorSafeEditHelp}</span></section><label>{t.configLabel}</label><textarea className="json-editor" value={configText} onChange={event => setConfigText(event.target.value)} /><button className="wide" onClick={saveConfig}>{t.saveConfig}</button><button className="danger-link" onClick={deleteSelectedNode}>{t.deleteNode}</button></> : <p className="muted">{selectedEdge ? t.edgeSelectedHint : t.nodeHelp}</p>}
+          {selected ? <>
+            <section className="safe-edit-guide" data-node-inspector="safe-edit-guide"><strong>{t.nodeInspectorSafeEditTitle}</strong><span>{t.nodeInspectorSafeEditHelp}</span></section>
+            <div className="config-editor-heading"><strong>{t.configLabel}</strong><div className="config-editor-tabs" role="tablist">
+              <button type="button" role="tab" aria-selected={configEditorMode === 'form'} data-config-editor-mode="form" disabled={!selectedEditorFields.length} onClick={() => switchConfigEditorMode('form')}>{t.configFormTab}</button>
+              <button type="button" role="tab" aria-selected={configEditorMode === 'json'} data-config-editor-mode="json" onClick={() => switchConfigEditorMode('json')}>{t.configJsonTab}</button>
+            </div></div>
+            {selectedEditorNotices.length > 0 && <div className="config-editor-notices">{selectedEditorNotices.map((item, index) => <p key={`${item.kind}-${index}`} data-config-editor-notice={item.kind}>{locale === 'zh' ? item.text_zh || item.text : item.text}</p>)}</div>}
+            {configEditorMode === 'form' ? <div className="config-form" data-config-editor="schema-form">
+              {selectedEditorFields.length ? selectedEditorFields.map(field => {
+                const label = locale === 'zh' ? field.label_zh || field.label : field.label
+                const description = locale === 'zh' ? field.description_zh || field.description : field.description
+                const value = configFieldValues[field.path]
+                const update = (next: ConfigEditorValue) => setConfigFieldValues(current => ({ ...current, [field.path]: next }))
+                return <label className={`config-form-field ${field.control === 'boolean' ? 'boolean' : ''}`} data-config-field={field.path} key={field.path}>
+                  <span className="config-form-label"><b>{label}</b>{field.required && <em>{t.configRequired}</em>}</span>
+                  {description && <small>{description}</small>}
+                  {field.control === 'boolean' ? <input type="checkbox" checked={value === true} onChange={event => update(event.target.checked)} />
+                    : field.control === 'enum' ? <select value={String(value ?? '')} onChange={event => update(event.target.value)}>{!field.required && <option value="" />}{field.options?.map(option => <option key={option} value={option}>{option}</option>)}</select>
+                      : ['textarea', 'json', 'reference_or_text', 'string_list'].includes(field.control) ? <textarea className={field.control === 'json' ? 'config-json-field' : ''} spellCheck={field.control !== 'json'} value={String(value ?? '')} onChange={event => update(event.target.value)} />
+                        : <input type={field.control === 'number' ? 'number' : 'text'} readOnly={field.control === 'readonly'} min={field.minimum} max={field.maximum} step={field.step} value={String(value ?? '')} onChange={event => update(event.target.value)} />}
+                </label>
+              }) : <p className="muted">{t.configFormNoFields}</p>}
+            </div> : <div className="config-expert" data-config-editor="expert-json"><p className="muted">{t.configExpertHelp}</p><textarea className="json-editor" value={configText} onChange={event => setConfigText(event.target.value)} /></div>}
+            <button className="wide" onClick={saveConfig}>{t.saveConfig}</button><button className="danger-link" onClick={deleteSelectedNode}>{t.deleteNode}</button>
+          </> : <p className="muted">{selectedEdge ? t.edgeSelectedHint : t.nodeHelp}</p>}
         </div>}
         {tab === 'test' && <div className="panel-body">
+          <section className={`draft-evidence-panel ${evidenceState}`} data-draft-evidence={evidenceState}>
+            <div><strong>{t.evidenceStateTitle}: {evidenceStateLabel}</strong><small>{evidenceState === 'current' ? t.evidenceCurrentDetail : evidenceState === 'stale' ? t.evidenceStaleDetail : t.evidenceMissingDetail}</small></div>
+            {draft?.evidence?.change_summary?.length ? <ul>{draft.evidence.change_summary.slice(-3).map((item, index) => <li key={`${String(item.revision || '')}-${index}`}>{String(item.operation || t.evidenceChanged)} · r{String(item.revision || '?')}</li>)}</ul> : null}
+            <div className="draft-evidence-actions"><button type="button" disabled={testsRunning} onClick={() => void runTests()}>{testsRunning ? t.testsRunning : t.evidenceRevalidate}</button></div>
+            {draft?.evidence?.last_validation_report && <details><summary>{t.evidenceInspect}</summary><pre>{JSON.stringify(draft.evidence.last_validation_report, null, 2)}</pre></details>}
+          </section>
           <div className="panel-kicker">{t.deliveryGate}</div><h2>{t.acceptanceCases(acceptanceCaseViews.length)}</h2>
           <p className="muted">{t.acceptanceHelp}</p>
           <section className="acceptance-readiness-panel" data-acceptance-guidance="readiness-summary">
@@ -2279,29 +2668,46 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
             </div>
             {acceptanceRepairPreview ? <div className="acceptance-repair-body">
               <p>{acceptanceRepairPreview.message}</p>
+              <label className="acceptance-repair-instruction"><span>{t.acceptanceRepairInstruction}</span><textarea value={acceptanceRepairInstruction} onChange={event => setAcceptanceRepairInstruction(event.target.value)} /></label>
+              <MarkdownResultCard
+                source={acceptanceRepairPreview.rationale_markdown}
+                emptyLabel={t.acceptanceRepairNoPreview}
+                title={t.acceptanceRepairRationaleTitle}
+                description={t.acceptanceRepairRationaleHelp}
+                openLabel={t.markdownOpenRendered}
+                closeLabel={t.markdownCloseRendered}
+                rawLabel={t.engineeringDetails}
+                rawSource={JSON.stringify(acceptanceRepairPreview.repair_context, null, 2)}
+                dataSurface="acceptance-repair-rationale"
+              />
               {acceptanceRepairPreview.missing_node_types.length > 0 && <div><b>{t.acceptanceRepairMissingNodes}</b><code>{acceptanceRepairPreview.missing_node_types.join(', ')}</code></div>}
               {acceptanceRepairPreview.unsupported_node_types.length > 0 && <div><b>{t.acceptanceRepairUnsupportedNodes}</b><code>{acceptanceRepairPreview.unsupported_node_types.join(', ')}</code></div>}
               {acceptanceRepairPreview.fixes.length > 0 && <details open><summary>{t.acceptanceRepairFixes}</summary><ul>{acceptanceRepairPreview.fixes.map((fix, index) => <li key={index}><code>{String(fix.kind || 'repair')}</code>{fix.node_type ? ` · ${String(fix.node_type)}` : ''}{fix.node_id ? ` · ${String(fix.node_id)}` : ''}</li>)}</ul></details>}
               {acceptanceRepairPreview.warnings.length > 0 && <ul>{acceptanceRepairPreview.warnings.map(item => <li key={item}>{item}</li>)}</ul>}
               {acceptanceRepairPreview.operations.length > 0 && <details><summary>{t.acceptanceRepairOperations}</summary><pre>{JSON.stringify(acceptanceRepairPreview.operations, null, 2)}</pre></details>}
+              <details><summary>{t.acceptanceRepairContext}</summary><pre>{JSON.stringify({ task_id: acceptanceRepairPreview.task_id, preview_source: acceptanceRepairPreview.preview_source, repair_context: acceptanceRepairPreview.repair_context, workflow_edit_preview: acceptanceRepairPreview.workflow_edit_preview }, null, 2)}</pre></details>
             </div> : <p className="muted">{t.acceptanceRepairNoPreview}</p>}
             <div className="acceptance-repair-actions">
               <button className="wide secondary" onClick={() => previewAcceptanceRepair()} disabled={acceptanceRepairLoading}>{acceptanceRepairLoading ? t.acceptanceRepairPreviewing : t.acceptanceRepairPreview}</button>
               <button className="wide" onClick={applyAcceptanceRepair} disabled={!acceptanceRepairPreview?.supported || acceptanceRepairPreview.operations.length === 0 || acceptanceRepairApplying}>{acceptanceRepairApplying ? t.acceptanceRepairApplying : t.acceptanceRepairApply}</button>
             </div>
           </section>}
-          <button className="wide" onClick={runTests}>{t.runAllTests}</button>
-          <div className="acceptance-list">{acceptanceCaseViews.map(test => <section className="acceptance-card" key={test.id}>
-            <div className="acceptance-card-head"><div><strong>{test.name}</strong><small>{test.requirement || t.noRequirementText}</small></div><span className={test.result ? (test.result.passed ? 'passed' : 'failed') : 'pending'}>{test.result ? (test.result.passed ? t.passedLabel : t.failedLabel) : t.notRunLabel}</span></div>
-            <div className="acceptance-grid">
-              <div><h4>{t.businessRequirement}</h4><p>{test.mandatory ? t.mandatoryLabel : t.optionalLabel}</p><pre>{JSON.stringify(test.inputs, null, 2)}</pre></div>
-              <div><h4>{t.outputAssertions}</h4>{test.assertions.length ? <ul>{test.assertions.map((assertion, index) => <li key={index}><code>{(assertion.path || ['output']).join('.')}</code> {assertion.operator || 'exists'} {assertion.expected !== undefined ? <code>{JSON.stringify(assertion.expected)}</code> : null}</li>)}</ul> : <p>{t.noAssertions}</p>}</div>
-              <div><h4>{t.structureGate}</h4>{test.requiredNodeTypes.length || test.requiredToolNodes.length ? <ul>{test.requiredNodeTypes.length > 0 && <li>{t.requiredBrickTypes}: <code>{test.requiredNodeTypes.join(', ')}</code></li>}{test.requiredToolNodes.length > 0 && <li>{t.requiredToolNodes}: <code>{test.requiredToolNodes.join(', ')}</code></li>}</ul> : <p>{t.noStructureGate}</p>}</div>
-              <div><h4>{t.toolEvidence}</h4>{test.requiredTools.length || test.minimumToolCalls || test.requireCitedToolUrls ? <ul>{test.requiredTools.length > 0 && <li>{t.requiredRuntimeTools}: <code>{test.requiredTools.join(', ')}</code></li>}{test.minimumToolCalls > 0 && <li>{t.minToolCalls}: <code>{test.minimumToolCalls}</code></li>}<li>{test.requireCitedToolUrls ? t.citedUrlsRequired : t.citedUrlsNotRequired}</li></ul> : <p>{t.noToolGate}</p>}</div>
-            </div>
-            {test.result && <div className="acceptance-result"><h4>{t.latestResult}</h4><p>{t.runId}: <code>{test.result.run_id || '-'}</code></p><p>{t.usedTools}: <code>{asStringArray(asRecord(test.result.tool_evidence).used_tools).join(', ') || '-'}</code></p><p>{t.assertionPassCount}: <code>{(test.result.assertions || []).filter(item => item.passed).length}/{(test.result.assertions || []).length}</code></p></div>}
-            <details><summary>{t.engineeringDetails}</summary><pre>{JSON.stringify(test.raw, null, 2)}</pre></details>
-          </section>)}</div>
+          <button className="wide" onClick={runTests} disabled={testsRunning}>{testsRunning ? t.testing : t.runAllTests}</button>
+          <div className="acceptance-list">{acceptanceCaseViews.map(test => {
+            const statusClass = testsRunning ? 'running' : test.result ? (test.result.passed ? 'passed' : 'failed') : 'pending'
+            const statusText = testsRunning ? t.testing : test.result ? (test.result.passed ? t.passedLabel : t.failedLabel) : t.notRunLabel
+            return <section className="acceptance-card" key={test.id}>
+              <div className="acceptance-card-head"><div><strong>{test.name}</strong><small>{test.requirement || t.noRequirementText}</small></div><span className={statusClass}>{statusText}</span></div>
+              <div className="acceptance-grid">
+                <div><h4>{t.businessRequirement}</h4><p>{test.mandatory ? t.mandatoryLabel : t.optionalLabel}</p><pre>{JSON.stringify(test.inputs, null, 2)}</pre></div>
+                <div><h4>{t.outputAssertions}</h4>{test.assertions.length ? <ul>{test.assertions.map((assertion, index) => <li key={index}><code>{(assertion.path || ['output']).join('.')}</code> {assertion.operator || 'exists'} {assertion.expected !== undefined ? <code>{JSON.stringify(assertion.expected)}</code> : null}</li>)}</ul> : <p>{t.noAssertions}</p>}</div>
+                <div><h4>{t.structureGate}</h4>{test.requiredNodeTypes.length || test.requiredToolNodes.length ? <ul>{test.requiredNodeTypes.length > 0 && <li>{t.requiredBrickTypes}: <code>{test.requiredNodeTypes.join(', ')}</code></li>}{test.requiredToolNodes.length > 0 && <li>{t.requiredToolNodes}: <code>{test.requiredToolNodes.join(', ')}</code></li>}</ul> : <p>{t.noStructureGate}</p>}</div>
+                <div><h4>{t.toolEvidence}</h4>{test.requiredTools.length || test.minimumToolCalls || test.requireCitedToolUrls ? <ul>{test.requiredTools.length > 0 && <li>{t.requiredRuntimeTools}: <code>{test.requiredTools.join(', ')}</code></li>}{test.minimumToolCalls > 0 && <li>{t.minToolCalls}: <code>{test.minimumToolCalls}</code></li>}<li>{test.requireCitedToolUrls ? t.citedUrlsRequired : t.citedUrlsNotRequired}</li></ul> : <p>{t.noToolGate}</p>}</div>
+              </div>
+              {test.result && <div className="acceptance-result"><h4>{t.latestResult}</h4><p>{t.runId}: <code>{test.result.run_id || '-'}</code></p><p>{t.usedTools}: <code>{asStringArray(asRecord(test.result.tool_evidence).used_tools).join(', ') || '-'}</code></p><p>{t.assertionPassCount}: <code>{(test.result.assertions || []).filter(item => item.passed).length}/{(test.result.assertions || []).length}</code></p>{!test.result.passed && <button type="button" className="acceptance-case-repair" onClick={() => void previewAcceptanceRepair(testReport, test.id)}>{t.acceptanceRepairThisCase}</button>}</div>}
+              <details><summary>{t.engineeringDetails}</summary><pre>{JSON.stringify(test.raw, null, 2)}</pre></details>
+            </section>
+          })}</div>
           {testReport && <><h3>{t.latestReport}</h3><pre className="trace-log">{JSON.stringify(testReport, null, 2)}</pre></>}
           <h3>{t.versionHistory}</h3>{versions.map(version => <div className="version-row" key={version.version}><span>v{version.version}</span><small>{version.content_hash.slice(0, 9)}</small><button onClick={async () => { await api(`/api/v1/applications/${id}/versions/${version.version}/restore`, { method: 'POST' }); await refresh() }}>{t.loadEdit}</button></div>)}
         </div>}
@@ -2682,7 +3088,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
             </button>)}</div>
           </section>
         </div>
-        <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} deleteKeyCode={['Backspace', 'Delete']} onInit={instance => { flowRef.current = instance; scheduleFitView(nodes) }} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onNodesDelete={deleted => { void persistDeletedNodes(deleted as StudioNode[]) }} onEdgesDelete={deleted => { void persistDeletedEdges(deleted) }} onNodeClick={(_, node) => chooseNode(node)} onNodeContextMenu={(event, node) => { event.preventDefault(); addWorkflowEditReference(node.id); chooseNode(node); setNotice(t.workflowEditReferenceAdded(node.data.title || node.id)) }} onSelectionChange={({ nodes: selectedNodes }) => setWorkflowEditReferencesFromSelection(selectedNodes as StudioNode[])} onEdgeClick={(_, edge) => chooseEdge(edge)} onPaneClick={() => setSelectedNode(null)} onNodeDragStop={(_, node) => mutation('update_node', { node_id: node.id, changes: { position: node.position } })} selectionOnDrag selectionMode={SelectionMode.Partial} fitView fitViewOptions={{ padding: 0.22 }} colorMode="dark">
+        <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} deleteKeyCode={['Backspace', 'Delete']} onInit={instance => { flowRef.current = instance; scheduleFitView(nodes) }} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onNodesDelete={deleted => { void persistDeletedNodes(deleted as StudioNode[]) }} onEdgesDelete={deleted => { void persistDeletedEdges(deleted) }} onNodeClick={(_, node) => chooseNode(node)} onNodeContextMenu={(event, node) => { event.preventDefault(); addWorkflowEditReference(node.id); chooseNode(node); setNotice(t.workflowEditReferenceAdded(safeText(node.data?.title, node.id))) }} onSelectionChange={({ nodes: selectedNodes }) => setWorkflowEditReferencesFromSelection(selectedNodes as StudioNode[])} onEdgeClick={(_, edge) => chooseEdge(edge)} onPaneClick={() => setSelectedNode(null)} onNodeDragStop={(_, node) => mutation('update_node', { node_id: node.id, changes: { position: safeCanvasPosition(node.position) } })} selectionOnDrag selectionMode={SelectionMode.Partial} fitView fitViewOptions={{ padding: 0.22 }} colorMode="dark">
           <Background color="#283142" gap={24} size={1}/><MiniMap pannable zoomable nodeColor={node => accents[(node.data as { blockType?: string } | undefined)?.blockType || ''] || '#64748b'}/><Controls/>
         </ReactFlow>
         {notice && <button className="toast" onClick={() => setNotice('')}>{notice}</button>}

@@ -12,8 +12,9 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MANIFEST_PATH = ROOT / "docs" / "testing" / "regression_lanes.json"
-DEFAULT_OUTPUT = ROOT / "docs" / "workingon" / "regression_suite_lane_guard_v0.3.15.json"
+MANIFEST_PATH = ROOT / "docs" / "testing" / "historical" / "v0.3.55_regression_lanes.json"
+HISTORICAL_README_PATH = ROOT / "docs" / "testing" / "historical" / "v0.3.55_README.md"
+DEFAULT_OUTPUT = ROOT / ".tmp" / "historical-evidence" / "v0.3.15" / "regression_suite_lane_guard_v0.3.15.json"
 EXPECTED_RUNTIME_VERSION = "v0.3.6"
 
 
@@ -84,7 +85,7 @@ def source_marker_checks() -> list[dict[str, Any]]:
     checks = [
         (
             "regression_lane_docs_markers",
-            "docs/testing/README.md",
+            str(HISTORICAL_README_PATH.relative_to(ROOT)),
             (
                 "regression_lanes.json",
                 "v0.3.x_current_release_gate",

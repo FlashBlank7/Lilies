@@ -217,11 +217,26 @@ class PlatformHarnessWorkerRunner:
             status="succeeded",
             metadata=metadata,
         )
+        final_record = finished or claimed
+        final_status = final_record.status
+        final_error = final_record.error
+        persisted_worker_metadata = final_record.metadata.get("worker_runner")
+        if isinstance(persisted_worker_metadata, dict):
+            metadata = {"worker_runner": dict(persisted_worker_metadata)}
         await self._record_heartbeat(
             status="idle",
-            metadata={"phase": "task_finished", "last_task_id": claimed.id, "last_task_status": "succeeded"},
+            metadata={
+                "phase": "task_finished",
+                "last_task_id": claimed.id,
+                "last_task_status": final_status,
+            },
         )
-        return self._result(finished or claimed, "succeeded", metadata=metadata)
+        return self._result(
+            final_record,
+            final_status,
+            error=final_error,
+            metadata=metadata,
+        )
 
     async def _renew_lease_until_cancelled(self, task_id: str, state: dict[str, Any]) -> None:
         try:

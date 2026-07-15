@@ -975,6 +975,50 @@ class PromptCaptureProvider(ModelProvider):
         })
 
 
+class JsonModelTurnProvider(ModelProvider):
+    name = "deepseek"
+
+    def __init__(self) -> None:
+        self.prompts: list[str] = []
+        self.systems: list[str] = []
+
+    def capabilities(self, model: str) -> ProviderCapabilities:
+        return ProviderCapabilities(True, True, True, False, False, 100_000, 10_000)
+
+    async def stream(
+        self,
+        *,
+        model: str,
+        system: str,
+        messages: list[ChatMessage],
+        tools: list[ToolDefinition],
+        max_output_tokens: int,
+        thinking_enabled: bool,
+        effort: str,
+        tool_choice: dict[str, str] | None = None,
+        user_id: str | None = None,
+    ) -> AsyncIterator[StreamEvent]:
+        self.systems.append(system)
+        self.prompts.append("\n".join(block.text or "" for message in messages for block in message.content))
+        text = json.dumps({
+            "category": "账单问题",
+            "suggestions": ["核对发票差额", "确认付款周期"],
+            "owner": "财务专员",
+            "info_gaps": ["发票编号"],
+            "summary": "账单问题处理摘要",
+        }, ensure_ascii=False)
+        yield StreamEvent(type="message_start", data={"message": {"usage": {"input_tokens": 1}}})
+        yield StreamEvent(type="content_block_start", data={
+            "index": 0, "content_block": {"type": "text", "text": ""}
+        })
+        yield StreamEvent(type="content_block_delta", data={
+            "index": 0, "delta": {"type": "text_delta", "text": text}
+        })
+        yield StreamEvent(type="message_delta", data={
+            "delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 1}
+        })
+
+
 class SubagentCaptureProvider(ModelProvider):
     name = "deepseek"
 
@@ -1251,6 +1295,34 @@ def test_application_placeholder_name_is_derived_from_requirement(tmp_path: Path
         assert body["name"] == "定时 8am 搜索偶像新闻并生成日报的智能体"
         draft = client.get(f"/api/v1/applications/{body['id']}/draft", headers=headers()).json()
         assert draft["snapshot"]["name"] == body["name"]
+
+
+def test_application_placeholder_name_uses_markdown_business_goal(tmp_path: Path) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+    )
+    app = create_app(settings, ScriptedProvider())
+    requirement = """## 工作流构建需求
+
+### 目标用户
+专业开发者。
+
+### 业务目标
+构建一个类似 Codex 的代码辅助工作流，支持代码生成、审查和验收证据。
+
+### 启动输入
+自然语言任务。"""
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/applications",
+            headers=headers(),
+            json={"name": "未命名智能体", "requirement": requirement},
+        )
+        assert response.status_code == 201, response.text
+        body = response.json()
+        assert body["name"] == "类似 Codex 的代码辅助工作流"
 
 
 def test_citation_gate_requires_every_output_url_to_come_from_tool_evidence() -> None:
@@ -2160,7 +2232,7 @@ def test_platform_harness_worker_runner_skips_unsupported_task(tmp_path: Path) -
         fetched = await harness.get_task("runner-skip-1")
         assert fetched.status == "queued"
         assert fetched.worker_id is None
-        assert fetched.lease_version == 2
+        assert fetched.lease_version == 4
 
     asyncio.run(scenario())
 
@@ -2169,26 +2241,26 @@ def test_platform_harness_worker_runner_renews_lease_for_long_handler(tmp_path: 
     async def scenario() -> None:
         storage = Storage(tmp_path / "data")
         await storage.initialize()
-        harness = PlatformHarness(storage=storage, worker_lease_seconds=0.05)
+        harness = PlatformHarness(storage=storage, worker_lease_seconds=0.25)
         await harness.start_task(
             "runner-renew-1",
             kind="scheduler_manual_trigger",
             owner_id="owner-a",
             resource_id="schedule-a",
             worker_id="producer",
-            lease_seconds=0.05,
+            lease_seconds=0.25,
         )
         await harness.release_task_lease("runner-renew-1", worker_id="producer", next_status="queued")
 
         async def handler(_record):
-            await asyncio.sleep(0.12)
+            await asyncio.sleep(0.55)
             return {"handled": True}
 
         runner = PlatformHarnessWorkerRunner(
             harness=harness,
             worker_id="worker-a",
-            lease_seconds=0.05,
-            renewal_interval_seconds=0.02,
+            lease_seconds=0.25,
+            renewal_interval_seconds=0.05,
             handlers={"scheduler_manual_trigger": handler},
         )
         results = await runner.run_once(limit=5)
@@ -2199,6 +2271,47 @@ def test_platform_harness_worker_runner_renews_lease_for_long_handler(tmp_path: 
         assert finished.lease_version > 3
         assert finished.metadata["worker_runner"]["renewal_count"] >= 1
         assert finished.metadata["worker_runner"]["result"]["handled"] is True
+
+    asyncio.run(scenario())
+
+
+def test_platform_harness_worker_runner_never_reports_expired_completion_as_success(
+    tmp_path: Path,
+) -> None:
+    async def scenario() -> None:
+        storage = Storage(tmp_path / "data")
+        await storage.initialize()
+        harness = PlatformHarness(storage=storage, worker_lease_seconds=0.01)
+        await harness.start_task(
+            "runner-expired-1",
+            kind="scheduler_manual_trigger",
+            owner_id="owner-a",
+            resource_id="schedule-a",
+            worker_id="producer",
+            lease_seconds=0.01,
+        )
+        await harness.release_task_lease("runner-expired-1", worker_id="producer", next_status="queued")
+
+        async def handler(_record):
+            await asyncio.sleep(0.03)
+            return {"handled": True}
+
+        runner = PlatformHarnessWorkerRunner(
+            harness=harness,
+            worker_id="worker-a",
+            lease_seconds=0.01,
+            renewal_interval_seconds=0.1,
+            handlers={"scheduler_manual_trigger": handler},
+        )
+        results = await runner.run_once(limit=5)
+
+        assert [(item.task_id, item.status) for item in results] == [("runner-expired-1", "failed")]
+        assert "worker lease expired" in results[0].error
+        assert results[0].metadata["worker_runner"]["status"] == "failed"
+        assert "worker lease expired" in results[0].metadata["worker_runner"]["completion_error"]
+        finished = await harness.get_task("runner-expired-1")
+        assert finished.status == "failed"
+        assert finished.metadata["worker_runner"]["status"] == "failed"
 
     asyncio.run(scenario())
 
@@ -3346,7 +3459,9 @@ def test_incremental_workflow_test_publish_restore(tmp_path: Path) -> None:
         assert restored.status_code == 200
         assert restored.json()["revision"] == revision + 1
         republish = client.post(f"/api/v1/applications/{app_id}/versions", headers=headers())
-        assert republish.status_code == 409
+        assert republish.status_code == 200, republish.text
+        assert republish.json()["version"] == 2
+        assert republish.json()["publication_decision"]["evidence_state"] == "current"
 
 
 def test_human_input_pauses_and_resumes(tmp_path: Path) -> None:
@@ -3977,6 +4092,8 @@ def test_builder_uses_incremental_brick_operations_and_publishes(tmp_path: Path)
         api_token="workflow-test",
         data_dir=tmp_path / "data",
         workspace_root=tmp_path / "workspaces",
+        complexity_router_default_mode="disabled",
+        complexity_router_limited_default_enabled=False,
     )
     provider = IncrementalBuilderProvider()
     app = create_app(settings, provider)
@@ -4016,6 +4133,8 @@ def test_builder_adds_preflight_smoke_test_when_model_omits_tests(tmp_path: Path
         api_token="workflow-test",
         data_dir=tmp_path / "data",
         workspace_root=tmp_path / "workspaces",
+        complexity_router_default_mode="disabled",
+        complexity_router_limited_default_enabled=False,
     )
     app = create_app(settings, NoTestBuilderProvider())
     with TestClient(app) as client:
@@ -4366,6 +4485,8 @@ def test_builder_must_read_manual_before_agent_architecture_blocks(tmp_path: Pat
         api_token="workflow-test",
         data_dir=tmp_path / "data",
         workspace_root=tmp_path / "workspaces",
+        complexity_router_default_mode="disabled",
+        complexity_router_limited_default_enabled=False,
     )
     app = create_app(settings, ManualSkippingBuilderProvider())
     with TestClient(app) as client:
@@ -4399,6 +4520,8 @@ def test_builder_rejects_tests_requiring_unavailable_node_types(tmp_path: Path) 
         api_token="workflow-test",
         data_dir=tmp_path / "data",
         workspace_root=tmp_path / "workspaces",
+        complexity_router_default_mode="disabled",
+        complexity_router_limited_default_enabled=False,
     )
     app = create_app(settings, InvalidRequiredNodeTestBuilderProvider())
     with TestClient(app) as client:
@@ -4443,6 +4566,8 @@ def test_builder_allows_confirmation_test_after_repair_revision(tmp_path: Path) 
         api_token="workflow-test",
         data_dir=tmp_path / "data",
         workspace_root=tmp_path / "workspaces",
+        complexity_router_default_mode="disabled",
+        complexity_router_limited_default_enabled=False,
     )
     app = create_app(settings, RepairConfirmationBuilderProvider())
     with TestClient(app) as client:
@@ -4523,6 +4648,8 @@ def test_builder_can_expand_claude_like_template_into_editable_draft(tmp_path: P
         api_token="workflow-test",
         data_dir=tmp_path / "data",
         workspace_root=tmp_path / "workspaces",
+        complexity_router_default_mode="disabled",
+        complexity_router_limited_default_enabled=False,
     )
     app = create_app(settings, TemplateExpandBuilderProvider())
     with TestClient(app) as client:
@@ -4642,6 +4769,8 @@ def test_builder_template_suggestions_default_to_adaptive_when_omitted(tmp_path:
         data_dir=tmp_path / "data",
         workspace_root=tmp_path / "workspaces",
         templates_dir=Path(__file__).resolve().parents[1] / "templates",
+        complexity_router_default_mode="disabled",
+        complexity_router_limited_default_enabled=False,
     )
     app = create_app(settings, AdaptiveTemplateSuggestionBuilderProvider(include_reuse_depth=False))
     with TestClient(app) as client:
@@ -4739,6 +4868,8 @@ def test_builder_customer_support_template_expand_returns_contract_and_validatio
         data_dir=tmp_path / "data",
         workspace_root=tmp_path / "workspaces",
         templates_dir=Path(__file__).resolve().parents[1] / "templates",
+        complexity_router_default_mode="disabled",
+        complexity_router_limited_default_enabled=False,
     )
     app = create_app(settings, CustomerSupportTemplateExpandBuilderProvider())
     with TestClient(app) as client:
@@ -4922,8 +5053,8 @@ def test_branch_outputs_join_with_variable_aggregator(tmp_path: Path) -> None:
             {"id": "no", "type": "variable_assigner", "title": "No", "config": {"assignments": {"value": "rejected"}}},
             {"id": "join", "type": "variable_aggregator", "title": "Join", "config": {
                 "variables": [
-                    {"$ref": {"node_id": "yes", "path": ["output", "value"], "optional": True}},
-                    {"$ref": {"node_id": "no", "path": ["output", "value"], "optional": True}},
+                    {"$ref": {"node_id": "yes", "path": ["output", "value"]}},
+                    {"$ref": {"node_id": "no", "path": ["output", "value"]}},
                 ], "mode": "first_non_null",
             }},
             {"id": "end", "type": "end", "title": "End", "config": {"outputs": {
@@ -4949,6 +5080,101 @@ def test_branch_outputs_join_with_variable_aggregator(tmp_path: Path) -> None:
                 "assertions": [{"path": ["decision"], "operator": "equals", "expected": expected}],
             }})
         result = client.post(f"/api/v1/applications/{app_id}/tests/run", headers=headers())
+        assert result.json()["passed"] is True, result.text
+
+
+def test_model_turn_system_prompt_json_fields_feed_downstream_refs(tmp_path: Path) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+    )
+    provider = JsonModelTurnProvider()
+    app = create_app(settings, provider)
+    with TestClient(app) as client:
+        app_id = client.post(
+            "/api/v1/applications", headers=headers(),
+            json={"name": "Model turn JSON", "requirement": "Use generated model_turn config aliases."},
+        ).json()["id"]
+        nodes = [
+            {"id": "start", "type": "start", "title": "Start", "config": {"inputs": [{"name": "customer_query"}]}},
+            {"id": "turn", "type": "model_turn", "title": "Bill handler", "config": {
+                "input": {"$ref": {"node_id": "start", "path": ["customer_query"]}},
+                "settings": {
+                    "system_prompt": "Return JSON only with category, suggestions, owner, info_gaps, and summary.",
+                },
+            }},
+            {"id": "format", "type": "template_transform", "title": "Format", "config": {
+                "template": "{{ category }}|{{ owner }}|{{ summary }}",
+                "variables": {
+                    "category": {"$ref": {"node_id": "turn", "path": ["output", "category"]}},
+                    "owner": {"$ref": {"node_id": "turn", "path": ["output", "owner"]}},
+                    "summary": {"$ref": {"node_id": "turn", "path": ["output", "summary"]}},
+                },
+            }},
+            {"id": "end", "type": "end", "title": "End", "config": {"outputs": {
+                "answer": {"$ref": {"node_id": "format", "path": ["text"]}},
+            }}},
+        ]
+        revision = 0
+        for node in nodes:
+            revision = mutate(client, app_id, revision, "add_node", {"node": node})
+        for edge in [
+            {"id": "s-t", "source": "start", "target": "turn", "source_port": "output", "target_port": "input"},
+            {"id": "t-f", "source": "turn", "target": "format", "source_port": "output", "target_port": "input"},
+            {"id": "f-e", "source": "format", "target": "end", "source_port": "text", "target_port": "input"},
+        ]:
+            revision = mutate(client, app_id, revision, "add_edge", {"edge": edge})
+        revision = mutate(client, app_id, revision, "add_test", {"test": {
+            "name": "JSON fields reach template",
+            "requirement": "model_turn system_prompt JSON output feeds downstream refs.",
+            "inputs": {"customer_query": "发票金额不对"},
+            "assertions": [{"path": ["answer"], "operator": "equals", "expected": "账单问题|财务专员|账单问题处理摘要"}],
+        }})
+        result = client.post(f"/api/v1/applications/{app_id}/tests/run", headers=headers())
+        assert result.status_code == 200, result.text
+        assert result.json()["passed"] is True, result.text
+        assert provider.systems == ["Return JSON only with category, suggestions, owner, info_gaps, and summary."]
+
+
+def test_contains_assertion_searches_structured_output_text(tmp_path: Path) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+    )
+    app = create_app(settings, ScriptedProvider())
+    with TestClient(app) as client:
+        app_id = client.post(
+            "/api/v1/applications", headers=headers(),
+            json={"name": "Structured assertion", "requirement": "Acceptance checks visible answer content."},
+        ).json()["id"]
+        nodes = [
+            {"id": "start", "type": "start", "title": "Start", "config": {"inputs": []}},
+            {"id": "end", "type": "end", "title": "End", "config": {"outputs": {
+                "answer": "处理建议：交给客户成功经理跟进。\n负责人：客户成功经理",
+            }}},
+        ]
+        revision = 0
+        for node in nodes:
+            revision = mutate(client, app_id, revision, "add_node", {"node": node})
+        revision = mutate(client, app_id, revision, "add_edge", {"edge": {
+            "id": "s-e",
+            "source": "start",
+            "target": "end",
+            "source_port": "output",
+            "target_port": "input",
+        }})
+        revision = mutate(client, app_id, revision, "add_test", {"test": {
+            "name": "Visible answer keywords",
+            "requirement": "Root output contains answer text.",
+            "assertions": [
+                {"path": [], "operator": "contains", "expected": "处理建议"},
+                {"path": [], "operator": "not_contains", "expected": "无需处理"},
+            ],
+        }})
+        result = client.post(f"/api/v1/applications/{app_id}/tests/run", headers=headers())
+        assert result.status_code == 200, result.text
         assert result.json()["passed"] is True, result.text
 
 

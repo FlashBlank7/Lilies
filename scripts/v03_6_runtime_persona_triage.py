@@ -15,7 +15,7 @@ from typing import Iterable
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_OUTPUT = ROOT / "docs" / "workingon" / "runtime_persona_triage_v0.3.6.json"
+DEFAULT_OUTPUT = ROOT / ".tmp" / "historical-evidence" / "v0.3.6" / "runtime_persona_triage_v0.3.6.json"
 SMOKE_MARKER = "v0.3.6-smoke"
 EXPECTED_RUNTIME_VERSION = "v0.3.6"
 

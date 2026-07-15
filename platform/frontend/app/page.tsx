@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react'
-import { api, clearClientToken, getClientToken, idempotency, isAuthError, saveClientToken } from '@/lib/platform'
+import { api, clearClientToken, getClientToken, idempotency, isAuthError, saveClientToken, type DeliveryMode, type DraftEvidence } from '@/lib/platform'
 import { defaultLocale, isLocale, messages, nextLocale, type Locale } from '@/lib/i18n'
 import { classifyRuntimeStatus, runtimeCommit, runtimeVersion, type RuntimeHealth } from '@/lib/runtime-status'
 
@@ -11,31 +11,85 @@ type Application = {
   name: string
   description: string
   mode: string
+  delivery_mode: DeliveryMode
   active_version?: number | null
   draft_revision: number
   content_hash: string
   tested_hash?: string | null
+  evidence?: DraftEvidence
+  created_at?: string
+  updated_at?: string
 }
 const APP_FILTERS = ['all', 'needs_acceptance', 'ready_to_publish', 'published'] as const
 type AppFilter = typeof APP_FILTERS[number]
-const APP_SORTS = ['readiness', 'revision', 'name'] as const
+const APP_SORTS = ['recent', 'readiness', 'revision', 'name'] as const
 type AppSort = typeof APP_SORTS[number]
 type AppActionTab = 'edit' | 'test' | 'run' | 'monitor'
 type AppQuickAction = { id: string; tab: AppActionTab; label: string }
 type AppListUrlState = { filter?: AppFilter; q?: string; sort?: AppSort }
 type Copy = (typeof messages)[Locale]
+type RequirementIntakeChoiceType = 'single' | 'multi'
+type RequirementIntakeOption = {
+  id: string
+  label: string
+  description?: string
+  impact?: string
+  recommended?: boolean
+}
+type RequirementClarificationSelection = {
+  selectedOptionIds: string[]
+  customAnswer: string
+}
+type RequirementClarificationSelections = Record<string, RequirementClarificationSelection>
+type RequirementIntakeQuestion = {
+  id: string
+  label: string
+  question: string
+  why?: string
+  choice_type: RequirementIntakeChoiceType
+  options: RequirementIntakeOption[]
+  custom_allowed?: boolean
+  custom_placeholder?: string
+  placeholder?: string
+}
+type RequirementIntakeResponse = {
+  task_id: string
+  status: 'needs_input' | 'ready'
+  confidence: number
+  reasoning_summary: string
+  detected_goal: string
+  missing: string[]
+  questions: RequirementIntakeQuestion[]
+  completed_requirement?: string | null
+  workflow_intent: Record<string, unknown>
+  usage: Record<string, unknown>
+}
 
 type DraftMutationResult = {
   revision: number
 }
 
 function deriveApplicationName(requirement: string) {
-  const text = requirement.trim().replace(/\s+/g, ' ')
+  const raw = requirement.trim()
+  const sectionMatch = raw.match(/(?:^|\n)\s{0,3}#{0,4}\s*(?:业务目标|目标|Business goal|Goal)\s*[:：]?\s*\n+([\s\S]*?)(?=\n\s{0,3}#{1,4}\s+|\n\s*(?:启动输入|工作流步骤|运行时界面|可编辑块|权限与边界|验收|下一步|Start input|Workflow steps|Runtime interface|Editable blocks|Permissions|Acceptance|Next)|$)/i)
+  const source = sectionMatch?.[1]?.trim() || raw
+  const text = source
+    .split(/\n+/)
+    .map(line => line
+      .replace(/^\s{0,3}#{1,6}\s*/, '')
+      .replace(/^\s*[-*+]\s*/, '')
+      .replace(/^\s*\d+[.)、]\s*/, '')
+      .replace(/\*\*/g, '')
+      .trim())
+    .filter(line => line && !/^(工作流构建需求|工作流搭建方案|请按以下补全需求生成一个可编辑工作流|Workflow-building plan|Workflow requirement)$/i.test(line))
+    .join(' ')
+    .replace(/\s+/g, ' ')
   if (!text) return '新智能体'
   const first = text.split(/[。.!?\n\r]/)[0].replace(/^[\s"',，,：:；;“”‘’`]+|[\s"',，,：:；;“”‘’`]+$/g, '')
   const cleaned = first
     .replace(/^(请|请帮我|我需要|我想要|帮我|帮我做|搭建|创建|制作|生成|构建|设计)(一个|一款|一个可以|可以|能够|能)?/, '')
     .replace(/^(please|build|create|make|generate|design)\s+(a|an|the)?\s*/i, '')
+    .replace(/[，,]\s*(支持|用于|并|以及|and|with).*$/i, '')
     .replace(/^[\s，,：:；;]+|[\s，,：:；;]+$/g, '')
   return (cleaned || first || text).slice(0, 32).replace(/[\s，,：:；;]+$/g, '') || '新智能体'
 }
@@ -211,7 +265,7 @@ async function seedSafeDraftSkeleton(applicationId: string, initialRevision: num
 
 function appReadinessState(item: Application): Exclude<AppFilter, 'all'> {
   if (item.active_version) return 'published'
-  if (item.tested_hash) return 'ready_to_publish'
+  if (item.evidence?.state === 'current' || (!item.evidence && item.tested_hash === item.content_hash)) return 'ready_to_publish'
   return 'needs_acceptance'
 }
 
@@ -243,6 +297,40 @@ function requirementReadiness(requirement: string, t: Copy) {
   return { signals, readyCount, total: signals.length, ready: readyCount >= 3 }
 }
 
+function requirementIntakeAnswers(
+  questions: RequirementIntakeQuestion[],
+  selections: RequirementClarificationSelections,
+) {
+  return questions
+    .map(question => {
+      const selection = selections[question.id] || { selectedOptionIds: [], customAnswer: '' }
+      const selectedOptions = question.options
+        .filter(option => selection.selectedOptionIds.includes(option.id))
+        .map(option => ({
+          id: option.id,
+          label: option.label,
+          description: option.description || '',
+          impact: option.impact || '',
+        }))
+      const customAnswer = selection.customAnswer.trim()
+      return {
+        question_id: question.id,
+        question: question.question,
+        choice_type: question.choice_type,
+        selected_option_ids: selectedOptions.map(option => option.id),
+        selected_options: selectedOptions,
+        custom_answer: customAnswer,
+        answer: [...selectedOptions.map(option => option.label), customAnswer].filter(Boolean).join('; '),
+      }
+    })
+    .filter(answer => answer.selected_option_ids.length > 0 || answer.custom_answer)
+}
+
+function requirementQuestionAnswered(question: RequirementIntakeQuestion, selections: RequirementClarificationSelections) {
+  const selection = selections[question.id]
+  return Boolean(selection?.selectedOptionIds.length || selection?.customAnswer.trim())
+}
+
 function createActionState(requirement: string, readinessReady: boolean, busy: boolean, draftBusy: boolean, buildIntentConfirmed: boolean, t: Copy) {
   if (busy || draftBusy) return { id: 'busy', tone: 'busy', title: t.createActionBusyTitle, detail: t.createActionBusyDetail }
   if (requirement.trim().length < 10) return { id: 'add_detail', tone: 'attention', title: t.createActionAddDetailTitle, detail: t.createActionAddDetailDetail }
@@ -266,13 +354,17 @@ export default function Home() {
   const buildButtonRef = useRef<HTMLButtonElement>(null)
   const [apps, setApps] = useState<Application[]>([])
   const [requirement, setRequirement] = useState<string>(t.requirementPlaceholder)
+  const [deliveryMode, setDeliveryMode] = useState<DeliveryMode>('guided')
   const [selectedExampleId, setSelectedExampleId] = useState<string | null>(null)
   const [appFilter, setAppFilter] = useState<AppFilter>('all')
   const [appSearch, setAppSearch] = useState('')
-  const [appSort, setAppSort] = useState<AppSort>('readiness')
+  const [appSort, setAppSort] = useState<AppSort>('recent')
   const [busy, setBusy] = useState(false)
   const [draftBusy, setDraftBusy] = useState(false)
+  const [requirementIntakeBusy, setRequirementIntakeBusy] = useState(false)
   const [buildIntentConfirmed, setBuildIntentConfirmed] = useState(false)
+  const [requirementSelections, setRequirementSelections] = useState<RequirementClarificationSelections>({})
+  const [requirementIntake, setRequirementIntake] = useState<RequirementIntakeResponse | null>(null)
   const [error, setError] = useState('')
   const [authRequired, setAuthRequired] = useState(false)
   const [tokenInput, setTokenInput] = useState('')
@@ -291,7 +383,7 @@ export default function Home() {
       else query.delete('q')
     }
     if (updates.sort !== undefined) {
-      if (updates.sort === 'readiness') query.delete('sort')
+      if (updates.sort === 'recent') query.delete('sort')
       else query.set('sort', updates.sort)
     }
     const nextQuery = query.toString()
@@ -318,8 +410,8 @@ export default function Home() {
   const resetAppListView = useCallback(() => {
     setAppFilter('all')
     setAppSearch('')
-    setAppSort('readiness')
-    writeAppListUrlState({ filter: 'all', q: '', sort: 'readiness' })
+    setAppSort('recent')
+    writeAppListUrlState({ filter: 'all', q: '', sort: 'recent' })
   }, [writeAppListUrlState])
   const syncAppListStateFromLocation = useCallback(() => {
     if (typeof window === 'undefined') return
@@ -327,12 +419,20 @@ export default function Home() {
     const filter = query.get('filter')
     const sort = query.get('sort')
     setAppFilter(isAppFilter(filter) ? filter : 'all')
-    setAppSort(isAppSort(sort) ? sort : 'readiness')
+    setAppSort(isAppSort(sort) ? sort : 'recent')
     setAppSearch(query.get('q') || '')
   }, [])
   const selectedCustomerExample = t.customerExamples.find(item => item.id === selectedExampleId)
   const createReadiness = requirementReadiness(requirement, t)
-  const createAction = createActionState(requirement, createReadiness.ready, busy, draftBusy, buildIntentConfirmed, t)
+  const requirementQuestions = requirementIntake?.questions || []
+  const requirementAnsweredCount = requirementQuestions.filter(question => requirementQuestionAnswered(question, requirementSelections)).length
+  const requirementChoicesComplete = requirementQuestions.every(question => requirementQuestionAnswered(question, requirementSelections))
+  const hasRequirementSelections = Object.values(requirementSelections).some(selection => selection.selectedOptionIds.length > 0 || selection.customAnswer.trim())
+  const requirementMissingLabels = requirementIntake?.missing?.length
+    ? requirementIntake.missing
+    : createReadiness.signals.filter(signal => !signal.ready).map(signal => signal.label)
+  const requirementCompletionReady = requirementIntake?.status === 'ready' && Boolean(requirementIntake.completed_requirement?.trim())
+  const createAction = createActionState(requirement, createReadiness.ready || requirementCompletionReady, busy || requirementIntakeBusy, draftBusy, buildIntentConfirmed, t)
   const recommendedAction = recommendedCreateAction(createAction.id, t)
   const runtimeStatus = classifyRuntimeStatus(runtimeHealth, { authRequired, unavailable: runtimeUnavailable })
   const runtimeStatusText = runtimeStatus === 'connected'
@@ -355,12 +455,12 @@ export default function Home() {
           : t.runtimeStatusDetailChecking
   const appCardReadiness = (item: Application) => [
     { label: t.appCardDraftState, value: `r${item.draft_revision}`, ready: true },
-    { label: t.appCardAcceptanceState, value: item.tested_hash ? t.verified : t.unverified, ready: Boolean(item.tested_hash) },
+    { label: t.appCardAcceptanceState, value: item.evidence?.state === 'current' ? t.evidenceStateCurrent : item.evidence?.state === 'stale' ? t.evidenceStateStale : t.evidenceStateMissing, ready: item.evidence?.state === 'current' },
     { label: t.appCardPublishState, value: item.active_version ? t.published(item.active_version) : t.draft, ready: Boolean(item.active_version) },
   ]
   const appCardNextAction = (item: Application) => item.active_version
     ? t.appNextActionTryMonitor
-    : item.tested_hash
+    : item.evidence?.state === 'current'
       ? t.appNextActionPublish
       : t.appNextActionRunAcceptance
   const appCardQuickActions = (item: Application): AppQuickAction[] => {
@@ -385,10 +485,17 @@ export default function Home() {
     { id: 'published', label: t.appFilterPublished },
   ]
   const appSortOptions: Array<{ id: AppSort; label: string }> = [
+    { id: 'recent', label: t.appSortRecent },
     { id: 'readiness', label: t.appSortReadiness },
     { id: 'revision', label: t.appSortRevision },
     { id: 'name', label: t.appSortName },
   ]
+  const deliveryModeOptions: Array<{ id: DeliveryMode; label: string; detail: string }> = [
+    { id: 'quick', label: t.deliveryModeQuick, detail: t.deliveryModeQuickDetail },
+    { id: 'guided', label: t.deliveryModeGuided, detail: t.deliveryModeGuidedDetail },
+    { id: 'governed', label: t.deliveryModeGoverned, detail: t.deliveryModeGovernedDetail },
+  ]
+  const selectedDeliveryMode = deliveryModeOptions.find(option => option.id === deliveryMode) || deliveryModeOptions[1]
   const appFilterCount = (filter: AppFilter) => filter === 'all' ? apps.length : apps.filter(item => appReadinessState(item) === filter).length
   const statusFilteredApps = appFilter === 'all' ? apps : apps.filter(item => appReadinessState(item) === appFilter)
   const normalizedAppSearch = appSearch.trim().toLocaleLowerCase()
@@ -396,13 +503,14 @@ export default function Home() {
     ? statusFilteredApps.filter(item => `${item.name} ${item.description}`.toLocaleLowerCase().includes(normalizedAppSearch))
     : statusFilteredApps
   const visibleApps = [...searchedApps].sort((left, right) => {
+    if (appSort === 'recent') return Date.parse(right.updated_at || right.created_at || '') - Date.parse(left.updated_at || left.created_at || '') || right.draft_revision - left.draft_revision || left.name.localeCompare(right.name)
     if (appSort === 'name') return left.name.localeCompare(right.name)
     if (appSort === 'revision') return right.draft_revision - left.draft_revision || left.name.localeCompare(right.name)
     return appReadinessRank(left) - appReadinessRank(right) || right.draft_revision - left.draft_revision || left.name.localeCompare(right.name)
   })
   const currentAppFilterLabel = appFilterOptions.find(option => option.id === appFilter)?.label || t.appFilterAll
-  const currentAppSortLabel = appSortOptions.find(option => option.id === appSort)?.label || t.appSortReadiness
-  const appListViewDirty = appFilter !== 'all' || Boolean(normalizedAppSearch) || appSort !== 'readiness'
+  const currentAppSortLabel = appSortOptions.find(option => option.id === appSort)?.label || t.appSortRecent
+  const appListViewDirty = appFilter !== 'all' || Boolean(normalizedAppSearch) || appSort !== 'recent'
 
   const refresh = () => api<Application[]>('/api/v1/applications').then(applications => {
     setApps(applications)
@@ -439,6 +547,81 @@ export default function Home() {
   }
   function clearCustomerExample() {
     setSelectedExampleId(null)
+    setBuildIntentConfirmed(false)
+  }
+
+  function updateRequirementOption(question: RequirementIntakeQuestion, optionId: string, checked: boolean) {
+    setRequirementSelections(current => {
+      const existing = current[question.id] || { selectedOptionIds: [], customAnswer: '' }
+      const selectedOptionIds = question.choice_type === 'multi'
+        ? checked
+          ? Array.from(new Set([...existing.selectedOptionIds, optionId]))
+          : existing.selectedOptionIds.filter(id => id !== optionId)
+        : checked
+          ? [optionId]
+          : []
+      return { ...current, [question.id]: { ...existing, selectedOptionIds } }
+    })
+    setBuildIntentConfirmed(false)
+  }
+
+  function updateRequirementCustomAnswer(id: string, value: string) {
+    setRequirementSelections(current => {
+      const existing = current[id] || { selectedOptionIds: [], customAnswer: '' }
+      return { ...current, [id]: { ...existing, customAnswer: value } }
+    })
+    setBuildIntentConfirmed(false)
+  }
+
+  async function runRequirementIntake() {
+    const text = requirement.trim()
+    if (!text) {
+      requirementInputRef.current?.focus()
+      setError(t.requirementCompletionEmptyRequirement)
+      return
+    }
+    setRequirementIntakeBusy(true)
+    setError('')
+    try {
+      const result = await api<RequirementIntakeResponse>('/api/v1/requirements/complete', {
+        method: 'POST',
+        body: JSON.stringify({
+          requirement: text,
+          locale,
+          answers: requirementIntakeAnswers(requirementQuestions, requirementSelections),
+          max_questions: 5,
+        }),
+      })
+      setRequirementIntake(result)
+      setAuthRequired(false)
+      setError(result.status === 'ready' ? t.requirementCompletionReadyNotice : t.requirementCompletionNeedsInputNotice)
+    } catch (cause) {
+      if (isAuthError(cause)) setAuthRequired(true)
+      setError(String(cause))
+    } finally {
+      setRequirementIntakeBusy(false)
+    }
+  }
+
+  function applyRequirementCompletion() {
+    const completed = requirementIntake?.completed_requirement?.trim()
+    if (!completed) {
+      setError(t.requirementCompletionNoDraft)
+      return
+    }
+    setRequirement(completed)
+    setSelectedExampleId(null)
+    setBuildIntentConfirmed(true)
+    setRequirementIntake(null)
+    setRequirementSelections({})
+    setError(t.requirementCompletionApplied)
+  }
+
+  function resetRequirementCompletion() {
+    setRequirementSelections({})
+    setRequirementIntake(null)
+    setBuildIntentConfirmed(false)
+    setError('')
   }
 
   async function create(event: FormEvent) {
@@ -454,12 +637,18 @@ export default function Home() {
       const name = deriveApplicationName(requirement)
       const app = await api<Application>('/api/v1/applications', {
         method: 'POST',
-        body: JSON.stringify({ name, description: requirement.slice(0, 180), requirement, mode: 'workflow' }),
+        body: JSON.stringify({ name, description: requirement.slice(0, 180), requirement, mode: 'workflow', delivery_mode: deliveryMode }),
       })
-      const build = await api<{ build_id: string }>(`/api/v1/applications/${app.id}/builds`, {
-        method: 'POST', body: JSON.stringify({ requirement, auto_publish: true }),
-      })
-      window.location.href = `/applications/${app.id}?build=${build.build_id}`
+      setApps(current => [app, ...current.filter(item => item.id !== app.id)])
+      resetAppListView()
+      try {
+        const build = await api<{ build_id: string }>(`/api/v1/applications/${app.id}/builds`, {
+          method: 'POST', body: JSON.stringify({ requirement, auto_publish: true }),
+        })
+        window.location.href = `/applications/${app.id}?build=${build.build_id}`
+      } catch {
+        window.location.href = `/applications/${app.id}?safeDraft=1`
+      }
     } catch (cause) {
       setError(String(cause))
       setBusy(false)
@@ -473,7 +662,7 @@ export default function Home() {
       const name = deriveApplicationName(requirement)
       const app = await api<Application>('/api/v1/applications', {
         method: 'POST',
-        body: JSON.stringify({ name, description: requirement.slice(0, 180), requirement, mode: 'workflow' }),
+        body: JSON.stringify({ name, description: requirement.slice(0, 180), requirement, mode: 'workflow', delivery_mode: deliveryMode }),
       })
       await seedSafeDraftSkeleton(app.id, app.draft_revision, requirement)
       window.location.href = `/applications/${app.id}?safeDraft=1`
@@ -509,6 +698,8 @@ export default function Home() {
 
   function applyCustomerExample(example: (typeof t.customerExamples)[number]) {
     setRequirement(example.requirement)
+    setRequirementSelections({})
+    setRequirementIntake(null)
     setSelectedExampleId(example.id)
     setBuildIntentConfirmed(false)
     setError('')
@@ -522,7 +713,14 @@ export default function Home() {
         <h1>{t.heroTitleA}<br/><em>{t.heroTitleB}</em></h1>
         <p>{t.heroCopy}</p>
         <form className="create-card" onSubmit={create}>
-          <textarea ref={requirementInputRef} aria-label={t.requirementAria} value={requirement} onChange={event => { setRequirement(event.target.value); setBuildIntentConfirmed(false) }} />
+          <textarea ref={requirementInputRef} aria-label={t.requirementAria} value={requirement} onChange={event => { setRequirement(event.target.value); setRequirementIntake(null); setBuildIntentConfirmed(false) }} />
+          <section className="delivery-mode-picker" data-delivery-mode={deliveryMode}>
+            <div className="delivery-mode-heading"><strong>{t.deliveryModeTitle}</strong><small>{t.deliveryModeHelp}</small></div>
+            <div className="delivery-mode-segments" role="group" aria-label={t.deliveryModeTitle}>
+              {deliveryModeOptions.map(option => <button aria-pressed={deliveryMode === option.id} className={deliveryMode === option.id ? 'active' : ''} key={option.id} onClick={() => { setDeliveryMode(option.id); setBuildIntentConfirmed(false) }} type="button">{option.label}</button>)}
+            </div>
+            <small className="delivery-mode-detail">{selectedDeliveryMode.detail}</small>
+          </section>
           {selectedCustomerExample && <section className="selected-scenario-summary" data-selected-scenario-summary="active">
             <div><span>{t.selectedScenarioSummaryTitle} · {selectedCustomerExample.role}</span><strong>{selectedCustomerExample.title}</strong><p>{selectedCustomerExample.need}</p><small>{selectedCustomerExample.acceptanceSignal}</small></div>
             <button onClick={clearCustomerExample} type="button">{t.clearSelectedScenario}</button>
@@ -534,6 +732,68 @@ export default function Home() {
               <b>{signal.label}</b>
               <small>{signal.detail}</small>
             </article>)}</div>
+          </section>
+          <section className={`requirement-completion-panel ${requirementCompletionReady ? 'ready' : 'needs-input'}`} data-requirement-completion="ai-workflow-intake" data-requirement-intake-status={requirementIntake?.status || 'not_started'}>
+            <div className="requirement-completion-head">
+              <div><strong>{t.requirementCompletionTitle}</strong><small>{t.requirementCompletionHelp}</small></div>
+              <span>{requirementIntakeBusy ? t.requirementCompletionBusy : requirementIntake ? t.requirementCompletionStatus(requirementIntake.status, requirementIntake.confidence) : t.requirementCompletionNotStarted}</span>
+            </div>
+            {requirementIntake && <div className="requirement-completion-summary" data-requirement-intake-task={requirementIntake.task_id}>
+              {requirementIntake.detected_goal && <p><b>{t.requirementCompletionDetectedGoal}</b>{requirementIntake.detected_goal}</p>}
+              {requirementIntake.reasoning_summary && <p><b>{t.requirementCompletionReasoning}</b>{requirementIntake.reasoning_summary}</p>}
+            </div>}
+            {requirementMissingLabels.length > 0 && <div className="requirement-completion-missing" data-requirement-completion-missing="signals">{requirementMissingLabels.map(label => <span key={label}>{label}</span>)}</div>}
+            {requirementQuestions.length > 0 && <div className="requirement-completion-questions">
+              {requirementQuestions.map(question => {
+                const selection = requirementSelections[question.id] || { selectedOptionIds: [], customAnswer: '' }
+                return <article className="requirement-question-card" key={question.id}>
+                  <div className="requirement-question-head">
+                    <span>{question.label}</span>
+                    <small>{question.choice_type === 'multi' ? t.requirementCompletionMultiChoice : t.requirementCompletionSingleChoice}</small>
+                  </div>
+                  <p>{question.question}</p>
+                  {question.why && <em>{question.why}</em>}
+                  <div className="requirement-option-list">
+                    {question.options.map(option => {
+                      const checked = selection.selectedOptionIds.includes(option.id)
+                      return <label className={`requirement-option-card ${checked ? 'selected' : ''}`} key={option.id}>
+                        <input
+                          type={question.choice_type === 'multi' ? 'checkbox' : 'radio'}
+                          name={`requirement-option-${question.id}`}
+                          checked={checked}
+                          onChange={event => updateRequirementOption(question, option.id, event.target.checked)}
+                        />
+                        <span><b>{option.label}</b>{option.recommended && <i>{t.requirementCompletionRecommended}</i>}</span>
+                        {option.description && <small>{option.description}</small>}
+                        {option.impact && <small className="requirement-option-impact">{option.impact}</small>}
+                      </label>
+                    })}
+                  </div>
+                  {question.custom_allowed && <label className="requirement-custom-answer">
+                    <span>{t.requirementCompletionCustomAnswer}</span>
+                    <textarea
+                      value={selection.customAnswer}
+                      placeholder={question.custom_placeholder || question.placeholder || t.requirementCompletionCustomPlaceholder}
+                      onChange={event => updateRequirementCustomAnswer(question.id, event.target.value)}
+                    />
+                  </label>}
+                </article>
+              })}
+            </div>}
+            <div className="requirement-completion-plan" data-requirement-completion-plan="workflow-requirement">
+              <div><strong>{t.requirementCompletionPlanTitle}</strong><small>{t.requirementCompletionPlanHelp}</small></div>
+              {requirementIntake?.completed_requirement
+                ? <pre>{requirementIntake.completed_requirement}</pre>
+                : <p>{requirementIntake ? t.requirementCompletionNoDraft : t.requirementCompletionStartHint}</p>}
+            </div>
+            <div className="requirement-completion-actions">
+              <button type="button" className="secondary-action" onClick={resetRequirementCompletion} disabled={!hasRequirementSelections && !requirementIntake}>{t.requirementCompletionReset}</button>
+              <button type="button" className="secondary-action" onClick={() => void runRequirementIntake()} disabled={requirementIntakeBusy || !requirement.trim() || (requirementIntake?.status === 'needs_input' && !requirementChoicesComplete)}>
+                {requirementIntakeBusy ? t.requirementCompletionBusy : requirementIntake?.status === 'needs_input' ? t.requirementCompletionContinue : t.requirementCompletionRun}
+              </button>
+              <button type="button" onClick={applyRequirementCompletion} disabled={!requirementCompletionReady}>{t.requirementCompletionApply}</button>
+            </div>
+            {requirementQuestions.length > 0 && <small className="requirement-completion-count">{t.requirementCompletionQuestionCount(requirementAnsweredCount, requirementQuestions.length)}</small>}
           </section>
           <section className={`create-action-explainer ${createAction.tone}`} data-create-action-state={createAction.id}>
             <strong>{createAction.title}</strong>
@@ -622,7 +882,7 @@ export default function Home() {
           {visibleApps.map(item => <article className="app-card" data-app-card-action-state={appReadinessState(item)} key={item.id}>
             <Link className="app-card-main" href={`/applications/${item.id}`} aria-label={`${t.appActionOpen}: ${item.name}`}>
               <div className="app-icon">{item.name.slice(0, 1).toUpperCase()}</div>
-              <div><h3>{item.name}</h3><p>{item.description || t.fallbackDescription}</p>
+              <div><h3>{item.name}</h3><span className="delivery-mode-chip">{item.delivery_mode === 'quick' ? t.deliveryModeQuick : item.delivery_mode === 'governed' ? t.deliveryModeGoverned : t.deliveryModeGuided}</span><p>{item.description || t.fallbackDescription}</p>
                 <div className="app-readiness" data-app-card-guidance="readiness">{appCardReadiness(item).map(signal => <span className={signal.ready ? 'ready' : ''} key={signal.label}><b>{signal.label}</b>{signal.value}</span>)}</div>
                 <small className="app-next-action" data-app-card-guidance="next-action">{appCardNextAction(item)}</small>
               </div>

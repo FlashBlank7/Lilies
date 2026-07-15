@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import shutil
 import subprocess
 from contextlib import asynccontextmanager
@@ -41,7 +42,11 @@ from .complexity_router import (
 )
 from .factory import AgentFactory
 from .draft_patch_preview import DraftPatchPreviewer, DraftPatchPreviewRequest
-from .acceptance_repair import AcceptanceRepairPreviewer, AcceptanceRepairPreviewRequest
+from .acceptance_repair import (
+    AcceptanceRepairApplyRequest,
+    AcceptanceRepairPreviewer,
+    AcceptanceRepairPreviewRequest,
+)
 from .governed_memory import (
     GovernedMemoryPermission,
     GovernedMemorySource,
@@ -51,6 +56,8 @@ from .governed_memory import (
     RetentionClass,
 )
 from .models import (
+    ChatMessage,
+    ContentBlock,
     GenerationRequest,
     MessageRequest,
     PermissionDecision,
@@ -79,6 +86,7 @@ from .workflow_models import (
     DraftOperation,
     ResumeRunRequest,
     ManualScheduleTriggerRequest,
+    PublishApplicationRequest,
     WorkflowRunRequest,
 )
 from .workflow_runtime import WorkflowRuntime
@@ -92,6 +100,7 @@ RUNTIME_ROUTE_CHECKS: dict[str, tuple[str, str]] = {
     "application_detail": ("GET", "/api/v1/applications/{application_id}"),
     "draft_detail": ("GET", "/api/v1/applications/{application_id}/draft"),
     "smoke_cleanup": ("POST", "/api/v1/applications/{application_id}/smoke-cleanup"),
+    "requirement_intake": ("POST", "/api/v1/requirements/complete"),
 }
 
 
@@ -282,9 +291,251 @@ class RequirementClassificationRequest(BaseModel):
     requirement: str = Field(default="", max_length=4000)
 
 
+class RequirementIntakeOption(BaseModel):
+    id: str = Field(min_length=1, max_length=120)
+    label: str = Field(min_length=1, max_length=160)
+    description: str = Field(default="", max_length=1000)
+    impact: str = Field(default="", max_length=1000)
+    recommended: bool = False
+
+
+class RequirementIntakeSelectedOption(BaseModel):
+    id: str = Field(min_length=1, max_length=120)
+    label: str = Field(default="", max_length=160)
+    description: str = Field(default="", max_length=1000)
+    impact: str = Field(default="", max_length=1000)
+
+
+class RequirementIntakeAnswer(BaseModel):
+    question_id: str = Field(min_length=1, max_length=120)
+    question: str = Field(default="", max_length=1000)
+    choice_type: Literal["single", "multi"] | None = None
+    selected_option_ids: list[str] = Field(default_factory=list, max_length=8)
+    selected_options: list[RequirementIntakeSelectedOption] = Field(default_factory=list, max_length=8)
+    custom_answer: str = Field(default="", max_length=4000)
+    answer: str | None = Field(default=None, max_length=4000)
+
+
+class RequirementIntakeRequest(BaseModel):
+    requirement: str = Field(min_length=1, max_length=30_000)
+    locale: Literal["zh", "en"] = "zh"
+    answers: list[RequirementIntakeAnswer] = Field(default_factory=list, max_length=12)
+    max_questions: int = Field(default=5, ge=1, le=8)
+
+
+class RequirementIntakeQuestion(BaseModel):
+    id: str = Field(min_length=1, max_length=120)
+    label: str = Field(min_length=1, max_length=120)
+    question: str = Field(min_length=1, max_length=1000)
+    why: str = Field(default="", max_length=1000)
+    choice_type: Literal["single", "multi"] = "single"
+    options: list[RequirementIntakeOption] = Field(default_factory=list, max_length=5)
+    custom_allowed: bool = True
+    custom_placeholder: str = Field(default="", max_length=500)
+    placeholder: str = Field(default="", max_length=500)
+
+
+class RequirementIntakeResponse(BaseModel):
+    task_id: str
+    status: Literal["needs_input", "ready"]
+    confidence: float = Field(ge=0, le=1)
+    reasoning_summary: str = Field(default="", max_length=2000)
+    detected_goal: str = Field(default="", max_length=2000)
+    missing: list[str] = Field(default_factory=list, max_length=12)
+    questions: list[RequirementIntakeQuestion] = Field(default_factory=list, max_length=8)
+    completed_requirement: str | None = Field(default=None, max_length=30_000)
+    workflow_intent: dict[str, Any] = Field(default_factory=dict)
+    raw_text: str = Field(default="", max_length=4000)
+    usage: dict[str, Any] = Field(default_factory=dict)
+
+
 class OperatorOverrideRequest(BaseModel):
     mode: str = Field(default="disabled", max_length=80)
     reason: str = Field(default="", max_length=1000)
+
+
+def _json_object_from_text(text: str) -> dict[str, Any]:
+    stripped = text.strip()
+    if stripped.startswith("```"):
+        stripped = re.sub(r"^```(?:json)?\s*|\s*```$", "", stripped, flags=re.I)
+    try:
+        value = json.loads(stripped)
+    except json.JSONDecodeError:
+        match = re.search(r"\{.*\}", stripped, re.S)
+        if not match:
+            raise ValueError("model did not return JSON object") from None
+        value = json.loads(match.group(0))
+    if not isinstance(value, dict):
+        raise ValueError("model returned JSON but not an object")
+    return value
+
+
+def _requirement_intake_system(locale: str) -> str:
+    language = "Chinese" if locale == "zh" else "English"
+    return (
+        "You are Lilies' workflow requirement intake agent. "
+        "Your job is similar to Claude Code plan-mode questioning, but for editable workflow generation, not code execution. "
+        "Analyze the user's workflow request and decide whether Lilies has enough information to build a useful editable workflow. "
+        "If crucial information is missing, return status needs_input and ask option-based targeted questions. "
+        "Do not ask open-ended free-text questions as the primary interaction. "
+        "Every needs_input question must include 2 to 5 concrete selectable options; never return more than five options for one question. "
+        "Use choice_type single for mutually exclusive decisions and multi when the customer may select several capabilities. "
+        "The first option should be recommended and should set recommended true. "
+        "Use custom_allowed only as an optional Other/custom escape hatch; the default path must be selecting options. "
+        "Questions must be workflow-building decisions: target user, runtime interface, editable block scope, tools, permission boundaries, acceptance strategy, and evidence records. "
+        "Do not fill missing fields with generic placeholders. Do not invent a target customer, runtime tools, permissions, or acceptance criteria. "
+        "When the request is ready, return status ready and a completed_requirement that a workflow-builder agent can directly use. "
+        "The completed requirement is a workflow-building plan, not a code plan or generic answer. "
+        "The completed requirement must use these sections: target user, business goal, start input, workflow steps, runtime interface, editable blocks, permissions and boundaries, acceptance cases, and next build suggestion. "
+        "Always answer in JSON only, no markdown fences. "
+        f"Use {language} for user-visible text. "
+        "JSON schema: {"
+        "\"status\":\"needs_input|ready\","
+        "\"confidence\":0.0,"
+        "\"reasoning_summary\":\"short rationale\","
+        "\"detected_goal\":\"what the user is trying to build\","
+        "\"missing\":[\"specific missing facts\"],"
+        "\"questions\":[{\"id\":\"stable_snake_case\",\"label\":\"short label\",\"question\":\"decision question\",\"why\":\"why it matters\",\"choice_type\":\"single|multi\",\"options\":[{\"id\":\"stable_option_id\",\"label\":\"option label\",\"description\":\"what this means\",\"impact\":\"how it changes the workflow\",\"recommended\":true}],\"custom_allowed\":true,\"custom_placeholder\":\"optional custom answer placeholder\"}],"
+        "\"completed_requirement\":\"string or null\","
+        "\"workflow_intent\":{\"target_user\":\"\",\"runtime_input\":\"\",\"runtime_output\":\"\",\"core_steps\":[\"\"],\"permissions\":[\"\"],\"acceptance_cases\":[\"\"]}"
+        "}. "
+        "For a vague request such as 'make a workflow like Codex', do not complete the requirement directly. "
+        "Return option questions covering Codex-like capability scope, target user, runtime interface, permission/tool boundary, and acceptance strategy. "
+        "For capability scope, use a multi-select question with no more than five concrete options; combine related ideas such as tool execution and real acceptance evidence when needed."
+    )
+
+
+def _requirement_intake_prompt(body: RequirementIntakeRequest) -> str:
+    answers = [
+        {
+            "question_id": answer.question_id,
+            "question": answer.question,
+            "choice_type": answer.choice_type,
+            "selected_option_ids": answer.selected_option_ids,
+            "selected_options": [option.model_dump(mode="json") for option in answer.selected_options],
+            "custom_answer": answer.custom_answer,
+            "legacy_answer": answer.answer or "",
+        }
+        for answer in body.answers
+    ]
+    return json.dumps(
+        {
+            "requirement": body.requirement,
+            "prior_answers": answers,
+            "max_questions": body.max_questions,
+            "instruction": (
+                "Return needs_input if the most important workflow design facts are still missing. "
+                "If returning needs_input, return selectable options rather than free-text questions. "
+                "Return ready only when the completed requirement can guide editable workflow generation without generic fallback fields."
+            ),
+        },
+        ensure_ascii=False,
+    )
+
+
+def _validate_requirement_intake_response(result: RequirementIntakeResponse) -> None:
+    if result.status == "needs_input":
+        if not result.questions:
+            raise ValueError("needs_input response must include option-based targeted questions")
+        for question in result.questions:
+            option_count = len(question.options)
+            if option_count < 2 or option_count > 5:
+                raise ValueError("needs_input questions must include 2 to 5 selectable options")
+            option_ids = [option.id for option in question.options]
+            if len(option_ids) != len(set(option_ids)):
+                raise ValueError("needs_input question options must have unique ids")
+            if not any(option.recommended for option in question.options):
+                question.options[0].recommended = True
+    if result.status == "ready" and not (result.completed_requirement or "").strip():
+        raise ValueError("ready response must include completed_requirement")
+
+
+def _normalize_requirement_intake_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    if payload.get("status") != "needs_input":
+        return payload
+    questions = payload.get("questions")
+    if not isinstance(questions, list):
+        return payload
+    for question in questions:
+        if not isinstance(question, dict):
+            continue
+        for text_key in ("why", "placeholder", "custom_placeholder"):
+            if question.get(text_key) is None:
+                question[text_key] = ""
+        if question.get("custom_allowed") is None:
+            question["custom_allowed"] = True
+        options = question.get("options")
+        if isinstance(options, list) and len(options) > 5:
+            question["options"] = options[:5]
+        if isinstance(question.get("options"), list):
+            for option in question["options"]:
+                if not isinstance(option, dict):
+                    continue
+                for text_key in ("description", "impact"):
+                    if option.get(text_key) is None:
+                        option[text_key] = ""
+                if option.get("recommended") is None:
+                    option["recommended"] = False
+    return payload
+
+
+async def complete_requirement_intake(
+    services: Services,
+    body: RequirementIntakeRequest,
+) -> RequirementIntakeResponse:
+    task_id = str(uuid4())
+    model = services.settings.deepseek_runtime_model
+    await services.harness.start_task(
+        task_id,
+        kind="requirement_intake",
+        owner_id="requirement-intake",
+        resource_id=task_id,
+        metadata={
+            "origin": "home_requirement_completion",
+            "requirement_preview": body.requirement[:200],
+            "answer_count": len(body.answers),
+            "model": model,
+        },
+    )
+    try:
+        await services.harness.record_usage(
+            task_id,
+            "model_call",
+            metadata={"model": model, "mode": "requirement_intake"},
+        )
+        stream = services.provider.stream(
+            model=model,
+            system=_requirement_intake_system(body.locale),
+            messages=[ChatMessage(role="user", content=[ContentBlock(type="text", text=_requirement_intake_prompt(body))])],
+            tools=[],
+            max_output_tokens=4_096,
+            thinking_enabled=False,
+            effort="low",
+            user_id=task_id,
+        )
+        response = await services.runtime._collect_stream(
+            task_id,
+            stream,
+            "requirement_intake.model",
+            model,
+            timeout_seconds=min(services.settings.deepseek_timeout_seconds, 120.0),
+        )
+        text = "".join(block.text or "" for block in response.blocks if block.type == "text")
+        payload = _json_object_from_text(text)
+        payload["task_id"] = task_id
+        payload["raw_text"] = text[:4000]
+        payload["usage"] = response.usage.model_dump(mode="json")
+        result = RequirementIntakeResponse.model_validate(_normalize_requirement_intake_payload(payload))
+        _validate_requirement_intake_response(result)
+        await services.harness.finish_task(
+            task_id,
+            status="succeeded",
+            metadata={"intake_status": result.status, "question_count": len(result.questions)},
+        )
+        return result
+    except Exception as error:
+        await services.harness.finish_task(task_id, status="failed", error=str(error))
+        raise
 
 
 def deadline_summary(max_elapsed_seconds: float | None) -> dict[str, Any]:
@@ -605,6 +856,18 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             limited_default_enabled=services.settings.complexity_router_limited_default_enabled,
             min_confidence=services.settings.complexity_router_limited_default_min_confidence,
         )
+
+    @app.post("/api/v1/requirements/complete", dependencies=[Depends(require_token)])
+    async def post_requirement_intake_completion(
+        body: RequirementIntakeRequest,
+    ) -> dict[str, Any]:
+        try:
+            result = await complete_requirement_intake(services, body)
+            return result.model_dump(mode="json")
+        except PlatformHarnessViolation as error:
+            raise HTTPException(429, str(error)) from error
+        except ValueError as error:
+            raise HTTPException(502, str(error)) from error
 
     @app.get("/api/v1/platform/complexity-router/default-enableable-plan", dependencies=[Depends(require_token)])
     async def get_complexity_router_default_enableable_plan() -> dict[str, Any]:
@@ -1611,16 +1874,111 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
     async def preview_application_test_repair(
         application_id: str, body: AcceptanceRepairPreviewRequest
     ) -> dict[str, Any]:
+        task_id = str(uuid4())
+        await services.harness.start_task(
+            task_id,
+            kind="draft_patch_preview",
+            owner_id=application_id,
+            resource_id=application_id,
+            metadata={
+                "origin": "acceptance_repair",
+                "test_id": body.test_id or "",
+            },
+        )
         try:
             draft = await services.workflow_store.get_draft(application_id)
+            trace_excerpts: list[str] = []
+            report = body.report or {}
+            for item in report.get("tests", []) if isinstance(report.get("tests"), list) else []:
+                if not isinstance(item, dict) or item.get("passed") is not False:
+                    continue
+                run_id = str(item.get("run_id") or "")
+                if not run_id:
+                    continue
+                for event in (await services.storage.list_events(run_id))[-12:]:
+                    details = {
+                        key: event.data[key]
+                        for key in ("node_id", "status", "error", "tool")
+                        if key in event.data
+                    }
+                    trace_excerpts.append(
+                        f"{event.type}: {json.dumps(details, ensure_ascii=False, default=str)}"
+                    )
             response = services.acceptance_repairer.preview(
                 draft["snapshot"],
                 int(draft["revision"]),
-                body.report,
+                report,
+                content_hash=draft["content_hash"],
+                test_id=body.test_id,
+                instruction=body.instruction,
+                reference_node_ids=body.reference_node_ids,
+                trace_excerpts=trace_excerpts,
             )
-            return response.model_dump(mode="json")
+            try:
+                workflow_edit = services.draft_patcher.preview(
+                    draft["snapshot"],
+                    int(draft["revision"]),
+                    response.instruction,
+                    response.reference_node_ids,
+                )
+                response.workflow_edit_preview = workflow_edit.model_dump(mode="json")
+                response.preview_source = "acceptance_structural+whole_workflow_context"
+                workflow_edit_intent = workflow_edit.intent
+            except Exception as error:  # Preview failure must remain visible without mutating the draft.
+                response.workflow_edit_preview = {
+                    "supported": False,
+                    "intent": "unsupported",
+                    "message": f"whole-workflow edit preview failed: {error}",
+                    "operations": [],
+                    "warnings": [str(error)],
+                    "reference_node_ids": response.reference_node_ids,
+                }
+                response.preview_source = "acceptance_structural+whole_workflow_preview_failed"
+                response.warnings.append(f"Whole-workflow edit preview failed: {error}")
+                workflow_edit_intent = "unsupported"
+            await services.harness.finish_task(
+                task_id,
+                status="succeeded" if response.supported else "failed",
+                metadata={
+                    "origin": "acceptance_repair",
+                    "test_id": response.repair_context.test_id,
+                    "operation_count": len(response.operations),
+                    "workflow_edit_intent": workflow_edit_intent,
+                },
+                error="" if response.supported else response.message,
+            )
+            return {"task_id": task_id, **response.model_dump(mode="json")}
+        except KeyError as error:
+            await services.harness.finish_task(task_id, status="failed", error=str(error))
+            raise HTTPException(404, str(error)) from error
+
+    @app.post(
+        "/api/v1/applications/{application_id}/tests/repair-apply",
+        dependencies=[Depends(require_token)],
+    )
+    async def apply_application_test_repair(
+        application_id: str, body: AcceptanceRepairApplyRequest
+    ) -> dict[str, Any]:
+        try:
+            result = await services.applications.apply_operations_atomically(
+                application_id,
+                expected_revision=body.expected_revision,
+                expected_content_hash=body.expected_content_hash,
+                operations=body.operations,
+                idempotency_key=body.idempotency_key,
+            )
+            draft = await services.workflow_store.get_draft(application_id)
+            return {
+                **result,
+                "evidence_state": draft["evidence"]["state"],
+                "evidence": draft["evidence"],
+            }
+        except RevisionConflict as error:
+            raise HTTPException(409, str(error)) from error
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from error
 
     @app.get(
         "/api/v1/applications/{application_id}/versions",
@@ -1629,15 +1987,34 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
     async def list_application_versions(application_id: str) -> list[dict[str, Any]]:
         return await services.workflow_store.list_versions(application_id)
 
+    @app.get(
+        "/api/v1/applications/{application_id}/publication-decision",
+        dependencies=[Depends(require_token)],
+    )
+    async def get_application_publication_decision(application_id: str) -> dict[str, Any]:
+        try:
+            return await services.workflow_store.publication_decision(application_id)
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+
     @app.post(
         "/api/v1/applications/{application_id}/versions",
         dependencies=[Depends(require_token)],
     )
-    async def publish_application(application_id: str) -> dict[str, Any]:
+    async def publish_application(
+        application_id: str,
+        body: PublishApplicationRequest | None = None,
+    ) -> dict[str, Any]:
         try:
-            return await services.workflow_store.publish(application_id)
+            return await services.workflow_store.publish(
+                application_id,
+                acknowledge_warnings=bool(body and body.acknowledge_warnings),
+            )
         except PublishGateError as error:
-            raise HTTPException(409, str(error)) from error
+            raise HTTPException(
+                409,
+                detail={"message": str(error), "publication_decision": error.decision},
+            ) from error
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
 

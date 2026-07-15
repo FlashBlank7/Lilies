@@ -12,7 +12,7 @@ from typing import Any, Literal
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_OUTPUT = ROOT / "docs" / "workingon" / "application_list_status_filters_v0.3.17.json"
+DEFAULT_OUTPUT = ROOT / ".tmp" / "historical-evidence" / "v0.3.17" / "application_list_status_filters_v0.3.17.json"
 EXPECTED_RUNTIME_VERSION = "v0.3.6"
 AppFilter = Literal["needs_acceptance", "ready_to_publish", "published"]
 
@@ -39,7 +39,7 @@ BUG_LEDGER = (
         "severity": "P1",
         "status": "fixed",
         "reproduction": "New filter tests could be omitted from the current v0.3.x release gate.",
-        "fix": "Update `docs/testing/regression_lanes.json` with v0.3.17 and expected 83 passing tests.",
+        "fix": "Update `docs/testing/historical/v0.3.55_regression_lanes.json` with v0.3.17 and expected 83 passing tests.",
         "verification": "regression_manifest_updated.",
     },
 )
@@ -117,7 +117,7 @@ def source_marker_checks() -> list[dict[str, Any]]:
         ),
         (
             "regression_manifest_updated",
-            "docs/testing/regression_lanes.json",
+            "docs/testing/historical/v0.3.55_regression_lanes.json",
             (
                 "tests/test_v03_17_application_list_status_filters.py",
                 "v0.3.x_current_release_gate",

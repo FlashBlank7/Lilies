@@ -13,7 +13,7 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_OUTPUT = ROOT / "docs" / "workingon" / "safe_draft_dismissal_v0.3.28.json"
+DEFAULT_OUTPUT = ROOT / ".tmp" / "historical-evidence" / "v0.3.28" / "safe_draft_dismissal_v0.3.28.json"
 EXPECTED_RUNTIME_VERSION = "v0.3.6"
 FORBIDDEN_ENDPOINTS = ("/builds", "/tests/run", "/runs", "/versions", "/restore", "/draft")
 
@@ -92,7 +92,7 @@ def source_marker_checks() -> list[dict[str, Any]]:
         ),
         (
             "regression_manifest_updated",
-            "docs/testing/regression_lanes.json",
+            "docs/testing/historical/v0.3.55_regression_lanes.json",
             (
                 "tests/test_v03_28_safe_draft_dismissal.py",
                 "v0.3.x_current_release_gate",

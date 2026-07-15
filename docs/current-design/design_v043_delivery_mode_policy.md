@@ -1,6 +1,6 @@
 # v0.4.3 Delivery Mode Policy
 
-Status: active
+Status: completed
 
 ## Contract
 
@@ -32,3 +32,17 @@ Status: active
 - Policy matrix tests cover all three modes and explicit Governed hard-gate on/off.
 - Frontend exposes a stable accessible mode selector without changing workflow/chat semantics.
 
+## Implementation Result
+
+- `DeliveryMode.quick|guided|governed` is independent from `ApplicationMode.workflow|chat`.
+- `resolve_delivery_policy` is the single backend policy matrix, including advisory, confirmation, and explicitly enabled Governed hard-gate semantics.
+- SQLite initialization adds `delivery_mode='guided'` and `governed_hard_gate=0` idempotently for legacy databases.
+- Application creation, draft metadata mutation, list/detail/draft responses, immutable versions, and restore all preserve delivery settings.
+- Creation and Studio expose segmented mode controls; Studio exposes the hard-gate checkbox only for Governed mode.
+
+## Verification Evidence
+
+- `.venv/bin/python -m pytest tests/test_v04_03_delivery_modes.py -q` -> `5 passed, 1 warning`.
+- `.venv/bin/python -m pytest tests/test_workflow.py -q` -> `77 passed, 1 warning`.
+- Current v0.4.x gate -> `25 passed, 1 warning`.
+- `npm run lint` could not execute because this host has no Node, npm, Docker, or alternate JavaScript runtime. This remains mandatory integrated evidence in `V04-03-T01F`; it is not recorded as a pass.

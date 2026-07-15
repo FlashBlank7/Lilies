@@ -568,7 +568,16 @@ class WorkflowRuntime:
         if isinstance(config, VariableAssignerConfig):
             return {"output": {key: self._resolve(value, context) for key, value in config.assignments.items()}}
         if isinstance(config, VariableAggregatorConfig):
-            values = [self._resolve(value, context) for value in config.variables]
+            skipped_nodes = set(state.skipped if state else [])
+            values = []
+            for variable in config.variables:
+                try:
+                    values.append(self._resolve(variable, context))
+                except (KeyError, IndexError, TypeError, ValueError):
+                    if self._references_skipped_node(variable, skipped_nodes):
+                        values.append(None)
+                        continue
+                    raise
             if config.mode == "array":
                 value: Any = values
             elif config.mode == "merge":
@@ -616,6 +625,24 @@ class WorkflowRuntime:
                     run_id,
                     prefix=f"{scoped_id}[{index}].",
                 )
+                if config.checkpoint_each_iteration:
+                    checkpoint_id = f"{scoped_id}:iteration:{index + 1}"
+                    await self.storage.save_checkpoint(
+                        run_id,
+                        checkpoint_id,
+                        {
+                            "node_id": scoped_id,
+                            "iteration": index + 1,
+                            "variables": variables,
+                            "output_node_id": config.output_node_id,
+                            "output": nested.get(config.output_node_id, {}),
+                        },
+                    )
+                    await self._emit(run_id, "loop.checkpoint.saved", {
+                        "node_id": scoped_id,
+                        "checkpoint_id": checkpoint_id,
+                        "iteration": index + 1,
+                    })
                 loop_context = {"inputs": {**inputs, **variables}, "nodes": nested}
                 condition = config.break_condition.model_copy(
                     update={"value": self._resolve(config.break_value, loop_context)}
@@ -733,7 +760,7 @@ class WorkflowRuntime:
         if node.type == "model_turn":
             prompt = str(settings.get("prompt", json.dumps(value, ensure_ascii=False, default=str) if not isinstance(value, str) else value))
             tool_names = [str(t) for t in settings.get("tools", [])]
-            system = str(settings.get("system") or "You are a precise coding agent runtime block.")
+            system = str(settings.get("system") or settings.get("system_prompt") or "You are a precise coding agent runtime block.")
             model = str(settings.get("model") or self.runtime_model)
 
             if tool_names:
@@ -747,8 +774,22 @@ class WorkflowRuntime:
                 }
 
             text, usage = await self._model_text(run_id, model, system, prompt, scoped_id)
+            output: dict[str, Any] = {
+                "text": text,
+                "usage": usage.model_dump(mode="json"),
+                "tool_use_blocks": [],
+                "stop_reason": None,
+            }
+            if "json" in system.casefold() or str(settings.get("output_format", "")).casefold() == "json":
+                try:
+                    structured = self._json_from_text(text)
+                except ValueError:
+                    structured = None
+                if isinstance(structured, dict):
+                    output.update(structured)
+                    output["structured"] = structured
             return {
-                "output": {"text": text, "usage": usage.model_dump(mode="json"), "tool_use_blocks": [], "stop_reason": None},
+                "output": output,
                 "text": text,
                 "state": {"mechanism": node.type},
             }
@@ -1848,16 +1889,9 @@ class WorkflowRuntime:
         manage_harness_task: bool = True,
         origin: str = "test_suite",
     ) -> dict[str, Any]:
-        validation = await self.applications.validate_draft(application_id)
-        if not validation["valid"]:
-            return {
-                "passed": False,
-                "validation": validation,
-                "summary": {"total": 0, "passed": 0, "failed": 0, "mandatory_failed": 0, "frames": []},
-                "tests": [],
-            }
         draft = await self.workflow_store.get_draft(application_id)
         snapshot: ApplicationSnapshot = draft["snapshot"]
+        validation = await self.applications.validate_draft(application_id)
         test_task_id = harness_task_id or f"test-suite:{uuid4()}"
         if manage_harness_task:
             await self.harness.start_task(
@@ -1871,6 +1905,121 @@ class WorkflowRuntime:
                     "origin": origin,
                 },
             )
+        if not validation["valid"]:
+            node_types = [node.type for node in snapshot.workflow.nodes]
+            tool_node_names = [
+                str(node.config.get("tool_name"))
+                for node in snapshot.workflow.nodes
+                if node.type == "tool" and node.config.get("tool_name")
+            ]
+            tool_node_names.extend(
+                str(node.config.get("settings", {}).get("tool_name"))
+                for node in snapshot.workflow.nodes
+                if node.type == "tool_executor"
+                and node.config.get("settings", {}).get("tool_name")
+            )
+            validation_errors = [str(item) for item in validation.get("errors", [])]
+            global_errors = [item for item in validation_errors if not item.startswith("test ")]
+            results: list[dict[str, Any]] = []
+            for test in snapshot.tests:
+                test_errors = [
+                    item for item in validation_errors if item.startswith(f"test {test.id} ")
+                ]
+                failed_checks = [
+                    "test was not run because draft validation failed",
+                    *global_errors,
+                    *test_errors,
+                ]
+                assertions = [
+                    {
+                        **assertion.model_dump(mode="json"),
+                        "passed": False,
+                        "error": "not run because draft validation failed",
+                    }
+                    for assertion in test.assertions
+                ]
+                missing_node_types = sorted(set(test.required_node_types) - set(node_types))
+                missing_tool_nodes = sorted(
+                    set(test.required_tool_nodes) - set(tool_node_names)
+                )
+                frame = (
+                    test.frame.model_dump(mode="json")
+                    if test.frame
+                    else {
+                        "id": test.id,
+                        "title": test.name,
+                        "category": "custom",
+                        "purpose": test.requirement,
+                        "reviewer_guidance": "",
+                        "reference": "",
+                        "failure_target": "",
+                    }
+                )
+                readable_report = {
+                    "title": frame.get("title") or test.name,
+                    "category": frame.get("category", "custom"),
+                    "purpose": frame.get("purpose") or test.requirement,
+                    "status": "failed",
+                    "mandatory": test.mandatory,
+                    "reviewer_guidance": frame.get("reviewer_guidance", ""),
+                    "reference": frame.get("reference", ""),
+                    "failure_target": frame.get("failure_target", ""),
+                    "failed_checks": failed_checks,
+                    "failed_assertions": assertions,
+                    "feedback_hints": test.feedback_hints,
+                }
+                results.append({
+                    "test_id": test.id,
+                    "name": test.name,
+                    "mandatory": test.mandatory,
+                    "passed": False,
+                    "run_id": "",
+                    "frame": frame,
+                    "readable_report": readable_report,
+                    "assertions": assertions,
+                    "tool_evidence": {
+                        "used_tools": [],
+                        "required_tools": test.required_tools,
+                        "required_tools_passed": not test.required_tools,
+                        "required_node_types": test.required_node_types,
+                        "node_types": node_types,
+                        "required_node_types_passed": not missing_node_types,
+                        "required_tool_nodes": test.required_tool_nodes,
+                        "tool_node_names": tool_node_names,
+                        "required_tool_nodes_passed": not missing_tool_nodes,
+                        "minimum_tool_calls": test.minimum_tool_calls,
+                        "minimum_calls_passed": test.minimum_tool_calls == 0,
+                        "output_urls": [],
+                        "cited_tool_urls": [],
+                        "unverified_output_urls": [],
+                        "citation_passed": not test.require_cited_tool_urls,
+                    },
+                })
+            summary = {
+                "total": len(results),
+                "passed": 0,
+                "failed": len(results),
+                "mandatory_failed": sum(1 for item in results if item["mandatory"]),
+                "frames": [
+                    {
+                        "test_id": item["test_id"],
+                        "title": item["readable_report"]["title"],
+                        "category": item["readable_report"]["category"],
+                        "status": "failed",
+                    }
+                    for item in results
+                ],
+            }
+            report = {
+                "passed": False,
+                "validation": validation,
+                "summary": summary,
+                "tests": results,
+            }
+            if manage_harness_task:
+                await self.harness.finish_task(test_task_id, status="failed")
+            await self._emit(application_id, "tests.completed", report)
+            return report
         results: list[dict[str, Any]] = []
         for test in snapshot.tests:
             created = await self.create_run(
@@ -2108,20 +2257,37 @@ class WorkflowRuntime:
     def _resolve(cls, value: Any, context: dict[str, Any]) -> Any:
         if isinstance(value, dict) and set(value) == {"$ref"}:
             reference = value["$ref"]
-            if reference.get("node_id") == "$inputs":
-                current: Any = context["inputs"]
-            else:
-                if reference["node_id"] not in context["nodes"] and reference.get("optional"):
+            try:
+                if reference.get("node_id") == "$inputs":
+                    current: Any = context["inputs"]
+                else:
+                    if reference["node_id"] not in context["nodes"] and reference.get("optional"):
+                        return None
+                    current = context["nodes"][reference["node_id"]]
+                for key in reference.get("path", []):
+                    current = current[int(key)] if isinstance(current, list) else current[key]
+                return current
+            except (KeyError, IndexError, TypeError, ValueError):
+                if reference.get("optional"):
                     return None
-                current = context["nodes"][reference["node_id"]]
-            for key in reference.get("path", []):
-                current = current[int(key)] if isinstance(current, list) else current[key]
-            return current
+                raise
         if isinstance(value, dict):
             return {key: cls._resolve(item, context) for key, item in value.items()}
         if isinstance(value, list):
             return [cls._resolve(item, context) for item in value]
         return value
+
+    @classmethod
+    def _references_skipped_node(cls, value: Any, skipped_nodes: set[str]) -> bool:
+        if not skipped_nodes:
+            return False
+        if isinstance(value, dict) and set(value) == {"$ref"}:
+            return str(value["$ref"].get("node_id")) in skipped_nodes
+        if isinstance(value, dict):
+            return any(cls._references_skipped_node(item, skipped_nodes) for item in value.values())
+        if isinstance(value, list):
+            return any(cls._references_skipped_node(item, skipped_nodes) for item in value)
+        return False
 
     @classmethod
     def _evaluate(cls, condition: Condition, context: dict[str, Any]) -> bool:
@@ -2175,9 +2341,9 @@ class WorkflowRuntime:
         if operator == "equals":
             return actual == expected
         if operator == "contains":
-            return expected in actual if actual is not None else False
+            return WorkflowRuntime._contains_value(actual, expected)
         if operator == "not_contains":
-            return expected not in actual if actual is not None else True
+            return not WorkflowRuntime._contains_value(actual, expected)
         if operator == "type":
             names = {"string": str, "number": (int, float), "boolean": bool, "object": dict, "array": list}
             return isinstance(actual, names[str(expected)])
@@ -2192,6 +2358,23 @@ class WorkflowRuntime:
             except (TypeError, ValueError):
                 return False
         return False
+
+    @staticmethod
+    def _contains_value(actual: Any, expected: Any) -> bool:
+        if actual is None:
+            return False
+        try:
+            if expected in actual:
+                return True
+        except TypeError:
+            pass
+        if isinstance(actual, str):
+            return str(expected) in actual
+        try:
+            haystack = json.dumps(actual, ensure_ascii=False, default=str)
+        except TypeError:
+            haystack = str(actual)
+        return str(expected) in haystack
 
     @staticmethod
     def _is_structural_assertion(operator: str) -> bool:

@@ -18,7 +18,7 @@ from typing import Iterable
 
 ROOT = Path(__file__).resolve().parents[1]
 FRONTEND_ROOT = ROOT / "platform" / "frontend"
-DEFAULT_OUTPUT = ROOT / "docs" / "workingon" / "frontend_verification_recovery_v0.3.10.json"
+DEFAULT_OUTPUT = ROOT / ".tmp" / "historical-evidence" / "v0.3.10" / "frontend_verification_recovery_v0.3.10.json"
 SMOKE_MARKER = "v0.3.10-smoke"
 EXPECTED_RUNTIME_VERSION = "v0.3.6"
 
@@ -198,7 +198,8 @@ def hydrated_guard_state_machine_fallback() -> dict[str, object]:
         },
         {
             "id": "home_intent_resets_on_requirement_or_scenario_change",
-            "passed": "setRequirement(event.target.value); setBuildIntentConfirmed(false)" in home
+            "passed": "setRequirement(event.target.value)" in home
+            and "setBuildIntentConfirmed(false)" in home
             and "setSelectedExampleId(example.id)" in home
             and "setBuildIntentConfirmed(false)" in extract_function(home, "function applyCustomerExample"),
         },

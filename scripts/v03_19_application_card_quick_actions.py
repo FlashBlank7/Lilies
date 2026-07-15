@@ -12,7 +12,7 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_OUTPUT = ROOT / "docs" / "workingon" / "application_card_quick_actions_v0.3.19.json"
+DEFAULT_OUTPUT = ROOT / ".tmp" / "historical-evidence" / "v0.3.19" / "application_card_quick_actions_v0.3.19.json"
 EXPECTED_RUNTIME_VERSION = "v0.3.6"
 STUDIO_TABS = ("build", "edit", "test", "run", "monitor")
 FORBIDDEN_ACTION_ENDPOINTS = ("/builds", "/tests/run", "/runs", "/versions")
@@ -48,7 +48,7 @@ BUG_LEDGER = (
         "severity": "P1",
         "status": "fixed",
         "reproduction": "New card action tests could be omitted from the current v0.3.x release gate.",
-        "fix": "Update `docs/testing/regression_lanes.json` with v0.3.19 and expected 94 passing tests.",
+        "fix": "Update `docs/testing/historical/v0.3.55_regression_lanes.json` with v0.3.19 and expected 94 passing tests.",
         "verification": "regression_manifest_updated.",
     },
 )
@@ -181,7 +181,7 @@ def source_marker_checks() -> list[dict[str, Any]]:
         ),
         (
             "regression_manifest_updated",
-            "docs/testing/regression_lanes.json",
+            "docs/testing/historical/v0.3.55_regression_lanes.json",
             (
                 "tests/test_v03_19_application_card_quick_actions.py",
                 "v0.3.x_current_release_gate",

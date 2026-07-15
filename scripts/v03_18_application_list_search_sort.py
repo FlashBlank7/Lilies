@@ -12,7 +12,7 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_OUTPUT = ROOT / "docs" / "workingon" / "application_list_search_sort_v0.3.18.json"
+DEFAULT_OUTPUT = ROOT / ".tmp" / "historical-evidence" / "v0.3.18" / "application_list_search_sort_v0.3.18.json"
 EXPECTED_RUNTIME_VERSION = "v0.3.6"
 
 
@@ -38,7 +38,7 @@ BUG_LEDGER = (
         "severity": "P1",
         "status": "fixed",
         "reproduction": "New search/sort tests could be omitted from the current v0.3.x release gate.",
-        "fix": "Update `docs/testing/regression_lanes.json` with v0.3.18 and expected 88 passing tests.",
+        "fix": "Update `docs/testing/historical/v0.3.55_regression_lanes.json` with v0.3.18 and expected 88 passing tests.",
         "verification": "regression_manifest_updated.",
     },
 )
@@ -140,7 +140,7 @@ def source_marker_checks() -> list[dict[str, Any]]:
         ),
         (
             "regression_manifest_updated",
-            "docs/testing/regression_lanes.json",
+            "docs/testing/historical/v0.3.55_regression_lanes.json",
             (
                 "tests/test_v03_18_application_list_search_sort.py",
                 "v0.3.x_current_release_gate",

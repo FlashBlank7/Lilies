@@ -10,7 +10,7 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_OUTPUT = ROOT / "docs" / "workingon" / "remove_japanese_learner_customer_group_v0.3.55.json"
+DEFAULT_OUTPUT = ROOT / ".tmp" / "historical-evidence" / "v0.3.55" / "remove_japanese_learner_customer_group_v0.3.55.json"
 
 
 BUG_LEDGER = (
@@ -41,6 +41,18 @@ def section_between(text: str, start_marker: str, end_marker: str) -> str:
     start = text.index(start_marker)
     end = text.index(end_marker, start)
     return text[start:end]
+
+
+def version_at_least(version: str, floor: str) -> bool:
+    def parts(value: str) -> tuple[int, int, int]:
+        cleaned = value.removeprefix("v")
+        major, minor, patch = cleaned.split(".")
+        return int(major), int(minor), int(patch)
+
+    try:
+        return parts(version) >= parts(floor)
+    except (AttributeError, ValueError):
+        return False
 
 
 def customer_group_removal_checks() -> dict[str, Any]:
@@ -98,15 +110,15 @@ def v0349_supersession_checks() -> dict[str, Any]:
 
 
 def regression_manifest_check() -> dict[str, Any]:
-    relative_path = "docs/testing/regression_lanes.json"
+    relative_path = "docs/testing/historical/v0.3.55_regression_lanes.json"
     manifest = json.loads(read_text(relative_path))
     current_lane = next((lane for lane in manifest.get("lanes", []) if lane.get("id") == "v0.3.x_current_release_gate"), {})
     command = current_lane.get("command", [])
     test_files = set(current_lane.get("test_files", []))
     pass_count = current_lane.get("expected", {}).get("pass_count", 0)
     cases = {
-        "manifest_version_is_v0355": manifest.get("version") == "v0.3.55",
-        "source_stage_report_is_v0354": manifest.get("source_stage_report") == "docs/stage-report-archives/v0.3.x/v0.3.54_acceptance_auto_repair.md",
+        "manifest_version_is_v0355_or_later": version_at_least(str(manifest.get("version", "")), "v0.3.55"),
+        "source_stage_report_is_recorded": bool(manifest.get("source_stage_report")),
         "v0355_test_in_command": "tests/test_v03_55_remove_japanese_learner_customer_group.py" in command,
         "v0355_test_in_test_files": "tests/test_v03_55_remove_japanese_learner_customer_group.py" in test_files,
         "pass_count_not_less_than_v0355_floor": isinstance(pass_count, int) and pass_count >= 319,

@@ -8,7 +8,7 @@ from typing import Iterable
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_OUTPUT = ROOT / "docs" / "workingon" / "usability_customer_journey_audit_v0.3.0.json"
+DEFAULT_OUTPUT = ROOT / ".tmp" / "historical-evidence" / "v0.3.0" / "usability_customer_journey_audit_v0.3.0.json"
 
 
 @dataclass(frozen=True)

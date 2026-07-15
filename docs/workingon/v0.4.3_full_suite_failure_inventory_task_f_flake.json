@@ -1,0 +1,100 @@
+{
+  "schema_version": "1.0",
+  "stage": "v0.4.3",
+  "source_junit": "/tmp/lilies-v043-task-f-final.xml",
+  "manifest": "/Users/zhonghaoyang/Code/agent/Lilies/docs/testing/regression_lanes.json",
+  "totals": {
+    "tests": 744,
+    "failures": 1,
+    "errors": 0,
+    "skipped": 17
+  },
+  "classification_counts": {
+    "current_regression": 1
+  },
+  "blocking_current_regressions": [
+    "tests/test_workflow.py::test_platform_harness_worker_runner_renews_lease_for_long_handler"
+  ],
+  "expected_conflicts": [
+    {
+      "nodeid": "tests/test_v02_120_e08_draft_patch_preview_worker_offload_handler.py::test_v02_120_draft_patch_preview_worker_handler_fails_unsupported",
+      "reason": "archived expectation conflict: draft_patch_preview_support_timeline"
+    },
+    {
+      "nodeid": "tests/test_v02_75_complexity_router_default_enablement_boundary.py::test_v02_75_decision_requires_live_validation_before_default_change",
+      "reason": "archived expectation conflict: complexity_router_default_timeline"
+    },
+    {
+      "nodeid": "tests/test_v02_76_complexity_router_live_validation_plan.py::test_v02_76_plan_defines_cases_budget_and_default_disabled_status",
+      "reason": "archived expectation conflict: complexity_router_default_timeline"
+    },
+    {
+      "nodeid": "tests/test_v02_77_complexity_router_live_validation_execution_decision.py::test_v02_77_decision_selects_bounded_live_validation_next",
+      "reason": "archived expectation conflict: complexity_router_default_timeline"
+    },
+    {
+      "nodeid": "tests/test_v02_78_complexity_router_bounded_live_validation.py::test_v02_78_skip_result_records_provider_command_and_cases",
+      "reason": "archived expectation conflict: complexity_router_default_timeline"
+    },
+    {
+      "nodeid": "tests/test_v02_79_complexity_router_default_enablement_review_decision.py::test_v02_79_decision_selects_staged_rollout_preparation",
+      "reason": "archived expectation conflict: complexity_router_default_timeline"
+    },
+    {
+      "nodeid": "tests/test_v02_80_complexity_router_staged_rollout_preparation.py::test_v02_80_rollout_preparation_defines_three_non_default_stages",
+      "reason": "archived expectation conflict: complexity_router_default_timeline"
+    },
+    {
+      "nodeid": "tests/test_v02_81_complexity_router_staged_rollout_execution_decision.py::test_v02_81_decision_selects_shadow_only_rollout",
+      "reason": "archived expectation conflict: complexity_router_default_timeline"
+    },
+    {
+      "nodeid": "tests/test_v02_82_complexity_router_shadow_only_rollout.py::test_v02_82_shadow_only_rollout_executes_stage_0_without_behavior_change",
+      "reason": "archived expectation conflict: complexity_router_default_timeline"
+    },
+    {
+      "nodeid": "tests/test_v02_82_complexity_router_shadow_only_rollout.py::test_v02_82_shadow_only_rollout_records_metrics_and_exit_criteria",
+      "reason": "archived expectation conflict: complexity_router_default_timeline"
+    },
+    {
+      "nodeid": "tests/test_v02_83_complexity_router_post_shadow_rollout_decision.py::test_v02_83_decision_selects_operator_opt_in_rollout",
+      "reason": "archived expectation conflict: complexity_router_default_timeline"
+    },
+    {
+      "nodeid": "tests/test_v02_84_complexity_router_operator_opt_in_rollout.py::test_v02_84_operator_opt_in_rollout_executes_stage_1_without_default_enablement",
+      "reason": "archived expectation conflict: complexity_router_default_timeline"
+    },
+    {
+      "nodeid": "tests/test_v02_84_complexity_router_operator_opt_in_rollout.py::test_v02_84_operator_opt_in_rollout_records_exit_metrics",
+      "reason": "archived expectation conflict: complexity_router_default_timeline"
+    },
+    {
+      "nodeid": "tests/test_v02_85_complexity_router_post_operator_opt_in_decision.py::test_v02_85_decision_selects_frontend_verification_environment_repair",
+      "reason": "archived expectation conflict: complexity_router_default_timeline"
+    },
+    {
+      "nodeid": "tests/test_v02_87_complexity_router_default_enablement_review_decision.py::test_v02_87_decision_enters_default_enablement_review_when_gates_pass",
+      "reason": "archived expectation conflict: complexity_router_default_timeline"
+    },
+    {
+      "nodeid": "tests/test_v02_88_complexity_router_limited_default_enablement_plan.py::test_v02_88_plan_defines_limited_default_contract_without_enabling_runtime_default",
+      "reason": "archived expectation conflict: complexity_router_default_timeline"
+    },
+    {
+      "nodeid": "tests/test_v02_88_complexity_router_limited_default_enablement_plan.py::test_v02_88_plan_has_controls_rollback_and_verification_gates",
+      "reason": "archived expectation conflict: complexity_router_default_timeline"
+    }
+  ],
+  "expected_conflict_count": 17,
+  "unknown_expected_conflicts": [],
+  "missing_expected_conflicts": [],
+  "failures": [
+    {
+      "nodeid": "tests/test_workflow.py::test_platform_harness_worker_runner_renews_lease_for_long_handler",
+      "message": "AssertionError: assert 'failed' == 'succeeded'\n  \n  - succeeded\n  + failed",
+      "classification": "current_regression",
+      "family_id": "unclassified_current_failure",
+      "reason": "No archived or environment classification exists; current stage owns remediation."
+    }
+  ]
+}

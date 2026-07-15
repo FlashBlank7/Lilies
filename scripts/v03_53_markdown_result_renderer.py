@@ -10,7 +10,7 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_OUTPUT = ROOT / "docs" / "workingon" / "markdown_result_renderer_v0.3.53.json"
+DEFAULT_OUTPUT = ROOT / ".tmp" / "historical-evidence" / "v0.3.53" / "markdown_result_renderer_v0.3.53.json"
 
 
 BUG_LEDGER = (
@@ -18,7 +18,7 @@ BUG_LEDGER = (
     {"id": "P1-markdown-rendering-not-reusable", "severity": "P1", "status": "fixed", "reproduction": "Markdown rendering capability did not exist as a reusable frontend module.", "fix": "Add platform/frontend/lib/markdown.tsx with MarkdownDocument and MarkdownResultCard exports.", "verification": "markdown_module_checks."},
     {"id": "P1-user-facing-result-still-technical-first", "severity": "P1", "status": "fixed", "reproduction": "Customer result panel exposed field previews instead of a readable result document.", "fix": "Customer final result now uses the same Markdown rendering card.", "verification": "workflow_run_integration_checks."},
     {"id": "P1-markdown-renderer-xss-risk", "severity": "P1", "status": "fixed", "reproduction": "A Markdown renderer implemented with raw HTML injection would be unsafe for model outputs.", "fix": "Render React nodes without dangerouslySetInnerHTML and restrict link hrefs.", "verification": "markdown_safety_checks."},
-    {"id": "P1-v0353-tests-must-enter-release-gate", "severity": "P1", "status": "fixed", "reproduction": "The Markdown output usability repair could regress if omitted from the current gate.", "fix": "Add v0.3.53 tests to docs/testing/regression_lanes.json.", "verification": "regression_manifest_check."},
+    {"id": "P1-v0353-tests-must-enter-release-gate", "severity": "P1", "status": "fixed", "reproduction": "The Markdown output usability repair could regress if omitted from the current gate.", "fix": "Add v0.3.53 tests to docs/testing/historical/v0.3.55_regression_lanes.json.", "verification": "regression_manifest_check."},
 )
 
 
@@ -125,7 +125,7 @@ def frontend_style_checks() -> dict[str, Any]:
 
 
 def regression_manifest_check() -> dict[str, Any]:
-    relative_path = "docs/testing/regression_lanes.json"
+    relative_path = "docs/testing/historical/v0.3.55_regression_lanes.json"
     manifest = json.loads(read_text(relative_path))
     current_lane = next((lane for lane in manifest.get("lanes", []) if lane.get("id") == "v0.3.x_current_release_gate"), {})
     command = current_lane.get("command", [])

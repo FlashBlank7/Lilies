@@ -1,0 +1,7 @@
+{
+  "schema_version": "1.0",
+  "base_url": "http://127.0.0.1:8002",
+  "stale_config_application_id": "28ea467f-0f89-4401-8431-634df8107e48",
+  "repair_application_id": "9c85032f-a5a6-4a8c-a6de-39c6b494141c",
+  "governed_application_id": "66398de5-5379-4d8f-9f8e-023597eb1d95"
+}

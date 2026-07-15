@@ -1,6 +1,6 @@
 # v0.4.3 Acceptance Repair Context
 
-Status: active
+Status: active - implementation complete, browser evidence pending
 
 ## Contract
 
@@ -32,3 +32,19 @@ Acceptance repair preview exists, but the complete user promise is larger: a fai
 - Context fields are asserted in backend tests, not only UI marker tests.
 - Stale revision/hash is rejected, unsupported preview is explicit, and retry leaves the draft unchanged.
 
+## Implementation Result
+
+- Preview normalizes one failed case into test requirement, failed assertions/checks, required blocks/tools, run ID, trace excerpts, relevant nodes, revision, and content hash.
+- A generated whole-workflow repair instruction remains editable. Referenced nodes are context, not an edit boundary.
+- The existing whole-workflow preview service receives that instruction and context; its own failure is returned explicitly without mutating the draft.
+- Deterministic structural operations remain inspectable, while unsafe tool/model blocks stay explicitly unsupported.
+- `repair-apply` validates both revision and hash, applies all operations in memory, validates the final snapshot, and writes exactly one new draft revision. Invalid or stale batches leave the draft unchanged.
+- Studio supports per-case repair, Markdown rationale, engineering context, and the atomic apply API. Applying a repair changes the hash and makes prior evidence stale.
+
+## Verification Evidence
+
+- `.venv/bin/python -m pytest tests/test_v04_03_acceptance_repair_context.py -q` -> `5 passed, 1 warning`.
+- `.venv/bin/python -m pytest tests/test_v03_54_acceptance_auto_repair.py -q` -> `5 passed, 1 warning`.
+- Current v0.4.x gate -> `36 passed, 1 warning`.
+- Frontend TypeScript compilation and production build pass under the verified local Node toolchain.
+- Rendered failure-state interaction remains unverified because the supported Browser runtime exposes no browser; product acceptance stays open under `V04-03-T01F`.

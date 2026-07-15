@@ -13,7 +13,7 @@ from typing import Iterable
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_OUTPUT = ROOT / "docs" / "workingon" / "customer_flow_blackbox_audit_v0.3.1.json"
+DEFAULT_OUTPUT = ROOT / ".tmp" / "historical-evidence" / "v0.3.1" / "customer_flow_blackbox_audit_v0.3.1.json"
 
 
 @dataclass(frozen=True)

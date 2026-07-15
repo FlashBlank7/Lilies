@@ -17,7 +17,7 @@ from agent_platform.draft_patch_preview import DraftPatchPreviewer  # noqa: E402
 from agent_platform.workflow_models import ApplicationSnapshot, EdgeSpec, NodeSpec, WorkflowSpec  # noqa: E402
 
 
-DEFAULT_OUTPUT = ROOT / "docs" / "workingon" / "workflow_edit_transform_and_node_click_repair_v0.3.52.json"
+DEFAULT_OUTPUT = ROOT / ".tmp" / "historical-evidence" / "v0.3.52" / "workflow_edit_transform_and_node_click_repair_v0.3.52.json"
 FORBIDDEN_ENDPOINTS = ("/builds", "/tests/run", "/runs", "/versions", "/restore", "/cancel")
 
 
@@ -93,7 +93,7 @@ def node_click_crash_guard_fixture() -> dict[str, Any]:
 
 
 def regression_manifest_check() -> dict[str, Any]:
-    relative_path = "docs/testing/regression_lanes.json"
+    relative_path = "docs/testing/historical/v0.3.55_regression_lanes.json"
     manifest = json.loads(read_text(relative_path))
     current_lane = next((lane for lane in manifest.get("lanes", []) if lane.get("id") == "v0.3.x_current_release_gate"), {})
     test_files = set(current_lane.get("test_files", []))

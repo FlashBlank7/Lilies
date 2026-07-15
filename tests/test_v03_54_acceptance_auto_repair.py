@@ -138,7 +138,14 @@ def test_v03_54_acceptance_failure_preview_apply_and_rerun_passes(tmp_path: Path
         failed_report = failed.json()
         assert failed_report["passed"] is False
         assert failed_report["validation"]["valid"] is False
-        assert failed_report["tests"] == []
+        assert len(failed_report["tests"]) == 3
+        assert all(item["passed"] is False for item in failed_report["tests"])
+        assert all(item["run_id"] == "" for item in failed_report["tests"])
+        assert all(
+            "test was not run because draft validation failed"
+            in item["readable_report"]["failed_checks"]
+            for item in failed_report["tests"]
+        )
         assert len(failed_report["validation"]["errors"]) == 3
 
         preview_response = client.post(

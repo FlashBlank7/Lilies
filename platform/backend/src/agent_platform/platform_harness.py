@@ -25,6 +25,7 @@ TaskKind = Literal[
     "scheduler_manual_trigger",
     "benchmark",
     "draft_patch_preview",
+    "requirement_intake",
 ]
 TaskStatus = Literal["queued", "running", "paused", "succeeded", "failed", "cancelled"]
 WorkerHeartbeatStatus = Literal["idle", "running", "stopping", "failed"]
@@ -293,18 +294,22 @@ class PlatformHarness:
             record = self._tasks.get(task_id)
             if record is None:
                 return None
+            if metadata:
+                record.metadata.update(metadata)
             lease_error = self._lease_expired_error(record)
             if status == "succeeded" and lease_error:
                 record.updated_at = utc_now()
                 self._fail_for_expired_lease(record, lease_error)
+                worker_metadata = record.metadata.get("worker_runner")
+                if isinstance(worker_metadata, dict):
+                    worker_metadata["status"] = "failed"
+                    worker_metadata["completion_error"] = lease_error
                 event_status = "failed"
             else:
                 record.status = status
                 record.error = error
                 record.updated_at = utc_now()
                 record.finished_at = record.updated_at
-                if metadata:
-                    record.metadata.update(metadata)
                 event_status = status
         await self._persist(record)
         await self._emit(record, f"platform_harness.task.{event_status}")

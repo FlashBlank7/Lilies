@@ -12,7 +12,7 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_OUTPUT = ROOT / "docs" / "workingon" / "scenario_journey_regression_v0.3.16.json"
+DEFAULT_OUTPUT = ROOT / ".tmp" / "historical-evidence" / "v0.3.16" / "scenario_journey_regression_v0.3.16.json"
 EXPECTED_RUNTIME_VERSION = "v0.3.6"
 
 
@@ -72,7 +72,7 @@ BUG_LEDGER = (
         "severity": "P1",
         "status": "fixed",
         "reproduction": "New v0.3.x tests could be omitted from the current release-gate manifest.",
-        "fix": "Update `docs/testing/regression_lanes.json` with v0.3.16 and expected 78 passing tests.",
+        "fix": "Update `docs/testing/historical/v0.3.55_regression_lanes.json` with v0.3.16 and expected 78 passing tests.",
         "verification": "regression_manifest_updated.",
     },
 )
@@ -115,7 +115,7 @@ def source_marker_checks() -> list[dict[str, Any]]:
         ),
         (
             "regression_manifest_updated",
-            "docs/testing/regression_lanes.json",
+            "docs/testing/historical/v0.3.55_regression_lanes.json",
             (
                 "tests/test_v03_16_scenario_journey_regression.py",
                 "v0.3.x_current_release_gate",

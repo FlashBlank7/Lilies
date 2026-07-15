@@ -19,7 +19,7 @@ from agent_platform.draft_patch_preview import DraftPatchPreviewer  # noqa: E402
 from agent_platform.workflow_models import ApplicationSnapshot, EdgeSpec, NodeSpec, WorkflowSpec  # noqa: E402
 
 
-DEFAULT_OUTPUT = ROOT / "docs" / "workingon" / "natural_language_workflow_edit_v0.3.47.json"
+DEFAULT_OUTPUT = ROOT / ".tmp" / "historical-evidence" / "v0.3.47" / "natural_language_workflow_edit_v0.3.47.json"
 EXPECTED_RUNTIME_VERSION = "v0.3.6"
 FORBIDDEN_ENDPOINTS = ("/builds", "/tests/run", "/runs", "/versions", "/restore", "/draft", "/cancel")
 
@@ -113,7 +113,7 @@ def workflow_level_preview_fixture() -> dict[str, Any]:
 
 
 def regression_manifest_check() -> dict[str, Any]:
-    relative_path = "docs/testing/regression_lanes.json"
+    relative_path = "docs/testing/historical/v0.3.55_regression_lanes.json"
     manifest = json.loads(read_text(relative_path))
     current_lane = next((lane for lane in manifest.get("lanes", []) if lane.get("id") == "v0.3.x_current_release_gate"), {})
     test_files = set(current_lane.get("test_files", []))

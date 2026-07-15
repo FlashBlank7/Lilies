@@ -10,7 +10,7 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_OUTPUT = ROOT / "docs" / "workingon" / "acceptance_auto_repair_v0.3.54.json"
+DEFAULT_OUTPUT = ROOT / ".tmp" / "historical-evidence" / "v0.3.54" / "acceptance_auto_repair_v0.3.54.json"
 
 
 BUG_LEDGER = (
@@ -100,7 +100,7 @@ def backend_repair_preview_markers() -> dict[str, Any]:
         "sandbox_boundary",
         "convert_terminal_to_answer",
         "answer_assertion_required",
-        "return response.model_dump(mode=\"json\")",
+        "response.model_dump(mode=\"json\")",
         "/tests/repair-preview",
         "AcceptanceRepairPreviewer(blocks)",
     )
@@ -157,7 +157,7 @@ def frontend_acceptance_repair_markers() -> dict[str, Any]:
 
 
 def regression_manifest_check() -> dict[str, Any]:
-    relative_path = "docs/testing/regression_lanes.json"
+    relative_path = "docs/testing/historical/v0.3.55_regression_lanes.json"
     manifest = json.loads(read_text(relative_path))
     current_lane = next((lane for lane in manifest.get("lanes", []) if lane.get("id") == "v0.3.x_current_release_gate"), {})
     command = current_lane.get("command", [])

@@ -1,4 +1,45 @@
 export type Position = { x: number; y: number }
+export type DeliveryMode = 'quick' | 'guided' | 'governed'
+export type EvidenceState = 'current' | 'stale' | 'missing'
+
+export type DraftEvidence = {
+  state: EvidenceState
+  current_hash: string
+  last_tested_hash?: string | null
+  invalidated_at?: string | null
+  invalidated_revision?: number | null
+  change_summary: Array<Record<string, unknown>>
+  revalidate_endpoint: string
+  last_validation_report?: Record<string, unknown>
+}
+
+export type DeliveryPolicy = {
+  mode: DeliveryMode
+  title: string
+  summary: string
+  publication_behavior: 'advisory' | 'advisory_confirmation' | 'hard_gate'
+  missing_evidence_action: 'warn' | 'confirm' | 'block'
+  stale_evidence_action: 'warn' | 'confirm' | 'block'
+  recommended_evidence: string[]
+  visible_controls: string[]
+  warning_ack_required: boolean
+  hard_gate_enabled: boolean
+}
+
+export type PublicationDecision = {
+  application_id: string
+  allowed: boolean
+  requires_confirmation: boolean
+  blocked: boolean
+  warning_codes: string[]
+  warnings: Array<{ code: string; message: string }>
+  evidence_state: EvidenceState
+  evidence: DraftEvidence
+  policy: DeliveryPolicy
+  policy_source: string
+  acknowledged_warnings?: boolean
+  decided_at?: string
+}
 
 export type WorkflowNode = {
   id: string
@@ -25,6 +66,8 @@ export type Snapshot = {
   name: string
   description: string
   mode: 'workflow' | 'chat'
+  delivery_mode: DeliveryMode
+  governed_hard_gate: boolean
   requirement: string
   workflow: { nodes: WorkflowNode[]; edges: WorkflowEdge[]; viewport: Record<string, number> }
   agents: Record<string, unknown>
@@ -37,7 +80,31 @@ export type Draft = {
   content_hash: string
   tested_hash?: string | null
   validation_report: Record<string, unknown>
+  delivery_mode: DeliveryMode
+  governed_hard_gate: boolean
+  delivery_policy: DeliveryPolicy
+  evidence: DraftEvidence
   snapshot: Snapshot
+}
+
+export type BlockEditorField = {
+  path: string
+  label: string
+  label_zh?: string
+  description?: string
+  description_zh?: string
+  control: 'text' | 'textarea' | 'number' | 'boolean' | 'enum' | 'string_list' | 'json' | 'reference_or_text' | 'readonly'
+  required?: boolean
+  minimum?: number
+  maximum?: number
+  step?: number
+  options?: string[]
+}
+
+export type BlockEditorNotice = {
+  kind: 'boundary' | 'expert' | 'warning' | string
+  text: string
+  text_zh?: string
 }
 
 export type Block = {
@@ -53,7 +120,11 @@ export type Block = {
   common_errors?: string[]
   claude_architecture_mapping?: string | null
   composability_constraints?: string[]
-  editor?: { i18n?: Record<string, { title?: string; description?: string; category?: string }> }
+  editor?: {
+    fields?: BlockEditorField[]
+    notices?: BlockEditorNotice[]
+    i18n?: Record<string, { title?: string; description?: string; category?: string }>
+  }
   config_schema: Record<string, unknown>
   input_ports: Array<{ name: string; value_type: string }>
   output_ports: Array<{ name: string; value_type: string }>
@@ -67,6 +138,7 @@ export type PlatformTaskKind =
   | 'scheduler_manual_trigger'
   | 'benchmark'
   | 'draft_patch_preview'
+  | 'requirement_intake'
 
 export type PlatformTaskStatus = 'queued' | 'running' | 'paused' | 'succeeded' | 'failed' | 'cancelled'
 
@@ -189,6 +261,7 @@ export type DraftPatchPreview = {
 }
 
 export type AcceptanceRepairPreview = {
+  task_id: string
   supported: boolean
   message: string
   operations: DraftPatchOperation[]
@@ -196,6 +269,28 @@ export type AcceptanceRepairPreview = {
   fixes: Array<Record<string, unknown>>
   missing_node_types: string[]
   unsupported_node_types: string[]
+  expected_revision: number
+  expected_content_hash: string
+  instruction: string
+  rationale_markdown: string
+  repair_context: {
+    test_id: string
+    test_name: string
+    requirement: string
+    failed_assertions: Array<Record<string, unknown>>
+    failed_checks: string[]
+    required_node_types: string[]
+    required_tool_nodes: string[]
+    required_tools: string[]
+    run_id: string
+    trace_excerpts: string[]
+    relevant_node_ids: string[]
+    current_revision: number
+    current_content_hash: string
+  }
+  reference_node_ids: string[]
+  preview_source: string
+  workflow_edit_preview?: DraftPatchPreview | null
 }
 
 export type BuilderBenchmarkHistoryRecord = {
