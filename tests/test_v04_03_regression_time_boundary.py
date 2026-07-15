@@ -124,9 +124,9 @@ def test_current_gate_declares_existing_tests_and_exact_source() -> None:
     manifest = json.loads((ROOT / "docs/testing/regression_lanes.json").read_text(encoding="utf-8"))
     gate = next(lane for lane in manifest["lanes"] if lane["id"] == manifest["policy"]["current_gate"])
 
-    assert manifest["version"] == "v0.4.3"
+    assert manifest["version"] == "v0.4.4"
     assert manifest["source_stage_report"].endswith(
-        "v0.4.3_usability_modes_evidence_and_regression_stabilization.md"
+        "v0.4.4_codex_feedback_loop_scenario.md"
     )
     assert gate["status"] == "gating"
     assert gate["test_files"]
@@ -134,13 +134,13 @@ def test_current_gate_declares_existing_tests_and_exact_source() -> None:
     assert all(nodeid in gate["command"] for nodeid in gate["test_files"])
 
 
-def test_v043_runtime_version_progresses_without_breaking_prior_v04_evidence() -> None:
+def test_v044_runtime_version_progresses_without_breaking_prior_v04_evidence() -> None:
     from agent_platform import __version__
 
     historical_check = (ROOT / "scripts/v04_00_ai_requirement_intake.py").read_text(
         encoding="utf-8"
     )
 
-    assert __version__ == "v0.4.3"
+    assert __version__ == "v0.4.4"
     assert "runtime_version = re.search" in historical_check
     assert "int(runtime_version.group(1)) >= 1" in historical_check

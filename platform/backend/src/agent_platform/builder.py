@@ -70,7 +70,7 @@ Core rules:
   and perform the returned recommended_action before more broad search.
 - For agent architecture bricks, call manual_search or manual_get first, then add one brick at a time.
 - Use architecture_blueprint when reconstructing a Claude-like agent loop from explicit bricks.
-- Use template_list and template_expand when a known Claude-like subgraph template fits; the expanded graph is
+- Use template_list and template_expand when a known Codex-like workspace-agent or legacy Claude-like subgraph template fits; the expanded graph is
   editable and must still be validated, tested, and repaired incrementally.
 - After template_expand, read the returned validation, node_types, and template_contract. Preserve
   template_contract.min_blocks_required unless you deliberately replace that capability with another visible
@@ -473,6 +473,17 @@ class WorkflowBuilder:
         }
 
     def _template_contract(self, template_name: str, source: str) -> dict[str, Any] | None:
+        if source == "server_defined" and template_name == "codex_like_workspace_agent":
+            return {
+                "name": template_name,
+                "title": "Codex-like Workspace Agent",
+                "category": "workspace_agent",
+                "expected_inputs": ["task", "workspace_path", "network_policy", "cancel_requested"],
+                "expected_outputs": ["answer"],
+                "min_blocks_required": 13,
+                "evidence_level": "component_verified",
+                "claim_scope": "deterministic local workspace; live and production environments not implied",
+            }
         if source != "marketplace" or not self.template_store:
             return None
         try:
@@ -773,9 +784,11 @@ class WorkflowBuilder:
                     "name": name,
                     "title": name,
                     "source": "server_defined",
-                    "description": "Editable Claude-like coding agent architecture subgraph."
-                    if name == "claude_like_coding_agent"
-                    else "",
+                    "description": (
+                        "Editable Codex-like plan-act-observe workspace agent with structured tool feedback."
+                        if name == "codex_like_workspace_agent"
+                        else "Editable legacy Claude-like coding agent architecture subgraph."
+                    ),
                 }
                 for name in self.blocks.template_names()
             ]

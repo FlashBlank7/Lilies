@@ -108,6 +108,28 @@ function isJapaneseLearningRequirement(requirement: string) {
     && /(学生|学习|學習|learner|student|study|summary|总结|表达|表現)/i.test(text)
 }
 
+function isCodexWorkspaceRequirement(requirement: string) {
+  const text = requirement.toLocaleLowerCase()
+  if (/(codex|像\s*codex)/i.test(text)) return true
+  const agentSignal = /(coding agent|code agent|代码智能体|編碼智能體|工作区智能体|工作區智能體)/i.test(text)
+  const workspaceSignal = /(workspace|repository|repo|codebase|工作区|工作區|代码库|代碼庫|项目文件|專案檔案|文件|代码|代碼)/i.test(text)
+  return agentSignal && workspaceSignal
+}
+
+async function applyCodexWorkspaceScenario(application: Application) {
+  return api<{ revision: number; validation: { valid: boolean; errors: string[] } }>(
+    `/api/v1/applications/${application.id}/scenarios/codex_like_workspace_agent/apply`,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        expected_revision: application.draft_revision,
+        expected_content_hash: application.content_hash,
+        idempotency_key: idempotency(),
+      }),
+    },
+  )
+}
+
 const JAPANESE_LEARNING_COMMENT_FIXTURE_TEMPLATE = `受控样例评论线索（离线验证用，不代表已经抓取真实视频网站）
 主题：{{ topic }}
 - 评论 A：「それな、課題多すぎてしんどい」用于朋友间强烈附和。
@@ -641,6 +663,9 @@ export default function Home() {
       })
       setApps(current => [app, ...current.filter(item => item.id !== app.id)])
       resetAppListView()
+      if (isCodexWorkspaceRequirement(requirement)) {
+        await applyCodexWorkspaceScenario(app)
+      }
       try {
         const build = await api<{ build_id: string }>(`/api/v1/applications/${app.id}/builds`, {
           method: 'POST', body: JSON.stringify({ requirement, auto_publish: true }),
@@ -664,7 +689,11 @@ export default function Home() {
         method: 'POST',
         body: JSON.stringify({ name, description: requirement.slice(0, 180), requirement, mode: 'workflow', delivery_mode: deliveryMode }),
       })
-      await seedSafeDraftSkeleton(app.id, app.draft_revision, requirement)
+      if (isCodexWorkspaceRequirement(requirement)) {
+        await applyCodexWorkspaceScenario(app)
+      } else {
+        await seedSafeDraftSkeleton(app.id, app.draft_revision, requirement)
+      }
       window.location.href = `/applications/${app.id}?safeDraft=1`
     } catch (cause) {
       setError(String(cause))

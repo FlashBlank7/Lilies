@@ -6,11 +6,16 @@ import struct
 import zlib
 from pathlib import Path
 
-from scripts.v04_03_browser_closure_gate import load_json, validate_browser_closure
+from scripts.v04_03_browser_closure_gate import (
+    DEFAULT_EVIDENCE,
+    DEFAULT_JOURNEY,
+    load_json,
+    validate_browser_closure,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
-JOURNEY = load_json(ROOT / "docs/workingon/v0.4.3_browser_journey.json")
+JOURNEY = load_json(DEFAULT_JOURNEY)
 
 
 def _png(width: int, height: int) -> bytes:
@@ -74,7 +79,7 @@ def _passing_evidence(root: Path) -> dict:
 
 
 def test_current_browser_evidence_is_rejected_until_real_browser_work_finishes() -> None:
-    evidence = load_json(ROOT / "docs/workingon/v0.4.3_browser_verification.json")
+    evidence = load_json(DEFAULT_EVIDENCE)
 
     errors = validate_browser_closure(root=ROOT, journey=JOURNEY, evidence=evidence)
 
@@ -95,17 +100,16 @@ def test_complete_browser_evidence_requires_real_hashed_pngs(tmp_path: Path) -> 
     assert "screenshot hash does not match: mode-and-stale-evidence" in errors
 
 
-def test_browser_gate_cli_defaults_point_to_active_evidence() -> None:
+def test_browser_gate_cli_defaults_survive_stage_archival() -> None:
     source = (ROOT / "scripts/v04_03_browser_closure_gate.py").read_text(encoding="utf-8")
     studio = (ROOT / "platform/frontend/app/applications/[id]/page.tsx").read_text(
         encoding="utf-8"
     )
-    journey = json.loads(
-        (ROOT / "docs/workingon/v0.4.3_browser_journey.json").read_text(encoding="utf-8")
-    )
+    journey = json.loads(DEFAULT_JOURNEY.read_text(encoding="utf-8"))
 
-    assert "docs/workingon/v0.4.3_browser_journey.json" in source
-    assert "docs/workingon/v0.4.3_browser_verification.json" in source
+    assert "docs/workingon-archives/v0.4.3" in source
+    assert DEFAULT_JOURNEY.is_file()
+    assert DEFAULT_EVIDENCE.is_file()
     assert {item["id"] for item in journey["interactions"]} == {
         "mode_policy",
         "stale_evidence_publish",

@@ -12,8 +12,17 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_JOURNEY = ROOT / "docs/workingon/v0.4.3_browser_journey.json"
-DEFAULT_EVIDENCE = ROOT / "docs/workingon/v0.4.3_browser_verification.json"
+
+
+def versioned_evidence_path(filename: str) -> Path:
+    active = ROOT / "docs/workingon" / filename
+    if active.exists():
+        return active
+    return ROOT / "docs/workingon-archives/v0.4.3" / filename
+
+
+DEFAULT_JOURNEY = versioned_evidence_path("v0.4.3_browser_journey.json")
+DEFAULT_EVIDENCE = versioned_evidence_path("v0.4.3_browser_verification.json")
 
 
 def load_json(path: Path) -> dict[str, Any]:

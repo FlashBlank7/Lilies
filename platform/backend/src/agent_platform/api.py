@@ -69,6 +69,7 @@ from .providers import ModelProvider
 from .providers.multi import MultiProvider
 from .runtime import AgentRuntime
 from .sandbox import SandboxManager
+from .scenarios import ScenarioCatalog
 from .scheduler import WorkflowScheduler
 from .storage import Storage
 from .template_models import TemplateCreateRequest
@@ -101,6 +102,8 @@ RUNTIME_ROUTE_CHECKS: dict[str, tuple[str, str]] = {
     "draft_detail": ("GET", "/api/v1/applications/{application_id}/draft"),
     "smoke_cleanup": ("POST", "/api/v1/applications/{application_id}/smoke-cleanup"),
     "requirement_intake": ("POST", "/api/v1/requirements/complete"),
+    "scenario_catalog": ("GET", "/api/v1/scenarios"),
+    "scenario_apply": ("POST", "/api/v1/applications/{application_id}/scenarios/{scenario_id}/apply"),
 }
 
 
@@ -209,6 +212,7 @@ class Services:
     builder: WorkflowBuilder
     scheduler: WorkflowScheduler
     templates: TemplateStore
+    scenarios: ScenarioCatalog
     benchmark: BuilderBenchmark
     draft_patcher: DraftPatchPreviewer
     acceptance_repairer: AcceptanceRepairPreviewer
@@ -241,6 +245,13 @@ class PlatformWorkerProcessStartRequest(BaseModel):
 class SmokeCleanupRequest(BaseModel):
     smoke_marker: str = Field(pattern=r"^v0\.3\.\d+-smoke$")
     dry_run: bool = True
+
+
+class ScenarioApplyRequest(BaseModel):
+    expected_revision: int = Field(ge=0)
+    expected_content_hash: str = Field(min_length=64, max_length=64)
+    replace_existing: bool = False
+    idempotency_key: str = Field(default_factory=lambda: str(uuid4()), min_length=1, max_length=200)
 
 
 class PlatformSecretCreateRequest(BaseModel):
@@ -624,6 +635,7 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         governed_memory=governed_memory,
     )
     templates = TemplateStore()
+    scenarios = ScenarioCatalog(blocks)
     benchmark = BuilderBenchmark()
     draft_patcher = DraftPatchPreviewer()
     acceptance_repairer = AcceptanceRepairPreviewer(blocks)
@@ -671,6 +683,7 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         builder=builder,
         scheduler=scheduler,
         templates=templates,
+        scenarios=scenarios,
         benchmark=benchmark,
         draft_patcher=draft_patcher,
         acceptance_repairer=acceptance_repairer,
@@ -1681,6 +1694,17 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
     async def list_schedules() -> list[dict[str, Any]]:
         return await services.scheduler.list_schedules()
 
+    @app.get("/api/v1/scenarios", dependencies=[Depends(require_token)])
+    async def list_scenarios() -> list[dict[str, Any]]:
+        return services.scenarios.list()
+
+    @app.get("/api/v1/scenarios/{scenario_id}", dependencies=[Depends(require_token)])
+    async def get_scenario(scenario_id: str) -> dict[str, Any]:
+        try:
+            return services.scenarios.get(scenario_id).model_dump(mode="json")
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+
     @app.post("/api/v1/applications", status_code=201, dependencies=[Depends(require_token)])
     async def create_application(body: ApplicationCreateRequest) -> dict[str, Any]:
         return await services.workflow_store.create_application(body)
@@ -1720,6 +1744,58 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             return draft
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
+
+    @app.post(
+        "/api/v1/applications/{application_id}/scenarios/{scenario_id}/apply",
+        dependencies=[Depends(require_token)],
+    )
+    async def apply_scenario_to_application(
+        application_id: str,
+        scenario_id: str,
+        body: ScenarioApplyRequest,
+    ) -> dict[str, Any]:
+        try:
+            scenario = services.scenarios.get(scenario_id)
+            draft = await services.workflow_store.get_draft(application_id)
+            snapshot = draft["snapshot"]
+            if (snapshot.workflow.nodes or snapshot.workflow.edges or snapshot.tests) and not body.replace_existing:
+                raise ValueError(
+                    "draft already contains workflow content; set replace_existing=true to replace it atomically"
+                )
+            result = await services.applications.apply_operations_atomically(
+                application_id,
+                expected_revision=body.expected_revision,
+                expected_content_hash=body.expected_content_hash,
+                operations=[
+                    {
+                        "op": "replace_workflow",
+                        "data": {"workflow": scenario.workflow.model_dump(mode="json")},
+                    },
+                    {
+                        "op": "replace_tests",
+                        "data": {
+                            "tests": [
+                                test.model_dump(mode="json")
+                                for test in scenario.acceptance_cases
+                            ]
+                        },
+                    },
+                ],
+                idempotency_key=body.idempotency_key,
+                change_context_operation="scenario_apply",
+            )
+            validation = await services.applications.validate_draft(application_id)
+            return {
+                **result,
+                "scenario": scenario.summary(),
+                "validation": validation,
+            }
+        except RevisionConflict as error:
+            raise HTTPException(409, str(error)) from error
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from error
 
     @app.post("/api/v1/applications/{application_id}/draft", dependencies=[Depends(require_token)])
     async def mutate_application_draft(

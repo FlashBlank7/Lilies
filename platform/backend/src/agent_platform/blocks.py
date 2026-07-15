@@ -139,8 +139,15 @@ class IterationConfig(BaseModel):
 class LoopConfig(BaseModel):
     workflow: WorkflowSpec
     variables: dict[str, Any] = Field(default_factory=dict)
+    initial_state: Any = None
+    state_input_name: str = Field(default="loop_state", pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
+    state_update: Any = None
+    feedback_input_name: str = Field(default="tool_feedback", pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
+    feedback_value: Any = None
     break_condition: Condition
     break_value: Any
+    cancel_condition: Condition | None = None
+    cancel_value: Any = None
     max_iterations: int = Field(default=10, ge=1, le=100)
     output_node_id: str
     checkpoint_each_iteration: bool = False
@@ -198,8 +205,15 @@ class ToolExecutorConfig(AgentArchitectureConfig):
             raise ValueError("tool_executor.settings.tool_name must be a string")
         if "tool_input" in value and not isinstance(value["tool_input"], dict):
             raise ValueError("tool_executor.settings.tool_input must be an object")
-        if "workspace_path" in value and value["workspace_path"] is not None and not isinstance(value["workspace_path"], str):
-            raise ValueError("tool_executor.settings.workspace_path must be a string")
+        workspace_path = value.get("workspace_path")
+        if workspace_path is not None and not (
+            isinstance(workspace_path, str)
+            or (
+                isinstance(workspace_path, dict)
+                and isinstance(workspace_path.get("$ref"), dict)
+            )
+        ):
+            raise ValueError("tool_executor.settings.workspace_path must be a string or workflow reference")
         return value
 
 
@@ -294,11 +308,19 @@ _EDITOR_FIELDS: dict[str, list[dict[str, Any]]] = {
         {"path": "settings.workspace_path", "label": "Workspace path", "label_zh": "工作区路径", "control": "text"},
     ],
     "loop": [
+        {"path": "initial_state", "label": "Initial loop state", "label_zh": "初始循环状态", "control": "json", "description": "State supplied to the first nested iteration."},
+        {"path": "state_input_name", "label": "State input name", "label_zh": "状态输入名", "control": "text", "required": True},
+        {"path": "state_update", "label": "Next state reference", "label_zh": "下一轮状态引用", "control": "reference_or_text", "description": "Nested output reference used as the next iteration state."},
+        {"path": "feedback_input_name", "label": "Feedback input name", "label_zh": "反馈输入名", "control": "text", "required": True},
+        {"path": "feedback_value", "label": "Tool feedback reference", "label_zh": "工具反馈引用", "control": "reference_or_text", "description": "Nested output reference fed into the next model decision."},
         {"path": "max_iterations", "label": "Maximum iterations", "label_zh": "最大循环次数", "control": "number", "minimum": 1, "maximum": 100, "step": 1, "required": True},
         {"path": "output_node_id", "label": "Output node", "label_zh": "输出积木 ID", "control": "text", "required": True},
         {"path": "break_condition.operator", "label": "Break operator", "label_zh": "退出判断", "control": "enum", "options": ["equals", "not_equals", "contains", "not_contains", "gt", "gte", "lt", "lte", "exists", "empty"], "required": True},
         {"path": "break_condition.expected", "label": "Expected break value", "label_zh": "预期退出值", "control": "reference_or_text"},
         {"path": "break_value", "label": "Observed break value", "label_zh": "实际判断值", "control": "reference_or_text", "required": True},
+        {"path": "cancel_condition.operator", "label": "Cancel operator", "label_zh": "取消判断", "control": "enum", "options": ["equals", "not_equals", "contains", "not_contains", "gt", "gte", "lt", "lte", "exists", "empty"]},
+        {"path": "cancel_condition.expected", "label": "Expected cancel value", "label_zh": "预期取消值", "control": "reference_or_text"},
+        {"path": "cancel_value", "label": "Observed cancel value", "label_zh": "实际取消判断值", "control": "reference_or_text"},
         {"path": "variables", "label": "Loop variables", "label_zh": "循环变量", "control": "json"},
         {"path": "checkpoint_each_iteration", "label": "Checkpoint every iteration", "label_zh": "每轮保存检查点", "control": "boolean", "description": "Persist iteration state for inspection and recovery."},
     ],
@@ -309,8 +331,8 @@ _EDITOR_NOTICES: dict[str, list[dict[str, str]]] = {
     "loop": [
         {
             "kind": "boundary",
-            "text": "Run cancellation remains controlled by the run-level cancel action and is checked at async node boundaries.",
-            "text_zh": "取消由运行级停止操作控制，并在异步积木边界生效。",
+            "text": "The Loop cancel condition stops at an iteration boundary; the run-level cancel action remains available at async node boundaries.",
+            "text_zh": "Loop 取消条件在一轮结束时生效；运行级停止仍可在异步积木边界取消整次运行。",
         },
         {
             "kind": "expert",
@@ -490,7 +512,7 @@ class BlockRegistry:
         }
 
     def template_names(self) -> list[str]:
-        return ["claude_like_coding_agent"]
+        return ["codex_like_workspace_agent", "claude_like_coding_agent"]
 
     def expand_template(
         self,
@@ -500,9 +522,11 @@ class BlockRegistry:
         x: float = 0,
         y: float = 0,
     ) -> WorkflowSpec:
-        if template_name != "claude_like_coding_agent":
-            raise KeyError(f"unknown workflow template: {template_name}")
-        return _claude_like_coding_agent_template(prefix=prefix, x=x, y=y)
+        if template_name == "codex_like_workspace_agent":
+            return _codex_like_workspace_agent_template(prefix=prefix, x=x, y=y)
+        if template_name == "claude_like_coding_agent":
+            return _claude_like_coding_agent_template(prefix=prefix, x=x, y=y)
+        raise KeyError(f"unknown workflow template: {template_name}")
 
     def validate_node(self, node: NodeSpec) -> BaseModel:
         definition = self.get(node.type)
@@ -728,6 +752,300 @@ def _arch_config(input_value: Any = None, settings: dict[str, Any] | None = None
 
 def _ref(node_id: str, *path: str) -> dict[str, Any]:
     return {"$ref": {"node_id": node_id, "path": list(path)}}
+
+
+def _optional_ref(node_id: str, *path: str) -> dict[str, Any]:
+    return {"$ref": {"node_id": node_id, "path": list(path), "optional": True}}
+
+
+def _codex_like_workspace_agent_template(*, prefix: str, x: float, y: float) -> WorkflowSpec:
+    def node(
+        suffix: str,
+        block_type: str,
+        title: str,
+        config: dict[str, Any],
+        column: int,
+        row: int = 0,
+    ) -> NodeSpec:
+        return NodeSpec(
+            id=f"{prefix}_{suffix}",
+            type=block_type,
+            title=title,
+            config=config,
+            position={"x": x + column * 260, "y": y + row * 150},
+        )
+
+    def edge(
+        source: str,
+        target: str,
+        source_port: str = "output",
+        target_port: str = "input",
+        branch: str | None = None,
+    ) -> EdgeSpec:
+        branch_suffix = f"_{branch}" if branch else ""
+        return EdgeSpec(
+            id=f"{prefix}_{source}_to_{target}{branch_suffix}",
+            source=f"{prefix}_{source}",
+            target=f"{prefix}_{target}",
+            source_port=source_port,
+            target_port=target_port,
+            branch=branch,
+        )
+
+    nested = WorkflowSpec(
+        nodes=[
+            NodeSpec(
+                id="loop_start",
+                type="start",
+                title="Iteration Context",
+                config={"inputs": [
+                    {"name": "iteration", "label": "Iteration", "type": "number"},
+                    {"name": "task", "label": "Task", "type": "string"},
+                    {"name": "workspace_path", "label": "Workspace", "type": "string"},
+                    {"name": "plan", "label": "Plan", "type": "object"},
+                    {"name": "agent_context", "label": "Agent context", "type": "object"},
+                    {"name": "loop_state", "label": "Loop state", "type": "object"},
+                    {"name": "tool_feedback", "label": "Prior tool feedback", "type": "any", "required": False},
+                    {"name": "previous", "label": "Prior iteration", "type": "object", "required": False},
+                    {"name": "cancel_requested", "label": "Cancel requested", "type": "boolean", "required": False, "default": False},
+                ]},
+            ),
+            NodeSpec(
+                id="loop_model_turn",
+                type="model_turn",
+                title="Decide Next Action",
+                config=_arch_config(_ref("loop_start", "output"), {
+                    "system": (
+                        "You are one observable turn in a workspace coding agent. Follow the approved plan, "
+                        "inspect prior tool feedback, choose at most one registered tool when more evidence or "
+                        "an edit is needed, and otherwise return the final customer-readable answer."
+                    ),
+                    "prompt": _ref("loop_start", "output"),
+                    "tools": ["Read", "Glob", "Grep", "Write", "Edit", "Bash", "WebSearch"],
+                }),
+            ),
+            NodeSpec(
+                id="loop_tool_router",
+                type="tool_call_router",
+                title="Route Tool Call",
+                config=_arch_config(_ref("loop_model_turn", "output")),
+            ),
+            NodeSpec(
+                id="loop_route_decision",
+                type="if_else",
+                title="Tool Or Final Answer",
+                config={
+                    "cases": [{
+                        "id": "use_tool",
+                        "conditions": [{
+                            "value": _ref("loop_tool_router", "output", "no_tool_calls"),
+                            "operator": "equals",
+                            "expected": False,
+                        }],
+                    }],
+                    "default_branch": "done",
+                },
+            ),
+            NodeSpec(
+                id="loop_tool_executor",
+                type="tool_executor",
+                title="Execute Routed Tool",
+                config=_arch_config(_ref("loop_tool_router", "output"), {
+                    "workspace_path": _ref("loop_start", "workspace_path"),
+                }),
+            ),
+            NodeSpec(
+                id="loop_tool_result",
+                type="tool_result_normalizer",
+                title="Normalize Tool Result",
+                config=_arch_config(_ref("loop_tool_executor", "output")),
+            ),
+            NodeSpec(
+                id="loop_no_tool_result",
+                type="variable_assigner",
+                title="Use Final Model Result",
+                config={"assignments": {"model_result": _ref("loop_model_turn", "output")}},
+            ),
+            NodeSpec(
+                id="loop_feedback_join",
+                type="variable_aggregator",
+                title="Join Iteration Feedback",
+                config={
+                    "variables": [
+                        _optional_ref("loop_tool_result", "output"),
+                        _optional_ref("loop_no_tool_result", "output"),
+                    ],
+                    "mode": "first_non_null",
+                },
+            ),
+            NodeSpec(
+                id="loop_stop",
+                type="stop_continue_controller",
+                title="Stop Or Continue",
+                config=_arch_config(_ref("loop_model_turn", "output")),
+            ),
+            NodeSpec(
+                id="loop_state_builder",
+                type="variable_assigner",
+                title="Update Loop State",
+                config={"assignments": {
+                    "iteration": _ref("loop_start", "iteration"),
+                    "task": _ref("loop_start", "task"),
+                    "plan": _ref("loop_start", "plan"),
+                    "model_result": _ref("loop_model_turn", "output"),
+                    "tool_feedback": _ref("loop_feedback_join", "output"),
+                    "continue": _ref("loop_stop", "output", "continue"),
+                    "stop_reason": _ref("loop_stop", "output", "stop_reason"),
+                    "cancel_requested": _ref("loop_start", "cancel_requested"),
+                }},
+            ),
+            NodeSpec(
+                id="loop_end",
+                type="end",
+                title="Iteration Output",
+                config={"outputs": {
+                    "answer": _ref("loop_model_turn", "text"),
+                    "model_result": _ref("loop_model_turn", "output"),
+                    "state": _ref("loop_state_builder", "output"),
+                    "feedback": _ref("loop_feedback_join", "output"),
+                    "continue": _ref("loop_stop", "output", "continue"),
+                    "stop_reason": _ref("loop_stop", "output", "stop_reason"),
+                    "cancel_requested": _ref("loop_state_builder", "output", "cancel_requested"),
+                }},
+            ),
+        ],
+        edges=[
+            EdgeSpec(id="loop_start_model", source="loop_start", target="loop_model_turn"),
+            EdgeSpec(id="loop_model_router", source="loop_model_turn", target="loop_tool_router"),
+            EdgeSpec(id="loop_router_decision", source="loop_tool_router", target="loop_route_decision"),
+            EdgeSpec(
+                id="loop_decision_tool",
+                source="loop_route_decision",
+                target="loop_tool_executor",
+                source_port="branch",
+                branch="use_tool",
+            ),
+            EdgeSpec(
+                id="loop_decision_done",
+                source="loop_route_decision",
+                target="loop_no_tool_result",
+                source_port="branch",
+                branch="done",
+            ),
+            EdgeSpec(id="loop_tool_normalize", source="loop_tool_executor", target="loop_tool_result"),
+            EdgeSpec(id="loop_tool_join", source="loop_tool_result", target="loop_feedback_join"),
+            EdgeSpec(id="loop_done_join", source="loop_no_tool_result", target="loop_feedback_join"),
+            EdgeSpec(id="loop_join_stop", source="loop_feedback_join", target="loop_stop"),
+            EdgeSpec(id="loop_stop_state", source="loop_stop", target="loop_state_builder"),
+            EdgeSpec(id="loop_state_end", source="loop_state_builder", target="loop_end"),
+        ],
+    )
+
+    nodes = [
+        node("start", "start", "Workspace Task", {"inputs": [
+            {"name": "task", "label": "What should the agent do?", "type": "string"},
+            {"name": "workspace_path", "label": "Workspace path", "type": "string", "required": False, "default": "."},
+            {"name": "network_policy", "label": "Network policy", "type": "string", "required": False, "default": "none"},
+            {"name": "cancel_requested", "label": "Cancel after this iteration", "type": "boolean", "required": False, "default": False},
+        ]}, 0),
+        node("context", "context_assembler", "Assemble Task Context", _arch_config(
+            _ref(f"{prefix}_start", "output"),
+            {"fragments": [_ref(f"{prefix}_start", "task")]},
+        ), 1),
+        node("workspace", "workspace_context_injector", "Inject Workspace Context", _arch_config(
+            _ref(f"{prefix}_context", "output"),
+            {"scope": "selected_workspace", "files": ["README.md", "AGENTS.md", "tests/"]},
+        ), 2),
+        node("compact", "context_compactor", "Compact Context", _arch_config(
+            _ref(f"{prefix}_workspace", "output"),
+            {"max_chars": 8000, "preserved_facts": ["task", "plan", "tool evidence", "permission decisions", "failed tests"]},
+        ), 3),
+        node("capabilities", "capability_registry", "Discover Capabilities", _arch_config(
+            _ref(f"{prefix}_compact", "output"),
+            {"tools": ["Read", "Glob", "Grep", "Write", "Edit", "Bash", "WebSearch"]},
+        ), 4),
+        node("plan", "model_turn", "Plan Workspace Task", _arch_config(
+            _ref(f"{prefix}_capabilities", "output"),
+            {
+                "system": (
+                    "Plan the workspace task before any mutating action. Return JSON with goal, steps, "
+                    "read_only_first, likely_tools, risks, and done_when. Do not execute tools in this block."
+                ),
+                "prompt": {
+                    "task": _ref(f"{prefix}_start", "task"),
+                    "context": _ref(f"{prefix}_capabilities", "output"),
+                },
+                "output_format": "json",
+            },
+        ), 5),
+        node("budget", "budget_gate", "Budget Gate", _arch_config(
+            _ref(f"{prefix}_plan", "output"),
+            {"max_cost_usd": 2.0, "spent_cost_usd": 0},
+        ), 6),
+        node("rounds", "round_limit", "Round Limit", _arch_config(
+            _ref(f"{prefix}_budget", "output"),
+            {"current_round": 0, "max_rounds": 8},
+        ), 7),
+        node("permission", "permission_gate", "Approve Plan", _arch_config(
+            _ref(f"{prefix}_plan", "output"),
+            {"mode": "plan_first", "reason": "Approve the displayed plan and workspace tool boundary."},
+        ), 8),
+        node("sandbox", "sandbox_boundary", "Workspace Boundary", _arch_config(
+            _ref(f"{prefix}_permission", "output"),
+            {
+                "workspace": _ref(f"{prefix}_start", "workspace_path"),
+                "network_policy": _ref(f"{prefix}_start", "network_policy"),
+            },
+        ), 9),
+        node("loop", "loop", "Plan-Act-Observe Loop", {
+            "workflow": nested.model_dump(mode="json"),
+            "variables": {
+                "task": _ref(f"{prefix}_start", "task"),
+                "workspace_path": _ref(f"{prefix}_start", "workspace_path"),
+                "plan": _ref(f"{prefix}_plan", "output"),
+                "agent_context": _ref(f"{prefix}_sandbox", "output"),
+                "cancel_requested": _ref(f"{prefix}_start", "cancel_requested"),
+            },
+            "initial_state": {
+                "task": _ref(f"{prefix}_start", "task"),
+                "plan": _ref(f"{prefix}_plan", "output"),
+                "completed_steps": [],
+            },
+            "state_input_name": "loop_state",
+            "state_update": _ref("loop_end", "state"),
+            "feedback_input_name": "tool_feedback",
+            "feedback_value": _ref("loop_end", "feedback"),
+            "break_condition": {"value": False, "operator": "equals", "expected": False},
+            "break_value": _ref("loop_end", "continue"),
+            "cancel_condition": {"value": False, "operator": "equals", "expected": True},
+            "cancel_value": _ref("loop_end", "cancel_requested"),
+            "max_iterations": 8,
+            "output_node_id": "loop_end",
+            "checkpoint_each_iteration": True,
+        }, 10),
+        node("trace", "event_recorder", "Record Agent Trace", _arch_config(
+            _ref(f"{prefix}_loop", "output"),
+            {"label": "codex_like_workspace_agent"},
+        ), 11),
+        node("answer", "answer", "Workspace Result", {
+            "answer": _ref(f"{prefix}_loop", "output", "answer"),
+        }, 12),
+    ]
+    edges = [
+        edge("start", "context"),
+        edge("context", "workspace"),
+        edge("workspace", "compact"),
+        edge("compact", "capabilities"),
+        edge("capabilities", "plan"),
+        edge("plan", "budget"),
+        edge("budget", "rounds"),
+        edge("rounds", "permission"),
+        edge("permission", "sandbox"),
+        edge("sandbox", "loop"),
+        edge("loop", "trace"),
+        edge("trace", "answer"),
+    ]
+    return WorkflowSpec(nodes=nodes, edges=edges)
 
 
 def _claude_like_coding_agent_template(*, prefix: str, x: float, y: float) -> WorkflowSpec:

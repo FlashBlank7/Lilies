@@ -615,16 +615,58 @@ class WorkflowRuntime:
             return {"items": await asyncio.gather(*(one(index, item) for index, item in enumerate(items)))}
         if isinstance(config, LoopConfig):
             variables = {key: self._resolve(value, context) for key, value in config.variables.items()}
+            loop_state = (
+                self._resolve(config.initial_state, context)
+                if config.initial_state is not None
+                else variables.get(config.state_input_name, {})
+            )
+            feedback = variables.get(config.feedback_input_name)
+            previous: Any = None
             nested: dict[str, dict[str, Any]] = {}
             for index in range(config.max_iterations):
+                nested_inputs = {
+                    **inputs,
+                    **variables,
+                    "iteration": index,
+                    "previous": previous,
+                    config.state_input_name: loop_state,
+                    config.feedback_input_name: feedback,
+                }
+                await self._emit(run_id, "loop.iteration.started", {
+                    "node_id": scoped_id,
+                    "iteration": index + 1,
+                    "state": self._redact(loop_state),
+                    "feedback": self._redact(feedback),
+                })
                 nested = await self._run_graph(
                     snapshot,
                     config.workflow,
-                    {**inputs, **variables, "iteration": index},
+                    nested_inputs,
                     workspace_path,
                     run_id,
                     prefix=f"{scoped_id}[{index}].",
                 )
+                loop_context = {"inputs": nested_inputs, "nodes": nested}
+                output = nested.get(config.output_node_id, {})
+                next_state = (
+                    self._resolve(config.state_update, loop_context)
+                    if config.state_update is not None
+                    else output.get("state", loop_state) if isinstance(output, dict) else loop_state
+                )
+                next_feedback = (
+                    self._resolve(config.feedback_value, loop_context)
+                    if config.feedback_value is not None
+                    else output.get("feedback", feedback) if isinstance(output, dict) else feedback
+                )
+                break_value = self._resolve(config.break_value, loop_context)
+                break_condition = config.break_condition.model_copy(update={"value": break_value})
+                should_break = self._evaluate(break_condition, loop_context)
+                cancel_value: Any = None
+                should_cancel = False
+                if config.cancel_condition is not None:
+                    cancel_value = self._resolve(config.cancel_value, loop_context)
+                    cancel_condition = config.cancel_condition.model_copy(update={"value": cancel_value})
+                    should_cancel = self._evaluate(cancel_condition, loop_context)
                 if config.checkpoint_each_iteration:
                     checkpoint_id = f"{scoped_id}:iteration:{index + 1}"
                     await self.storage.save_checkpoint(
@@ -635,7 +677,11 @@ class WorkflowRuntime:
                             "iteration": index + 1,
                             "variables": variables,
                             "output_node_id": config.output_node_id,
-                            "output": nested.get(config.output_node_id, {}),
+                            "output": output,
+                            "state": next_state,
+                            "feedback": next_feedback,
+                            "break_value": break_value,
+                            "cancel_value": cancel_value,
                         },
                     )
                     await self._emit(run_id, "loop.checkpoint.saved", {
@@ -643,13 +689,31 @@ class WorkflowRuntime:
                         "checkpoint_id": checkpoint_id,
                         "iteration": index + 1,
                     })
-                loop_context = {"inputs": {**inputs, **variables}, "nodes": nested}
-                condition = config.break_condition.model_copy(
-                    update={"value": self._resolve(config.break_value, loop_context)}
-                )
-                if self._evaluate(condition, loop_context):
-                    return {"output": nested.get(config.output_node_id, {}), "iterations": index + 1}
-                variables["previous"] = nested.get(config.output_node_id, {})
+                stop_reason = "cancelled" if should_cancel else "break_condition" if should_break else "continue"
+                await self._emit(run_id, "loop.iteration.completed", {
+                    "node_id": scoped_id,
+                    "iteration": index + 1,
+                    "state": self._redact(next_state),
+                    "feedback": self._redact(next_feedback),
+                    "break_value": self._redact(break_value),
+                    "cancel_value": self._redact(cancel_value),
+                    "stop_reason": stop_reason,
+                })
+                result = {
+                    "output": output,
+                    "iterations": index + 1,
+                    "state": next_state,
+                    "feedback": next_feedback,
+                    "stop_reason": stop_reason,
+                    "cancelled": should_cancel,
+                }
+                if should_cancel or should_break:
+                    return result
+                previous = output
+                loop_state = next_state
+                feedback = next_feedback
+                variables[config.state_input_name] = loop_state
+                variables[config.feedback_input_name] = feedback
             raise RuntimeError(f"loop did not meet break condition after {config.max_iterations} iterations")
         if isinstance(config, HumanInputConfig):
             preset = inputs.get("__human__", {}).get(node.id) if isinstance(inputs.get("__human__"), dict) else None

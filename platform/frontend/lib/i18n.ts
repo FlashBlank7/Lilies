@@ -166,6 +166,15 @@ export const messages = {
     clearSelectedScenario: '清除选择',
     customerExamples: [
       {
+        id: 'codex_workspace_agent',
+        role: '软件团队',
+        title: 'Codex 式工作区智能体',
+        need: '我希望智能体先规划，再在受控工作区里读文件、执行工具、根据结果继续判断并交付答案。',
+        requirement: '为软件团队搭建一个 Codex 式工作区智能体：使用者输入一项自然语言任务和工作区路径；智能体先读取工作区上下文并给出可检查计划，得到批准后才能调用已注册的文件、搜索、编辑或命令工具；每次工具结果必须回到下一轮模型决策，直到满足停止条件；运行要显示当前步骤、权限等待、逐轮 trace、检查点和最终客户可读结果；默认禁止网络，不能宣称可访问 Lilies 配置边界之外的宿主机。',
+        expectedOutcome: '得到可编辑的规划、工具反馈循环、权限边界、运行进度和最终结果。',
+        acceptanceSignal: '验收必须证明真实 Read 工具结果进入下一轮决策，并明确当前只达到隔离工作区的组件级证据。',
+      },
+      {
         id: 'business_owner',
         role: '业务负责人',
         title: '客户流转响应助手',
@@ -948,6 +957,15 @@ export const messages = {
     selectedScenarioSummaryTitle: 'Current customer behavior',
     clearSelectedScenario: 'Clear selection',
     customerExamples: [
+      {
+        id: 'codex_workspace_agent',
+        role: 'Software team',
+        title: 'Codex-like workspace agent',
+        need: 'I want an agent to plan first, use tools inside a bounded workspace, observe results, and keep deciding until it can deliver.',
+        requirement: 'Build a Codex-like workspace agent for a software team. The user submits a natural-language task and workspace path. The agent inspects workspace context and presents an editable plan before approval. After approval it may use registered file, search, edit, or command tools. Every tool result must feed the next model decision until an explicit stop condition is met. The runtime must show progress, permission waits, per-iteration trace, checkpoints, and one customer-readable result. Network access defaults to none, and the workflow must not claim access outside the Lilies workspace boundary.',
+        expectedOutcome: 'An editable planning and tool-feedback loop with permission boundaries, visible progress, and a final result.',
+        acceptanceSignal: 'Acceptance must prove a real Read result reaches the next model turn and label the current evidence as isolated component-level verification.',
+      },
       {
         id: 'business_owner',
         role: 'Business owner',

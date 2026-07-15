@@ -5,7 +5,12 @@ from pathlib import Path
 
 import pytest
 
-from scripts.v04_03_browser_closure_gate import load_json, validate_browser_closure
+from scripts.v04_03_browser_closure_gate import (
+    DEFAULT_EVIDENCE,
+    DEFAULT_JOURNEY,
+    load_json,
+    validate_browser_closure,
+)
 from scripts.v04_03_browser_evidence_recorder import (
     finalize,
     record_browser,
@@ -19,8 +24,8 @@ from tests.test_v04_03_browser_closure_gate import _passing_evidence
 
 
 ROOT = Path(__file__).resolve().parents[1]
-JOURNEY = load_json(ROOT / "docs/workingon/v0.4.3_browser_journey.json")
-BLOCKED = load_json(ROOT / "docs/workingon/v0.4.3_browser_verification.json")
+JOURNEY = load_json(DEFAULT_JOURNEY)
+BLOCKED = load_json(DEFAULT_EVIDENCE)
 
 
 def test_partial_recorder_updates_always_remain_blocked(tmp_path: Path) -> None:

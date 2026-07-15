@@ -4712,6 +4712,7 @@ def test_builder_template_list_includes_marketplace_and_server_defined_templates
         assert list_events and list_events[0]["data"]["success"] is True
         templates = json.loads(list_events[0]["data"]["result"])
         by_name = {item["name"]: item for item in templates}
+        assert by_name["codex_like_workspace_agent"]["source"] == "server_defined"
         assert by_name["claude_like_coding_agent"]["source"] == "server_defined"
         assert by_name["code_reviewer"]["source"] == "marketplace"
         assert by_name["code_reviewer"]["recommended_action"] == "expand_template"

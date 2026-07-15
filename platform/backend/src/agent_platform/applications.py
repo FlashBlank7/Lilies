@@ -11,6 +11,7 @@ from .workflow_models import (
     DraftOperation,
     EdgeSpec,
     NodeSpec,
+    WorkflowSpec,
     WorkflowTestCase,
 )
 from .workflow_storage import RevisionConflict, WorkflowStorage
@@ -48,9 +49,10 @@ class ApplicationService:
         expected_content_hash: str,
         operations: list[dict[str, Any]],
         idempotency_key: str,
+        change_context_operation: str = "acceptance_repair",
     ) -> dict[str, Any]:
         if not operations:
-            raise ValueError("acceptance repair has no operations")
+            raise ValueError("atomic draft update has no operations")
         draft = await self.store.get_draft(application_id)
         if int(draft["revision"]) != expected_revision:
             raise RevisionConflict(
@@ -79,7 +81,7 @@ class ApplicationService:
             expected_revision=expected_revision,
             idempotency_key=idempotency_key,
             change_context={
-                "operation": "acceptance_repair",
+                "operation": change_context_operation,
                 "operation_count": len(operation_names),
                 "operation_types": operation_names[:20],
             },
@@ -159,6 +161,17 @@ class ApplicationService:
         elif operation == "remove_test":
             test_id = str(data["test_id"])
             snapshot.tests = [item for item in snapshot.tests if item.id != test_id]
+        elif operation == "replace_workflow":
+            workflow = WorkflowSpec.model_validate(data["workflow"])
+            errors = self.blocks.validate_workflow(workflow)
+            if errors:
+                raise ValueError("replacement workflow is invalid: " + "; ".join(errors))
+            snapshot.workflow = workflow
+        elif operation == "replace_tests":
+            tests = [WorkflowTestCase.model_validate(item) for item in data.get("tests", [])]
+            if not any(test.mandatory for test in tests):
+                raise ValueError("replacement tests require at least one mandatory case")
+            snapshot.tests = tests
         else:
             raise ValueError(f"unsupported draft operation: {operation}")
 
