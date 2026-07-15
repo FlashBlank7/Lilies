@@ -2,7 +2,7 @@
 
 Version: `v0.3.13`
 Stage: `acceptance_publish_guidance`
-Source stage report: `docs/stage-reports/v0.3.12_canvas_node_inspector_guidance.md`
+Source stage report: `docs/stage-report-archives/v0.3.x/v0.3.12_canvas_node_inspector_guidance.md`
 
 ## Work Performed
 

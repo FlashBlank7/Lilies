@@ -63,7 +63,7 @@
       "statement": "Turn failed acceptance cases into actionable repair suggestions and a one-click Builder Team workflow-edit preview.",
       "acceptance": "A failed case exposes structured advice and can open a natural-language workflow edit preview carrying the relevant workflow, node, trace, and failure context.",
       "status": "partial",
-      "evidence": ["docs/stage-reports/v0.3.54_acceptance_auto_repair.md"]
+      "evidence": ["docs/stage-report-archives/v0.3.x/v0.3.54_acceptance_auto_repair.md"]
     },
     {
       "id": "PRODUCT-006",
@@ -90,7 +90,7 @@
       "statement": "Separate Customer Runtime, Engineer Studio, and Governance Console information architectures.",
       "acceptance": "Customer runtime does not expose engineering JSON or platform internals; Studio retains workflow engineering; governance is available outside one application detail page.",
       "status": "partial",
-      "evidence": ["docs/stage-reports/v0.3.48_customer_facing_workflow_run_interface.md"]
+      "evidence": ["docs/stage-report-archives/v0.3.x/v0.3.48_customer_facing_workflow_run_interface.md"]
     },
     {
       "id": "PRODUCT-009",

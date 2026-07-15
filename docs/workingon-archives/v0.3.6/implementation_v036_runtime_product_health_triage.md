@@ -4,7 +4,7 @@
 
 ## Source
 
-- Source stage report: `docs/stage-reports/v0.3.5_smoke_archive_cleanup_boundary.md`
+- Source stage report: `docs/stage-report-archives/v0.3.x/v0.3.5_smoke_archive_cleanup_boundary.md`
 - Active designs:
   - `docs/current-design/design_v036_runtime_current_code_health.md`
   - `docs/current-design/design_v036_customer_persona_blackbox_triage.md`

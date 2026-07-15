@@ -1,6 +1,6 @@
 # v0.3.55 Remove Japanese Learner Customer Group
 
-- Source stage report: `docs/stage-reports/v0.3.54_acceptance_auto_repair.md`
+- Source stage report: `docs/stage-report-archives/v0.3.x/v0.3.54_acceptance_auto_repair.md`
 - User-triggered task: remove Japanese learner from the customer groups.
 - Closure: homepage customer scenarios and customer requirement examples no longer expose Japanese learner / 日语学习者.
 

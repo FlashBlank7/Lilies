@@ -2,7 +2,7 @@
 
 Version: `v0.3.10`
 Stage: `hydrated_frontend_verification_recovery`
-Source stage report: `docs/stage-reports/v0.3.9_build_action_cost_guard.md`
+Source stage report: `docs/stage-report-archives/v0.3.x/v0.3.9_build_action_cost_guard.md`
 
 ## Work Performed
 

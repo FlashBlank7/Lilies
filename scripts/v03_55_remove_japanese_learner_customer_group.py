@@ -106,7 +106,7 @@ def regression_manifest_check() -> dict[str, Any]:
     pass_count = current_lane.get("expected", {}).get("pass_count", 0)
     cases = {
         "manifest_version_is_v0355": manifest.get("version") == "v0.3.55",
-        "source_stage_report_is_v0354": manifest.get("source_stage_report") == "docs/stage-reports/v0.3.54_acceptance_auto_repair.md",
+        "source_stage_report_is_v0354": manifest.get("source_stage_report") == "docs/stage-report-archives/v0.3.x/v0.3.54_acceptance_auto_repair.md",
         "v0355_test_in_command": "tests/test_v03_55_remove_japanese_learner_customer_group.py" in command,
         "v0355_test_in_test_files": "tests/test_v03_55_remove_japanese_learner_customer_group.py" in test_files,
         "pass_count_not_less_than_v0355_floor": isinstance(pass_count, int) and pass_count >= 319,

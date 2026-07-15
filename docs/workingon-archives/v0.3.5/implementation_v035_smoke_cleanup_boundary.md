@@ -4,7 +4,7 @@
 
 ## Source
 
-- Source stage report: `docs/stage-reports/v0.3.4_browser_flow_and_smoke_retention.md`
+- Source stage report: `docs/stage-report-archives/v0.3.x/v0.3.4_browser_flow_and_smoke_retention.md`
 - Active designs:
   - `docs/current-design/design_v035_smoke_cleanup_api_boundary.md`
   - `docs/current-design/design_v035_cleanup_retention_harness.md`

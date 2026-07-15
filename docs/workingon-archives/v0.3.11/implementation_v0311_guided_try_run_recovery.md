@@ -2,7 +2,7 @@
 
 Version: `v0.3.11`
 Stage: `guided_try_run_recovery`
-Source stage report: `docs/stage-reports/v0.3.10_hydrated_frontend_verification_recovery.md`
+Source stage report: `docs/stage-report-archives/v0.3.x/v0.3.10_hydrated_frontend_verification_recovery.md`
 
 ## Work Performed
 

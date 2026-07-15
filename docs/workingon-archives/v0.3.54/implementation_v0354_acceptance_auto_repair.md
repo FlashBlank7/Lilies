@@ -1,6 +1,6 @@
 # v0.3.54 Acceptance Auto-Repair Implementation
 
-- Source stage report: `docs/stage-reports/v0.3.53_markdown_result_renderer.md`
+- Source stage report: `docs/stage-report-archives/v0.3.x/v0.3.53_markdown_result_renderer.md`
 - User-triggered task: acceptance gate failures showed missing required brick types and no automatic repair path.
 - Closure: deterministic repair preview plus confirmed draft application path.
 

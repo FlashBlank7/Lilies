@@ -4,7 +4,7 @@
 
 ## Source
 
-- Stage report: `docs/stage-reports/v0.3.22_application_list_view_reset.md`
+- Stage report: `docs/stage-report-archives/v0.3.x/v0.3.22_application_list_view_reset.md`
 - Accepted next-stage task set:
   - `Start v0.3.23_customer_scenario_selection_summary`
   - `Add selected scenario summary`

@@ -1,6 +1,6 @@
 {
   "version": "v0.3.55",
-  "source_stage_report": "docs/stage-reports/v0.3.54_acceptance_auto_repair.md",
+  "source_stage_report": "docs/stage-report-archives/v0.3.x/v0.3.54_acceptance_auto_repair.md",
   "policy": {
     "current_gate": "v0.3.x_current_release_gate",
     "full_historical_sweep": "diagnostic_non_gating",
@@ -155,7 +155,7 @@
         "-q"
       ],
       "last_observed": {
-        "source_stage_report": "docs/stage-reports/v0.3.14_monitor_trace_readability.md",
+        "source_stage_report": "docs/stage-report-archives/v0.3.x/v0.3.14_monitor_trace_readability.md",
         "command": ".venv/bin/python -m pytest tests -q",
         "passed_count": 403,
         "failed_count": 25,

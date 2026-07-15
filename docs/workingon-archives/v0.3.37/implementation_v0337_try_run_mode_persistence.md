@@ -2,7 +2,7 @@
 
 ## Source
 
-- Source stage report: `docs/stage-reports/v0.3.36_try_run_mode_visibility.md`
+- Source stage report: `docs/stage-report-archives/v0.3.x/v0.3.36_try_run_mode_visibility.md`
 - Version: `v0.3.37_try_run_mode_persistence`
 
 ## Customer Behavior Simulated

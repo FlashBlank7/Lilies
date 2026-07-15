@@ -47,7 +47,7 @@
     "id": "full_historical_diagnostic",
     "status": "diagnostic_non_gating",
     "last_observed": {
-      "source_stage_report": "docs/stage-reports/v0.3.14_monitor_trace_readability.md",
+      "source_stage_report": "docs/stage-report-archives/v0.3.x/v0.3.14_monitor_trace_readability.md",
       "command": ".venv/bin/python -m pytest tests -q",
       "passed_count": 403,
       "failed_count": 25,

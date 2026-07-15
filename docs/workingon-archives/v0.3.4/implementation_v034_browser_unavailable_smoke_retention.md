@@ -2,7 +2,7 @@
 
 ## Source
 
-- Source stage report: `docs/stage-reports/v0.3.3_safe_draft_starter_skeleton_and_cleanup.md`
+- Source stage report: `docs/stage-report-archives/v0.3.x/v0.3.3_safe_draft_starter_skeleton_and_cleanup.md`
 - Version target: `v0.3.4_browser_flow_and_smoke_retention`
 
 ## Implemented Work

@@ -2,7 +2,7 @@
 
 ## Source
 
-- Source stage report: `docs/stage-reports/v0.3.42_try_run_status_last_updated.md`
+- Source stage report: `docs/stage-report-archives/v0.3.x/v0.3.42_try_run_status_last_updated.md`
 - Version: `v0.3.43_try_run_input_error_visibility`
 
 ## Customer Behavior Simulated

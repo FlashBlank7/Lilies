@@ -4,7 +4,7 @@
 
 ## Source
 
-- Stage report: `docs/stage-reports/v0.3.19_application_card_quick_actions.md`
+- Stage report: `docs/stage-report-archives/v0.3.x/v0.3.19_application_card_quick_actions.md`
 - Accepted next-stage task set:
   - `Start v0.3.20_detail_tab_url_state`
   - `Add safe tab setter`

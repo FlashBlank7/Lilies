@@ -4,7 +4,7 @@
 
 ## Source
 
-- Stage report: `docs/stage-reports/v0.3.23_customer_scenario_selection_summary.md`
+- Stage report: `docs/stage-report-archives/v0.3.x/v0.3.23_customer_scenario_selection_summary.md`
 - Accepted next-stage task set:
   - `Start v0.3.24_requirement_readiness_summary`
   - `Add requirement readiness summary`

@@ -4,7 +4,7 @@
 
 ## Source
 
-- Stage report: `docs/stage-reports/v0.3.21_application_list_url_state.md`
+- Stage report: `docs/stage-report-archives/v0.3.x/v0.3.21_application_list_url_state.md`
 - Accepted next-stage task set:
   - `Start v0.3.22_application_list_view_reset`
   - `Add list-state summary`

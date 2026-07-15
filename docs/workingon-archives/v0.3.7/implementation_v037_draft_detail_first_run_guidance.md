@@ -4,7 +4,7 @@
 
 ## Source
 
-- Source stage report: `docs/stage-reports/v0.3.6_runtime_product_health_triage.md`
+- Source stage report: `docs/stage-report-archives/v0.3.x/v0.3.6_runtime_product_health_triage.md`
 - Active designs:
   - `docs/current-design/design_v037_detail_first_run_orientation.md`
   - `docs/current-design/design_v037_draft_next_action_checklist.md`

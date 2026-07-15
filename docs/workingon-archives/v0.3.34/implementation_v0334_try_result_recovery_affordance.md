@@ -2,7 +2,7 @@
 
 ## Source
 
-- Source stage report: `docs/stage-reports/v0.3.33_try_run_result_interpretation.md`
+- Source stage report: `docs/stage-report-archives/v0.3.x/v0.3.33_try_run_result_interpretation.md`
 - Version: `v0.3.34_try_result_recovery_affordance`
 
 ## Customer Behavior Simulated

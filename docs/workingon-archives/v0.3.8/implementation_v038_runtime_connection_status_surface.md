@@ -4,7 +4,7 @@
 
 ## Source
 
-- Source stage report: `docs/stage-reports/v0.3.7_draft_detail_first_run_guidance.md`
+- Source stage report: `docs/stage-report-archives/v0.3.x/v0.3.7_draft_detail_first_run_guidance.md`
 - Active designs:
   - `docs/current-design/design_v038_health_derived_status_model.md`
   - `docs/current-design/design_v038_home_runtime_status_surface.md`

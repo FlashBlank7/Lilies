@@ -2,7 +2,7 @@
 
 ## Source
 
-- Source stage report: `docs/stage-reports/v0.3.43_try_run_input_error_visibility.md`
+- Source stage report: `docs/stage-report-archives/v0.3.x/v0.3.43_try_run_input_error_visibility.md`
 - Version: `v0.3.44_try_run_input_error_action_guard`
 
 ## Customer Behavior Simulated

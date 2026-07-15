@@ -2,7 +2,7 @@
 
 ## Source
 
-- Source stage report: `docs/stage-reports/v0.3.31_detail_build_recommended_action.md`
+- Source stage report: `docs/stage-report-archives/v0.3.x/v0.3.31_detail_build_recommended_action.md`
 - Version: `v0.3.32_try_run_sample_input_visibility`
 
 ## Customer Behavior Simulated

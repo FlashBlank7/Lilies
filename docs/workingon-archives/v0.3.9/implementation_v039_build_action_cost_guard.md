@@ -2,7 +2,7 @@
 
 Version: `v0.3.9`
 Stage: `build_action_cost_guard`
-Source stage report: `docs/stage-reports/v0.3.8_runtime_connection_status_surface.md`
+Source stage report: `docs/stage-report-archives/v0.3.x/v0.3.8_runtime_connection_status_surface.md`
 
 ## Work Performed
 

@@ -2,7 +2,7 @@
 
 ## Source
 
-- Source stage report: `docs/stage-reports/v0.3.1_customer_requirement_intake_and_blackbox_flow.md`
+- Source stage report: `docs/stage-report-archives/v0.3.x/v0.3.1_customer_requirement_intake_and_blackbox_flow.md`
 - Version target: `v0.3.2_bounded_create_open_detail_flow`
 
 ## Implemented Work

@@ -4,7 +4,7 @@
 
 ## Source
 
-- Stage report: `docs/stage-reports/v0.3.17_application_list_status_filters.md`
+- Stage report: `docs/stage-report-archives/v0.3.x/v0.3.17_application_list_status_filters.md`
 - Accepted next-stage task set:
   - `Start v0.3.18_application_list_search_sort`
   - `Add app-list search`

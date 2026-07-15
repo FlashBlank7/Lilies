@@ -2,7 +2,7 @@
 
 ## Source
 
-- Source stage report: `docs/stage-reports/v0.3.40_try_run_cancel_safety_confirmation.md`
+- Source stage report: `docs/stage-report-archives/v0.3.x/v0.3.40_try_run_cancel_safety_confirmation.md`
 - Version: `v0.3.41_try_run_cancel_progress_feedback`
 
 ## Customer Behavior Simulated

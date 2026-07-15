@@ -49,6 +49,43 @@ def test_current_contract_lock_is_frozen_in_its_first_git_commit() -> None:
     assert errors == []
 
 
+def test_program_charter_is_frozen_and_uses_registry_intent_ids() -> None:
+    module = load_validator()
+    registry = module.load_registry()
+
+    errors = module.validate_program_charter_lock(ROOT, registry, require_git_baseline=True)
+
+    assert errors == []
+
+
+def test_prior_major_stage_report_sets_are_fully_archived() -> None:
+    module = load_validator()
+
+    assert module.validate_prior_major_archives(ROOT, "v0.4.2") == []
+
+
+def test_prior_major_archive_validator_rejects_active_old_report(tmp_path: Path) -> None:
+    module = load_validator()
+    active = tmp_path / "docs/stage-reports"
+    active.mkdir(parents=True)
+    (active / "v0.3.56_old.md").write_text("# old\n", encoding="utf-8")
+    for minor in (2, 3):
+        archive = tmp_path / f"docs/stage-report-archives/v0.{minor}.x"
+        archive.mkdir(parents=True)
+        (archive / "README.md").write_text("# archive\n", encoding="utf-8")
+        (archive / f"v0.{minor}.1_stage.md").write_text("# stage\n", encoding="utf-8")
+        phases = tmp_path / "docs/phase-reports"
+        phases.mkdir(parents=True, exist_ok=True)
+        (phases / f"v0.{minor}.0_closeout.md").write_text("# closeout\n", encoding="utf-8")
+    (tmp_path / "docs/stage-report-archives/README.md").write_text(
+        "v0.2.x/\nv0.3.x/\n", encoding="utf-8"
+    )
+
+    errors = module.validate_prior_major_archives(tmp_path, "v0.4.2")
+
+    assert any("completed prior-major stage report remains active" in error for error in errors)
+
+
 def test_campaign_closure_rejects_non_terminal_intents() -> None:
     module = load_validator()
 

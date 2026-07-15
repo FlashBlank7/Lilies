@@ -28,6 +28,7 @@
 ## 当前大版本报告
 
 - `phase-reports/v0.2.0_experiment_productization_closeout.md`
+- `phase-reports/v0.3.0_product_usability_buffer_closeout.md`
 
 ## 当前架构实施基线
 
@@ -47,6 +48,7 @@
 ## 已归档 Stage Report Sets
 
 - `stage-report-archives/v0.2.x/`：`v0.2.1` 到 `v0.2.144`，共 144 个 stage reports，已由 `phase-reports/v0.2.0_experiment_productization_closeout.md` 收口。
+- `stage-report-archives/v0.3.x/`：`v0.3.0` 到 `v0.3.56`，共 57 个 stage reports，已由 `phase-reports/v0.3.0_product_usability_buffer_closeout.md` 收口；归档不等于产品 release-ready，已知回归债保留在 phase report。
 
 ## 使用原则
 

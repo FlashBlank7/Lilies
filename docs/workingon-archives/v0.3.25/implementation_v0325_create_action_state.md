@@ -2,7 +2,7 @@
 
 ## Source
 
-- Source stage report: `docs/stage-reports/v0.3.24_requirement_readiness_summary.md`
+- Source stage report: `docs/stage-report-archives/v0.3.x/v0.3.24_requirement_readiness_summary.md`
 - Source tasks:
   - Start `v0.3.25_create_action_state_explainer`
   - Add create action explainer

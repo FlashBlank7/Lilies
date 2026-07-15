@@ -2,7 +2,7 @@
 
 ## Source
 
-- Source stage report: `docs/stage-reports/v0.3.30_detail_build_action_state_explainer.md`
+- Source stage report: `docs/stage-report-archives/v0.3.x/v0.3.30_detail_build_action_state_explainer.md`
 - Source tasks:
   - Start `v0.3.31_detail_build_recommended_action`
   - Add detail build recommended-action affordance

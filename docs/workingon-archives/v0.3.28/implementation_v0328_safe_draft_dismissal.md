@@ -2,7 +2,7 @@
 
 ## Source
 
-- Source stage report: `docs/stage-reports/v0.3.27_safe_draft_landing_handoff.md`
+- Source stage report: `docs/stage-report-archives/v0.3.x/v0.3.27_safe_draft_landing_handoff.md`
 - Source tasks:
   - Start `v0.3.28_safe_draft_landing_dismissal`
   - Add safe-draft landing dismiss action

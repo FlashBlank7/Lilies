@@ -330,6 +330,35 @@ def validate_workingon_authority(root: Path) -> list[str]:
     return errors
 
 
+def validate_prior_major_archives(root: Path, current_version: str) -> list[str]:
+    match = re.fullmatch(r"v(\d+)\.(\d+)\.(\d+)", current_version)
+    if match is None:
+        return []
+    major, current_minor, _patch = (int(part) for part in match.groups())
+    errors: list[str] = []
+    active_dir = root / "docs/stage-reports"
+    for path in sorted(active_dir.glob(f"v{major}.*.*.md")):
+        path_match = re.match(rf"v{major}\.(\d+)\.(\d+)", path.name)
+        if path_match and int(path_match.group(1)) < current_minor:
+            errors.append(f"completed prior-major stage report remains active: {path.relative_to(root)}")
+    archive_index = root / "docs/stage-report-archives/README.md"
+    archive_index_text = archive_index.read_text(encoding="utf-8") if archive_index.exists() else ""
+    for minor in range(2, current_minor):
+        archive_dir = root / f"docs/stage-report-archives/v{major}.{minor}.x"
+        reports = sorted(archive_dir.glob(f"v{major}.{minor}.*.md")) if archive_dir.exists() else []
+        if not reports:
+            errors.append(f"prior-major archive is missing or empty: v{major}.{minor}.x")
+            continue
+        if not (archive_dir / "README.md").exists():
+            errors.append(f"prior-major archive README is missing: v{major}.{minor}.x")
+        phase_reports = list((root / "docs/phase-reports").glob(f"v{major}.{minor}.0_*.md"))
+        if not phase_reports:
+            errors.append(f"prior-major phase report is missing: v{major}.{minor}.x")
+        if f"v{major}.{minor}.x/" not in archive_index_text:
+            errors.append(f"prior-major archive index entry is missing: v{major}.{minor}.x")
+    return errors
+
+
 def validate_contract_lock(
     *,
     root: Path,
@@ -413,6 +442,7 @@ def validate_stage_report(path: Path, registry_path: Path = DEFAULT_REGISTRY) ->
     if not field_value(identity, "Stage scope justification") or "Explain why" in identity:
         errors.append("stage scope justification is missing or placeholder")
     version = field_value(identity, "Version")
+    errors.extend(validate_prior_major_archives(root, version))
 
     source_block = section_text(text, "Source Task Set", ["Stage Contract"])
     source_table = parse_first_table(source_block)
