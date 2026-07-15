@@ -14,6 +14,7 @@
 10. `historical-designs/`：已经具备明确版本 state 的历史 design，只保存最终设计契约。
 11. `phase-reports/`：大版本完成后的总复盘和路线转向。
 12. `source-materials/`：早期长报告、会议材料、论文草稿和历史证据链。
+13. `evolution-control/`：报告落地 Campaign 的不可变意图约束、稳定意图 ID 和长任务闭环规则；它约束 stage report，但不产生下一阶段任务。
 
 ## 当前稳定资产
 
@@ -28,14 +29,20 @@
 
 - `phase-reports/v0.2.0_experiment_productization_closeout.md`
 
+## 当前架构实施基线
+
+- 最新批注吸收报告：`lilies_agent_scenario_capability_boundary_v0_4_x_latest.docx`
+- Program Charter：`evolution-control/PROGRAM_CHARTER.md`
+- 稳定意图登记：`evolution-control/report_intents.json`
+
 ## 当前阶段报告
 
-当前 active stage report 区域用于当前大版本的小版本报告。`v0.2.x` 已完成大版本归档，`v0.3.x` 已从 `v0.3.0_product_usability_stabilization` 开始。
+当前 active stage report 区域用于当前大版本的小版本报告。`v0.2.x` 已完成大版本归档，`v0.3.x` 已进入可用性缓冲完成段，当前推进到 `v0.4.x`。
 
 - 模板：`stage-reports/STAGE_REPORT_TEMPLATE.md`
 - 最新 handoff：`stage-report-archives/v0.2.x/v0.2.144_v02x_closeout_and_v03_handoff.md`
-- 最新 active stage report：`stage-reports/v0.3.50_bounded_japanese_learning_runtime_validation.md`
-- 当前 `v0.3.x` 方向：产品可用性缓冲期。先解决前端入口、具体草稿/画布理解成本、客户行为模拟、自动测试和 P0/P1 可用性 bug，再推进外部验证、diligence 或云硬化。
+- 最新 active stage report：`stage-reports/v0.4.2_report_baseline_and_evolution_control.md`
+- 当前 `v0.4.x` 方向：先完成报告落地的防漂移控制层，再按 stage report 推进 Quick/Guided/Governed 分级模式、可选验收、人类可读积木配置、能力合同、模块复用和三类界面。任何 `documented/planned/partial/blocked/deferred` 状态都不能替代真实实现闭环。
 
 ## 已归档 Stage Report Sets
 
@@ -53,5 +60,6 @@
 
 - 下一阶段任务只来自最新 active `stage-reports/` 的 `Next-stage Task Set`；若 active 区为空，则只来自最新 `stage-report-archives/` handoff stage report 与对应 phase report。
 - `workingon/` 只保存中间结果、实现证据、实验过程或临时分析；不得作为任务拆解或版本推进的权威来源。
-- 新 stage report 必须使用 `stage-reports/STAGE_REPORT_TEMPLATE.md` 的固定 section；没有内容也要写 `none`。
+- 新 stage report 必须使用 `stage-reports/STAGE_REPORT_TEMPLATE.md` v2 的固定 Stage Contract、Intent Coverage、Deviation 和 Closure Audit section；没有内容也要写 `none`。历史报告继续按 legacy 合同读取。
 - 小版本推进必须有明确 scope justification；连续出现“一个版本只有一个 historical design”应视为阶段切分问题，而不是正常节奏。
+- mandatory task 不能由执行者自行延期或降标；`blocked` 不支持版本晋级。归档前运行 `scripts/validate_evolution_control.py`。

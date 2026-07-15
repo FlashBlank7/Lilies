@@ -1,0 +1,42 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/bin/python3 \"$(git rev-parse --show-toplevel)/scripts/evolution_session_context.py\"",
+            "timeout": 30,
+            "statusMessage": "Loading Lilies evolution contract"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "manual|auto",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/bin/python3 \"$(git rev-parse --show-toplevel)/scripts/evolution_checkpoint.py\"",
+            "timeout": 30,
+            "statusMessage": "Saving Lilies evolution checkpoint"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/bin/python3 \"$(git rev-parse --show-toplevel)/scripts/evolution_stop_guard.py\"",
+            "timeout": 30,
+            "statusMessage": "Checking Lilies stage closure"
+          }
+        ]
+      }
+    ]
+  }
+}

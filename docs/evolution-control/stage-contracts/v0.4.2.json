@@ -1,0 +1,75 @@
+{
+  "schema_version": "1.0",
+  "stage_version": "v0.4.2",
+  "stage_report": "docs/stage-reports/v0.4.2_report_baseline_and_evolution_control.md",
+  "contract_revision": 1,
+  "approval_ref": "initial contract from user instruction 2026-07-16",
+  "source_tasks": [
+    {
+      "task_id": "V04-02-T01",
+      "source_intent_ids": ["EVOL-001", "EVOL-002", "EVOL-003", "EVOL-004", "EVOL-005", "EVOL-006"],
+      "source_task": "Apply the annotated scenario/capability report as a controlled program baseline.",
+      "disposition": "accepted mandatory",
+      "authority": "Newer explicit user instruction on 2026-07-16."
+    },
+    {
+      "task_id": "V04-03-T01",
+      "source_intent_ids": ["PRODUCT-003", "PRODUCT-004", "PRODUCT-005", "PRODUCT-006", "PRODUCT-007"],
+      "source_task": "Implement the first report product bundle.",
+      "disposition": "carried forward",
+      "authority": "Product implementation follows the control repair and must not be squeezed into the bootstrap version."
+    },
+    {
+      "task_id": "V04-04-T01",
+      "source_intent_ids": ["ARCH-006", "EVAL-001", "SCENARIO-001"],
+      "source_task": "Generate an editable Codex-like workflow from clarified requirements.",
+      "disposition": "carried forward",
+      "authority": "The original scenario remains visible and is not replaced by the process repair."
+    },
+    {
+      "task_id": "V04-05-T01",
+      "source_intent_ids": ["ARCH-001", "ARCH-004", "PRODUCT-005"],
+      "source_task": "Bring option intake to draft rebuild.",
+      "disposition": "carried forward",
+      "authority": "Rebuild intake remains required but follows the shared capability contract."
+    }
+  ],
+  "mandatory_tasks": [
+    {
+      "task_id": "V04-02-T01A",
+      "source_intent_ids": ["ARCH-003", "EVOL-001", "PRODUCT-001", "PRODUCT-002", "PRODUCT-003", "PRODUCT-004", "PRODUCT-006", "PRODUCT-009"],
+      "surface": "report",
+      "acceptance": "The latest DOCX contains no inline annotation residue and formally integrates every user annotation, original product intent, tiered modes, advisory acceptance, block configuration, module reuse, capability placement, and automatic-evolution control.",
+      "required_evidence": "DOCX structure check, extracted-text assertions, report source script."
+    },
+    {
+      "task_id": "V04-02-T01B",
+      "source_intent_ids": ["EVOL-001", "EVOL-004"],
+      "surface": "process",
+      "acceptance": "A frozen Program Charter and machine-readable intent registry preserve all actionable report commitments without becoming a second next-task source.",
+      "required_evidence": "Charter, valid JSON registry, unique IDs, status/evidence validation."
+    },
+    {
+      "task_id": "V04-02-T01C",
+      "source_intent_ids": ["EVOL-002", "EVOL-003", "EVOL-006"],
+      "surface": "test",
+      "acceptance": "Stage-report v2 requires stable task/intent IDs, locked mandatory contracts, intent coverage, deviation records, closure audit, version-size evidence, and task-ID handoff; legacy reports remain readable.",
+      "required_evidence": "Template validator, evolution-control validator, positive and negative tests."
+    },
+    {
+      "task_id": "V04-02-T01D",
+      "source_intent_ids": ["EVOL-003", "EVOL-005"],
+      "surface": "operations",
+      "acceptance": "Repository startup/resume guidance and lifecycle hooks reload the charter/current task and warn when work stops with an open mandatory contract.",
+      "required_evidence": "`AGENTS.md`, `.codex/hooks.json`, deterministic hook scripts and tests."
+    },
+    {
+      "task_id": "V04-02-T01E",
+      "source_intent_ids": ["EVOL-003", "EVOL-006"],
+      "surface": "process",
+      "acceptance": "Fresh closure audit proves every mandatory task and the version-size gate before archive; the report intent registry records the verified control capabilities without marking product work complete.",
+      "required_evidence": "Closure audit table, validator pass, exact commands, intent status update."
+    }
+  ],
+  "optional_tasks": []
+}

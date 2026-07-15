@@ -9,7 +9,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
-from validate_stage_report_template import REQUIRED_SECTIONS, validate_stage_report
+from validate_stage_report_template import LEGACY_REQUIRED_SECTIONS, validate_stage_report
+
+
+# Compatibility export used by the historical adoption audit tests and helper
+# fixtures. The current canonical template is v2, while legacy reports remain
+# valid under their original section contract.
+REQUIRED_SECTIONS = LEGACY_REQUIRED_SECTIONS
 
 
 VERSION_RE = re.compile(r"v(\d+)\.(\d+)\.(\d+)")

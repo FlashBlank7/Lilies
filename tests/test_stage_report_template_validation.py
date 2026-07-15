@@ -22,6 +22,7 @@ def test_stage_report_template_contains_required_sections() -> None:
     template = Path(__file__).resolve().parents[1] / "docs" / "stage-reports" / "STAGE_REPORT_TEMPLATE.md"
 
     assert module.validate_stage_report(template) == []
+    assert module.report_template_version(template.read_text(encoding="utf-8")) == 2
 
 
 def test_stage_report_validator_rejects_missing_sections(tmp_path: Path) -> None:
@@ -33,3 +34,34 @@ def test_stage_report_validator_rejects_missing_sections(tmp_path: Path) -> None
 
     assert "missing section: Stage Identity" in errors
     assert "missing section: Automatic Evolution Handoff" in errors
+
+
+def test_stage_report_validator_rejects_unlocked_v2_contract(tmp_path: Path) -> None:
+    module = load_validator()
+    template = Path(__file__).resolve().parents[1] / "docs" / "stage-reports" / "STAGE_REPORT_TEMPLATE.md"
+    report = tmp_path / "bad_v2.md"
+    text = template.read_text(encoding="utf-8").replace(
+        "- Contract status: locked",
+        "- Contract status: draft",
+    )
+    report.write_text(text, encoding="utf-8")
+
+    errors = module.validate_stage_report(report)
+
+    assert "stage contract must be locked" in errors
+
+
+def test_stage_report_validator_rejects_workingon_handoff(tmp_path: Path) -> None:
+    module = load_validator()
+    template = Path(__file__).resolve().parents[1] / "docs" / "stage-reports" / "STAGE_REPORT_TEMPLATE.md"
+    report = tmp_path / "bad_handoff.md"
+    text = template.read_text(encoding="utf-8").replace(
+        "- First task ID:",
+        "- First workingon:",
+    )
+    report.write_text(text, encoding="utf-8")
+
+    errors = module.validate_stage_report(report)
+
+    assert "handoff must identify First task ID" in errors
+    assert "handoff must not use First workingon" in errors

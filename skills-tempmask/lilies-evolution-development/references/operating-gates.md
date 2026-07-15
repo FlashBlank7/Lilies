@@ -15,13 +15,15 @@ Use this reference for automatic evolution, full task expansion, design executio
 
 Before implementation for every small version:
 
-1. Read the latest stage report's `Next-stage Task Set` and `Automatic Evolution Handoff`.
-2. Select the current version scope from that stage-report task set.
-3. Create one or more current-design files for every accepted task that needs engineering, product, experiment, docs-process, or review work.
-4. Every current-design file must cite the source stage report and source task.
-5. If the task set is too large for one version, split the version scope explicitly and preserve all non-accepted tasks for final stage-report disposition.
-6. Record accepted/blocked/deferred/superseded disposition in the completed stage report's `Source Task Set` and `Unresolved / Blocked / Deferred` sections.
-7. Do not advance versions until every accepted design is completed, revised and completed, or explicitly blocked/deferred with evidence.
+1. Read the Program Charter, intent registry, latest stage report's `Next-stage Task Set`, and `Automatic Evolution Handoff`.
+2. Preserve every stable task ID and source intent ID when selecting the current version scope.
+3. Lock `Stage Contract` before implementation: mandatory/optional class, surface/role, measurable acceptance criteria, and required evidence.
+4. Only the user may approve a change to mandatory scope or acceptance. An implementation discovery may change route, but it must preserve acceptance and be recorded in `Deviations`.
+5. Create one or more current-design files for every contracted task that needs engineering, product, experiment, docs-process, or review work.
+6. Every current-design file must cite the source stage report and stable task ID.
+7. If the task set is too large for one version, obtain user approval for a contract revision; do not silently drop tasks or move them through workingon.
+8. Record disposition in `Source Task Set`, `Unresolved / Blocked / Deferred`, and `Intent Coverage`.
+9. Do not advance versions while any mandatory task is incomplete, blocked, deferred, unsupported by evidence, or absent from the closure audit.
 
 ## Design Execution Gate
 
@@ -56,10 +58,11 @@ Before every small-version archive:
 3. Check every design acceptance criterion and every experiment deliverable.
 4. If the version objective includes an experiment, do not mark it complete without its required report artifact.
 5. If an experiment result is used for engineering, confirm the ledger marks `已应用` or `验证应用`.
-6. If only a prerequisite was completed, continue the current version with the smallest next slice.
-7. If blocked, record `blocked`, `deferred`, or `carried forward` with the next concrete action.
-8. Validate the new stage report against `docs/stage-reports/STAGE_REPORT_TEMPLATE.md` when possible.
-9. Archive only when all accepted targets are completed or explicitly dispositioned with evidence.
+6. If only a prerequisite was completed, continue the current version with the next bounded implementation batch; do not increment the version.
+7. If a mandatory task is blocked, record the blocker and decision authority and keep the stage open. Only optional work may be deferred or carried forward without a user-approved contract revision.
+8. Run a fresh-context closure review against the locked contract, diff, and evidence.
+9. Validate the new stage report with `scripts/validate_stage_report_template.py` and `scripts/validate_evolution_control.py`.
+10. Archive only when every mandatory task is completed, evidence is valid, intent coverage is explicit, and both the closure audit and version-size gate pass.
 
 ## Major Version Completion Gate
 
@@ -93,7 +96,7 @@ Verify:
 4. User-facing capability has usable Studio/API surface unless explicitly backend-only.
 5. Focused tests, regression tests, and live/paid acceptance are run when relevant.
 6. Evidence, stage report, historical design, and experiment-status updates exist.
-7. Missing pieces are marked `carried forward`, `deferred`, or `blocked` with concrete next action.
+7. Missing mandatory pieces keep the stage open. Optional gaps may be marked `carried forward`, `deferred`, or `blocked` with a concrete next action and preserved source intent.
 
 Platform Harness work must be named as a partial policy slice unless the full hard-boundary chain is closed.
 
@@ -121,15 +124,16 @@ Design recycling is part of archive completion.
 
 After every archive commit in Automatic Evolution Mode:
 
-1. Read the just-committed stage report's `Next-stage Tasks` and `Automatic Evolution Handoff`.
+1. Re-read the Program Charter, intent registry, and just-committed stage report's `Next-stage Task Set` and `Automatic Evolution Handoff`.
 2. Run the Minor Version Completion Gate against the completed version.
 3. Run the Design Archive Gate against the completed version.
 4. Run `git log --oneline -3` and `git status --short`.
-5. If the handoff says continue, or any next-stage task is concrete and unblocked, do not final-answer. Select the next version and start implementation.
-6. If no single implementation task is preselected but the stage report contains lane-selection, phase-report, governance, cleanup, or other meta tasks, open the smallest next stage that resolves the decision instead of stopping.
-7. Final answer only on explicit pause/stop or a real blocker.
+5. If an active `Current task ID` exists, resume that task before interpreting any summary or next-step prose.
+6. If the handoff says continue and a stable next task ID is authorized, do not final-answer. Select the declared next version, lock its contract, and start implementation.
+7. If a lane-selection, phase-report, governance, cleanup, or other decision task has a stable ID in the task set, execute that task inside the declared serious version. Do not invent a tiny planning version.
+8. Final answer only on explicit pause/stop, campaign terminal closure, or a real blocker.
 
-Context pressure, long runtime, or fatigue is not a valid stop reason. Shrink the next stage and continue safely.
+Context pressure, long runtime, or fatigue is not a valid stop reason. Write a deterministic checkpoint, compact, and resume the same stable task and stage contract.
 
 ## Automatic Evolution Boundaries
 
@@ -137,14 +141,15 @@ Context pressure, long runtime, or fatigue is not a valid stop reason. Shrink th
 - Do not stage unrelated files, generated caches, `.tmp/`, lockfiles such as `uv.lock`, or user changes outside the stage.
 - Do not invent cosmetic versions; each version needs a concrete task source.
 - Do not advance a version merely because one useful design is done. Continue within the same version until the selected stage scope is a serious closure unit or record an explicit exception.
+- Do not turn a mandatory task into optional, deferred, superseded, or complete without explicit user-approved contract revision.
 - Do not make unbounded paid calls; set budgets and record evidence.
-- Stop only for explicit user pause/stop, irreversible action needing consent, missing credentials/services, unbounded cost, safety/privacy/legal risk, merge conflicts, or no valid next-stage source. "No meaningful single next task" is not a stop condition when a selection or meta-planning task exists.
+- Stop only for explicit user pause/stop, campaign terminal closure, irreversible action needing consent, missing credentials/services, unbounded cost, safety/privacy/legal risk, merge conflicts, or no valid next-stage source. "No meaningful single next task" is not a stop condition when an authorized selection or meta-planning task exists.
 
 ## Performance Rules
 
-- Prefer narrow stages that produce code, evidence, archive, and commit.
-- Narrow stages must still close their declared target set.
-- After a paid/live experiment exposes a failure, make the next stage the smallest deterministic fix, then rerun or re-evaluate.
+- Prefer serious coherent stages that produce code, evidence, archive, and commit across the surfaces required by their contract.
+- Use narrow implementation batches inside a stage, while keeping the full mandatory target set locked and visible.
+- After a paid/live experiment exposes a failure, implement the smallest deterministic fix inside the current stage unless the authorized task set explicitly assigns a later stage, then rerun or re-evaluate.
 - Reuse result files for deterministic re-evaluation instead of overwriting evidence.
 - Keep the next task source precise enough to start without asking the user.
 - Keep the original experiment backlog visible until each experiment is completed, deferred, superseded, or blocked.

@@ -1,0 +1,329 @@
+{
+  "schema_version": "1.0",
+  "registry_id": "LILIES-SCENARIO-CAPABILITY-REPORT-2026-07",
+  "source_report": "docs/lilies_agent_scenario_capability_boundary_v0_4_x_latest.docx",
+  "task_authority": "stage_report_only",
+  "terminal_statuses": [
+    "implemented_verified",
+    "experiment_rejected",
+    "superseded_preserved",
+    "user_rejected"
+  ],
+  "non_terminal_statuses": [
+    "unassessed",
+    "documented",
+    "planned",
+    "in_progress",
+    "partial",
+    "blocked",
+    "deferred"
+  ],
+  "intents": [
+    {
+      "id": "PRODUCT-001",
+      "category": "product",
+      "priority": "P0",
+      "statement": "Keep model intelligence as the primary requirement-understanding, planning, workflow-composition, and repair mechanism.",
+      "acceptance": "Builder behavior and product flows do not reduce complex requirements to fixed templates when model reasoning is available.",
+      "status": "documented",
+      "evidence": ["docs/evolution-control/PROGRAM_CHARTER.md"]
+    },
+    {
+      "id": "PRODUCT-002",
+      "category": "product",
+      "priority": "P0",
+      "statement": "Separate workflow-internal Harness blocks, Evaluation Harness, and Platform Harness in data contracts, UI labels, and claims.",
+      "acceptance": "Users and engineers can identify which layer owns each control; no generic Harness label conflates all three.",
+      "status": "documented",
+      "evidence": ["docs/lilies_agent_scenario_capability_boundary_v0_4_x_latest.docx"]
+    },
+    {
+      "id": "PRODUCT-003",
+      "category": "product",
+      "priority": "P0",
+      "statement": "Provide coexisting Quick, Guided, and Governed workflow construction and operation modes.",
+      "acceptance": "Simple low-risk requirements can reach a runnable workflow without mandatory heavy acceptance; higher-risk workflows can opt into stronger evidence and controls.",
+      "status": "planned",
+      "evidence": []
+    },
+    {
+      "id": "PRODUCT-004",
+      "category": "product",
+      "priority": "P0",
+      "statement": "Make acceptance advisory for Quick and Guided modes while preserving explicit governed hard-policy gates.",
+      "acceptance": "A user can publish with visible warnings in Quick/Guided mode; a configured Governed policy can still deny publication with an explicit reason.",
+      "status": "planned",
+      "evidence": []
+    },
+    {
+      "id": "PRODUCT-005",
+      "category": "product",
+      "priority": "P0",
+      "statement": "Turn failed acceptance cases into actionable repair suggestions and a one-click Builder Team workflow-edit preview.",
+      "acceptance": "A failed case exposes structured advice and can open a natural-language workflow edit preview carrying the relevant workflow, node, trace, and failure context.",
+      "status": "partial",
+      "evidence": ["docs/stage-reports/v0.3.54_acceptance_auto_repair.md"]
+    },
+    {
+      "id": "PRODUCT-006",
+      "category": "product",
+      "priority": "P0",
+      "statement": "Expose human-readable, schema-driven configuration for common blocks and keep raw JSON as an expert view.",
+      "acceptance": "LLM, HTTP/tool, and Loop blocks can be configured through purpose-built controls whose saved values change the canonical WorkflowSpec and runtime behavior.",
+      "status": "planned",
+      "evidence": []
+    },
+    {
+      "id": "PRODUCT-007",
+      "category": "product",
+      "priority": "P0",
+      "statement": "Invalidate acceptance evidence after behavior-affecting workflow edits and recommend revalidation without deleting publication choice.",
+      "acceptance": "Editing behavior changes tested evidence to stale, displays what changed, and offers revalidation while keeping the draft usable.",
+      "status": "partial",
+      "evidence": ["platform/backend/src/agent_platform/workflow_storage.py"]
+    },
+    {
+      "id": "PRODUCT-008",
+      "category": "product",
+      "priority": "P1",
+      "statement": "Separate Customer Runtime, Engineer Studio, and Governance Console information architectures.",
+      "acceptance": "Customer runtime does not expose engineering JSON or platform internals; Studio retains workflow engineering; governance is available outside one application detail page.",
+      "status": "partial",
+      "evidence": ["docs/stage-reports/v0.3.48_customer_facing_workflow_run_interface.md"]
+    },
+    {
+      "id": "PRODUCT-009",
+      "category": "product",
+      "priority": "P1",
+      "statement": "Make reusable workflow modules and verified templates first-class capability carriers.",
+      "acceptance": "A versioned module declares inputs, outputs, dependencies, envelope, evidence, and known boundaries and can be selected by Builder Team.",
+      "status": "planned",
+      "evidence": []
+    },
+    {
+      "id": "ARCH-001",
+      "category": "architecture",
+      "priority": "P0",
+      "statement": "Model requirements as functional capabilities, runtime guarantees, and external contracts (F/G/X).",
+      "acceptance": "Codex-like, scheduled crawler, and customer-embedded scenarios produce materially different typed F/G/X closures while retaining original natural language.",
+      "status": "planned",
+      "evidence": []
+    },
+    {
+      "id": "ARCH-002",
+      "category": "architecture",
+      "priority": "P0",
+      "statement": "Represent capability dependencies, requires/excludes relationships, required execution envelope, and environment availability.",
+      "acceptance": "Capability closure is deterministic, missing dependencies are explicit, and unavailable external contracts are not misreported as workflow defects.",
+      "status": "planned",
+      "evidence": []
+    },
+    {
+      "id": "ARCH-003",
+      "category": "architecture",
+      "priority": "P0",
+      "statement": "Choose a capability carrier before adding a block: atomic block, reusable module, runtime/platform service, hard platform control, or connector/external contract.",
+      "acceptance": "Builder output records the selected carrier and rationale; a capability is not automatically converted into a new atomic block.",
+      "status": "documented",
+      "evidence": ["docs/lilies_agent_scenario_capability_boundary_v0_4_x_latest.docx"]
+    },
+    {
+      "id": "ARCH-004",
+      "category": "architecture",
+      "priority": "P0",
+      "statement": "Produce a Capability Build Contract from Builder Team.",
+      "acceptance": "Builder output contains target capabilities, envelope, external contracts, platform coverage, evidence plan, carrier choices, and claim scope.",
+      "status": "planned",
+      "evidence": []
+    },
+    {
+      "id": "ARCH-005",
+      "category": "architecture",
+      "priority": "P1",
+      "statement": "Use E0-E5 as cumulative execution envelopes while keeping risk and functional capability orthogonal.",
+      "acceptance": "Routing and claims distinguish one-shot cognition, stateful workflow, tool loop, durable task, governed automation, and production embedding without treating them as one keyword complexity score.",
+      "status": "documented",
+      "evidence": ["docs/lilies_agent_scenario_capability_boundary_v0_4_x_latest.docx"]
+    },
+    {
+      "id": "ARCH-006",
+      "category": "architecture",
+      "priority": "P1",
+      "statement": "Make structured Loop/Subflow semantics first class without opening unrestricted cyclic graphs.",
+      "acceptance": "Loop exposes state, condition, max iterations, break, cancel, checkpoint, and per-iteration trace with tool-result feedback.",
+      "status": "partial",
+      "evidence": ["platform/backend/src/agent_platform/workflow_runtime.py"]
+    },
+    {
+      "id": "ARCH-007",
+      "category": "architecture",
+      "priority": "P1",
+      "statement": "Build a durable job substrate for timer/event triggers, history, retry, resume, idempotency, leases, cancellation, and alerts.",
+      "acceptance": "A scheduled workflow survives process restart, avoids duplicate fire, records history, resumes or fails explicitly, and can be cancelled.",
+      "status": "partial",
+      "evidence": ["platform/backend/src/agent_platform/scheduler.py", "platform/backend/src/agent_platform/platform_harness.py"]
+    },
+    {
+      "id": "ARCH-008",
+      "category": "architecture",
+      "priority": "P2",
+      "statement": "Provide a Connector/Embedding SDK for identity, tenants, schemas, callbacks, writeback, compensation, and deployment profiles.",
+      "acceptance": "A customer-system integration can be implemented against a versioned contract without embedding customer-specific logic in generic HTTP blocks.",
+      "status": "planned",
+      "evidence": []
+    },
+    {
+      "id": "EVAL-001",
+      "category": "evaluation",
+      "priority": "P0",
+      "statement": "Make Evaluation Harness profiles selectable and capable of H0-H5 evidence levels.",
+      "acceptance": "Users or policy select whether and how far evaluation runs; results state design, static, component, contract, live, or production evidence without conflation.",
+      "status": "planned",
+      "evidence": []
+    },
+    {
+      "id": "EVAL-002",
+      "category": "evaluation",
+      "priority": "P0",
+      "statement": "Represent component_verified, integration_verified, live_verified, blocked_by_environment, design_only, and unsupported states.",
+      "acceptance": "Unavailable customer environments produce a scoped status and contract gap instead of forced pass/fail or fabricated evidence.",
+      "status": "planned",
+      "evidence": []
+    },
+    {
+      "id": "EVAL-003",
+      "category": "evaluation",
+      "priority": "P1",
+      "statement": "Generate tests from capability signals, runtime envelope, external contracts, and selected evidence level.",
+      "acceptance": "Loop, tool, scheduler, customer writeback, and high-risk workflows generate different tests and evidence requirements.",
+      "status": "planned",
+      "evidence": []
+    },
+    {
+      "id": "EVAL-004",
+      "category": "evaluation",
+      "priority": "P1",
+      "statement": "Provide mock, contract, sandbox, live, and production-observation evaluation environments.",
+      "acceptance": "Each test case identifies its environment and evidence level; claim scope cannot exceed the strongest completed evidence.",
+      "status": "planned",
+      "evidence": []
+    },
+    {
+      "id": "GOV-001",
+      "category": "governance",
+      "priority": "P1",
+      "statement": "Create an independent Governance Console for cross-application tasks, policies, workers, queues, failures, and parent-child traces.",
+      "acceptance": "Governance data is reachable outside an application detail page and can filter and drill into platform tasks.",
+      "status": "planned",
+      "evidence": []
+    },
+    {
+      "id": "GOV-002",
+      "category": "governance",
+      "priority": "P1",
+      "statement": "Record and visualize input, output, cached, and reasoning tokens plus cost and remaining budget over time.",
+      "acceptance": "Token and cost series can be queried by time, model, workflow, application, and owner with explicit unsupported fields.",
+      "status": "planned",
+      "evidence": []
+    },
+    {
+      "id": "GOV-003",
+      "category": "governance",
+      "priority": "P1",
+      "statement": "Build a Capability Evidence Registry linking implementation, defaults, API, tests, live evidence, telemetry, gaps, and claim level.",
+      "acceptance": "Every platform capability claim can be queried and traced to evidence; missing token limits cannot be described as implemented by call-count approximation.",
+      "status": "planned",
+      "evidence": []
+    },
+    {
+      "id": "GOV-004",
+      "category": "governance",
+      "priority": "P2",
+      "statement": "Add domain-aware high-risk autonomy governance with preauthorization, emergency stop, audit, and production exercises.",
+      "acceptance": "High-risk autonomy is enabled only for a declared domain and cannot bypass configured hard controls.",
+      "status": "planned",
+      "evidence": []
+    },
+    {
+      "id": "SCENARIO-001",
+      "category": "scenario",
+      "priority": "P0",
+      "statement": "Use a Codex-like workflow as an E2/E3 capability-closure and tool-feedback-loop acceptance scenario.",
+      "acceptance": "The generated editable workflow exposes context, planning, tools, permission boundaries, feedback loop, stop conditions, trace, and user-facing result flow.",
+      "status": "partial",
+      "evidence": ["docs/stage-reports/v0.4.1_option_ai_requirement_intake.md"]
+    },
+    {
+      "id": "SCENARIO-002",
+      "category": "scenario",
+      "priority": "P1",
+      "statement": "Use a daily web collection workflow as the E3 durable scheduling pressure scenario.",
+      "acceptance": "The scenario covers schedule, dedupe, pagination/loop, source provenance, storage, notification, retry, resume, cancel, and explicit site-access contract.",
+      "status": "planned",
+      "evidence": []
+    },
+    {
+      "id": "SCENARIO-003",
+      "category": "scenario",
+      "priority": "P2",
+      "statement": "Use customer-system embedding as the E4/E5 connector, identity, writeback, compensation, and evidence pressure scenario.",
+      "acceptance": "A mock or test tenant proves the component/contract boundary, and the product refuses to claim end-to-end production success without a real environment.",
+      "status": "planned",
+      "evidence": []
+    },
+    {
+      "id": "EVOL-001",
+      "category": "evolution",
+      "priority": "P0",
+      "statement": "Keep Program Charter as an immutable intent constraint and stage reports as the only next-task authority.",
+      "acceptance": "Validators reject a stage report with unknown source intents or a next task without a stable task ID; workingon contains no authoritative next-stage task set.",
+      "status": "in_progress",
+      "evidence": ["docs/evolution-control/PROGRAM_CHARTER.md"]
+    },
+    {
+      "id": "EVOL-002",
+      "category": "evolution",
+      "priority": "P0",
+      "statement": "Freeze a mandatory/optional Stage Contract before implementation.",
+      "acceptance": "A version cannot close while any mandatory task lacks completed evidence or a user-approved contract revision.",
+      "status": "planned",
+      "evidence": []
+    },
+    {
+      "id": "EVOL-003",
+      "category": "evolution",
+      "priority": "P0",
+      "statement": "Use a deterministic Closure Audit and stable intent coverage to prevent self-declared or summary-only completion.",
+      "acceptance": "Closure validation finds missing mandatory tasks, disappearing intent IDs, unsupported claims, stale evidence, and invalid version advancement.",
+      "status": "planned",
+      "evidence": []
+    },
+    {
+      "id": "EVOL-004",
+      "category": "evolution",
+      "priority": "P0",
+      "statement": "Classify implementation, substitution, scope, and safety deviations with explicit authority.",
+      "acceptance": "Implementation changes can proceed with records; scope or acceptance changes cannot proceed without user decision.",
+      "status": "documented",
+      "evidence": ["docs/evolution-control/PROGRAM_CHARTER.md"]
+    },
+    {
+      "id": "EVOL-005",
+      "category": "evolution",
+      "priority": "P0",
+      "statement": "Resume long work from the current Stage Contract and task ID after interruption or context compaction.",
+      "acceptance": "Startup/resume checks load charter, stage contract, task ID, evidence, and git status before new planning; an open mandatory task is continued rather than replaced.",
+      "status": "planned",
+      "evidence": []
+    },
+    {
+      "id": "EVOL-006",
+      "category": "evolution",
+      "priority": "P0",
+      "statement": "Advance versions only for coherent vertical capability, complete experiment, process-architecture repair, or explicit hotfix exception.",
+      "acceptance": "Repeated one-design and prerequisite-only versions fail the version advancement validator; major versions archive their complete stage-report set.",
+      "status": "planned",
+      "evidence": []
+    }
+  ]
+}

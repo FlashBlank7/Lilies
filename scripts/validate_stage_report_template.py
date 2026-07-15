@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate mandatory Lilies stage-report sections."""
+"""Validate legacy and evolution-control Lilies stage reports."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import argparse
 from pathlib import Path
 
 
-REQUIRED_SECTIONS = [
+LEGACY_REQUIRED_SECTIONS = [
     "Stage Identity",
     "Source Task Set",
     "Goal",
@@ -22,21 +22,71 @@ REQUIRED_SECTIONS = [
     "Automatic Evolution Handoff",
 ]
 
+V2_REQUIRED_SECTIONS = [
+    "Stage Identity",
+    "Source Task Set",
+    "Stage Contract",
+    "Stage Objective",
+    "Completed Work",
+    "Verification",
+    "Closure Audit",
+    "Deviations",
+    "Unresolved / Blocked / Deferred",
+    "Intent Coverage",
+    "Experiment / Product Status Updates",
+    "Historical Designs",
+    "Workingon Archive",
+    "Next-stage Task Set",
+    "Archive Commit",
+    "Automatic Evolution Handoff",
+]
+
+# Backward-compatible import for the adoption audit. New reports use v2;
+# historical reports remain valid under the legacy section contract.
+REQUIRED_SECTIONS = V2_REQUIRED_SECTIONS
+
 
 def headings(text: str) -> list[str]:
     return [line[3:].strip() for line in text.splitlines() if line.startswith("## ")]
 
 
+def report_template_version(text: str) -> int:
+    if "| Template version | `2.0` |" in text or "## Stage Contract" in text:
+        return 2
+    return 1
+
+
 def validate_stage_report(path: Path) -> list[str]:
     text = path.read_text(encoding="utf-8")
     present = headings(text)
-    missing = [section for section in REQUIRED_SECTIONS if section not in present]
+    version = report_template_version(text)
+    required = V2_REQUIRED_SECTIONS if version == 2 else LEGACY_REQUIRED_SECTIONS
+    missing = [section for section in required if section not in present]
     order_errors: list[str] = []
     if not missing:
-        positions = [present.index(section) for section in REQUIRED_SECTIONS]
+        positions = [present.index(section) for section in required]
         if positions != sorted(positions):
             order_errors.append("required sections are out of order")
-    return [*(f"missing section: {section}" for section in missing), *order_errors]
+    contract_errors: list[str] = []
+    if version == 2:
+        required_markers = {
+            "stage contract must be locked": "- Contract status: locked",
+            "closure audit verdict is missing": "- Verdict:",
+            "next-stage task table must include Task ID": "| Task ID | Source intent IDs | Task |",
+            "handoff must identify Current task ID": "- Current task ID:",
+            "handoff must identify First task ID": "- First task ID:",
+            "handoff must identify resume stage report": "- Resume from stage report:",
+        }
+        contract_errors.extend(
+            message for message, marker in required_markers.items() if marker not in text
+        )
+        if "First workingon" in text:
+            contract_errors.append("handoff must not use First workingon")
+    return [
+        *(f"missing section: {section}" for section in missing),
+        *order_errors,
+        *contract_errors,
+    ]
 
 
 def main() -> None:

@@ -52,90 +52,25 @@ Rule: workingon is optional and only stores intermediate evidence, implementatio
 
 ## Final Status
 
-- Pending / implemented / revised / blocked / deferred:
+- Pending / implemented / revised / blocked:
 ```
 
-Rule: current design never guides the next stage. It only expands one accepted task.
+Rule: current design never guides the next stage. It only expands one contracted task. A blocked mandatory design keeps the stage open; only optional work may be deferred through the stage report.
 
 ## Mandatory Stage Report
 
-```markdown
-# v0.x.y_<topic>
+Always instantiate the canonical repository template at `docs/stage-reports/STAGE_REPORT_TEMPLATE.md`. Its v2 contract requires, at minimum:
 
-## Stage Identity
+1. `Stage Identity` with template version, Program Charter, source report, closure level, and serious version-size justification.
+2. `Source Task Set` with stable task IDs and source intent IDs.
+3. A locked `Stage Contract` separating mandatory and optional tasks, with measurable acceptance criteria, required evidence, a contract-lock SHA-256 fingerprint, and a Git baseline commit.
+4. `Completed Work`, `Verification`, and a fresh-context `Closure Audit` mapped back to every mandatory task ID.
+5. `Deviations`, `Unresolved / Blocked / Deferred`, and `Intent Coverage`; mandatory unresolved work prevents archive.
+6. Product/experiment updates, historical-design recycling, and workingon archive records.
+7. `Next-stage Task Set` as the only next-task authority, again using stable task IDs and source intent IDs.
+8. `Automatic Evolution Handoff` with `Current task ID`, `Next version`, `First task ID`, and `Resume from stage report`.
 
-| Field | Value |
-| --- | --- |
-| Version | `v0.x.y` |
-| Source stage report | `docs/stage-reports/<previous>.md` |
-| Stage type | product / experiment / process / architecture / report / repair |
-| Closure level | backend slice / vertical slice / platform boundary / product capability / research experiment / process architecture |
-| Stage scope justification | Explain why this is a serious version-sized unit. If only one design is archived, justify the exception explicitly. |
-
-## Source Task Set
-
-| Source task from previous stage report | Disposition in this stage | Design / evidence | Reason |
-| --- | --- | --- | --- |
-| none | none | none | none |
-
-## Goal
-
-## Completed Work
-
-| Item | Status | Evidence |
-| --- | --- | --- |
-| none | none | none |
-
-## Verification
-
-| Check | Result | Evidence |
-| --- | --- | --- |
-| none | none | none |
-
-## Unresolved / Blocked / Deferred
-
-| Item | Status | Reason | Next action |
-| --- | --- | --- | --- |
-| none | none | none | none |
-
-## Experiment / Product Status Updates
-
-| Ledger / surface | Update | Evidence |
-| --- | --- | --- |
-| none | none | none |
-
-## Historical Designs
-
-| Historical design | Final status | Evidence |
-| --- | --- | --- |
-| none | none | none |
-
-## Workingon Archive
-
-| Archive | Contents |
-| --- | --- |
-| none | none |
-
-## Next-stage Task Set
-
-| Task | Why now | Closure target |
-| --- | --- | --- |
-| none | none | none |
-
-## Archive Commit
-
-- Commit:
-- Active current-design clean:
-- Active workingon clean:
-
-## Automatic Evolution Handoff
-
-- Continue:
-- Next version:
-- First workingon:
-```
-
-Rule: stage report is the next-stage authority, and these sections are mandatory. If a section has no content, write an explicit `none` row instead of omitting it. Command detail belongs in workingon archive. The canonical repo template is `docs/stage-reports/STAGE_REPORT_TEMPLATE.md`; validate new reports with `scripts/validate_stage_report_template.py` when possible.
+Rule: a stage report is the next-stage authority. If a section has no content, write an explicit `none` row instead of omitting it. Workingon stores evidence only. Before archive, run both `scripts/validate_stage_report_template.py` and `scripts/validate_evolution_control.py`; a passing closure audit is mandatory.
 
 ## Historical Design Final Contract
 

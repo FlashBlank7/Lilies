@@ -11,17 +11,19 @@ Use this skill to run Lilies work as an execution process, not passive documenta
 
 Operate in `/Users/zhonghaoyang/Code/agent/Lilies` unless the user gives another Lilies checkout.
 
-Before substantial work, read the smallest authoritative set first:
+Before substantial work, read the smallest authoritative set first, in authority order:
 
-1. `docs/PROJECT_EVOLUTION_STRATEGY.md`
-2. `docs/README.md`
-3. `docs/LANGUAGE_SYSTEM.md` if relevant
-4. latest relevant `docs/stage-reports/v*.md`, read previous 5 versions at most.
-5. if active `docs/stage-reports/` has no current phase report yet, read the latest handoff under `docs/stage-report-archives/v<minor>.x/` plus the matching `docs/phase-reports/v<minor>.0_*.md`
-6. relevant `docs/experiment-status/v*.md`
-7. relevant `docs/experiment-status/ledgers/*.md`
-8. relevant `docs/experiment-status/evidence/*_summary.md`
-9. relevant `docs/current-design/*.md`, `docs/workingon/*.md`, and `docs/historical-designs/*.md`
+1. `docs/evolution-control/PROGRAM_CHARTER.md`
+2. `docs/evolution-control/report_intents.json`
+3. the current `docs/stage-reports/v*.md`, especially its locked `Stage Contract`, `Closure Audit`, and `Automatic Evolution Handoff`
+4. `docs/PROJECT_EVOLUTION_STRATEGY.md`
+5. `docs/README.md`
+6. `docs/LANGUAGE_SYSTEM.md` if relevant
+7. if active `docs/stage-reports/` has no current stage report, read the latest handoff under `docs/stage-report-archives/v<minor>.x/` plus the matching `docs/phase-reports/v<minor>.0_*.md`
+8. relevant `docs/experiment-status/v*.md`, ledgers, and summary evidence
+9. current-task `docs/current-design/*.md`, optional `docs/workingon/*.md`, and relevant `docs/historical-designs/*.md`
+
+The charter and intent registry preserve the long-lived product intent. The current stage report supplies the finite task contract. A resume must continue its `Current task ID`; it must not reconstruct a new plan from the latest summary or workingon notes.
 
 Do not read raw experiment JSON by default. Open `docs/experiment-status/evidence/*.json` only when a summary is disputed, missing a needed field, or the exact event trace is required.
 
@@ -68,10 +70,12 @@ Use **Rapid Result Report** mode when the user asks what happened across version
    - The latest stage report's `Next-stage Task Set` is the only source for the next version's task set unless the user gives a newer explicit instruction.
    - If the stage report is malformed, missing required sections, or unclear, repair the process/report first instead of inventing a task source.
 
-2. Select the stage scope from the stage report, not from workingon.
-   - Read every task in the latest stage report's `Next-stage Task Set`.
-   - Decide which tasks are accepted into the current version and which are blocked, deferred, or superseded.
-   - Record final disposition in the new stage report's `Source Task Set` and `Unresolved / Blocked / Deferred` sections.
+2. Lock the stage contract from the stage report, not from workingon.
+   - Read every task in the latest stage report's `Next-stage Task Set` and preserve its stable task ID and source intent IDs.
+   - Classify tasks as mandatory or optional before implementation and record measurable acceptance criteria, required evidence, and surface/role in `Stage Contract`.
+   - A mandatory task remains mandatory until completed. Only an explicit user-approved contract revision may remove or replace it; blocked or deferred mandatory work keeps the version open.
+   - Optional work may be rejected, deferred, or superseded with evidence and an intent-preserving reason.
+   - Record final disposition in the new stage report's `Source Task Set`, `Unresolved / Blocked / Deferred`, and `Intent Coverage` sections.
    - Do not put next-stage task decomposition, roadmap authority, or version selection into `workingon`.
    - Use `workingon/` only if intermediate evidence, experiment traces, implementation notes, or temporary investigation records are useful.
 
@@ -93,12 +97,17 @@ Use **Rapid Result Report** mode when the user asks what happened across version
    - Use bounded paid/live model tests when behavior depends on model output, Builder quality, benchmark validity, workflow generation, tool execution, or Platform Harness enforcement.
    - Record provider/model, budget boundary, command, result, failure mode, and evidence path.
 
-6. Archive only when the version target is genuinely closed or explicitly dispositioned.
+6. Run a closure audit against the locked contract.
+   - Use a fresh-context read-only reviewer when available. The reviewer reads the Program Charter, current stage contract, diff, and evidence instead of trusting the implementation summary.
+   - Every mandatory acceptance criterion must pass with valid evidence, every source intent must remain covered, and the version-size gate must pass.
+   - A summary, commit, partial prerequisite, blocked mandatory task, or suggested next step is not closure.
+
+7. Archive only when the closure audit and deterministic validators pass.
    - Normal mode: wait for the user to request archive.
    - Automatic Evolution Mode: archive, commit, and continue without a separate archive request.
    - Stage reports must use `docs/stage-reports/STAGE_REPORT_TEMPLATE.md` exactly, including explicit `none` rows when a section has no content.
 
-7. When a major phase is complete, archive the stage-report set.
+8. When a major phase is complete, archive the stage-report set.
    - Create/update the phase report under `docs/phase-reports/`.
    - Move every completed `v0.<minor>.*` stage report out of active `docs/stage-reports/` and into `docs/stage-report-archives/v0.<minor>.x/`.
    - Add/update `docs/stage-report-archives/README.md`, `docs/stage-report-archives/v0.<minor>.x/README.md`, and `docs/stage-reports/README.md`.
@@ -116,11 +125,13 @@ Use **Rapid Result Report** mode when the user asks what happened across version
   - a P0 process/architecture repair touching the skill, templates, gates, and validation,
   - or an explicit emergency/hotfix/blocker exception with written justification.
 - If a version would archive only one historical design, record why that is legitimate. If recent history repeatedly has one-design versions, treat it as a process smell and consolidate the next stage instead of advancing another tiny version.
-- Every accepted design must be completed, revised and completed, or explicitly blocked/deferred with evidence.
+- Every mandatory task must be completed and pass its acceptance criteria. A blocked or deferred mandatory task keeps the version open; it cannot be converted into completion by documentation.
+- Optional tasks may be rejected, deferred, or superseded with evidence, but their source intent must remain visible in `Intent Coverage` and a later stable task when still applicable.
 - Every experiment must produce the required report artifact before it is called complete; for Lilies this normally means a concise `.docx` plus evidence.
 - Never use an unfinished experiment as the basis for broad engineering improvement.
 - If an experiment result changes engineering, mark it `已应用`; if it validates an existing change, mark it `验证应用`.
 - Platform Harness slices must be named as slices unless enforcement, observability, persistence, cancel/timeout/budget behavior, UI/API visibility, tests, and operational behavior are all closed.
+- Archive requires a passing `Closure Audit`, `scripts/validate_stage_report_template.py`, and `scripts/validate_evolution_control.py` in addition to task evidence.
 - Archive must recycle current-stage designs into `docs/historical-designs/` and move active `workingon` material into versioned archives.
 - After each small-version archive, active `docs/current-design/` and `docs/workingon/` should contain only README files unless a new active task is explicitly open.
 - Every new stage report must pass the mandatory section contract in `docs/stage-reports/STAGE_REPORT_TEMPLATE.md`. Use `scripts/validate_stage_report_template.py` for new reports when possible.
@@ -132,18 +143,21 @@ For detailed gates, read `references/operating-gates.md`, `references/archive-an
 
 ## Automatic Evolution Mode
 
-Automatic Evolution Mode is an execution loop: select the next version from the latest stage report's `Next-stage Task Set`, write source-linked designs, implement them, verify, update experiment status, archive with the mandatory stage-report template, commit, then inspect the new stage report and continue until the user explicitly says to pause or stop.
+Automatic Evolution Mode is a chain of finite, contract-locked stages: select the next version from the latest stage report's `Next-stage Task Set`, write source-linked designs, implement them, verify, run closure audit, archive with the mandatory stage-report template, commit, then resume from the next stable task ID. It continues until the user explicitly pauses/stops, the in-scope campaign reaches a terminal state, or a real blocker leaves no valid task route.
+
+Automatic evolution is not permission to invent an unbounded mission. The Program Charter and intent registry preserve the campaign, while each stage report defines a bounded task set and definition of done. Use small implementation batches inside a serious version; do not create a new tiny version merely to report progress.
 
 If a phase closeout is selected, complete the phase archive before stopping or starting the next major version: phase report, stage-report set archive, archive README files, docs index updates, and skill/process gate updates when a process gap caused the issue.
 
-Do not final-answer in this mode merely because a stage was committed, a handoff did not preselect one implementation task, or the latest evidence says there is "no meaningful single next task". If the latest stage report contains lane-selection, phase-report, governance, cleanup, or other meta tasks, open the smallest next stage that resolves that decision and continue.
+Do not final-answer in this mode merely because a stage was committed or a summary contains a suggested next step. Resume the `Current task ID`; after a valid archive, continue from the next stable task ID already authorized by `Next-stage Task Set`. If a decision task is explicitly present there, execute that bounded decision task without inventing a separate roadmap.
 
 A final answer is allowed only when:
 
 - the user explicitly pauses/stops or asks to stop after the current version,
+- every in-scope campaign intent has one of the allowed terminal statuses: `implemented_verified`, `experiment_rejected`, `superseded_preserved`, or `user_rejected`,
 - a real blocker exists: credentials/services missing, unbounded cost, destructive action needing consent, safety/privacy/legal risk, merge conflict, or no valid next-stage source.
 
-Before each final answer in this mode, ask: "Could I name any safe next version and first workingon file from the latest stage report, including a selection or meta-planning stage?" If yes and the user did not ask to pause, keep going.
+Before each final answer in this mode, ask: "Does the active stage have a current stable task ID, an unfinished mandatory contract item, or an authorized next stable task ID?" If yes and the user did not ask to pause, keep going. Never derive this answer from `workingon`.
 
 Read `references/operating-gates.md` before using this mode.
 
