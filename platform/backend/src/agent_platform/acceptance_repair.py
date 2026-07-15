@@ -5,6 +5,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from .blocks import BlockRegistry
+from .capability_contracts import evaluate_capability_contract
 from .workflow_models import ApplicationSnapshot, EdgeSpec, NodeSpec, WorkflowSpec
 
 
@@ -36,6 +37,12 @@ class AcceptanceRepairContext(BaseModel):
     relevant_node_ids: list[str] = Field(default_factory=list)
     current_revision: int = 0
     current_content_hash: str = ""
+    capability_ids: list[str] = Field(default_factory=list)
+    evidence_target: dict[str, Any] | None = None
+    capability_contract_id: str = ""
+    required_envelope: str = ""
+    claim_ceiling: str = ""
+    external_contract_gaps: list[str] = Field(default_factory=list)
 
 
 class AcceptanceRepairPreviewResponse(BaseModel):
@@ -380,6 +387,8 @@ class AcceptanceRepairPreviewer:
 
         combined_trace = [str(item)[:500] for item in trace_excerpts]
         combined_trace.extend(item[:500] for item in failed_checks if item[:500] not in combined_trace)
+        contract = snapshot.capability_build_contract
+        closure = evaluate_capability_contract(contract) if contract is not None else None
         return AcceptanceRepairContext(
             test_id=selected_id,
             test_name=str((selected_result or {}).get("name") or (test_spec.name if test_spec else "Draft validation")),
@@ -394,16 +403,31 @@ class AcceptanceRepairPreviewer:
             relevant_node_ids=relevant[:50],
             current_revision=revision,
             current_content_hash=content_hash,
+            capability_ids=list(test_spec.capability_ids) if test_spec else [],
+            evidence_target=(
+                test_spec.evidence_target.model_dump(mode="json")
+                if test_spec and test_spec.evidence_target
+                else None
+            ),
+            capability_contract_id=contract.contract_id if contract else "",
+            required_envelope=contract.required_envelope.value if contract else "",
+            claim_ceiling=closure.claim_ceiling.value if closure else "",
+            external_contract_gaps=(
+                closure.unavailable_external_contracts if closure else []
+            ),
         )
 
     @staticmethod
     def _repair_instruction(context: AcceptanceRepairContext) -> str:
         requirements = ", ".join(context.required_node_types) or "the failed output contract"
         failures = "; ".join(context.failed_checks[:4]) or f"{len(context.failed_assertions)} failed assertions"
+        capabilities = ", ".join(context.capability_ids) or "no capability ids declared"
         return (
             f"Repair acceptance case '{context.test_name}' ({context.test_id}) across the whole workflow. "
             f"Requirement: {context.requirement} Required workflow elements: {requirements}. "
-            f"Observed failures: {failures}. Use referenced nodes as context, preserve unrelated behavior, "
+            f"Observed failures: {failures}. Capability scope: {capabilities}. "
+            f"Claim ceiling: {context.claim_ceiling or 'not declared'}. "
+            "Use referenced nodes as context, preserve unrelated behavior, "
             "and return an inspectable draft edit preview rather than mutating the workflow automatically."
         )
 
@@ -411,12 +435,18 @@ class AcceptanceRepairPreviewer:
     def _repair_rationale(context: AcceptanceRepairContext) -> str:
         node_types = ", ".join(context.required_node_types) or "None declared"
         tools = ", ".join(context.required_tools) or "None declared"
+        capabilities = ", ".join(context.capability_ids) or "None declared"
         return (
             f"## Failed acceptance\n\n"
             f"**{context.test_name or context.test_id}**\n\n"
             f"{context.requirement}\n\n"
             f"- Required blocks: {node_types}\n"
             f"- Required tools: {tools}\n"
+            f"- Capability ids: {capabilities}\n"
+            f"- Evidence target: {context.evidence_target or 'None declared'}\n"
+            f"- Contract/envelope: {context.capability_contract_id or 'None'} / {context.required_envelope or 'None'}\n"
+            f"- Claim ceiling: {context.claim_ceiling or 'None'}\n"
+            f"- External contract gaps: {', '.join(context.external_contract_gaps) or 'None'}\n"
             f"- Failed checks: {len(context.failed_checks)}\n"
             f"- Failed assertions: {len(context.failed_assertions)}\n"
             f"- Run: {context.run_id or 'No run record'}"

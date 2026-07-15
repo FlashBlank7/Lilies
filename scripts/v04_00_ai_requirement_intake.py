@@ -38,11 +38,11 @@ def backend_ai_intake_markers() -> dict[str, Any]:
         "model_prompt_references_plan_mode": "Claude Code plan-mode questioning" in api_text,
         "model_prompt_forbids_open_text_primary": "Do not ask open-ended free-text questions as the primary interaction" in api_text,
         "model_prompt_requires_options": "Every needs_input question must include 2 to 5 concrete selectable options" in api_text,
-        "model_prompt_targets_workflow_plan": "The completed requirement is a workflow-building plan" in api_text,
+        "model_prompt_targets_workflow_plan": "capability_build_contract" in api_text and "render_workflow_build_plan" in api_text,
         "no_generic_placeholder_instruction": "Do not fill missing fields with generic placeholders" in api_text,
         "needs_input_requires_option_questions": "needs_input response must include option-based targeted questions" in api_text,
         "needs_input_requires_option_count": "needs_input questions must include 2 to 5 selectable options" in api_text,
-        "ready_requires_completed_requirement": "ready response must include completed_requirement" in api_text,
+        "ready_requires_completed_requirement": "ready response must include a rendered workflow build plan" in api_text,
         "harness_kind_exists": '"requirement_intake"' in harness_text,
         "usage_recorded": '"model_call"' in api_text and '"mode": "requirement_intake"' in api_text,
     }

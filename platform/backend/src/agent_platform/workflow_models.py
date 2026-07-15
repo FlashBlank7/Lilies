@@ -8,6 +8,11 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .capability_contracts import (
+    AcceptanceEvidenceTarget,
+    CapabilityBuildContract,
+    CarrierType,
+)
 from .models import AgentSpec, utc_now
 
 
@@ -237,6 +242,14 @@ class WorkflowTestCase(BaseModel):
         default_factory=list,
         description="Human-readable hints for local repair when this test fails.",
     )
+    capability_ids: list[str] = Field(
+        default_factory=list,
+        description="Capability Build Contract ids this case is intended to verify.",
+    )
+    evidence_target: AcceptanceEvidenceTarget | None = Field(
+        default=None,
+        description="Scoped evidence level and environment expected from this case.",
+    )
 
 
 class ApplicationSnapshot(BaseModel):
@@ -248,6 +261,7 @@ class ApplicationSnapshot(BaseModel):
     delivery_mode: DeliveryMode = DeliveryMode.guided
     governed_hard_gate: bool = False
     requirement: str
+    capability_build_contract: CapabilityBuildContract | None = None
     workflow: WorkflowSpec = Field(default_factory=WorkflowSpec)
     agents: dict[str, AgentSpec] = Field(default_factory=dict)
     tests: list[WorkflowTestCase] = Field(default_factory=list)
@@ -265,6 +279,7 @@ class ApplicationCreateRequest(BaseModel):
     mode: ApplicationMode = ApplicationMode.workflow
     delivery_mode: DeliveryMode = DeliveryMode.guided
     governed_hard_gate: bool = False
+    capability_build_contract: CapabilityBuildContract | None = None
 
 
 class PublishApplicationRequest(BaseModel):
@@ -284,6 +299,7 @@ class DraftOperation(BaseModel):
         "upsert_agent",
         "add_test",
         "remove_test",
+        "set_capability_build_contract",
     ]
     data: dict[str, Any] = Field(default_factory=dict)
 
@@ -346,6 +362,9 @@ class BuildPlanModule(BaseModel):
     draft_node_ids: list[str] = Field(default_factory=list)
     test_ids: list[str] = Field(default_factory=list)
     evidence: list[str] = Field(default_factory=list)
+    capability_ids: list[str] = Field(default_factory=list)
+    carrier_type: CarrierType | None = None
+    evidence_targets: list[AcceptanceEvidenceTarget] = Field(default_factory=list)
 
 
 class BuildPlan(BaseModel):
@@ -355,6 +374,8 @@ class BuildPlan(BaseModel):
     reuse_depth: Literal["none", "shallow", "deep"] = "none"
     complexity: Literal["simple", "medium", "complex"] = "medium"
     risks: list[str] = Field(default_factory=list)
+    capability_contract_id: str | None = None
+    claim_scope: str = ""
 
 
 class TeammateState(BaseModel):
@@ -370,6 +391,9 @@ class BuildTeamState(BaseModel):
     build_plan: BuildPlan | None = None
     complexity_router: dict[str, Any] | None = None
     runtime_builder_policy: dict[str, Any] | None = None
+    capability_build_contract: CapabilityBuildContract | None = None
+    capability_closure: dict[str, Any] | None = None
+    capability_routing: dict[str, Any] | None = None
     teammates: dict[str, TeammateState] = Field(default_factory=dict)
     coordinator_messages: list[dict[str, Any]] = Field(default_factory=list)
     manual_lookups: list[str] = Field(default_factory=list)

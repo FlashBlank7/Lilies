@@ -29,6 +29,14 @@ from .adaptive_monitoring import (
 from .blocks import BlockRegistry, build_block_registry
 from .builder import WorkflowBuilder
 from .builder_benchmark import BuilderBenchmark, BuilderBenchmarkCase, BuilderBenchmarkSuiteCase
+from .capability_contracts import (
+    CapabilityBuildContract,
+    capability_contract_routing,
+    evaluate_capability_contract,
+    legacy_intake_capability_contract,
+    reference_capability_contracts,
+    render_workflow_build_plan,
+)
 from .complexity_router import (
     classify_requirement,
     complexity_router_default_safety_gate,
@@ -104,6 +112,8 @@ RUNTIME_ROUTE_CHECKS: dict[str, tuple[str, str]] = {
     "requirement_intake": ("POST", "/api/v1/requirements/complete"),
     "scenario_catalog": ("GET", "/api/v1/scenarios"),
     "scenario_apply": ("POST", "/api/v1/applications/{application_id}/scenarios/{scenario_id}/apply"),
+    "capability_contract_validate": ("POST", "/api/v1/capability-contracts/validate"),
+    "application_capability_contract": ("GET", "/api/v1/applications/{application_id}/capability-contract"),
 }
 
 
@@ -302,12 +312,27 @@ class RequirementClassificationRequest(BaseModel):
     requirement: str = Field(default="", max_length=4000)
 
 
+class RequirementIntakeOptionEffect(BaseModel):
+    axis: Literal[
+        "functional_capability",
+        "runtime_guarantee",
+        "external_contract",
+        "execution_envelope",
+        "carrier",
+        "evidence",
+    ]
+    target_id: str = Field(default="", max_length=160)
+    action: Literal["include", "require", "exclude", "configure", "raise_envelope"]
+    value: str = Field(min_length=1, max_length=500)
+
+
 class RequirementIntakeOption(BaseModel):
     id: str = Field(min_length=1, max_length=120)
     label: str = Field(min_length=1, max_length=160)
     description: str = Field(default="", max_length=1000)
     impact: str = Field(default="", max_length=1000)
     recommended: bool = False
+    effects: list[RequirementIntakeOptionEffect] = Field(default_factory=list, max_length=12)
 
 
 class RequirementIntakeSelectedOption(BaseModel):
@@ -315,6 +340,7 @@ class RequirementIntakeSelectedOption(BaseModel):
     label: str = Field(default="", max_length=160)
     description: str = Field(default="", max_length=1000)
     impact: str = Field(default="", max_length=1000)
+    effects: list[RequirementIntakeOptionEffect] = Field(default_factory=list, max_length=12)
 
 
 class RequirementIntakeAnswer(BaseModel):
@@ -339,6 +365,16 @@ class RequirementIntakeQuestion(BaseModel):
     label: str = Field(min_length=1, max_length=120)
     question: str = Field(min_length=1, max_length=1000)
     why: str = Field(default="", max_length=1000)
+    decision_axis: Literal[
+        "functional_capability",
+        "runtime_guarantee",
+        "external_contract",
+        "execution_envelope",
+        "carrier",
+        "evidence",
+        "runtime_interface",
+        "target_user",
+    ] = "functional_capability"
     choice_type: Literal["single", "multi"] = "single"
     options: list[RequirementIntakeOption] = Field(default_factory=list, max_length=5)
     custom_allowed: bool = True
@@ -355,6 +391,8 @@ class RequirementIntakeResponse(BaseModel):
     missing: list[str] = Field(default_factory=list, max_length=12)
     questions: list[RequirementIntakeQuestion] = Field(default_factory=list, max_length=8)
     completed_requirement: str | None = Field(default=None, max_length=30_000)
+    capability_build_contract: CapabilityBuildContract | None = None
+    capability_closure: dict[str, Any] | None = None
     workflow_intent: dict[str, Any] = Field(default_factory=dict)
     raw_text: str = Field(default="", max_length=4000)
     usage: dict[str, Any] = Field(default_factory=dict)
@@ -383,6 +421,11 @@ def _json_object_from_text(text: str) -> dict[str, Any]:
 
 def _requirement_intake_system(locale: str) -> str:
     language = "Chinese" if locale == "zh" else "English"
+    contract_schema = json.dumps(
+        CapabilityBuildContract.model_json_schema(),
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
     return (
         "You are Lilies' workflow requirement intake agent. "
         "Your job is similar to Claude Code plan-mode questioning, but for editable workflow generation, not code execution. "
@@ -393,11 +436,15 @@ def _requirement_intake_system(locale: str) -> str:
         "Use choice_type single for mutually exclusive decisions and multi when the customer may select several capabilities. "
         "The first option should be recommended and should set recommended true. "
         "Use custom_allowed only as an optional Other/custom escape hatch; the default path must be selecting options. "
-        "Questions must be workflow-building decisions: target user, runtime interface, editable block scope, tools, permission boundaries, acceptance strategy, and evidence records. "
+        "Questions must be workflow-building decisions: target user, functional capability (F), runtime guarantee (G), external contract (X), E0-E5 execution envelope, carrier, runtime interface, permission boundary, and evidence. "
+        "Every question must set decision_axis. Every option must include at least one typed effect that says what capability, envelope, carrier, or evidence decision the selection changes. "
         "Do not fill missing fields with generic placeholders. Do not invent a target customer, runtime tools, permissions, or acceptance criteria. "
-        "When the request is ready, return status ready and a completed_requirement that a workflow-builder agent can directly use. "
-        "The completed requirement is a workflow-building plan, not a code plan or generic answer. "
-        "The completed requirement must use these sections: target user, business goal, start input, workflow steps, runtime interface, editable blocks, permissions and boundaries, acceptance cases, and next build suggestion. "
+        "When the request is ready, return status ready and capability_build_contract. The contract is the authoritative Builder input; completed_requirement may be null because the server renders the customer plan from the same contract. "
+        "The model, not a fixed scenario template, must infer the contract contents from the original requirement and selected answers. Preserve the exact original source_requirement. "
+        "Use stable F.*, G.*, and X.* ids. Every required capability needs a proposed carrier decision, an explicit workflow/evaluation/platform/external owner, and at least one evidence-plan item. "
+        "E0-E5 is cumulative execution context: E0 one-shot cognition, E1 stateful workflow, E2 interactive tool loop, E3 durable task, E4 governed automation, E5 production embedding. Risk is a separate field and must not be inferred from envelope alone. "
+        "Unavailable external contracts must use availability=unavailable with a reason and blocked_by_environment evidence; do not misreport them as workflow graph defects or live success. "
+        "Distinguish workflow_runtime, evaluation_harness, platform_harness, and external_system ownership. Choose among atomic_block, reusable_module, runtime_service, platform_control, and connector_external_contract before implying a new block. "
         "Always answer in JSON only, no markdown fences. "
         f"Use {language} for user-visible text. "
         "JSON schema: {"
@@ -406,13 +453,15 @@ def _requirement_intake_system(locale: str) -> str:
         "\"reasoning_summary\":\"short rationale\","
         "\"detected_goal\":\"what the user is trying to build\","
         "\"missing\":[\"specific missing facts\"],"
-        "\"questions\":[{\"id\":\"stable_snake_case\",\"label\":\"short label\",\"question\":\"decision question\",\"why\":\"why it matters\",\"choice_type\":\"single|multi\",\"options\":[{\"id\":\"stable_option_id\",\"label\":\"option label\",\"description\":\"what this means\",\"impact\":\"how it changes the workflow\",\"recommended\":true}],\"custom_allowed\":true,\"custom_placeholder\":\"optional custom answer placeholder\"}],"
+        "\"questions\":[{\"id\":\"stable_snake_case\",\"label\":\"short label\",\"question\":\"decision question\",\"why\":\"why it matters\",\"decision_axis\":\"functional_capability|runtime_guarantee|external_contract|execution_envelope|carrier|evidence|runtime_interface|target_user\",\"choice_type\":\"single|multi\",\"options\":[{\"id\":\"stable_option_id\",\"label\":\"option label\",\"description\":\"what this means\",\"impact\":\"how it changes the workflow\",\"recommended\":true,\"effects\":[{\"axis\":\"functional_capability|runtime_guarantee|external_contract|execution_envelope|carrier|evidence\",\"target_id\":\"F.example\",\"action\":\"include|require|exclude|configure|raise_envelope\",\"value\":\"specific effect\"}]}],\"custom_allowed\":true,\"custom_placeholder\":\"optional custom answer placeholder\"}],"
         "\"completed_requirement\":\"string or null\","
-        "\"workflow_intent\":{\"target_user\":\"\",\"runtime_input\":\"\",\"runtime_output\":\"\",\"core_steps\":[\"\"],\"permissions\":[\"\"],\"acceptance_cases\":[\"\"]}"
+        "\"workflow_intent\":{\"target_user\":\"\",\"runtime_input\":\"\",\"runtime_output\":\"\",\"core_steps\":[\"\"],\"permissions\":[\"\"],\"acceptance_cases\":[\"\"]},"
+        "\"capability_build_contract\":{}"
         "}. "
         "For a vague request such as 'make a workflow like Codex', do not complete the requirement directly. "
         "Return option questions covering Codex-like capability scope, target user, runtime interface, permission/tool boundary, and acceptance strategy. "
-        "For capability scope, use a multi-select question with no more than five concrete options; combine related ideas such as tool execution and real acceptance evidence when needed."
+        "For capability scope, use a multi-select question with no more than five concrete options; combine related ideas such as tool execution and real acceptance evidence when needed. "
+        f"CapabilityBuildContract JSON schema: {contract_schema}"
     )
 
 
@@ -436,8 +485,8 @@ def _requirement_intake_prompt(body: RequirementIntakeRequest) -> str:
             "max_questions": body.max_questions,
             "instruction": (
                 "Return needs_input if the most important workflow design facts are still missing. "
-                "If returning needs_input, return selectable options rather than free-text questions. "
-                "Return ready only when the completed requirement can guide editable workflow generation without generic fallback fields."
+                "If returning needs_input, return selectable options with typed decision axes and effects rather than free-text questions. "
+                "Return ready only when capability_build_contract can guide editable workflow generation, carrier selection, routing, and scoped evidence without generic fallback fields."
             ),
         },
         ensure_ascii=False,
@@ -455,38 +504,85 @@ def _validate_requirement_intake_response(result: RequirementIntakeResponse) -> 
             option_ids = [option.id for option in question.options]
             if len(option_ids) != len(set(option_ids)):
                 raise ValueError("needs_input question options must have unique ids")
+            if any(not option.effects for option in question.options):
+                raise ValueError("needs_input options must declare typed capability effects")
             if not any(option.recommended for option in question.options):
                 question.options[0].recommended = True
-    if result.status == "ready" and not (result.completed_requirement or "").strip():
-        raise ValueError("ready response must include completed_requirement")
+    if result.status == "ready":
+        if not (result.completed_requirement or "").strip():
+            raise ValueError("ready response must include a rendered workflow build plan")
+        if result.capability_build_contract is None:
+            raise ValueError("ready response must include capability_build_contract")
+        closure = evaluate_capability_contract(result.capability_build_contract)
+        if not closure.valid:
+            raise ValueError(
+                "ready capability build contract is invalid: "
+                + "; ".join(closure.blocking_errors)
+            )
 
 
-def _normalize_requirement_intake_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    if payload.get("status") != "needs_input":
+def _normalize_requirement_intake_payload(
+    payload: dict[str, Any],
+    body: RequirementIntakeRequest,
+) -> dict[str, Any]:
+    if payload.get("status") == "needs_input":
+        questions = payload.get("questions")
+        if not isinstance(questions, list):
+            return payload
+        for question in questions:
+            if not isinstance(question, dict):
+                continue
+            for text_key in ("why", "placeholder", "custom_placeholder"):
+                if question.get(text_key) is None:
+                    question[text_key] = ""
+            if question.get("custom_allowed") is None:
+                question["custom_allowed"] = True
+            if not question.get("decision_axis"):
+                question["decision_axis"] = "functional_capability"
+            options = question.get("options")
+            if isinstance(options, list) and len(options) > 5:
+                question["options"] = options[:5]
+            if isinstance(question.get("options"), list):
+                for option in question["options"]:
+                    if not isinstance(option, dict):
+                        continue
+                    for text_key in ("description", "impact"):
+                        if option.get(text_key) is None:
+                            option[text_key] = ""
+                    if option.get("recommended") is None:
+                        option["recommended"] = False
+                    if not option.get("effects"):
+                        option_id = str(option.get("id") or "legacy_option")
+                        option["effects"] = [{
+                            "axis": "functional_capability",
+                            "target_id": f"F.option.{option_id}"[:160],
+                            "action": "configure",
+                            "value": str(option.get("impact") or option.get("label") or option_id)[:500],
+                        }]
         return payload
-    questions = payload.get("questions")
-    if not isinstance(questions, list):
+
+    if payload.get("status") != "ready":
         return payload
-    for question in questions:
-        if not isinstance(question, dict):
-            continue
-        for text_key in ("why", "placeholder", "custom_placeholder"):
-            if question.get(text_key) is None:
-                question[text_key] = ""
-        if question.get("custom_allowed") is None:
-            question["custom_allowed"] = True
-        options = question.get("options")
-        if isinstance(options, list) and len(options) > 5:
-            question["options"] = options[:5]
-        if isinstance(question.get("options"), list):
-            for option in question["options"]:
-                if not isinstance(option, dict):
-                    continue
-                for text_key in ("description", "impact"):
-                    if option.get(text_key) is None:
-                        option[text_key] = ""
-                if option.get("recommended") is None:
-                    option["recommended"] = False
+    raw_contract = payload.get("capability_build_contract")
+    if isinstance(raw_contract, dict):
+        raw_contract = dict(raw_contract)
+        raw_contract["source_requirement"] = body.requirement
+        raw_contract["generation_source"] = "model"
+        contract = CapabilityBuildContract.model_validate(raw_contract)
+    else:
+        workflow_intent = payload.get("workflow_intent")
+        contract = legacy_intake_capability_contract(
+            requirement=body.requirement,
+            workflow_intent=workflow_intent if isinstance(workflow_intent, dict) else {},
+            completed_requirement=str(payload.get("completed_requirement") or body.requirement),
+        )
+    closure = evaluate_capability_contract(contract)
+    payload["capability_build_contract"] = contract.model_dump(mode="json")
+    payload["capability_closure"] = closure.model_dump(mode="json")
+    payload["completed_requirement"] = render_workflow_build_plan(
+        contract,
+        locale=body.locale,
+    )
     return payload
 
 
@@ -519,7 +615,7 @@ async def complete_requirement_intake(
             system=_requirement_intake_system(body.locale),
             messages=[ChatMessage(role="user", content=[ContentBlock(type="text", text=_requirement_intake_prompt(body))])],
             tools=[],
-            max_output_tokens=4_096,
+            max_output_tokens=12_000,
             thinking_enabled=False,
             effort="low",
             user_id=task_id,
@@ -536,7 +632,9 @@ async def complete_requirement_intake(
         payload["task_id"] = task_id
         payload["raw_text"] = text[:4000]
         payload["usage"] = response.usage.model_dump(mode="json")
-        result = RequirementIntakeResponse.model_validate(_normalize_requirement_intake_payload(payload))
+        result = RequirementIntakeResponse.model_validate(
+            _normalize_requirement_intake_payload(payload, body)
+        )
         _validate_requirement_intake_response(result)
         await services.harness.finish_task(
             task_id,
@@ -881,6 +979,26 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             raise HTTPException(429, str(error)) from error
         except ValueError as error:
             raise HTTPException(502, str(error)) from error
+
+    @app.post("/api/v1/capability-contracts/validate", dependencies=[Depends(require_token)])
+    async def validate_capability_build_contract(
+        body: CapabilityBuildContract,
+        require_bound_carriers: bool = False,
+    ) -> dict[str, Any]:
+        return evaluate_capability_contract(
+            body,
+            require_bound_carriers=require_bound_carriers,
+        ).model_dump(mode="json")
+
+    @app.get("/api/v1/capability-contracts/reference-scenarios", dependencies=[Depends(require_token)])
+    async def list_reference_capability_contracts() -> list[dict[str, Any]]:
+        return [
+            {
+                "contract": contract.model_dump(mode="json"),
+                "closure": evaluate_capability_contract(contract).model_dump(mode="json"),
+            }
+            for contract in reference_capability_contracts()
+        ]
 
     @app.get("/api/v1/platform/complexity-router/default-enableable-plan", dependencies=[Depends(require_token)])
     async def get_complexity_router_default_enableable_plan() -> dict[str, Any]:
@@ -1707,6 +1825,14 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
 
     @app.post("/api/v1/applications", status_code=201, dependencies=[Depends(require_token)])
     async def create_application(body: ApplicationCreateRequest) -> dict[str, Any]:
+        if body.capability_build_contract is not None:
+            closure = evaluate_capability_contract(body.capability_build_contract)
+            if not closure.valid:
+                raise HTTPException(
+                    422,
+                    "invalid capability build contract: "
+                    + "; ".join(closure.blocking_errors),
+                )
         return await services.workflow_store.create_application(body)
 
     @app.get("/api/v1/applications", dependencies=[Depends(require_token)])
@@ -1745,6 +1871,26 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
 
+    @app.get(
+        "/api/v1/applications/{application_id}/capability-contract",
+        dependencies=[Depends(require_token)],
+    )
+    async def get_application_capability_contract(application_id: str) -> dict[str, Any]:
+        try:
+            draft = await services.workflow_store.get_draft(application_id)
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+        contract = draft["snapshot"].capability_build_contract
+        if contract is None:
+            raise HTTPException(404, "application has no capability build contract")
+        return {
+            "application_id": application_id,
+            "revision": draft["revision"],
+            "content_hash": draft["content_hash"],
+            "contract": contract.model_dump(mode="json"),
+            "closure": evaluate_capability_contract(contract).model_dump(mode="json"),
+        }
+
     @app.post(
         "/api/v1/applications/{application_id}/scenarios/{scenario_id}/apply",
         dependencies=[Depends(require_token)],
@@ -1767,6 +1913,12 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                 expected_revision=body.expected_revision,
                 expected_content_hash=body.expected_content_hash,
                 operations=[
+                    {
+                        "op": "set_capability_build_contract",
+                        "data": {
+                            "contract": scenario.capability_build_contract.model_dump(mode="json")
+                        },
+                    },
                     {
                         "op": "replace_workflow",
                         "data": {"workflow": scenario.workflow.model_dump(mode="json")},
@@ -1861,16 +2013,30 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
     async def create_build(application_id: str, body: BuildRequest) -> dict[str, Any]:
         try:
             await services.workflow_store.get_application(application_id)
+            draft = await services.workflow_store.get_draft(application_id)
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
         build_id = str(uuid4())
-        router_activation = runtime_activation_for_build(
-            body.requirement,
-            default_mode=services.settings.complexity_router_default_mode,
-            limited_default_enabled=services.settings.complexity_router_limited_default_enabled,
-            min_confidence=services.settings.complexity_router_limited_default_min_confidence,
-            requested_planning_mode=body.planning_mode,
-        )
+        capability_contract = draft["snapshot"].capability_build_contract
+        if capability_contract is not None:
+            router_activation = capability_contract_routing(
+                capability_contract,
+                requested_planning_mode=body.planning_mode,
+            )
+            complexity_router = None
+            capability_closure = evaluate_capability_contract(
+                capability_contract
+            ).model_dump(mode="json")
+        else:
+            router_activation = runtime_activation_for_build(
+                body.requirement,
+                default_mode=services.settings.complexity_router_default_mode,
+                limited_default_enabled=services.settings.complexity_router_limited_default_enabled,
+                min_confidence=services.settings.complexity_router_limited_default_min_confidence,
+                requested_planning_mode=body.planning_mode,
+            )
+            complexity_router = router_activation
+            capability_closure = None
         await services.workflow_store.create_build(
             build_id,
             application_id,
@@ -1880,8 +2046,11 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             body.max_repair_cycles,
             body.max_elapsed_seconds,
             router_activation["effective_planning_mode"],
-            complexity_router=router_activation,
+            complexity_router=complexity_router,
             runtime_builder_policy=router_activation["runtime_builder_policy"],
+            capability_build_contract=capability_contract,
+            capability_closure=capability_closure,
+            capability_routing=router_activation if capability_contract is not None else None,
         )
         services.builder.start(build_id)
         return {
@@ -1891,6 +2060,10 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             "max_elapsed_seconds": body.max_elapsed_seconds,
             "deadline": deadline_summary(body.max_elapsed_seconds),
             "complexity_router": router_activation,
+            "routing_source": router_activation.get("routing_source", "legacy_complexity_router"),
+            "capability_routing": (
+                router_activation if capability_contract is not None else None
+            ),
         }
 
     @app.get(

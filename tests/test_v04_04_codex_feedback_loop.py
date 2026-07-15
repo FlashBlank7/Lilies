@@ -234,10 +234,11 @@ def test_codex_scenario_catalog_and_atomic_apply(tmp_path: Path) -> None:
         assert summary["acceptance_case_count"] == 3
 
         app_id, applied = create_and_apply(client)
-        assert applied["operations_applied"] == 2
+        assert applied["operations_applied"] == 3
         assert applied["revision"] == 1
         assert applied["validation"]["valid"] is True, applied["validation"]
         draft = client.get(f"/api/v1/applications/{app_id}/draft", headers=HEADERS).json()
+        assert draft["snapshot"]["capability_build_contract"]["contract_id"] == "reference.codex_workspace.v1"
         assert len(draft["snapshot"]["tests"]) == 3
         workflow = draft["snapshot"]["workflow"]
         node_types = {node["type"] for node in workflow["nodes"]}

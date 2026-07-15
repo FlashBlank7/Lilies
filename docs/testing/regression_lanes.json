@@ -1,6 +1,6 @@
 {
-  "version": "v0.4.4",
-  "source_stage_report": "docs/stage-reports/v0.4.4_codex_feedback_loop_scenario.md",
+  "version": "v0.4.5",
+  "source_stage_report": "docs/stage-reports/v0.4.5_capability_build_contract.md",
   "policy": {
     "current_gate": "v0.4.x_current_release_gate",
     "full_historical_sweep": "diagnostic_non_gating",
@@ -12,7 +12,7 @@
       "id": "v0.4.x_current_release_gate",
       "status": "gating",
       "phase": "v0.4.x",
-      "reason": "Current v0.4.4 product gate: the v0.4.3 usability baseline plus first-class loop feedback, the editable Codex-like scenario, atomic scenario application, and deterministic workspace-tool evidence.",
+      "reason": "Current v0.4.5 product gate: the usability and Codex feedback baselines plus the shared F/G/X Capability Build Contract, deterministic closure, model-first intake, persistence, contract routing, real carrier binding, scoped evidence, and frontend/repair propagation.",
       "command": [
         ".venv/bin/python",
         "-m",
@@ -28,6 +28,7 @@
         "tests/test_v04_03_browser_environment.py",
         "tests/test_v04_00_ai_requirement_intake.py",
         "tests/test_v04_04_codex_feedback_loop.py",
+        "tests/test_v04_05_capability_build_contract.py",
         "tests/test_workflow.py::test_application_placeholder_name_is_derived_from_requirement",
         "tests/test_workflow.py::test_application_placeholder_name_uses_markdown_business_goal",
         "tests/test_workflow.py::test_branch_outputs_join_with_variable_aggregator",
@@ -50,6 +51,7 @@
         "tests/test_v04_03_browser_environment.py",
         "tests/test_v04_00_ai_requirement_intake.py",
         "tests/test_v04_04_codex_feedback_loop.py",
+        "tests/test_v04_05_capability_build_contract.py",
         "tests/test_workflow.py::test_application_placeholder_name_is_derived_from_requirement",
         "tests/test_workflow.py::test_application_placeholder_name_uses_markdown_business_goal",
         "tests/test_workflow.py::test_branch_outputs_join_with_variable_aggregator",
@@ -60,7 +62,7 @@
         "tests/test_stage_report_template_validation.py"
       ],
       "expected": {
-        "pass_count": 59,
+        "pass_count": 68,
         "warning_count": 1
       }
     },
@@ -77,9 +79,9 @@
         "-q"
       ],
       "last_observed": {
-        "source_stage_report": "docs/stage-reports/v0.4.3_usability_modes_evidence_and_regression_stabilization.md",
-        "command": ".venv/bin/python -m pytest -q --tb=short --junitxml=/tmp/lilies-v043-task-f-final8.xml",
-        "passed_count": 740,
+        "source_stage_report": "docs/stage-reports/v0.4.5_capability_build_contract.md",
+        "command": ".venv/bin/python -m pytest -q --tb=short --junitxml=/tmp/lilies-v045-working-full.xml",
+        "passed_count": 754,
         "failed_count": 0,
         "expected_failure_count": 17,
         "warning_count": 1,

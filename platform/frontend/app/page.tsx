@@ -29,12 +29,19 @@ type AppQuickAction = { id: string; tab: AppActionTab; label: string }
 type AppListUrlState = { filter?: AppFilter; q?: string; sort?: AppSort }
 type Copy = (typeof messages)[Locale]
 type RequirementIntakeChoiceType = 'single' | 'multi'
+type RequirementIntakeOptionEffect = {
+  axis: 'functional_capability' | 'runtime_guarantee' | 'external_contract' | 'execution_envelope' | 'carrier' | 'evidence'
+  target_id?: string
+  action: 'include' | 'require' | 'exclude' | 'configure' | 'raise_envelope'
+  value: string
+}
 type RequirementIntakeOption = {
   id: string
   label: string
   description?: string
   impact?: string
   recommended?: boolean
+  effects?: RequirementIntakeOptionEffect[]
 }
 type RequirementClarificationSelection = {
   selectedOptionIds: string[]
@@ -46,11 +53,33 @@ type RequirementIntakeQuestion = {
   label: string
   question: string
   why?: string
+  decision_axis: 'functional_capability' | 'runtime_guarantee' | 'external_contract' | 'execution_envelope' | 'carrier' | 'evidence' | 'runtime_interface' | 'target_user'
   choice_type: RequirementIntakeChoiceType
   options: RequirementIntakeOption[]
   custom_allowed?: boolean
   custom_placeholder?: string
   placeholder?: string
+}
+type CapabilityContractItem = {
+  id: string
+  title: string
+  description: string
+  required_envelope: string
+  availability?: string
+}
+type CapabilityBuildContract = {
+  contract_id: string
+  source_requirement: string
+  target_user: string
+  business_goal: string
+  functional_capabilities: CapabilityContractItem[]
+  runtime_guarantees: CapabilityContractItem[]
+  external_contracts: CapabilityContractItem[]
+  required_envelope: string
+  risk_level: string
+  carrier_decisions: { capability_id: string; carrier_type: string; resource_hint: string }[]
+  claim_scope: { ceiling: string; verified: string[]; excluded: string[] }
+  unresolved_decisions: string[]
 }
 type RequirementIntakeResponse = {
   task_id: string
@@ -61,6 +90,8 @@ type RequirementIntakeResponse = {
   missing: string[]
   questions: RequirementIntakeQuestion[]
   completed_requirement?: string | null
+  capability_build_contract?: CapabilityBuildContract | null
+  capability_closure?: { valid: boolean; scoped_gaps?: string[]; blocking_errors?: string[] } | null
   workflow_intent: Record<string, unknown>
   usage: Record<string, unknown>
 }
@@ -333,6 +364,7 @@ function requirementIntakeAnswers(
           label: option.label,
           description: option.description || '',
           impact: option.impact || '',
+          effects: option.effects || [],
         }))
       const customAnswer = selection.customAnswer.trim()
       return {
@@ -387,6 +419,7 @@ export default function Home() {
   const [buildIntentConfirmed, setBuildIntentConfirmed] = useState(false)
   const [requirementSelections, setRequirementSelections] = useState<RequirementClarificationSelections>({})
   const [requirementIntake, setRequirementIntake] = useState<RequirementIntakeResponse | null>(null)
+  const [capabilityBuildContract, setCapabilityBuildContract] = useState<CapabilityBuildContract | null>(null)
   const [error, setError] = useState('')
   const [authRequired, setAuthRequired] = useState(false)
   const [tokenInput, setTokenInput] = useState('')
@@ -454,6 +487,7 @@ export default function Home() {
     ? requirementIntake.missing
     : createReadiness.signals.filter(signal => !signal.ready).map(signal => signal.label)
   const requirementCompletionReady = requirementIntake?.status === 'ready' && Boolean(requirementIntake.completed_requirement?.trim())
+  const displayedCapabilityContract = requirementIntake?.capability_build_contract || capabilityBuildContract
   const createAction = createActionState(requirement, createReadiness.ready || requirementCompletionReady, busy || requirementIntakeBusy, draftBusy, buildIntentConfirmed, t)
   const recommendedAction = recommendedCreateAction(createAction.id, t)
   const runtimeStatus = classifyRuntimeStatus(runtimeHealth, { authRequired, unavailable: runtimeUnavailable })
@@ -632,6 +666,7 @@ export default function Home() {
       return
     }
     setRequirement(completed)
+    setCapabilityBuildContract(requirementIntake?.capability_build_contract || null)
     setSelectedExampleId(null)
     setBuildIntentConfirmed(true)
     setRequirementIntake(null)
@@ -642,6 +677,7 @@ export default function Home() {
   function resetRequirementCompletion() {
     setRequirementSelections({})
     setRequirementIntake(null)
+    setCapabilityBuildContract(null)
     setBuildIntentConfirmed(false)
     setError('')
   }
@@ -659,11 +695,11 @@ export default function Home() {
       const name = deriveApplicationName(requirement)
       const app = await api<Application>('/api/v1/applications', {
         method: 'POST',
-        body: JSON.stringify({ name, description: requirement.slice(0, 180), requirement, mode: 'workflow', delivery_mode: deliveryMode }),
+        body: JSON.stringify({ name, description: requirement.slice(0, 180), requirement, mode: 'workflow', delivery_mode: deliveryMode, capability_build_contract: capabilityBuildContract }),
       })
       setApps(current => [app, ...current.filter(item => item.id !== app.id)])
       resetAppListView()
-      if (isCodexWorkspaceRequirement(requirement)) {
+      if (isCodexWorkspaceRequirement(requirement) && !capabilityBuildContract) {
         await applyCodexWorkspaceScenario(app)
       }
       try {
@@ -687,9 +723,9 @@ export default function Home() {
       const name = deriveApplicationName(requirement)
       const app = await api<Application>('/api/v1/applications', {
         method: 'POST',
-        body: JSON.stringify({ name, description: requirement.slice(0, 180), requirement, mode: 'workflow', delivery_mode: deliveryMode }),
+        body: JSON.stringify({ name, description: requirement.slice(0, 180), requirement, mode: 'workflow', delivery_mode: deliveryMode, capability_build_contract: capabilityBuildContract }),
       })
-      if (isCodexWorkspaceRequirement(requirement)) {
+      if (isCodexWorkspaceRequirement(requirement) && !capabilityBuildContract) {
         await applyCodexWorkspaceScenario(app)
       } else {
         await seedSafeDraftSkeleton(app.id, app.draft_revision, requirement)
@@ -729,6 +765,7 @@ export default function Home() {
     setRequirement(example.requirement)
     setRequirementSelections({})
     setRequirementIntake(null)
+    setCapabilityBuildContract(null)
     setSelectedExampleId(example.id)
     setBuildIntentConfirmed(false)
     setError('')
@@ -742,7 +779,7 @@ export default function Home() {
         <h1>{t.heroTitleA}<br/><em>{t.heroTitleB}</em></h1>
         <p>{t.heroCopy}</p>
         <form className="create-card" onSubmit={create}>
-          <textarea ref={requirementInputRef} aria-label={t.requirementAria} value={requirement} onChange={event => { setRequirement(event.target.value); setRequirementIntake(null); setBuildIntentConfirmed(false) }} />
+          <textarea ref={requirementInputRef} aria-label={t.requirementAria} value={requirement} onChange={event => { setRequirement(event.target.value); setRequirementIntake(null); setCapabilityBuildContract(null); setBuildIntentConfirmed(false) }} />
           <section className="delivery-mode-picker" data-delivery-mode={deliveryMode}>
             <div className="delivery-mode-heading"><strong>{t.deliveryModeTitle}</strong><small>{t.deliveryModeHelp}</small></div>
             <div className="delivery-mode-segments" role="group" aria-label={t.deliveryModeTitle}>
@@ -778,7 +815,7 @@ export default function Home() {
                 return <article className="requirement-question-card" key={question.id}>
                   <div className="requirement-question-head">
                     <span>{question.label}</span>
-                    <small>{question.choice_type === 'multi' ? t.requirementCompletionMultiChoice : t.requirementCompletionSingleChoice}</small>
+                    <small>{question.decision_axis} · {question.choice_type === 'multi' ? t.requirementCompletionMultiChoice : t.requirementCompletionSingleChoice}</small>
                   </div>
                   <p>{question.question}</p>
                   {question.why && <em>{question.why}</em>}
@@ -795,6 +832,9 @@ export default function Home() {
                         <span><b>{option.label}</b>{option.recommended && <i>{t.requirementCompletionRecommended}</i>}</span>
                         {option.description && <small>{option.description}</small>}
                         {option.impact && <small className="requirement-option-impact">{option.impact}</small>}
+                        {Boolean(option.effects?.length) && <span className="requirement-option-effects">
+                          {option.effects?.map((effect, index) => <code key={`${effect.axis}-${effect.target_id}-${index}`}>{effect.target_id || effect.axis} · {effect.action}</code>)}
+                        </span>}
                       </label>
                     })}
                   </div>
@@ -815,6 +855,28 @@ export default function Home() {
                 ? <pre>{requirementIntake.completed_requirement}</pre>
                 : <p>{requirementIntake ? t.requirementCompletionNoDraft : t.requirementCompletionStartHint}</p>}
             </div>
+            {displayedCapabilityContract && <section className="capability-build-contract" data-capability-build-contract={displayedCapabilityContract.contract_id}>
+              <header>
+                <div><strong>Capability Build Contract</strong><small>{displayedCapabilityContract.contract_id}</small></div>
+                <span>{displayedCapabilityContract.required_envelope} · {displayedCapabilityContract.risk_level} · {displayedCapabilityContract.claim_scope.ceiling}</span>
+              </header>
+              <p>{displayedCapabilityContract.target_user} · {displayedCapabilityContract.business_goal}</p>
+              <div className="capability-contract-groups">
+                {([
+                  ['F', displayedCapabilityContract.functional_capabilities],
+                  ['G', displayedCapabilityContract.runtime_guarantees],
+                  ['X', displayedCapabilityContract.external_contracts],
+                ] as const).map(([kind, items]) => <article key={kind} data-capability-kind={kind}>
+                  <b>{kind}</b>
+                  {items.map(item => <span key={item.id}><code>{item.id}</code>{item.title}<small>{item.required_envelope}{item.availability ? ` · ${item.availability}` : ''}</small></span>)}
+                </article>)}
+              </div>
+              <footer>
+                <span>{displayedCapabilityContract.carrier_decisions.length} carriers</span>
+                <span>{displayedCapabilityContract.unresolved_decisions.length} unresolved</span>
+                <span>{displayedCapabilityContract.claim_scope.excluded.length} excluded claims</span>
+              </footer>
+            </section>}
             <div className="requirement-completion-actions">
               <button type="button" className="secondary-action" onClick={resetRequirementCompletion} disabled={!hasRequirementSelections && !requirementIntake}>{t.requirementCompletionReset}</button>
               <button type="button" className="secondary-action" onClick={() => void runRequirementIntake()} disabled={requirementIntakeBusy || !requirement.trim() || (requirementIntake?.status === 'needs_input' && !requirementChoicesComplete)}>

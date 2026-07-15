@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from .blocks import BlockRegistry
+from .capability_contracts import CapabilityBuildContract, evaluate_capability_contract
 from .models import AgentSpec
 from .workflow_models import (
     ApplicationMode,
@@ -172,6 +173,15 @@ class ApplicationService:
             if not any(test.mandatory for test in tests):
                 raise ValueError("replacement tests require at least one mandatory case")
             snapshot.tests = tests
+        elif operation == "set_capability_build_contract":
+            contract = CapabilityBuildContract.model_validate(data["contract"])
+            closure = evaluate_capability_contract(contract)
+            if not closure.valid:
+                raise ValueError(
+                    "capability build contract is invalid: "
+                    + "; ".join(closure.blocking_errors)
+                )
+            snapshot.capability_build_contract = contract
         else:
             raise ValueError(f"unsupported draft operation: {operation}")
 

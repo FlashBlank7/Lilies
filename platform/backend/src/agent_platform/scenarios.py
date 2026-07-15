@@ -5,6 +5,16 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from .blocks import BlockRegistry
+from .capability_contracts import (
+    AcceptanceEvidenceTarget,
+    CapabilityBuildContract,
+    CarrierStatus,
+    CoverageStatus,
+    EvidenceEnvironment,
+    EvidenceLevel,
+    VerificationStatus,
+    reference_capability_contract,
+)
 from .workflow_models import TestAssertion, TestFrameSpec, WorkflowSpec, WorkflowTestCase
 
 
@@ -30,6 +40,7 @@ class ScenarioDefinition(BaseModel):
     runtime_inputs: list[dict[str, Any]]
     structural_contract: dict[str, Any]
     evidence_profile: ScenarioEvidenceProfile
+    capability_build_contract: CapabilityBuildContract
     workflow: WorkflowSpec
     acceptance_cases: list[WorkflowTestCase]
 
@@ -51,6 +62,21 @@ class ScenarioCatalog:
         if scenario_id != "codex_like_workspace_agent":
             raise KeyError(f"unknown scenario: {scenario_id}")
         prefix = "codex"
+        capability_contract = reference_capability_contract(scenario_id)
+        binding_refs = {
+            "F.plan_act_observe": ["codex_loop"],
+            "F.workspace_result": ["codex_answer"],
+            "G.permission_boundary": ["codex_permission"],
+            "G.loop_trace": ["codex_loop", "codex_trace"],
+            "X.workspace": ["codex_sandbox"],
+            "X.model": ["codex_plan"],
+        }
+        for decision in capability_contract.carrier_decisions:
+            decision.status = CarrierStatus.bound
+            decision.implementation_refs = binding_refs[decision.capability_id]
+        for coverage in capability_contract.platform_coverage:
+            coverage.status = CoverageStatus.available
+            coverage.surface = "codex scenario component replay"
         workflow = self.blocks.expand_template(scenario_id, prefix=prefix)
         validation_errors = self.blocks.validate_workflow(workflow)
         if validation_errors:
@@ -63,23 +89,14 @@ class ScenarioCatalog:
                 "the declared boundary, feed tool evidence into the next model turn, and return a final result."
             ),
             customer_outcome="Give one workspace task and receive an inspectable plan, live progress, and a final answer.",
-            capability_set=[
-                "workspace_context",
-                "planning",
-                "registered_tools",
-                "permission_boundary",
-                "sandbox_boundary",
-                "structured_feedback_loop",
-                "stop_and_cancel",
-                "checkpoint_and_trace",
-                "customer_result",
-            ],
-            required_envelope="E2 local interactive workspace; E3 only when durable cross-process execution is configured",
+            capability_set=[item.id for item in capability_contract.capabilities],
+            required_envelope=(
+                f"{capability_contract.required_envelope.value} local interactive workspace; "
+                "E3 only when durable cross-process execution is configured"
+            ),
             external_contracts=[
-                "workspace path must resolve inside the configured workspace root",
-                "tools must exist in the Lilies registry",
-                "network access follows an explicit policy and platform egress controls",
-                "mutating work starts only after the plan permission boundary is resolved",
+                f"{item.id}: {item.description} [{item.availability.value}]"
+                for item in capability_contract.external_contracts
             ],
             runtime_inputs=[
                 {"name": "task", "type": "string", "required": True, "customer_visible": True},
@@ -140,6 +157,7 @@ class ScenarioCatalog:
                     "production reliability or SLO",
                 ],
             ),
+            capability_build_contract=capability_contract,
             workflow=workflow,
             acceptance_cases=self._codex_acceptance_cases(prefix),
         )
@@ -192,6 +210,19 @@ class ScenarioCatalog:
                 feedback_hints=[
                     "Check whether the first model turn routed Read and whether normalized output became loop feedback.",
                 ],
+                capability_ids=[
+                    "F.plan_act_observe",
+                    "F.workspace_result",
+                    "G.loop_trace",
+                    "X.workspace",
+                    "X.model",
+                ],
+                evidence_target=AcceptanceEvidenceTarget(
+                    level=EvidenceLevel.H2,
+                    environment=EvidenceEnvironment.sandbox,
+                    expected_status=VerificationStatus.component_verified,
+                    claim_scope="Isolated workspace tool-feedback behavior only.",
+                ),
             ),
             WorkflowTestCase(
                 id="codex_workspace_permission_boundary",
@@ -210,6 +241,13 @@ class ScenarioCatalog:
                 required_node_types=["model_turn", "permission_gate", "sandbox_boundary", "loop"],
                 mandatory=True,
                 structural_only=True,
+                capability_ids=["G.permission_boundary", "X.workspace"],
+                evidence_target=AcceptanceEvidenceTarget(
+                    level=EvidenceLevel.H2,
+                    environment=EvidenceEnvironment.sandbox,
+                    expected_status=VerificationStatus.component_verified,
+                    claim_scope="Visible permission and workspace boundary declarations.",
+                ),
             ),
             WorkflowTestCase(
                 id="codex_workspace_customer_result",
@@ -228,5 +266,12 @@ class ScenarioCatalog:
                 required_node_types=["loop", "event_recorder", "answer"],
                 mandatory=True,
                 structural_only=True,
+                capability_ids=["F.workspace_result"],
+                evidence_target=AcceptanceEvidenceTarget(
+                    level=EvidenceLevel.H2,
+                    environment=EvidenceEnvironment.sandbox,
+                    expected_status=VerificationStatus.component_verified,
+                    claim_scope="Customer result shape inside the deterministic replay.",
+                ),
             ),
         ]

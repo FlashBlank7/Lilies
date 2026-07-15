@@ -218,7 +218,12 @@ def test_v04_00_requirement_intake_returns_ready_completed_requirement(tmp_path:
         assert result.status_code == 200, result.text
         body = result.json()
         assert body["status"] == "ready"
-        assert body["completed_requirement"] == completed
+        assert body["completed_requirement"].startswith("# 工作流搭建方案")
+        assert "内部工程师" in body["completed_requirement"]
+        assert "F.legacy_goal" in body["completed_requirement"]
+        assert body["capability_build_contract"]["generation_source"] == "legacy_compatibility"
+        assert body["capability_build_contract"]["source_requirement"] == "做一个工作流可以像codex一样"
+        assert body["capability_closure"]["valid"] is True
         assert body["questions"] == []
         prompt = str(provider.calls[0]["message"])
         assert "selected_option_ids" in prompt
