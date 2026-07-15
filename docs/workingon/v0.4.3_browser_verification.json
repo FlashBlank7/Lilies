@@ -19,7 +19,11 @@
     "http_status": 200,
     "proxy_fixture_status": 200,
     "served_from": ".tmp/v043-frontend",
-    "isolation_reason": "The existing user development server owns the primary Next.js build directory, so the v0.4.3 fixture uses an ignored source copy and its own build state."
+    "server_mode": "next_standalone",
+    "supervisor": "scripts/v04_03_browser_environment.py",
+    "supervisor_check": "passed",
+    "shutdown_check": "no listeners remained on 3001 or 8002",
+    "isolation_reason": "The existing user development server owns the primary Next.js build directory, so the v0.4.3 fixture uses an ignored source copy, isolated data/workspace paths, dedicated ports, and supervised child-process cleanup."
   },
   "fixtures": {
     "stale_config_application_id": "28ea467f-0f89-4401-8431-634df8107e48",
@@ -71,6 +75,18 @@
     "runtime_health_status": 200,
     "same_condition_goal_turns": 3,
     "reason": "The current application target is reachable and current-code-ready, but the supported Browser runtime exposes no browser backend."
+  },
+  "latest_resumed_audit": {
+    "date": "2026-07-16",
+    "same_condition_goal_turns": 1,
+    "environment_supervisor_test": "3 passed in 0.65s",
+    "current_gate": "54 passed, 1 warning in 8.68s",
+    "full_suite": "738 passed, 17 xfailed, 1 warning in 78.85s",
+    "classified_tests": 755,
+    "target_http_status": 200,
+    "fixture_http_status": 200,
+    "browser_result": "No browser is available",
+    "claim": "Project startup and cleanup are reproducible; actual Browser interaction remains unavailable and unverified."
   },
   "claim_boundary": "API integration, TypeScript compilation, and production build passed; desktop/mobile interaction, screenshots, layout overlap, and browser console remain unverified. This evidence is not a browser pass."
 }
