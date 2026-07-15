@@ -1,0 +1,216 @@
+{
+  "schema_version": "1.0",
+  "stage": "v0.4.6",
+  "task_ids": [
+    "V04-06-T01A",
+    "V04-06-T01B",
+    "V04-06-T01C",
+    "V04-06-T01D",
+    "V04-06-T01E"
+  ],
+  "contract_baseline_commit": "4fc23f4b72b94ed273fb9927b610d92fa7cd17f8",
+  "verified_source_commit": "f46709695e785e4fbc0f39526d28b1bc5660dcea",
+  "archive_status": "archived_with_v0.4.6_closure",
+  "evidence_profile": {
+    "selected_level": "H3",
+    "status": "integration_verified",
+    "environment": "single-process FastAPI and SQLite fixtures, persistent temporary module registries, deterministic provider doubles, compiled Next.js 16 frontend, and headless system Chrome at 1440x1000 and 390x844",
+    "reference_module_level": "H2 component_verified",
+    "claim_scope": "typed module and evidence contracts, immutable local persistence, exact-version API and Builder integration, Studio disclosure, and browser-proven exact insertion",
+    "claim_ceiling": "No live provider, distributed registry, customer environment, production telemetry, marketplace scale, or production reliability claim"
+  },
+  "module_contract": {
+    "typed_ports": true,
+    "stable_capability_ids": true,
+    "versioned_dependencies": true,
+    "execution_envelope": true,
+    "orthogonal_risk": true,
+    "known_boundaries_required": true,
+    "one_claim_per_declared_capability": true,
+    "unknown_and_missing_claims_rejected": true
+  },
+  "evidence_registry": {
+    "artifact_categories": [
+      "implementation",
+      "default",
+      "api",
+      "test",
+      "integration",
+      "live",
+      "telemetry"
+    ],
+    "claim_ladder": ["H0", "H1", "H2", "H3", "H4", "H5"],
+    "artifact_paths_confined_to_evidence_root": true,
+    "artifact_sha256_recorded": true,
+    "content_addressed_generated_record_ids": true,
+    "fixed_record_ids_immutable": true,
+    "explicit_gap_required_for_blocked_or_unsupported": true,
+    "requested_status_above_evidence_ceiling_rejected": true,
+    "token_cost_budget_approximation_only_claim_rejected": true,
+    "historical_stale_evidence_preserved_without_overriding_new_intact_evidence": true
+  },
+  "version_lifecycle": {
+    "monotonic_versions": true,
+    "content_and_mutable_state_separated": true,
+    "content_hash_excludes_usage_and_rating_metadata": true,
+    "atomic_file_replacement": true,
+    "restart_persistence": true,
+    "exact_version_retrieval_and_expansion": true,
+    "tampered_content_quarantined": true,
+    "quarantine_cannot_be_downgraded_by_failed_reverification": true,
+    "legacy_templates_visible_as_legacy_unverified": true,
+    "missing_packaged_source_evidence_degrades_reference_to_draft_without_blocking_startup": true,
+    "full_block_config_port_and_graph_validation_required_before_verified": true
+  },
+  "reference_module": {
+    "module_ref": "module:codex_like_workspace_agent_module@1",
+    "status": "verified",
+    "required_envelope": "E2",
+    "risk": "high",
+    "capability_ids": [
+      "F.plan_act_observe",
+      "F.workspace_result",
+      "G.permission_boundary",
+      "G.loop_trace",
+      "X.workspace",
+      "X.model"
+    ],
+    "evidence_record_count": 6,
+    "node_count": 13,
+    "edge_count": 12,
+    "boundaries": [
+      "provider availability is external",
+      "workspace access is limited to configured registered tools"
+    ]
+  },
+  "builder_and_product": {
+    "compatibility_uses_capability_ids_and_envelope": true,
+    "missing_and_extra_capabilities_disclosed": true,
+    "only_verified_exact_refs_enter_reusable_inventory": true,
+    "unverified_exact_ref_rejected_in_build_plan": true,
+    "newer_draft_does_not_hide_older_verified_version": true,
+    "legacy_server_template_downgraded_to_design_only": true,
+    "studio_discloses_version_status_capabilities_ports_envelope_risk_evidence_and_boundaries": true,
+    "studio_inserts_exact_verified_version_atomically": true
+  },
+  "browser_gate": {
+    "application_id": "b5ffac9e-31b7-41a3-aee9-83731f913e2c",
+    "module_ref": "module:codex_like_workspace_agent_module@1",
+    "desktop": {
+      "viewport": "1440x1000",
+      "body_horizontal_overflow": false,
+      "verified_card_inside_panel": true,
+      "insert_action_enabled": true
+    },
+    "mobile": {
+      "viewport": "390x844",
+      "body_horizontal_overflow": false,
+      "verified_card_inside_panel": true,
+      "header_children_inside": true,
+      "title_and_actions_overlap": false,
+      "long_title_uses_ellipsis": true
+    },
+    "insert_result": {
+      "active_tab": "edit",
+      "node_count": 13,
+      "edge_count": 12,
+      "body_horizontal_overflow": false
+    },
+    "console_errors": [],
+    "page_errors": [],
+    "failed_responses": [],
+    "screenshots": [
+      {
+        "path": "docs/workingon-archives/v0.4.6/browser/module-registry-desktop.png",
+        "width": 1440,
+        "height": 1000,
+        "sha256": "eedd3d7a0cda4fb9047cc35a4841c275d0a822fac6cdb2d53a43130f7d8affe7"
+      },
+      {
+        "path": "docs/workingon-archives/v0.4.6/browser/module-registry-mobile.png",
+        "width": 390,
+        "height": 844,
+        "sha256": "cfea3cd316065fd976f2694ac980750eabb1ca02c26bd1e899d13edf0bfceaf6"
+      },
+      {
+        "path": "docs/workingon-archives/v0.4.6/browser/module-inserted-desktop.png",
+        "width": 1440,
+        "height": 1000,
+        "sha256": "b3d8d85a72d4ff06bdf4bd0b2f757208452f9b12bcb2ca702cd8a20594ff5b56"
+      }
+    ]
+  },
+  "verification": [
+    {
+      "check": "Python static analysis",
+      "command": ".venv/bin/ruff check <all v0.4.6 changed Python files>",
+      "result": "passed"
+    },
+    {
+      "check": "Versioned module and evidence focused suite",
+      "command": ".venv/bin/python -m pytest -q tests/test_v04_06_versioned_module_evidence_registry.py",
+      "result": "5 passed, 1 warning"
+    },
+    {
+      "check": "Current v0.4.x release gate",
+      "command": ".venv/bin/python -c '<load and execute current gate command from docs/testing/regression_lanes.json>'",
+      "result": "73 passed, 1 warning"
+    },
+    {
+      "check": "Evolution and stage-report consistency suite",
+      "command": ".venv/bin/python -m pytest -q tests/test_evolution_control.py tests/test_evolution_hooks.py tests/test_stage_report_template_validation.py tests/test_stage_report_template_adoption_audit.py",
+      "result": "30 passed"
+    },
+    {
+      "check": "Full repository diagnostic",
+      "command": ".venv/bin/python -m pytest -q --tb=short --junitxml=/tmp/lilies-v046-final.xml",
+      "result": "759 passed, 17 xfailed, 0 failed, 1 warning in 48.32s",
+      "junit": {
+        "tests": 776,
+        "failures": 0,
+        "errors": 0,
+        "skipped_or_xfailed": 17,
+        "timestamp": "2026-07-16T08:01:56.804364+09:00"
+      }
+    },
+    {
+      "check": "Frontend TypeScript",
+      "command": "PATH=/Users/zhonghaoyang/.nvm/versions/node/v24.15.0/bin:$PATH npm run lint",
+      "working_directory": "platform/frontend",
+      "result": "passed"
+    },
+    {
+      "check": "Frontend production build",
+      "command": "PATH=/Users/zhonghaoyang/.nvm/versions/node/v24.15.0/bin:$PATH AGENT_PLATFORM_URL=http://127.0.0.1:8011 API_TOKEN=<configured> npm run build",
+      "working_directory": "platform/frontend",
+      "result": "compiled, type-checked, generated four routes including icon.svg, and finalized successfully"
+    },
+    {
+      "check": "Headless Chrome product path",
+      "command": "system Chrome with temporary playwright-core runner against isolated ports 8011 and 3011",
+      "result": "desktop, mobile, exact insertion, console, page-error, and failed-response checks passed"
+    }
+  ],
+  "evidence_debt": [
+    {
+      "intent": "GOV-003",
+      "unavailable": "cross-application governance console and complete registration of non-module platform claims",
+      "claim_ceiling": "partial local registry backend",
+      "carry_target": "v0.4.7"
+    },
+    {
+      "intent": "EVAL-001/EVAL-004",
+      "unavailable": "selectable live and production-observation evaluation profiles",
+      "claim_ceiling": "H3 local integration",
+      "carry_target": "v0.4.8"
+    }
+  ],
+  "excluded_claims": [
+    "live model-provider availability or semantic quality",
+    "arbitrary host or repository access",
+    "distributed or multi-tenant module registry behavior",
+    "marketplace scale or third-party module trust",
+    "customer-system integration",
+    "production telemetry, SLO, compliance, or reliability"
+  ]
+}

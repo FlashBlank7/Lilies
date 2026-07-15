@@ -131,8 +131,16 @@
       "priority": "P1",
       "statement": "Make reusable workflow modules and verified templates first-class capability carriers.",
       "acceptance": "A versioned module declares inputs, outputs, dependencies, envelope, evidence, and known boundaries and can be selected by Builder Team.",
-      "status": "planned",
-      "evidence": []
+      "status": "implemented_verified",
+      "evidence": [
+        "docs/stage-reports/v0.4.6_versioned_module_evidence_registry.md",
+        "docs/workingon-archives/v0.4.6/v0.4.6_module_registry_evidence.json",
+        "platform/backend/src/agent_platform/capability_evidence.py",
+        "platform/backend/src/agent_platform/template_store.py",
+        "platform/backend/src/agent_platform/builder.py",
+        "platform/frontend/app/applications/[id]/page.tsx",
+        "tests/test_v04_06_versioned_module_evidence_registry.py"
+      ]
     },
     {
       "id": "ARCH-001",
@@ -170,7 +178,9 @@
       "evidence": [
         "platform/backend/src/agent_platform/builder.py",
         "docs/workingon-archives/v0.4.5/v0.4.5_capability_contract_evidence.json",
-        "tests/test_v04_05_capability_build_contract.py"
+        "tests/test_v04_05_capability_build_contract.py",
+        "docs/workingon-archives/v0.4.6/v0.4.6_module_registry_evidence.json",
+        "tests/test_v04_06_versioned_module_evidence_registry.py"
       ]
     },
     {
@@ -305,8 +315,14 @@
       "priority": "P1",
       "statement": "Build a Capability Evidence Registry linking implementation, defaults, API, tests, live evidence, telemetry, gaps, and claim level.",
       "acceptance": "Every platform capability claim can be queried and traced to evidence; missing token limits cannot be described as implemented by call-count approximation.",
-      "status": "planned",
-      "evidence": []
+      "status": "partial",
+      "evidence": [
+        "platform/backend/src/agent_platform/capability_evidence.py",
+        "platform/backend/src/agent_platform/template_store.py",
+        "platform/backend/src/agent_platform/api.py",
+        "docs/workingon-archives/v0.4.6/v0.4.6_module_registry_evidence.json",
+        "tests/test_v04_06_versioned_module_evidence_registry.py"
+      ]
     },
     {
       "id": "GOV-004",

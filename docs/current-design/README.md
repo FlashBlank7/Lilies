@@ -2,11 +2,7 @@
 
 本目录是当前 stage 的 active design 工作区。
 
-当前状态：`v0.4.6` 正在执行。活动 design 只展开 `docs/stage-reports/v0.4.6_versioned_module_evidence_registry.md` 已锁定的 `V04-06-T01A` 至 `V04-06-T01E`，不产生新的任务来源。
-
-- `design_v046_module_contract_and_evidence_registry.md`
-- `design_v046_versioned_store_and_verification_lifecycle.md`
-- `design_v046_builder_selection_and_product_surface.md`
+当前状态：`v0.4.6` 已完成并归档，等待 `v0.4.7` 从 stage report 建立新的 active design；本目录不产生新的任务来源。
 
 Active designs: none.
 
