@@ -1,0 +1,87 @@
+{
+  "version": "v0.4.9",
+  "application_id": "a3471196-1e02-4654-83f6-a4621285e53d",
+  "journey": [
+    "inspect_retry_wait_in_engineer_automation",
+    "resume_retry_wait_job_from_ui",
+    "observe_second_attempt_preserves_failure_boundary",
+    "run_controlled_source_success",
+    "inspect_customer_digest_and_provenance",
+    "inspect_governance_durable_jobs",
+    "verify_mobile_customer_runtime"
+  ],
+  "recovery": {
+    "job_id": "job-16cc4d4d286bb05919b6fe712f28dd4f",
+    "before_status": "retry_wait",
+    "before_attempt_count": 2,
+    "after_status": "retry_wait",
+    "after_attempt_count": 2,
+    "ui_resume_action_completed": true,
+    "denied_receipt_preserved": true,
+    "ui_exposed_resume": true,
+    "ui_exposed_worker_and_fence": true
+  },
+  "controlled_success": {
+    "job_id": "job-195debc2427fb296f10648e2f88b4ea6",
+    "status": "succeeded",
+    "attempt_count": 1,
+    "receipt_count": 1,
+    "direct_answer_projection": true,
+    "nested_outputs_preserved": true
+  },
+  "disclosure": {
+    "customer_has_digest": true,
+    "customer_has_source": true,
+    "customer_hides_worker": true,
+    "customer_hides_fence": true,
+    "customer_hides_lease_owner": true
+  },
+  "layout": {
+    "engineer_desktop": {
+      "present": true,
+      "width": 289,
+      "scrollWidth": 289,
+      "documentOverflow": false,
+      "surfaceOverflow": false,
+      "offenders": []
+    },
+    "customer_desktop": {
+      "present": true,
+      "width": 956,
+      "scrollWidth": 956,
+      "documentOverflow": false,
+      "surfaceOverflow": false,
+      "offenders": []
+    },
+    "governance_desktop": {
+      "present": true,
+      "width": 1162,
+      "scrollWidth": 1162,
+      "documentOverflow": false,
+      "surfaceOverflow": false,
+      "offenders": []
+    },
+    "customer_mobile": {
+      "present": true,
+      "width": 370,
+      "scrollWidth": 370,
+      "documentOverflow": false,
+      "surfaceOverflow": false,
+      "offenders": []
+    }
+  },
+  "console_errors": [],
+  "failed_requests": [],
+  "ignored_browser_requests": [
+    {
+      "url": "http://127.0.0.1:3139/applications/a3471196-1e02-4654-83f6-a4621285e53d?tab=automation&_rsc=maysFsMZkwXtipKP",
+      "error": "net::ERR_ABORTED"
+    }
+  ],
+  "screenshots": [
+    "/Users/zhonghaoyang/Code/agent/Lilies/docs/workingon-archives/v0.4.9/browser/automation-retry-wait-desktop.png",
+    "/Users/zhonghaoyang/Code/agent/Lilies/docs/workingon-archives/v0.4.9/browser/customer-runtime-digest-desktop.png",
+    "/Users/zhonghaoyang/Code/agent/Lilies/docs/workingon-archives/v0.4.9/browser/governance-durable-jobs-desktop.png",
+    "/Users/zhonghaoyang/Code/agent/Lilies/docs/workingon-archives/v0.4.9/browser/customer-runtime-digest-mobile.png"
+  ]
+}

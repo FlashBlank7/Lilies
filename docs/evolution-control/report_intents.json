@@ -238,8 +238,14 @@
       "priority": "P1",
       "statement": "Build a durable job substrate for timer/event triggers, history, retry, resume, idempotency, leases, cancellation, and alerts.",
       "acceptance": "A scheduled workflow survives process restart, avoids duplicate fire, records history, resumes or fails explicitly, and can be cancelled.",
-      "status": "partial",
-      "evidence": ["platform/backend/src/agent_platform/scheduler.py", "platform/backend/src/agent_platform/platform_harness.py"]
+      "status": "implemented_verified",
+      "evidence": [
+        "docs/stage-reports/v0.4.9_daily_web_collection_durable_jobs.md",
+        "platform/backend/src/agent_platform/durable_jobs.py",
+        "platform/backend/src/agent_platform/scheduler.py",
+        "docs/workingon-archives/v0.4.9/browser/browser-evidence.json",
+        "tests/test_v04_09_durable_daily_collection.py"
+      ]
     },
     {
       "id": "ARCH-008",
@@ -292,9 +298,11 @@
       "status": "implemented_verified",
       "evidence": [
         "docs/stage-reports/v0.4.8_evaluation_harness_profiles_and_environments.md",
+        "docs/stage-reports/v0.4.9_daily_web_collection_durable_jobs.md",
         "platform/backend/src/agent_platform/evaluation_harness.py",
         "platform/backend/src/agent_platform/capability_contracts.py",
-        "tests/test_v04_08_evaluation_harness.py"
+        "tests/test_v04_08_evaluation_harness.py",
+        "tests/test_v04_09_durable_daily_collection.py"
       ]
     },
     {
@@ -306,10 +314,13 @@
       "status": "implemented_verified",
       "evidence": [
         "docs/stage-reports/v0.4.8_evaluation_harness_profiles_and_environments.md",
+        "docs/stage-reports/v0.4.9_daily_web_collection_durable_jobs.md",
         "platform/backend/src/agent_platform/evaluation_harness.py",
         "platform/backend/src/agent_platform/config.py",
         "docs/workingon-archives/v0.4.8/browser/browser-evidence.json",
-        "tests/test_v04_08_evaluation_harness.py"
+        "docs/workingon-archives/v0.4.9/browser/browser-evidence.json",
+        "tests/test_v04_08_evaluation_harness.py",
+        "tests/test_v04_09_durable_daily_collection.py"
       ]
     },
     {
@@ -392,8 +403,15 @@
       "priority": "P1",
       "statement": "Use a daily web collection workflow as the E3 durable scheduling pressure scenario.",
       "acceptance": "The scenario covers schedule, dedupe, pagination/loop, source provenance, storage, notification, retry, resume, cancel, and explicit site-access contract.",
-      "status": "planned",
-      "evidence": []
+      "status": "implemented_verified",
+      "evidence": [
+        "docs/stage-reports/v0.4.9_daily_web_collection_durable_jobs.md",
+        "platform/backend/src/agent_platform/scenarios.py",
+        "platform/backend/src/agent_platform/web_collection.py",
+        "platform/frontend/app/schedule-operations-panel.tsx",
+        "docs/workingon-archives/v0.4.9/browser/browser-evidence.json",
+        "tests/test_v04_09_durable_daily_collection.py"
+      ]
     },
     {
       "id": "SCENARIO-003",

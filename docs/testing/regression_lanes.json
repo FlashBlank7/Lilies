@@ -89,13 +89,13 @@
         "-q"
       ],
       "last_observed": {
-        "source_stage_report": "docs/stage-reports/v0.4.8_evaluation_harness_profiles_and_environments.md",
-        "command": ".venv/bin/python -m pytest -q --tb=short --junitxml=/tmp/lilies-v048-final.xml",
-        "passed_count": 709,
+        "source_stage_report": "docs/stage-reports/v0.4.9_daily_web_collection_durable_jobs.md",
+        "command": ".venv/bin/python -m pytest tests -q --junitxml=/tmp/lilies-v049-final.xml",
+        "passed_count": 718,
         "failed_count": 0,
         "expected_failure_count": 85,
         "warning_count": 1,
-        "classification_evidence": "docs/workingon-archives/v0.4.8/full-suite-classification.json",
+        "classification_evidence": "docs/workingon-archives/v0.4.9/full-suite-classification.json",
         "preclassification_observation": {
           "command": ".venv/bin/python -m pytest -q",
           "passed_count": 701,
