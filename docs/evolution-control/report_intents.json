@@ -122,8 +122,15 @@
       "priority": "P1",
       "statement": "Separate Customer Runtime, Engineer Studio, and Governance Console information architectures.",
       "acceptance": "Customer runtime does not expose engineering JSON or platform internals; Studio retains workflow engineering; governance is available outside one application detail page.",
-      "status": "partial",
-      "evidence": ["docs/stage-report-archives/v0.3.x/v0.3.48_customer_facing_workflow_run_interface.md"]
+      "status": "implemented_verified",
+      "evidence": [
+        "docs/stage-reports/v0.4.7_three_interface_governance_console.md",
+        "platform/frontend/app/runtime/[id]/page.tsx",
+        "platform/frontend/app/applications/[id]/page.tsx",
+        "platform/frontend/app/governance/page.tsx",
+        "docs/workingon-archives/v0.4.7/browser/browser-evidence.json",
+        "tests/test_v04_07_governance_console.py"
+      ]
     },
     {
       "id": "PRODUCT-009",
@@ -297,8 +304,15 @@
       "priority": "P1",
       "statement": "Create an independent Governance Console for cross-application tasks, policies, workers, queues, failures, and parent-child traces.",
       "acceptance": "Governance data is reachable outside an application detail page and can filter and drill into platform tasks.",
-      "status": "planned",
-      "evidence": []
+      "status": "implemented_verified",
+      "evidence": [
+        "docs/stage-reports/v0.4.7_three_interface_governance_console.md",
+        "platform/backend/src/agent_platform/governance.py",
+        "platform/backend/src/agent_platform/platform_harness.py",
+        "platform/frontend/app/governance/page.tsx",
+        "docs/workingon-archives/v0.4.7/browser/browser-evidence.json",
+        "tests/test_v04_07_governance_console.py"
+      ]
     },
     {
       "id": "GOV-002",
@@ -306,8 +320,15 @@
       "priority": "P1",
       "statement": "Record and visualize input, output, cached, and reasoning tokens plus cost and remaining budget over time.",
       "acceptance": "Token and cost series can be queried by time, model, workflow, application, and owner with explicit unsupported fields.",
-      "status": "planned",
-      "evidence": []
+      "status": "implemented_verified",
+      "evidence": [
+        "docs/stage-reports/v0.4.7_three_interface_governance_console.md",
+        "platform/backend/src/agent_platform/platform_harness.py",
+        "platform/backend/src/agent_platform/providers/base.py",
+        "platform/backend/src/agent_platform/runtime.py",
+        "platform/backend/src/agent_platform/governance.py",
+        "tests/test_v04_07_governance_console.py"
+      ]
     },
     {
       "id": "GOV-003",
@@ -315,13 +336,17 @@
       "priority": "P1",
       "statement": "Build a Capability Evidence Registry linking implementation, defaults, API, tests, live evidence, telemetry, gaps, and claim level.",
       "acceptance": "Every platform capability claim can be queried and traced to evidence; missing token limits cannot be described as implemented by call-count approximation.",
-      "status": "partial",
+      "status": "implemented_verified",
       "evidence": [
+        "docs/stage-reports/v0.4.7_three_interface_governance_console.md",
         "platform/backend/src/agent_platform/capability_evidence.py",
         "platform/backend/src/agent_platform/template_store.py",
         "platform/backend/src/agent_platform/api.py",
+        "platform/backend/src/agent_platform/governance.py",
         "docs/workingon-archives/v0.4.6/v0.4.6_module_registry_evidence.json",
-        "tests/test_v04_06_versioned_module_evidence_registry.py"
+        "docs/workingon-archives/v0.4.7/browser/browser-evidence.json",
+        "tests/test_v04_06_versioned_module_evidence_registry.py",
+        "tests/test_v04_07_governance_console.py"
       ]
     },
     {

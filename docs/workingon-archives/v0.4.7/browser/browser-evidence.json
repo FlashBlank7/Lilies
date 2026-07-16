@@ -1,0 +1,182 @@
+{
+  "generated_at": "2026-07-16T00:27:10.477Z",
+  "application_id": "be6bf981-6ecb-415c-b85f-f96be8152eb6",
+  "pagination_seed": {
+    "before": 107,
+    "seeded": 0,
+    "succeeded": 107
+  },
+  "cases": [
+    {
+      "name": "customer-runtime-desktop",
+      "href": "http://127.0.0.1:3017/runtime/be6bf981-6ecb-415c-b85f-f96be8152eb6",
+      "marker": "customer-runtime",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "document": {
+        "clientWidth": 1440,
+        "scrollWidth": 1440
+      },
+      "tabs": [],
+      "customerResultVisible": true,
+      "customerResultHasMarkdown": true,
+      "customerBusinessSteps": [
+        "整理结果"
+      ],
+      "forbiddenCustomerInternals": [],
+      "controlsWithoutNames": [],
+      "detailScreenshot": null,
+      "failures": [],
+      "benign_navigation_cancellations": 0
+    },
+    {
+      "name": "customer-runtime-mobile",
+      "href": "http://127.0.0.1:3017/runtime/be6bf981-6ecb-415c-b85f-f96be8152eb6",
+      "marker": "customer-runtime",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "document": {
+        "clientWidth": 390,
+        "scrollWidth": 390
+      },
+      "tabs": [],
+      "customerResultVisible": true,
+      "customerResultHasMarkdown": true,
+      "customerBusinessSteps": [
+        "整理结果"
+      ],
+      "forbiddenCustomerInternals": [],
+      "controlsWithoutNames": [],
+      "detailScreenshot": "customer-runtime-mobile-result.png",
+      "failures": [],
+      "benign_navigation_cancellations": 0
+    },
+    {
+      "name": "engineer-studio-desktop",
+      "href": "http://127.0.0.1:3017/applications/be6bf981-6ecb-415c-b85f-f96be8152eb6?tab=edit",
+      "marker": "engineer-studio",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "document": {
+        "clientWidth": 1440,
+        "scrollWidth": 1440
+      },
+      "tabs": [
+        "build",
+        "edit",
+        "test"
+      ],
+      "customerResultVisible": false,
+      "customerResultHasMarkdown": false,
+      "customerBusinessSteps": [],
+      "forbiddenCustomerInternals": [],
+      "controlsWithoutNames": [],
+      "detailScreenshot": null,
+      "failures": [],
+      "benign_navigation_cancellations": 0
+    },
+    {
+      "name": "engineer-studio-mobile",
+      "href": "http://127.0.0.1:3017/applications/be6bf981-6ecb-415c-b85f-f96be8152eb6?tab=edit",
+      "marker": "engineer-studio",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "document": {
+        "clientWidth": 390,
+        "scrollWidth": 390
+      },
+      "tabs": [
+        "build",
+        "edit",
+        "test"
+      ],
+      "customerResultVisible": false,
+      "customerResultHasMarkdown": false,
+      "customerBusinessSteps": [],
+      "forbiddenCustomerInternals": [],
+      "controlsWithoutNames": [],
+      "detailScreenshot": null,
+      "failures": [],
+      "benign_navigation_cancellations": 0
+    },
+    {
+      "name": "governance-desktop",
+      "href": "http://127.0.0.1:3017/governance?application_id=be6bf981-6ecb-415c-b85f-f96be8152eb6",
+      "marker": "governance-console",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      },
+      "document": {
+        "clientWidth": 1440,
+        "scrollWidth": 1440
+      },
+      "tabs": [],
+      "customerResultVisible": false,
+      "customerResultHasMarkdown": false,
+      "customerBusinessSteps": [],
+      "forbiddenCustomerInternals": [],
+      "controlsWithoutNames": [],
+      "detailScreenshot": null,
+      "failures": [],
+      "benign_navigation_cancellations": 1
+    },
+    {
+      "name": "governance-mobile",
+      "href": "http://127.0.0.1:3017/governance?application_id=be6bf981-6ecb-415c-b85f-f96be8152eb6",
+      "marker": "governance-console",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "document": {
+        "clientWidth": 390,
+        "scrollWidth": 390
+      },
+      "tabs": [],
+      "customerResultVisible": false,
+      "customerResultHasMarkdown": false,
+      "customerBusinessSteps": [],
+      "forbiddenCustomerInternals": [],
+      "controlsWithoutNames": [],
+      "detailScreenshot": null,
+      "failures": [],
+      "benign_navigation_cancellations": 0
+    }
+  ],
+  "interactions": {
+    "customerStart": {
+      "started": true,
+      "run_id": "414bd999-73ba-409e-9575-45327773c146",
+      "statusSucceeded": true,
+      "resultRendered": true,
+      "resultContainsInput": true,
+      "markdownHeadings": 2,
+      "markdownListItems": 2,
+      "businessStageVisible": true,
+      "engineeringLinkAbsent": true,
+      "failures": []
+    },
+    "legacyRunRedirect": "http://127.0.0.1:3017/runtime/be6bf981-6ecb-415c-b85f-f96be8152eb6",
+    "legacyMonitorRedirect": "http://127.0.0.1:3017/governance?application_id=be6bf981-6ecb-415c-b85f-f96be8152eb6",
+    "governanceFilterPaginationAndTrace": {
+      "filterApplied": true,
+      "firstPageRows": 100,
+      "nextEnabled": true,
+      "secondPageRows": 8,
+      "range": "101–108 of 108",
+      "traceDrilldown": true,
+      "spanCount": 11,
+      "bodyHasWorkflowRun": true,
+      "failures": []
+    }
+  }
+}
