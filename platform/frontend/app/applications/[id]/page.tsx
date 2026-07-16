@@ -45,6 +45,7 @@ import { defaultLocale, isLocale, messages, nextLocale, type Locale } from '@/li
 import { MarkdownResultCard } from '@/lib/markdown'
 import { classifyRuntimeStatus, runtimeCommit, runtimeVersion, type RuntimeHealth } from '@/lib/runtime-status'
 import surfaceStyles from '@/app/surface-boundaries.module.css'
+import { EvaluationHarnessPanel } from './evaluation-harness-panel'
 
 type CanvasPoint = { x: number; y: number }
 type StudioNode = Node<{ title: string; blockType: string; description: string; status?: string }>
@@ -1750,6 +1751,20 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
           </> : <p className="muted">{selectedEdge ? t.edgeSelectedHint : t.nodeHelp}</p>}
         </div>}
         {tab === 'test' && <div className="panel-body">
+          <EvaluationHarnessPanel
+            applicationId={id}
+            draft={draft}
+            locale={locale}
+            onAuthRequired={() => setAuthRequired(true)}
+            onDraftTestsChanged={() => {
+              setTestReport(null)
+              setAcceptanceRepairPreview(null)
+              setAcceptanceRepairInstruction('')
+              setAcceptanceRepairTestId(null)
+            }}
+            onNotice={setNotice}
+            onRefreshDraft={refresh}
+          />
           <section className={`draft-evidence-panel ${evidenceState}`} data-draft-evidence={evidenceState}>
             <div><strong>{t.evidenceStateTitle}: {evidenceStateLabel}</strong><small>{evidenceState === 'current' ? t.evidenceCurrentDetail : evidenceState === 'stale' ? t.evidenceStaleDetail : t.evidenceMissingDetail}</small></div>
             {draft?.evidence?.change_summary?.length ? <ul>{draft.evidence.change_summary.slice(-3).map((item, index) => <li key={`${String(item.revision || '')}-${index}`}>{String(item.operation || t.evidenceChanged)} · r{String(item.revision || '?')}</li>)}</ul> : null}

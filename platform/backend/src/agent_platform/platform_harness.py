@@ -28,6 +28,7 @@ TaskKind = Literal[
     "benchmark",
     "draft_patch_preview",
     "requirement_intake",
+    "evaluation_run",
 ]
 TaskStatus = Literal["queued", "running", "paused", "succeeded", "failed", "cancelled"]
 WorkerHeartbeatStatus = Literal["idle", "running", "stopping", "failed"]
@@ -403,6 +404,7 @@ class PlatformHarness:
             "workflow_run",
             "builder_build",
             "test_suite",
+            "evaluation_run",
             "scheduler_trigger",
             "scheduler_manual_trigger",
             "draft_patch_preview",

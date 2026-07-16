@@ -892,6 +892,24 @@ PLATFORM_EVIDENCE_SPECS: tuple[dict[str, Any], ...] = (
             ("integration", "tests/test_v04_07_governance_console.py"),
         ),
     },
+    {
+        "capability_id": "platform.evaluation_harness_profiles",
+        "claim": "H0-H5 evaluation profiles generate capability-scoped plans, execute only eligible work, persist exact outcomes, and cap claims at the weakest profile, environment, contract, and case evidence.",
+        "scope": "Local H3 integration across authenticated APIs, durable records, Platform Harness tasks, and Engineer Studio; no configured H4 target or customer production H5 claim.",
+        "paths": (
+            ("implementation", "platform/backend/src/agent_platform/evaluation_harness.py"),
+            ("implementation", "platform/backend/src/agent_platform/storage.py"),
+            ("api", "platform/backend/src/agent_platform/api.py"),
+            ("implementation", "platform/frontend/app/applications/[id]/evaluation-harness-panel.tsx"),
+            ("test", "tests/test_v04_08_evaluation_harness.py"),
+            ("integration", "tests/test_v04_08_evaluation_harness.py"),
+        ),
+        "gap": (
+            "live_and_production_evidence",
+            "No eligible configured H4 target or customer production H5 telemetry is part of the local evidence package.",
+            "The platform capability claim remains local H3 even though H4 and H5 profiles are selectable and explicitly blocked by default.",
+        ),
+    },
 )
 
 

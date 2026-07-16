@@ -205,6 +205,112 @@ export type PlatformTaskKind =
   | 'benchmark'
   | 'draft_patch_preview'
   | 'requirement_intake'
+  | 'evaluation_run'
+
+export type EvaluationLevel = 'H0' | 'H1' | 'H2' | 'H3' | 'H4' | 'H5'
+export type EvaluationExecutionMode = 'plan_only' | 'static' | 'runtime' | 'observation'
+export type EvaluationEligibility = 'ready' | 'blocked_by_environment' | 'unsupported'
+export type EvaluationOutcome = 'completed' | 'failed' | 'blocked' | 'unsupported'
+export type EvaluationVerificationStatus =
+  | 'design_only'
+  | 'static_verified'
+  | 'component_verified'
+  | 'integration_verified'
+  | 'live_verified'
+  | 'production_observed'
+  | 'blocked_by_environment'
+  | 'unsupported'
+
+export type EvaluationProfile = {
+  id: string
+  title: string
+  description: string
+  level: EvaluationLevel
+  maximum_status: EvaluationVerificationStatus
+  compatible_environment_kinds: string[]
+  execution_mode: EvaluationExecutionMode
+  workflow_execution_allowed: boolean
+  draft_test_apply_allowed: boolean
+  external_mutation_allowed: boolean
+  required_evidence_categories: string[]
+  excluded_claims: string[]
+}
+
+export type EvaluationEnvironment = {
+  id: string
+  title: string
+  description: string
+  kind: string
+  availability: 'available' | 'unavailable' | 'unknown'
+  execution_mode: EvaluationExecutionMode
+  workflow_execution_allowed: boolean
+  external_mutation_allowed: boolean
+  compatible_profile_ids: string[]
+  evidence_sources: string[]
+  missing_requirements: string[]
+  claim_ceiling: EvaluationVerificationStatus
+}
+
+export type EvaluationCasePlan = {
+  id: string
+  family: string
+  title: string
+  capability_ids: string[]
+  capability_kind: 'F' | 'G' | 'X' | 'compatibility'
+  executable: boolean
+  blockers: string[]
+  required_signals: string[]
+  test: Record<string, unknown>
+}
+
+export type EvaluationPlan = {
+  schema_version: '1.0'
+  application_id: string
+  draft_revision: number
+  draft_content_hash: string
+  capability_contract_id?: string | null
+  profile: EvaluationProfile
+  environment: EvaluationEnvironment
+  eligibility: EvaluationEligibility
+  blockers: string[]
+  warnings: string[]
+  cases: EvaluationCasePlan[]
+  generated_tests: Array<Record<string, unknown>>
+  existing_test_ids: string[]
+  required_capability_ids: string[]
+  covered_capability_ids: string[]
+  claim_ceiling: EvaluationVerificationStatus
+  verified_claim_candidates: string[]
+  excluded_claims: string[]
+}
+
+export type EvaluationRunRecord = {
+  schema_version: '1.0'
+  id: string
+  application_id: string
+  platform_task_id: string
+  draft_revision: number
+  draft_content_hash: string
+  capability_contract_id?: string | null
+  profile_id: string
+  profile_level: EvaluationLevel
+  environment_id: string
+  environment_kind: string
+  execution_mode: EvaluationExecutionMode
+  eligibility: EvaluationEligibility
+  outcome: EvaluationOutcome
+  achieved_status: EvaluationVerificationStatus
+  passed?: boolean | null
+  generated_test_ids: string[]
+  executed_test_ids: string[]
+  capability_results: Array<Record<string, unknown>>
+  blockers: string[]
+  verified_claims: string[]
+  excluded_claims: string[]
+  report: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
 
 export type PlatformTaskStatus = 'queued' | 'running' | 'paused' | 'succeeded' | 'failed' | 'cancelled'
 

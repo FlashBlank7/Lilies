@@ -54,6 +54,12 @@ from .complexity_router import (
     validate_operator_override,
 )
 from .factory import AgentFactory
+from .evaluation_harness import (
+    EvaluationApplyRequest,
+    EvaluationHarness,
+    EvaluationPlanRequest,
+    EvaluationRunRequest,
+)
 from .draft_patch_preview import DraftPatchPreviewer, DraftPatchPreviewRequest
 from .acceptance_repair import (
     AcceptanceRepairApplyRequest,
@@ -129,6 +135,8 @@ RUNTIME_ROUTE_CHECKS: dict[str, tuple[str, str]] = {
     "capability_evidence": ("GET", "/api/v1/capability-evidence"),
     "governance_overview": ("GET", "/api/v1/governance/overview"),
     "governance_usage": ("GET", "/api/v1/governance/usage"),
+    "evaluation_profiles": ("GET", "/api/v1/evaluation/profiles"),
+    "evaluation_plan": ("POST", "/api/v1/applications/{application_id}/evaluation/plan"),
 }
 
 
@@ -234,6 +242,7 @@ class Services:
     harness: PlatformHarness
     applications: ApplicationService
     workflow_runtime: WorkflowRuntime
+    evaluation_harness: EvaluationHarness
     builder: WorkflowBuilder
     scheduler: WorkflowScheduler
     templates: TemplateStore
@@ -792,6 +801,18 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         runtime_model=settings.deepseek_runtime_model,
         governed_memory=governed_memory,
     )
+    evaluation_harness = EvaluationHarness(
+        storage=storage,
+        workflow_store=workflow_store,
+        applications=applications,
+        workflow_runtime=workflow_runtime,
+        harness=harness,
+        live_enabled=settings.evaluation_live_enabled,
+        production_observation_enabled=settings.evaluation_production_observation_enabled,
+        production_observation_evidence_path=(
+            settings.evaluation_production_observation_evidence_path
+        ),
+    )
     templates = TemplateStore(
         settings.data_dir / "module_registry",
         evidence_root=_repo_root() or Path.cwd(),
@@ -857,6 +878,7 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         harness=harness,
         applications=applications,
         workflow_runtime=workflow_runtime,
+        evaluation_harness=evaluation_harness,
         builder=builder,
         scheduler=scheduler,
         templates=templates,
@@ -2508,6 +2530,99 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
     async def run_application_tests(application_id: str) -> dict[str, Any]:
         try:
             return await services.workflow_runtime.run_test_suite(application_id)
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+
+    @app.get("/api/v1/evaluation/profiles", dependencies=[Depends(require_token)])
+    async def list_evaluation_profiles() -> list[dict[str, Any]]:
+        return [
+            item.model_dump(mode="json")
+            for item in services.evaluation_harness.profiles()
+        ]
+
+    @app.get("/api/v1/evaluation/environments", dependencies=[Depends(require_token)])
+    async def list_evaluation_environments() -> list[dict[str, Any]]:
+        return [
+            item.model_dump(mode="json")
+            for item in services.evaluation_harness.environments()
+        ]
+
+    @app.post(
+        "/api/v1/applications/{application_id}/evaluation/plan",
+        dependencies=[Depends(require_token)],
+    )
+    async def preview_evaluation_plan(
+        application_id: str,
+        body: EvaluationPlanRequest,
+    ) -> dict[str, Any]:
+        try:
+            plan = await services.evaluation_harness.plan(application_id, body)
+            return plan.model_dump(mode="json")
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+
+    @app.post(
+        "/api/v1/applications/{application_id}/evaluation/tests/apply",
+        dependencies=[Depends(require_token)],
+    )
+    async def apply_evaluation_tests(
+        application_id: str,
+        body: EvaluationApplyRequest,
+    ) -> dict[str, Any]:
+        try:
+            return await services.evaluation_harness.apply_generated_tests(
+                application_id,
+                body,
+            )
+        except RevisionConflict as error:
+            raise HTTPException(409, str(error)) from error
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from error
+
+    @app.post(
+        "/api/v1/applications/{application_id}/evaluation/runs",
+        dependencies=[Depends(require_token)],
+    )
+    async def run_evaluation(
+        application_id: str,
+        body: EvaluationRunRequest,
+    ) -> dict[str, Any]:
+        try:
+            record = await services.evaluation_harness.run(application_id, body)
+            return record.model_dump(mode="json")
+        except RevisionConflict as error:
+            raise HTTPException(409, str(error)) from error
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+
+    @app.get(
+        "/api/v1/applications/{application_id}/evaluation/runs",
+        dependencies=[Depends(require_token)],
+    )
+    async def list_application_evaluation_runs(
+        application_id: str,
+        limit: int = Query(default=50, ge=1, le=500),
+    ) -> list[dict[str, Any]]:
+        try:
+            await services.workflow_store.get_application(application_id)
+            records = await services.evaluation_harness.list_runs(
+                application_id,
+                limit=limit,
+            )
+            return [item.model_dump(mode="json") for item in records]
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+
+    @app.get(
+        "/api/v1/evaluation/runs/{run_id}",
+        dependencies=[Depends(require_token)],
+    )
+    async def get_evaluation_run(run_id: str) -> dict[str, Any]:
+        try:
+            record = await services.evaluation_harness.get_run(run_id)
+            return record.model_dump(mode="json")
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
 

@@ -134,6 +134,17 @@ class Storage:
                   updated_at TEXT NOT NULL,
                   revoked_at TEXT
                 );
+                CREATE TABLE IF NOT EXISTS evaluation_runs (
+                  id TEXT PRIMARY KEY,
+                  application_id TEXT NOT NULL,
+                  profile_id TEXT NOT NULL,
+                  environment_id TEXT NOT NULL,
+                  outcome TEXT NOT NULL,
+                  achieved_status TEXT NOT NULL,
+                  record_json TEXT NOT NULL,
+                  created_at TEXT NOT NULL,
+                  updated_at TEXT NOT NULL
+                );
                 CREATE INDEX IF NOT EXISTS idx_generations_agent ON generations(agent_id);
                 CREATE INDEX IF NOT EXISTS idx_sessions_agent ON sessions(agent_id);
                 CREATE INDEX IF NOT EXISTS idx_platform_harness_tasks_kind_status
@@ -148,6 +159,8 @@ class Storage:
                   ON governed_memory_items(owner_id, scope_id, status);
                 CREATE INDEX IF NOT EXISTS idx_governed_memory_expiry
                   ON governed_memory_items(status, expires_at);
+                CREATE INDEX IF NOT EXISTS idx_evaluation_runs_application_created
+                  ON evaluation_runs(application_id, created_at DESC);
                 """
             )
 
@@ -355,6 +368,59 @@ class Storage:
                     record.get("finished_at"),
                 ),
             )
+
+    async def save_evaluation_run(self, record: dict[str, Any]) -> None:
+        encoded = json.dumps(record, ensure_ascii=False, separators=(",", ":"))
+        async with self._lock:
+            await asyncio.to_thread(
+                self._execute,
+                """
+                INSERT INTO evaluation_runs(
+                  id,application_id,profile_id,environment_id,outcome,
+                  achieved_status,record_json,created_at,updated_at
+                ) VALUES(?,?,?,?,?,?,?,?,?)
+                ON CONFLICT(id) DO UPDATE SET
+                  outcome=excluded.outcome,
+                  achieved_status=excluded.achieved_status,
+                  record_json=excluded.record_json,
+                  updated_at=excluded.updated_at
+                """,
+                (
+                    record["id"],
+                    record["application_id"],
+                    record["profile_id"],
+                    record["environment_id"],
+                    record["outcome"],
+                    record["achieved_status"],
+                    encoded,
+                    record["created_at"],
+                    record["updated_at"],
+                ),
+            )
+
+    async def get_evaluation_run(self, run_id: str) -> dict[str, Any]:
+        row = await asyncio.to_thread(
+            self._get_one,
+            "SELECT record_json FROM evaluation_runs WHERE id=?",
+            (run_id,),
+        )
+        return json.loads(row["record_json"])
+
+    async def list_evaluation_runs(
+        self,
+        application_id: str,
+        *,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        rows = await asyncio.to_thread(
+            self._get_all,
+            """
+            SELECT record_json FROM evaluation_runs
+            WHERE application_id=? ORDER BY created_at DESC LIMIT ?
+            """,
+            (application_id, max(1, min(limit, 500))),
+        )
+        return [json.loads(row["record_json"]) for row in rows]
 
     async def get_platform_task(self, task_id: str) -> dict[str, Any]:
         row = await asyncio.to_thread(
