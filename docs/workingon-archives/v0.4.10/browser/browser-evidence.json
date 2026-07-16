@@ -1,0 +1,144 @@
+{
+  "version": "v0.4.10",
+  "application_id": "7973ff98-dcfb-45cc-af8d-c2f945f15cf3",
+  "journey": [
+    "engineer_controlled_preview",
+    "customer_runtime_controlled_dry_run",
+    "customer_mobile_receipt",
+    "governance_tenant_redacted_receipts"
+  ],
+  "controlled_customer": {
+    "reads": 1,
+    "writes": 0,
+    "compensations": 0,
+    "bearer_injected": [
+      true
+    ]
+  },
+  "connector": {
+    "execution_count": 3,
+    "operation_ids": [
+      "get_case",
+      "update_case"
+    ],
+    "statuses": [
+      "dry_run",
+      "succeeded"
+    ],
+    "write_side_effect_states": [
+      "none"
+    ],
+    "claim_boundary": "Tenant-scoped local or controlled-test Connector evidence; not customer-production reliability evidence."
+  },
+  "governance": {
+    "receipt_count": 3,
+    "support": {
+      "tenant_identity": "reported",
+      "schema_contract": "reported",
+      "policy": "reported",
+      "idempotency": "reported",
+      "writeback_receipt": "reported",
+      "callback": "not_recorded",
+      "compensation_exercise": "not_recorded",
+      "production_slo": "unsupported"
+    },
+    "claim_boundary": "Tenant-safe Connector metadata and controlled-test evidence only; raw secrets are never projected here, and production readiness is unsupported."
+  },
+  "customer_disclosure": {
+    "receipt": "执行状态\n仅预演（未写入）\n副作用\n未产生\n外部引用\n下一步\n等待维护人员核对并授权",
+    "receiptStatus": "dry_run",
+    "sideEffect": "none",
+    "hasSecretValue": false,
+    "hasSignatureHeader": false,
+    "hasRawConnectorResult": false,
+    "visibleInputs": [
+      "request"
+    ],
+    "stepTitles": [
+      "读取或预演客户系统操作",
+      "整理结果"
+    ]
+  },
+  "governance_disclosure": {
+    "hasSecretValue": false,
+    "hasRawPayload": false,
+    "hasUnsupportedProduction": true,
+    "receiptRows": 3
+  },
+  "layout": {
+    "engineer_desktop": {
+      "present": true,
+      "viewport": [
+        1440,
+        873
+      ],
+      "width": 289,
+      "documentOverflow": false,
+      "surfaceOverflow": false,
+      "interactiveOutside": []
+    },
+    "customer_desktop": {
+      "present": true,
+      "viewport": [
+        1440,
+        873
+      ],
+      "width": 1440,
+      "documentOverflow": false,
+      "surfaceOverflow": false,
+      "interactiveOutside": []
+    },
+    "customer_mobile": {
+      "present": true,
+      "viewport": [
+        390,
+        844
+      ],
+      "width": 390,
+      "documentOverflow": false,
+      "surfaceOverflow": false,
+      "interactiveOutside": []
+    },
+    "governance_desktop": {
+      "present": true,
+      "viewport": [
+        1440,
+        873
+      ],
+      "width": 1164,
+      "documentOverflow": false,
+      "surfaceOverflow": false,
+      "interactiveOutside": []
+    }
+  },
+  "console_errors": [],
+  "failed_requests": [],
+  "ignored_requests": [
+    {
+      "status": 0,
+      "url": "net::ERR_ABORTED"
+    }
+  ],
+  "screenshots": [
+    {
+      "id": "engineer-integrations-desktop",
+      "path": "engineer-integrations-desktop.png",
+      "sha256": "09530e1a7c133fc63996392090a5525f8539b36b88bf9366c0a5d4081426989b"
+    },
+    {
+      "id": "customer-runtime-receipt-desktop",
+      "path": "customer-runtime-receipt-desktop.png",
+      "sha256": "b3a0b6e8ba17f49f47d0722b207f56da850496e7f7bb6fad81b2a1afdf285877"
+    },
+    {
+      "id": "customer-runtime-receipt-mobile",
+      "path": "customer-runtime-receipt-mobile.png",
+      "sha256": "a132bd328d4aa12f0e3d41ab6eb7b99f19ccac4d53de7a60b1ecc8b1f4974db4"
+    },
+    {
+      "id": "governance-connectors-desktop",
+      "path": "governance-connectors-desktop.png",
+      "sha256": "ef03a0cbc15d3ccffc45744a7c1ceaaa34f23e897117b078e1dc615b86e2bc96"
+    }
+  ]
+}

@@ -134,10 +134,21 @@ def test_prior_major_archive_validator_rejects_active_old_report(tmp_path: Path)
     assert any("completed prior-major stage report remains active" in error for error in errors)
 
 
-def test_campaign_closure_rejects_non_terminal_intents() -> None:
+def test_campaign_closure_accepts_terminal_registry_and_rejects_non_terminal_copy(
+    tmp_path: Path,
+) -> None:
     module = load_validator()
+    assert module.validate_registry(require_terminal=True) == []
 
-    errors = module.validate_registry(require_terminal=True)
+    registry = json.loads(
+        (ROOT / "docs/evolution-control/report_intents.json").read_text(encoding="utf-8")
+    )
+    registry["intents"][0]["status"] = "planned"
+    registry_path = tmp_path / "docs/evolution-control/report_intents.json"
+    registry_path.parent.mkdir(parents=True)
+    registry_path.write_text(json.dumps(registry), encoding="utf-8")
+
+    errors = module.validate_registry(registry_path, require_terminal=True)
 
     assert any("is not terminal" in error for error in errors)
 

@@ -253,8 +253,16 @@
       "priority": "P2",
       "statement": "Provide a Connector/Embedding SDK for identity, tenants, schemas, callbacks, writeback, compensation, and deployment profiles.",
       "acceptance": "A customer-system integration can be implemented against a versioned contract without embedding customer-specific logic in generic HTTP blocks.",
-      "status": "planned",
-      "evidence": []
+      "status": "implemented_verified",
+      "evidence": [
+        "docs/stage-reports/v0.4.10_connector_embedding_governed_writeback.md",
+        "docs/workingon-archives/v0.4.10/browser/browser-evidence.json",
+        "platform/backend/src/agent_platform/connector_sdk.py",
+        "platform/backend/src/agent_platform/blocks.py",
+        "platform/backend/src/agent_platform/api.py",
+        "platform/frontend/app/connector-operations-panel.tsx",
+        "tests/test_v04_10_connector_embedding.py"
+      ]
     },
     {
       "id": "EVAL-001",
@@ -286,7 +294,10 @@
         "docs/workingon-archives/v0.4.5/v0.4.5_capability_contract_evidence.json",
         "docs/workingon-archives/v0.4.8/browser/browser-evidence.json",
         "tests/test_v04_05_capability_build_contract.py",
-        "tests/test_v04_08_evaluation_harness.py"
+        "tests/test_v04_08_evaluation_harness.py",
+        "docs/stage-reports/v0.4.10_connector_embedding_governed_writeback.md",
+        "docs/workingon-archives/v0.4.10/browser/browser-evidence.json",
+        "tests/test_v04_10_connector_embedding.py"
       ]
     },
     {
@@ -320,7 +331,10 @@
         "docs/workingon-archives/v0.4.8/browser/browser-evidence.json",
         "docs/workingon-archives/v0.4.9/browser/browser-evidence.json",
         "tests/test_v04_08_evaluation_harness.py",
-        "tests/test_v04_09_durable_daily_collection.py"
+        "tests/test_v04_09_durable_daily_collection.py",
+        "docs/stage-reports/v0.4.10_connector_embedding_governed_writeback.md",
+        "docs/workingon-archives/v0.4.10/browser/browser-evidence.json",
+        "tests/test_v04_10_connector_embedding.py"
       ]
     },
     {
@@ -380,8 +394,16 @@
       "priority": "P2",
       "statement": "Add domain-aware high-risk autonomy governance with preauthorization, emergency stop, audit, and production exercises.",
       "acceptance": "High-risk autonomy is enabled only for a declared domain and cannot bypass configured hard controls.",
-      "status": "planned",
-      "evidence": []
+      "status": "implemented_verified",
+      "evidence": [
+        "docs/stage-reports/v0.4.10_connector_embedding_governed_writeback.md",
+        "docs/workingon-archives/v0.4.10/browser/browser-evidence.json",
+        "platform/backend/src/agent_platform/connector_sdk.py",
+        "platform/backend/src/agent_platform/governance.py",
+        "platform/backend/src/agent_platform/api.py",
+        "platform/frontend/app/governance/page.tsx",
+        "tests/test_v04_10_connector_embedding.py"
+      ]
     },
     {
       "id": "SCENARIO-001",
@@ -419,8 +441,16 @@
       "priority": "P2",
       "statement": "Use customer-system embedding as the E4/E5 connector, identity, writeback, compensation, and evidence pressure scenario.",
       "acceptance": "A mock or test tenant proves the component/contract boundary, and the product refuses to claim end-to-end production success without a real environment.",
-      "status": "planned",
-      "evidence": []
+      "status": "implemented_verified",
+      "evidence": [
+        "docs/stage-reports/v0.4.10_connector_embedding_governed_writeback.md",
+        "docs/workingon-archives/v0.4.10/browser/browser-evidence.json",
+        "platform/backend/src/agent_platform/blocks.py",
+        "platform/backend/src/agent_platform/scenarios.py",
+        "platform/backend/src/agent_platform/evaluation_harness.py",
+        "platform/frontend/app/runtime/[id]/page.tsx",
+        "tests/test_v04_10_connector_embedding.py"
+      ]
     },
     {
       "id": "EVOL-001",
