@@ -256,10 +256,13 @@
       "priority": "P0",
       "statement": "Make Evaluation Harness profiles selectable and capable of H0-H5 evidence levels.",
       "acceptance": "Users or policy select whether and how far evaluation runs; results state design, static, component, contract, live, or production evidence without conflation.",
-      "status": "partial",
+      "status": "implemented_verified",
       "evidence": [
-        "platform/backend/src/agent_platform/scenarios.py",
-        "docs/workingon-archives/v0.4.4/v0.4.4_component_evidence.json"
+        "docs/stage-reports/v0.4.8_evaluation_harness_profiles_and_environments.md",
+        "platform/backend/src/agent_platform/evaluation_harness.py",
+        "platform/frontend/app/applications/[id]/evaluation-harness-panel.tsx",
+        "docs/workingon-archives/v0.4.8/browser/browser-evidence.json",
+        "tests/test_v04_08_evaluation_harness.py"
       ]
     },
     {
@@ -272,9 +275,12 @@
       "evidence": [
         "platform/backend/src/agent_platform/capability_contracts.py",
         "platform/backend/src/agent_platform/acceptance_repair.py",
-        "platform/frontend/app/page.tsx",
+        "platform/backend/src/agent_platform/evaluation_harness.py",
+        "platform/frontend/app/applications/[id]/evaluation-harness-panel.tsx",
         "docs/workingon-archives/v0.4.5/v0.4.5_capability_contract_evidence.json",
-        "tests/test_v04_05_capability_build_contract.py"
+        "docs/workingon-archives/v0.4.8/browser/browser-evidence.json",
+        "tests/test_v04_05_capability_build_contract.py",
+        "tests/test_v04_08_evaluation_harness.py"
       ]
     },
     {
@@ -283,10 +289,12 @@
       "priority": "P1",
       "statement": "Generate tests from capability signals, runtime envelope, external contracts, and selected evidence level.",
       "acceptance": "Loop, tool, scheduler, customer writeback, and high-risk workflows generate different tests and evidence requirements.",
-      "status": "partial",
+      "status": "implemented_verified",
       "evidence": [
-        "platform/backend/src/agent_platform/scenarios.py",
-        "tests/test_v04_04_codex_feedback_loop.py"
+        "docs/stage-reports/v0.4.8_evaluation_harness_profiles_and_environments.md",
+        "platform/backend/src/agent_platform/evaluation_harness.py",
+        "platform/backend/src/agent_platform/capability_contracts.py",
+        "tests/test_v04_08_evaluation_harness.py"
       ]
     },
     {
@@ -295,8 +303,14 @@
       "priority": "P1",
       "statement": "Provide mock, contract, sandbox, live, and production-observation evaluation environments.",
       "acceptance": "Each test case identifies its environment and evidence level; claim scope cannot exceed the strongest completed evidence.",
-      "status": "planned",
-      "evidence": []
+      "status": "implemented_verified",
+      "evidence": [
+        "docs/stage-reports/v0.4.8_evaluation_harness_profiles_and_environments.md",
+        "platform/backend/src/agent_platform/evaluation_harness.py",
+        "platform/backend/src/agent_platform/config.py",
+        "docs/workingon-archives/v0.4.8/browser/browser-evidence.json",
+        "tests/test_v04_08_evaluation_harness.py"
+      ]
     },
     {
       "id": "GOV-001",

@@ -1,0 +1,51 @@
+{
+  "version": "v0.4.8",
+  "application_id": "1b193b5e-4da7-4dae-b886-69cecde076c4",
+  "journey": [
+    "preview_plan",
+    "apply_generated_cases",
+    "run_h2_component",
+    "inspect_history",
+    "verify_customer_runtime_disclosure"
+  ],
+  "latest_run": {
+    "outcome": "completed",
+    "achieved_status": "component_verified",
+    "passed": true,
+    "generated_test_count": 2,
+    "executed_test_count": 3
+  },
+  "desktop": {
+    "viewport": [
+      1440,
+      873
+    ],
+    "documentOverflow": false,
+    "harnessOverflow": false,
+    "harnessWidth": 289,
+    "overflow": []
+  },
+  "mobile": {
+    "viewport": [
+      390,
+      844
+    ],
+    "documentOverflow": false,
+    "harnessOverflow": false,
+    "harnessWidth": 269,
+    "overflow": []
+  },
+  "runtime_disclosure": {
+    "evaluationHarness": false,
+    "evaluationText": false,
+    "profileText": false
+  },
+  "console_errors": [],
+  "failed_requests": [],
+  "ignored_browser_requests": [],
+  "screenshots": [
+    "/Users/zhonghaoyang/Code/agent/Lilies/docs/workingon-archives/v0.4.8/browser/evaluation-plan-desktop.png",
+    "/Users/zhonghaoyang/Code/agent/Lilies/docs/workingon-archives/v0.4.8/browser/evaluation-result-desktop.png",
+    "/Users/zhonghaoyang/Code/agent/Lilies/docs/workingon-archives/v0.4.8/browser/evaluation-mobile.png"
+  ]
+}

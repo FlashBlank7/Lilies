@@ -1,0 +1,369 @@
+{
+  "schema_version": "1.1",
+  "stage": "v0.4.8",
+  "source_junit": "/tmp/lilies-v048-final.xml",
+  "manifest": "/Users/zhonghaoyang/Code/agent/Lilies/docs/testing/regression_lanes.json",
+  "totals": {
+    "tests": 794,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 85
+  },
+  "classification_counts": {},
+  "blocking_current_regressions": [],
+  "expected_conflicts": [
+    {
+      "nodeid": "tests/test_v02_120_e08_draft_patch_preview_worker_offload_handler.py::test_v02_120_draft_patch_preview_worker_handler_fails_unsupported",
+      "reason": "archived expectation conflict: draft_patch_preview_support_timeline"
+    },
+    {
+      "nodeid": "tests/test_v02_139_e10_studio_governed_memory_operator_ui.py::test_v02_139_evidence_script_reports_completed_operator_ui",
+      "reason": "archived expectation conflict: mixed_studio_governance_surface_superseded"
+    },
+    {
+      "nodeid": "tests/test_v02_75_complexity_router_default_enablement_boundary.py::test_v02_75_decision_requires_live_validation_before_default_change",
+      "reason": "archived expectation conflict: complexity_router_default_timeline"
+    },
+    {
+      "nodeid": "tests/test_v02_76_complexity_router_live_validation_plan.py::test_v02_76_plan_defines_cases_budget_and_default_disabled_status",
+      "reason": "archived expectation conflict: complexity_router_default_timeline"
+    },
+    {
+      "nodeid": "tests/test_v02_77_complexity_router_live_validation_execution_decision.py::test_v02_77_decision_selects_bounded_live_validation_next",
+      "reason": "archived expectation conflict: complexity_router_default_timeline"
+    },
+    {
+      "nodeid": "tests/test_v02_78_complexity_router_bounded_live_validation.py::test_v02_78_skip_result_records_provider_command_and_cases",
+      "reason": "archived expectation conflict: complexity_router_default_timeline"
+    },
+    {
+      "nodeid": "tests/test_v02_79_complexity_router_default_enablement_review_decision.py::test_v02_79_decision_selects_staged_rollout_preparation",
+      "reason": "archived expectation conflict: complexity_router_default_timeline"
+    },
+    {
+      "nodeid": "tests/test_v02_80_complexity_router_staged_rollout_preparation.py::test_v02_80_rollout_preparation_defines_three_non_default_stages",
+      "reason": "archived expectation conflict: complexity_router_default_timeline"
+    },
+    {
+      "nodeid": "tests/test_v02_81_complexity_router_staged_rollout_execution_decision.py::test_v02_81_decision_selects_shadow_only_rollout",
+      "reason": "archived expectation conflict: complexity_router_default_timeline"
+    },
+    {
+      "nodeid": "tests/test_v02_82_complexity_router_shadow_only_rollout.py::test_v02_82_shadow_only_rollout_executes_stage_0_without_behavior_change",
+      "reason": "archived expectation conflict: complexity_router_default_timeline"
+    },
+    {
+      "nodeid": "tests/test_v02_82_complexity_router_shadow_only_rollout.py::test_v02_82_shadow_only_rollout_records_metrics_and_exit_criteria",
+      "reason": "archived expectation conflict: complexity_router_default_timeline"
+    },
+    {
+      "nodeid": "tests/test_v02_83_complexity_router_post_shadow_rollout_decision.py::test_v02_83_decision_selects_operator_opt_in_rollout",
+      "reason": "archived expectation conflict: complexity_router_default_timeline"
+    },
+    {
+      "nodeid": "tests/test_v02_84_complexity_router_operator_opt_in_rollout.py::test_v02_84_operator_opt_in_rollout_executes_stage_1_without_default_enablement",
+      "reason": "archived expectation conflict: complexity_router_default_timeline"
+    },
+    {
+      "nodeid": "tests/test_v02_84_complexity_router_operator_opt_in_rollout.py::test_v02_84_operator_opt_in_rollout_records_exit_metrics",
+      "reason": "archived expectation conflict: complexity_router_default_timeline"
+    },
+    {
+      "nodeid": "tests/test_v02_85_complexity_router_post_operator_opt_in_decision.py::test_v02_85_decision_selects_frontend_verification_environment_repair",
+      "reason": "archived expectation conflict: complexity_router_default_timeline"
+    },
+    {
+      "nodeid": "tests/test_v02_87_complexity_router_default_enablement_review_decision.py::test_v02_87_decision_enters_default_enablement_review_when_gates_pass",
+      "reason": "archived expectation conflict: complexity_router_default_timeline"
+    },
+    {
+      "nodeid": "tests/test_v02_88_complexity_router_limited_default_enablement_plan.py::test_v02_88_plan_defines_limited_default_contract_without_enabling_runtime_default",
+      "reason": "archived expectation conflict: complexity_router_default_timeline"
+    },
+    {
+      "nodeid": "tests/test_v02_88_complexity_router_limited_default_enablement_plan.py::test_v02_88_plan_has_controls_rollback_and_verification_gates",
+      "reason": "archived expectation conflict: complexity_router_default_timeline"
+    },
+    {
+      "nodeid": "tests/test_v02_98_e08_studio_editable_policy_controls.py::test_v02_98_evidence_confirms_studio_patch_contract",
+      "reason": "archived expectation conflict: mixed_studio_governance_surface_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_11_guided_try_run_recovery.py::test_v03_11_try_guidance_source_markers_pass",
+      "reason": "archived expectation conflict: embedded_try_run_surface_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_11_guided_try_run_recovery.py::test_v03_11_static_evidence_passes_without_live_services",
+      "reason": "archived expectation conflict: embedded_try_run_surface_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_11_guided_try_run_recovery.py::test_v03_11_writes_json",
+      "reason": "archived expectation conflict: embedded_try_run_surface_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_14_monitor_trace_readability.py::test_v03_14_monitor_trace_source_markers_pass",
+      "reason": "archived expectation conflict: embedded_monitor_and_quick_actions_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_14_monitor_trace_readability.py::test_v03_14_static_evidence_passes_without_live_services",
+      "reason": "archived expectation conflict: embedded_monitor_and_quick_actions_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_14_monitor_trace_readability.py::test_v03_14_writes_json",
+      "reason": "archived expectation conflict: embedded_monitor_and_quick_actions_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_19_application_card_quick_actions.py::test_v03_19_source_and_manifest_markers_pass",
+      "reason": "archived expectation conflict: embedded_monitor_and_quick_actions_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_19_application_card_quick_actions.py::test_v03_19_static_evidence_passes_without_live_services",
+      "reason": "archived expectation conflict: embedded_monitor_and_quick_actions_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_19_application_card_quick_actions.py::test_v03_19_writes_json",
+      "reason": "archived expectation conflict: embedded_monitor_and_quick_actions_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_32_try_run_sample_input.py::test_v03_32_source_and_manifest_markers_pass",
+      "reason": "archived expectation conflict: embedded_try_run_surface_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_32_try_run_sample_input.py::test_v03_32_static_evidence_passes_without_live_services",
+      "reason": "archived expectation conflict: embedded_try_run_surface_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_32_try_run_sample_input.py::test_v03_32_writes_json",
+      "reason": "archived expectation conflict: embedded_try_run_surface_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_33_try_run_result_interpretation.py::test_v03_33_source_and_manifest_markers_pass",
+      "reason": "archived expectation conflict: embedded_try_run_surface_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_33_try_run_result_interpretation.py::test_v03_33_static_evidence_passes_without_live_services",
+      "reason": "archived expectation conflict: embedded_try_run_surface_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_33_try_run_result_interpretation.py::test_v03_33_writes_json",
+      "reason": "archived expectation conflict: embedded_try_run_surface_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_34_try_result_recovery_affordance.py::test_v03_34_source_and_manifest_markers_pass",
+      "reason": "archived expectation conflict: embedded_try_run_surface_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_34_try_result_recovery_affordance.py::test_v03_34_focus_safety_fixture_has_no_mutation_calls",
+      "reason": "archived expectation conflict: embedded_try_run_surface_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_34_try_result_recovery_affordance.py::test_v03_34_static_evidence_passes_without_live_services",
+      "reason": "archived expectation conflict: embedded_try_run_surface_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_34_try_result_recovery_affordance.py::test_v03_34_writes_json",
+      "reason": "archived expectation conflict: embedded_try_run_surface_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_35_try_result_output_preview.py::test_v03_35_source_and_manifest_markers_pass",
+      "reason": "archived expectation conflict: embedded_try_run_surface_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_35_try_result_output_preview.py::test_v03_35_static_evidence_passes_without_live_services",
+      "reason": "archived expectation conflict: embedded_try_run_surface_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_35_try_result_output_preview.py::test_v03_35_writes_json",
+      "reason": "archived expectation conflict: embedded_try_run_surface_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_36_try_run_mode_visibility.py::test_v03_36_source_and_manifest_markers_pass",
+      "reason": "archived expectation conflict: embedded_try_run_surface_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_36_try_run_mode_visibility.py::test_v03_36_static_evidence_passes_without_live_services",
+      "reason": "archived expectation conflict: embedded_try_run_surface_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_36_try_run_mode_visibility.py::test_v03_36_writes_json",
+      "reason": "archived expectation conflict: embedded_try_run_surface_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_37_try_run_mode_persistence.py::test_v03_37_source_and_manifest_markers_pass",
+      "reason": "archived expectation conflict: embedded_try_run_surface_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_37_try_run_mode_persistence.py::test_v03_37_static_evidence_passes_without_live_services",
+      "reason": "archived expectation conflict: embedded_try_run_surface_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_37_try_run_mode_persistence.py::test_v03_37_writes_json",
+      "reason": "archived expectation conflict: embedded_try_run_surface_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_38_try_run_duplicate_start_guard.py::test_v03_38_source_and_manifest_markers_pass",
+      "reason": "archived expectation conflict: embedded_try_run_surface_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_38_try_run_duplicate_start_guard.py::test_v03_38_static_evidence_passes_without_live_services",
+      "reason": "archived expectation conflict: embedded_try_run_surface_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_38_try_run_duplicate_start_guard.py::test_v03_38_writes_json",
+      "reason": "archived expectation conflict: embedded_try_run_surface_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_39_try_run_active_status_refresh.py::test_v03_39_source_and_manifest_markers_pass",
+      "reason": "archived expectation conflict: embedded_try_run_surface_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_39_try_run_active_status_refresh.py::test_v03_39_static_evidence_passes_without_live_services",
+      "reason": "archived expectation conflict: embedded_try_run_surface_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_39_try_run_active_status_refresh.py::test_v03_39_writes_json",
+      "reason": "archived expectation conflict: embedded_try_run_surface_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_40_try_run_cancel_safety_confirmation.py::test_v03_40_source_and_manifest_markers_pass",
+      "reason": "archived expectation conflict: embedded_try_run_surface_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_40_try_run_cancel_safety_confirmation.py::test_v03_40_static_evidence_passes_without_live_services",
+      "reason": "archived expectation conflict: embedded_try_run_surface_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_40_try_run_cancel_safety_confirmation.py::test_v03_40_writes_json",
+      "reason": "archived expectation conflict: embedded_try_run_surface_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_41_try_run_cancel_progress_feedback.py::test_v03_41_source_and_manifest_markers_pass",
+      "reason": "archived expectation conflict: embedded_try_run_surface_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_41_try_run_cancel_progress_feedback.py::test_v03_41_static_evidence_passes_without_live_services",
+      "reason": "archived expectation conflict: embedded_try_run_surface_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_41_try_run_cancel_progress_feedback.py::test_v03_41_writes_json",
+      "reason": "archived expectation conflict: embedded_try_run_surface_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_42_try_run_status_last_updated.py::test_v03_42_source_and_manifest_markers_pass",
+      "reason": "archived expectation conflict: embedded_try_run_surface_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_42_try_run_status_last_updated.py::test_v03_42_static_evidence_passes_without_live_services",
+      "reason": "archived expectation conflict: embedded_try_run_surface_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_42_try_run_status_last_updated.py::test_v03_42_writes_json",
+      "reason": "archived expectation conflict: embedded_try_run_surface_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_43_try_run_input_error_visibility.py::test_v03_43_source_and_manifest_markers_pass",
+      "reason": "archived expectation conflict: embedded_try_run_surface_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_43_try_run_input_error_visibility.py::test_v03_43_static_evidence_passes_without_live_services",
+      "reason": "archived expectation conflict: embedded_try_run_surface_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_43_try_run_input_error_visibility.py::test_v03_43_writes_json",
+      "reason": "archived expectation conflict: embedded_try_run_surface_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_44_try_run_input_error_action_guard.py::test_v03_44_source_and_manifest_markers_pass",
+      "reason": "archived expectation conflict: embedded_try_run_surface_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_44_try_run_input_error_action_guard.py::test_v03_44_static_evidence_passes_without_live_services",
+      "reason": "archived expectation conflict: embedded_try_run_surface_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_44_try_run_input_error_action_guard.py::test_v03_44_writes_json",
+      "reason": "archived expectation conflict: embedded_try_run_surface_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_45_try_run_input_error_recovery_ready_state.py::test_v03_45_source_and_manifest_markers_pass",
+      "reason": "archived expectation conflict: embedded_try_run_surface_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_45_try_run_input_error_recovery_ready_state.py::test_v03_45_static_evidence_passes_without_live_services",
+      "reason": "archived expectation conflict: embedded_try_run_surface_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_45_try_run_input_error_recovery_ready_state.py::test_v03_45_writes_json",
+      "reason": "archived expectation conflict: embedded_try_run_surface_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_48_customer_facing_workflow_run_interface.py::test_v03_48_source_and_manifest_markers_pass",
+      "reason": "archived expectation conflict: persona_specific_customer_runtime_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_48_customer_facing_workflow_run_interface.py::test_v03_48_static_evidence_passes_without_live_services",
+      "reason": "archived expectation conflict: persona_specific_customer_runtime_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_48_customer_facing_workflow_run_interface.py::test_v03_48_writes_json",
+      "reason": "archived expectation conflict: persona_specific_customer_runtime_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_49_japanese_learning_customer_journey.py::test_v03_49_source_and_manifest_markers_pass",
+      "reason": "archived expectation conflict: persona_specific_customer_runtime_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_49_japanese_learning_customer_journey.py::test_v03_49_static_evidence_passes_without_live_services",
+      "reason": "archived expectation conflict: persona_specific_customer_runtime_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_49_japanese_learning_customer_journey.py::test_v03_49_writes_json",
+      "reason": "archived expectation conflict: persona_specific_customer_runtime_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_50_bounded_japanese_learning_runtime_validation.py::test_v03_50_source_and_manifest_markers_pass",
+      "reason": "archived expectation conflict: persona_specific_customer_runtime_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_50_bounded_japanese_learning_runtime_validation.py::test_v03_50_run_guidance_shows_controlled_fixture_boundary",
+      "reason": "archived expectation conflict: persona_specific_customer_runtime_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_50_bounded_japanese_learning_runtime_validation.py::test_v03_50_static_evidence_passes_without_live_services",
+      "reason": "archived expectation conflict: persona_specific_customer_runtime_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_50_bounded_japanese_learning_runtime_validation.py::test_v03_50_writes_json",
+      "reason": "archived expectation conflict: persona_specific_customer_runtime_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_53_markdown_result_renderer.py::test_v03_53_try_run_result_uses_markdown_rendering",
+      "reason": "archived expectation conflict: markdown_result_mount_location_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_53_markdown_result_renderer.py::test_v03_53_static_evidence_passes_and_writes_json",
+      "reason": "archived expectation conflict: markdown_result_mount_location_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_55_remove_japanese_learner_customer_group.py::test_v03_55_explicit_japanese_workflow_support_is_preserved",
+      "reason": "archived expectation conflict: persona_specific_customer_runtime_superseded"
+    },
+    {
+      "nodeid": "tests/test_v03_55_remove_japanese_learner_customer_group.py::test_v03_55_static_evidence_passes_and_writes_json",
+      "reason": "archived expectation conflict: persona_specific_customer_runtime_superseded"
+    }
+  ],
+  "expected_conflict_count": 85,
+  "expected_conflict_family_counts": {
+    "complexity_router_default_timeline": 16,
+    "draft_patch_preview_support_timeline": 1,
+    "embedded_monitor_and_quick_actions_superseded": 6,
+    "embedded_try_run_surface_superseded": 46,
+    "markdown_result_mount_location_superseded": 2,
+    "mixed_studio_governance_surface_superseded": 2,
+    "persona_specific_customer_runtime_superseded": 12
+  },
+  "unknown_expected_conflicts": [],
+  "missing_expected_conflicts": [],
+  "failures": []
+}
