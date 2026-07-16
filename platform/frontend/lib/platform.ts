@@ -197,6 +197,8 @@ export type Block = {
 export type PlatformTaskKind =
   | 'workflow_run'
   | 'builder_build'
+  | 'agent_generation'
+  | 'agent_turn'
   | 'test_suite'
   | 'scheduler_trigger'
   | 'scheduler_manual_trigger'
@@ -230,6 +232,134 @@ export type PlatformTaskRecord = {
   created_at: string
   updated_at: string
   finished_at?: string | null
+}
+
+export type GovernanceSupport = 'reported' | 'estimated' | 'unsupported' | 'not_recorded'
+
+export type GovernanceTask = PlatformTaskRecord & {
+  application_id?: string | null
+  application_name?: string | null
+  workflow_id?: string | null
+  model?: string | null
+  duration_seconds?: number | null
+  queue_delay_seconds?: number | null
+}
+
+export type GovernanceTaskPage = {
+  items: GovernanceTask[]
+  total: number
+  offset: number
+  limit: number
+  has_more: boolean
+  filters: Record<string, unknown>
+  support: Record<string, GovernanceSupport>
+}
+
+export type GovernanceOverview = {
+  generated_at: string
+  task_counts: Record<string, number>
+  duration_seconds: { p50?: number | null; p95?: number | null; support: GovernanceSupport }
+  queue_delay_seconds: { p50?: number | null; p95?: number | null; support: GovernanceSupport }
+  workers: { total: number; active: number; stale: number }
+  recent_failures: GovernanceTask[]
+  alerts: GovernanceAlert[]
+  claim_boundary: string
+}
+
+export type GovernanceUsageSample = {
+  created_at: string
+  task_id: string
+  owner_id?: string | null
+  application_id?: string | null
+  workflow_id?: string | null
+  provider?: string | null
+  model?: string | null
+  input_tokens?: number | null
+  output_tokens?: number | null
+  cache_read_input_tokens?: number | null
+  cache_creation_input_tokens?: number | null
+  reasoning_tokens?: number | null
+  cost_usd?: number | null
+  cost_source?: string
+  support?: Record<string, GovernanceSupport | 'not_reported'>
+  budget?: Record<string, unknown>
+}
+
+export type GovernanceUsage = {
+  samples: GovernanceUsageSample[]
+  sample_count: number
+  returned_sample_count: number
+  has_more: boolean
+  totals: Record<string, number | null>
+  support: Record<string, GovernanceSupport>
+  series: Array<Record<string, number | string>>
+  interval: 'hour' | 'day'
+  dimensions: Record<string, Array<Record<string, string | number>>>
+  budgets: Array<Record<string, unknown>>
+  cost_boundary: string
+  token_boundary: string
+}
+
+export type GovernanceReliability = {
+  metrics: Record<string, number>
+  examples: Record<string, string[]>
+  workers: Array<Record<string, unknown>>
+  queue: Record<string, unknown>
+  support: Record<string, GovernanceSupport>
+}
+
+export type GovernanceTraceNode = GovernanceTask & { children: GovernanceTraceNode[] }
+
+export type GovernanceTrace = {
+  requested_task_id: string
+  root_task_id: string
+  ancestors: string[]
+  tree: GovernanceTraceNode
+  spans: Array<Record<string, unknown>>
+  support: Record<string, GovernanceSupport>
+}
+
+export type GovernancePolicy = {
+  controls: PlatformPolicyControls
+  audit: Array<{ id: number; type: string; created_at: string; data: Record<string, unknown> }>
+  support: Record<string, GovernanceSupport>
+}
+
+export type GovernanceCapability = {
+  capability_id: string
+  strongest_status: string
+  evidence_level: string
+  claim_count: number
+  artifact_categories: string[]
+  known_gaps: Array<Record<string, unknown>>
+  integrity: string
+}
+
+export type GovernanceEvidence = {
+  capabilities: GovernanceCapability[]
+  records: Array<Record<string, unknown>>
+  support: Record<string, GovernanceSupport>
+  claim_boundary: string
+}
+
+export type GovernanceAlert = {
+  id: string
+  detector: string
+  severity: string
+  status: string
+  source_timestamp?: string
+  task_id?: string
+  application_id?: string | null
+  owner_id?: string | null
+  worker_id?: string
+  message: string
+  source: string
+}
+
+export type GovernanceAlerts = {
+  items: GovernanceAlert[]
+  total: number
+  support: Record<string, GovernanceSupport>
 }
 
 export type PlatformPolicyDecision = {

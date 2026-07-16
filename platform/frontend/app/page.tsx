@@ -1,10 +1,12 @@
 'use client'
 
 import Link from 'next/link'
+import { ShieldCheck } from 'lucide-react'
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react'
 import { api, clearClientToken, getClientToken, idempotency, isAuthError, saveClientToken, type DeliveryMode, type DraftEvidence } from '@/lib/platform'
 import { defaultLocale, isLocale, messages, nextLocale, type Locale } from '@/lib/i18n'
 import { classifyRuntimeStatus, runtimeCommit, runtimeVersion, type RuntimeHealth } from '@/lib/runtime-status'
+import surfaceStyles from '@/app/surface-boundaries.module.css'
 
 type Application = {
   id: string
@@ -24,8 +26,7 @@ const APP_FILTERS = ['all', 'needs_acceptance', 'ready_to_publish', 'published']
 type AppFilter = typeof APP_FILTERS[number]
 const APP_SORTS = ['recent', 'readiness', 'revision', 'name'] as const
 type AppSort = typeof APP_SORTS[number]
-type AppActionTab = 'edit' | 'test' | 'run' | 'monitor'
-type AppQuickAction = { id: string; tab: AppActionTab; label: string }
+type AppQuickAction = { id: string; href: string; label: string }
 type AppListUrlState = { filter?: AppFilter; q?: string; sort?: AppSort }
 type Copy = (typeof messages)[Locale]
 type RequirementIntakeChoiceType = 'single' | 'multi'
@@ -525,16 +526,16 @@ export default function Home() {
   const appCardQuickActions = (item: Application): AppQuickAction[] => {
     const state = appReadinessState(item)
     if (state === 'published') return [
-      { id: 'try', tab: 'run', label: t.appActionTry },
-      { id: 'monitor', tab: 'monitor', label: t.appActionMonitor },
+      { id: 'try', href: `/runtime/${item.id}`, label: t.appActionTry },
+      { id: 'monitor', href: `/governance?application_id=${item.id}`, label: t.appActionMonitor },
     ]
     if (state === 'ready_to_publish') return [
-      { id: 'acceptance', tab: 'test', label: t.appActionAcceptance },
-      { id: 'publish_check', tab: 'test', label: t.appActionPublishCheck },
+      { id: 'acceptance', href: `/applications/${item.id}?tab=test`, label: t.appActionAcceptance },
+      { id: 'publish_check', href: `/applications/${item.id}?tab=test`, label: t.appActionPublishCheck },
     ]
     return [
-      { id: 'edit', tab: 'edit', label: t.appActionEdit },
-      { id: 'acceptance', tab: 'test', label: t.appActionAcceptance },
+      { id: 'edit', href: `/applications/${item.id}?tab=edit`, label: t.appActionEdit },
+      { id: 'acceptance', href: `/applications/${item.id}?tab=test`, label: t.appActionAcceptance },
     ]
   }
   const appFilterOptions: Array<{ id: AppFilter; label: string }> = [
@@ -776,7 +777,7 @@ export default function Home() {
 
   return (
     <main className="home-shell">
-      <nav className="topbar"><div className="brand"><span>F</span> Foundry</div><div className="topbar-actions"><button className="lang-toggle" onClick={toggleLocale}>{t.switchLabel}</button><div className={`status-dot runtime-status ${runtimeStatus}`} data-runtime-status={runtimeStatus}><span>{runtimeStatusText}</span><small>{runtimeStatusDetail}</small></div></div></nav>
+      <nav className="topbar"><div className="brand"><span>F</span> Foundry</div><div className="topbar-actions"><Link className={surfaceStyles.governanceLink} href="/governance"><ShieldCheck size={15} />Governance</Link><button className="lang-toggle" onClick={toggleLocale}>{t.switchLabel}</button><div className={`status-dot runtime-status ${runtimeStatus}`} data-runtime-status={runtimeStatus}><span>{runtimeStatusText}</span><small>{runtimeStatusDetail}</small></div></div></nav>
       <section className="hero">
         <div className="eyebrow">{t.eyebrow}</div>
         <h1>{t.heroTitleA}<br/><em>{t.heroTitleB}</em></h1>
@@ -1001,7 +1002,7 @@ export default function Home() {
               <div className="app-meta"><span>{item.active_version ? t.published(item.active_version) : t.draft}</span><span>r{item.draft_revision}</span></div>
             </Link>
             <div className="app-card-actions" data-app-card-quick-actions="navigation">
-              {appCardQuickActions(item).map(action => <Link href={`/applications/${item.id}?tab=${action.tab}`} data-app-card-action={action.id} key={action.id}>{action.label}</Link>)}
+              {appCardQuickActions(item).map(action => <Link href={action.href} data-app-card-action={action.id} key={action.id}>{action.label}</Link>)}
             </div>
           </article>)}
           {apps.length > 0 && !visibleApps.length && <div className="empty-card"><strong>{normalizedAppSearch ? t.appSearchEmpty : t.appFilterEmpty}</strong><span>{normalizedAppSearch ? t.appSearchEmptyHelp : t.appFilterEmptyHelp}</span></div>}

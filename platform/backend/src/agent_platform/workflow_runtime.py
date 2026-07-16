@@ -141,6 +141,10 @@ class WorkflowRuntime:
                 "version": version,
                 "draft_revision": draft_revision,
                 "workspace_path": request.workspace_path,
+                "application_id": application_id,
+                "workflow_id": application_id,
+                "model": self.runtime_model,
+                "budget_limit_usd": self._workflow_budget_limit(snapshot),
             },
         )
         self._start(state)
@@ -471,7 +475,14 @@ class WorkflowRuntime:
                 version = await self.storage.save_agent_version(agent, "application")
             else:
                 agent, version, _ = await self.storage.get_agent(config.agent_id, config.version)
-            session = await self.agent_runtime.create_session(agent, version, workspace_path)
+            session = await self.agent_runtime.create_session(
+                agent,
+                version,
+                workspace_path,
+                parent_task_id=run_id,
+                governance_owner_id=state.application_id if state else None,
+                governance_application_id=state.application_id if state else None,
+            )
             task = str(self._resolve(config.task, context))
             await self._emit(run_id, "node.agent.session", {"node_id": scoped_id, "session_id": session.id})
 
@@ -1689,6 +1700,13 @@ class WorkflowRuntime:
         response = await self.agent_runtime._collect_stream(
             run_id, stream, f"node.{node_id}.model", model
         )
+        await self.harness.record_model_usage(
+            run_id,
+            response.usage,
+            model=model,
+            provider=self.provider.provider_name_for(model),
+            metadata={"node_id": node_id, "phase": "workflow_model_text"},
+        )
         text = "".join(block.text or "" for block in response.blocks if block.type == "text")
         return text, response.usage
 
@@ -1737,6 +1755,13 @@ class WorkflowRuntime:
         response = await self.agent_runtime._collect_stream(
             run_id, stream, f"node.{node_id}.model", model
         )
+        await self.harness.record_model_usage(
+            run_id,
+            response.usage,
+            model=model,
+            provider=self.provider.provider_name_for(model),
+            metadata={"node_id": node_id, "phase": "workflow_model_tool_turn"},
+        )
         text = "".join(block.text or "" for block in response.blocks if block.type == "text")
         thinking = "".join(
             block.thinking or "" for block in response.blocks if block.type == "thinking"
@@ -1757,6 +1782,20 @@ class WorkflowRuntime:
             "usage": response.usage.model_dump(mode="json"),
             "raw_blocks": [block.model_dump(mode="json") for block in response.blocks],
         }
+
+    @staticmethod
+    def _workflow_budget_limit(snapshot: ApplicationSnapshot) -> float | None:
+        limits: list[float] = []
+        for node in snapshot.workflow.nodes:
+            if node.type != "budget_gate":
+                continue
+            settings = node.config.get("settings", node.config)
+            if not isinstance(settings, dict):
+                continue
+            raw = settings.get("max_cost_usd", settings.get("max_budget_usd"))
+            if isinstance(raw, (int, float)) and not isinstance(raw, bool) and raw >= 0:
+                limits.append(float(raw))
+        return min(limits) if limits else None
 
     async def _execute_tool(
         self,

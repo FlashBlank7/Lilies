@@ -133,7 +133,17 @@ class Usage(BaseModel):
     output_tokens: int = 0
     cache_read_input_tokens: int = 0
     cache_creation_input_tokens: int = 0
+    reasoning_tokens: int | None = None
     cost_usd: float = 0.0
+    cost_source: Literal[
+        "provider_reported",
+        "estimated_configured_price",
+        "unsupported",
+    ] = "unsupported"
+    field_support: dict[
+        str,
+        Literal["reported", "estimated", "unsupported", "not_reported"],
+    ] = Field(default_factory=dict)
 
 
 class ModelResponse(BaseModel):

@@ -12,7 +12,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from .models import utc_now
+from .models import Usage, utc_now
 from .secret_kms import SecretKMSProvider
 from .storage import Storage
 
@@ -20,6 +20,8 @@ from .storage import Storage
 TaskKind = Literal[
     "workflow_run",
     "builder_build",
+    "agent_generation",
+    "agent_turn",
     "test_suite",
     "scheduler_trigger",
     "scheduler_manual_trigger",
@@ -32,6 +34,7 @@ WorkerHeartbeatStatus = Literal["idle", "running", "stopping", "failed"]
 UsageType = Literal[
     "node_execution",
     "model_call",
+    "model_usage",
     "tool_call",
     "nested_workflow_call",
     "scheduler_fire",
@@ -280,6 +283,132 @@ class PlatformHarness:
             await self._emit(record, "platform_harness.violation", {"error": violation})
             raise PlatformHarnessViolation(violation)
         return usage
+
+    async def record_model_usage(
+        self,
+        task_id: str,
+        usage: Usage,
+        *,
+        model: str,
+        provider: str,
+        metadata: dict[str, Any] | None = None,
+        budget_limit_usd: float | None = None,
+    ) -> PlatformUsageRecord:
+        """Persist provider response usage without treating call counts as tokens."""
+        await self._cached_or_persisted_task(task_id)
+        async with self._lock:
+            task = self._tasks.get(task_id)
+            if task is None:
+                raise PlatformHarnessViolation(f"platform task not registered: {task_id}")
+            task_snapshot = task.model_copy(deep=True)
+
+        dimensions = dict(metadata or {})
+        application_id = str(
+            dimensions.get("application_id")
+            or task_snapshot.metadata.get("application_id")
+            or self._application_id_for_task(task_snapshot)
+            or ""
+        )
+        workflow_id = str(
+            dimensions.get("workflow_id")
+            or task_snapshot.metadata.get("workflow_id")
+            or application_id
+            or ""
+        )
+        support = {
+            field: usage.field_support.get(field, "not_reported")
+            for field in (
+                "input_tokens",
+                "output_tokens",
+                "cache_read_input_tokens",
+                "cache_creation_input_tokens",
+                "reasoning_tokens",
+            )
+        }
+        cost_value: float | None = None
+        if usage.cost_source != "unsupported":
+            cost_value = float(usage.cost_usd)
+            support["cost_usd"] = (
+                "reported" if usage.cost_source == "provider_reported" else "estimated"
+            )
+        else:
+            support["cost_usd"] = "unsupported"
+
+        prior_cost = 0.0
+        for item in task_snapshot.usage:
+            if item.usage_type != "model_usage":
+                continue
+            raw_cost = item.metadata.get("cost_usd")
+            if isinstance(raw_cost, (int, float)):
+                prior_cost += float(raw_cost)
+        spent_cost = prior_cost + (cost_value or 0.0)
+        raw_limit = (
+            budget_limit_usd
+            if budget_limit_usd is not None
+            else task_snapshot.metadata.get("budget_limit_usd")
+        )
+        normalized_limit = (
+            float(raw_limit)
+            if isinstance(raw_limit, (int, float)) and float(raw_limit) >= 0
+            else None
+        )
+        budget = {
+            "limit_usd": normalized_limit,
+            "spent_usd": spent_cost if cost_value is not None or prior_cost else None,
+            "remaining_usd": (
+                normalized_limit - spent_cost
+                if normalized_limit is not None and (cost_value is not None or prior_cost)
+                else None
+            ),
+            "exhausted": (
+                spent_cost >= normalized_limit
+                if normalized_limit is not None and (cost_value is not None or prior_cost)
+                else None
+            ),
+            "support": (
+                "reported_or_estimated"
+                if normalized_limit is not None and (cost_value is not None or prior_cost)
+                else "not_configured" if normalized_limit is None else "cost_unsupported"
+            ),
+        }
+        payload = {
+            **dimensions,
+            "task_id": task_snapshot.id,
+            "task_kind": task_snapshot.kind,
+            "owner_id": task_snapshot.owner_id,
+            "resource_id": task_snapshot.resource_id,
+            "application_id": application_id or None,
+            "workflow_id": workflow_id or None,
+            "provider": provider,
+            "model": model,
+            "input_tokens": usage.input_tokens,
+            "output_tokens": usage.output_tokens,
+            "cache_read_input_tokens": usage.cache_read_input_tokens,
+            "cache_creation_input_tokens": usage.cache_creation_input_tokens,
+            "reasoning_tokens": usage.reasoning_tokens,
+            "cost_usd": cost_value,
+            "cost_source": usage.cost_source,
+            "support": support,
+            "budget": budget,
+        }
+        return await self.record_usage(
+            task_id,
+            "model_usage",
+            metadata=payload,
+        )
+
+    @staticmethod
+    def _application_id_for_task(task: PlatformTaskRecord) -> str:
+        if task.kind in {
+            "workflow_run",
+            "builder_build",
+            "test_suite",
+            "scheduler_trigger",
+            "scheduler_manual_trigger",
+            "draft_patch_preview",
+        }:
+            return task.owner_id
+        return ""
 
     async def finish_task(
         self,

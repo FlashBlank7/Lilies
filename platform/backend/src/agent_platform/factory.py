@@ -42,6 +42,16 @@ class AgentFactory:
         self.sandboxes = sandboxes
 
     async def generate(self, generation_id: str, request: GenerationRequest) -> None:
+        await self.runtime.harness.start_task(
+            generation_id,
+            kind="agent_generation",
+            owner_id="agent-factory",
+            resource_id=generation_id,
+            metadata={
+                "model": self.settings.deepseek_generator_model,
+                "requirement_preview": request.requirement[:200],
+            },
+        )
         await self.storage.update_generation(generation_id, status="generating")
         await self._emit(generation_id, "generation.started", {"requirement": request.requirement})
         try:
@@ -70,11 +80,21 @@ class AgentFactory:
             await self._emit(generation_id, "generation.completed", {
                 "agent_id": spec.id, "version": version, "status": status
             })
+            await self.runtime.harness.finish_task(
+                generation_id,
+                status="succeeded",
+                metadata={"agent_id": spec.id, "agent_version": version},
+            )
         except Exception as error:
             await self.storage.update_generation(generation_id, status="failed", error=str(error))
             await self._emit(generation_id, "generation.failed", {
                 "error": str(error), "error_type": type(error).__name__
             })
+            await self.runtime.harness.finish_task(
+                generation_id,
+                status="failed",
+                error=str(error),
+            )
 
     async def _generate_spec(self, generation_id: str, requirement: str) -> AgentSpec:
         schema = AgentSpec.model_json_schema()
@@ -95,6 +115,15 @@ class AgentFactory:
                     type="text",
                     text=f"The previous AgentSpec was invalid. Correct every issue and call create_agent_spec again:\n{validation_error}",
                 )]))
+            await self.runtime.harness.record_usage(
+                generation_id,
+                "model_call",
+                metadata={
+                    "model": self.settings.deepseek_generator_model,
+                    "attempt": attempt + 1,
+                    "phase": "agent_spec_generation",
+                },
+            )
             stream = self.provider.stream(
                 model=self.settings.deepseek_generator_model,
                 system=AGENT_GENERATOR_PROMPT,
@@ -110,6 +139,16 @@ class AgentFactory:
             )
             response = await self.runtime._collect_stream(
                 generation_id, stream, "generation.model", self.settings.deepseek_generator_model
+            )
+            await self.runtime.harness.record_model_usage(
+                generation_id,
+                response.usage,
+                model=self.settings.deepseek_generator_model,
+                provider=self.provider.provider_name_for(self.settings.deepseek_generator_model),
+                metadata={
+                    "attempt": attempt + 1,
+                    "phase": "agent_spec_generation",
+                },
             )
             messages.append(ChatMessage(role="assistant", content=response.blocks))
             call = next(
@@ -173,7 +212,12 @@ class AgentFactory:
         validation_spec = spec.model_copy(deep=True)
         validation_spec.permission_mode = PermissionMode.bypass
         session = await self.runtime.create_session(
-            validation_spec, version, workspace_path, session_id=f"validation-{generation_id}"
+            validation_spec,
+            version,
+            workspace_path,
+            session_id=f"validation-{generation_id}",
+            parent_task_id=generation_id,
+            governance_owner_id="agent-factory",
         )
         try:
             answer = await self.runtime.run_turn_and_wait(session, spec.validation.prompt)

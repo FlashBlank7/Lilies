@@ -1,0 +1,75 @@
+.threeTabs {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+}
+
+.studioLabel {
+  color: #78a4ff;
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.surfaceLink,
+.governanceLink {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  border: 1px solid #2b3547;
+  border-radius: 6px;
+  background: #151c28;
+  color: #dfe7f3;
+  padding: 0 11px;
+  text-decoration: none;
+  font-size: 11px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.surfaceLink:hover,
+.governanceLink:hover {
+  border-color: #536180;
+  background: #1b2432;
+  color: #fff;
+}
+
+.governanceLink {
+  min-height: 36px;
+}
+
+.studioActions {
+  min-width: 0;
+}
+
+@media (max-width: 920px) {
+  .surfaceLink span {
+    display: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .surfaceLink {
+    width: 34px;
+    padding: 0;
+  }
+
+  .governanceLink {
+    width: 36px;
+    overflow: hidden;
+    padding: 0;
+    color: transparent;
+  }
+
+  .governanceLink svg {
+    flex: 0 0 auto;
+    color: #dfe7f3;
+  }
+
+  .studioActions .studioGovernance,
+  .studioActions [data-publication-action='open'] {
+    display: none;
+  }
+}

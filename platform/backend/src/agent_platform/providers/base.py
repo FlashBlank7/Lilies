@@ -28,6 +28,9 @@ class ProviderError(RuntimeError):
 class ModelProvider(ABC):
     name: str
 
+    def provider_name_for(self, model: str) -> str:
+        return self.name
+
     @abstractmethod
     def capabilities(self, model: str) -> ProviderCapabilities: ...
 
@@ -45,4 +48,3 @@ class ModelProvider(ABC):
         tool_choice: dict[str, str] | None = None,
         user_id: str | None = None,
     ) -> AsyncIterator[StreamEvent]: ...
-

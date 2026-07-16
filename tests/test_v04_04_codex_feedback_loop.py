@@ -385,9 +385,10 @@ def test_loop_schema_keeps_legacy_contract_and_exposes_first_class_feedback_fiel
     } <= set(properties)
 
 
-def test_codex_scenario_frontend_uses_server_preset_and_existing_customer_runtime() -> None:
+def test_codex_scenario_frontend_uses_server_preset_and_dedicated_customer_runtime() -> None:
     home = (ROOT / "platform/frontend/app/page.tsx").read_text(encoding="utf-8")
     detail = (ROOT / "platform/frontend/app/applications/[id]/page.tsx").read_text(encoding="utf-8")
+    runtime = (ROOT / "platform/frontend/app/runtime/[id]/page.tsx").read_text(encoding="utf-8")
     i18n = (ROOT / "platform/frontend/lib/i18n.ts").read_text(encoding="utf-8")
 
     assert "function isCodexWorkspaceRequirement" in home
@@ -401,11 +402,12 @@ def test_codex_scenario_frontend_uses_server_preset_and_existing_customer_runtim
     assert "组件级证据" in i18n
     assert "component-level verification" in i18n
 
-    for marker in (
-        'data-customer-run-interface="start-controls"',
-        'data-customer-run-interface="step-progress"',
-        'data-customer-run-interface="result-card"',
-        'className="permission-card"',
-        'data-trace-guidance="summary"',
-    ):
-        assert marker in detail
+    assert 'data-customer-runtime="true"' in runtime
+    assert 'aria-labelledby="runtime-input-title"' in runtime
+    assert 'aria-labelledby="runtime-progress-title"' in runtime
+    assert 'aria-labelledby="runtime-result-title"' in runtime
+    assert "permission.requested" in runtime
+    assert "MarkdownResultCard" in runtime
+    assert "/api/v1/applications/${id}/runs" in runtime
+    assert "href={`/runtime/${id}`}" in detail
+    assert 'data-customer-run-interface="start-controls"' not in detail

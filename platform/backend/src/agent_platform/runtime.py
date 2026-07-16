@@ -40,6 +40,10 @@ class SessionRuntime:
     usage: Usage = field(default_factory=Usage)
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     active_task: asyncio.Task[None] | None = None
+    governance_parent_task_id: str | None = None
+    governance_owner_id: str | None = None
+    governance_application_id: str | None = None
+    platform_task_id: str | None = None
 
 
 class AgentRuntime:
@@ -73,7 +77,15 @@ class AgentRuntime:
         self.event_relays.pop(session_id, None)
 
     async def create_session(
-        self, agent: AgentSpec, version: int, workspace_path: str, *, session_id: str | None = None
+        self,
+        agent: AgentSpec,
+        version: int,
+        workspace_path: str,
+        *,
+        session_id: str | None = None,
+        parent_task_id: str | None = None,
+        governance_owner_id: str | None = None,
+        governance_application_id: str | None = None,
     ) -> SessionRuntime:
         session_id = session_id or str(uuid4())
         sandbox = await self.sandboxes.get_or_create(
@@ -88,6 +100,9 @@ class AgentRuntime:
             agent_version=version,
             workspace_path=workspace_path,
             sandbox=sandbox,
+            governance_parent_task_id=parent_task_id,
+            governance_owner_id=governance_owner_id,
+            governance_application_id=governance_application_id,
         )
         self.sessions[session_id] = session
         await self.storage.create_session(session_id, agent.id, version, workspace_path)
@@ -143,6 +158,25 @@ class AgentRuntime:
         self, session: SessionRuntime, turn_id: str, content: str, *, propagate: bool = False
     ) -> None:
         async with session.lock:
+            platform_task_id = f"agent-turn:{session.id}:{turn_id}"
+            owner_id = session.governance_owner_id or session.agent.id
+            await self.harness.start_task(
+                platform_task_id,
+                kind="agent_turn",
+                owner_id=owner_id,
+                resource_id=session.id,
+                parent_task_id=session.governance_parent_task_id,
+                metadata={
+                    "session_id": session.id,
+                    "turn_id": turn_id,
+                    "agent_id": session.agent.id,
+                    "application_id": session.governance_application_id,
+                    "workflow_id": session.governance_application_id,
+                    "model": session.agent.provider_profile.model,
+                    "budget_limit_usd": session.agent.max_budget_usd,
+                },
+            )
+            session.platform_task_id = platform_task_id
             await self.storage.update_session(session.id, status="running")
             await self.emit(session.id, "turn.started", {"turn_id": turn_id})
             try:
@@ -162,9 +196,11 @@ class AgentRuntime:
                     "turn_id": turn_id,
                     "usage": session.usage.model_dump(mode="json"),
                 })
+                await self.harness.finish_task(platform_task_id, status="succeeded")
             except asyncio.CancelledError:
                 await self.storage.update_session(session.id, status="ready", messages=session.messages)
                 await self.emit(session.id, "turn.cancelled", {"turn_id": turn_id})
+                await self.harness.finish_task(platform_task_id, status="cancelled")
                 raise
             except Exception as error:
                 await self.storage.update_session(session.id, status="error", messages=session.messages)
@@ -173,8 +209,15 @@ class AgentRuntime:
                     "error": str(error),
                     "error_type": type(error).__name__,
                 })
+                await self.harness.finish_task(
+                    platform_task_id,
+                    status="failed",
+                    error=str(error),
+                )
                 if propagate:
                     raise
+            finally:
+                session.platform_task_id = None
 
     async def _run_loop(self, session: SessionRuntime, *, turn_id: str, depth: int) -> None:
         definitions = self.tools.definitions_for(session.agent)
@@ -227,8 +270,19 @@ class AgentRuntime:
         last_error: ProviderError | None = None
         for attempt in range(3):
             try:
+                selected_model = model or session.agent.provider_profile.model
+                if session.platform_task_id:
+                    await self.harness.record_usage(
+                        session.platform_task_id,
+                        "model_call",
+                        metadata={
+                            "model": selected_model,
+                            "attempt": attempt + 1,
+                            "phase": event_prefix,
+                        },
+                    )
                 stream = self.provider.stream(
-                    model=model or session.agent.provider_profile.model,
+                    model=selected_model,
                     system=system,
                     messages=messages or session.messages,
                     tools=tools,
@@ -238,8 +292,26 @@ class AgentRuntime:
                     tool_choice=tool_choice,
                     user_id=session.id,
                 )
-                selected_model = model or session.agent.provider_profile.model
-                return await self._collect_stream(session.id, stream, event_prefix, selected_model)
+                response = await self._collect_stream(
+                    session.id,
+                    stream,
+                    event_prefix,
+                    selected_model,
+                )
+                if session.platform_task_id:
+                    await self.harness.record_model_usage(
+                        session.platform_task_id,
+                        response.usage,
+                        model=selected_model,
+                        provider=self.provider.provider_name_for(selected_model),
+                        metadata={
+                            "session_id": session.id,
+                            "phase": event_prefix,
+                            "attempt": attempt + 1,
+                        },
+                        budget_limit_usd=session.agent.max_budget_usd,
+                    )
+                return response
             except ProviderError as error:
                 last_error = error
                 if not error.retryable or attempt == 2:
@@ -294,9 +366,7 @@ class AgentRuntime:
             data = event.data
             if event.type == "message_start":
                 raw_usage = data.get("message", {}).get("usage", {})
-                usage.input_tokens = raw_usage.get("input_tokens", 0)
-                usage.cache_read_input_tokens = raw_usage.get("cache_read_input_tokens", 0)
-                usage.cache_creation_input_tokens = raw_usage.get("cache_creation_input_tokens", 0)
+                self._merge_usage_payload(usage, raw_usage)
             elif event.type == "content_block_start":
                 index = int(data.get("index", len(blocks)))
                 raw = data.get("content_block", {})
@@ -352,7 +422,9 @@ class AgentRuntime:
                         })
             elif event.type == "message_delta":
                 stop_reason = data.get("delta", {}).get("stop_reason", stop_reason)
-                usage.output_tokens = data.get("usage", {}).get("output_tokens", usage.output_tokens)
+                self._merge_usage_payload(usage, data.get("usage", {}))
+            elif isinstance(data.get("usage"), dict):
+                self._merge_usage_payload(usage, data["usage"])
             elif event.type == "error":
                 raise ProviderError(str(data.get("error", data)))
         response = ModelResponse(
@@ -501,13 +573,15 @@ class AgentRuntime:
             parent.agent_version,
             parent.workspace_path,
             session_id=subagent_id,
+            parent_task_id=parent.platform_task_id or parent.governance_parent_task_id,
+            governance_owner_id=parent.governance_owner_id or parent.agent.id,
+            governance_application_id=parent.governance_application_id,
         )
-        child.messages.append(ChatMessage(role="user", content=[ContentBlock(type="text", text=task)]))
         try:
             # The child gets its own SessionRuntime, sandbox container, permission scope,
             # messages, usage counter, lock and event stream. Only the workspace contents
             # are shared, matching Claude Code's forked-agent context boundary.
-            await self._run_loop(child, turn_id=str(uuid4()), depth=depth)
+            await self._run_turn(child, str(uuid4()), task, propagate=True)
             await self.storage.update_session(
                 child.id,
                 status="ready",
@@ -609,15 +683,89 @@ class AgentRuntime:
         total.output_tokens += current.output_tokens
         total.cache_read_input_tokens += current.cache_read_input_tokens
         total.cache_creation_input_tokens += current.cache_creation_input_tokens
+        if current.reasoning_tokens is not None:
+            total.reasoning_tokens = (total.reasoning_tokens or 0) + current.reasoning_tokens
         total.cost_usd += current.cost_usd
+        if current.cost_source == "provider_reported":
+            total.cost_source = "provider_reported"
+        elif (
+            current.cost_source == "estimated_configured_price"
+            and total.cost_source == "unsupported"
+        ):
+            total.cost_source = "estimated_configured_price"
+        for field_name, support in current.field_support.items():
+            prior = total.field_support.get(field_name)
+            if support == "reported" or prior is None:
+                total.field_support[field_name] = support
+            elif support == "estimated" and prior not in {"reported", "estimated"}:
+                total.field_support[field_name] = support
 
     @staticmethod
-    def _price_usage(usage: Usage, model: str) -> None:
-        # Current defaults; observability only. Provider billing remains authoritative.
-        if "pro" in model:
-            input_rate, output_rate = 0.435, 0.87
-        else:
-            input_rate, output_rate = 0.14, 0.28
+    def _merge_usage_payload(usage: Usage, raw_usage: Any) -> None:
+        if not isinstance(raw_usage, dict):
+            return
+        integer_fields = (
+            "input_tokens",
+            "output_tokens",
+            "cache_read_input_tokens",
+            "cache_creation_input_tokens",
+        )
+        for field_name in integer_fields:
+            value = raw_usage.get(field_name)
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                setattr(usage, field_name, int(value))
+                usage.field_support[field_name] = "reported"
+
+        details = raw_usage.get("output_tokens_details")
+        reasoning = raw_usage.get("reasoning_tokens")
+        if reasoning is None and isinstance(details, dict):
+            reasoning = details.get("reasoning_tokens")
+        if isinstance(reasoning, (int, float)) and not isinstance(reasoning, bool):
+            usage.reasoning_tokens = int(reasoning)
+            usage.field_support["reasoning_tokens"] = "reported"
+
+        input_details = raw_usage.get("input_tokens_details")
+        if isinstance(input_details, dict):
+            cached = input_details.get("cached_tokens")
+            if isinstance(cached, (int, float)) and not isinstance(cached, bool):
+                usage.cache_read_input_tokens = int(cached)
+                usage.field_support["cache_read_input_tokens"] = "reported"
+
+        cost = raw_usage.get("cost_usd")
+        if isinstance(cost, (int, float)) and not isinstance(cost, bool):
+            usage.cost_usd = float(cost)
+            usage.cost_source = "provider_reported"
+            usage.field_support["cost_usd"] = "reported"
+
+    def _price_usage(self, usage: Usage, model: str) -> None:
+        if usage.cost_source == "provider_reported":
+            return
+        token_fields = ("input_tokens", "output_tokens")
+        pricing = self.settings.model_price_estimates_usd_per_million
+        bare_model = model.split("/", 1)[-1]
+        rates = pricing.get(model) or pricing.get(bare_model)
+        valid_rates = (
+            isinstance(rates, dict)
+            and all(
+                isinstance(rates.get(field), (int, float))
+                and not isinstance(rates.get(field), bool)
+                and float(rates[field]) >= 0
+                for field in token_fields
+            )
+        )
+        if (
+            not all(usage.field_support.get(field) == "reported" for field in token_fields)
+            or not valid_rates
+        ):
+            usage.cost_usd = 0.0
+            usage.cost_source = "unsupported"
+            usage.field_support["cost_usd"] = "unsupported"
+            return
+        assert rates is not None
+        input_rate = float(rates["input_tokens"])
+        output_rate = float(rates["output_tokens"])
         usage.cost_usd = (
             usage.input_tokens * input_rate + usage.output_tokens * output_rate
         ) / 1_000_000
+        usage.cost_source = "estimated_configured_price"
+        usage.field_support["cost_usd"] = "estimated"

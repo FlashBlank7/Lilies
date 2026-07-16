@@ -1,0 +1,23 @@
+.shell {
+  overflow-x: clip;
+}
+
+.introContent {
+  min-width: 0;
+}
+
+.introContent p {
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}
+
+@media (max-width: 640px) {
+  .headerNav {
+    display: none;
+  }
+
+  .layout {
+    width: calc(100% - 20px);
+    max-width: 100%;
+  }
+}

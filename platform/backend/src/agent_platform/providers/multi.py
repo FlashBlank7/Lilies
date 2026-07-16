@@ -182,6 +182,10 @@ class MultiProvider(ModelProvider):
         provider, bare = self._resolve(model)
         return provider.capabilities(bare)
 
+    def provider_name_for(self, model: str) -> str:
+        provider, _ = self._resolve(model)
+        return provider.name
+
     async def stream(
         self,
         *,

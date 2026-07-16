@@ -406,6 +406,17 @@ class Storage:
         rows = self._get_all(sql, tuple(params + [limit]))
         return [json.loads(row["record_json"]) for row in rows]
 
+    async def scan_platform_tasks(self) -> list[dict[str, Any]]:
+        """Return the durable task corpus for governance filtering and aggregation."""
+        return await asyncio.to_thread(self._scan_platform_tasks_sync)
+
+    def _scan_platform_tasks_sync(self) -> list[dict[str, Any]]:
+        rows = self._get_all(
+            "SELECT record_json FROM platform_harness_tasks ORDER BY created_at DESC, id DESC",
+            (),
+        )
+        return [json.loads(row["record_json"]) for row in rows]
+
     async def claim_next_platform_task(
         self,
         *,
@@ -473,6 +484,7 @@ class Storage:
                 "lease_seconds": lease_seconds,
                 "last_action": "queue_claimed",
                 "updated_at": now,
+                "queue_claimed_at": lease_metadata.get("queue_claimed_at") or now,
                 "lease_version": record["lease_version"],
                 "queue_claimed": True,
             })

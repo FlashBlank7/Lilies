@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, AsyncIterator, Literal
 from uuid import uuid4
 
-from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
@@ -68,6 +68,11 @@ from .governed_memory import (
     MemoryStatus,
     RetentionClass,
 )
+from .governance import (
+    GovernanceService,
+    GovernanceTaskFilters,
+    ensure_platform_capability_evidence,
+)
 from .models import (
     ChatMessage,
     ContentBlock,
@@ -122,6 +127,8 @@ RUNTIME_ROUTE_CHECKS: dict[str, tuple[str, str]] = {
     "application_capability_contract": ("GET", "/api/v1/applications/{application_id}/capability-contract"),
     "capability_modules": ("GET", "/api/v1/capability-modules"),
     "capability_evidence": ("GET", "/api/v1/capability-evidence"),
+    "governance_overview": ("GET", "/api/v1/governance/overview"),
+    "governance_usage": ("GET", "/api/v1/governance/usage"),
 }
 
 
@@ -230,6 +237,7 @@ class Services:
     builder: WorkflowBuilder
     scheduler: WorkflowScheduler
     templates: TemplateStore
+    governance: GovernanceService
     scenarios: ScenarioCatalog
     benchmark: BuilderBenchmark
     draft_patcher: DraftPatchPreviewer
@@ -323,6 +331,34 @@ class PlatformPolicyControlsUpdateRequest(BaseModel):
     worker_lease_seconds: float | None = Field(default=None, ge=0)
     limits: dict[str, int] | None = None
     reason: str = Field(min_length=1, max_length=1000)
+
+
+def governance_task_filters(
+    task_id: str | None = None,
+    kind: str | None = None,
+    status: str | None = None,
+    owner_id: str | None = None,
+    application_id: str | None = None,
+    workflow_id: str | None = None,
+    model: str | None = None,
+    parent_task_id: str | None = None,
+    created_from: str | None = None,
+    created_to: str | None = None,
+    query: str = "",
+) -> GovernanceTaskFilters:
+    return GovernanceTaskFilters(
+        task_id=task_id,
+        kind=kind,
+        status=status,
+        owner_id=owner_id,
+        application_id=application_id,
+        workflow_id=workflow_id,
+        model=model,
+        parent_task_id=parent_task_id,
+        created_from=created_from,
+        created_to=created_to,
+        query=query,
+    )
 
 
 class RequirementClassificationRequest(BaseModel):
@@ -644,6 +680,13 @@ async def complete_requirement_intake(
             model,
             timeout_seconds=min(services.settings.deepseek_timeout_seconds, 120.0),
         )
+        await services.harness.record_model_usage(
+            task_id,
+            response.usage,
+            model=model,
+            provider=services.provider.provider_name_for(model),
+            metadata={"phase": "requirement_intake"},
+        )
         text = "".join(block.text or "" for block in response.blocks if block.type == "text")
         payload = _json_object_from_text(text)
         payload["task_id"] = task_id
@@ -767,6 +810,16 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         f"[api] Reference module {reference_module.module_ref} "
         f"status={reference_module.state.status}"
     )
+    ensure_platform_capability_evidence(
+        templates.evidence,
+        evidence_root=_repo_root() or Path.cwd(),
+    )
+    governance = GovernanceService(
+        storage=storage,
+        harness=harness,
+        workflow_store=workflow_store,
+        templates=templates,
+    )
 
     builder = WorkflowBuilder(
         storage=storage,
@@ -807,6 +860,7 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         builder=builder,
         scheduler=scheduler,
         templates=templates,
+        governance=governance,
         scenarios=scenarios,
         benchmark=benchmark,
         draft_patcher=draft_patcher,
@@ -941,6 +995,62 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
 
+    @app.get("/api/v1/governance/overview", dependencies=[Depends(require_token)])
+    async def governance_overview(
+        filters: GovernanceTaskFilters = Depends(governance_task_filters),
+    ) -> dict[str, Any]:
+        return await services.governance.overview(filters)
+
+    @app.get("/api/v1/governance/tasks", dependencies=[Depends(require_token)])
+    async def governance_tasks(
+        offset: int = 0,
+        limit: int = 50,
+        filters: GovernanceTaskFilters = Depends(governance_task_filters),
+    ) -> dict[str, Any]:
+        page = await services.governance.tasks(filters, offset=offset, limit=limit)
+        return page.model_dump(mode="json")
+
+    @app.get("/api/v1/governance/usage", dependencies=[Depends(require_token)])
+    async def governance_usage(
+        provider: str | None = None,
+        interval: Literal["hour", "day"] = "hour",
+        limit: int = 1000,
+        filters: GovernanceTaskFilters = Depends(governance_task_filters),
+    ) -> dict[str, Any]:
+        return await services.governance.usage(
+            filters,
+            provider=provider,
+            interval=interval,
+            limit=limit,
+        )
+
+    @app.get("/api/v1/governance/reliability", dependencies=[Depends(require_token)])
+    async def governance_reliability(
+        filters: GovernanceTaskFilters = Depends(governance_task_filters),
+    ) -> dict[str, Any]:
+        return await services.governance.reliability(filters)
+
+    @app.get("/api/v1/governance/traces/{task_id}", dependencies=[Depends(require_token)])
+    async def governance_trace(task_id: str) -> dict[str, Any]:
+        try:
+            return await services.governance.trace(task_id)
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+
+    @app.get("/api/v1/governance/policy", dependencies=[Depends(require_token)])
+    async def governance_policy() -> dict[str, Any]:
+        return await services.governance.policy()
+
+    @app.get("/api/v1/governance/capability-evidence", dependencies=[Depends(require_token)])
+    async def governance_capability_evidence() -> dict[str, Any]:
+        return await services.governance.capability_evidence()
+
+    @app.get("/api/v1/governance/alerts", dependencies=[Depends(require_token)])
+    async def governance_alerts(
+        filters: GovernanceTaskFilters = Depends(governance_task_filters),
+    ) -> dict[str, Any]:
+        return await services.governance.alerts(filters)
+
     @app.get("/api/v1/platform/harness/policy-controls", dependencies=[Depends(require_token)])
     async def get_platform_harness_policy_controls() -> dict[str, Any]:
         return services.harness.policy_controls()
@@ -966,7 +1076,9 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         if all(value is None for value in patch_fields.values()):
             raise HTTPException(422, "policy controls update requires at least one mutable field")
         try:
-            return services.harness.update_policy_controls(reason=body.reason, **patch_fields)
+            result = services.harness.update_policy_controls(reason=body.reason, **patch_fields)
+            await services.governance.record_policy_audit(result)
+            return result
         except PlatformHarnessViolation as error:
             raise HTTPException(422, str(error)) from error
 
@@ -2557,6 +2669,56 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
     async def restore_application_version(application_id: str, version: int) -> dict[str, Any]:
         try:
             return await services.workflow_store.restore_version(application_id, version)
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+
+    @app.get(
+        "/api/v1/applications/{application_id}/runtime-definition",
+        dependencies=[Depends(require_token)],
+    )
+    async def get_application_runtime_definition(application_id: str) -> dict[str, Any]:
+        try:
+            application = await services.workflow_store.get_application(application_id)
+            active_version = application.get("active_version")
+            if active_version is not None:
+                published = await services.workflow_store.get_version(
+                    application_id,
+                    int(active_version),
+                )
+                return {
+                    "application_id": application_id,
+                    "source": "published",
+                    "version": int(published["version"]),
+                    "draft_revision": None,
+                    "content_hash": published["content_hash"],
+                    "snapshot": published["snapshot"].model_dump(mode="json"),
+                }
+            draft = await services.workflow_store.get_draft(application_id)
+            return {
+                "application_id": application_id,
+                "source": "draft",
+                "version": None,
+                "draft_revision": int(draft["revision"]),
+                "content_hash": draft["content_hash"],
+                "snapshot": draft["snapshot"].model_dump(mode="json"),
+            }
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+
+    @app.get(
+        "/api/v1/applications/{application_id}/runs",
+        dependencies=[Depends(require_token)],
+    )
+    async def list_workflow_runs(
+        application_id: str,
+        limit: int = Query(default=20, ge=1, le=100),
+    ) -> list[dict[str, Any]]:
+        try:
+            await services.workflow_store.get_application(application_id)
+            runs = await services.workflow_store.list_runs(application_id, limit=limit)
+            for run in runs:
+                run["state"] = run["state"].model_dump(mode="json")
+            return runs
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
 

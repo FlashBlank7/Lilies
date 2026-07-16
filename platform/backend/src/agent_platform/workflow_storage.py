@@ -973,6 +973,28 @@ class WorkflowStorage:
         row["outputs"] = json.loads(row.pop("outputs_json"))
         return row
 
+    async def list_runs(self, application_id: str, *, limit: int = 20) -> list[dict[str, Any]]:
+        rows = await asyncio.to_thread(
+            self._list_runs_sync,
+            application_id,
+            max(1, min(limit, 100)),
+        )
+        for row in rows:
+            row["state"] = WorkflowRunState.model_validate_json(row.pop("state_json"))
+            row["outputs"] = json.loads(row.pop("outputs_json"))
+        return rows
+
+    def _list_runs_sync(self, application_id: str, limit: int) -> list[dict[str, Any]]:
+        with self.storage._connect() as conn:
+            rows = conn.execute(
+                """SELECT * FROM workflow_runs
+                   WHERE application_id=?
+                   ORDER BY created_at DESC
+                   LIMIT ?""",
+                (application_id, limit),
+            ).fetchall()
+            return [dict(row) for row in rows]
+
     async def claim_schedule_fire(
         self, application_id: str, version: int, node_id: str, local_date: str
     ) -> bool:

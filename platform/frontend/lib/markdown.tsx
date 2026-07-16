@@ -71,8 +71,15 @@ function startsBlock(lines: string[], index: number) {
   return isBlank(line) || isFence(line) || isHeading(line) || isRule(line) || isBlockquote(line) || isListItem(line) || isTableStart(lines, index)
 }
 
+function normalizeSerializedMarkdown(source: string) {
+  const normalized = source.replace(/\r\n/g, '\n').replace(/\r/g, '\n')
+  const hasEscapedBlockStructure = /(?:^|\\n)(?:#{1,6}\s|[-*+]\s|\d+\.\s|>\s|```)/.test(normalized)
+  if (!hasEscapedBlockStructure) return normalized
+  return normalized.replace(/\\r\\n|\\n|\\r/g, '\n')
+}
+
 function parseMarkdownBlocks(source: string): MarkdownBlock[] {
-  const lines = source.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n')
+  const lines = normalizeSerializedMarkdown(source).split('\n')
   const blocks: MarkdownBlock[] = []
   let index = 0
 

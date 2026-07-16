@@ -218,6 +218,9 @@ class WorkflowBuilder:
             "max_turns": build["max_turns"],
             "max_repair_cycles": build["max_repair_cycles"],
             "auto_publish": build["auto_publish"],
+            "application_id": build["application_id"],
+            "workflow_id": build["application_id"],
+            "model": self.generator_model,
         }
         if max_elapsed_seconds is not None:
             task_metadata["max_elapsed_seconds"] = max_elapsed_seconds
@@ -326,12 +329,14 @@ class WorkflowBuilder:
                     status = "published"
                 else:
                     status = "ready"
-            await self.workflow_store.update_build(build_id, status=status, team_state=state)
             if manage_harness_task:
                 await self.harness.finish_task(build_id, status="succeeded")
             await self._emit(build_id, "build.completed", {
                 "status": status, "published_version": state.published_version
             })
+            # A terminal build status is the public commit marker. Publish it only
+            # after the task record and terminal event are durable.
+            await self.workflow_store.update_build(build_id, status=status, team_state=state)
             # Meta-cognition: try to extract a reusable template from this build
             if self.on_build_complete and (status == "published" or status == "ready"):
                 asyncio.create_task(self.on_build_complete(build_id))
@@ -342,16 +347,13 @@ class WorkflowBuilder:
                 "published_version": state.published_version,
             }
         except asyncio.CancelledError:
-            await self.workflow_store.update_build(build_id, status="cancelled", team_state=state)
             if manage_harness_task:
                 await self.harness.finish_task(build_id, status="cancelled")
             await self._emit(build_id, "build.cancelled", {})
+            await self.workflow_store.update_build(build_id, status="cancelled", team_state=state)
             raise
         except Exception as error:
             failure_metadata = self._failure_metadata(error)
-            await self.workflow_store.update_build(
-                build_id, status="needs_attention", team_state=state, error=str(error)
-            )
             if manage_harness_task:
                 await self.harness.finish_task(
                     build_id,
@@ -364,6 +366,9 @@ class WorkflowBuilder:
                 "error_type": type(error).__name__,
                 **failure_metadata,
             })
+            await self.workflow_store.update_build(
+                build_id, status="needs_attention", team_state=state, error=str(error)
+            )
             if not manage_harness_task:
                 raise
 
@@ -758,6 +763,19 @@ class WorkflowBuilder:
                 stream,
                 f"build.{teammate or 'coordinator'}.model",
                 self.generator_model,
+            )
+            await self.harness.record_model_usage(
+                build_id,
+                response.usage,
+                model=self.generator_model,
+                provider=self.provider.provider_name_for(self.generator_model),
+                metadata={
+                    "application_id": application_id,
+                    "workflow_id": application_id,
+                    "actor": teammate or "coordinator",
+                    "turn": turn,
+                    "phase": "builder_team",
+                },
             )
             messages.append(ChatMessage(role="assistant", content=response.blocks))
             calls = [block for block in response.blocks if block.type == "tool_use"]

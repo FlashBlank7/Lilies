@@ -94,9 +94,14 @@ def classify(junit_path: Path, manifest_path: Path = DEFAULT_MANIFEST) -> dict[s
             }
         rows.append({**failure, **policy})
     counts = Counter(row["classification"] for row in rows)
+    expected_family_counts = Counter(
+        known[row["nodeid"]]["family_id"]
+        for row in expected_conflicts
+        if row["nodeid"] in known
+    )
     return {
-        "schema_version": "1.0",
-        "stage": "v0.4.3",
+        "schema_version": "1.1",
+        "stage": str(manifest.get("version", "v0.4.x")),
         "source_junit": str(junit_path),
         "manifest": str(manifest_path),
         "totals": totals,
@@ -106,6 +111,7 @@ def classify(junit_path: Path, manifest_path: Path = DEFAULT_MANIFEST) -> dict[s
         ],
         "expected_conflicts": expected_conflicts,
         "expected_conflict_count": len(expected_conflicts),
+        "expected_conflict_family_counts": dict(sorted(expected_family_counts.items())),
         "unknown_expected_conflicts": [
             row["nodeid"] for row in expected_conflicts if row["nodeid"] not in known
         ],
@@ -131,8 +137,10 @@ def main() -> int:
     write_inventory(args.output, inventory)
     print(json.dumps({
         "output": str(args.output),
+        "stage": inventory["stage"],
         "totals": inventory["totals"],
         "classification_counts": inventory["classification_counts"],
+        "expected_conflict_count": inventory["expected_conflict_count"],
     }, ensure_ascii=False))
     invalid = (
         inventory["blocking_current_regressions"]

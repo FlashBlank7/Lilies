@@ -24,6 +24,12 @@ class Settings(BaseSettings):
     deepseek_generator_model: str = "deepseek-v4-pro"
     deepseek_runtime_model: str = "deepseek-v4-flash"
     deepseek_timeout_seconds: float = 600.0
+    model_price_estimates_usd_per_million: dict[str, dict[str, float]] = Field(
+        default_factory=lambda: {
+            "deepseek-v4-pro": {"input_tokens": 0.435, "output_tokens": 0.87},
+            "deepseek-v4-flash": {"input_tokens": 0.14, "output_tokens": 0.28},
+        }
+    )
 
     sandbox_image: str = "agent-platform-sandbox:latest"
     sandbox_uid: int = 10001

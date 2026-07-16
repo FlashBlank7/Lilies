@@ -4172,6 +4172,33 @@ def test_builder_records_provider_timeout_in_harness_metadata(tmp_path: Path) ->
         workspace_root=tmp_path / "workspaces",
     )
     app = create_app(settings, TimeoutBuilderProvider())
+    terminal_order: list[str] = []
+    services = app.state.services
+    original_finish_task = services.harness.finish_task
+    original_append_event = services.storage.append_event
+    original_update_build = services.workflow_store.update_build
+
+    async def tracked_finish_task(task_id: str, **kwargs: Any):
+        result = await original_finish_task(task_id, **kwargs)
+        if kwargs.get("status") == "failed":
+            terminal_order.append("harness_failed")
+        return result
+
+    async def tracked_append_event(stream_id: str, event_type: str, data: dict[str, Any]):
+        result = await original_append_event(stream_id, event_type, data)
+        if event_type == "build.needs_attention":
+            terminal_order.append("failure_event")
+        return result
+
+    async def tracked_update_build(build_id: str, **kwargs: Any):
+        result = await original_update_build(build_id, **kwargs)
+        if kwargs.get("status") == "needs_attention":
+            terminal_order.append("build_terminal")
+        return result
+
+    services.harness.finish_task = tracked_finish_task
+    services.storage.append_event = tracked_append_event
+    services.workflow_store.update_build = tracked_update_build
     with TestClient(app) as client:
         app_id = client.post(
             "/api/v1/applications",
@@ -4213,6 +4240,7 @@ def test_builder_records_provider_timeout_in_harness_metadata(tmp_path: Path) ->
         assert needs_attention
         assert needs_attention[0]["data"]["failure"]["type"] == "model_provider"
         assert needs_attention[0]["data"]["failure"]["timeout_like"] is True
+        assert terminal_order == ["harness_failed", "failure_event", "build_terminal"]
 
 
 def test_builder_build_level_watchdog_records_harness_metadata(tmp_path: Path) -> None:

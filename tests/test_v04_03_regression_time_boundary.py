@@ -66,7 +66,7 @@ def test_archived_conflict_manifest_is_exact_and_evidence_backed() -> None:
         for nodeid in family["failure_nodeids"]
     ]
 
-    assert len(nodeids) == 17
+    assert len(nodeids) == 85
     assert len(nodeids) == len(set(nodeids))
     assert {family["classification"] for family in diagnostic["known_conflict_families"]} == {
         "archived_expectation_conflict"
@@ -82,11 +82,16 @@ def test_pytest_policy_uses_strict_expected_failures() -> None:
     conflicts = module.archived_expectation_conflicts()
     source = (ROOT / "tests/conftest.py").read_text(encoding="utf-8")
 
-    assert len(conflicts) == 17
+    assert len(conflicts) == 85
     assert "strict=True" in source
     assert set(conflicts.values()) == {
         "complexity_router_default_timeline",
         "draft_patch_preview_support_timeline",
+        "mixed_studio_governance_surface_superseded",
+        "embedded_try_run_surface_superseded",
+        "embedded_monitor_and_quick_actions_superseded",
+        "persona_specific_customer_runtime_superseded",
+        "markdown_result_mount_location_superseded",
     }
 
 
@@ -109,6 +114,7 @@ def test_junit_inventory_separates_known_and_current_failures(tmp_path: Path) ->
 
     result = module.classify(junit)
 
+    assert result["stage"] == "v0.4.7"
     assert result["classification_counts"] == {
         "archived_expectation_conflict": 1,
         "current_regression": 1,
@@ -117,6 +123,9 @@ def test_junit_inventory_separates_known_and_current_failures(tmp_path: Path) ->
         "tests/test_workflow.py::test_unknown_current_behavior"
     ]
     assert result["expected_conflict_count"] == 1
+    assert result["expected_conflict_family_counts"] == {
+        "draft_patch_preview_support_timeline": 1
+    }
     assert result["unknown_expected_conflicts"] == []
 
 
@@ -124,9 +133,9 @@ def test_current_gate_declares_existing_tests_and_exact_source() -> None:
     manifest = json.loads((ROOT / "docs/testing/regression_lanes.json").read_text(encoding="utf-8"))
     gate = next(lane for lane in manifest["lanes"] if lane["id"] == manifest["policy"]["current_gate"])
 
-    assert manifest["version"] == "v0.4.6"
+    assert manifest["version"] == "v0.4.7"
     assert manifest["source_stage_report"].endswith(
-        "v0.4.6_versioned_module_evidence_registry.md"
+        "v0.4.7_three_interface_governance_console.md"
     )
     assert gate["status"] == "gating"
     assert gate["test_files"]
@@ -134,13 +143,13 @@ def test_current_gate_declares_existing_tests_and_exact_source() -> None:
     assert all(nodeid in gate["command"] for nodeid in gate["test_files"])
 
 
-def test_v046_runtime_version_progresses_without_breaking_prior_v04_evidence() -> None:
+def test_v047_runtime_version_progresses_without_breaking_prior_v04_evidence() -> None:
     from agent_platform import __version__
 
     historical_check = (ROOT / "scripts/v04_00_ai_requirement_intake.py").read_text(
         encoding="utf-8"
     )
 
-    assert __version__ == "v0.4.6"
+    assert __version__ == "v0.4.7"
     assert "runtime_version = re.search" in historical_check
     assert "int(runtime_version.group(1)) >= 1" in historical_check

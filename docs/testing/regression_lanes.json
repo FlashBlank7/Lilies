@@ -1,6 +1,6 @@
 {
-  "version": "v0.4.6",
-  "source_stage_report": "docs/stage-reports/v0.4.6_versioned_module_evidence_registry.md",
+  "version": "v0.4.7",
+  "source_stage_report": "docs/stage-reports/v0.4.7_three_interface_governance_console.md",
   "policy": {
     "current_gate": "v0.4.x_current_release_gate",
     "full_historical_sweep": "diagnostic_non_gating",
@@ -12,7 +12,7 @@
       "id": "v0.4.x_current_release_gate",
       "status": "gating",
       "phase": "v0.4.x",
-      "reason": "Current v0.4.6 product gate: the usability and Codex feedback baselines, shared F/G/X Capability Build Contract, and the immutable versioned module registry with typed evidence, exact verified reuse, Builder binding, and Studio disclosure.",
+      "reason": "Current v0.4.7 product gate: prior usability, capability-contract, and versioned-module baselines plus the independent Customer Runtime, Engineer Studio, Governance Console, durable dimensional model usage, reliability, trace, policy, and capability-evidence boundaries.",
       "command": [
         ".venv/bin/python",
         "-m",
@@ -30,6 +30,8 @@
         "tests/test_v04_04_codex_feedback_loop.py",
         "tests/test_v04_05_capability_build_contract.py",
         "tests/test_v04_06_versioned_module_evidence_registry.py",
+        "tests/test_v04_07_governance_console.py",
+        "tests/test_factory.py",
         "tests/test_workflow.py::test_application_placeholder_name_is_derived_from_requirement",
         "tests/test_workflow.py::test_application_placeholder_name_uses_markdown_business_goal",
         "tests/test_workflow.py::test_branch_outputs_join_with_variable_aggregator",
@@ -54,6 +56,8 @@
         "tests/test_v04_04_codex_feedback_loop.py",
         "tests/test_v04_05_capability_build_contract.py",
         "tests/test_v04_06_versioned_module_evidence_registry.py",
+        "tests/test_v04_07_governance_console.py",
+        "tests/test_factory.py",
         "tests/test_workflow.py::test_application_placeholder_name_is_derived_from_requirement",
         "tests/test_workflow.py::test_application_placeholder_name_uses_markdown_business_goal",
         "tests/test_workflow.py::test_branch_outputs_join_with_variable_aggregator",
@@ -64,7 +68,7 @@
         "tests/test_stage_report_template_validation.py"
       ],
       "expected": {
-        "pass_count": 73,
+        "pass_count": 84,
         "warning_count": 1
       }
     },
@@ -72,7 +76,7 @@
       "id": "full_historical_diagnostic",
       "status": "diagnostic_non_gating",
       "phase": "all_archived_history",
-      "reason": "A full pytest sweep currently mixes archived v0.2 assertions with later defaults and current builder contracts.",
+      "reason": "The full historical sweep is non-gating but mandatory for classification: every failure must either be repaired as a current regression or listed as an exact strict archived expectation conflict with replacement evidence.",
       "command": [
         ".venv/bin/python",
         "-m",
@@ -81,12 +85,21 @@
         "-q"
       ],
       "last_observed": {
-        "source_stage_report": "docs/stage-reports/v0.4.6_versioned_module_evidence_registry.md",
-        "command": ".venv/bin/python -m pytest -q --tb=short --junitxml=/tmp/lilies-v046-final.xml",
-        "passed_count": 759,
+        "source_stage_report": "docs/stage-reports/v0.4.7_three_interface_governance_console.md",
+        "command": ".venv/bin/python -m pytest -q --tb=short --junitxml=/tmp/lilies-v047-final.xml",
+        "passed_count": 701,
         "failed_count": 0,
-        "expected_failure_count": 17,
+        "expected_failure_count": 85,
         "warning_count": 1,
+        "classification_evidence": "docs/workingon-archives/v0.4.7/full-suite-classification.json",
+        "preclassification_observation": {
+          "command": ".venv/bin/python -m pytest -q",
+          "passed_count": 701,
+          "failed_count": 68,
+          "expected_failure_count": 17,
+          "warning_count": 1,
+          "conclusion": "All 68 failures were old source-location or hard-coded persona contracts superseded by the v0.4.7 three-interface boundary; each exact nodeid is classified below and replacement behavior is independently tested."
+        },
         "entry_baseline": {
           "passed_count": 566,
           "failed_count": 150,
@@ -133,6 +146,139 @@
           ],
           "failure_nodeids": [
             "tests/test_v02_120_e08_draft_patch_preview_worker_offload_handler.py::test_v02_120_draft_patch_preview_worker_handler_fails_unsupported"
+          ]
+        },
+        {
+          "id": "mixed_studio_governance_surface_superseded",
+          "classification": "archived_expectation_conflict",
+          "reason": "The v0.2 evidence scripts assert that policy and governed-memory operator controls remain embedded in the application detail Studio. v0.4.7 deliberately separates cross-application policy, evidence, usage, reliability, and task operations into the independent Governance Console, so the old source-location contract no longer describes the product boundary.",
+          "current_behavior_evidence": [
+            "platform/frontend/app/governance/page.tsx",
+            "platform/backend/src/agent_platform/governance.py",
+            "tests/test_v04_07_governance_console.py"
+          ],
+          "failure_nodeids": [
+            "tests/test_v02_139_e10_studio_governed_memory_operator_ui.py::test_v02_139_evidence_script_reports_completed_operator_ui",
+            "tests/test_v02_98_e08_studio_editable_policy_controls.py::test_v02_98_evidence_confirms_studio_patch_contract"
+          ]
+        },
+        {
+          "id": "embedded_try_run_surface_superseded",
+          "classification": "archived_expectation_conflict",
+          "reason": "The v0.3.11 and v0.3.32-v0.3.45 evidence scripts inspect frozen markers for a Try tab embedded in the Engineer Studio. v0.4.7 replaces that mixed audience surface with the independent Customer Runtime while preserving sample input, result interpretation, recovery, duplicate-start protection, cancellation feedback, refresh timing, and input validation as runtime behavior rather than old source markers.",
+          "current_behavior_evidence": [
+            "platform/frontend/app/runtime/[id]/page.tsx",
+            "platform/frontend/app/applications/[id]/page.tsx",
+            "tests/test_v04_07_governance_console.py",
+            "docs/workingon-archives/v0.4.7/browser/browser-evidence.json"
+          ],
+          "failure_nodeids": [
+            "tests/test_v03_11_guided_try_run_recovery.py::test_v03_11_try_guidance_source_markers_pass",
+            "tests/test_v03_11_guided_try_run_recovery.py::test_v03_11_static_evidence_passes_without_live_services",
+            "tests/test_v03_11_guided_try_run_recovery.py::test_v03_11_writes_json",
+            "tests/test_v03_32_try_run_sample_input.py::test_v03_32_source_and_manifest_markers_pass",
+            "tests/test_v03_32_try_run_sample_input.py::test_v03_32_static_evidence_passes_without_live_services",
+            "tests/test_v03_32_try_run_sample_input.py::test_v03_32_writes_json",
+            "tests/test_v03_33_try_run_result_interpretation.py::test_v03_33_source_and_manifest_markers_pass",
+            "tests/test_v03_33_try_run_result_interpretation.py::test_v03_33_static_evidence_passes_without_live_services",
+            "tests/test_v03_33_try_run_result_interpretation.py::test_v03_33_writes_json",
+            "tests/test_v03_34_try_result_recovery_affordance.py::test_v03_34_source_and_manifest_markers_pass",
+            "tests/test_v03_34_try_result_recovery_affordance.py::test_v03_34_focus_safety_fixture_has_no_mutation_calls",
+            "tests/test_v03_34_try_result_recovery_affordance.py::test_v03_34_static_evidence_passes_without_live_services",
+            "tests/test_v03_34_try_result_recovery_affordance.py::test_v03_34_writes_json",
+            "tests/test_v03_35_try_result_output_preview.py::test_v03_35_source_and_manifest_markers_pass",
+            "tests/test_v03_35_try_result_output_preview.py::test_v03_35_static_evidence_passes_without_live_services",
+            "tests/test_v03_35_try_result_output_preview.py::test_v03_35_writes_json",
+            "tests/test_v03_36_try_run_mode_visibility.py::test_v03_36_source_and_manifest_markers_pass",
+            "tests/test_v03_36_try_run_mode_visibility.py::test_v03_36_static_evidence_passes_without_live_services",
+            "tests/test_v03_36_try_run_mode_visibility.py::test_v03_36_writes_json",
+            "tests/test_v03_37_try_run_mode_persistence.py::test_v03_37_source_and_manifest_markers_pass",
+            "tests/test_v03_37_try_run_mode_persistence.py::test_v03_37_static_evidence_passes_without_live_services",
+            "tests/test_v03_37_try_run_mode_persistence.py::test_v03_37_writes_json",
+            "tests/test_v03_38_try_run_duplicate_start_guard.py::test_v03_38_source_and_manifest_markers_pass",
+            "tests/test_v03_38_try_run_duplicate_start_guard.py::test_v03_38_static_evidence_passes_without_live_services",
+            "tests/test_v03_38_try_run_duplicate_start_guard.py::test_v03_38_writes_json",
+            "tests/test_v03_39_try_run_active_status_refresh.py::test_v03_39_source_and_manifest_markers_pass",
+            "tests/test_v03_39_try_run_active_status_refresh.py::test_v03_39_static_evidence_passes_without_live_services",
+            "tests/test_v03_39_try_run_active_status_refresh.py::test_v03_39_writes_json",
+            "tests/test_v03_40_try_run_cancel_safety_confirmation.py::test_v03_40_source_and_manifest_markers_pass",
+            "tests/test_v03_40_try_run_cancel_safety_confirmation.py::test_v03_40_static_evidence_passes_without_live_services",
+            "tests/test_v03_40_try_run_cancel_safety_confirmation.py::test_v03_40_writes_json",
+            "tests/test_v03_41_try_run_cancel_progress_feedback.py::test_v03_41_source_and_manifest_markers_pass",
+            "tests/test_v03_41_try_run_cancel_progress_feedback.py::test_v03_41_static_evidence_passes_without_live_services",
+            "tests/test_v03_41_try_run_cancel_progress_feedback.py::test_v03_41_writes_json",
+            "tests/test_v03_42_try_run_status_last_updated.py::test_v03_42_source_and_manifest_markers_pass",
+            "tests/test_v03_42_try_run_status_last_updated.py::test_v03_42_static_evidence_passes_without_live_services",
+            "tests/test_v03_42_try_run_status_last_updated.py::test_v03_42_writes_json",
+            "tests/test_v03_43_try_run_input_error_visibility.py::test_v03_43_source_and_manifest_markers_pass",
+            "tests/test_v03_43_try_run_input_error_visibility.py::test_v03_43_static_evidence_passes_without_live_services",
+            "tests/test_v03_43_try_run_input_error_visibility.py::test_v03_43_writes_json",
+            "tests/test_v03_44_try_run_input_error_action_guard.py::test_v03_44_source_and_manifest_markers_pass",
+            "tests/test_v03_44_try_run_input_error_action_guard.py::test_v03_44_static_evidence_passes_without_live_services",
+            "tests/test_v03_44_try_run_input_error_action_guard.py::test_v03_44_writes_json",
+            "tests/test_v03_45_try_run_input_error_recovery_ready_state.py::test_v03_45_source_and_manifest_markers_pass",
+            "tests/test_v03_45_try_run_input_error_recovery_ready_state.py::test_v03_45_static_evidence_passes_without_live_services",
+            "tests/test_v03_45_try_run_input_error_recovery_ready_state.py::test_v03_45_writes_json"
+          ]
+        },
+        {
+          "id": "embedded_monitor_and_quick_actions_superseded",
+          "classification": "archived_expectation_conflict",
+          "reason": "The v0.3.14 and v0.3.19 evidence scripts require monitoring and run shortcuts to target tabs inside the application detail page. v0.4.7 moves monitoring and trace investigation to the Governance Console, routes customer execution to Customer Runtime, and keeps legacy tab URLs only as compatibility redirects.",
+          "current_behavior_evidence": [
+            "platform/frontend/app/page.tsx",
+            "platform/frontend/app/governance/page.tsx",
+            "platform/frontend/app/applications/[id]/page.tsx",
+            "tests/test_v04_07_governance_console.py",
+            "docs/workingon-archives/v0.4.7/browser/browser-evidence.json"
+          ],
+          "failure_nodeids": [
+            "tests/test_v03_14_monitor_trace_readability.py::test_v03_14_monitor_trace_source_markers_pass",
+            "tests/test_v03_14_monitor_trace_readability.py::test_v03_14_static_evidence_passes_without_live_services",
+            "tests/test_v03_14_monitor_trace_readability.py::test_v03_14_writes_json",
+            "tests/test_v03_19_application_card_quick_actions.py::test_v03_19_source_and_manifest_markers_pass",
+            "tests/test_v03_19_application_card_quick_actions.py::test_v03_19_static_evidence_passes_without_live_services",
+            "tests/test_v03_19_application_card_quick_actions.py::test_v03_19_writes_json"
+          ]
+        },
+        {
+          "id": "persona_specific_customer_runtime_superseded",
+          "classification": "archived_expectation_conflict",
+          "reason": "The v0.3.48-v0.3.50 and v0.3.55 scripts bind the customer journey to the old mixed detail page and to hard-coded Japanese-learning UI markers. v0.4.7 provides a generic independent Customer Runtime for every workflow and intentionally avoids a product-level Japanese-learner customer group; Japanese-language workflows remain representable as ordinary workflow content without a special persona branch in the shell.",
+          "current_behavior_evidence": [
+            "platform/frontend/app/runtime/[id]/page.tsx",
+            "platform/frontend/app/page.tsx",
+            "tests/test_v04_07_governance_console.py",
+            "docs/workingon-archives/v0.4.7/browser/browser-evidence.json"
+          ],
+          "failure_nodeids": [
+            "tests/test_v03_48_customer_facing_workflow_run_interface.py::test_v03_48_source_and_manifest_markers_pass",
+            "tests/test_v03_48_customer_facing_workflow_run_interface.py::test_v03_48_static_evidence_passes_without_live_services",
+            "tests/test_v03_48_customer_facing_workflow_run_interface.py::test_v03_48_writes_json",
+            "tests/test_v03_49_japanese_learning_customer_journey.py::test_v03_49_source_and_manifest_markers_pass",
+            "tests/test_v03_49_japanese_learning_customer_journey.py::test_v03_49_static_evidence_passes_without_live_services",
+            "tests/test_v03_49_japanese_learning_customer_journey.py::test_v03_49_writes_json",
+            "tests/test_v03_50_bounded_japanese_learning_runtime_validation.py::test_v03_50_source_and_manifest_markers_pass",
+            "tests/test_v03_50_bounded_japanese_learning_runtime_validation.py::test_v03_50_run_guidance_shows_controlled_fixture_boundary",
+            "tests/test_v03_50_bounded_japanese_learning_runtime_validation.py::test_v03_50_static_evidence_passes_without_live_services",
+            "tests/test_v03_50_bounded_japanese_learning_runtime_validation.py::test_v03_50_writes_json",
+            "tests/test_v03_55_remove_japanese_learner_customer_group.py::test_v03_55_explicit_japanese_workflow_support_is_preserved",
+            "tests/test_v03_55_remove_japanese_learner_customer_group.py::test_v03_55_static_evidence_passes_and_writes_json"
+          ]
+        },
+        {
+          "id": "markdown_result_mount_location_superseded",
+          "classification": "archived_expectation_conflict",
+          "reason": "The v0.3.53 evidence script checks that Markdown rendering is mounted in the old application detail page. v0.4.7 mounts the reusable renderer in the independent Customer Runtime and verifies structured headings and lists through browser evidence, so only the historical source-location assertion conflicts.",
+          "current_behavior_evidence": [
+            "platform/frontend/lib/markdown.tsx",
+            "platform/frontend/app/runtime/[id]/page.tsx",
+            "tests/test_v04_07_governance_console.py",
+            "docs/workingon-archives/v0.4.7/browser/browser-evidence.json"
+          ],
+          "failure_nodeids": [
+            "tests/test_v03_53_markdown_result_renderer.py::test_v03_53_try_run_result_uses_markdown_rendering",
+            "tests/test_v03_53_markdown_result_renderer.py::test_v03_53_static_evidence_passes_and_writes_json"
           ]
         }
       ]

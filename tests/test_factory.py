@@ -89,7 +89,23 @@ async def test_factory_generates_valid_platform_agent(tmp_path: Path) -> None:
         tools=tools,
         sandboxes=sandboxes,
     )
+    await harness.start_task(
+        "generation-1",
+        kind="agent_generation",
+        owner_id="agent-factory",
+        resource_id="generation-1",
+        metadata={"model": settings.deepseek_generator_model},
+    )
     spec = await factory._generate_spec("generation-1", "Build an agent that fixes Python tests")
+    await harness.finish_task("generation-1", status="succeeded")
     assert spec.name == "Python Test Fixer"
     assert spec.provider_profile.provider == "deepseek"
     assert set(spec.tools) == {"Read", "Edit", "Grep", "Bash"}
+    task = await harness.get_task("generation-1")
+    assert task.usage_counts == {"model_call": 1, "model_usage": 1}
+    model_usage = next(item for item in task.usage if item.usage_type == "model_usage")
+    assert model_usage.metadata["task_kind"] == "agent_generation"
+    assert model_usage.metadata["provider"] == "deepseek"
+    assert model_usage.metadata["input_tokens"] == 1
+    assert model_usage.metadata["output_tokens"] == 1
+    assert model_usage.metadata["cost_source"] == "estimated_configured_price"
