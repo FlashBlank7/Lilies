@@ -46,11 +46,12 @@ import { MarkdownResultCard } from '@/lib/markdown'
 import { classifyRuntimeStatus, runtimeCommit, runtimeVersion, type RuntimeHealth } from '@/lib/runtime-status'
 import surfaceStyles from '@/app/surface-boundaries.module.css'
 import { EvaluationHarnessPanel } from './evaluation-harness-panel'
+import { ScheduleOperationsPanel } from '@/app/schedule-operations-panel'
 
 type CanvasPoint = { x: number; y: number }
 type StudioNode = Node<{ title: string; blockType: string; description: string; status?: string }>
 type Copy = (typeof messages)[Locale]
-const VISIBLE_STUDIO_TABS = ['build', 'edit', 'test'] as const
+const VISIBLE_STUDIO_TABS = ['build', 'edit', 'test', 'automation'] as const
 const STUDIO_TABS = [...VISIBLE_STUDIO_TABS, 'run', 'monitor'] as const
 type StudioTab = typeof STUDIO_TABS[number]
 type ConfigEditorMode = 'form' | 'json'
@@ -97,7 +98,7 @@ const accents: Record<string, string> = {
   start: '#8b5cf6', llm: '#3b82f6', claude_agent: '#f97316', tool: '#10b981',
   if_else: '#eab308', question_classifier: '#eab308', end: '#ec4899', answer: '#ec4899',
   human_input: '#ef4444', iteration: '#14b8a6', loop: '#14b8a6', http_request: '#06b6d4',
-  schedule_trigger: '#a855f7',
+  schedule_trigger: '#a855f7', web_collection: '#0891b2', collection_digest: '#16a34a',
 }
 
 function BrickNode({ data, selected }: NodeProps<StudioNode>) {
@@ -1622,7 +1623,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     </section>}
     <div className="studio-grid">
       <aside className="left-panel">
-        <div className={`panel-tabs ${surfaceStyles.threeTabs}`} data-detail-tab-url-state="synced">{VISIBLE_STUDIO_TABS.map(item => <button aria-pressed={tab === item} className={tab === item ? 'active' : ''} data-studio-tab={item} onClick={() => setStudioTab(item)} key={item} type="button">{item === 'build' ? t.buildTab : item === 'edit' ? t.editTab : t.testTab}</button>)}</div>
+        <div className={`panel-tabs ${surfaceStyles.threeTabs}`} data-detail-tab-url-state="synced">{VISIBLE_STUDIO_TABS.map(item => <button aria-pressed={tab === item} className={tab === item ? 'active' : ''} data-studio-tab={item} onClick={() => setStudioTab(item)} key={item} type="button">{item === 'build' ? t.buildTab : item === 'edit' ? t.editTab : item === 'test' ? t.testTab : locale === 'zh' ? '自动化' : 'Automation'}</button>)}</div>
         {tab === 'build' && <div className="panel-body">
           <div className="panel-kicker">{t.builderTeam}</div><h2>{t.continueBuild}</h2>
           <textarea ref={detailBuildRequirementRef} className="requirement-input" value={requirement} onChange={event => { setRequirement(event.target.value); setBuildIntentConfirmed(false) }} />
@@ -1827,6 +1828,15 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
           })}</div>
           {testReport && <><h3>{t.latestReport}</h3><pre className="trace-log">{JSON.stringify(testReport, null, 2)}</pre></>}
           <h3>{t.versionHistory}</h3>{versions.map(version => <div className="version-row" key={version.version}><span>v{version.version}</span><small>{version.content_hash.slice(0, 9)}</small><button onClick={async () => { await api(`/api/v1/applications/${id}/versions/${version.version}/restore`, { method: 'POST' }); await refresh() }}>{t.loadEdit}</button></div>)}
+        </div>}
+        {tab === 'automation' && <div className="panel-body" data-studio-workspace="automation">
+          <ScheduleOperationsPanel
+            applicationId={id}
+            audience="engineer"
+            hasSchedule={Boolean(draft?.snapshot.workflow.nodes.some(node => node.type === 'schedule_trigger'))}
+            locale={locale}
+            onAuthRequired={() => setAuthRequired(true)}
+          />
         </div>}
       </aside>
       <section

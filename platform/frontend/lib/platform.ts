@@ -367,6 +367,17 @@ export type GovernanceOverview = {
   duration_seconds: { p50?: number | null; p95?: number | null; support: GovernanceSupport }
   queue_delay_seconds: { p50?: number | null; p95?: number | null; support: GovernanceSupport }
   workers: { total: number; active: number; stale: number }
+  durable_jobs: {
+    observed: number
+    observation_limit: number
+    active: number
+    queued: number
+    retry_wait: number
+    paused: number
+    succeeded: number
+    failed: number
+    cancelled: number
+  }
   recent_failures: GovernanceTask[]
   alerts: GovernanceAlert[]
   claim_boundary: string
@@ -422,6 +433,15 @@ export type GovernanceTrace = {
   ancestors: string[]
   tree: GovernanceTraceNode
   spans: Array<Record<string, unknown>>
+  durable_job?: {
+    job?: DurableJob
+    attempts?: DurableJobAttempt[]
+    events?: DurableJobEvent[]
+    receipts?: CollectionReceipt[]
+    job_id?: string
+    missing?: boolean
+    reason?: string
+  } | null
   support: Record<string, GovernanceSupport>
 }
 
@@ -455,11 +475,130 @@ export type GovernanceAlert = {
   status: string
   source_timestamp?: string
   task_id?: string
+  job_id?: string
   application_id?: string | null
   owner_id?: string | null
   worker_id?: string
   message: string
   source: string
+}
+
+export type DurableJobStatus = 'queued' | 'running' | 'retry_wait' | 'paused' | 'succeeded' | 'failed' | 'cancelled'
+
+export type DurableJob = {
+  id: string
+  idempotency_key: string
+  application_id: string
+  application_name?: string | null
+  version: number
+  node_id: string
+  trigger_kind: 'schedule' | 'manual' | 'event'
+  local_date: string
+  status: DurableJobStatus
+  payload: Record<string, unknown>
+  attempt_count: number
+  max_attempts: number
+  retry_backoff_seconds: number
+  next_attempt_at: string
+  lease_owner?: string | null
+  lease_expires_at?: string | null
+  lease_version: number
+  run_id?: string | null
+  platform_task_id?: string | null
+  checkpoint: Record<string, unknown>
+  result: Record<string, unknown>
+  error: string
+  alert?: Record<string, unknown> | null
+  cancel_requested: boolean
+  revision: number
+  receipt_count?: number
+  lease_expired?: boolean
+  created_at: string
+  updated_at: string
+  started_at?: string | null
+  finished_at?: string | null
+  attempts?: DurableJobAttempt[]
+}
+
+export type DurableJobAttempt = {
+  job_id: string
+  attempt_number: number
+  status: 'running' | 'paused' | 'succeeded' | 'failed' | 'cancelled'
+  worker_id: string
+  lease_version: number
+  platform_task_id: string
+  run_id?: string | null
+  error: string
+  started_at: string
+  finished_at?: string | null
+}
+
+export type DurableJobEvent = {
+  sequence: number
+  job_id: string
+  event_type: string
+  data: Record<string, unknown>
+  created_at: string
+}
+
+export type CollectionReceipt = {
+  id: string
+  job_id: string
+  application_id: string
+  run_id: string
+  source_key: string
+  requested_url: string
+  final_url: string
+  canonical_url: string
+  host: string
+  permission_basis: string
+  robots_checked: boolean
+  robots_allowed?: boolean | null
+  status: 'new' | 'changed' | 'unchanged' | 'denied' | 'oversized' | 'failed'
+  http_status?: number | null
+  content_type: string
+  content_bytes: number
+  content_hash: string
+  title: string
+  excerpt: string
+  error: string
+  collected_at: string
+  created_at: string
+  updated_at: string
+}
+
+export type ScheduleStatus = {
+  application_id: string
+  schedule: {
+    application_id: string
+    application_name: string
+    version: number
+    node_id: string
+    timezone: string
+    hour: number
+    minute: number
+    durable: boolean
+    max_attempts: number
+    retry_backoff_seconds: number
+    lease_seconds: number
+    next_fire_at: string
+    last_fire?: Record<string, unknown> | null
+    latest_job?: DurableJob | null
+  }
+  job_count: number
+  active_job_count: number
+  latest_job?: DurableJob | null
+  latest_alert?: Record<string, unknown> | null
+}
+
+export type GovernanceDurableJobs = {
+  items: DurableJob[]
+  observed: number
+  observation_limit: number
+  offset: number
+  counts: Record<string, number>
+  support: Record<string, GovernanceSupport>
+  claim_boundary: string
 }
 
 export type GovernanceAlerts = {

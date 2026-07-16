@@ -997,7 +997,7 @@ def test_frontend_three_surface_contract_is_present() -> None:
     assert "offset=${taskOffset}" in governance_source
     assert "Previous task page" in governance_source
     assert "VISIBLE_STUDIO_TABS" in studio_source
-    assert "['build', 'edit', 'test']" in studio_source
+    assert "['build', 'edit', 'test', 'automation']" in studio_source
     assert "router.replace(`/runtime/${id}`)" in studio_source
     assert "router.replace(`/governance?application_id=${id}`)" in studio_source
     assert "tab === 'run'" not in studio_source

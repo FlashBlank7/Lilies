@@ -18,6 +18,7 @@ import {
 } from 'lucide-react'
 import { MarkdownResultCard } from '@/lib/markdown'
 import { api, isAuthError, saveClientToken, type Draft } from '@/lib/platform'
+import { ScheduleOperationsPanel } from '@/app/schedule-operations-panel'
 import styles from './runtime.module.css'
 import responsive from './runtime-responsive.module.css'
 
@@ -376,6 +377,9 @@ export default function CustomerRuntimePage() {
   }, [run, watchRun])
 
   const displaySnapshot = run?.state.snapshot || definition?.snapshot || null
+  const scheduledWorkflow = Boolean(
+    displaySnapshot?.workflow.nodes.some(node => node.type === 'schedule_trigger'),
+  )
 
   const steps = useMemo(() => {
     return customerSteps(displaySnapshot).map((step, index) => ({
@@ -509,6 +513,13 @@ export default function CustomerRuntimePage() {
           <div className={styles.runState} data-run-status={run?.status || 'ready'}><i />{runStatusLabel(run?.status)}</div>
         </div>
 
+        {scheduledWorkflow ? <ScheduleOperationsPanel
+          applicationId={id}
+          audience="customer"
+          hasSchedule
+          locale="zh"
+          onAuthRequired={() => setAuthNeeded(true)}
+        /> : <>
         <section className={styles.inputSection} aria-labelledby="runtime-input-title">
           <div className={styles.sectionHeading}><div><span>01</span><div><h2 id="runtime-input-title">开始这次运行</h2><p>{fields.length ? '填写你希望这次工作流处理的内容。' : '这个工作流不需要额外输入，可以直接启动。'}</p></div></div>{run && <button className={styles.iconButton} onClick={() => void refreshRun(run.id)} aria-label="刷新运行状态" title="刷新运行状态"><RefreshCw size={16} /></button>}</div>
           {fields.length > 0 && <div className={styles.formGrid}>{fields.map(field => <label className={styles.field} key={field.name}>
@@ -547,6 +558,7 @@ export default function CustomerRuntimePage() {
           {resultMarkdown ? <MarkdownResultCard source={resultMarkdown} emptyLabel="暂无结果" title="工作流结果" description="已按可读格式整理" openLabel="展开阅读" closeLabel="关闭" dataSurface="customer-runtime-result" /> : <div className={styles.emptyResult}><Workflow size={24} /><span>{running ? '正在生成结果' : '尚无运行结果'}</span></div>}
           {run?.status === 'failed' && <div className={styles.recovery}><CircleAlert size={18} /><div><strong>建议这样处理</strong><p>{recoveryMessage(run)}</p></div><button onClick={() => void startRun()}><RefreshCw size={15} />重新运行</button></div>}
         </section>
+        </>}
       </section>
 
       <aside className={styles.summaryColumn}>

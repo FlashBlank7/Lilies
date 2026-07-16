@@ -1,6 +1,6 @@
 {
-  "version": "v0.4.8",
-  "source_stage_report": "docs/stage-reports/v0.4.8_evaluation_harness_profiles_and_environments.md",
+  "version": "v0.4.9",
+  "source_stage_report": "docs/stage-reports/v0.4.9_daily_web_collection_durable_jobs.md",
   "policy": {
     "current_gate": "v0.4.x_current_release_gate",
     "full_historical_sweep": "diagnostic_non_gating",
@@ -12,7 +12,7 @@
       "id": "v0.4.x_current_release_gate",
       "status": "gating",
       "phase": "v0.4.x",
-      "reason": "Current v0.4.8 product gate: prior usability, capability-contract, versioned-module, and three-interface baselines plus selectable H0-H5 Evaluation Harness profiles, capability-driven cases, scoped environment outcomes, durable evaluation history, Studio controls, and governance evidence boundaries.",
+      "reason": "Current v0.4.9 product gate: prior usability, capability-contract, module, interface, and Evaluation Harness baselines plus restart-safe durable jobs, controlled allowlisted collection, provenance receipts, schedule operations, and governance claim boundaries.",
       "command": [
         ".venv/bin/python",
         "-m",
@@ -32,6 +32,7 @@
         "tests/test_v04_06_versioned_module_evidence_registry.py",
         "tests/test_v04_07_governance_console.py",
         "tests/test_v04_08_evaluation_harness.py",
+        "tests/test_v04_09_durable_daily_collection.py",
         "tests/test_factory.py",
         "tests/test_workflow.py::test_application_placeholder_name_is_derived_from_requirement",
         "tests/test_workflow.py::test_application_placeholder_name_uses_markdown_business_goal",
@@ -59,6 +60,7 @@
         "tests/test_v04_06_versioned_module_evidence_registry.py",
         "tests/test_v04_07_governance_console.py",
         "tests/test_v04_08_evaluation_harness.py",
+        "tests/test_v04_09_durable_daily_collection.py",
         "tests/test_factory.py",
         "tests/test_workflow.py::test_application_placeholder_name_is_derived_from_requirement",
         "tests/test_workflow.py::test_application_placeholder_name_uses_markdown_business_goal",
@@ -70,7 +72,7 @@
         "tests/test_stage_report_template_validation.py"
       ],
       "expected": {
-        "pass_count": 92,
+        "pass_count": 101,
         "warning_count": 1
       }
     },

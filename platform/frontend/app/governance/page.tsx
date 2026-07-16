@@ -8,6 +8,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   Boxes,
+  CalendarClock,
   Check,
   ChevronLeft,
   ChevronRight,
@@ -35,6 +36,7 @@ import {
   type GovernanceAlert,
   type GovernanceAlerts,
   type GovernanceEvidence,
+  type GovernanceDurableJobs,
   type GovernanceOverview,
   type GovernancePolicy,
   type GovernanceReliability,
@@ -46,6 +48,7 @@ import {
   type GovernanceUsage,
   type PlatformPolicyControlsUpdateResponse,
 } from '@/lib/platform'
+import { ScheduleOperationsPanel } from '@/app/schedule-operations-panel'
 import styles from './governance.module.css'
 
 
@@ -53,6 +56,7 @@ const CONSOLE_TABS = [
   'Overview',
   'Cost & Tokens',
   'Reliability',
+  'Durable Jobs',
   'Policy & Risk',
   'Trace Explorer',
   'Capability Evidence',
@@ -76,6 +80,7 @@ const TAB_ICONS = {
   'Overview': Gauge,
   'Cost & Tokens': CircleDollarSign,
   'Reliability': Activity,
+  'Durable Jobs': CalendarClock,
   'Policy & Risk': ShieldCheck,
   'Trace Explorer': ListTree,
   'Capability Evidence': FileCheck2,
@@ -130,6 +135,14 @@ function queryString(filters: Filters) {
   return value ? `?${value}` : ''
 }
 
+function durableQueryString(filters: Filters) {
+  const query = new URLSearchParams()
+  if (filters.applicationId) query.set('application_id', filters.applicationId)
+  if (filters.status) query.set('status', filters.status)
+  query.set('limit', '200')
+  return `?${query.toString()}`
+}
+
 function TaskStatus({ task }: { task: GovernanceTask }) {
   return <span className={`${styles.taskStatus} ${styles[`status_${task.status}`]}`}><i />{task.status}</span>
 }
@@ -156,6 +169,7 @@ function GovernanceConsolePageContent() {
   const [taskOffset, setTaskOffset] = useState(0)
   const [usage, setUsage] = useState<GovernanceUsage | null>(null)
   const [reliability, setReliability] = useState<GovernanceReliability | null>(null)
+  const [durableJobs, setDurableJobs] = useState<GovernanceDurableJobs | null>(null)
   const [policy, setPolicy] = useState<GovernancePolicy | null>(null)
   const [evidence, setEvidence] = useState<GovernanceEvidence | null>(null)
   const [alerts, setAlerts] = useState<GovernanceAlerts | null>(null)
@@ -175,12 +189,13 @@ function GovernanceConsolePageContent() {
     setError('')
     const query = queryString(filters)
     try {
-      const [nextApplications, nextOverview, nextTasks, nextUsage, nextReliability, nextPolicy, nextEvidence, nextAlerts] = await Promise.all([
+      const [nextApplications, nextOverview, nextTasks, nextUsage, nextReliability, nextDurableJobs, nextPolicy, nextEvidence, nextAlerts] = await Promise.all([
         api<ApplicationOption[]>('/api/v1/applications'),
         api<GovernanceOverview>(`/api/v1/governance/overview${query}`),
         api<GovernanceTaskPage>(`/api/v1/governance/tasks${query}${query ? '&' : '?'}limit=${TASK_PAGE_SIZE}&offset=${taskOffset}`),
         api<GovernanceUsage>(`/api/v1/governance/usage${query}${query ? '&' : '?'}interval=hour`),
         api<GovernanceReliability>(`/api/v1/governance/reliability${query}`),
+        api<GovernanceDurableJobs>(`/api/v1/governance/durable-jobs${durableQueryString(filters)}`),
         api<GovernancePolicy>('/api/v1/governance/policy'),
         api<GovernanceEvidence>('/api/v1/governance/capability-evidence'),
         api<GovernanceAlerts>(`/api/v1/governance/alerts${query}`),
@@ -190,6 +205,7 @@ function GovernanceConsolePageContent() {
       setTasks(nextTasks)
       setUsage(nextUsage)
       setReliability(nextReliability)
+      setDurableJobs(nextDurableJobs)
       setPolicy(nextPolicy)
       setEvidence(nextEvidence)
       setAlerts(nextAlerts)
@@ -296,7 +312,7 @@ function GovernanceConsolePageContent() {
       <section className={styles.filters} aria-label="Governance filters">
         <div className={styles.filterLead}><Filter size={15} /><span>Scope</span></div>
         <label><span>Application</span><select value={filters.applicationId} onChange={event => updateFilter('applicationId', event.target.value)}><option value="">All applications</option>{applications.map(item => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label>
-        <label><span>Status</span><select value={filters.status} onChange={event => updateFilter('status', event.target.value)}><option value="">All statuses</option>{['queued', 'running', 'paused', 'succeeded', 'failed', 'cancelled'].map(item => <option key={item}>{item}</option>)}</select></label>
+        <label><span>Status</span><select value={filters.status} onChange={event => updateFilter('status', event.target.value)}><option value="">All statuses</option>{['queued', 'running', 'retry_wait', 'paused', 'succeeded', 'failed', 'cancelled'].map(item => <option key={item}>{item}</option>)}</select></label>
         <label><span>Kind</span><select value={filters.kind} onChange={event => updateFilter('kind', event.target.value)}><option value="">All task kinds</option>{['workflow_run', 'builder_build', 'agent_generation', 'agent_turn', 'test_suite', 'scheduler_trigger', 'scheduler_manual_trigger', 'benchmark', 'draft_patch_preview', 'requirement_intake'].map(item => <option key={item}>{item}</option>)}</select></label>
         <label><span>Model</span><select value={filters.model} onChange={event => updateFilter('model', event.target.value)}><option value="">All models</option>{models.map(item => <option key={item}>{item}</option>)}</select></label>
         <label className={styles.searchField}><span>Search</span><div><Search size={14} /><input value={filters.query} onChange={event => updateFilter('query', event.target.value)} placeholder="task, owner, error" /></div></label>
@@ -312,6 +328,7 @@ function GovernanceConsolePageContent() {
             <article><span>Failed</span><strong>{overview?.task_counts.failed ?? 0}</strong><small>in current scope</small><TriangleAlert size={18} /></article>
             <article><span>Workers</span><strong>{overview?.workers.active ?? 0}/{overview?.workers.total ?? 0}</strong><small>{overview?.workers.stale ?? 0} stale</small><Users size={18} /></article>
             <article><span>Duration p50</span><strong>{duration(overview?.duration_seconds.p50)}</strong><small>p95 {duration(overview?.duration_seconds.p95)}</small><Gauge size={18} /></article>
+            <article><span>Durable active</span><strong>{overview?.durable_jobs.active ?? 0}</strong><small>{overview?.durable_jobs.retry_wait ?? 0} retry waiting</small><CalendarClock size={18} /></article>
           </section>
           <section className={styles.dataSection}>
             <header><div><h2>Platform tasks</h2><p>Cross-application execution, build, test, scheduler, and agent work.</p></div><span>{tasks?.total || 0} records</span></header>
@@ -350,6 +367,16 @@ function GovernanceConsolePageContent() {
           <section className={styles.dataSection}><header><div><h2>Queue semantics</h2><p>Recorded queue contract and current counts.</p></div></header><dl className={styles.definitionGrid}>{Object.entries(reliability?.queue || {}).filter(([, value]) => ['string', 'number', 'boolean'].includes(typeof value)).map(([key, value]) => <div key={key}><dt>{key.replaceAll('_', ' ')}</dt><dd>{String(value)}</dd></div>)}</dl></section>
         </>}
 
+        {tab === 'Durable Jobs' && <>
+          <section className={styles.metricGrid}>{['queued', 'active', 'retry_wait', 'paused', 'succeeded', 'failed', 'cancelled'].map(key => <article key={key}><span>{key.replaceAll('_', ' ')}</span><strong>{key === 'active' ? durableJobs?.items.filter(item => item.status === 'running').length || 0 : durableJobs?.counts[key] || 0}</strong><SupportBadge value="reported" /><CalendarClock size={18} /></article>)}</section>
+          <section className={styles.dataSection} data-governance-durable-jobs="bounded-local">
+            <header><div><h2>Durable schedule jobs</h2><p>Persisted lifecycle, retries, checkpoints, provenance, and alert linkage.</p></div><span>{durableJobs?.observed || 0} observed</span></header>
+            <div className={styles.tableWrap}><table><thead><tr><th>Job</th><th>Application</th><th>Status</th><th>Trigger</th><th>Attempts</th><th>Updated</th><th /></tr></thead><tbody>{durableJobs?.items.map(job => <tr key={job.id}><td><strong>{shortId(job.id)}</strong><code>{job.local_date || 'manual'}</code></td><td><Link href={`/applications/${job.application_id}?tab=automation`}>{job.application_name || shortId(job.application_id)}</Link></td><td><span className={`${styles.taskStatus} ${styles[`status_${job.status}`]}`}><i />{job.status}</span></td><td>{job.trigger_kind}</td><td>{job.attempt_count}/{job.max_attempts}</td><td>{time(job.updated_at)}</td><td>{job.platform_task_id && <button className={styles.rowAction} onClick={() => void loadTrace(job.platform_task_id!)} aria-label={`Open durable job trace ${job.id}`} title="Open linked trace"><ChevronRight size={15} /></button>}</td></tr>)}</tbody></table>{!durableJobs?.items.length && <div className={styles.emptyState}>No durable jobs match this scope.</div>}</div>
+          </section>
+          {filters.applicationId ? <section className={styles.dataSection}><ScheduleOperationsPanel applicationId={filters.applicationId} audience="engineer" hasSchedule onAuthRequired={() => setAuthNeeded(true)} /></section> : <section className={styles.boundaryNote}><Filter size={16} /><span>Select one application to inspect exact attempts, ordered events, collection receipts, and recovery controls.</span></section>}
+          <section className={styles.boundaryNote}><ShieldCheck size={16} /><span>{durableJobs?.claim_boundary}</span></section>
+        </>}
+
         {tab === 'Policy & Risk' && <>
           <section className={styles.policyLayout}>
             <div className={styles.dataSection}><header><div><h2>Active controls</h2><p>Changes are audited. Restart persistence is shown separately.</p></div><SupportBadge value={policy?.support.current_controls} /></header><div className={styles.policyForm}>
@@ -366,7 +393,7 @@ function GovernanceConsolePageContent() {
 
         {tab === 'Trace Explorer' && <section className={styles.traceLayout}>
           <div className={styles.dataSection}><header><div><h2>Task graph</h2><p>Select any platform task from Overview to inspect its full parent-child tree.</p></div>{traceLoading && <LoaderCircle className={styles.spin} size={17} />}</header>{trace ? <div className={styles.traceTree}><TraceBranch node={trace.tree} selected={selectedTaskId} onSelect={setSelectedTaskId} /></div> : <div className={styles.emptyState}>No trace selected. Open a task from Overview.</div>}</div>
-          <div className={styles.dataSection}><header><div><h2>Span timeline</h2><p>Task transitions, node/tool usage, model usage, and recorded events.</p></div><span>{trace?.spans.length || 0} spans</span></header>{selectedTask && <div className={styles.traceContext}><TaskStatus task={selectedTask} /><code>{selectedTask.id}</code></div>}<div className={styles.spanList}>{trace?.spans.filter(span => !selectedTaskId || span.task_id === selectedTaskId).map((span, index) => <article key={`${String(span.created_at)}-${index}`}><i /><time>{time(String(span.created_at || ''))}</time><div><strong>{String(span.event_type || span.span_type || 'span')}</strong><small>{shortId(String(span.task_id || ''))}</small></div><details><summary>Evidence</summary><pre>{JSON.stringify(span.metadata || {}, null, 2)}</pre></details></article>)}</div>{trace && !trace.spans.length && <div className={styles.emptyState}>This trace has no recorded spans.</div>}</div>
+          <div className={styles.dataSection}><header><div><h2>Span timeline</h2><p>Task transitions, node/tool usage, model usage, and recorded events.</p></div><span>{trace?.spans.length || 0} spans</span></header>{selectedTask && <div className={styles.traceContext}><TaskStatus task={selectedTask} /><code>{selectedTask.id}</code></div>}<div className={styles.spanList}>{trace?.spans.filter(span => !selectedTaskId || span.task_id === selectedTaskId).map((span, index) => <article key={`${String(span.created_at)}-${index}`}><i /><time>{time(String(span.created_at || ''))}</time><div><strong>{String(span.event_type || span.span_type || 'span')}</strong><small>{shortId(String(span.task_id || ''))}</small></div><details><summary>Evidence</summary><pre>{JSON.stringify(span.metadata || {}, null, 2)}</pre></details></article>)}</div>{trace && !trace.spans.length && <div className={styles.emptyState}>This trace has no recorded spans.</div>}{trace?.durable_job && <details open><summary>Linked durable job evidence</summary><pre>{JSON.stringify(trace.durable_job, null, 2)}</pre></details>}</div>
         </section>}
 
         {tab === 'Capability Evidence' && <>

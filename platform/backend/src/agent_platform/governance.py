@@ -5,7 +5,7 @@ from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from statistics import median
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from pydantic import BaseModel
 
@@ -16,6 +16,7 @@ from .capability_evidence import (
     EvidenceArtifact,
     EvidenceGap,
 )
+from .durable_jobs import DurableJobRecord, DurableJobStatus, DurableJobStore
 from .models import utc_now
 from .platform_harness import PlatformHarness, PlatformTaskRecord
 from .storage import Storage
@@ -60,11 +61,13 @@ class GovernanceService:
         harness: PlatformHarness,
         workflow_store: WorkflowStorage,
         templates: TemplateStore,
+        durable_jobs: DurableJobStore,
     ) -> None:
         self.storage = storage
         self.harness = harness
         self.workflow_store = workflow_store
         self.templates = templates
+        self.durable_jobs = durable_jobs
 
     async def tasks(
         self,
@@ -109,6 +112,8 @@ class GovernanceService:
         ]
         workers = await self.harness.list_worker_heartbeats(limit=500)
         alerts = await self.alerts(filters)
+        durable_items = await self._durable_job_items(filters, limit=200)
+        durable_counts = Counter(item["status"] for item in durable_items)
         return {
             "generated_at": utc_now(),
             "task_counts": {
@@ -135,11 +140,71 @@ class GovernanceService:
                 "active": sum(item.liveness == "active" for item in workers),
                 "stale": sum(item.liveness == "stale" for item in workers),
             },
+            "durable_jobs": {
+                "observed": len(durable_items),
+                "observation_limit": 200,
+                "active": durable_counts["running"],
+                "queued": durable_counts["queued"],
+                "retry_wait": durable_counts["retry_wait"],
+                "paused": durable_counts["paused"],
+                "succeeded": durable_counts["succeeded"],
+                "failed": durable_counts["failed"],
+                "cancelled": durable_counts["cancelled"],
+            },
             "recent_failures": [item for item in items if item["status"] == "failed"][:10],
             "alerts": alerts["items"][:10],
             "filters": filters.model_dump(mode="json"),
             "claim_boundary": (
                 "Local durable task and integration evidence; no production SLO or paging claim."
+            ),
+        }
+
+    async def durable_job_operations(
+        self,
+        *,
+        application_id: str | None = None,
+        status: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        valid_statuses: set[DurableJobStatus] = {
+            "queued",
+            "running",
+            "retry_wait",
+            "paused",
+            "succeeded",
+            "failed",
+            "cancelled",
+        }
+        if status and status not in valid_statuses:
+            raise ValueError(f"unsupported durable job status: {status}")
+        jobs = await self.durable_jobs.list(
+            application_id,
+            statuses={cast(DurableJobStatus, status)} if status else None,
+            limit=max(1, min(limit, 200)),
+            offset=max(0, offset),
+        )
+        names = await self._application_names()
+        items = [self._durable_job_item(job, names) for job in jobs]
+        counts = Counter(item["status"] for item in items)
+        return {
+            "items": items,
+            "observed": len(items),
+            "observation_limit": max(1, min(limit, 200)),
+            "offset": max(0, offset),
+            "counts": dict(counts),
+            "support": {
+                "lifecycle": "reported",
+                "attempts": "reported",
+                "lease_fencing": "reported",
+                "checkpoints": "reported",
+                "collection_receipts": "reported",
+                "production_slo": "unsupported",
+                "external_paging": "unsupported",
+            },
+            "claim_boundary": (
+                "Bounded local durable-job operations and controlled collection evidence; "
+                "not a production reliability or arbitrary-site access claim."
             ),
         }
 
@@ -416,16 +481,39 @@ class GovernanceService:
                     "metadata": event.data,
                 })
         spans.sort(key=lambda item: str(item.get("created_at", "")))
+        requested = by_id[task_id]
+        durable_job_id = str(requested.metadata.get("durable_job_id") or "")
+        durable_trace: dict[str, Any] | None = None
+        if durable_job_id:
+            try:
+                job = await self.durable_jobs.get(durable_job_id)
+                attempts = await self.durable_jobs.list_attempts(durable_job_id)
+                events = await self.durable_jobs.list_events(durable_job_id, limit=1000)
+                receipts = await self.durable_jobs.list_receipts(durable_job_id, limit=1000)
+                durable_trace = {
+                    "job": job.model_dump(mode="json"),
+                    "attempts": [item.model_dump(mode="json") for item in attempts],
+                    "events": [item.model_dump(mode="json") for item in events],
+                    "receipts": [item.model_dump(mode="json") for item in receipts],
+                }
+            except KeyError:
+                durable_trace = {
+                    "job_id": durable_job_id,
+                    "missing": True,
+                    "reason": "linked durable job record was not found",
+                }
         return {
             "requested_task_id": task_id,
             "root_task_id": root_id,
             "ancestors": ancestors,
             "tree": build(root_id, set()),
             "spans": spans,
+            "durable_job": durable_trace,
             "support": {
                 "parent_child": "reported",
                 "task_usage": "reported",
                 "task_events": "reported",
+                "durable_job_link": "reported" if durable_job_id else "not_recorded",
                 "distributed_trace_context": "unsupported",
             },
         }
@@ -526,6 +614,7 @@ class GovernanceService:
 
     async def alerts(self, filters: GovernanceTaskFilters) -> dict[str, Any]:
         tasks = await self._filtered_task_items(filters)
+        durable_jobs = await self._durable_job_items(filters, limit=200)
         workers = await self.harness.list_worker_heartbeats(limit=500)
         items: list[dict[str, Any]] = []
         now = datetime.now(timezone.utc)
@@ -566,12 +655,54 @@ class GovernanceService:
                     "message": "Worker heartbeat is stale",
                     "source": "platform_worker_heartbeat",
                 })
+        for job in durable_jobs:
+            if job.get("alert"):
+                alert = job["alert"]
+                items.append({
+                    "id": f"durable_job_alert:{job['id']}",
+                    "detector": str(alert.get("code") or "durable_job_alert"),
+                    "severity": "high" if alert.get("severity") == "error" else "medium",
+                    "status": "open",
+                    "source_timestamp": alert.get("created_at") or job["updated_at"],
+                    "job_id": job["id"],
+                    "task_id": job.get("platform_task_id"),
+                    "application_id": job.get("application_id"),
+                    "message": str(alert.get("message") or job.get("error") or "Durable job alert"),
+                    "source": "durable_job_store",
+                })
+            elif job["status"] == "failed":
+                items.append({
+                    "id": f"durable_job_failed:{job['id']}",
+                    "detector": "durable_job_failed",
+                    "severity": "high",
+                    "status": "open",
+                    "source_timestamp": job["updated_at"],
+                    "job_id": job["id"],
+                    "task_id": job.get("platform_task_id"),
+                    "application_id": job.get("application_id"),
+                    "message": job.get("error") or "Durable job failed",
+                    "source": "durable_job_store",
+                })
+            if job.get("lease_expired"):
+                items.append({
+                    "id": f"durable_job_lease_expired:{job['id']}",
+                    "detector": "durable_job_lease_expired",
+                    "severity": "high",
+                    "status": "open",
+                    "source_timestamp": job.get("lease_expires_at"),
+                    "job_id": job["id"],
+                    "task_id": job.get("platform_task_id"),
+                    "application_id": job.get("application_id"),
+                    "message": "Durable job lease expired before terminal evidence was reconciled",
+                    "source": "durable_job_store",
+                })
         items.sort(key=lambda item: str(item.get("source_timestamp", "")), reverse=True)
         return {
             "items": items,
             "total": len(items),
             "support": {
                 "local_observation": "reported",
+                "durable_job_observation": "reported",
                 "production_incident": "unsupported",
                 "paging_delivery": "unsupported",
             },
@@ -594,6 +725,66 @@ class GovernanceService:
         items = [item for item in items if self._task_matches(item, filters)]
         items.sort(key=lambda item: (item["created_at"], item["id"]), reverse=True)
         return items
+
+    async def _durable_job_items(
+        self,
+        filters: GovernanceTaskFilters,
+        *,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        if filters.task_id or filters.kind or filters.owner_id or filters.model or filters.parent_task_id:
+            return []
+        jobs = await self.durable_jobs.list(filters.application_id, limit=limit)
+        names = await self._application_names()
+        items = [self._durable_job_item(job, names) for job in jobs]
+        if filters.status:
+            items = [item for item in items if item["status"] == filters.status]
+        if filters.created_from or filters.created_to:
+            items = [
+                item
+                for item in items
+                if self._within_time(
+                    item["created_at"], filters.created_from, filters.created_to
+                )
+            ]
+        query = filters.query.strip().casefold()
+        if query:
+            items = [
+                item
+                for item in items
+                if query
+                in " ".join(
+                    str(item.get(key) or "")
+                    for key in (
+                        "id",
+                        "application_id",
+                        "application_name",
+                        "status",
+                        "trigger_kind",
+                        "error",
+                    )
+                ).casefold()
+            ]
+        return items
+
+    @staticmethod
+    def _durable_job_item(
+        record: DurableJobRecord,
+        names: dict[str, str],
+    ) -> dict[str, Any]:
+        lease_expires = GovernanceService._parse_time(record.lease_expires_at or "")
+        return {
+            **record.model_dump(mode="json"),
+            "application_name": names.get(record.application_id),
+            "workflow_id": record.application_id,
+            "kind": "durable_job",
+            "receipt_count": int(record.checkpoint.get("receipt_count", 0)),
+            "lease_expired": bool(
+                record.status == "running"
+                and lease_expires
+                and lease_expires <= datetime.now(timezone.utc)
+            ),
+        }
 
     async def _task_records(self) -> list[PlatformTaskRecord]:
         return [
@@ -908,6 +1099,40 @@ PLATFORM_EVIDENCE_SPECS: tuple[dict[str, Any], ...] = (
             "live_and_production_evidence",
             "No eligible configured H4 target or customer production H5 telemetry is part of the local evidence package.",
             "The platform capability claim remains local H3 even though H4 and H5 profiles are selectable and explicitly blocked by default.",
+        ),
+    },
+    {
+        "capability_id": "platform.durable_job_substrate",
+        "claim": "Scheduled workflow jobs have idempotent enqueue, persisted attempts, leases with fencing, checkpoints, retry, cancellation, resume, restart reconciliation, and operator-visible records.",
+        "scope": "Local SQLite-backed H3 integration with a scheduler-local worker; no production SLO or distributed failover claim.",
+        "paths": (
+            ("implementation", "platform/backend/src/agent_platform/durable_jobs.py"),
+            ("implementation", "platform/backend/src/agent_platform/scheduler.py"),
+            ("api", "platform/backend/src/agent_platform/api.py"),
+            ("test", "tests/test_v04_09_durable_daily_collection.py"),
+            ("integration", "tests/test_v04_09_durable_daily_collection.py"),
+        ),
+        "gap": (
+            "production_reliability",
+            "The durable-job substrate has no production SLO, distributed worker failover, or external paging evidence.",
+            "Claims remain capped at controlled local H3 integration.",
+        ),
+    },
+    {
+        "capability_id": "platform.controlled_web_collection",
+        "claim": "A durable workflow can collect declared allowlisted HTTP sources, enforce robots and size boundaries, preserve provenance receipts, detect content changes, and render a cited digest.",
+        "scope": "Controlled local HTTP fixtures and declared sources only; no arbitrary-site permission or external notification claim.",
+        "paths": (
+            ("implementation", "platform/backend/src/agent_platform/web_collection.py"),
+            ("implementation", "platform/backend/src/agent_platform/blocks.py"),
+            ("api", "platform/backend/src/agent_platform/api.py"),
+            ("test", "tests/test_v04_09_durable_daily_collection.py"),
+            ("integration", "tests/test_v04_09_durable_daily_collection.py"),
+        ),
+        "gap": (
+            "external_access_and_delivery",
+            "Customer credentials, arbitrary websites, production anti-abuse controls, and external notification delivery are not established.",
+            "Source access stays deny-by-default and delivery remains inside Lilies Customer Runtime.",
         ),
     },
 )

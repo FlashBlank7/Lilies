@@ -61,6 +61,7 @@ from .evaluation_harness import (
     EvaluationRunRequest,
 )
 from .draft_patch_preview import DraftPatchPreviewer, DraftPatchPreviewRequest
+from .durable_jobs import DurableJobConflict, DurableJobStore
 from .acceptance_repair import (
     AcceptanceRepairApplyRequest,
     AcceptanceRepairPreviewer,
@@ -117,6 +118,7 @@ from .workflow_models import (
 )
 from .workflow_runtime import WorkflowRuntime
 from .workflow_storage import PublishGateError, RevisionConflict, WorkflowStorage
+from .web_collection import ControlledWebCollector
 
 
 RUNTIME_ROUTE_CHECKS: dict[str, tuple[str, str]] = {
@@ -137,6 +139,7 @@ RUNTIME_ROUTE_CHECKS: dict[str, tuple[str, str]] = {
     "governance_usage": ("GET", "/api/v1/governance/usage"),
     "evaluation_profiles": ("GET", "/api/v1/evaluation/profiles"),
     "evaluation_plan": ("POST", "/api/v1/applications/{application_id}/evaluation/plan"),
+    "durable_jobs": ("GET", "/api/v1/applications/{application_id}/durable-jobs"),
 }
 
 
@@ -239,6 +242,7 @@ class Services:
     factory: AgentFactory
     blocks: BlockRegistry
     workflow_store: WorkflowStorage
+    durable_jobs: DurableJobStore
     harness: PlatformHarness
     applications: ApplicationService
     workflow_runtime: WorkflowRuntime
@@ -260,6 +264,10 @@ class Services:
 class PlatformTaskLeaseRequest(BaseModel):
     worker_id: str | None = None
     lease_seconds: float | None = Field(default=None, gt=0)
+
+
+class DurableJobActionRequest(BaseModel):
+    expected_revision: int = Field(ge=1)
 
 
 class PlatformTaskLeaseReleaseRequest(BaseModel):
@@ -786,8 +794,10 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
     )
     blocks = build_block_registry()
     workflow_store = WorkflowStorage(storage)
+    durable_jobs = DurableJobStore(storage)
     applications = ApplicationService(workflow_store, blocks, tools)
     governed_memory = GovernedMemorySurface(storage)
+    web_collector = ControlledWebCollector(jobs=durable_jobs, harness=harness)
     workflow_runtime = WorkflowRuntime(
         storage=storage,
         workflow_store=workflow_store,
@@ -800,6 +810,7 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         sandboxes=sandboxes,
         runtime_model=settings.deepseek_runtime_model,
         governed_memory=governed_memory,
+        web_collector=web_collector,
     )
     evaluation_harness = EvaluationHarness(
         storage=storage,
@@ -840,6 +851,7 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         harness=harness,
         workflow_store=workflow_store,
         templates=templates,
+        durable_jobs=durable_jobs,
     )
 
     builder = WorkflowBuilder(
@@ -861,6 +873,7 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         blocks=blocks,
         runtime=workflow_runtime,
         harness=harness,
+        durable_jobs=durable_jobs,
         poll_seconds=settings.scheduler_poll_seconds,
         worker_offload_enabled=settings.scheduler_worker_offload_enabled,
     )
@@ -875,6 +888,7 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         factory=factory,
         blocks=blocks,
         workflow_store=workflow_store,
+        durable_jobs=durable_jobs,
         harness=harness,
         applications=applications,
         workflow_runtime=workflow_runtime,
@@ -928,6 +942,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         await services.storage.initialize()
         await services.workflow_store.initialize()
+        await services.durable_jobs.initialize()
         await services.workflow_store.fail_interrupted_runs()
         services.scheduler.start()
         adaptive_refresh_task: asyncio.Task[Any] | None = None
@@ -1051,6 +1066,23 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         filters: GovernanceTaskFilters = Depends(governance_task_filters),
     ) -> dict[str, Any]:
         return await services.governance.reliability(filters)
+
+    @app.get("/api/v1/governance/durable-jobs", dependencies=[Depends(require_token)])
+    async def governance_durable_jobs(
+        application_id: str | None = None,
+        status: str | None = None,
+        limit: int = Query(default=100, ge=1, le=200),
+        offset: int = Query(default=0, ge=0),
+    ) -> dict[str, Any]:
+        try:
+            return await services.governance.durable_job_operations(
+                application_id=application_id,
+                status=status,
+                limit=limit,
+                offset=offset,
+            )
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from error
 
     @app.get("/api/v1/governance/traces/{task_id}", dependencies=[Depends(require_token)])
     async def governance_trace(task_id: str) -> dict[str, Any]:
@@ -2229,6 +2261,148 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
     async def list_schedules() -> list[dict[str, Any]]:
         return await services.scheduler.list_schedules()
 
+    @app.get(
+        "/api/v1/applications/{application_id}/schedule-status",
+        dependencies=[Depends(require_token)],
+    )
+    async def get_application_schedule_status(application_id: str) -> dict[str, Any]:
+        try:
+            return await services.scheduler.schedule_status(application_id)
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+
+    @app.get(
+        "/api/v1/applications/{application_id}/durable-jobs",
+        dependencies=[Depends(require_token)],
+    )
+    async def list_application_durable_jobs(
+        application_id: str,
+        limit: int = Query(default=50, ge=1, le=200),
+        offset: int = Query(default=0, ge=0),
+    ) -> list[dict[str, Any]]:
+        jobs = await services.durable_jobs.list(
+            application_id,
+            limit=limit,
+            offset=offset,
+        )
+        return [item.model_dump(mode="json") for item in jobs]
+
+    @app.get(
+        "/api/v1/durable-jobs/{job_id}",
+        dependencies=[Depends(require_token)],
+    )
+    async def get_durable_job(job_id: str) -> dict[str, Any]:
+        try:
+            job = await services.durable_jobs.get(job_id)
+            attempts = await services.durable_jobs.list_attempts(job_id)
+            return {
+                **job.model_dump(mode="json"),
+                "attempts": [item.model_dump(mode="json") for item in attempts],
+            }
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+
+    @app.get(
+        "/api/v1/durable-jobs/{job_id}/events",
+        dependencies=[Depends(require_token)],
+    )
+    async def list_durable_job_events(
+        job_id: str,
+        limit: int = Query(default=200, ge=1, le=1000),
+        offset: int = Query(default=0, ge=0),
+    ) -> list[dict[str, Any]]:
+        try:
+            await services.durable_jobs.get(job_id)
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+        return [
+            item.model_dump(mode="json")
+            for item in await services.durable_jobs.list_events(
+                job_id,
+                limit=limit,
+                offset=offset,
+            )
+        ]
+
+    @app.get(
+        "/api/v1/durable-jobs/{job_id}/receipts",
+        dependencies=[Depends(require_token)],
+    )
+    async def list_durable_job_receipts(
+        job_id: str,
+        limit: int = Query(default=200, ge=1, le=1000),
+        offset: int = Query(default=0, ge=0),
+    ) -> list[dict[str, Any]]:
+        try:
+            await services.durable_jobs.get(job_id)
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+        return [
+            item.model_dump(mode="json")
+            for item in await services.durable_jobs.list_receipts(
+                job_id,
+                limit=limit,
+                offset=offset,
+            )
+        ]
+
+    @app.post(
+        "/api/v1/durable-jobs/{job_id}/retry",
+        dependencies=[Depends(require_token)],
+    )
+    async def retry_durable_job(
+        job_id: str,
+        body: DurableJobActionRequest,
+    ) -> dict[str, Any]:
+        try:
+            record = await services.scheduler.retry_durable_job(
+                job_id,
+                expected_revision=body.expected_revision,
+            )
+            return record.model_dump(mode="json")
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+        except DurableJobConflict as error:
+            raise HTTPException(409, str(error)) from error
+
+    @app.post(
+        "/api/v1/durable-jobs/{job_id}/resume",
+        dependencies=[Depends(require_token)],
+    )
+    async def resume_durable_job(
+        job_id: str,
+        body: DurableJobActionRequest,
+    ) -> dict[str, Any]:
+        try:
+            record = await services.scheduler.resume_durable_job(
+                job_id,
+                expected_revision=body.expected_revision,
+            )
+            return record.model_dump(mode="json")
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+        except DurableJobConflict as error:
+            raise HTTPException(409, str(error)) from error
+
+    @app.post(
+        "/api/v1/durable-jobs/{job_id}/cancel",
+        dependencies=[Depends(require_token)],
+    )
+    async def cancel_durable_job(
+        job_id: str,
+        body: DurableJobActionRequest,
+    ) -> dict[str, Any]:
+        try:
+            record = await services.scheduler.cancel_durable_job(
+                job_id,
+                expected_revision=body.expected_revision,
+            )
+            return record.model_dump(mode="json")
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+        except DurableJobConflict as error:
+            raise HTTPException(409, str(error)) from error
+
     @app.get("/api/v1/scenarios", dependencies=[Depends(require_token)])
     async def list_scenarios() -> list[dict[str, Any]]:
         return services.scenarios.list()
@@ -2861,10 +3035,14 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         application_id: str, body: ManualScheduleTriggerRequest
     ) -> dict[str, Any]:
         try:
-            return await services.scheduler.trigger_now(application_id, body.inputs)
+            return await services.scheduler.trigger_now(
+                application_id,
+                body.inputs,
+                idempotency_key=body.idempotency_key,
+            )
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
-        except ValueError as error:
+        except (ValueError, DurableJobConflict) as error:
             raise HTTPException(422, str(error)) from error
 
     @app.get("/api/v1/runs/{run_id}", dependencies=[Depends(require_token)])

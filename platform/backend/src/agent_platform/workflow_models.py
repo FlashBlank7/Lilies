@@ -326,6 +326,7 @@ class ResumeRunRequest(BaseModel):
 
 class ManualScheduleTriggerRequest(BaseModel):
     inputs: dict[str, Any] = Field(default_factory=dict)
+    idempotency_key: str | None = Field(default=None, min_length=8, max_length=200)
 
 
 class WorkflowRunState(BaseModel):

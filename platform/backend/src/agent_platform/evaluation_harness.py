@@ -13,6 +13,7 @@ from .applications import ApplicationService
 from .capability_contracts import (
     CapabilityBase,
     CapabilityBuildContract,
+    CarrierStatus,
     EnvironmentAvailability,
     EvidenceEnvironment,
     EvidenceLevel,
@@ -727,11 +728,22 @@ class EvaluationHarness:
     ) -> EvaluationCasePlan:
         family, category, desired_types, minimum_tool_calls, signals = self._case_shape(capability)
         node_types = {node.type for node in snapshot.workflow.nodes}
-        required_node_types = [
-            self._present_or_primary(node_types, candidates)
-            for candidates in desired_types
-        ]
-        required_node_types = [item for item in required_node_types if item]
+        carrier_authoritative, carrier_node_types, carrier_refs = self._carrier_requirements(
+            snapshot,
+            contract,
+            capability.id,
+        )
+        if carrier_authoritative:
+            required_node_types = carrier_node_types
+            if not set(carrier_node_types) & {"tool", "tool_executor", "http_request"}:
+                minimum_tool_calls = 0
+            signals = [*signals, *(f"carrier:{item}" for item in carrier_refs)]
+        else:
+            required_node_types = [
+                self._present_or_primary(node_types, candidates)
+                for candidates in desired_types
+            ]
+            required_node_types = [item for item in required_node_types if item]
         blockers: list[str] = []
         if isinstance(capability, ExternalContract) and capability.availability == EnvironmentAvailability.unavailable:
             blockers.append(
@@ -1118,6 +1130,38 @@ class EvaluationHarness:
     @staticmethod
     def _present_or_primary(node_types: set[str], candidates: tuple[str, ...]) -> str:
         return next((item for item in candidates if item in node_types), candidates[0] if candidates else "")
+
+    @staticmethod
+    def _carrier_requirements(
+        snapshot: ApplicationSnapshot,
+        contract: CapabilityBuildContract,
+        capability_id: str,
+    ) -> tuple[bool, list[str], list[str]]:
+        decision = next(
+            (
+                item
+                for item in contract.carrier_decisions
+                if item.capability_id == capability_id
+            ),
+            None,
+        )
+        if (
+            decision is None
+            or decision.status != CarrierStatus.bound
+            or not decision.implementation_refs
+        ):
+            return False, [], []
+
+        nodes_by_id = {node.id: node.type for node in snapshot.workflow.nodes}
+        available_types = {node.type for node in snapshot.workflow.nodes}
+        required_types: list[str] = []
+        for reference in decision.implementation_refs:
+            node_type = nodes_by_id.get(reference)
+            if node_type is None and reference in available_types:
+                node_type = reference
+            if node_type and node_type not in required_types:
+                required_types.append(node_type)
+        return True, required_types, list(decision.implementation_refs)
 
     @staticmethod
     def _sample_inputs(contract: CapabilityBuildContract) -> dict[str, Any]:

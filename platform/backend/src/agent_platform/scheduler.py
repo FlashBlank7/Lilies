@@ -1,11 +1,19 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
+from uuid import uuid4
 
 from .blocks import BlockRegistry, ScheduleTriggerConfig
+from .durable_jobs import (
+    DurableJobConflict,
+    DurableJobRecord,
+    DurableJobStore,
+    DurableTriggerKind,
+    durable_job_id,
+)
 from .platform_harness import PlatformHarness
 from .storage import Storage
 from .workflow_models import WorkflowRunRequest
@@ -24,6 +32,7 @@ class WorkflowScheduler:
         blocks: BlockRegistry,
         runtime: WorkflowRuntime,
         harness: PlatformHarness,
+        durable_jobs: DurableJobStore,
         poll_seconds: float = 30,
         worker_offload_enabled: bool = False,
     ) -> None:
@@ -32,8 +41,10 @@ class WorkflowScheduler:
         self.blocks = blocks
         self.runtime = runtime
         self.harness = harness
+        self.durable_jobs = durable_jobs
         self.poll_seconds = poll_seconds
         self.worker_offload_enabled = worker_offload_enabled
+        self.durable_worker_id = f"scheduler:{harness.worker_id}"
         self.task: asyncio.Task[None] | None = None
 
     def start(self) -> None:
@@ -65,6 +76,7 @@ class WorkflowScheduler:
 
     async def tick(self, now: datetime | None = None) -> list[dict[str, Any]]:
         now = now or datetime.now(timezone.utc)
+        await self.reconcile_durable_jobs(now)
         started: list[dict[str, Any]] = []
         for application in await self.workflow_store.list_applications():
             if application["active_version"] is None:
@@ -79,6 +91,27 @@ class WorkflowScheduler:
                 if (local.hour, local.minute) < (config.hour, config.minute):
                     continue
                 local_date = local.date().isoformat()
+                if config.durable:
+                    job = await self.enqueue_durable_schedule(
+                        application["id"],
+                        version=version,
+                        node_id=node.id,
+                        local_date=local_date,
+                        triggered_at=now,
+                        config=config,
+                    )
+                    started.append(
+                        {
+                            "application_id": application["id"],
+                            "version": version,
+                            "node_id": node.id,
+                            "local_date": local_date,
+                            "job_id": job.id,
+                            "durable": True,
+                            "status": job.status,
+                        }
+                    )
+                    continue
                 claimed = await self.workflow_store.claim_schedule_fire(
                     application["id"], version, node.id, local_date
                 )
@@ -109,7 +142,313 @@ class WorkflowScheduler:
                         manage_harness_task=True,
                     )
                 )
+        started.extend(await self.run_due_durable_jobs(now=now))
         return started
+
+    async def enqueue_durable_schedule(
+        self,
+        application_id: str,
+        *,
+        version: int,
+        node_id: str,
+        local_date: str,
+        triggered_at: datetime,
+        config: ScheduleTriggerConfig,
+        trigger_kind: DurableTriggerKind = "schedule",
+        idempotency_key: str | None = None,
+        input_overrides: dict[str, Any] | None = None,
+    ) -> DurableJobRecord:
+        identity = idempotency_key or (
+            f"schedule:{application_id}:{version}:{node_id}:{local_date}"
+        )
+        payload = {
+            "inputs": {**config.inputs, **(input_overrides or {})},
+            "timezone": config.timezone,
+            "triggered_at": triggered_at.astimezone(timezone.utc).isoformat(),
+            "local_date": local_date,
+            "lease_seconds": config.lease_seconds,
+            "manual": trigger_kind == "manual",
+        }
+        job = await self.durable_jobs.enqueue(
+            job_id=durable_job_id(identity),
+            idempotency_key=identity,
+            application_id=application_id,
+            version=version,
+            node_id=node_id,
+            trigger_kind=trigger_kind,
+            local_date=local_date,
+            payload=payload,
+            max_attempts=config.max_attempts,
+            retry_backoff_seconds=config.retry_backoff_seconds,
+            available_at=triggered_at,
+        )
+        await self.storage.append_event(
+            application_id,
+            "scheduler.durable_enqueued",
+            {
+                "job_id": job.id,
+                "idempotency_key": identity,
+                "node_id": node_id,
+                "local_date": local_date,
+                "status": job.status,
+            },
+        )
+        return job
+
+    async def run_due_durable_jobs(
+        self,
+        *,
+        now: datetime | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        current = now or datetime.now(timezone.utc)
+        launched: list[dict[str, Any]] = []
+        for _ in range(max(1, min(limit, 200))):
+            job = await self.durable_jobs.claim_next(
+                worker_id=self.durable_worker_id,
+                lease_seconds=60,
+                now=current,
+            )
+            if job is None:
+                break
+            launched.append(await self._launch_durable_job(job))
+        return launched
+
+    async def _launch_durable_job(self, job: DurableJobRecord) -> dict[str, Any]:
+        task_id = job.platform_task_id or f"{job.id}:attempt:{job.attempt_count}"
+        lease_seconds = max(float(job.payload.get("lease_seconds", 60)), 1.0)
+        try:
+            await self.harness.start_task(
+                task_id,
+                kind="scheduler_trigger",
+                owner_id=job.application_id,
+                resource_id=job.id,
+                metadata={
+                    "durable_job_id": job.id,
+                    "attempt": job.attempt_count,
+                    "version": job.version,
+                    "node_id": job.node_id,
+                    "local_date": job.local_date,
+                    "trigger_kind": job.trigger_kind,
+                    "lease_version": job.lease_version,
+                },
+                worker_id=self.durable_worker_id,
+                lease_seconds=lease_seconds,
+            )
+            await self.harness.record_usage(
+                task_id,
+                "scheduler_fire",
+                metadata={
+                    "job_id": job.id,
+                    "node_id": job.node_id,
+                    "attempt": job.attempt_count,
+                },
+            )
+            created = await self.runtime.create_run(
+                job.application_id,
+                WorkflowRunRequest(
+                    version=job.version,
+                    inputs={
+                        **dict(job.payload.get("inputs", {})),
+                        "__schedule__": {
+                            "triggered_at": job.payload.get("triggered_at"),
+                            "local_date": job.local_date,
+                            "timezone": job.payload.get("timezone"),
+                            "manual": bool(job.payload.get("manual")),
+                            "durable": True,
+                        },
+                        "__job__": {
+                            "job_id": job.id,
+                            "worker_id": self.durable_worker_id,
+                            "lease_version": job.lease_version,
+                            "attempt": job.attempt_count,
+                            "idempotency_key": job.idempotency_key,
+                            "checkpoint": job.checkpoint,
+                        },
+                    },
+                ),
+                parent_task_id=task_id,
+                origin="durable_scheduler",
+            )
+            attached = await self.durable_jobs.attach_run(
+                job.id,
+                worker_id=self.durable_worker_id,
+                lease_version=job.lease_version,
+                run_id=created["run_id"],
+            )
+            event = {
+                "application_id": job.application_id,
+                "version": job.version,
+                "node_id": job.node_id,
+                "local_date": job.local_date,
+                "job_id": job.id,
+                "run_id": created["run_id"],
+                "attempt": job.attempt_count,
+                "durable": True,
+                "status": attached.status,
+            }
+            await self.storage.append_event(
+                job.application_id,
+                "scheduler.durable_started",
+                event,
+            )
+            return event
+        except Exception as error:
+            try:
+                await self.harness.finish_task(task_id, status="failed", error=str(error))
+            except Exception:
+                pass
+            try:
+                failed = await self.durable_jobs.fail(
+                    job.id,
+                    worker_id=self.durable_worker_id,
+                    lease_version=job.lease_version,
+                    error=str(error),
+                    retryable=True,
+                )
+            except DurableJobConflict:
+                failed = await self.durable_jobs.get(job.id)
+            return {
+                "application_id": job.application_id,
+                "job_id": job.id,
+                "attempt": job.attempt_count,
+                "durable": True,
+                "status": failed.status,
+                "error": str(error),
+            }
+
+    async def reconcile_durable_jobs(
+        self, now: datetime | None = None
+    ) -> list[DurableJobRecord]:
+        current = now or datetime.now(timezone.utc)
+        changed: list[DurableJobRecord] = []
+        running = await self.durable_jobs.list(statuses={"running"}, limit=200)
+        for job in running:
+            run: dict[str, Any] | None = None
+            if job.run_id:
+                try:
+                    run = await self.workflow_store.get_run(job.run_id)
+                except KeyError:
+                    run = None
+            if run and run["status"] in {"succeeded", "failed", "cancelled", "paused"}:
+                reconciled = await self.durable_jobs.reconcile_run(
+                    job.id,
+                    run_id=job.run_id or "",
+                    run_status=run["status"],
+                    outputs=run.get("outputs", {}),
+                    error=str(run.get("error") or ""),
+                )
+                await self._finish_durable_attempt_task(job, reconciled)
+                changed.append(reconciled)
+                continue
+            if job.cancel_requested:
+                if job.run_id:
+                    try:
+                        self.runtime.cancel(job.run_id)
+                    except KeyError:
+                        if run is not None:
+                            reconciled = await self.durable_jobs.reconcile_run(
+                                job.id,
+                                run_id=job.run_id,
+                                run_status="cancelled",
+                                error="cancelled after active process was unavailable",
+                            )
+                            await self._finish_durable_attempt_task(job, reconciled)
+                            changed.append(reconciled)
+                continue
+            lease_expired = bool(
+                job.lease_expires_at
+                and self._parse_time(job.lease_expires_at) <= current.astimezone(timezone.utc)
+            )
+            if lease_expired:
+                if job.run_id:
+                    try:
+                        self.runtime.cancel(job.run_id)
+                    except KeyError:
+                        pass
+                recovered = await self.durable_jobs.recover_expired(job.id, now=current)
+                await self._finish_durable_attempt_task(job, recovered)
+                changed.append(recovered)
+                continue
+            lease_seconds = max(float(job.payload.get("lease_seconds", 60)), 1.0)
+            try:
+                renewed = await self.durable_jobs.renew(
+                    job.id,
+                    worker_id=self.durable_worker_id,
+                    lease_version=job.lease_version,
+                    lease_seconds=lease_seconds,
+                )
+                if job.platform_task_id:
+                    await self.harness.renew_task_lease(
+                        job.platform_task_id,
+                        worker_id=self.durable_worker_id,
+                        lease_seconds=lease_seconds,
+                    )
+                changed.append(renewed)
+            except (DurableJobConflict, KeyError):
+                continue
+        return changed
+
+    async def _finish_durable_attempt_task(
+        self,
+        prior: DurableJobRecord,
+        current: DurableJobRecord,
+    ) -> None:
+        if not prior.platform_task_id:
+            return
+        status = (
+            "succeeded"
+            if current.status == "succeeded"
+            else "paused"
+            if current.status == "paused"
+            else "cancelled"
+            if current.status == "cancelled"
+            else "failed"
+        )
+        await self.harness.finish_task(
+            prior.platform_task_id,
+            status=status,
+            error=current.error,
+            metadata={
+                "durable_job_status": current.status,
+                "retry_scheduled": current.status == "retry_wait",
+                "next_attempt_at": current.next_attempt_at,
+                "alert": current.alert,
+            },
+        )
+
+    async def cancel_durable_job(
+        self, job_id: str, *, expected_revision: int
+    ) -> DurableJobRecord:
+        record = await self.durable_jobs.request_cancel(
+            job_id,
+            expected_revision=expected_revision,
+        )
+        if record.status == "running" and record.run_id:
+            try:
+                self.runtime.cancel(record.run_id)
+            except KeyError:
+                return await self.durable_jobs.reconcile_run(
+                    record.id,
+                    run_id=record.run_id,
+                    run_status="cancelled",
+                    error="cancelled after active process was unavailable",
+                )
+        return record
+
+    async def retry_durable_job(
+        self, job_id: str, *, expected_revision: int
+    ) -> DurableJobRecord:
+        record = await self.durable_jobs.retry(job_id, expected_revision=expected_revision)
+        await self.run_due_durable_jobs()
+        return await self.durable_jobs.get(record.id)
+
+    async def resume_durable_job(
+        self, job_id: str, *, expected_revision: int
+    ) -> DurableJobRecord:
+        record = await self.durable_jobs.resume(job_id, expected_revision=expected_revision)
+        await self.run_due_durable_jobs()
+        return await self.durable_jobs.get(record.id)
 
     async def queue_claimed_schedule_fire(
         self,
@@ -247,6 +586,7 @@ class WorkflowScheduler:
         *,
         harness_task_id: str | None = None,
         manage_harness_task: bool = True,
+        idempotency_key: str | None = None,
     ) -> dict[str, Any]:
         published = await self.workflow_store.get_version(application_id)
         node = next(
@@ -257,6 +597,30 @@ class WorkflowScheduler:
             raise ValueError("published application has no schedule_trigger node")
         config = ScheduleTriggerConfig.model_validate(node.config)
         now = datetime.now(timezone.utc)
+        if config.durable:
+            local_date = now.astimezone(ZoneInfo(config.timezone)).date().isoformat()
+            manual_key = idempotency_key or f"manual:{application_id}:{uuid4()}"
+            job = await self.enqueue_durable_schedule(
+                application_id,
+                version=int(published["version"]),
+                node_id=node.id,
+                local_date=local_date,
+                triggered_at=now,
+                config=config,
+                trigger_kind="manual",
+                idempotency_key=manual_key,
+                input_overrides=inputs,
+            )
+            await self.run_due_durable_jobs(now=now)
+            current = await self.durable_jobs.get(job.id)
+            return {
+                "job_id": current.id,
+                "status": current.status,
+                "run_id": current.run_id,
+                "version": current.version,
+                "durable": True,
+                "revision": current.revision,
+            }
         task_id = harness_task_id or (
             f"scheduler-manual:{application_id}:{int(published['version'])}:{node.id}:{now.timestamp()}"
         )
@@ -304,9 +668,13 @@ class WorkflowScheduler:
     async def list_schedules(self) -> list[dict[str, Any]]:
         result: list[dict[str, Any]] = []
         fires = await self.workflow_store.list_schedule_fires()
+        durable_jobs = await self.durable_jobs.list(limit=200)
         by_application: dict[str, list[dict[str, Any]]] = {}
         for fire in fires:
             by_application.setdefault(fire["application_id"], []).append(fire)
+        jobs_by_application: dict[str, list[DurableJobRecord]] = {}
+        for job in durable_jobs:
+            jobs_by_application.setdefault(job.application_id, []).append(job)
         for application in await self.workflow_store.list_applications():
             if application["active_version"] is None:
                 continue
@@ -316,6 +684,8 @@ class WorkflowScheduler:
             for node in published["snapshot"].workflow.nodes:
                 if node.type == "schedule_trigger":
                     config = ScheduleTriggerConfig.model_validate(node.config)
+                    now = datetime.now(timezone.utc)
+                    latest_job = (jobs_by_application.get(application["id"]) or [None])[0]
                     result.append({
                         "application_id": application["id"],
                         "application_name": application["name"],
@@ -324,6 +694,51 @@ class WorkflowScheduler:
                         "timezone": config.timezone,
                         "hour": config.hour,
                         "minute": config.minute,
+                        "durable": config.durable,
+                        "max_attempts": config.max_attempts,
+                        "retry_backoff_seconds": config.retry_backoff_seconds,
+                        "lease_seconds": config.lease_seconds,
+                        "next_fire_at": self._next_fire(config, now).isoformat(),
                         "last_fire": (by_application.get(application["id"]) or [None])[0],
+                        "latest_job": (
+                            latest_job.model_dump(mode="json") if latest_job else None
+                        ),
                     })
         return result
+
+    async def schedule_status(self, application_id: str) -> dict[str, Any]:
+        schedules = [
+            item for item in await self.list_schedules() if item["application_id"] == application_id
+        ]
+        if not schedules:
+            raise KeyError(f"application has no published schedule: {application_id}")
+        jobs = await self.durable_jobs.list(application_id, limit=50)
+        latest = jobs[0] if jobs else None
+        return {
+            "application_id": application_id,
+            "schedule": schedules[0],
+            "job_count": len(jobs),
+            "active_job_count": sum(
+                item.status in {"queued", "running", "retry_wait", "paused"} for item in jobs
+            ),
+            "latest_job": latest.model_dump(mode="json") if latest else None,
+            "latest_alert": next((item.alert for item in jobs if item.alert), None),
+        }
+
+    @staticmethod
+    def _next_fire(config: ScheduleTriggerConfig, now: datetime) -> datetime:
+        local_now = now.astimezone(ZoneInfo(config.timezone))
+        candidate = local_now.replace(
+            hour=config.hour,
+            minute=config.minute,
+            second=0,
+            microsecond=0,
+        )
+        if candidate <= local_now:
+            candidate += timedelta(days=1)
+        return candidate.astimezone(timezone.utc)
+
+    @staticmethod
+    def _parse_time(value: str) -> datetime:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)

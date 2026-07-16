@@ -33,6 +33,10 @@ class ScheduleTriggerConfig(BaseModel):
     hour: int = Field(default=8, ge=0, le=23)
     minute: int = Field(default=0, ge=0, le=59)
     inputs: dict[str, Any] = Field(default_factory=dict)
+    durable: bool = False
+    max_attempts: int = Field(default=3, ge=1, le=20)
+    retry_backoff_seconds: float = Field(default=5, ge=0, le=86_400)
+    lease_seconds: float = Field(default=60, ge=1, le=86_400)
 
     @field_validator("timezone")
     @classmethod
@@ -125,6 +129,26 @@ class HTTPConfig(BaseModel):
     query: dict[str, Any] = Field(default_factory=dict)
     body: Any = None
     timeout_seconds: float = Field(default=30, ge=1, le=300)
+
+
+class WebCollectionConfig(BaseModel):
+    sources: Any
+    allowed_hosts: list[str] = Field(min_length=1, max_length=100)
+    permission_basis: str = Field(min_length=3, max_length=500)
+    user_agent: str = Field(default="LiliesControlledCollector/0.4", min_length=3, max_length=200)
+    respect_robots: bool = True
+    robots_failure_policy: Literal["deny", "allow_with_receipt"] = "deny"
+    timeout_seconds: float = Field(default=20, ge=1, le=300)
+    max_content_bytes: int = Field(default=1_000_000, ge=1_024, le=20_000_000)
+    max_sources: int = Field(default=20, ge=1, le=200)
+    fail_on_source_error: bool = False
+
+
+class CollectionDigestConfig(BaseModel):
+    collection: Any
+    topic: Any = "Daily collection"
+    include_unchanged: bool = False
+    max_items: int = Field(default=20, ge=1, le=100)
 
 
 class IterationConfig(BaseModel):
@@ -240,6 +264,8 @@ _ZH_BLOCKS = {
     "variable_assigner": ("变量赋值", "创建命名工作流变量。"),
     "variable_aggregator": ("变量聚合", "合并分支或多个上游值。"),
     "http_request": ("HTTP 请求", "调用外部 HTTP 接口。"),
+    "web_collection": ("受控网页采集", "按允许来源和 robots 策略采集内容并保存来源证据。"),
+    "collection_digest": ("采集摘要", "把采集结果整理为带来源和状态的可读摘要。"),
     "iteration": ("迭代", "对数组中的每一项运行嵌套工作流。"),
     "loop": ("循环", "重复运行嵌套工作流直到满足退出条件。"),
     "human_input": ("人工输入", "持久化暂停，并通过表单恢复。"),
@@ -275,6 +301,16 @@ _ZH_BLOCKS = {
 
 
 _EDITOR_FIELDS: dict[str, list[dict[str, Any]]] = {
+    "schedule_trigger": [
+        {"path": "timezone", "label": "Timezone", "label_zh": "时区", "control": "text", "description": "IANA timezone such as Asia/Tokyo.", "required": True},
+        {"path": "hour", "label": "Hour", "label_zh": "小时", "control": "number", "minimum": 0, "maximum": 23, "step": 1, "required": True},
+        {"path": "minute", "label": "Minute", "label_zh": "分钟", "control": "number", "minimum": 0, "maximum": 59, "step": 1, "required": True},
+        {"path": "inputs", "label": "Scheduled inputs", "label_zh": "定时输入", "control": "json"},
+        {"path": "durable", "label": "Durable execution", "label_zh": "耐久执行", "control": "boolean", "description": "Persist fire identity, attempts, recovery, cancellation, and history."},
+        {"path": "max_attempts", "label": "Maximum attempts", "label_zh": "最大尝试次数", "control": "number", "minimum": 1, "maximum": 20, "step": 1},
+        {"path": "retry_backoff_seconds", "label": "Retry backoff", "label_zh": "重试退避秒数", "control": "number", "minimum": 0, "maximum": 86400, "step": 1},
+        {"path": "lease_seconds", "label": "Worker lease", "label_zh": "工作租约秒数", "control": "number", "minimum": 1, "maximum": 86400, "step": 1},
+    ],
     "llm": [
         {"path": "system", "label": "System instruction", "label_zh": "系统指令", "control": "textarea", "description": "Persistent instruction for this model call.", "required": True},
         {"path": "prompt", "label": "Prompt", "label_zh": "用户提示", "control": "reference_or_text", "description": "Text or a workflow value reference.", "required": True},
@@ -297,6 +333,23 @@ _EDITOR_FIELDS: dict[str, list[dict[str, Any]]] = {
         {"path": "query", "label": "Query parameters", "label_zh": "查询参数", "control": "json"},
         {"path": "body", "label": "Request body", "label_zh": "请求体", "control": "json"},
         {"path": "timeout_seconds", "label": "Timeout (seconds)", "label_zh": "超时秒数", "control": "number", "minimum": 1, "maximum": 300, "step": 1, "required": True},
+    ],
+    "web_collection": [
+        {"path": "sources", "label": "Sources", "label_zh": "来源", "control": "reference_or_text", "description": "Array of URL strings or source objects; workflow references are supported.", "required": True},
+        {"path": "allowed_hosts", "label": "Allowed hosts", "label_zh": "允许主机", "control": "string_list", "description": "Exact hostnames that this block may request.", "required": True},
+        {"path": "permission_basis", "label": "Permission basis", "label_zh": "访问依据", "control": "textarea", "description": "Operator-declared reason this access pattern is allowed.", "required": True},
+        {"path": "respect_robots", "label": "Respect robots.txt", "label_zh": "遵守 robots.txt", "control": "boolean"},
+        {"path": "robots_failure_policy", "label": "Robots failure policy", "label_zh": "robots 失败策略", "control": "enum", "options": ["deny", "allow_with_receipt"]},
+        {"path": "timeout_seconds", "label": "Timeout", "label_zh": "超时秒数", "control": "number", "minimum": 1, "maximum": 300, "step": 1},
+        {"path": "max_content_bytes", "label": "Maximum response bytes", "label_zh": "最大响应字节", "control": "number", "minimum": 1024, "maximum": 20000000, "step": 1024},
+        {"path": "max_sources", "label": "Maximum sources", "label_zh": "最大来源数", "control": "number", "minimum": 1, "maximum": 200, "step": 1},
+        {"path": "fail_on_source_error", "label": "Fail job on source error", "label_zh": "来源错误时任务失败", "control": "boolean"},
+    ],
+    "collection_digest": [
+        {"path": "collection", "label": "Collection result", "label_zh": "采集结果", "control": "reference_or_text", "required": True},
+        {"path": "topic", "label": "Digest topic", "label_zh": "摘要主题", "control": "reference_or_text"},
+        {"path": "include_unchanged", "label": "Include unchanged sources", "label_zh": "包含未变化来源", "control": "boolean"},
+        {"path": "max_items", "label": "Maximum digest items", "label_zh": "最大摘要条目", "control": "number", "minimum": 1, "maximum": 100, "step": 1},
     ],
     "tool": [
         {"path": "tool_name", "label": "Tool name", "label_zh": "工具名称", "control": "text", "description": "Registered core, MCP, or workflow tool name.", "required": True},
@@ -512,7 +565,11 @@ class BlockRegistry:
         }
 
     def template_names(self) -> list[str]:
-        return ["codex_like_workspace_agent", "claude_like_coding_agent"]
+        return [
+            "codex_like_workspace_agent",
+            "claude_like_coding_agent",
+            "daily_web_collection",
+        ]
 
     def expand_template(
         self,
@@ -526,6 +583,8 @@ class BlockRegistry:
             return _codex_like_workspace_agent_template(prefix=prefix, x=x, y=y)
         if template_name == "claude_like_coding_agent":
             return _claude_like_coding_agent_template(prefix=prefix, x=x, y=y)
+        if template_name == "daily_web_collection":
+            return _daily_web_collection_template(prefix=prefix, x=x, y=y)
         raise KeyError(f"unknown workflow template: {template_name}")
 
     def validate_node(self, node: NodeSpec) -> BaseModel:
@@ -708,6 +767,8 @@ def build_block_registry() -> BlockRegistry:
         (_definition("variable_assigner", "Variable Assigner", "Create named workflow values.", "transform", VariableAssignerConfig, inputs=[("input", ValueType.any)], outputs=[("output", ValueType.object)]), VariableAssignerConfig),
         (_definition("variable_aggregator", "Variable Aggregator", "Join branch values.", "transform", VariableAggregatorConfig, inputs=[("input", ValueType.any)], outputs=[("output", ValueType.any)]), VariableAggregatorConfig),
         (_definition("http_request", "HTTP Request", "Call an external HTTP endpoint.", "integration", HTTPConfig, inputs=[("input", ValueType.any)], outputs=[("output", ValueType.object)], retry=True, error_branch=True), HTTPConfig),
+        (_definition("web_collection", "Controlled Web Collection", "Collect approved Web sources with durable provenance and access receipts.", "integration", WebCollectionConfig, inputs=[("input", ValueType.any)], outputs=[("output", ValueType.object), ("items", ValueType.array), ("receipts", ValueType.array)], retry=True, error_branch=True), WebCollectionConfig),
+        (_definition("collection_digest", "Collection Digest", "Render collected source results as a customer-readable Markdown digest.", "transform", CollectionDigestConfig, inputs=[("input", ValueType.any)], outputs=[("text", ValueType.string), ("summary", ValueType.object)]), CollectionDigestConfig),
         (_definition("iteration", "Iteration", "Run a nested workflow for each array item.", "logic", IterationConfig, inputs=[("input", ValueType.array)], outputs=[("items", ValueType.array)], retry=True, error_branch=True), IterationConfig),
         (_definition("loop", "Loop", "Run a nested workflow until a condition matches.", "logic", LoopConfig, inputs=[("input", ValueType.any)], outputs=[("output", ValueType.object)], retry=True, error_branch=True), LoopConfig),
         (_definition("human_input", "Human Input", "Pause and resume with a typed form.", "input", HumanInputConfig, inputs=[("input", ValueType.any)], outputs=[("output", ValueType.object)]), HumanInputConfig),
@@ -756,6 +817,95 @@ def _ref(node_id: str, *path: str) -> dict[str, Any]:
 
 def _optional_ref(node_id: str, *path: str) -> dict[str, Any]:
     return {"$ref": {"node_id": node_id, "path": list(path), "optional": True}}
+
+
+def _daily_web_collection_template(*, prefix: str, x: float, y: float) -> WorkflowSpec:
+    schedule_id = f"{prefix}_schedule"
+    collect_id = f"{prefix}_collect"
+    digest_id = f"{prefix}_digest"
+    answer_id = f"{prefix}_answer"
+    return WorkflowSpec(
+        nodes=[
+            NodeSpec(
+                id=schedule_id,
+                type="schedule_trigger",
+                title="Daily Collection Schedule",
+                description="Create one durable local-date job and preserve attempts and recovery history.",
+                config={
+                    "timezone": "Asia/Tokyo",
+                    "hour": 8,
+                    "minute": 0,
+                    "inputs": {"topic": "Daily source digest", "sources": []},
+                    "durable": True,
+                    "max_attempts": 3,
+                    "retry_backoff_seconds": 5,
+                    "lease_seconds": 60,
+                },
+                position={"x": x, "y": y},
+            ),
+            NodeSpec(
+                id=collect_id,
+                type="web_collection",
+                title="Collect Approved Sources",
+                description="Enforce source policy and persist one provenance receipt per source.",
+                config={
+                    "sources": _ref(schedule_id, "sources"),
+                    "allowed_hosts": ["127.0.0.1", "localhost"],
+                    "permission_basis": (
+                        "Controlled local contract fixture; replace with documented source permission."
+                    ),
+                    "respect_robots": True,
+                    "robots_failure_policy": "deny",
+                    "timeout_seconds": 20,
+                    "max_content_bytes": 1_000_000,
+                    "max_sources": 20,
+                    "fail_on_source_error": False,
+                },
+                position={"x": x + 280, "y": y},
+                retry={"enabled": True, "max_attempts": 2, "delay_seconds": 1},
+                error_strategy="fail",
+            ),
+            NodeSpec(
+                id=digest_id,
+                type="collection_digest",
+                title="Build Traceable Digest",
+                description="Create readable Markdown with source citations and collection status.",
+                config={
+                    "collection": _ref(collect_id, "output"),
+                    "topic": _ref(schedule_id, "topic"),
+                    "include_unchanged": False,
+                    "max_items": 20,
+                },
+                position={"x": x + 560, "y": y},
+            ),
+            NodeSpec(
+                id=answer_id,
+                type="answer",
+                title="Daily Digest",
+                description="Deliver the current digest in Customer Runtime.",
+                config={"answer": _ref(digest_id, "text")},
+                position={"x": x + 840, "y": y},
+            ),
+        ],
+        edges=[
+            EdgeSpec(
+                id=f"{prefix}_schedule_to_collect",
+                source=schedule_id,
+                target=collect_id,
+            ),
+            EdgeSpec(
+                id=f"{prefix}_collect_to_digest",
+                source=collect_id,
+                target=digest_id,
+            ),
+            EdgeSpec(
+                id=f"{prefix}_digest_to_answer",
+                source=digest_id,
+                target=answer_id,
+                source_port="text",
+            ),
+        ],
+    )
 
 
 def _codex_like_workspace_agent_template(*, prefix: str, x: float, y: float) -> WorkflowSpec:

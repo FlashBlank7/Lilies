@@ -19,6 +19,7 @@ from .blocks import (
     BlockRegistry,
     ClaudeAgentConfig,
     ClassifierConfig,
+    CollectionDigestConfig,
     Condition,
     EndConfig,
     HTTPConfig,
@@ -34,6 +35,7 @@ from .blocks import (
     ToolConfig,
     VariableAggregatorConfig,
     VariableAssignerConfig,
+    WebCollectionConfig,
 )
 from .models import AgentSpec, ChatMessage, ContentBlock, PermissionMode, Usage
 from .governed_memory import GovernedMemoryPermission, GovernedMemorySurface, GovernedMemoryViolation
@@ -52,6 +54,7 @@ from .workflow_models import (
     WorkflowSpec,
 )
 from .workflow_storage import WorkflowStorage
+from .web_collection import ControlledWebCollector
 
 
 class HumanInputPause(RuntimeError):
@@ -82,6 +85,7 @@ class WorkflowRuntime:
         sandboxes: SandboxManager,
         runtime_model: str,
         governed_memory: GovernedMemorySurface | None = None,
+        web_collector: ControlledWebCollector | None = None,
     ) -> None:
         self.storage = storage
         self.workflow_store = workflow_store
@@ -94,6 +98,7 @@ class WorkflowRuntime:
         self.sandboxes = sandboxes
         self.runtime_model = runtime_model
         self.governed_memory = governed_memory
+        self.web_collector = web_collector
         self.active_tasks: dict[str, asyncio.Task[None]] = {}
 
     async def create_run(
@@ -601,6 +606,26 @@ class WorkflowRuntime:
             return {"output": value}
         if isinstance(config, HTTPConfig):
             return await self._http(config, context, owner_id=state.application_id if state else "")
+        if isinstance(config, WebCollectionConfig):
+            if self.web_collector is None:
+                raise RuntimeError("controlled Web collection service is not configured")
+            job_context = inputs.get("__job__", {})
+            if not isinstance(job_context, dict):
+                raise ValueError("__job__ input must be an object")
+            result = await self.web_collector.collect(
+                config=config,
+                sources=self._resolve(config.sources, context),
+                application_id=state.application_id if state else "",
+                run_id=run_id,
+                job_context=job_context,
+            )
+            return {"output": result, **result}
+        if isinstance(config, CollectionDigestConfig):
+            return ControlledWebCollector.render_digest(
+                config,
+                self._resolve(config.collection, context),
+                self._resolve(config.topic, context),
+            )
         if isinstance(config, IterationConfig):
             items = self._resolve(config.items, context)
             if not isinstance(items, list):
