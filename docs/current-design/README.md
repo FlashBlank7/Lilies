@@ -2,9 +2,13 @@
 
 本目录是当前 stage 的 active design 工作区。
 
-当前状态：`v0.4.7` 已完成并归档；本目录已清空，等待 `v0.4.8` 从上一份 stage report 的 `Next-stage Task Set` 建立新设计。
+当前状态：`v0.4.8` 正在实现 Evaluation Harness 配置、环境、生成用例、执行、Studio 与治理纵向；本目录只展开 Stage Contract 已接受任务，不产生新的任务来源。
 
-Active designs: none.
+Active designs:
+
+- `design_v0.4.8_evaluation_profile_and_environment_contract_v1.md`
+- `design_v0.4.8_capability_driven_test_generation_and_execution_v1.md`
+- `design_v0.4.8_studio_governance_and_evidence_lifecycle_v1.md`
 
 归档规则：
 

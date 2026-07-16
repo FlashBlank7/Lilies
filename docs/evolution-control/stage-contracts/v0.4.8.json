@@ -1,0 +1,82 @@
+{
+  "schema_version": "1.0",
+  "stage_version": "v0.4.8",
+  "stage_report": "docs/stage-reports/v0.4.8_evaluation_harness_profiles_and_environments.md",
+  "contract_revision": 1,
+  "approval_ref": "v0.4.7 closure handoff V04-08-T01 under the capability-boundary report campaign",
+  "source_tasks": [
+    {
+      "task_id": "V04-08-T01",
+      "source_intent_ids": ["EVAL-001", "EVAL-002", "EVAL-003", "EVAL-004"],
+      "source_task": "Productize Evaluation Harness profiles, scoped verification states, generated tests, and environment selection.",
+      "disposition": "accepted mandatory",
+      "authority": "v0.4.7 closure handoff and capability-boundary report campaign."
+    },
+    {
+      "task_id": "V04-09-T01",
+      "source_intent_ids": ["ARCH-007", "EVAL-003", "EVAL-004", "SCENARIO-002"],
+      "source_task": "Implement the daily web-collection pressure scenario on a durable job substrate.",
+      "disposition": "carried forward",
+      "authority": "Carried unchanged from v0.4.7."
+    },
+    {
+      "task_id": "V04-10-T01",
+      "source_intent_ids": ["ARCH-008", "EVAL-002", "EVAL-004", "GOV-004", "SCENARIO-003"],
+      "source_task": "Implement the customer-system embedding pressure scenario and Connector/Embedding SDK boundary.",
+      "disposition": "carried forward",
+      "authority": "Carried unchanged from v0.4.7."
+    }
+  ],
+  "mandatory_tasks": [
+    {
+      "task_id": "V04-08-T01A",
+      "source_intent_ids": ["EVAL-001", "EVAL-002", "EVAL-004"],
+      "surface": "architecture / Evaluation Harness profile and environment contract",
+      "acceptance": "A typed catalog exposes selectable H0-H5 profiles, their maximum verification status, compatible environment kinds, execution mode, mutation boundary, and claim exclusions; mock, contract, sandbox, live, and production-observation environments expose explicit availability and missing requirements without conflating Evaluation Harness with workflow or Platform Harness.",
+      "required_evidence": "Profile and environment schema tests, exact H0-H5/status mapping tests, compatibility matrix tests, default availability tests, mutation-boundary tests, and API catalog assertions."
+    },
+    {
+      "task_id": "V04-08-T01B",
+      "source_intent_ids": ["EVAL-003", "EVAL-004"],
+      "surface": "backend / capability-driven evaluation planning and test generation",
+      "acceptance": "Evaluation planning consumes the selected profile and environment plus the current Capability Build Contract, F/G/X signals, required envelope, risk, start inputs, workflow structure, external availability, and existing acceptance cases to generate stable capability-scoped cases; loop, tool, scheduler, permission, customer writeback, and unavailable external contracts do not receive one generic test shape.",
+      "required_evidence": "Generator unit tests across Codex, daily-collection, customer-embedding, and simple contracts; stable-id and merge tests; capability coverage tests; generated evidence-target tests; and assertions that unavailable external contracts remain explicit blockers."
+    },
+    {
+      "task_id": "V04-08-T01C",
+      "source_intent_ids": ["EVAL-001", "EVAL-002", "EVAL-004"],
+      "surface": "backend / evaluation execution and scoped status derivation",
+      "acceptance": "An evaluation run enforces profile/environment compatibility, executes only eligible static or runtime work, never mutates through production-observation mode, returns design_only, static_verified, component_verified, integration_verified, live_verified, production_observed, blocked_by_environment, or unsupported as scoped outcomes, and caps every claim at the weakest selected profile, environment, case result, and external-contract evidence.",
+      "required_evidence": "H0/H1 non-runtime tests, H2/H3 execution tests, unavailable H4/H5 tests, unsupported-pair tests, external-blocker tests, no-mutation observation tests, failed-case ceiling tests, and claim-scope derivation tests."
+    },
+    {
+      "task_id": "V04-08-T01D",
+      "source_intent_ids": ["EVAL-001", "EVAL-002", "EVAL-004"],
+      "surface": "persistence / authenticated API / Platform Harness integration",
+      "acceptance": "Authenticated APIs preview plans, apply generated cases with revision and content-hash guards, run evaluations, and list exact durable history; records survive restart, bind application, draft, profile, environment, generated and executed cases, blockers, claim scope, and underlying test runs, while Platform Harness tracks evaluation work as a distinct task kind.",
+      "required_evidence": "API authorization and conflict tests, merge/idempotency tests, durable restart tests, exact read/list tests, Platform Harness parent/task metadata tests, event assertions, and malformed-request tests."
+    },
+    {
+      "task_id": "V04-08-T01E",
+      "source_intent_ids": ["EVAL-001", "EVAL-002", "EVAL-003", "EVAL-004"],
+      "surface": "frontend / Engineer Studio Evaluation Harness",
+      "acceptance": "Engineer Studio Test exposes a clearly named Evaluation Harness where an engineer selects an H0-H5 profile and compatible environment, sees availability and claim boundaries, previews capability-specific generated cases, applies them safely, runs eligible evaluation, and reads achieved status, blockers, verified and excluded claims, case evidence, and durable history without exposing this engineering surface in Customer Runtime.",
+      "required_evidence": "Frontend source and interaction tests, accessibility labels, partial/unavailable states, revision-conflict recovery, production TypeScript/build, desktop/mobile browser planning and run journeys, and Customer Runtime disclosure regression."
+    },
+    {
+      "task_id": "V04-08-T01F",
+      "source_intent_ids": ["EVAL-001", "EVAL-002", "GOV-003"],
+      "surface": "governance / capability evidence / claim integrity",
+      "acceptance": "Evaluation tasks and exact outcomes are governance-queryable, the platform capability registry enrolls the Evaluation Harness with bounded evidence, H4/H5 remain unavailable by default without explicit configuration and eligible artifacts, and no lower environment, passed structural test, call count, or selected label can inflate a capability claim.",
+      "required_evidence": "Governance task/filter tests, capability registration and artifact-integrity tests, default-disabled H4/H5 tests, claim-inflation rejection tests, unsupported telemetry assertions, and Console visibility checks."
+    },
+    {
+      "task_id": "V04-08-T01G",
+      "source_intent_ids": ["EVAL-001", "EVAL-002", "EVAL-003", "EVAL-004"],
+      "surface": "test / evidence / regression / closure",
+      "acceptance": "The Evaluation Harness vertical survives restart and preserves current generation, editing, execution, acceptance, publication, module, governance, scheduler, and Platform Harness behavior; closure records exact commands, browser artifacts, blocked H4/H5 boundaries, known historical conflicts, and the strongest honest evidence level.",
+      "required_evidence": "Focused v0.4.8 suite, current release gate, evolution-control suite, full repository diagnostic, Ruff, frontend lint/build, responsive browser artifacts, restart evidence, and fresh contract-first closure audit."
+    }
+  ],
+  "optional_tasks": []
+}

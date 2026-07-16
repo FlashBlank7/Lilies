@@ -9,12 +9,12 @@ This directory contains only the current major phase's active small-version repo
 | Active phase | `v0.4.x` |
 | Program charter | `docs/evolution-control/PROGRAM_CHARTER.md` |
 | Intent registry | `docs/evolution-control/report_intents.json` |
-| Current stage | `docs/stage-reports/v0.4.7_three_interface_governance_console.md` (closed); next authority is its `V04-08-T01` handoff |
+| Current stage | `docs/stage-reports/v0.4.8_evaluation_harness_profiles_and_environments.md` |
 | Current task authority | The current stage report's locked `Stage Contract` and, after closure, its `Next-stage Task Set` |
 | Previous phase archive | `docs/stage-report-archives/v0.3.x/` |
 | Previous phase report | `docs/phase-reports/v0.3.0_product_usability_buffer_closeout.md` |
 
-Active v0.4 reports currently include v0.4.0 through the closed v0.4.7 three-interface governance vertical. Historical v0.2 and v0.3 reports are not active task sources; the closed v0.4.7 report is the sole authority for starting v0.4.8.
+Active v0.4 reports currently include v0.4.0 through the active v0.4.8 Evaluation Harness vertical. Historical v0.2 and v0.3 reports are not active task sources; v0.4.8 was accepted only from the closed v0.4.7 report's `V04-08-T01` handoff.
 
 ## Rules
 

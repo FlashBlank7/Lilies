@@ -1,0 +1,31 @@
+# v0.4.8 Capability-driven evaluation planning and execution
+
+Status: active
+Source task: `V04-08-T01`
+Mandatory tasks: `V04-08-T01B`, `V04-08-T01C`, `V04-08-T01D`
+Source intents: `EVAL-001`, `EVAL-002`, `EVAL-003`, `EVAL-004`
+
+## Planning inputs
+
+Evaluation planning reads one immutable draft snapshot, its Capability Build Contract, selected profile and environment, workflow node and tool inventory, current acceptance cases, start-input declarations, required execution envelope, risk, carrier decisions, coverage ownership, evidence plan, and external availability. A missing capability contract permits only an explicitly scoped static compatibility plan; it cannot silently claim general capability coverage.
+
+## Generated case families
+
+Generated case IDs are stable hashes of contract ID, capability ID, profile, and environment. Existing non-generated customer tests remain intact in merge mode; prior generated cases with the same stable IDs are replaced.
+
+- Functional capabilities generate input-to-output and required-carrier checks.
+- Tool and loop guarantees require loop/router/tool evidence and bounded-stop behavior.
+- Permission and isolation guarantees require visible gates and boundary controls.
+- Scheduling, durability, retry, resume, idempotency, audit, compensation, and budget guarantees receive distinct structural/runtime evidence requirements.
+- External contracts generate contract-availability and evidence cases; unavailable required contracts are blockers, not runnable green cases.
+- High-risk or E4/E5 writeback cases require explicit approval, test tenant, idempotency, compensation, and audit signals.
+
+Generated `WorkflowTestCase` objects carry capability IDs and an `AcceptanceEvidenceTarget`. The planner also returns non-executable case records for environment blockers so the plan does not erase missing external evidence.
+
+## Apply and execution
+
+Plan preview is read-only. Apply uses revision and content-hash guards plus idempotency and supports `merge` or `replace_generated`; it never deletes user-authored cases by accident. H0 and H1 run without workflow execution. H2 and H3 execute eligible applied cases through Workflow Runtime under a distinct Platform Harness evaluation task. H4 executes only when an explicit live environment is enabled. H5 consumes observation evidence only and never invokes the workflow.
+
+## Durable result
+
+Persist exact run ID, application, draft revision/hash, profile, environment, generated/applied/executed case IDs, per-capability outcomes, static and runtime reports, blockers, achieved status, claim ceiling, verified and excluded claims, task linkage, timestamps, and schema version. Restart must preserve exact reads and history order.

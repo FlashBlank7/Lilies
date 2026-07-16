@@ -1,0 +1,37 @@
+# v0.4.8 Evaluation profile and environment contract
+
+Status: active
+Source task: `V04-08-T01`
+Mandatory tasks: `V04-08-T01A`, `V04-08-T01C`
+Source intents: `EVAL-001`, `EVAL-002`, `EVAL-004`
+
+## Profile catalog
+
+The Evaluation Harness owns six immutable profiles. Selecting a profile requests an evidence ceiling; it never grants that status by itself.
+
+| Profile | Level | Maximum status | Execution mode | Compatible environment |
+| --- | --- | --- | --- | --- |
+| Design review | H0 | `design_only` | plan only | mock |
+| Static contract | H1 | `static_verified` | schema and graph checks | mock |
+| Component sandbox | H2 | `component_verified` | isolated runtime tests | sandbox |
+| Integration contract | H3 | `integration_verified` | local service and contract tests | contract |
+| Live verification | H4 | `live_verified` | explicitly enabled live run | live |
+| Production observation | H5 | `production_observed` | read-only observation | production_observation |
+
+Each profile declares compatible environment kinds, whether workflow execution is permitted, whether mutation is permitted, required evidence categories, and claims that remain excluded. H5 must never start workflow execution or mutate external state.
+
+## Environment registry
+
+Expose five first-class environment records: local mock, local sandbox, local contract, configured live, and production observation. Every record declares kind, availability, execution mode, mutation boundary, supported profiles, evidence sources, and missing requirements. Local mock, sandbox, and contract are available for their bounded purposes. Live and production observation remain unavailable by default and require separate explicit settings plus eligible target metadata; a request against an unavailable environment returns a durable `blocked_by_environment` result rather than a fabricated fail or pass.
+
+## Status derivation
+
+The achieved status is the minimum of profile ceiling, environment ceiling, static/runtime case outcome, external-contract eligibility, and evidence completeness. Invalid profile/environment pairs are `unsupported`. Unavailable but conceptually valid environments are `blocked_by_environment`. Failed eligible checks remain a failed evaluation whose claim does not advance. A passed structural case cannot imply integration or live behavior.
+
+## Harness separation
+
+- Workflow-internal Harness blocks remain editable workflow behavior.
+- Evaluation Harness chooses profile, environment, cases, execution, and scoped claims.
+- Platform Harness owns durable task execution, queue/worker controls, policy, usage, and governance.
+
+Models, APIs, UI labels, task kinds, and evidence records must preserve these ownership boundaries.
