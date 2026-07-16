@@ -1,0 +1,24 @@
+# v0.4.9 Schedule operations, runtime, and governance
+
+Status: active
+Source task: `V04-09-T01`
+Mandatory tasks: `V04-09-T01D`, `V04-09-T01F`, `V04-09-T01G`
+Source intents: `ARCH-007`, `SCENARIO-002`
+
+## API
+
+Expose authenticated application-scoped schedule and durable-job reads: list, exact job, ordered events, and provenance receipts. Actions for retry, resume, and cancel validate current state and an expected update/fencing token so stale UI actions fail with conflict. Schedule summaries include enabled mode, timezone, next due time, last fire, latest job, and current alert without erasing the immutable job history.
+
+## Product surfaces
+
+Engineer Studio receives an Automation workspace for schedule configuration context, exact job/attempt history, events, receipts, claim boundary, and recovery controls. Customer Runtime detects a scheduled workflow and replaces the generic start-first presentation with schedule state, next and last run, business progress, recoverable failures, source provenance, latest digest, and a clear run-now action. It must not expose worker IDs, leases, fencing versions, test cases, internal task kinds, or raw node JSON.
+
+Both surfaces have stable loading, empty, blocked, retry-wait, running, succeeded, failed, and cancelled states. Actions use familiar icons with labels/tooltips where needed, and desktop/mobile layouts must not overflow or hide state transitions.
+
+## Governance and alerts
+
+Governance can query durable schedule tasks and drill from job to attempt, workflow run, events, receipts, and alerts. Register bounded evidence for durable jobs and controlled Web collection. Alerts are durable local records for exhausted retry, access denial, stranded lease recovery, or terminal failure; this stage does not claim an external paging integration.
+
+## Closure
+
+Verification includes transition and restart tests, a controlled HTTP server, scenario apply and H3 evaluation, API/action conflicts, legacy scheduler regressions, production frontend build, desktop/mobile browser operation, Customer Runtime disclosure checks, Governance trace, current release gate, full diagnostic classification, and a fresh contract-first audit. The strongest claim remains H3 local integration.

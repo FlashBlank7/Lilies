@@ -1,0 +1,26 @@
+# v0.4.9 Durable job lifecycle and recovery
+
+Status: active
+Source task: `V04-09-T01`
+Mandatory tasks: `V04-09-T01A`, `V04-09-T01B`
+Source intents: `ARCH-007`, `SCENARIO-002`
+
+## Ownership boundary
+
+The editable published workflow owns business behavior. The durable job substrate owns time, one-fire identity, attempts, leases, restart recovery, cancellation, alerts, and history. Platform Harness continues to own platform task policy and worker evidence; a workflow `schedule_trigger` remains a user-editable trigger. None of these records may substitute for the others.
+
+## Durable record
+
+Each job has a deterministic idempotency key and immutable application, version, trigger node, trigger kind, and scheduled-local-date identity. Mutable lifecycle fields include status, attempt count and limit, next-attempt time, lease owner/expiry/fencing version, attached run, checkpoint, cancellation request, result, terminal error, alert, and timestamps. Ordered append-only job events preserve enqueue, claim, lease renewal/expiry, run attachment, checkpoint, retry scheduling, recovery, cancellation, success, failure, and alert decisions.
+
+Statuses are `queued`, `running`, `retry_wait`, `paused`, `succeeded`, `failed`, and `cancelled`. Only eligible queued/retry work can be claimed. Every mutating worker operation includes the current lease owner and fencing version. A stale owner cannot attach a run, checkpoint, complete, fail, or renew after ownership changes.
+
+## Schedule and recovery semantics
+
+Durable mode is explicit on `schedule_trigger`; the existing path remains compatible. A due local date enqueues one job. Claiming starts one attempt and one Platform Harness task, then launches the exact published workflow version with `__job__` metadata. Scheduler reconciliation follows the attached workflow run to a terminal job state instead of treating run creation as success.
+
+Retry uses a bounded exponential delay and records the classified error. After process restart, an expired running lease is reclaimed. If the attached run is already terminal, reconciliation commits that terminal state; if it is stranded, the job starts a new attempt using persisted checkpoint and receipts. Explicit retry/resume requeues eligible terminal or paused work; cancel records intent, cancels a local active run when possible, and remains terminal even when the original process is gone.
+
+## Claim boundary
+
+This stage proves local H3 integration and restart recovery with a controlled fixture. It does not prove a distributed consensus queue, exactly-once external side effects, production worker availability, production paging, or an SLO. Idempotency means one durable fire identity and fenced attempts; individual business side effects still require capability-specific dedupe or compensation.

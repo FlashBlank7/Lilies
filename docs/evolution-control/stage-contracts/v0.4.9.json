@@ -1,0 +1,75 @@
+{
+  "schema_version": "1.0",
+  "stage_version": "v0.4.9",
+  "stage_report": "docs/stage-reports/v0.4.9_daily_web_collection_durable_jobs.md",
+  "contract_revision": 1,
+  "approval_ref": "v0.4.8 closure handoff V04-09-T01 under the capability-boundary report campaign",
+  "source_tasks": [
+    {
+      "task_id": "V04-09-T01",
+      "source_intent_ids": ["ARCH-007", "EVAL-003", "EVAL-004", "SCENARIO-002"],
+      "source_task": "Implement the daily web-collection pressure scenario on a durable job substrate.",
+      "disposition": "accepted mandatory",
+      "authority": "v0.4.8 closure handoff and capability-boundary report campaign."
+    },
+    {
+      "task_id": "V04-10-T01",
+      "source_intent_ids": ["ARCH-008", "EVAL-002", "EVAL-004", "GOV-004", "SCENARIO-003"],
+      "source_task": "Implement the customer-system embedding pressure scenario and Connector/Embedding SDK boundary.",
+      "disposition": "carried forward",
+      "authority": "Carried unchanged from v0.4.8."
+    }
+  ],
+  "mandatory_tasks": [
+    {
+      "task_id": "V04-09-T01A",
+      "source_intent_ids": ["ARCH-007", "SCENARIO-002"],
+      "surface": "architecture / persistence / durable job lifecycle",
+      "acceptance": "A typed durable job record represents queued, running, retry-wait, paused, succeeded, failed, and cancelled states with one deterministic idempotency key, append-only history, attempts, checkpoint, lease owner and fencing version, next attempt, attached workflow run, cancellation request, terminal error, and alert; exact records survive service restart without relying on in-memory tasks.",
+      "required_evidence": "Schema and transition tests, idempotent enqueue tests, atomic claim and fencing tests, lease expiry tests, checkpoint/history ordering tests, restart reconstruction, invalid transition tests, and durable terminal alert assertions."
+    },
+    {
+      "task_id": "V04-09-T01B",
+      "source_intent_ids": ["ARCH-007", "SCENARIO-002"],
+      "surface": "scheduler / workflow execution / retry and recovery",
+      "acceptance": "A durable daily schedule enqueues exactly one job per application, published version, trigger node, and local date; a leased worker starts the editable published workflow, attaches and observes its run, renews or fences ownership, applies bounded exponential retry, recovers expired work after restart, and supports explicit retry, resume, and cancel while preserving the legacy non-durable schedule path.",
+      "required_evidence": "Timezone and duplicate-fire tests, concurrent claim tests, workflow attachment and terminal reconciliation tests, retry/backoff tests, expired-lease restart recovery, explicit retry/resume/cancel tests, stale-owner rejection, event assertions, and legacy scheduler regression."
+    },
+    {
+      "task_id": "V04-09-T01C",
+      "source_intent_ids": ["ARCH-007", "SCENARIO-002"],
+      "surface": "workflow block / daily collection scenario / provenance",
+      "acceptance": "A catalogued daily Web collection scenario remains an editable workflow and combines durable schedule, approved-source collection, deterministic digest, and customer result; collection enforces declared host and robots policy, timeout and size limits, checkpoints each source, deduplicates by canonical URL and content hash across retries and days, and persists source URL, final URL, collection time, permission basis, status, hash, and transformation provenance.",
+      "required_evidence": "Block schema/editor tests, valid scenario/apply tests, local HTTP fixture with allowed, denied, unchanged, changed, oversized, and transient-failure sources, per-source resume tests, cross-day dedupe tests, receipt persistence, digest assertions, and no-arbitrary-site boundary tests."
+    },
+    {
+      "task_id": "V04-09-T01D",
+      "source_intent_ids": ["ARCH-007", "SCENARIO-002"],
+      "surface": "authenticated API / Engineer Studio / Customer Runtime",
+      "acceptance": "Authenticated APIs expose schedule status, next and last fire, durable job list and exact read, ordered events, provenance receipts, and guarded retry, resume, and cancel actions; Engineer Studio exposes engineering history and recovery controls, while Customer Runtime shows only schedule state, collection progress, recoverable failures, provenance, and the latest digest without worker lease or internal test fields.",
+      "required_evidence": "Authorization, pagination, exact-read, action-conflict, and restart API tests; frontend source/accessibility tests; production TypeScript/build; desktop/mobile browser journeys for schedule, progress, retry or cancel, receipts, digest, and disclosure boundaries."
+    },
+    {
+      "task_id": "V04-09-T01E",
+      "source_intent_ids": ["EVAL-003", "EVAL-004", "SCENARIO-002"],
+      "surface": "Evaluation Harness / pressure-scenario evidence",
+      "acceptance": "The daily collection scenario is selectable and applicable, capability-driven generation covers schedule, retry/resume/deduplication, provenance, source access, storage, and notification boundaries, and an H3 local-contract run proves the durable mechanism against a controlled HTTP fixture while live arbitrary-site access remains blocked without explicit eligible evidence.",
+      "required_evidence": "Scenario catalog/apply tests, generated-case coverage assertions, H1 structural and H3 local-contract evaluation, restart evidence, environment blocker tests, exact achieved and excluded claims, and rejection of structural or local evidence as H4 live-site proof."
+    },
+    {
+      "task_id": "V04-09-T01F",
+      "source_intent_ids": ["ARCH-007", "SCENARIO-002"],
+      "surface": "governance / observability / access and claim integrity",
+      "acceptance": "Durable jobs, attempts, alerts, workflow linkage, and collection provenance are governance-queryable; the Capability Evidence Registry enrolls the durable job and controlled collection mechanisms with bounded artifacts, and declared allowlists, robots checks, or local fixture success never imply permission to scrape arbitrary sites, external notification delivery, production SLO, or long-term unattended operation.",
+      "required_evidence": "Governance query/filter tests, task and job trace linkage, alert visibility, capability registration and artifact-integrity tests, access-denial evidence, claim-inflation rejection, unsupported telemetry assertions, and Console visibility checks."
+    },
+    {
+      "task_id": "V04-09-T01G",
+      "source_intent_ids": ["ARCH-007", "EVAL-003", "EVAL-004", "SCENARIO-002"],
+      "surface": "test / evidence / regression / closure",
+      "acceptance": "The durable daily collection vertical survives service restart and preserves generation, editing, execution, acceptance, publication, Evaluation Harness, module, governance, and legacy scheduler behavior; closure records exact commands, controlled-fixture and browser artifacts, unavailable live-site and notification boundaries, historical conflicts, and the strongest honest evidence level.",
+      "required_evidence": "Focused v0.4.9 suite, current release gate, evolution-control suite, full repository diagnostic, Ruff, frontend lint/build, responsive browser artifacts, restart and controlled-HTTP evidence, fresh contract-first closure audit, and checksummed archive."
+    }
+  ],
+  "optional_tasks": []
+}
