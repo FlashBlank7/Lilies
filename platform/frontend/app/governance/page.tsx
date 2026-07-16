@@ -21,6 +21,7 @@ import {
   KeyRound,
   ListTree,
   LoaderCircle,
+  PlugZap,
   RefreshCw,
   Search,
   ServerCog,
@@ -37,6 +38,7 @@ import {
   type GovernanceAlerts,
   type GovernanceEvidence,
   type GovernanceDurableJobs,
+  type GovernanceConnectorOperations,
   type GovernanceOverview,
   type GovernancePolicy,
   type GovernanceReliability,
@@ -57,6 +59,7 @@ const CONSOLE_TABS = [
   'Cost & Tokens',
   'Reliability',
   'Durable Jobs',
+  'Connector Operations',
   'Policy & Risk',
   'Trace Explorer',
   'Capability Evidence',
@@ -75,12 +78,20 @@ type Filters = {
   model: string
   query: string
 }
+type ConnectorFilters = {
+  connectorId: string
+  tenantId: string
+  operationId: string
+  status: string
+  emergencyStop: '' | 'true' | 'false'
+}
 
 const TAB_ICONS = {
   'Overview': Gauge,
   'Cost & Tokens': CircleDollarSign,
   'Reliability': Activity,
   'Durable Jobs': CalendarClock,
+  'Connector Operations': PlugZap,
   'Policy & Risk': ShieldCheck,
   'Trace Explorer': ListTree,
   'Capability Evidence': FileCheck2,
@@ -143,6 +154,18 @@ function durableQueryString(filters: Filters) {
   return `?${query.toString()}`
 }
 
+function connectorQueryString(filters: ConnectorFilters, offset: number) {
+  const query = new URLSearchParams()
+  if (filters.connectorId) query.set('connector_id', filters.connectorId)
+  if (filters.tenantId) query.set('tenant_id', filters.tenantId)
+  if (filters.operationId) query.set('operation_id', filters.operationId)
+  if (filters.status) query.set('status', filters.status)
+  if (filters.emergencyStop) query.set('emergency_stop', filters.emergencyStop)
+  query.set('limit', '100')
+  query.set('offset', String(offset))
+  return `?${query.toString()}`
+}
+
 function TaskStatus({ task }: { task: GovernanceTask }) {
   return <span className={`${styles.taskStatus} ${styles[`status_${task.status}`]}`}><i />{task.status}</span>
 }
@@ -170,6 +193,9 @@ function GovernanceConsolePageContent() {
   const [usage, setUsage] = useState<GovernanceUsage | null>(null)
   const [reliability, setReliability] = useState<GovernanceReliability | null>(null)
   const [durableJobs, setDurableJobs] = useState<GovernanceDurableJobs | null>(null)
+  const [connectors, setConnectors] = useState<GovernanceConnectorOperations | null>(null)
+  const [connectorFilters, setConnectorFilters] = useState<ConnectorFilters>({ connectorId: '', tenantId: '', operationId: '', status: '', emergencyStop: '' })
+  const [connectorOffset, setConnectorOffset] = useState(0)
   const [policy, setPolicy] = useState<GovernancePolicy | null>(null)
   const [evidence, setEvidence] = useState<GovernanceEvidence | null>(null)
   const [alerts, setAlerts] = useState<GovernanceAlerts | null>(null)
@@ -189,13 +215,14 @@ function GovernanceConsolePageContent() {
     setError('')
     const query = queryString(filters)
     try {
-      const [nextApplications, nextOverview, nextTasks, nextUsage, nextReliability, nextDurableJobs, nextPolicy, nextEvidence, nextAlerts] = await Promise.all([
+      const [nextApplications, nextOverview, nextTasks, nextUsage, nextReliability, nextDurableJobs, nextConnectors, nextPolicy, nextEvidence, nextAlerts] = await Promise.all([
         api<ApplicationOption[]>('/api/v1/applications'),
         api<GovernanceOverview>(`/api/v1/governance/overview${query}`),
         api<GovernanceTaskPage>(`/api/v1/governance/tasks${query}${query ? '&' : '?'}limit=${TASK_PAGE_SIZE}&offset=${taskOffset}`),
         api<GovernanceUsage>(`/api/v1/governance/usage${query}${query ? '&' : '?'}interval=hour`),
         api<GovernanceReliability>(`/api/v1/governance/reliability${query}`),
         api<GovernanceDurableJobs>(`/api/v1/governance/durable-jobs${durableQueryString(filters)}`),
+        api<GovernanceConnectorOperations>(`/api/v1/governance/connectors${connectorQueryString(connectorFilters, connectorOffset)}`),
         api<GovernancePolicy>('/api/v1/governance/policy'),
         api<GovernanceEvidence>('/api/v1/governance/capability-evidence'),
         api<GovernanceAlerts>(`/api/v1/governance/alerts${query}`),
@@ -206,6 +233,7 @@ function GovernanceConsolePageContent() {
       setUsage(nextUsage)
       setReliability(nextReliability)
       setDurableJobs(nextDurableJobs)
+      setConnectors(nextConnectors)
       setPolicy(nextPolicy)
       setEvidence(nextEvidence)
       setAlerts(nextAlerts)
@@ -221,7 +249,7 @@ function GovernanceConsolePageContent() {
     } finally {
       setLoading(false)
     }
-  }, [filters, taskOffset])
+  }, [connectorFilters, connectorOffset, filters, taskOffset])
 
   useEffect(() => { void refresh() }, [refresh])
 
@@ -249,6 +277,9 @@ function GovernanceConsolePageContent() {
     })
     return [...values].sort()
   }, [tasks, usage])
+  const connectorIds = useMemo(() => Array.from(new Set((connectors?.manifests || []).map(item => String(item.connector_id)))).sort(), [connectors])
+  const connectorTenantIds = useMemo(() => Array.from(new Set((connectors?.bindings || []).map(item => String(item.tenant_id)))).sort(), [connectors])
+  const connectorOperationIds = useMemo(() => Array.from(new Set((connectors?.manifests || []).flatMap(item => Array.isArray(item.operations) ? item.operations.map(String) : []))).sort(), [connectors])
 
   const usageMax = useMemo(() => Math.max(1, ...(usage?.series || []).map(item => Number(item.input_tokens || 0) + Number(item.output_tokens || 0))), [usage])
   const selectedTask = tasks?.items.find(task => task.id === selectedTaskId)
@@ -285,6 +316,11 @@ function GovernanceConsolePageContent() {
     setFilters(current => ({ ...current, [key]: value }))
   }
 
+  function updateConnectorFilter<Key extends keyof ConnectorFilters>(key: Key, value: ConnectorFilters[Key]) {
+    setConnectorOffset(0)
+    setConnectorFilters(current => ({ ...current, [key]: value }))
+  }
+
   const resetFilters = () => {
     setTaskOffset(0)
     setFilters({ applicationId: '', ownerId: '', status: '', kind: '', model: '', query: '' })
@@ -298,7 +334,7 @@ function GovernanceConsolePageContent() {
       <nav aria-label="Governance views">{CONSOLE_TABS.map(item => {
         const Icon = TAB_ICONS[item]
         const count = item === 'Alerts & Incidents' ? alerts?.total : item === 'Trace Explorer' ? trace?.spans.length : undefined
-        return <button aria-current={tab === item ? 'page' : undefined} className={tab === item ? styles.activeTab : ''} key={item} onClick={() => setTab(item)}><Icon size={16} /><span>{item}</span>{count !== undefined && <b>{count}</b>}</button>
+        return <button aria-current={tab === item ? 'page' : undefined} className={tab === item ? styles.activeTab : ''} data-governance-tab={item} key={item} onClick={() => setTab(item)}><Icon size={16} /><span>{item}</span>{count !== undefined && <b>{count}</b>}</button>
       })}</nav>
       <div className={styles.sidebarFooter}><Link href="/"><ArrowLeft size={15} />Applications</Link>{filters.applicationId && <Link href={`/applications/${filters.applicationId}`}><Boxes size={15} />Engineer Studio</Link>}</div>
     </aside>
@@ -376,6 +412,42 @@ function GovernanceConsolePageContent() {
           {filters.applicationId ? <section className={styles.dataSection}><ScheduleOperationsPanel applicationId={filters.applicationId} audience="engineer" hasSchedule onAuthRequired={() => setAuthNeeded(true)} /></section> : <section className={styles.boundaryNote}><Filter size={16} /><span>Select one application to inspect exact attempts, ordered events, collection receipts, and recovery controls.</span></section>}
           <section className={styles.boundaryNote}><ShieldCheck size={16} /><span>{durableJobs?.claim_boundary}</span></section>
         </>}
+
+        {tab === 'Connector Operations' && <div data-governance-connectors="tenant-redacted">
+          <section className={styles.dataSection}>
+            <header><div><h2>Governed connector scope</h2><p>Filter tenant-safe metadata and redacted operation receipts. Payloads, signatures, and secret references are excluded.</p></div><SupportBadge value={connectors?.support.writeback_receipt} /></header>
+            <div className={styles.policyForm}>
+              <label><span>Connector</span><select value={connectorFilters.connectorId} onChange={event => updateConnectorFilter('connectorId', event.target.value)}><option value="">All connectors</option>{connectorIds.map(item => <option key={item}>{item}</option>)}</select></label>
+              <label><span>Tenant</span><select value={connectorFilters.tenantId} onChange={event => updateConnectorFilter('tenantId', event.target.value)}><option value="">All tenants</option>{connectorTenantIds.map(item => <option key={item}>{item}</option>)}</select></label>
+              <label><span>Operation</span><select value={connectorFilters.operationId} onChange={event => updateConnectorFilter('operationId', event.target.value)}><option value="">All operations</option>{connectorOperationIds.map(item => <option key={item}>{item}</option>)}</select></label>
+              <label><span>Execution status</span><select value={connectorFilters.status} onChange={event => updateConnectorFilter('status', event.target.value)}><option value="">All statuses</option>{['dry_run', 'executing', 'succeeded', 'failed', 'compensated'].map(item => <option key={item}>{item}</option>)}</select></label>
+              <label><span>Emergency stop</span><select value={connectorFilters.emergencyStop} onChange={event => updateConnectorFilter('emergencyStop', event.target.value as ConnectorFilters['emergencyStop'])}><option value="">Any policy state</option><option value="true">Enabled</option><option value="false">Disabled</option></select></label>
+            </div>
+          </section>
+
+          <section className={styles.metricGrid}>
+            {['dry_run', 'executing', 'succeeded', 'failed', 'compensated'].map(status => <article key={status}><span>{status.replaceAll('_', ' ')}</span><strong>{connectors?.counts[status] || 0}</strong><small>redacted receipts in page</small><PlugZap size={18} /></article>)}
+            <article><span>Exercises</span><strong>{connectors?.exercises.length || 0}</strong><small>stop and compensation evidence</small><ShieldCheck size={18} /></article>
+          </section>
+
+          <section className={styles.dataSection}>
+            <header><div><h2>Execution receipts</h2><p>Operational outcome, side-effect state, callback state, and compensability without business payload disclosure.</p></div><span>{connectors?.items.length || 0} on this page</span></header>
+            <div className={styles.tableWrap}><table><thead><tr><th>Execution</th><th>Tenant / connector</th><th>Operation</th><th>Status</th><th>Side effect</th><th>Callback</th><th>Updated</th></tr></thead><tbody>{connectors?.items.map(item => <tr key={item.execution_id}><td><strong>{shortId(item.execution_id)}</strong><code>{item.profile_id}</code></td><td><span>{item.tenant_id}</span><small>{item.connector_id}@{item.connector_version}</small></td><td>{item.operation_id}</td><td><span className={`${styles.taskStatus} ${styles[`status_${item.status}`]}`}><i />{item.status}</span></td><td>{item.side_effect_state}{item.compensation_available && <small> · compensable</small>}</td><td>{item.callback_status || 'not requested'}</td><td>{time(item.updated_at)}</td></tr>)}</tbody></table>{!connectors?.items.length && <div className={styles.emptyState}>No connector receipts match this scope.</div>}</div>
+            {connectors && (connectors.offset > 0 || connectors.has_more) && <footer className={styles.supportFooter}><span>Offset {connectors.offset}</span><span><button className={styles.rowAction} disabled={connectors.offset === 0 || loading} onClick={() => setConnectorOffset(Math.max(0, connectors.offset - connectors.limit))} aria-label="Previous connector receipt page" title="Previous connector receipt page"><ChevronLeft size={15} /></button><strong>{connectors.items.length} records</strong><button className={styles.rowAction} disabled={!connectors.has_more || loading} onClick={() => setConnectorOffset(connectors.offset + connectors.limit)} aria-label="Next connector receipt page" title="Next connector receipt page"><ChevronRight size={15} /></button></span></footer>}
+          </section>
+
+          <section className={styles.splitSections}>
+            <div className={styles.dataSection}><header><div><h2>Versioned contracts</h2><p>Immutable connector versions and profile claim ceilings.</p></div><SupportBadge value={connectors?.support.schema_contract} /></header><div className={styles.compactList}>{connectors?.manifests.map(item => <div key={`${String(item.connector_id)}-${String(item.version)}`}><span><strong>{String(item.title)}</strong><small>{String(item.connector_id)}@{String(item.version)} · {String(item.domain)}</small></span><b>{Array.isArray(item.operations) ? item.operations.length : 0} ops</b></div>)}{!connectors?.manifests.length && <div className={styles.emptyState}>No connector contracts in this scope.</div>}</div></div>
+            <div className={styles.dataSection}><header><div><h2>Tenant bindings</h2><p>Mapped subjects and allowed operation counts only.</p></div><SupportBadge value={connectors?.support.tenant_identity} /></header><div className={styles.compactList}>{connectors?.bindings.map((item, index) => <div key={`${String(item.connector_id)}-${String(item.tenant_id)}-${index}`}><span><strong>{String(item.tenant_id)}</strong><small>{String(item.connector_id)}@{String(item.connector_version)} · profile {String(item.profile_id)}</small></span><b>{String(item.subject_count)} subjects</b><em>{item.enabled ? 'enabled' : 'disabled'}</em></div>)}{!connectors?.bindings.length && <div className={styles.emptyState}>No tenant bindings in this scope.</div>}</div></div>
+          </section>
+
+          <section className={styles.splitSections}>
+            <div className={styles.dataSection}><header><div><h2>Writeback policies</h2><p>Revisioned authorization and emergency-stop state.</p></div><SupportBadge value={connectors?.support.policy} /></header><div className={styles.compactList}>{connectors?.policies.map((item, index) => <div key={`${String(item.connector_id)}-${String(item.tenant_id)}-${index}`}><span><strong>{String(item.tenant_id)} · {String(item.domain)}</strong><small>revision {String(item.revision)} · preauthorization {item.mutation_preauthorization_required ? 'required' : 'optional'}</small></span><b className={item.emergency_stop ? styles.badText : styles.goodText}>{item.emergency_stop ? 'STOPPED' : 'active'}</b></div>)}{!connectors?.policies.length && <div className={styles.emptyState}>No policies in this scope.</div>}</div></div>
+            <div className={styles.dataSection}><header><div><h2>Control exercises</h2><p>Bounded evidence for emergency-stop denial and explicit compensation.</p></div><SupportBadge value={connectors?.support.compensation_exercise} /></header><div className={styles.compactList}>{connectors?.exercises.map(item => <div key={item.id}><span><strong>{item.kind.replaceAll('_', ' ')}</strong><small>{item.tenant_id} · {time(item.created_at)}</small></span><b className={item.status === 'passed' ? styles.goodText : styles.badText}>{item.status}</b><em>{item.evidence_level}</em></div>)}{!connectors?.exercises.length && <div className={styles.emptyState}>No control exercises recorded.</div>}</div></div>
+          </section>
+          <section className={styles.supportMatrix}><h2>Evidence support</h2>{Object.entries(connectors?.support || {}).map(([key, value]) => <div key={key}><span>{key.replaceAll('_', ' ')}</span><SupportBadge value={value} /></div>)}</section>
+          <section className={styles.boundaryNote}><ShieldCheck size={16} /><span>{connectors?.claim_boundary}</span></section>
+        </div>}
 
         {tab === 'Policy & Risk' && <>
           <section className={styles.policyLayout}>

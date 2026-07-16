@@ -114,7 +114,7 @@ def test_junit_inventory_separates_known_and_current_failures(tmp_path: Path) ->
 
     result = module.classify(junit)
 
-    assert result["stage"] == "v0.4.9"
+    assert result["stage"] == "v0.4.10"
     assert result["classification_counts"] == {
         "archived_expectation_conflict": 1,
         "current_regression": 1,
@@ -133,25 +133,25 @@ def test_current_gate_declares_existing_tests_and_exact_source() -> None:
     manifest = json.loads((ROOT / "docs/testing/regression_lanes.json").read_text(encoding="utf-8"))
     gate = next(lane for lane in manifest["lanes"] if lane["id"] == manifest["policy"]["current_gate"])
 
-    assert manifest["version"] == "v0.4.9"
+    assert manifest["version"] == "v0.4.10"
     assert manifest["source_stage_report"].endswith(
-        "v0.4.9_daily_web_collection_durable_jobs.md"
+        "v0.4.10_connector_embedding_governed_writeback.md"
     )
     assert gate["status"] == "gating"
-    assert gate["expected"]["pass_count"] == 101
-    assert "tests/test_v04_09_durable_daily_collection.py" in gate["test_files"]
+    assert gate["expected"]["pass_count"] == 111
+    assert "tests/test_v04_10_connector_embedding.py" in gate["test_files"]
     assert gate["test_files"]
     assert all((ROOT / nodeid.split("::", 1)[0]).exists() for nodeid in gate["test_files"])
     assert all(nodeid in gate["command"] for nodeid in gate["test_files"])
 
 
-def test_v049_runtime_version_progresses_without_breaking_prior_v04_evidence() -> None:
+def test_v0410_runtime_version_progresses_without_breaking_prior_v04_evidence() -> None:
     from agent_platform import __version__
 
     historical_check = (ROOT / "scripts/v04_00_ai_requirement_intake.py").read_text(
         encoding="utf-8"
     )
 
-    assert __version__ == "v0.4.9"
+    assert __version__ == "v0.4.10"
     assert "runtime_version = re.search" in historical_check
     assert "int(runtime_version.group(1)) >= 1" in historical_check

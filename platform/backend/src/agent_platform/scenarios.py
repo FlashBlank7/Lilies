@@ -16,6 +16,7 @@ from .capability_contracts import (
     VerificationStatus,
     reference_capability_contract,
 )
+from .connector_sdk import ConnectorService
 from .workflow_models import TestAssertion, TestFrameSpec, WorkflowSpec, WorkflowTestCase
 
 
@@ -61,18 +62,27 @@ class ScenarioDefinition(BaseModel):
 
 
 class ScenarioCatalog:
-    def __init__(self, blocks: BlockRegistry) -> None:
+    def __init__(
+        self,
+        blocks: BlockRegistry,
+        *,
+        connectors: ConnectorService | None = None,
+    ) -> None:
         self.blocks = blocks
+        self.connectors = connectors
 
     def list(self) -> list[dict[str, Any]]:
         return [
             self.get("codex_like_workspace_agent").summary(),
             self.get("daily_web_collection").summary(),
+            self.get("customer_system_embedding").summary(),
         ]
 
     def get(self, scenario_id: str) -> ScenarioDefinition:
         if scenario_id == "daily_web_collection":
             return self._daily_web_collection()
+        if scenario_id == "customer_system_embedding":
+            return self._customer_system_embedding()
         if scenario_id != "codex_like_workspace_agent":
             raise KeyError(f"unknown scenario: {scenario_id}")
         prefix = "codex"
@@ -303,6 +313,310 @@ class ScenarioCatalog:
             workflow=workflow,
             acceptance_cases=self._daily_acceptance_cases(prefix),
         )
+
+    def _customer_system_embedding(self) -> ScenarioDefinition:
+        prefix = "customer"
+        contract = reference_capability_contract("customer_system_embedding")
+        availability = (
+            self.connectors.contract_availability("customer_system", 1)
+            if self.connectors is not None
+            else {
+                "available": False,
+                "manifest": False,
+                "tenant_bindings": 0,
+                "available_profiles": [],
+                "claim_ceiling": "H0",
+            }
+        )
+        environment_available = bool(availability["available"])
+        level_number = (
+            min(int(str(availability["claim_ceiling"])[1:]), 3)
+            if environment_available
+            else 1
+        )
+        selected_level = f"H{max(level_number, 1)}"
+        status_by_level: dict[str, VerificationStatus] = {
+            "H1": VerificationStatus.static_verified,
+            "H2": VerificationStatus.component_verified,
+            "H3": VerificationStatus.integration_verified,
+        }
+        selected_status = status_by_level[selected_level]
+        external_ids = {item.id for item in contract.external_contracts}
+        binding_refs = {
+            "F.embedded_request": ["customer_request", "customer_read"],
+            "F.governed_writeback": ["customer_writeback", "customer_answer"],
+            "G.tenant_isolation": ["platform.connector_identity", "customer_read"],
+            "G.idempotent_write": ["platform.connector_idempotency", "customer_writeback"],
+            "G.compensation": ["platform.connector_compensation", "customer_writeback"],
+            "G.audit": ["platform.connector_audit", "customer_answer"],
+            "X.customer_identity": ["platform.connector_embedding_ingress"],
+            "X.customer_schema": ["platform.connector_manifest", "customer_read"],
+            "X.customer_writeback": ["customer_writeback"],
+            "X.customer_callback": ["platform.connector_callback"],
+            "X.deployment": ["platform.connector_deployment_profile"],
+        }
+        for decision in contract.carrier_decisions:
+            if decision.capability_id in external_ids and not environment_available:
+                decision.status = CarrierStatus.blocked_by_environment
+            else:
+                decision.status = CarrierStatus.bound
+            decision.implementation_refs = binding_refs[decision.capability_id]
+        for external in contract.external_contracts:
+            if environment_available:
+                external.availability = EnvironmentAvailability.available
+                external.provider = "configured controlled Connector test tenant"
+                external.interface = {
+                    "X.customer_identity": "signed embedding ingress",
+                    "X.customer_schema": "Connector manifest schema",
+                    "X.customer_writeback": "idempotent Connector adapter",
+                    "X.customer_callback": "signed ordered callback endpoint",
+                    "X.deployment": "versioned Connector deployment profile",
+                }[external.id]
+                external.availability_reason = (
+                    "A configured controlled-test tenant and available profile are attached."
+                )
+        for coverage in contract.platform_coverage:
+            if coverage.capability_id in external_ids and not environment_available:
+                coverage.status = CoverageStatus.missing
+                coverage.surface = "connector environment not configured"
+            else:
+                coverage.status = CoverageStatus.available
+                coverage.surface = "Connector SDK and controlled embedding integration"
+        for evidence in contract.evidence_plan:
+            external_evidence = any(
+                capability_id in external_ids
+                for capability_id in evidence.capability_ids
+            )
+            if external_evidence and not environment_available:
+                evidence.target_level = EvidenceLevel.H1
+                evidence.expected_status = VerificationStatus.blocked_by_environment
+                evidence.claim_scope = (
+                    "Typed external contract only; no eligible controlled-test tenant is configured."
+                )
+            else:
+                evidence.target_level = EvidenceLevel(selected_level)
+                evidence.expected_status = selected_status
+                evidence.claim_scope = (
+                    "Configured Lilies Connector mechanics inside one controlled test tenant only."
+                )
+        contract.claim_scope.ceiling = selected_status
+        contract.claim_scope.verified = [
+            "versioned Connector contract and editable workflow carriers",
+            *(
+                ["controlled-test tenant identity, dry-run, writeback, callback, and compensation evidence"]
+                if environment_available and selected_level == "H3"
+                else []
+            ),
+        ]
+        contract.claim_scope.excluded = sorted(
+            set(contract.claim_scope.excluded)
+            | {
+                "real customer production identity",
+                "unobserved customer tenants",
+                "production writeback reliability or SLO",
+                "production deployment compliance",
+            }
+        )
+        workflow = self.blocks.expand_template(
+            "customer_system_embedding",
+            prefix=prefix,
+        )
+        validation_errors = self.blocks.validate_workflow(workflow)
+        if validation_errors:
+            raise ValueError("invalid built-in scenario: " + "; ".join(validation_errors))
+        return ScenarioDefinition(
+            id="customer_system_embedding",
+            title="Governed Customer-System Embedding",
+            description=(
+                "Receive a signed tenant request, validate it against a versioned Connector contract, "
+                "read authorized context, and expose a dry-run-to-preauthorized writeback path with "
+                "ordered callbacks, compensation, and audit evidence."
+            ),
+            customer_outcome=(
+                "Use the workflow from a customer system while operators can inspect the exact tenant, "
+                "policy, receipt, callback, and recovery state without exposing credentials."
+            ),
+            capability_set=[item.id for item in contract.capabilities],
+            required_envelope=(
+                "E5 contract shape; current evidence is capped at controlled local H3 and does not "
+                "establish customer-production readiness"
+            ),
+            external_contracts=[
+                f"{item.id}: {item.description} [{item.availability.value}] {item.availability_reason}"
+                for item in contract.external_contracts
+            ],
+            runtime_inputs=[
+                {
+                    "name": "request",
+                    "type": "object",
+                    "required": True,
+                    "default": {"case_id": "case-001"},
+                    "customer_visible": True,
+                },
+                {
+                    "name": "write_mode",
+                    "type": "string",
+                    "required": True,
+                    "default": "dry_run",
+                    "customer_visible": True,
+                },
+            ],
+            structural_contract={
+                "top_level_node_types": [
+                    "start",
+                    "variable_assigner",
+                    "connector_action",
+                    "llm",
+                    "answer",
+                ],
+                "platform_controls": [
+                    "signed identity and tenant mapping",
+                    "immutable manifest and schema validation",
+                    "domain policy and emergency stop",
+                    "payload-bound preauthorization",
+                    "idempotent writeback",
+                    "ordered signed callback",
+                    "explicit compensation",
+                    "tenant-scoped audit",
+                ],
+                "environment_availability": availability,
+            },
+            evidence_profile=ScenarioEvidenceProfile(
+                profile_id="customer_embedding_controlled_boundary",
+                selected_level=selected_level,
+                status=selected_status.value,
+                model_boundary="configured runtime model; no general model-quality claim",
+                tool_boundary=(
+                    "versioned Connector operations through tenant policy, preauthorization, and "
+                    "allowlisted egress"
+                ),
+                environment_boundary=(
+                    "one controlled test tenant and HTTP fixture"
+                    if environment_available
+                    else "no eligible controlled-test tenant is configured"
+                ),
+                claim_scope=(
+                    "Controlled H3 Connector integration for the configured test tenant"
+                    if selected_level == "H3"
+                    else "Editable Connector contract and workflow structure only"
+                ),
+                excluded_claims=list(contract.claim_scope.excluded),
+            ),
+            capability_build_contract=contract,
+            workflow=workflow,
+            acceptance_cases=self._customer_embedding_acceptance_cases(
+                environment_available=environment_available,
+            ),
+        )
+
+    @staticmethod
+    def _customer_embedding_acceptance_cases(
+        *,
+        environment_available: bool,
+    ) -> list[WorkflowTestCase]:
+        cases = [
+            WorkflowTestCase(
+                id="customer_embedding_editable_contract",
+                name="Embedding carriers remain editable and governed",
+                requirement=(
+                    "Identity, schema mapping, read, decision, writeback, receipt, and recovery "
+                    "carriers must remain explicit."
+                ),
+                frame=TestFrameSpec(
+                    title="Customer embedding contract carriers",
+                    category="structure",
+                    purpose="Prevent customer embedding from collapsing into an opaque webhook.",
+                    reviewer_guidance=(
+                        "Static structure does not prove a customer deployment or production tenant boundary."
+                    ),
+                    reference="SCENARIO-003 / ARCH-008",
+                    failure_target="Read Tenant Context or Governed Customer Writeback",
+                ),
+                inputs={
+                    "tenant_id": "test-tenant",
+                    "actor_id": "test-operator",
+                    "actor_roles": ["operator"],
+                    "request": {"case_id": "case-001"},
+                    "connector_profile_id": "test",
+                    "connector_authorization_id": "",
+                    "connector_idempotency_key": "scenario-controlled-dry-run",
+                    "write_mode": "dry_run",
+                },
+                assertions=[TestAssertion(path=["answer"], operator="exists", structural=True)],
+                required_node_types=[
+                    "start",
+                    "variable_assigner",
+                    "connector_action",
+                    "llm",
+                    "answer",
+                ],
+                mandatory=True,
+                structural_only=True,
+                capability_ids=[
+                    "F.embedded_request",
+                    "F.governed_writeback",
+                    "G.tenant_isolation",
+                    "G.idempotent_write",
+                    "G.compensation",
+                    "G.audit",
+                ],
+                evidence_target=AcceptanceEvidenceTarget(
+                    level=EvidenceLevel.H1,
+                    environment=EvidenceEnvironment.mock,
+                    expected_status=VerificationStatus.static_verified,
+                    claim_scope="Editable workflow and platform-control references only.",
+                ),
+            )
+        ]
+        if not environment_available:
+            return cases
+        cases.append(
+            WorkflowTestCase(
+                id="customer_embedding_controlled_dry_run",
+                name="Controlled tenant dry-run returns a governed receipt",
+                requirement=(
+                    "A configured test tenant must execute the read path and preview the writeback "
+                    "without applying a mutation."
+                ),
+                frame=TestFrameSpec(
+                    title="Controlled embedding dry-run",
+                    category="safety",
+                    purpose="Prove tenant routing, schema validation, and adapter bypass for mutation preview.",
+                    reviewer_guidance=(
+                        "Inspect Connector events to confirm the write adapter was not called."
+                    ),
+                    reference="SCENARIO-003 / GOV-004",
+                    failure_target="Governed Customer Writeback",
+                ),
+                inputs={
+                    "tenant_id": "test-tenant",
+                    "actor_id": "test-operator",
+                    "actor_roles": ["operator"],
+                    "request": {"case_id": "case-001"},
+                    "connector_profile_id": "test",
+                    "connector_authorization_id": "",
+                    "connector_idempotency_key": "scenario-controlled-dry-run",
+                    "write_mode": "dry_run",
+                },
+                assertions=[TestAssertion(path=["answer"], operator="exists", structural=True)],
+                required_node_types=["connector_action", "answer"],
+                mandatory=True,
+                structural_only=False,
+                capability_ids=[
+                    "F.embedded_request",
+                    "F.governed_writeback",
+                    "X.customer_schema",
+                    "X.customer_writeback",
+                ],
+                evidence_target=AcceptanceEvidenceTarget(
+                    level=EvidenceLevel.H3,
+                    environment=EvidenceEnvironment.contract,
+                    expected_status=VerificationStatus.integration_verified,
+                    claim_scope="One configured controlled-test tenant; production remains excluded.",
+                ),
+            )
+        )
+        return cases
 
     @staticmethod
     def _daily_acceptance_cases(prefix: str) -> list[WorkflowTestCase]:

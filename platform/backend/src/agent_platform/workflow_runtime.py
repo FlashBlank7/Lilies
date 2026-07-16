@@ -20,6 +20,7 @@ from .blocks import (
     ClaudeAgentConfig,
     ClassifierConfig,
     CollectionDigestConfig,
+    ConnectorActionConfig,
     Condition,
     EndConfig,
     HTTPConfig,
@@ -37,6 +38,7 @@ from .blocks import (
     VariableAssignerConfig,
     WebCollectionConfig,
 )
+from .connector_sdk import ConnectorExecutionRequest, ConnectorService
 from .models import AgentSpec, ChatMessage, ContentBlock, PermissionMode, Usage
 from .governed_memory import GovernedMemoryPermission, GovernedMemorySurface, GovernedMemoryViolation
 from .platform_harness import PlatformHarness
@@ -86,6 +88,7 @@ class WorkflowRuntime:
         runtime_model: str,
         governed_memory: GovernedMemorySurface | None = None,
         web_collector: ControlledWebCollector | None = None,
+        connector_service: ConnectorService | None = None,
     ) -> None:
         self.storage = storage
         self.workflow_store = workflow_store
@@ -99,6 +102,7 @@ class WorkflowRuntime:
         self.runtime_model = runtime_model
         self.governed_memory = governed_memory
         self.web_collector = web_collector
+        self.connector_service = connector_service
         self.active_tasks: dict[str, asyncio.Task[None]] = {}
 
     async def create_run(
@@ -626,6 +630,59 @@ class WorkflowRuntime:
                 self._resolve(config.collection, context),
                 self._resolve(config.topic, context),
             )
+        if isinstance(config, ConnectorActionConfig):
+            if self.connector_service is None:
+                raise RuntimeError("Connector service is not configured")
+            tenant_id = str(self._resolve(config.tenant_id, context))
+            actor_id = str(self._resolve(config.actor_id, context))
+            actor_roles = self._resolve(config.actor_roles, context)
+            profile_id = str(self._resolve(config.profile_id, context))
+            payload = self._resolve(config.payload, context)
+            idempotency_key = str(self._resolve(config.idempotency_key, context))
+            authorization_id = str(self._resolve(config.authorization_id, context) or "")
+            execution_mode = str(self._resolve(config.execution_mode, context))
+            if not isinstance(actor_roles, list) or not all(
+                isinstance(item, str) and item for item in actor_roles
+            ):
+                raise ValueError("connector actor_roles must resolve to a non-empty string array")
+            if not isinstance(payload, dict):
+                raise ValueError("connector payload must resolve to an object")
+            if execution_mode not in {"dry_run", "execute"}:
+                raise ValueError("connector execution_mode must be dry_run or execute")
+            execution = await self.connector_service.execute(
+                ConnectorExecutionRequest(
+                    connector_id=config.connector_id,
+                    connector_version=config.connector_version,
+                    tenant_id=tenant_id,
+                    actor_id=actor_id,
+                    actor_roles=actor_roles,
+                    profile_id=profile_id,
+                    operation_id=config.operation_id,
+                    payload=payload,
+                    idempotency_key=idempotency_key,
+                    authorization_id=authorization_id,
+                    dry_run=execution_mode == "dry_run",
+                    application_id=state.application_id if state else "",
+                    run_id=run_id,
+                )
+            )
+            receipt = execution.public_receipt()
+            await self._emit(
+                run_id,
+                "connector.execution.completed",
+                {
+                    "node_id": scoped_id,
+                    "execution_id": execution.id,
+                    "operation_id": execution.operation_id,
+                    "status": execution.status,
+                    "replayed": execution.replayed,
+                },
+            )
+            return {
+                "output": receipt,
+                "receipt": receipt,
+                "response": execution.response,
+            }
         if isinstance(config, IterationConfig):
             items = self._resolve(config.items, context)
             if not isinstance(items, list):

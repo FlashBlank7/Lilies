@@ -1,0 +1,378 @@
+.panel {
+  display: grid;
+  gap: 18px;
+  color: #dce3ea;
+}
+
+.heading,
+.section > header,
+.actions,
+.stopRow,
+.receipts article,
+.receiptMain,
+.eventList > div,
+.exerciseList > div {
+  display: flex;
+  align-items: center;
+}
+
+.heading {
+  justify-content: space-between;
+}
+
+.heading span,
+.section > header {
+  color: #82d7c6;
+}
+
+.heading span {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.heading h2 {
+  margin: 5px 0 0;
+  color: #f5f7f9;
+  font-size: 18px;
+  letter-spacing: 0;
+}
+
+.iconButton,
+.receipts article > div button {
+  display: inline-grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  padding: 0;
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-block: 1px solid #303842;
+}
+
+.metrics span {
+  display: grid;
+  gap: 2px;
+  padding: 10px 6px;
+  color: #8f9aa5;
+  font-size: 10px;
+  text-align: center;
+}
+
+.metrics b {
+  color: #f4f6f8;
+  font-size: 17px;
+}
+
+.error,
+.notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 0;
+  border-block: 1px solid #713c3c;
+  color: #ffb4ad;
+  font-size: 12px;
+}
+
+.notice {
+  border-color: #2f665d;
+  color: #91decf;
+}
+
+.section {
+  display: grid;
+  gap: 11px;
+  padding-top: 14px;
+  border-top: 1px solid #303842;
+}
+
+.section > header {
+  gap: 9px;
+}
+
+.section > header div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.section > header strong {
+  color: #eef2f5;
+  font-size: 13px;
+}
+
+.section > header small {
+  overflow: hidden;
+  color: #89949f;
+  font-size: 10px;
+  text-overflow: ellipsis;
+}
+
+.contractList {
+  display: grid;
+  gap: 6px;
+}
+
+.contractList button {
+  display: grid;
+  gap: 2px;
+  padding: 9px 10px;
+  border: 1px solid #39434d;
+  background: #20262c;
+  color: #e6ebef;
+  text-align: left;
+}
+
+.contractList button.selected {
+  border-color: #48a999;
+  background: #1d302e;
+}
+
+.contractList span,
+.contractList small {
+  color: #96a0aa;
+  font-size: 10px;
+}
+
+.details summary {
+  cursor: pointer;
+  color: #aab4bd;
+  font-size: 11px;
+}
+
+.details[open] {
+  display: grid;
+  gap: 8px;
+}
+
+.details textarea,
+.formGrid textarea {
+  min-height: 120px;
+  resize: vertical;
+}
+
+.formGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.formGrid label {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+}
+
+.formGrid label > span {
+  color: #9ca7b1;
+  font-size: 10px;
+}
+
+.formGrid input,
+.formGrid select,
+.formGrid textarea,
+.stopRow input,
+.details textarea {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid #3b4650;
+  background: #151a1f;
+  color: #edf1f4;
+  font: inherit;
+}
+
+.formGrid input,
+.formGrid select,
+.stopRow input {
+  min-height: 34px;
+  padding: 6px 8px;
+}
+
+.formGrid textarea,
+.details textarea {
+  padding: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+
+.formGrid .wide {
+  grid-column: 1 / -1;
+}
+
+.formGrid .check {
+  display: flex;
+  grid-column: 1 / -1;
+  align-items: center;
+  gap: 7px;
+}
+
+.formGrid .check input {
+  width: 16px;
+  min-height: 16px;
+}
+
+.actions,
+.stopRow {
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.actions button,
+.section > button,
+.details button,
+.stopRow button {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+}
+
+.secondary {
+  border-color: #46515b !important;
+  background: #252c33 !important;
+  color: #d4dbe0 !important;
+}
+
+.stopRow input {
+  flex: 1 1 180px;
+}
+
+.stop {
+  border-color: #8d4545 !important;
+  background: #6f3434 !important;
+}
+
+.resume {
+  border-color: #397466 !important;
+  background: #2a5e53 !important;
+}
+
+.receipts {
+  display: grid;
+  gap: 1px;
+  background: #303942;
+}
+
+.receipts article {
+  min-width: 0;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 8px;
+  background: #1b2127;
+}
+
+.receiptMain {
+  min-width: 0;
+  flex: 1;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: 5px 7px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #e5eaee;
+  text-align: left;
+}
+
+.receiptMain code,
+.receiptMain small {
+  color: #929da7;
+  font-size: 10px;
+}
+
+.receiptMain small {
+  width: 100%;
+}
+
+.status {
+  padding: 2px 5px;
+  border: 1px solid #59636d;
+  color: #cbd2d8;
+  font-size: 9px;
+  text-transform: uppercase;
+}
+
+.status.succeeded,
+.status.compensated {
+  border-color: #3f806f;
+  color: #8de0c9;
+}
+
+.status.failed {
+  border-color: #8f4a4a;
+  color: #ffaaa3;
+}
+
+.status.dry_run {
+  border-color: #90733b;
+  color: #f0ce81;
+}
+
+.eventList {
+  display: grid;
+  gap: 5px;
+  padding-top: 8px;
+  border-top: 1px solid #38414a;
+}
+
+.eventList > strong {
+  font-size: 11px;
+}
+
+.eventList > div {
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 10px;
+}
+
+.eventList span {
+  color: #838f99;
+}
+
+.exerciseList {
+  display: grid;
+  gap: 5px;
+}
+
+.exerciseList > div {
+  justify-content: space-between;
+  gap: 7px;
+  padding: 7px 0;
+  border-bottom: 1px solid #303842;
+  font-size: 10px;
+}
+
+.exerciseList strong {
+  color: #92d8c9;
+}
+
+.empty {
+  color: #87929c;
+  font-size: 11px;
+}
+
+.spin {
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (max-width: 760px) {
+  .formGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .formGrid .wide,
+  .formGrid .check {
+    grid-column: 1;
+  }
+}

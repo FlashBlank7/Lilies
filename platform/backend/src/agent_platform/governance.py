@@ -16,6 +16,7 @@ from .capability_evidence import (
     EvidenceArtifact,
     EvidenceGap,
 )
+from .connector_sdk import ConnectorService
 from .durable_jobs import DurableJobRecord, DurableJobStatus, DurableJobStore
 from .models import utc_now
 from .platform_harness import PlatformHarness, PlatformTaskRecord
@@ -62,12 +63,14 @@ class GovernanceService:
         workflow_store: WorkflowStorage,
         templates: TemplateStore,
         durable_jobs: DurableJobStore,
+        connectors: ConnectorService,
     ) -> None:
         self.storage = storage
         self.harness = harness
         self.workflow_store = workflow_store
         self.templates = templates
         self.durable_jobs = durable_jobs
+        self.connectors = connectors
 
     async def tasks(
         self,
@@ -205,6 +208,125 @@ class GovernanceService:
             "claim_boundary": (
                 "Bounded local durable-job operations and controlled collection evidence; "
                 "not a production reliability or arbitrary-site access claim."
+            ),
+        }
+
+    async def connector_operations(
+        self,
+        *,
+        connector_id: str | None = None,
+        tenant_id: str | None = None,
+        operation_id: str | None = None,
+        status: str | None = None,
+        emergency_stop: bool | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        normalized_limit = max(1, min(limit, 200))
+        normalized_offset = max(0, offset)
+        executions = await self.connectors.list_executions(
+            connector_id=connector_id,
+            tenant_id=tenant_id,
+            operation_id=operation_id,
+            status=status,
+            limit=normalized_limit,
+            offset=normalized_offset,
+        )
+        policies = [
+            item
+            for item in await self.connectors.list_policies()
+            if (not connector_id or item.connector_id == connector_id)
+            and (not tenant_id or item.tenant_id == tenant_id)
+            and (emergency_stop is None or item.emergency_stop is emergency_stop)
+        ]
+        bindings = await self.connectors.list_bindings(
+            connector_id,
+            tenant_id=tenant_id,
+        )
+        exercises = await self.connectors.list_exercises(
+            connector_id=connector_id,
+            tenant_id=tenant_id,
+        )
+        manifests = [
+            item
+            for item in await self.connectors.list_manifests()
+            if not connector_id or item.connector_id == connector_id
+        ]
+        counts = Counter(item.status for item in executions)
+        return {
+            "items": [item.public_receipt() for item in executions],
+            "offset": normalized_offset,
+            "limit": normalized_limit,
+            "has_more": len(executions) == normalized_limit,
+            "counts": dict(counts),
+            "manifests": [
+                {
+                    "connector_id": item.connector_id,
+                    "version": item.version,
+                    "title": item.title,
+                    "domain": item.domain,
+                    "operations": [operation.id for operation in item.operations],
+                    "profiles": [
+                        {
+                            "id": profile.id,
+                            "environment": profile.environment,
+                            "available": profile.available,
+                            "claim_ceiling": profile.claim_ceiling,
+                        }
+                        for profile in item.deployment_profiles
+                    ],
+                }
+                for item in manifests
+            ],
+            "bindings": [
+                {
+                    "connector_id": item.connector_id,
+                    "connector_version": item.connector_version,
+                    "tenant_id": item.tenant_id,
+                    "profile_id": item.profile_id,
+                    "application_count": len(item.application_ids),
+                    "allowed_operations": item.allowed_operations,
+                    "subject_count": len(item.subjects),
+                    "enabled": item.enabled,
+                    "revision": item.revision,
+                }
+                for item in bindings
+            ],
+            "policies": [
+                {
+                    "connector_id": item.connector_id,
+                    "connector_version": item.connector_version,
+                    "tenant_id": item.tenant_id,
+                    "domain": item.domain,
+                    "allowed_profiles": item.allowed_profiles,
+                    "allowed_operations": item.allowed_operations,
+                    "mutation_preauthorization_required": (
+                        item.mutation_preauthorization_required
+                    ),
+                    "emergency_stop": item.emergency_stop,
+                    "emergency_reason": item.emergency_reason,
+                    "revision": item.revision,
+                }
+                for item in policies
+            ],
+            "exercises": [item.model_dump(mode="json") for item in exercises[:100]],
+            "support": {
+                "tenant_identity": "reported" if bindings else "not_recorded",
+                "schema_contract": "reported" if manifests else "not_recorded",
+                "policy": "reported" if policies else "not_recorded",
+                "idempotency": "reported",
+                "writeback_receipt": "reported" if executions else "not_recorded",
+                "callback": "reported" if any(item.callback_status for item in executions) else "not_recorded",
+                "compensation_exercise": (
+                    "reported"
+                    if any(item.kind == "compensation" for item in exercises)
+                    else "not_recorded"
+                ),
+                "production_slo": "unsupported",
+            },
+            "claim_boundary": (
+                "Tenant-safe Connector metadata and controlled-test evidence only; raw secrets are "
+                "never projected here, and production readiness is unsupported."
             ),
         }
 
@@ -502,6 +624,22 @@ class GovernanceService:
                     "missing": True,
                     "reason": "linked durable job record was not found",
                 }
+        connector_records = []
+        seen_connector_executions: set[str] = set()
+        for related_id in related_ids:
+            for record in await self.connectors.list_executions(
+                run_id=related_id,
+                limit=200,
+            ):
+                if record.id in seen_connector_executions:
+                    continue
+                seen_connector_executions.add(record.id)
+                connector_records.append(record)
+        connector_events: list[dict[str, Any]] = []
+        for record in connector_records:
+            connector_events.extend(
+                await self.connectors.list_events(execution_id=record.id, limit=1000)
+            )
         return {
             "requested_task_id": task_id,
             "root_task_id": root_id,
@@ -509,11 +647,20 @@ class GovernanceService:
             "tree": build(root_id, set()),
             "spans": spans,
             "durable_job": durable_trace,
+            "connector": {
+                "executions": [item.public_receipt() for item in connector_records],
+                "events": connector_events,
+                "claim_boundary": (
+                    "Tenant-safe Connector receipts and audit events; raw request payloads and secrets "
+                    "are excluded from this trace projection."
+                ),
+            },
             "support": {
                 "parent_child": "reported",
                 "task_usage": "reported",
                 "task_events": "reported",
                 "durable_job_link": "reported" if durable_job_id else "not_recorded",
+                "connector_link": "reported" if connector_records else "not_recorded",
                 "distributed_trace_context": "unsupported",
             },
         }
@@ -1133,6 +1280,42 @@ PLATFORM_EVIDENCE_SPECS: tuple[dict[str, Any], ...] = (
             "external_access_and_delivery",
             "Customer credentials, arbitrary websites, production anti-abuse controls, and external notification delivery are not established.",
             "Source access stays deny-by-default and delivery remains inside Lilies Customer Runtime.",
+        ),
+    },
+    {
+        "capability_id": "platform.connector_embedding_sdk",
+        "claim": "A versioned Connector contract can map a signed external tenant and subject into an editable Lilies workflow and execute schema-validated operations through a controlled test deployment profile.",
+        "scope": "Signed ingress and controlled mock/test-tenant H3 integration; no customer-live identity, private deployment, or production observation claim.",
+        "paths": (
+            ("implementation", "platform/backend/src/agent_platform/connector_sdk.py"),
+            ("implementation", "platform/backend/src/agent_platform/blocks.py"),
+            ("api", "platform/backend/src/agent_platform/api.py"),
+            ("implementation", "platform/frontend/app/connector-operations-panel.tsx"),
+            ("test", "tests/test_v04_10_connector_embedding.py"),
+            ("integration", "tests/test_v04_10_connector_embedding.py"),
+        ),
+        "gap": (
+            "customer_live_and_production_environment",
+            "No eligible customer-live H4 target, private customer deployment, or H5 production telemetry is attached.",
+            "The strongest claim remains controlled test-tenant H3 integration.",
+        ),
+    },
+    {
+        "capability_id": "platform.governed_connector_writeback",
+        "claim": "Connector mutations are guarded by tenant roles, exact-payload preauthorization, policy revisions, emergency stop, idempotent durable receipts, ordered callbacks, and explicit compensation.",
+        "scope": "Controlled customer HTTP fixture and local governance H3 evidence; no production writeback reliability, SLO, or disaster-recovery claim.",
+        "paths": (
+            ("implementation", "platform/backend/src/agent_platform/connector_sdk.py"),
+            ("implementation", "platform/backend/src/agent_platform/governance.py"),
+            ("api", "platform/backend/src/agent_platform/api.py"),
+            ("implementation", "platform/frontend/app/governance/page.tsx"),
+            ("test", "tests/test_v04_10_connector_embedding.py"),
+            ("integration", "tests/test_v04_10_connector_embedding.py"),
+        ),
+        "gap": (
+            "production_writeback_assurance",
+            "No customer production load, availability, callback-delivery, or recovery observation is present.",
+            "Receipts and exercises prove bounded control behavior only, not a production SLO.",
         ),
     },
 )

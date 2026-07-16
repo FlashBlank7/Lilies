@@ -1,0 +1,49 @@
+.boundary {
+  display: inline-block;
+  margin-top: 10px;
+  padding: 6px 9px;
+  border-left: 3px solid #2d7d9d;
+  background: #eaf5f9;
+  color: #235e74;
+  font-size: 10px;
+}
+
+.receipt {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 0;
+  border-block: 1px solid #d8dee3;
+}
+
+.receipt > div {
+  min-width: 0;
+  padding: 10px;
+  border-right: 1px solid #e2e6e9;
+}
+
+.receipt > div:last-child {
+  border-right: 0;
+}
+
+.receipt dt {
+  color: #6b7983;
+  font-size: 9px;
+}
+
+.receipt dd {
+  overflow-wrap: anywhere;
+  margin: 4px 0 0;
+  color: #233741;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+@media (max-width: 640px) {
+  .receipt {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .receipt > div:nth-child(2) {
+    border-right: 0;
+  }
+}

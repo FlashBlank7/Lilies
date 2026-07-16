@@ -868,8 +868,14 @@ def reference_capability_contract(scenario_id: str) -> CapabilityBuildContract:
             target_user="Customer-system operator and governed end user",
             business_goal="Handle tenant-scoped requests and write results back with audit and compensation boundaries.",
             start_inputs=[
-                StartInputContract(name="tenant_id", label="Tenant", value_type="string", description="Authenticated customer tenant."),
-                StartInputContract(name="request", label="Request", value_type="object", description="Versioned customer payload."),
+                StartInputContract(name="tenant_id", label="Tenant", value_type="string", default="test-tenant", description="Platform-injected authenticated customer tenant for the controlled reference profile."),
+                StartInputContract(name="actor_id", label="Actor", value_type="string", default="test-operator", description="Platform-injected actor resolved from the signed subject mapping."),
+                StartInputContract(name="actor_roles", label="Actor roles", value_type="array", default=["operator"], description="Platform-injected roles resolved from the tenant binding."),
+                StartInputContract(name="request", label="Request", value_type="object", default={"case_id": "case-001"}, description="Versioned customer payload."),
+                StartInputContract(name="connector_profile_id", label="Connector profile", value_type="string", default="test", description="Platform-injected deployment profile from the tenant binding."),
+                StartInputContract(name="connector_authorization_id", label="Mutation authorization", value_type="string", required=False, default="", description="Optional exact-payload authorization supplied only for an approved mutation."),
+                StartInputContract(name="connector_idempotency_key", label="Connector idempotency key", value_type="string", default="evaluation-customer-embedding", description="Platform-injected request identity; evaluation replaces it per case."),
+                StartInputContract(name="write_mode", label="Write mode", value_type="string", default="dry_run", description="Controlled evaluation defaults to adapter-free mutation preview."),
             ],
             functional=[
                 FunctionalCapability(id="F.embedded_request", title="Embedded request handling", description="Receive, validate, and process a customer-system request.", required_envelope="E4", inputs=["request"], outputs=["result"]),
@@ -885,13 +891,14 @@ def reference_capability_contract(scenario_id: str) -> CapabilityBuildContract:
                 ExternalContract(id="X.customer_identity", title="Customer identity", description="Authenticate user and tenant with mapped roles.", required_envelope="E4", contract_type="identity", interface="customer IdP", availability="unavailable", availability_reason="No test tenant or identity provider is attached."),
                 ExternalContract(id="X.customer_schema", title="Customer schema", description="Validate versioned input and output records.", required_envelope="E4", contract_type="data_schema", interface="versioned schema contract", availability="unavailable", availability_reason="No customer schema fixture is attached."),
                 ExternalContract(id="X.customer_writeback", title="Customer writeback", description="Perform a bounded customer-system mutation and return a receipt.", requires=["G.idempotent_write", "G.compensation"], required_envelope="E5", contract_type="writeback", interface="customer write API", availability="unavailable", availability_reason="No test writeback endpoint is attached.", mutating=True),
+                ExternalContract(id="X.customer_callback", title="Customer status callback", description="Accept signed, ordered status callbacks and reject stale or replayed delivery.", requires=["F.governed_writeback", "G.audit"], required_envelope="E5", contract_type="callback", interface="customer callback endpoint", availability="unavailable", availability_reason="No signed callback fixture is attached."),
                 ExternalContract(id="X.deployment", title="Deployment profile", description="Run in the customer-approved network and secret boundary.", required_envelope="E5", contract_type="deployment", interface="customer deployment profile", availability="unavailable", availability_reason="No customer deployment environment is attached."),
             ],
             envelope=ExecutionEnvelope.E5,
             risk=RiskLevel.high,
             risk_reasons=["Tenant data and customer-system writeback are high-impact side effects."],
-            outline=["Authenticate tenant and validate schema", "Read authorized customer context", "Produce and review a decision", "Perform idempotent writeback", "Record receipt, audit, and compensation state"],
-            runtime_interface="Embedded request endpoint plus operator approval, tenant trace, writeback receipt, compensation, and audit views.",
+            outline=["Authenticate tenant and validate schema", "Read authorized customer context", "Produce and review a decision", "Perform idempotent writeback", "Accept ordered status callback", "Record receipt, audit, and compensation state"],
+            runtime_interface="Embedded request endpoint plus operator approval, tenant trace, writeback receipt, callback status, compensation, and audit views.",
             excluded_claims=["customer production identity", "real customer writeback", "tenant isolation without test environment", "production deployment compliance"],
         )
     raise KeyError(f"unknown reference capability scenario: {scenario_id}")

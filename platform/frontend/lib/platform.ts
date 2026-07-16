@@ -194,6 +194,131 @@ export type Block = {
   output_ports: Array<{ name: string; value_type: string }>
 }
 
+export type ConnectorManifest = {
+  schema_version: '1.0'
+  connector_id: string
+  version: number
+  title: string
+  description: string
+  domain: string
+  operations: Array<{
+    id: string
+    title: string
+    kind: 'read' | 'write' | 'compensate'
+    method: string
+    path: string
+    required_roles: string[]
+    compensation_operation_id?: string | null
+  }>
+  deployment_profiles: Array<{
+    id: string
+    environment: 'mock' | 'test' | 'live' | 'private'
+    available: boolean
+    claim_ceiling: 'H2' | 'H3' | 'H4' | 'H5'
+    excluded_claims: string[]
+  }>
+}
+
+export type ConnectorBinding = {
+  connector_id: string
+  connector_version: number
+  tenant_id: string
+  external_tenant_id: string
+  profile_id: string
+  secret_ref: string
+  application_ids: string[]
+  allowed_operations: string[]
+  subjects: Array<{ external_subject: string; actor_id: string; roles: string[] }>
+  enabled: boolean
+  revision: number
+}
+
+export type ConnectorPolicy = {
+  connector_id: string
+  connector_version: number
+  tenant_id: string
+  domain: string
+  allowed_profiles: string[]
+  allowed_operations: string[]
+  required_roles: string[]
+  max_payload_bytes: number
+  mutation_preauthorization_required: boolean
+  allow_dry_run: boolean
+  allow_compensation_during_stop: boolean
+  emergency_stop: boolean
+  emergency_reason: string
+  revision: number
+}
+
+export type ConnectorReceipt = {
+  execution_id: string
+  connector_id: string
+  connector_version: number
+  tenant_id: string
+  profile_id: string
+  operation_id: string
+  operation_kind: 'read' | 'write' | 'compensate'
+  status: 'executing' | 'dry_run' | 'succeeded' | 'failed' | 'compensated'
+  side_effect_state: 'none' | 'applied' | 'unknown' | 'compensated'
+  external_reference: string
+  compensation_available: boolean
+  compensation_execution_id: string
+  callback_status: string
+  replayed: boolean
+  created_at: string
+  updated_at: string
+  claim_scope: string
+}
+
+export type ConnectorExecutionPage = {
+  items: ConnectorReceipt[]
+  offset: number
+  limit: number
+  has_more: boolean
+  claim_boundary: string
+}
+
+export type ConnectorExecutionDetail = {
+  receipt: ConnectorReceipt
+  request_payload: Record<string, unknown>
+  response: Record<string, unknown>
+  response_hash: string
+  error: string
+  authorization_id: string
+  idempotency_key: string
+  actor_id: string
+  actor_roles: string[]
+  application_id: string
+}
+
+export type ConnectorExercise = {
+  id: string
+  connector_id: string
+  connector_version: number
+  tenant_id: string
+  kind: 'emergency_stop' | 'compensation'
+  profile_id: string
+  status: 'passed' | 'failed' | 'blocked_by_environment'
+  evidence_level: 'H0' | 'H3'
+  evidence: Record<string, unknown>
+  excluded_claims: string[]
+  created_at: string
+}
+
+export type GovernanceConnectorOperations = {
+  items: ConnectorReceipt[]
+  offset: number
+  limit: number
+  has_more: boolean
+  counts: Record<string, number>
+  manifests: Array<Record<string, unknown>>
+  bindings: Array<Record<string, unknown>>
+  policies: Array<Record<string, unknown>>
+  exercises: ConnectorExercise[]
+  support: Record<string, string>
+  claim_boundary: string
+}
+
 export type PlatformTaskKind =
   | 'workflow_run'
   | 'builder_build'

@@ -1,6 +1,6 @@
 {
-  "version": "v0.4.9",
-  "source_stage_report": "docs/stage-reports/v0.4.9_daily_web_collection_durable_jobs.md",
+  "version": "v0.4.10",
+  "source_stage_report": "docs/stage-reports/v0.4.10_connector_embedding_governed_writeback.md",
   "policy": {
     "current_gate": "v0.4.x_current_release_gate",
     "full_historical_sweep": "diagnostic_non_gating",
@@ -12,7 +12,7 @@
       "id": "v0.4.x_current_release_gate",
       "status": "gating",
       "phase": "v0.4.x",
-      "reason": "Current v0.4.9 product gate: prior usability, capability-contract, module, interface, and Evaluation Harness baselines plus restart-safe durable jobs, controlled allowlisted collection, provenance receipts, schedule operations, and governance claim boundaries.",
+      "reason": "Current v0.4.10 product gate: prior usability, capability-contract, module, interface, Evaluation Harness, and durable collection baselines plus versioned Connector contracts, signed tenant embedding, governed writeback, compensation, callbacks, and tenant-safe governance boundaries.",
       "command": [
         ".venv/bin/python",
         "-m",
@@ -33,6 +33,7 @@
         "tests/test_v04_07_governance_console.py",
         "tests/test_v04_08_evaluation_harness.py",
         "tests/test_v04_09_durable_daily_collection.py",
+        "tests/test_v04_10_connector_embedding.py",
         "tests/test_factory.py",
         "tests/test_workflow.py::test_application_placeholder_name_is_derived_from_requirement",
         "tests/test_workflow.py::test_application_placeholder_name_uses_markdown_business_goal",
@@ -61,6 +62,7 @@
         "tests/test_v04_07_governance_console.py",
         "tests/test_v04_08_evaluation_harness.py",
         "tests/test_v04_09_durable_daily_collection.py",
+        "tests/test_v04_10_connector_embedding.py",
         "tests/test_factory.py",
         "tests/test_workflow.py::test_application_placeholder_name_is_derived_from_requirement",
         "tests/test_workflow.py::test_application_placeholder_name_uses_markdown_business_goal",
@@ -72,7 +74,7 @@
         "tests/test_stage_report_template_validation.py"
       ],
       "expected": {
-        "pass_count": 101,
+        "pass_count": 111,
         "warning_count": 1
       }
     },
@@ -89,14 +91,14 @@
         "-q"
       ],
       "last_observed": {
-        "source_stage_report": "docs/stage-reports/v0.4.9_daily_web_collection_durable_jobs.md",
-        "command": ".venv/bin/python -m pytest tests -q --junitxml=/tmp/lilies-v049-final.xml",
-        "passed_count": 718,
+        "source_stage_report": "docs/stage-reports/v0.4.10_connector_embedding_governed_writeback.md",
+        "command": ".venv/bin/python -m pytest tests -q --junitxml=/tmp/lilies-v0410-final.xml",
+        "passed_count": 728,
         "failed_count": 0,
         "expected_failure_count": 85,
         "warning_count": 1,
-        "classification_evidence": "docs/workingon-archives/v0.4.9/full-suite-classification.json",
-        "preclassification_observation": {
+        "classification_evidence": "docs/workingon-archives/v0.4.10/full-suite-classification.json",
+        "v0_4_7_preclassification_observation": {
           "command": ".venv/bin/python -m pytest -q",
           "passed_count": 701,
           "failed_count": 68,

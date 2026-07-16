@@ -151,6 +151,20 @@ class CollectionDigestConfig(BaseModel):
     max_items: int = Field(default=20, ge=1, le=100)
 
 
+class ConnectorActionConfig(BaseModel):
+    connector_id: str = Field(min_length=2, max_length=120)
+    connector_version: int = Field(default=1, ge=1)
+    operation_id: str = Field(min_length=2, max_length=120)
+    tenant_id: Any
+    actor_id: Any
+    actor_roles: Any
+    profile_id: Any
+    payload: Any
+    idempotency_key: Any
+    authorization_id: Any = ""
+    execution_mode: Any = "dry_run"
+
+
 class IterationConfig(BaseModel):
     items: Any
     workflow: WorkflowSpec
@@ -569,6 +583,7 @@ class BlockRegistry:
             "codex_like_workspace_agent",
             "claude_like_coding_agent",
             "daily_web_collection",
+            "customer_system_embedding",
         ]
 
     def expand_template(
@@ -585,6 +600,8 @@ class BlockRegistry:
             return _claude_like_coding_agent_template(prefix=prefix, x=x, y=y)
         if template_name == "daily_web_collection":
             return _daily_web_collection_template(prefix=prefix, x=x, y=y)
+        if template_name == "customer_system_embedding":
+            return _customer_system_embedding_template(prefix=prefix, x=x, y=y)
         raise KeyError(f"unknown workflow template: {template_name}")
 
     def validate_node(self, node: NodeSpec) -> BaseModel:
@@ -769,6 +786,7 @@ def build_block_registry() -> BlockRegistry:
         (_definition("http_request", "HTTP Request", "Call an external HTTP endpoint.", "integration", HTTPConfig, inputs=[("input", ValueType.any)], outputs=[("output", ValueType.object)], retry=True, error_branch=True), HTTPConfig),
         (_definition("web_collection", "Controlled Web Collection", "Collect approved Web sources with durable provenance and access receipts.", "integration", WebCollectionConfig, inputs=[("input", ValueType.any)], outputs=[("output", ValueType.object), ("items", ValueType.array), ("receipts", ValueType.array)], retry=True, error_branch=True), WebCollectionConfig),
         (_definition("collection_digest", "Collection Digest", "Render collected source results as a customer-readable Markdown digest.", "transform", CollectionDigestConfig, inputs=[("input", ValueType.any)], outputs=[("text", ValueType.string), ("summary", ValueType.object)]), CollectionDigestConfig),
+        (_definition("connector_action", "Connector Action", "Execute a versioned tenant-scoped Connector operation through platform policy.", "integration", ConnectorActionConfig, inputs=[("input", ValueType.any)], outputs=[("output", ValueType.object), ("receipt", ValueType.object), ("response", ValueType.object)], retry=True, error_branch=True), ConnectorActionConfig),
         (_definition("iteration", "Iteration", "Run a nested workflow for each array item.", "logic", IterationConfig, inputs=[("input", ValueType.array)], outputs=[("items", ValueType.array)], retry=True, error_branch=True), IterationConfig),
         (_definition("loop", "Loop", "Run a nested workflow until a condition matches.", "logic", LoopConfig, inputs=[("input", ValueType.any)], outputs=[("output", ValueType.object)], retry=True, error_branch=True), LoopConfig),
         (_definition("human_input", "Human Input", "Pause and resume with a typed form.", "input", HumanInputConfig, inputs=[("input", ValueType.any)], outputs=[("output", ValueType.object)]), HumanInputConfig),
@@ -903,6 +921,171 @@ def _daily_web_collection_template(*, prefix: str, x: float, y: float) -> Workfl
                 source=digest_id,
                 target=answer_id,
                 source_port="text",
+            ),
+        ],
+    )
+
+
+def _customer_system_embedding_template(*, prefix: str, x: float, y: float) -> WorkflowSpec:
+    start_id = f"{prefix}_request"
+    read_payload_id = f"{prefix}_read_payload"
+    read_id = f"{prefix}_read"
+    decision_id = f"{prefix}_decision"
+    write_payload_id = f"{prefix}_write_payload"
+    write_id = f"{prefix}_writeback"
+    answer_id = f"{prefix}_answer"
+    return WorkflowSpec(
+        nodes=[
+            NodeSpec(
+                id=start_id,
+                type="start",
+                title="Embedded Customer Request",
+                description="Receive a tenant-scoped request resolved by signed embedding ingress.",
+                config={
+                    "inputs": [
+                        {"name": "tenant_id", "label": "Tenant", "type": "string"},
+                        {"name": "actor_id", "label": "Actor", "type": "string"},
+                        {"name": "actor_roles", "label": "Roles", "type": "array"},
+                        {"name": "request", "label": "业务请求", "type": "object"},
+                        {
+                            "name": "connector_profile_id",
+                            "label": "Deployment profile",
+                            "type": "string",
+                            "default": "test",
+                        },
+                        {
+                            "name": "connector_authorization_id",
+                            "label": "Preauthorization",
+                            "type": "string",
+                            "required": False,
+                            "default": "",
+                        },
+                        {
+                            "name": "connector_idempotency_key",
+                            "label": "Idempotency key",
+                            "type": "string",
+                        },
+                        {
+                            "name": "write_mode",
+                            "label": "Write mode",
+                            "type": "string",
+                            "default": "dry_run",
+                        },
+                    ]
+                },
+                position={"x": x, "y": y},
+            ),
+            NodeSpec(
+                id=read_payload_id,
+                type="variable_assigner",
+                title="Map Read Contract",
+                description="Map the customer request into the Connector read schema.",
+                config={
+                    "assignments": {"case_id": _ref(start_id, "request", "case_id")}
+                },
+                position={"x": x + 260, "y": y},
+            ),
+            NodeSpec(
+                id=read_id,
+                type="connector_action",
+                title="Read Tenant Context",
+                description="Read through the versioned customer-system Connector contract.",
+                config={
+                    "connector_id": "customer_system",
+                    "connector_version": 1,
+                    "operation_id": "get_case",
+                    "tenant_id": _ref(start_id, "tenant_id"),
+                    "actor_id": _ref(start_id, "actor_id"),
+                    "actor_roles": _ref(start_id, "actor_roles"),
+                    "profile_id": _ref(start_id, "connector_profile_id"),
+                    "payload": _ref(read_payload_id, "output"),
+                    "idempotency_key": _ref(start_id, "connector_idempotency_key"),
+                    "execution_mode": "execute",
+                },
+                position={"x": x + 520, "y": y},
+                retry={"enabled": True, "max_attempts": 2, "delay_seconds": 1},
+                error_strategy="fail",
+            ),
+            NodeSpec(
+                id=decision_id,
+                type="llm",
+                title="Decide Tenant Update",
+                description="Use authorized context to propose one bounded customer update.",
+                config={
+                    "system": (
+                        "Produce a concise customer-system decision. Never invent another tenant, "
+                        "credential, authorization, or side effect."
+                    ),
+                    "prompt": {
+                        "request": _ref(start_id, "request"),
+                        "customer_context": _ref(read_id, "response"),
+                    },
+                    "temperature": 0,
+                },
+                position={"x": x + 780, "y": y},
+                retry={"enabled": True, "max_attempts": 2, "delay_seconds": 1},
+                error_strategy="fail",
+            ),
+            NodeSpec(
+                id=write_payload_id,
+                type="variable_assigner",
+                title="Map Writeback Contract",
+                description="Map the decision into the declared writeback schema.",
+                config={
+                    "assignments": {
+                        "case_id": _ref(start_id, "request", "case_id"),
+                        "decision": _ref(decision_id, "text"),
+                    }
+                },
+                position={"x": x + 1040, "y": y},
+            ),
+            NodeSpec(
+                id=write_id,
+                type="connector_action",
+                title="Governed Customer Writeback",
+                description="Request an idempotent writeback with compensation evidence.",
+                config={
+                    "connector_id": "customer_system",
+                    "connector_version": 1,
+                    "operation_id": "update_case",
+                    "tenant_id": _ref(start_id, "tenant_id"),
+                    "actor_id": _ref(start_id, "actor_id"),
+                    "actor_roles": _ref(start_id, "actor_roles"),
+                    "profile_id": _ref(start_id, "connector_profile_id"),
+                    "payload": _ref(write_payload_id, "output"),
+                    "idempotency_key": _ref(start_id, "connector_idempotency_key"),
+                    "authorization_id": _ref(start_id, "connector_authorization_id"),
+                    "execution_mode": _ref(start_id, "write_mode"),
+                },
+                position={"x": x + 1300, "y": y},
+                retry={"enabled": False, "max_attempts": 1, "delay_seconds": 0},
+                error_strategy="fail",
+            ),
+            NodeSpec(
+                id=answer_id,
+                type="answer",
+                title="Customer Writeback Receipt",
+                description="Return tenant-safe writeback, callback, and compensation state.",
+                config={"answer": _ref(write_id, "receipt")},
+                position={"x": x + 1560, "y": y},
+            ),
+        ],
+        edges=[
+            EdgeSpec(id=f"{prefix}_e1", source=start_id, target=read_payload_id),
+            EdgeSpec(id=f"{prefix}_e2", source=read_payload_id, target=read_id),
+            EdgeSpec(id=f"{prefix}_e3", source=read_id, target=decision_id),
+            EdgeSpec(
+                id=f"{prefix}_e4",
+                source=decision_id,
+                source_port="text",
+                target=write_payload_id,
+            ),
+            EdgeSpec(id=f"{prefix}_e5", source=write_payload_id, target=write_id),
+            EdgeSpec(
+                id=f"{prefix}_e6",
+                source=write_id,
+                source_port="receipt",
+                target=answer_id,
             ),
         ],
     )

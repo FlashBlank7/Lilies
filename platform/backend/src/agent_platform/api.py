@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, AsyncIterator, Literal
 from uuid import uuid4
 
-from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, status
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
@@ -52,6 +52,18 @@ from .complexity_router import (
     runtime_activation_for_build,
     runtime_activation_rollout_metrics,
     validate_operator_override,
+)
+from .connector_sdk import (
+    ConnectorAdapterError,
+    ConnectorCallback,
+    ConnectorConflict,
+    ConnectorDenied,
+    ConnectorDomainPolicy,
+    ConnectorEmbeddingEnvelope,
+    ConnectorExecutionRequest,
+    ConnectorManifest,
+    ConnectorService,
+    ConnectorTenantBinding,
 )
 from .factory import AgentFactory
 from .evaluation_harness import (
@@ -140,6 +152,10 @@ RUNTIME_ROUTE_CHECKS: dict[str, tuple[str, str]] = {
     "evaluation_profiles": ("GET", "/api/v1/evaluation/profiles"),
     "evaluation_plan": ("POST", "/api/v1/applications/{application_id}/evaluation/plan"),
     "durable_jobs": ("GET", "/api/v1/applications/{application_id}/durable-jobs"),
+    "connector_manifests": ("GET", "/api/v1/connectors/manifests"),
+    "connector_test_run": ("POST", "/api/v1/applications/{application_id}/connector-test-runs"),
+    "embedding_invoke": ("POST", "/api/v1/embedding/invoke"),
+    "governance_connectors": ("GET", "/api/v1/governance/connectors"),
 }
 
 
@@ -244,6 +260,7 @@ class Services:
     workflow_store: WorkflowStorage
     durable_jobs: DurableJobStore
     harness: PlatformHarness
+    connectors: ConnectorService
     applications: ApplicationService
     workflow_runtime: WorkflowRuntime
     evaluation_harness: EvaluationHarness
@@ -311,6 +328,59 @@ class PlatformSecretCreateRequest(BaseModel):
     name: str
     value: str = Field(min_length=1, repr=False)
     description: str = ""
+
+
+class ConnectorBindingUpsertRequest(BaseModel):
+    binding: ConnectorTenantBinding
+    expected_revision: int = Field(default=0, ge=0)
+
+
+class ConnectorPolicyUpsertRequest(BaseModel):
+    policy: ConnectorDomainPolicy
+    expected_revision: int = Field(default=0, ge=0)
+
+
+class ConnectorEmergencyStopRequest(BaseModel):
+    enabled: bool
+    reason: str = Field(min_length=3, max_length=1000)
+    expected_revision: int = Field(ge=1)
+
+
+class ConnectorAuthorizationCreateRequest(BaseModel):
+    connector_id: str
+    connector_version: int = Field(ge=1)
+    tenant_id: str
+    actor_id: str
+    profile_id: str
+    operation_id: str
+    payload: dict[str, Any]
+    expires_in_seconds: int = Field(default=300, ge=1, le=3600)
+    max_uses: int = Field(default=1, ge=1, le=100)
+
+
+class ConnectorCompensationRequest(BaseModel):
+    actor_id: str = Field(min_length=1, max_length=300)
+    actor_roles: list[str] = Field(min_length=1, max_length=40)
+    authorization_id: str = ""
+    idempotency_key: str = Field(min_length=1, max_length=300)
+
+
+class ConnectorExerciseRequest(BaseModel):
+    connector_id: str
+    connector_version: int = Field(ge=1)
+    tenant_id: str
+    kind: Literal["emergency_stop", "compensation"]
+    execution_id: str = ""
+
+
+class ConnectorTestRunRequest(BaseModel):
+    request: dict[str, Any]
+    idempotency_key: str = Field(
+        default_factory=lambda: str(uuid4()),
+        min_length=1,
+        max_length=300,
+    )
+    use_draft: bool = False
 
 
 class GovernedMemoryCreateRequest(BaseModel):
@@ -798,6 +868,7 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
     applications = ApplicationService(workflow_store, blocks, tools)
     governed_memory = GovernedMemorySurface(storage)
     web_collector = ControlledWebCollector(jobs=durable_jobs, harness=harness)
+    connectors = ConnectorService(storage=storage, harness=harness)
     workflow_runtime = WorkflowRuntime(
         storage=storage,
         workflow_store=workflow_store,
@@ -811,6 +882,7 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         runtime_model=settings.deepseek_runtime_model,
         governed_memory=governed_memory,
         web_collector=web_collector,
+        connector_service=connectors,
     )
     evaluation_harness = EvaluationHarness(
         storage=storage,
@@ -829,7 +901,7 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         evidence_root=_repo_root() or Path.cwd(),
         workflow_validator=blocks.validate_workflow,
     )
-    scenarios = ScenarioCatalog(blocks)
+    scenarios = ScenarioCatalog(blocks, connectors=connectors)
     benchmark = BuilderBenchmark()
     draft_patcher = DraftPatchPreviewer()
     acceptance_repairer = AcceptanceRepairPreviewer(blocks)
@@ -852,6 +924,7 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         workflow_store=workflow_store,
         templates=templates,
         durable_jobs=durable_jobs,
+        connectors=connectors,
     )
 
     builder = WorkflowBuilder(
@@ -890,6 +963,7 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         workflow_store=workflow_store,
         durable_jobs=durable_jobs,
         harness=harness,
+        connectors=connectors,
         applications=applications,
         workflow_runtime=workflow_runtime,
         evaluation_harness=evaluation_harness,
@@ -943,6 +1017,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         await services.storage.initialize()
         await services.workflow_store.initialize()
         await services.durable_jobs.initialize()
+        await services.connectors.initialize()
         await services.workflow_store.fail_interrupted_runs()
         services.scheduler.start()
         adaptive_refresh_task: asyncio.Task[Any] | None = None
@@ -1083,6 +1158,26 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             )
         except ValueError as error:
             raise HTTPException(422, str(error)) from error
+
+    @app.get("/api/v1/governance/connectors", dependencies=[Depends(require_token)])
+    async def governance_connectors(
+        connector_id: str | None = None,
+        tenant_id: str | None = None,
+        operation_id: str | None = None,
+        execution_status: str | None = Query(default=None, alias="status"),
+        emergency_stop: bool | None = None,
+        limit: int = Query(default=100, ge=1, le=200),
+        offset: int = Query(default=0, ge=0),
+    ) -> dict[str, Any]:
+        return await services.governance.connector_operations(
+            connector_id=connector_id,
+            tenant_id=tenant_id,
+            operation_id=operation_id,
+            status=execution_status,
+            emergency_stop=emergency_stop,
+            limit=limit,
+            offset=offset,
+        )
 
     @app.get("/api/v1/governance/traces/{task_id}", dependencies=[Depends(require_token)])
     async def governance_trace(task_id: str) -> dict[str, Any]:
@@ -1381,6 +1476,411 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                 raise HTTPException(404, f"platform secret not found: {owner_id}/{name}")
             return {"owner_id": owner_id, "name": name, "deleted": True}
         except PlatformHarnessViolation as error:
+            raise HTTPException(422, str(error)) from error
+
+    @app.get("/api/v1/connectors/manifests", dependencies=[Depends(require_token)])
+    async def list_connector_manifests() -> list[dict[str, Any]]:
+        manifests = await services.connectors.list_manifests()
+        return [item.model_dump(mode="json") for item in manifests]
+
+    @app.post(
+        "/api/v1/connectors/manifests",
+        status_code=201,
+        dependencies=[Depends(require_token)],
+    )
+    async def register_connector_manifest(body: ConnectorManifest) -> dict[str, Any]:
+        try:
+            saved = await services.connectors.register_manifest(body)
+            return saved.model_dump(mode="json")
+        except ConnectorConflict as error:
+            raise HTTPException(409, str(error)) from error
+
+    @app.get(
+        "/api/v1/connectors/manifests/{connector_id}/{version}",
+        dependencies=[Depends(require_token)],
+    )
+    async def get_connector_manifest(connector_id: str, version: int) -> dict[str, Any]:
+        try:
+            manifest = await services.connectors.get_manifest(connector_id, version)
+            return manifest.model_dump(mode="json")
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+
+    @app.get(
+        "/api/v1/connectors/manifests/{connector_id}/{version}/contract",
+        dependencies=[Depends(require_token)],
+    )
+    async def get_connector_contract(connector_id: str, version: int) -> dict[str, Any]:
+        try:
+            manifest = await services.connectors.get_manifest(connector_id, version)
+            return manifest.contract_document()
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+
+    @app.get("/api/v1/connectors/bindings", dependencies=[Depends(require_token)])
+    async def list_connector_bindings(
+        connector_id: str | None = None,
+        tenant_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        bindings = await services.connectors.list_bindings(
+            connector_id,
+            tenant_id=tenant_id,
+        )
+        return [item.model_dump(mode="json") for item in bindings]
+
+    @app.put("/api/v1/connectors/bindings", dependencies=[Depends(require_token)])
+    async def upsert_connector_binding(
+        body: ConnectorBindingUpsertRequest,
+    ) -> dict[str, Any]:
+        try:
+            saved = await services.connectors.upsert_binding(
+                body.binding,
+                expected_revision=body.expected_revision,
+            )
+            return saved.model_dump(mode="json")
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+        except ConnectorConflict as error:
+            raise HTTPException(409, str(error)) from error
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from error
+
+    @app.get("/api/v1/connectors/policies", dependencies=[Depends(require_token)])
+    async def list_connector_policies() -> list[dict[str, Any]]:
+        policies = await services.connectors.list_policies()
+        return [item.model_dump(mode="json") for item in policies]
+
+    @app.put("/api/v1/connectors/policies", dependencies=[Depends(require_token)])
+    async def upsert_connector_policy(
+        body: ConnectorPolicyUpsertRequest,
+    ) -> dict[str, Any]:
+        try:
+            saved = await services.connectors.set_policy(
+                body.policy,
+                expected_revision=body.expected_revision,
+            )
+            return saved.model_dump(mode="json")
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+        except ConnectorConflict as error:
+            raise HTTPException(409, str(error)) from error
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from error
+
+    @app.post(
+        "/api/v1/connectors/policies/{connector_id}/{version}/{tenant_id}/emergency-stop",
+        dependencies=[Depends(require_token)],
+    )
+    async def set_connector_emergency_stop(
+        connector_id: str,
+        version: int,
+        tenant_id: str,
+        body: ConnectorEmergencyStopRequest,
+    ) -> dict[str, Any]:
+        try:
+            current = await services.connectors.get_policy(connector_id, version, tenant_id)
+            saved = await services.connectors.set_policy(
+                current.model_copy(
+                    update={
+                        "emergency_stop": body.enabled,
+                        "emergency_reason": body.reason,
+                    }
+                ),
+                expected_revision=body.expected_revision,
+            )
+            return saved.model_dump(mode="json")
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+        except ConnectorConflict as error:
+            raise HTTPException(409, str(error)) from error
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from error
+
+    @app.post(
+        "/api/v1/connectors/authorizations",
+        status_code=201,
+        dependencies=[Depends(require_token)],
+    )
+    async def create_connector_authorization(
+        body: ConnectorAuthorizationCreateRequest,
+    ) -> dict[str, Any]:
+        try:
+            authorization = await services.connectors.create_authorization(
+                connector_id=body.connector_id,
+                connector_version=body.connector_version,
+                tenant_id=body.tenant_id,
+                actor_id=body.actor_id,
+                profile_id=body.profile_id,
+                operation_id=body.operation_id,
+                payload=body.payload,
+                expires_in_seconds=body.expires_in_seconds,
+                max_uses=body.max_uses,
+            )
+            return authorization.model_dump(mode="json")
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+        except ConnectorDenied as error:
+            raise HTTPException(403, str(error)) from error
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from error
+
+    @app.post(
+        "/api/v1/connectors/executions",
+        status_code=201,
+        dependencies=[Depends(require_token)],
+    )
+    async def execute_connector_operation(
+        body: ConnectorExecutionRequest,
+    ) -> dict[str, Any]:
+        try:
+            record = await services.connectors.execute(body)
+            return {
+                "receipt": record.public_receipt(),
+                "response": record.response,
+            }
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+        except ConnectorDenied as error:
+            raise HTTPException(403, str(error)) from error
+        except ConnectorConflict as error:
+            raise HTTPException(409, str(error)) from error
+        except ConnectorAdapterError as error:
+            raise HTTPException(502, str(error)) from error
+        except (ValueError, PlatformHarnessViolation) as error:
+            raise HTTPException(422, str(error)) from error
+
+    @app.get("/api/v1/connectors/executions", dependencies=[Depends(require_token)])
+    async def list_connector_executions(
+        connector_id: str | None = None,
+        tenant_id: str | None = None,
+        operation_id: str | None = None,
+        execution_status: str | None = Query(default=None, alias="status"),
+        limit: int = Query(default=100, ge=1, le=200),
+        offset: int = Query(default=0, ge=0),
+    ) -> dict[str, Any]:
+        records = await services.connectors.list_executions(
+            connector_id=connector_id,
+            tenant_id=tenant_id,
+            operation_id=operation_id,
+            status=execution_status,
+            limit=limit,
+            offset=offset,
+        )
+        return {
+            "items": [item.public_receipt() for item in records],
+            "offset": offset,
+            "limit": limit,
+            "has_more": len(records) == limit,
+            "claim_boundary": (
+                "Tenant-scoped local or controlled-test Connector evidence; "
+                "not customer-production reliability evidence."
+            ),
+        }
+
+    @app.get(
+        "/api/v1/connectors/executions/{execution_id}",
+        dependencies=[Depends(require_token)],
+    )
+    async def get_connector_execution(execution_id: str) -> dict[str, Any]:
+        try:
+            record = await services.connectors.get_execution(execution_id)
+            return {
+                "receipt": record.public_receipt(),
+                "request_payload": record.request_payload,
+                "response": record.response,
+                "response_hash": record.response_hash,
+                "error": record.error,
+                "authorization_id": record.authorization_id,
+                "idempotency_key": record.idempotency_key,
+                "actor_id": record.actor_id,
+                "actor_roles": record.actor_roles,
+                "application_id": record.application_id,
+            }
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+
+    @app.get(
+        "/api/v1/connectors/executions/{execution_id}/events",
+        dependencies=[Depends(require_token)],
+    )
+    async def list_connector_execution_events(
+        execution_id: str,
+        limit: int = Query(default=200, ge=1, le=1000),
+        offset: int = Query(default=0, ge=0),
+    ) -> list[dict[str, Any]]:
+        return await services.connectors.list_events(
+            execution_id=execution_id,
+            limit=limit,
+            offset=offset,
+        )
+
+    @app.post(
+        "/api/v1/connectors/executions/{execution_id}/compensate",
+        dependencies=[Depends(require_token)],
+    )
+    async def compensate_connector_execution(
+        execution_id: str,
+        body: ConnectorCompensationRequest,
+    ) -> dict[str, Any]:
+        try:
+            record = await services.connectors.compensate(
+                execution_id,
+                actor_id=body.actor_id,
+                actor_roles=body.actor_roles,
+                authorization_id=body.authorization_id,
+                idempotency_key=body.idempotency_key,
+            )
+            return record.public_receipt()
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+        except ConnectorDenied as error:
+            raise HTTPException(403, str(error)) from error
+        except ConnectorConflict as error:
+            raise HTTPException(409, str(error)) from error
+        except ConnectorAdapterError as error:
+            raise HTTPException(502, str(error)) from error
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from error
+
+    @app.post("/api/v1/connectors/callbacks")
+    async def receive_connector_callback(
+        body: ConnectorCallback,
+        signature: str = Header(alias="X-Lilies-Signature"),
+    ) -> dict[str, Any]:
+        try:
+            record = await services.connectors.record_callback(
+                body,
+                signature=signature,
+            )
+            return record.public_receipt()
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+        except ConnectorDenied as error:
+            raise HTTPException(403, str(error)) from error
+        except ConnectorConflict as error:
+            raise HTTPException(409, str(error)) from error
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from error
+
+    @app.post(
+        "/api/v1/connectors/exercises",
+        status_code=201,
+        dependencies=[Depends(require_token)],
+    )
+    async def run_connector_exercise(body: ConnectorExerciseRequest) -> dict[str, Any]:
+        try:
+            exercise = await services.connectors.run_exercise(
+                connector_id=body.connector_id,
+                connector_version=body.connector_version,
+                tenant_id=body.tenant_id,
+                kind=body.kind,
+                execution_id=body.execution_id,
+            )
+            return exercise.model_dump(mode="json")
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+        except (ConnectorConflict, ValueError) as error:
+            raise HTTPException(422, str(error)) from error
+
+    @app.get("/api/v1/connectors/exercises", dependencies=[Depends(require_token)])
+    async def list_connector_exercises(
+        connector_id: str | None = None,
+        tenant_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        exercises = await services.connectors.list_exercises(
+            connector_id=connector_id,
+            tenant_id=tenant_id,
+        )
+        return [item.model_dump(mode="json") for item in exercises]
+
+    @app.post(
+        "/api/v1/applications/{application_id}/connector-test-runs",
+        status_code=202,
+        dependencies=[Depends(require_token)],
+    )
+    async def create_controlled_connector_test_run(
+        application_id: str,
+        body: ConnectorTestRunRequest,
+    ) -> dict[str, Any]:
+        try:
+            identity = services.connectors.controlled_test_identity(application_id)
+            run = await services.workflow_runtime.create_run(
+                application_id,
+                WorkflowRunRequest(
+                    inputs={
+                        "tenant_id": identity.tenant_id,
+                        "actor_id": identity.actor_id,
+                        "actor_roles": identity.actor_roles,
+                        "request": body.request,
+                        "connector_profile_id": identity.profile_id,
+                        "connector_authorization_id": "",
+                        "connector_idempotency_key": body.idempotency_key,
+                        "write_mode": "dry_run",
+                    },
+                    use_draft=body.use_draft,
+                ),
+                origin="connector_controlled_test_runtime",
+            )
+            return {
+                **run,
+                "tenant_id": identity.tenant_id,
+                "mode": "controlled_test_dry_run",
+                "claim_boundary": (
+                    "Authenticated Customer Runtime preview against one configured mock/test tenant; "
+                    "mutation, live customer identity, and production evidence are excluded."
+                ),
+            }
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+        except ConnectorDenied as error:
+            raise HTTPException(403, str(error)) from error
+        except (ValueError, RuntimeError) as error:
+            raise HTTPException(422, str(error)) from error
+
+    @app.post("/api/v1/embedding/invoke", status_code=202)
+    async def invoke_embedded_workflow(
+        body: ConnectorEmbeddingEnvelope,
+        signature: str = Header(alias="X-Lilies-Signature"),
+    ) -> dict[str, Any]:
+        try:
+            identity = await services.connectors.resolve_embedding_identity(
+                body,
+                signature,
+            )
+            run = await services.workflow_runtime.create_run(
+                identity.application_id,
+                WorkflowRunRequest(
+                    inputs={
+                        "tenant_id": identity.tenant_id,
+                        "actor_id": identity.actor_id,
+                        "actor_roles": identity.actor_roles,
+                        "request": body.request,
+                        "connector_profile_id": identity.profile_id,
+                        "connector_authorization_id": body.authorization_id,
+                        "connector_idempotency_key": body.idempotency_key,
+                        "write_mode": body.write_mode,
+                    },
+                    use_draft=False,
+                ),
+                origin="connector_embedding",
+            )
+            return {
+                **run,
+                "application_id": identity.application_id,
+                "tenant_id": identity.tenant_id,
+                "write_mode": body.write_mode,
+                "claim_boundary": (
+                    "Signed tenant-scoped invocation against a published Lilies workflow; "
+                    "production identity, SLO, and deployment compliance are not implied."
+                ),
+            }
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+        except ConnectorDenied as error:
+            raise HTTPException(403, str(error)) from error
+        except ConnectorConflict as error:
+            raise HTTPException(409, str(error)) from error
+        except (ValueError, RuntimeError, PlatformHarnessViolation) as error:
             raise HTTPException(422, str(error)) from error
 
     @app.post("/api/v1/platform/governed-memory", status_code=201, dependencies=[Depends(require_token)])

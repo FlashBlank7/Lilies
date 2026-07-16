@@ -158,6 +158,7 @@ def test_reference_contracts_produce_distinct_fgx_closures() -> None:
         "X.customer_identity",
         "X.customer_schema",
         "X.customer_writeback",
+        "X.customer_callback",
         "X.deployment",
     }
     assert closures[1].claim_ceiling == VerificationStatus.blocked_by_environment

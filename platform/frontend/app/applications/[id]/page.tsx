@@ -47,11 +47,13 @@ import { classifyRuntimeStatus, runtimeCommit, runtimeVersion, type RuntimeHealt
 import surfaceStyles from '@/app/surface-boundaries.module.css'
 import { EvaluationHarnessPanel } from './evaluation-harness-panel'
 import { ScheduleOperationsPanel } from '@/app/schedule-operations-panel'
+import { ConnectorOperationsPanel } from '@/app/connector-operations-panel'
 
 type CanvasPoint = { x: number; y: number }
 type StudioNode = Node<{ title: string; blockType: string; description: string; status?: string }>
 type Copy = (typeof messages)[Locale]
-const VISIBLE_STUDIO_TABS = ['build', 'edit', 'test', 'automation'] as const
+const CORE_STUDIO_TABS = ['build', 'edit', 'test', 'automation'] as const
+const VISIBLE_STUDIO_TABS = [...CORE_STUDIO_TABS, 'integrations'] as const
 const STUDIO_TABS = [...VISIBLE_STUDIO_TABS, 'run', 'monitor'] as const
 type StudioTab = typeof STUDIO_TABS[number]
 type ConfigEditorMode = 'form' | 'json'
@@ -99,6 +101,7 @@ const accents: Record<string, string> = {
   if_else: '#eab308', question_classifier: '#eab308', end: '#ec4899', answer: '#ec4899',
   human_input: '#ef4444', iteration: '#14b8a6', loop: '#14b8a6', http_request: '#06b6d4',
   schedule_trigger: '#a855f7', web_collection: '#0891b2', collection_digest: '#16a34a',
+  connector_action: '#d97745',
 }
 
 function BrickNode({ data, selected }: NodeProps<StudioNode>) {
@@ -395,6 +398,7 @@ function defaultConfig(type: string): Record<string, unknown> {
     template_transform: { template: '{{ value }}', variables: { value: '' } },
     variable_assigner: { assignments: {} }, variable_aggregator: { variables: [null], mode: 'first_non_null' },
     http_request: { method: 'GET', url: 'https://example.com', headers: {}, query: {} },
+    connector_action: { connector_id: '', connector_version: 1, operation_id: '', tenant_id: '', actor_id: '', actor_roles: [], profile_id: '', payload: {}, idempotency_key: '', authorization_id: '', execution_mode: 'dry_run' },
     iteration: { items: [], workflow: { nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 0.8 } }, output_node_id: '', output_path: [] },
     loop: { workflow: { nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 0.8 } }, break_condition: { value: false, operator: 'equals', expected: true }, break_value: false, output_node_id: '' },
     human_input: { title: '需要你的输入', fields: [{ name: 'value', label: 'Value', type: 'string' }] },
@@ -1623,7 +1627,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     </section>}
     <div className="studio-grid">
       <aside className="left-panel">
-        <div className={`panel-tabs ${surfaceStyles.threeTabs}`} data-detail-tab-url-state="synced">{VISIBLE_STUDIO_TABS.map(item => <button aria-pressed={tab === item} className={tab === item ? 'active' : ''} data-studio-tab={item} onClick={() => setStudioTab(item)} key={item} type="button">{item === 'build' ? t.buildTab : item === 'edit' ? t.editTab : item === 'test' ? t.testTab : locale === 'zh' ? '自动化' : 'Automation'}</button>)}</div>
+        <div className={`panel-tabs ${surfaceStyles.threeTabs}`} data-detail-tab-url-state="synced">{VISIBLE_STUDIO_TABS.map(item => <button aria-pressed={tab === item} className={tab === item ? 'active' : ''} data-studio-tab={item} onClick={() => setStudioTab(item)} key={item} type="button">{item === 'build' ? t.buildTab : item === 'edit' ? t.editTab : item === 'test' ? t.testTab : item === 'automation' ? locale === 'zh' ? '自动化' : 'Automation' : locale === 'zh' ? '集成' : 'Integrations'}</button>)}</div>
         {tab === 'build' && <div className="panel-body">
           <div className="panel-kicker">{t.builderTeam}</div><h2>{t.continueBuild}</h2>
           <textarea ref={detailBuildRequirementRef} className="requirement-input" value={requirement} onChange={event => { setRequirement(event.target.value); setBuildIntentConfirmed(false) }} />
@@ -1834,6 +1838,13 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
             applicationId={id}
             audience="engineer"
             hasSchedule={Boolean(draft?.snapshot.workflow.nodes.some(node => node.type === 'schedule_trigger'))}
+            locale={locale}
+            onAuthRequired={() => setAuthRequired(true)}
+          />
+        </div>}
+        {tab === 'integrations' && <div className="panel-body" data-studio-workspace="integrations">
+          <ConnectorOperationsPanel
+            applicationId={id}
             locale={locale}
             onAuthRequired={() => setAuthRequired(true)}
           />

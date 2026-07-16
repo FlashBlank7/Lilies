@@ -21,6 +21,7 @@ import { api, isAuthError, saveClientToken, type Draft } from '@/lib/platform'
 import { ScheduleOperationsPanel } from '@/app/schedule-operations-panel'
 import styles from './runtime.module.css'
 import responsive from './runtime-responsive.module.css'
+import connectorStyles from './connector-runtime.module.css'
 
 
 type ApplicationRecord = {
@@ -96,6 +97,7 @@ const HIDDEN_STEP_TYPES = new Set([
   'event_recorder',
   'checkpoint_resume',
   'cancellation_point',
+  'variable_assigner',
 ])
 const STEP_PHASES: Record<string, { id: string; title: string; description: string }> = {
   context_assembler: { id: 'prepare', title: '准备任务信息', description: '整理你的输入和完成任务所需的背景信息。' },
@@ -116,6 +118,7 @@ const STEP_PHASES: Record<string, { id: string; title: string; description: stri
   tool_result_normalizer: { id: 'operate', title: '获取信息或执行操作', description: '在允许的范围内调用完成任务所需的服务。' },
   tool: { id: 'operate', title: '获取信息或执行操作', description: '在允许的范围内调用完成任务所需的服务。' },
   http_request: { id: 'operate', title: '获取信息或执行操作', description: '在允许的范围内调用完成任务所需的服务。' },
+  connector_action: { id: 'operate', title: '读取或预演客户系统操作', description: '在测试租户边界内校验请求并返回可追踪回执。' },
   permission_gate: { id: 'safety', title: '确认安全边界', description: '需要时等待你的批准，再继续受保护的操作。' },
   sandbox_boundary: { id: 'safety', title: '确认安全边界', description: '需要时等待你的批准，再继续受保护的操作。' },
   budget_gate: { id: 'safety', title: '确认安全边界', description: '需要时等待你的批准，再继续受保护的操作。' },
@@ -135,6 +138,24 @@ function text(value: unknown, fallback = '') {
   return typeof value === 'string' ? value : fallback
 }
 
+function connectorStatusLabel(value: unknown) {
+  const status = text(value, 'unknown')
+  if (status === 'dry_run') return '仅预演（未写入）'
+  if (status === 'succeeded') return '已完成'
+  if (status === 'failed') return '未完成'
+  if (status === 'compensated') return '已撤销'
+  if (status === 'executing') return '处理中'
+  return '状态待确认'
+}
+
+function connectorSideEffectLabel(value: unknown) {
+  const state = text(value, 'unknown')
+  if (state === 'none') return '未产生'
+  if (state === 'applied') return '已写入'
+  if (state === 'compensated') return '已撤销'
+  return '状态待确认'
+}
+
 function inputValue(value: unknown, type: string) {
   if (type === 'object' || type === 'array' || type === 'file_list') {
     return value === undefined || value === null ? '' : JSON.stringify(value, null, 2)
@@ -149,7 +170,20 @@ function runtimeFields(snapshot: Draft['snapshot'] | null): RuntimeField[] {
   const config = asRecord(trigger.config)
   const settings = asRecord(config.settings)
   const rawInputs = Array.isArray(settings.inputs) ? settings.inputs : Array.isArray(config.inputs) ? config.inputs : []
-  return rawInputs.map((value, index) => {
+  const connectorWorkflow = Boolean(snapshot?.workflow.nodes.some(node => node.type === 'connector_action'))
+  const internalConnectorInputs = new Set([
+    'tenant_id',
+    'actor_id',
+    'actor_roles',
+    'connector_profile_id',
+    'connector_authorization_id',
+    'connector_idempotency_key',
+    'write_mode',
+  ])
+  return rawInputs.filter(value => {
+    const name = text(asRecord(value).name)
+    return !connectorWorkflow || !internalConnectorInputs.has(name)
+  }).map((value, index) => {
     const field = asRecord(value)
     const name = text(field.name, `input_${index + 1}`)
     const type = text(field.type, 'string')
@@ -164,6 +198,23 @@ function runtimeFields(snapshot: Draft['snapshot'] | null): RuntimeField[] {
       checked: Boolean(defaultValue),
     }
   })
+}
+
+function connectorReceipt(run: RunRecord | null): Record<string, unknown> | null {
+  const visit = (value: unknown): Record<string, unknown> | null => {
+    const item = asRecord(value)
+    if (typeof item.execution_id === 'string' && typeof item.side_effect_state === 'string') return item
+    for (const child of Object.values(item)) {
+      const found = visit(child)
+      if (found) return found
+    }
+    return null
+  }
+  for (const value of Object.values(run?.outputs || {}).reverse()) {
+    const found = visit(value)
+    if (found) return found
+  }
+  return null
 }
 
 function parseInputs(fields: RuntimeField[]) {
@@ -380,6 +431,9 @@ export default function CustomerRuntimePage() {
   const scheduledWorkflow = Boolean(
     displaySnapshot?.workflow.nodes.some(node => node.type === 'schedule_trigger'),
   )
+  const connectorWorkflow = Boolean(
+    displaySnapshot?.workflow.nodes.some(node => node.type === 'connector_action'),
+  )
 
   const steps = useMemo(() => {
     return customerSteps(displaySnapshot).map((step, index) => ({
@@ -392,6 +446,7 @@ export default function CustomerRuntimePage() {
   const currentStep = steps.find(item => ['running', 'waiting', 'failed'].includes(item.status))
   const completedCount = steps.filter(item => ['completed', 'skipped'].includes(item.status)).length
   const resultMarkdown = useMemo(() => runResultMarkdown(run), [run])
+  const boundedConnectorReceipt = useMemo(() => connectorReceipt(run), [run])
   const pendingPermission = useMemo<PermissionRequest | null>(() => {
     for (const event of [...events].reverse()) {
       if (event.type !== 'permission.requested') continue
@@ -409,14 +464,22 @@ export default function CustomerRuntimePage() {
     setError('')
     try {
       const inputs = parseInputs(fields)
-      const result = await api<{ run_id: string }>(`/api/v1/applications/${id}/runs`, {
-        method: 'POST',
-        body: JSON.stringify({
-          inputs,
-          use_draft: definition?.source !== 'published',
-          workspace_path: '.',
-        }),
-      })
+      const result = connectorWorkflow
+        ? await api<{ run_id: string }>(`/api/v1/applications/${id}/connector-test-runs`, {
+          method: 'POST',
+          body: JSON.stringify({
+            request: asRecord(inputs.request),
+            use_draft: definition?.source !== 'published',
+          }),
+        })
+        : await api<{ run_id: string }>(`/api/v1/applications/${id}/runs`, {
+          method: 'POST',
+          body: JSON.stringify({
+            inputs,
+            use_draft: definition?.source !== 'published',
+            workspace_path: '.',
+          }),
+        })
       const nextRun: RunRecord = { id: result.run_id, status: 'queued', outputs: {}, state: {} }
       setRun(nextRun)
       setEvents([])
@@ -509,7 +572,7 @@ export default function CustomerRuntimePage() {
       <section className={styles.mainColumn}>
         <div className={styles.introBand}>
           <div className={styles.introIcon}><Workflow size={24} /></div>
-          <div className={responsive.introContent}><span>工作流用途</span><h1>{displaySnapshot?.name || application?.name}</h1><p>{displaySnapshot?.description || application?.description || displaySnapshot?.requirement}</p></div>
+          <div className={responsive.introContent}><span>工作流用途</span><h1>{displaySnapshot?.name || application?.name}</h1><p>{displaySnapshot?.description || application?.description || displaySnapshot?.requirement}</p>{connectorWorkflow && <b className={connectorStyles.boundary} data-customer-connector-view="bounded">受控测试租户 · 仅预演</b>}</div>
           <div className={styles.runState} data-run-status={run?.status || 'ready'}><i />{runStatusLabel(run?.status)}</div>
         </div>
 
@@ -521,14 +584,14 @@ export default function CustomerRuntimePage() {
           onAuthRequired={() => setAuthNeeded(true)}
         /> : <>
         <section className={styles.inputSection} aria-labelledby="runtime-input-title">
-          <div className={styles.sectionHeading}><div><span>01</span><div><h2 id="runtime-input-title">开始这次运行</h2><p>{fields.length ? '填写你希望这次工作流处理的内容。' : '这个工作流不需要额外输入，可以直接启动。'}</p></div></div>{run && <button className={styles.iconButton} onClick={() => void refreshRun(run.id)} aria-label="刷新运行状态" title="刷新运行状态"><RefreshCw size={16} /></button>}</div>
-          {fields.length > 0 && <div className={styles.formGrid}>{fields.map(field => <label className={styles.field} key={field.name}>
+          <div className={styles.sectionHeading}><div><span>01</span><div><h2 id="runtime-input-title">开始这次运行</h2><p>{connectorWorkflow ? '提交业务请求后，将在受控测试租户中完成读取与写回预演。' : fields.length ? '填写你希望这次工作流处理的内容。' : '这个工作流不需要额外输入，可以直接启动。'}</p></div></div>{run && <button className={styles.iconButton} onClick={() => void refreshRun(run.id)} aria-label="刷新运行状态" title="刷新运行状态"><RefreshCw size={16} /></button>}</div>
+          {fields.length > 0 && <div className={styles.formGrid}>{fields.map(field => <label className={styles.field} data-runtime-input={field.name} key={field.name}>
             <span>{field.label}{field.required && <b>必填</b>}</span>
             {field.description && <small>{field.description}</small>}
             {field.type === 'boolean' ? <input type="checkbox" checked={field.checked} onChange={event => setFields(current => current.map(item => item.name === field.name ? { ...item, checked: event.target.checked } : item))} /> : field.type === 'object' || field.type === 'array' || field.type === 'file_list' ? <textarea value={field.value} onChange={event => setFields(current => current.map(item => item.name === field.name ? { ...item, value: event.target.value } : item))} /> : <input type={field.type === 'number' ? 'number' : 'text'} value={field.value} onChange={event => setFields(current => current.map(item => item.name === field.name ? { ...item, value: event.target.value } : item))} />}
           </label>)}</div>}
           {error && <div className={styles.inlineError} role="alert"><CircleAlert size={17} /><div><strong>现在还不能继续</strong><span>{error}</span></div></div>}
-          <div className={styles.primaryActions}><button className={styles.primaryButton} onClick={() => void startRun()} disabled={starting || running}><Play size={17} fill="currentColor" />{starting ? '正在启动' : running ? '正在运行' : '启动工作流'}</button>{running && <button className={styles.stopButton} disabled={actionPending === 'cancel'} onClick={() => void cancelRun()}><Square size={15} fill="currentColor" />{actionPending === 'cancel' ? '正在停止' : '停止'}</button>}</div>
+          <div className={styles.primaryActions}><button className={styles.primaryButton} data-customer-runtime-action="start" onClick={() => void startRun()} disabled={starting || running}><Play size={17} fill="currentColor" />{starting ? '正在启动' : running ? '正在运行' : '启动工作流'}</button>{running && <button className={styles.stopButton} disabled={actionPending === 'cancel'} onClick={() => void cancelRun()}><Square size={15} fill="currentColor" />{actionPending === 'cancel' ? '正在停止' : '停止'}</button>}</div>
         </section>
 
         <section className={styles.progressSection} aria-labelledby="runtime-progress-title">
@@ -555,7 +618,8 @@ export default function CustomerRuntimePage() {
 
         <section className={styles.resultSection} aria-labelledby="runtime-result-title">
           <div className={styles.sectionHeading}><div><span>03</span><div><h2 id="runtime-result-title">本次结果</h2><p>{run?.status === 'succeeded' ? '结果已经整理完成。' : run?.status === 'failed' ? '这次运行没有完成，下面给出了恢复建议。' : '工作流完成后，结果会显示在这里。'}</p></div></div>{run?.updated_at && <time><Clock3 size={14} />{new Date(run.updated_at).toLocaleTimeString()}</time>}</div>
-          {resultMarkdown ? <MarkdownResultCard source={resultMarkdown} emptyLabel="暂无结果" title="工作流结果" description="已按可读格式整理" openLabel="展开阅读" closeLabel="关闭" dataSurface="customer-runtime-result" /> : <div className={styles.emptyResult}><Workflow size={24} /><span>{running ? '正在生成结果' : '尚无运行结果'}</span></div>}
+          {boundedConnectorReceipt && <dl className={connectorStyles.receipt} data-customer-connector-receipt="redacted"><div><dt>执行状态</dt><dd data-connector-receipt-status={text(boundedConnectorReceipt.status, 'unknown')}>{connectorStatusLabel(boundedConnectorReceipt.status)}</dd></div><div><dt>副作用</dt><dd data-connector-side-effect={text(boundedConnectorReceipt.side_effect_state, 'unknown')}>{connectorSideEffectLabel(boundedConnectorReceipt.side_effect_state)}</dd></div><div><dt>外部引用</dt><dd>{text(boundedConnectorReceipt.external_reference, '尚未生成')}</dd></div><div><dt>下一步</dt><dd>{boundedConnectorReceipt.status === 'dry_run' ? '等待维护人员核对并授权' : boundedConnectorReceipt.compensation_execution_id ? '补偿已记录' : '查看最终结果'}</dd></div></dl>}
+          {resultMarkdown && !connectorWorkflow ? <MarkdownResultCard source={resultMarkdown} emptyLabel="暂无结果" title="工作流结果" description="已按可读格式整理" openLabel="展开阅读" closeLabel="关闭" dataSurface="customer-runtime-result" /> : !boundedConnectorReceipt && <div className={styles.emptyResult}><Workflow size={24} /><span>{running ? '正在生成结果' : '尚无运行结果'}</span></div>}
           {run?.status === 'failed' && <div className={styles.recovery}><CircleAlert size={18} /><div><strong>建议这样处理</strong><p>{recoveryMessage(run)}</p></div><button onClick={() => void startRun()}><RefreshCw size={15} />重新运行</button></div>}
         </section>
         </>}

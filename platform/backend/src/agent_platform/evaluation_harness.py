@@ -759,6 +759,9 @@ class EvaluationHarness:
             environment.id,
         )
         title = f"{capability.title} [{profile.level.value}]"
+        case_inputs = self._sample_inputs(contract)
+        if "connector_idempotency_key" in case_inputs:
+            case_inputs["connector_idempotency_key"] = f"evaluation-{test_id}"
         test = WorkflowTestCase(
             id=test_id,
             name=title,
@@ -774,7 +777,7 @@ class EvaluationHarness:
                 reference=f"{contract.contract_id} / {capability.id}",
                 failure_target=capability.title,
             ),
-            inputs=self._sample_inputs(contract),
+            inputs=case_inputs,
             assertions=[TestAssertion(path=[], operator="exists", structural=True)],
             required_node_types=required_node_types,
             minimum_tool_calls=minimum_tool_calls,
@@ -1095,7 +1098,7 @@ class EvaluationHarness:
             mapping: dict[str, tuple[str, str, list[tuple[str, ...]], int, list[str]]] = {
                 "tool_loop": ("bounded_tool_loop", "tooling", [("loop", "iteration"), ("tool_executor", "tool")], 1, ["feedback", "stop condition", "tool trace"]),
                 "permission": ("permission_boundary", "safety", [("permission_gate", "human_input")], 0, ["approval decision", "denial path"]),
-                "isolation": ("isolation_boundary", "safety", [("sandbox_boundary",)], 0, ["sandbox boundary", "scope declaration"]),
+                "isolation": ("isolation_boundary", "safety", [("connector_action", "sandbox_boundary")], 0, ["tenant boundary", "scope declaration"]),
                 "scheduling": ("durable_schedule", "structure", [("schedule_trigger",)], 0, ["schedule", "history", "deduplication"]),
                 "durability": ("durable_state", "structure", [("event_recorder", "loop")], 0, ["checkpoint", "restart state"]),
                 "retry_resume": ("retry_resume", "safety", [("loop", "iteration")], 0, ["retry", "resume", "deduplication"]),
@@ -1116,8 +1119,8 @@ class EvaluationHarness:
             "identity": ("identity_contract", [("permission_gate",)]),
             "storage": ("storage_contract", []),
             "notification": ("notification_contract", []),
-            "callback": ("callback_contract", [("http_request", "tool_executor")]),
-            "writeback": ("writeback_contract", [("http_request", "tool_executor")]),
+            "callback": ("callback_contract", [("connector_action", "http_request", "tool_executor")]),
+            "writeback": ("writeback_contract", [("connector_action", "http_request", "tool_executor")]),
             "deployment": ("deployment_contract", [("sandbox_boundary",)]),
             "data_schema": ("schema_contract", []),
         }
