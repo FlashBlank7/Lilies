@@ -423,7 +423,13 @@ class BlockRegistry:
         )
 
     def validate_node(self, node: NodeSpec) -> BaseModel:
-        definition = self.get(node.type)
+        try:
+            definition = self.get(node.type)
+        except KeyError:
+            known = sorted(self._blocks.keys())
+            similar = [b for b in known if node.type.casefold() in b.casefold() or b.casefold() in node.type.casefold()]
+            hint = f" Did you mean: {similar[:5]}?" if similar else f" Available blocks: {known[:15]}..."
+            raise KeyError(f"unknown block type: {node.type}.{hint}") from None
         if not definition.available:
             raise ValueError(f"block is not available: {node.type}")
         if node.block_version != definition.version:

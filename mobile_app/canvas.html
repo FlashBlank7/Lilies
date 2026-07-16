@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BlockFlow Canvas — Lilies</title>
+<style>
+:root {
+  --bg: #101215; --surface: #1b1f24; --border: #333; --text: #e8e8e8;
+  --text-dim: #999; --accent: #6c8cff; --accent-dim: #4a6ad4;
+  --node-input: #3a6; --node-model: #a6f; --node-agent: #f93;
+  --node-logic: #3af; --node-transform: #f6a; --node-integration: #0af;
+  --node-output: #fa3; --node-legacy: #888;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font: 13px system-ui; background: var(--bg); color: var(--text); display: flex; height: 100vh; overflow: hidden; }
+
+/* ── Left Panel ── */
+#left-panel { width: 260px; min-width: 260px; background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; }
+#left-panel h2 { padding: 12px 16px; border-bottom: 1px solid var(--border); font-size: 15px; color: var(--accent); }
+#search { margin: 8px 12px; padding: 8px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 12px; }
+#search::placeholder { color: var(--text-dim); }
+#block-list { flex: 1; overflow-y: auto; padding: 0 8px 8px; }
+.block-item { padding: 8px 12px; margin: 2px 0; border-radius: 6px; cursor: grab; border: 1px solid transparent; transition: all 0.15s; display: flex; align-items: center; gap: 8px; }
+.block-item:hover { background: rgba(255,255,255,.05); border-color: var(--border); }
+.block-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.block-label { font-size: 12px; }
+.block-cat { font-size: 10px; color: var(--text-dim); margin-left: auto; }
+.block-item.agent-arch { border-left: 2px solid var(--accent-dim); margin-left: 4px; padding-left: 10px; }
+
+/* ── Center Canvas ── */
+#canvas-wrap { flex: 1; position: relative; overflow: hidden; }
+#canvas-svg { width: 100%; height: 100%; }
+#canvas-svg .edge { stroke: #555; stroke-width: 1.5; fill: none; marker-end: url(#arrowhead); }
+#canvas-svg .edge.active { stroke: var(--accent-dim); }
+#canvas-svg .node-rect { stroke-width: 2; cursor: pointer; rx: 6; ry: 6; }
+#canvas-svg .node-rect:hover { filter: brightness(1.3); }
+#canvas-svg .node-label { fill: var(--text); font-size: 11px; pointer-events: none; }
+#canvas-svg .node-type-label { fill: var(--text-dim); font-size: 9px; pointer-events: none; }
+#empty-state { position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%); text-align: center; color: var(--text-dim); font-size: 14px; }
+#empty-state p { margin: 4px 0; }
+#empty-state button { margin-top: 12px; padding: 8px 20px; background: var(--accent-dim); color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; }
+
+/* ── Right Panel ── */
+#right-panel { width: 300px; min-width: 300px; background: var(--surface); border-left: 1px solid var(--border); display: flex; flex-direction: column; }
+#right-panel h2 { padding: 12px 16px; border-bottom: 1px solid var(--border); font-size: 15px; color: var(--accent); }
+#props { flex: 1; overflow-y: auto; padding: 12px; }
+#props table { width: 100%; border-collapse: collapse; }
+#props td { padding: 6px 8px; border-bottom: 1px solid rgba(255,255,255,.05); vertical-align: top; }
+#props td:first-child { color: var(--text-dim); width: 80px; font-size: 11px; }
+#props td:last-child { font-size: 12px; word-break: break-all; }
+#props pre { background: var(--bg); padding: 8px; border-radius: 4px; font-size: 11px; max-height: 200px; overflow: auto; white-space: pre-wrap; }
+
+/* ── Top Bar ── */
+#topbar { position: absolute; top: 8px; left: 8px; right: 8px; display: flex; gap: 8px; z-index: 10; }
+#topbar input { flex: 1; padding: 8px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 12px; }
+#topbar button { padding: 8px 16px; background: var(--accent-dim); color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 12px; white-space: nowrap; }
+#topbar button:hover { filter: brightness(1.2); }
+#topbar select { padding: 8px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-size: 12px; }
+
+/* ── Legend ── */
+#legend { position: absolute; bottom: 8px; left: 8px; display: flex; gap: 12px; flex-wrap: wrap; z-index: 10; }
+.legend-item { font-size: 10px; color: var(--text-dim); display: flex; align-items: center; gap: 4px; }
+.legend-dot { width: 6px; height: 6px; border-radius: 50%; }
+</style>
+</head>
+<body>
+
+<!-- Left Panel: Block Catalog -->
+<div id="left-panel">
+  <h2>🧱 Blocks</h2>
+  <input id="search" type="text" placeholder="Filter blocks..." oninput="filterBlocks()">
+  <div id="block-list"></div>
+</div>
+
+<!-- Center: SVG Canvas -->
+<div id="canvas-wrap">
+  <div id="topbar">
+    <input id="wf-input" type="text" placeholder="Paste WorkflowSpec JSON or enter an application ID...">
+    <select id="app-select" onchange="loadFromApp(this.value)"><option value="">-- Applications --</option></select>
+    <button onclick="loadWorkflow()">🔍 Render</button>
+    <button onclick="clearCanvas()">✕ Clear</button>
+  </div>
+  <svg id="canvas-svg">
+    <defs>
+      <marker id="arrowhead" viewBox="0 0 10 7" refX="9" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+        <polygon points="0 0, 10 3.5, 0 7" fill="#555"/>
+      </marker>
+      <marker id="arrowhead-active" viewBox="0 0 10 7" refX="9" refY="3.5" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+        <polygon points="0 0, 10 3.5, 0 7" fill="#6c8cff"/>
+      </marker>
+    </defs>
+  </svg>
+  <div id="empty-state">
+    <p>📋 No BlockFlow rendered yet</p>
+    <p>Select an application, paste a WorkflowSpec JSON, or pick a template.</p>
+    <button onclick="loadFromTemplate()">Load Template</button>
+  </div>
+  <div id="legend">
+    <span class="legend-item"><span class="legend-dot" style="background:var(--node-input)"></span>Input</span>
+    <span class="legend-item"><span class="legend-dot" style="background:var(--node-model)"></span>Model</span>
+    <span class="legend-item"><span class="legend-dot" style="background:var(--node-agent)"></span>Agent</span>
+    <span class="legend-item"><span class="legend-dot" style="background:var(--node-logic)"></span>Logic</span>
+    <span class="legend-item"><span class="legend-dot" style="background:var(--node-transform)"></span>Transform</span>
+    <span class="legend-item"><span class="legend-dot" style="background:var(--node-integration)"></span>Integration</span>
+    <span class="legend-item"><span class="legend-dot" style="background:var(--node-output)"></span>Output</span>
+  </div>
+</div>
+
+<!-- Right Panel: Properties -->
+<div id="right-panel">
+  <h2>📋 Properties</h2>
+  <div id="props"><p style="color:var(--text-dim)">Click a node to inspect</p></div>
+</div>
+
+<script>
+// ── State ──
+let blocks = [];
+let currentWf = null;
+let selectedNode = null;
+const NODE_W = 160, NODE_H = 56;
+
+// ── Category colors ──
+const catColors = {
+  input: '#3a6', model: '#a6f', agent: '#f93', logic: '#3af',
+  transform: '#f6a', integration: '#0af', output: '#fa3',
+};
+
+// ── Load blocks ──
+async function loadBlocks() {
+  try {
+    const r = await fetch('/api/v1/blocks?' + new URLSearchParams({token}));
+    if (!r.ok) { console.warn('Block catalog not available'); return; }
+    blocks = await r.json();
+    renderBlockList(blocks);
+  } catch (e) { console.warn('Cannot load blocks:', e); }
+}
+
+function renderBlockList(list) {
+  const el = document.getElementById('block-list');
+  el.innerHTML = list.map(b => `
+    <div class="block-item ${b.block_kind==='agent_architecture'?'agent-arch':''}"
+         draggable="true"
+         onclick="showBlockDetail('${b.type}')"
+         data-type="${b.type}">
+      <span class="block-dot" style="background:${catColors[b.category]||'#888'}"></span>
+      <span class="block-label">${b.title||b.type}</span>
+      <span class="block-cat">${b.category}</span>
+    </div>
+  `).join('');
+}
+
+function filterBlocks() {
+  const q = document.getElementById('search').value.toLowerCase();
+  const list = blocks.filter(b =>
+    b.type.includes(q) || (b.title||'').toLowerCase().includes(q) || b.category.includes(q)
+  );
+  renderBlockList(list);
+}
+
+function showBlockDetail(type) {
+  const b = blocks.find(x => x.type === type);
+  if (!b) return;
+  const el = document.getElementById('props');
+  el.innerHTML = `<table>
+    <tr><td>Type</td><td>${b.type}</td></tr>
+    <tr><td>Title</td><td>${b.title||''}</td></tr>
+    <tr><td>Category</td><td>${b.category}</td></tr>
+    <tr><td>Kind</td><td>${b.block_kind||''}</td></tr>
+    <tr><td>Inputs</td><td>${(b.input_ports||[]).map(p=>p.name+' ('+p.value_type+')').join(', ')||'none'}</td></tr>
+    <tr><td>Outputs</td><td>${(b.output_ports||[]).map(p=>p.name+' ('+p.value_type+')').join(', ')||'none'}</td></tr>
+    <tr><td>Summary</td><td>${b.manual_summary||''}</td></tr>
+    <tr><td>When to use</td><td>${(b.when_to_use||[]).join('<br>')}</td></tr>
+    <tr><td>Anti-patterns</td><td>${(b.anti_patterns||[]).join('<br>')}</td></tr>
+    <tr><td>Config</td><td><pre>${JSON.stringify(b.config_schema||{},null,2).slice(0,2000)}</pre></td></tr>
+  </table>`;
+}
+
+// ── Load workflow ──
+const token = new URLSearchParams(location.search).get('token') || '';
+
+async function loadFromApp(id) {
+  if (!id) return;
+  try {
+    const r = await fetch('/api/v1/applications/' + id + '/draft?' + new URLSearchParams({token}));
+    const data = await r.json();
+    renderWorkflow(data.snapshot.workflow);
+  } catch(e) { alert('Failed to load application: ' + e.message); }
+}
+
+async function loadWorkflow() {
+  const input = document.getElementById('wf-input').value.trim();
+  if (!input) return;
+  // Try as application ID first
+  if (!input.startsWith('{')) {
+    await loadFromApp(input);
+    return;
+  }
+  try {
+    const wf = JSON.parse(input);
+    renderWorkflow(wf);
+  } catch(e) { alert('Invalid JSON'); }
+}
+
+async function loadFromTemplate() {
+  const name = prompt('Template name (e.g. claude_like_coding_agent):');
+  if (!name) return;
+  try {
+    const r = await fetch('/api/v1/templates/' + name + '/expand?' + new URLSearchParams({token}));
+    if (!r.ok) { alert('Template not found'); return; }
+    const wf = await r.json();
+    renderWorkflow(wf);
+  } catch(e) { alert('Error: ' + e.message); }
+}
+
+// ── Render workflow as SVG DAG ──
+function renderWorkflow(wf) {
+  currentWf = wf;
+  selectedNode = null;
+  document.getElementById('empty-state').style.display = 'none';
+
+  const svg = document.getElementById('canvas-svg');
+  const wrap = document.getElementById('canvas-wrap');
+  const W = wrap.clientWidth, H = wrap.clientHeight;
+
+  // Clear all elements except defs
+  const defs = svg.querySelector('defs');
+  svg.innerHTML = '';
+  svg.appendChild(defs);
+
+  if (!wf.nodes || wf.nodes.length === 0) {
+    document.getElementById('empty-state').style.display = '';
+    return;
+  }
+
+  // Layout: simple layered DAG layout
+  const nodeMap = {};
+  const positions = layoutDAG(wf);
+
+  // Draw edges
+  (wf.edges||[]).forEach(e => {
+    if (!positions[e.source] || !positions[e.target]) return;
+    const sx = positions[e.source].x + NODE_W;
+    const sy = positions[e.source].y + NODE_H/2;
+    const tx = positions[e.target].x;
+    const ty = positions[e.target].y + NODE_H/2;
+
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    const mx = (sx + tx) / 2;
+    path.setAttribute('d', `M${sx},${sy} C${mx},${sy} ${mx},${ty} ${tx},${ty}`);
+    path.setAttribute('class', 'edge');
+    path.setAttribute('id', e.id);
+    // Edge label
+    const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    label.setAttribute('x', mx);
+    label.setAttribute('y', (sy + ty) / 2 - 4);
+    label.setAttribute('text-anchor', 'middle');
+    label.setAttribute('fill', '#666');
+    label.setAttribute('font-size', '8');
+    label.textContent = (e.source_port||'') + ' → ' + (e.target_port||'');
+    svg.appendChild(path);
+    svg.appendChild(label);
+  });
+
+  // Draw nodes
+  wf.nodes.forEach(n => {
+    const pos = positions[n.id];
+    if (!pos) return;
+    const x = pos.x, y = pos.y;
+    const color = catColors[getBlockCategory(n.type)] || '#888';
+
+    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    g.setAttribute('transform', `translate(${x},${y})`);
+    g.setAttribute('data-node-id', n.id);
+    g.style.cursor = 'pointer';
+    g.onclick = () => selectNode(n);
+
+    const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    rect.setAttribute('width', NODE_W);
+    rect.setAttribute('height', NODE_H);
+    rect.setAttribute('fill', 'rgba(27,31,36,0.95)');
+    rect.setAttribute('stroke', color);
+    rect.setAttribute('class', 'node-rect');
+    g.appendChild(rect);
+
+    const title = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    title.setAttribute('x', 8);
+    title.setAttribute('y', 18);
+    title.setAttribute('class', 'node-label');
+    title.textContent = (n.title||n.id||'').slice(0, 24);
+    g.appendChild(title);
+
+    const typeLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    typeLabel.setAttribute('x', 8);
+    typeLabel.setAttribute('y', 36);
+    typeLabel.setAttribute('class', 'node-type-label');
+    typeLabel.textContent = n.type + (n.block_version ? ' v' + n.block_version : '');
+    g.appendChild(typeLabel);
+
+    // Port dots
+    const ports = getBlockPorts(n.type);
+    if (ports.inputs.length) {
+      const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      dot.setAttribute('cx', 0); dot.setAttribute('cy', NODE_H/2);
+      dot.setAttribute('r', 4); dot.setAttribute('fill', '#fff');
+      g.appendChild(dot);
+    }
+    if (ports.outputs.length) {
+      const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      dot.setAttribute('cx', NODE_W); dot.setAttribute('cy', NODE_H/2);
+      dot.setAttribute('r', 4); dot.setAttribute('fill', color);
+      g.appendChild(dot);
+    }
+
+    svg.appendChild(g);
+  });
+
+  document.getElementById('props').innerHTML =
+    `<p style="color:var(--text-dim)">${wf.nodes.length} nodes, ${(wf.edges||[]).length} edges</p>`;
+}
+
+function layoutDAG(wf) {
+  // Simple layered layout based on BFS from sources
+  const pos = {};
+  const indeg = {};
+  const out = {};
+  wf.nodes.forEach(n => { indeg[n.id] = 0; out[n.id] = []; });
+  (wf.edges||[]).forEach(e => {
+    if (indeg[e.target] !== undefined) indeg[e.target]++;
+    if (out[e.source]) out[e.source].push(e.target);
+  });
+
+  // Assign layers via BFS
+  const layer = {};
+  const queue = [];
+  wf.nodes.forEach(n => { if (indeg[n.id] === 0) { layer[n.id] = 0; queue.push(n.id); } });
+  if (queue.length === 0) { wf.nodes.forEach(n => { layer[n.id] = 0; queue.push(n.id); }); }
+
+  while (queue.length) {
+    const cur = queue.shift();
+    (out[cur]||[]).forEach(tgt => {
+      const nl = (layer[cur]||0) + 1;
+      if (!(tgt in layer) || nl > layer[tgt]) layer[tgt] = nl;
+      indeg[tgt]--;
+      if (indeg[tgt] === 0) queue.push(tgt);
+    });
+  }
+
+  // Group by layer
+  const layers = {};
+  wf.nodes.forEach(n => {
+    const l = layer[n.id]||0;
+    layers[l] = layers[l] || [];
+    layers[l].push(n);
+  });
+
+  const maxNodesPerLayer = Math.max(...Object.values(layers).map(a => a.length), 1);
+  const spacing = 220;
+  const ySpacing = 80;
+
+  Object.entries(layers).forEach(([l, nodes]) => {
+    const ly = parseInt(l);
+    nodes.forEach((n, i) => {
+      pos[n.id] = {
+        x: 40 + ly * spacing,
+        y: 40 + i * ySpacing + Math.max(0, (maxNodesPerLayer - nodes.length) * ySpacing / 2),
+      };
+    });
+  });
+
+  return pos;
+}
+
+// ── Node selection ──
+function selectNode(n) {
+  selectedNode = n;
+  const el = document.getElementById('props');
+  const cat = getBlockCategory(n.type);
+  el.innerHTML = `<table>
+    <tr><td>ID</td><td>${n.id}</td></tr>
+    <tr><td>Type</td><td>${n.type}</td></tr>
+    <tr><td>Title</td><td>${n.title||''}</td></tr>
+    <tr><td>Category</td><td>${cat}</td></tr>
+    <tr><td>Config</td><td><pre>${JSON.stringify(n.config||{},null,2).slice(0,4000)}</pre></td></tr>
+    ${n.position ? `<tr><td>Position</td><td>x=${n.position.x} y=${n.position.y}</td></tr>`:''}
+  </table>`;
+}
+
+function getBlockCategory(type) {
+  const b = blocks.find(x => x.type === type);
+  return b ? b.category : '';
+}
+
+function getBlockPorts(type) {
+  const b = blocks.find(x => x.type === type);
+  return { inputs: b?.input_ports||[], outputs: b?.output_ports||[] };
+}
+
+function clearCanvas() {
+  currentWf = null; selectedNode = null;
+  const svg = document.getElementById('canvas-svg');
+  const defs = svg.querySelector('defs');
+  svg.innerHTML = '';
+  if (defs) svg.appendChild(defs);
+  document.getElementById('empty-state').style.display = '';
+  document.getElementById('props').innerHTML = '<p style="color:var(--text-dim)">Click a node to inspect</p>';
+}
+
+// ── Load applications for dropdown ──
+async function loadApps() {
+  try {
+    const r = await fetch('/api/v1/applications?' + new URLSearchParams({token}));
+    if (!r.ok) return;
+    const apps = await r.json();
+    const sel = document.getElementById('app-select');
+    apps.forEach(a => {
+      const opt = document.createElement('option');
+      opt.value = a.id; opt.textContent = a.name + (a.active_version ? ' (v'+a.active_version+')' : ' [draft]');
+      sel.appendChild(opt);
+    });
+  } catch(e) {}
+}
+
+// ── Init ──
+loadBlocks();
+loadApps();
+</script>
+</body>
+</html>

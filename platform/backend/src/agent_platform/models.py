@@ -114,6 +114,9 @@ class ContentBlock(BaseModel):
     tool_use_id: str | None = None
     content: str | list[dict[str, Any]] | None = None
     is_error: bool | None = None
+    input_parse_error: str | None = None
+    """When the LLM's tool-use JSON is malformed, this contains the parse error
+    and raw input so the Builder can retry with corrected JSON."""
 
 
 class ChatMessage(BaseModel):

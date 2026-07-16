@@ -251,7 +251,7 @@ class BuildRequest(BaseModel):
     requirement: str = Field(min_length=10, max_length=30_000)
     auto_publish: bool = True
     max_turns: int = Field(default=60, ge=5, le=200)
-    max_repair_cycles: int = Field(default=8, ge=1, le=30)
+    max_repair_cycles: int = Field(default=4, ge=1, le=30)
 
 
 class WorkflowRunRequest(BaseModel):
@@ -267,6 +267,13 @@ class ResumeRunRequest(BaseModel):
 
 class ManualScheduleTriggerRequest(BaseModel):
     inputs: dict[str, Any] = Field(default_factory=dict)
+
+
+class ClyinsRunRequest(BaseModel):
+    """Request to run the Clyins AI project manager workflow on meeting input."""
+    meeting_transcript: str = Field(min_length=50, max_length=50_000)
+    team_context: str = Field(default="", max_length=5_000)
+    meeting_date: str = Field(default="", max_length=50)
 
 
 class WorkflowRunState(BaseModel):

@@ -1742,3 +1742,134 @@ def test_daily_schedule_is_persisted_and_deduplicated(tmp_path: Path) -> None:
                 break
             time.sleep(0.01)
         assert run["outputs"] == {"topic": "idols"}
+
+
+# ── Clyins AI Project Manager Template ──────────────────────────────
+
+def test_clyins_template_is_valid_and_structure_correct() -> None:
+    """Verify the Clyins template parses, validates, and has the expected block chain."""
+    from pathlib import Path as _Path
+    from agent_platform.template_store import TemplateStore
+
+    registry = build_block_registry()
+    store = TemplateStore()
+    templates_dir = _Path(__file__).parent.parent / "templates"
+    store.load_builtins(templates_dir)
+
+    template = store.get("clyins")
+    assert template.meta.name == "clyins"
+    assert template.meta.category == "task_management"
+    assert template.meta.confidence == 0.80
+
+    # Validate the raw template workflow
+    errors = registry.validate_workflow(template.workflow)
+    assert errors == [], f"Clyins template has validation errors: {errors}"
+
+    # Verify required block chain: start → compose → extract → dispatch → format → verify → end
+    node_types = [node.type for node in template.workflow.nodes]
+    assert node_types == [
+        "start", "template_transform", "llm",
+        "task_dispatcher", "template_transform", "human_input", "end",
+    ], f"Unexpected node chain: {node_types}"
+
+    # Verify edges form the correct pipeline
+    edge_map = {edge.id: (edge.source, edge.target) for edge in template.workflow.edges}
+    assert edge_map["e_start_compose"] == ("start", "compose")
+    assert edge_map["e_compose_extract"] == ("compose", "extract")
+    assert edge_map["e_extract_dispatch"] == ("extract", "dispatch")
+    assert edge_map["e_dispatch_format"] == ("dispatch", "format")
+    assert edge_map["e_format_verify"] == ("format", "verify")
+    assert edge_map["e_verify_end"] == ("verify", "end")
+
+    # Verify start node declares the expected inputs
+    start_node = next(n for n in template.workflow.nodes if n.id == "start")
+    input_names = [f["name"] for f in start_node.config["inputs"]]
+    assert "meeting_transcript" in input_names
+    assert "team_context" in input_names
+    assert "meeting_date" in input_names
+
+    # Verify human_input node has the approval field
+    verify_node = next(n for n in template.workflow.nodes if n.id == "verify")
+    verify_fields = {f["name"] for f in verify_node.config["fields"]}
+    assert "approved" in verify_fields
+    assert "corrections" in verify_fields
+    assert "assign_to_lilies" in verify_fields
+
+    # Verify end node exports the expected outputs
+    end_node = next(n for n in template.workflow.nodes if n.id == "end")
+    output_keys = set(end_node.config["outputs"].keys())
+    assert output_keys == {"schedule", "summary", "tasks", "verified", "corrections", "assign_to_lilies"}
+
+    # Verify the minimum blocks match what the template uses
+    assert set(template.meta.min_blocks_required) <= set(node_types)
+
+
+def test_clyins_template_expands_correctly() -> None:
+    """Verify the Clyins template expansion rewrites all IDs and references."""
+    from pathlib import Path as _Path
+    from agent_platform.template_store import TemplateStore
+
+    registry = build_block_registry()
+    store = TemplateStore()
+    templates_dir = _Path(__file__).parent.parent / "templates"
+    store.load_builtins(templates_dir)
+
+    expanded = store.expand_into_workflow("clyins", prefix="proj", x=50, y=100)
+
+    # Post-expansion validation
+    errors = registry.validate_workflow(expanded)
+    assert errors == [], f"Expanded Clyins has validation errors: {errors}"
+
+    # All node IDs must be prefixed
+    assert all(n.id.startswith("proj_") for n in expanded.nodes)
+
+    # All edge IDs must be prefixed
+    assert all(e.id.startswith("proj_") for e in expanded.edges)
+
+    # Edge source/target must reference prefixed node IDs
+    node_ids = {n.id for n in expanded.nodes}
+    for e in expanded.edges:
+        assert e.source in node_ids, f"Edge {e.id} source {e.source} not in nodes"
+        assert e.target in node_ids, f"Edge {e.id} target {e.target} not in nodes"
+
+    # $ref node_ids inside configs must be rewritten
+    compose_node = next(n for n in expanded.nodes if n.id == "proj_compose")
+    for var_name, var_value in compose_node.config.get("variables", {}).items():
+        ref = var_value.get("$ref", {})
+        if ref:
+            assert ref["node_id"].startswith("proj_"), (
+                f"Variable {var_name} $ref not rewritten: {ref['node_id']}"
+            )
+
+    # Positions should be shifted
+    for n in expanded.nodes:
+        assert n.position.x >= 50
+        assert n.position.y >= 100
+
+
+def test_clyins_template_searchable_in_marketplace() -> None:
+    """Verify Clyins appears correctly in template marketplace queries."""
+    from pathlib import Path as _Path
+    from agent_platform.template_store import TemplateStore
+
+    store = TemplateStore()
+    templates_dir = _Path(__file__).parent.parent / "templates"
+    store.load_builtins(templates_dir)
+
+    # By category
+    task_templates = store.list(category="task_management")
+    clyins_names = [t.name for t in task_templates if "clyins" in t.name]
+    assert "clyins" in clyins_names
+
+    # By tag search
+    pm_templates = store.list(query="project-management")
+    assert any("clyins" == t.name for t in pm_templates)
+
+    meeting_templates = store.list(query="meeting")
+    assert any("clyins" == t.name for t in meeting_templates)
+
+    # By name
+    clyins_search = store.list(query="clyins")
+    assert len(clyins_search) == 1
+    assert clyins_search[0].name == "clyins"
+    assert clyins_search[0].title == "Clyins AI 项目经理"

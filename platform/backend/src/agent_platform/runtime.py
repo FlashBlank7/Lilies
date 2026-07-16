@@ -296,7 +296,18 @@ class AgentRuntime:
                     try:
                         block.input = json.loads(input_json[index])
                     except json.JSONDecodeError as error:
-                        raise RuntimeError(f"invalid tool input JSON for {block.name}: {error}") from error
+                        # ── Graceful JSON error (P0 fix) ──
+                        # Don't crash; store the raw text + error so Builder
+                        # can see what went wrong and retry with corrected JSON.
+                        block.input = None
+                        block.input_parse_error = (
+                            f"JSON parse error at line {error.lineno}, column {error.colno}: {error.msg}. "
+                            f"Raw input (first 500 chars): {input_json[index][:500]}"
+                        )
+                        await self.emit(
+                            stream_id, "tool.input_json_error",
+                            {"tool": block.name, "error": block.input_parse_error}
+                        )
             elif event.type == "message_delta":
                 stop_reason = data.get("delta", {}).get("stop_reason", stop_reason)
                 usage.output_tokens = data.get("usage", {}).get("output_tokens", usage.output_tokens)
