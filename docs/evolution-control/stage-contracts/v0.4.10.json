@@ -1,0 +1,68 @@
+{
+  "schema_version": "1.0",
+  "stage_version": "v0.4.10",
+  "stage_report": "docs/stage-reports/v0.4.10_connector_embedding_governed_writeback.md",
+  "contract_revision": 1,
+  "approval_ref": "v0.4.9 closure handoff V04-10-T01 under the capability-boundary report campaign",
+  "source_tasks": [
+    {
+      "task_id": "V04-10-T01",
+      "source_intent_ids": ["ARCH-008", "EVAL-002", "EVAL-004", "GOV-004", "SCENARIO-003"],
+      "source_task": "Implement the customer-system embedding pressure scenario and Connector/Embedding SDK boundary.",
+      "disposition": "accepted mandatory",
+      "authority": "v0.4.9 closure handoff and capability-boundary report campaign."
+    }
+  ],
+  "mandatory_tasks": [
+    {
+      "task_id": "V04-10-T01A",
+      "source_intent_ids": ["ARCH-008", "SCENARIO-003"],
+      "surface": "architecture / Connector SDK / manifest, schema, and deployment profile",
+      "acceptance": "A typed versioned Connector contract declares domain, operations, request/response schemas, mutability, compensation relation, callback contract, authentication reference, and mock, test, live, or private deployment profiles; manifests are immutable by version, persist across restart, validate payloads structurally, and never put customer-specific behavior into a generic HTTP block.",
+      "required_evidence": "Manifest/schema model tests, invalid schema and duplicate-version rejection, immutable exact/list API tests, generated contract document assertions, deployment availability tests, restart reconstruction, and no-raw-secret assertions."
+    },
+    {
+      "task_id": "V04-10-T01B",
+      "source_intent_ids": ["ARCH-008", "GOV-004", "SCENARIO-003"],
+      "surface": "identity / tenant / signed embedding ingress / secret boundary",
+      "acceptance": "A customer request enters through a signed embedding endpoint, resolves one registered external tenant and subject to a Lilies tenant, actor, roles, connector version, and deployment profile, rejects replay, expiry, signature, role, tenant, and profile mismatches, injects only secret references at execution time, and keeps identity, payload, trace, and receipt queries tenant-scoped.",
+      "required_evidence": "Signature and expiry tests, tenant/subject mapping tests, replay rejection, cross-tenant read/write denial, role denial, secret redaction/storage tests, authenticated management API tests, and restart-safe mapping evidence."
+    },
+    {
+      "task_id": "V04-10-T01C",
+      "source_intent_ids": ["ARCH-008", "GOV-004", "SCENARIO-003"],
+      "surface": "platform hard control / governed connector execution",
+      "acceptance": "Every connector operation passes a platform-side domain policy that enforces deployment allowlist, operation allowlist, payload limit, tenant roles, dry-run rules, scoped expiring preauthorization for mutation, emergency stop, and audit before any adapter call; the workflow can request but cannot bypass these controls, and stale policy or authorization revisions fail closed.",
+      "required_evidence": "Allowed and denied policy matrix, dry-run no-side-effect proof, exact-payload authorization tests, expiry/use/revision conflicts, emergency-stop denial, adapter-not-called assertions, audit ordering, concurrent authorization-use test, and policy API revision guards."
+    },
+    {
+      "task_id": "V04-10-T01D",
+      "source_intent_ids": ["ARCH-008", "GOV-004", "SCENARIO-003"],
+      "surface": "writeback / idempotency / compensation / callback / exercise",
+      "acceptance": "A test-tenant writeback creates one durable side-effect receipt per tenant, connector version, operation, and idempotency key; same-input replay returns the original receipt, different-input reuse conflicts, compensation is explicit and idempotent, signed status callbacks are ordered and tenant-bound, and emergency-stop plus compensation exercises produce durable pass/fail evidence without being promoted to production observation.",
+      "required_evidence": "Controlled customer HTTP fixture, successful and failed writeback, concurrent duplicate suppression, payload conflict, explicit compensation and replay, callback signature/order/replay tests, emergency-stop and compensation exercise tests, restart history, and explicit H5 production-exercise blocker."
+    },
+    {
+      "task_id": "V04-10-T01E",
+      "source_intent_ids": ["ARCH-008", "SCENARIO-003"],
+      "surface": "editable workflow / API / Engineer Studio / Customer Runtime",
+      "acceptance": "A catalogued customer-system embedding scenario remains an editable workflow with visible request, connector read, decision, governed writeback, and customer result carriers; authenticated APIs and Engineer Studio manage bounded manifests, tenants, policies, authorizations, executions, callbacks, and compensation, while Customer Runtime provides a test-tenant request and result surface without exposing secrets, raw signatures, policy internals, or other tenants.",
+      "required_evidence": "Block schema/editor and scenario apply tests, end-to-end signed invocation through a published workflow, API pagination/conflict tests, frontend source/accessibility tests, production TypeScript/build, and desktop/mobile browser journeys across Studio, Customer Runtime, and execution result disclosure."
+    },
+    {
+      "task_id": "V04-10-T01F",
+      "source_intent_ids": ["EVAL-002", "EVAL-004", "GOV-004", "SCENARIO-003"],
+      "surface": "Evaluation Harness / Governance / evidence and claim integrity",
+      "acceptance": "Capability-driven tests bind identity, schema, isolation, idempotency, writeback, compensation, callback, and deployment cases to real connector carriers; an H3 controlled test-tenant run is queryable in Governance with tenant-safe traces, policy decisions, receipts, callbacks, exercises, and bounded capability artifacts, while H4 customer-live and H5 production claims remain blocked without eligible environments and telemetry.",
+      "required_evidence": "Generated carrier coverage, H1 and H3 scenario evaluation, H4/H5 blocker tests, Governance filters/drilldown/tenant redaction, capability evidence registration and artifact integrity, claim-inflation rejection, unsupported production telemetry assertions, and Governance Console browser evidence."
+    },
+    {
+      "task_id": "V04-10-T01G",
+      "source_intent_ids": ["ARCH-008", "EVAL-002", "EVAL-004", "GOV-004", "SCENARIO-003"],
+      "surface": "test / evidence / report-wide closure / archive",
+      "acceptance": "The Connector/Embedding vertical survives restart and preserves generation, editing, execution, acceptance, publication, durable scheduling, Evaluation Harness, module, governance, and Platform Harness behavior; closure records exact commands, controlled-customer and browser artifacts, unavailable customer-live and production boundaries, historical conflicts, the strongest honest evidence level, and a terminal audit of every capability-boundary report intent.",
+      "required_evidence": "Focused v0.4.10 suite, current release gate, evolution-control suite, full repository diagnostic, Ruff, frontend lint/build, responsive browser artifacts, controlled HTTP and restart evidence, report-intent terminal validator, fresh contract-first closure audit, and checksummed archive."
+    }
+  ],
+  "optional_tasks": []
+}

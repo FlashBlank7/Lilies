@@ -1,0 +1,22 @@
+# v0.4.10 Connector manifest, identity, and tenant boundary
+
+Status: active
+Source task: `V04-10-T01`
+Mandatory tasks: `V04-10-T01A`, `V04-10-T01B`
+Source intents: `ARCH-008`, `GOV-004`, `SCENARIO-003`
+
+## Connector contract
+
+A Connector is a versioned external-system contract, not a renamed HTTP block. Its immutable manifest declares domain, operations, request and response object schemas, side-effect class, compensation relation, callback contract, authentication reference shape, and deployment profiles. Operations use bounded typed object schemas so Lilies can validate requests and receipts before crossing the external boundary and can emit a machine-readable contract document.
+
+Deployment profiles distinguish controlled mock/test, configured live, and private or hybrid targets. Availability, base endpoint, allowed operations, secret reference, evidence ceiling, and excluded claims are explicit. The registry persists exact versions; a version cannot be mutated after registration. Secrets remain in Platform Harness secret storage and manifests or tenant records contain references only.
+
+## Identity and tenant mapping
+
+An authenticated operator binds one internal tenant to one connector version/profile, external tenant identity, permitted operations, and external subject-to-actor/role mappings. External invocation uses an HMAC-signed canonical envelope containing connector coordinates, external tenant and subject, issued/expiry time, nonce, idempotency key, and request payload. The ingress resolves the mapping and supplies only the registered internal tenant, actor, and roles to the workflow.
+
+Signatures, expiry, one-time nonce, connector/profile mismatch, unknown subject, disabled binding, and cross-tenant access fail before a workflow starts. The platform API token remains the management boundary; signed embedding ingress is a separate customer-system boundary. No response exposes secret values, raw authorization material, or another tenant's records.
+
+## Claim boundary
+
+The stage can prove a controlled H3 test-tenant identity and schema contract. A local signature and mapping do not prove a customer production IdP, organization-wide isolation certification, private-network deployment, or production compliance.

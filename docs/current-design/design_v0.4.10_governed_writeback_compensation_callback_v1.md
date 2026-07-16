@@ -1,0 +1,22 @@
+# v0.4.10 Governed writeback, compensation, and callback
+
+Status: active
+Source task: `V04-10-T01`
+Mandatory tasks: `V04-10-T01C`, `V04-10-T01D`
+Source intents: `ARCH-008`, `GOV-004`, `SCENARIO-003`
+
+## Platform policy
+
+Mutating connector actions are governed by a platform service outside the editable workflow. A versioned domain policy declares allowed deployment profiles and operations, payload limit, required roles, dry-run behavior, whether mutation requires preauthorization, emergency-stop state, and revision. Every execution records the evaluated policy revision and decision before an adapter can run.
+
+Preauthorization is a durable, expiring, usage-bounded grant scoped to connector version, tenant, actor, operation, deployment profile, and canonical payload hash. Exact scope and an unused grant are required atomically for mutation. Dry-run validates identity, policy, operation, schema, and payload but does not call the adapter or consume a mutation grant. Emergency stop fails closed for new writes and cannot be bypassed by deleting or editing a workflow block.
+
+## Writeback receipt and compensation
+
+Execution identity is unique by connector version, tenant, operation, and idempotency key. A repeated same-input action returns the original durable receipt; key reuse with a different payload, actor, profile, or operation conflicts. The receipt records identity, schema versions, policy/authorization decision, adapter request/result digest, external object reference, side-effect state, timestamps, callback state, and compensation eligibility without persisting a secret.
+
+Compensation is an explicit connector operation linked by the manifest. It consumes the saved compensation payload or external reference, creates an audit event, and is itself idempotent. A failed compensation remains visible and does not rewrite the original writeback as successful.
+
+## Callback and exercises
+
+External status callbacks are HMAC-signed, sequence-ordered, tenant-bound, and replay-protected. The latest accepted callback updates receipt status while retaining callback history. Emergency-stop and compensation exercises run against the controlled test profile and persist computed pass/fail evidence. A test exercise is H3 evidence, never H5 production observation.
