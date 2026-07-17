@@ -1,0 +1,197 @@
+{
+  "schema_version": "1.0",
+  "started_at": "2026-07-17T00:49:03.930Z",
+  "application_id": "73ed4e50-f611-49c2-8188-3a6dae3522c1",
+  "seeded_application": {
+    "id": "73ed4e50-f611-49c2-8188-3a6dae3522c1",
+    "revision": 4
+  },
+  "before": {
+    "running": "false",
+    "button": "运行全部真实测试",
+    "statuses": [
+      "未运行"
+    ],
+    "cards": 1,
+    "has_report": false,
+    "has_repair": false,
+    "repair_supported": false,
+    "panel_scroll_top": 0,
+    "panel_scroll_height": 1673,
+    "panel_client_height": 766,
+    "window_scroll_y": 0,
+    "run_button_rect": {
+      "top": 1090.90625,
+      "bottom": 1134.90625,
+      "left": 20,
+      "right": 309
+    }
+  },
+  "transitions": [
+    {
+      "at": 1753.9000000357628,
+      "running": "false",
+      "button": "运行全部真实测试",
+      "statuses": [
+        "未运行"
+      ]
+    },
+    {
+      "at": 1900.300000011921,
+      "running": "true",
+      "button": "正在运行真实验收…",
+      "statuses": [
+        "正在运行真实验收…"
+      ]
+    },
+    {
+      "at": 2331.800000011921,
+      "running": "false",
+      "button": "运行全部真实测试",
+      "statuses": [
+        "失败"
+      ]
+    }
+  ],
+  "after": {
+    "running": "false",
+    "button": "运行全部真实测试",
+    "statuses": [
+      "失败"
+    ],
+    "cards": 1,
+    "has_report": true,
+    "has_repair": true,
+    "repair_supported": true,
+    "panel_scroll_top": 1180,
+    "panel_scroll_height": 3511,
+    "panel_client_height": 766,
+    "window_scroll_y": 0,
+    "run_button_rect": {
+      "top": 1261.9375,
+      "bottom": 1305.9375,
+      "left": 20,
+      "right": 309
+    }
+  },
+  "test_request": {
+    "status": 200,
+    "url": "http://127.0.0.1:3000/api/platform/api/v1/applications/73ed4e50-f611-49c2-8188-3a6dae3522c1/tests/run",
+    "at": "2026-07-17T00:49:11.298Z"
+  },
+  "test_requests": [
+    {
+      "status": 200,
+      "url": "http://127.0.0.1:3000/api/platform/api/v1/applications/73ed4e50-f611-49c2-8188-3a6dae3522c1/tests/run",
+      "at": "2026-07-17T00:49:08.899Z"
+    },
+    {
+      "status": 200,
+      "url": "http://127.0.0.1:3000/api/platform/api/v1/applications/73ed4e50-f611-49c2-8188-3a6dae3522c1/tests/run",
+      "at": "2026-07-17T00:49:11.298Z"
+    }
+  ],
+  "repair": {
+    "preview": {
+      "text": "验收自动修复预览\n根据失败的结构门禁和输出断言生成可确认的草稿修复；确认后自动应用并重新运行真实验收。\n可应用\n重新生成修复预览\n应用修复并重新验收\n\nPrepared 8 draft operations from acceptance failures.\n\n整工作流修复指令\n修复依据\n先看失败需求、积木/工具约束和 trace，再决定是否应用预览。\n打开渲染结果\nFailed acceptance\n\nSafety and answer repair\n\nThe workflow must expose permission and sandbox boundaries and return a readable answer.\n\nRequired blocks: start, permission_gate, sandbox_boundary, template_transform, answer\nRequired tools: None declared\nCapability ids: None declared\nEvidence target: None declared\nContract/envelope: None / None\nClaim ceiling: None\nExternal contract gaps: None\nFailed checks: 3\nFailed assertions: 2\nRun: No run record\n工程细节 JSON\n缺失积木\npermission_gate, sandbox_boundary, template_transform, answer\n修复项\nadd_missing_node_type · permission_gate · acceptance_repair_permission_gate\nadd_missing_node_type · sandbox_boundary · acceptance_repair_sandbox_boundary\nadd_missing_node_type · template_transform · acceptance_repair_result\nconvert_terminal_to_answer · end\n草稿操作明细\n修复上下文与工作流编辑预览",
+      "apply_label": "应用修复并重新验收",
+      "apply_disabled": false
+    },
+    "transitions": [
+      {
+        "at": 3946.199999988079,
+        "running": "false",
+        "button": "运行全部真实测试",
+        "statuses": [
+          "失败"
+        ],
+        "repair_visible": true
+      },
+      {
+        "at": 4260.100000023842,
+        "running": "true",
+        "button": "正在运行真实验收…",
+        "statuses": [
+          "正在运行真实验收…"
+        ],
+        "repair_visible": false
+      },
+      {
+        "at": 4713.199999988079,
+        "running": "false",
+        "button": "运行全部真实测试",
+        "statuses": [
+          "通过"
+        ],
+        "repair_visible": false
+      }
+    ],
+    "after": {
+      "running": "false",
+      "button": "运行全部真实测试",
+      "statuses": [
+        "通过"
+      ],
+      "cards": 1,
+      "has_report": true,
+      "has_repair": false,
+      "repair_supported": false,
+      "panel_scroll_top": 1180,
+      "panel_scroll_height": 2347,
+      "panel_client_height": 766,
+      "window_scroll_y": 0,
+      "run_button_rect": {
+        "top": 117.4375,
+        "bottom": 161.4375,
+        "left": 20,
+        "right": 309
+      }
+    }
+  },
+  "cleanup": {
+    "application_id": "73ed4e50-f611-49c2-8188-3a6dae3522c1",
+    "smoke_marker": "v0.4.11-smoke",
+    "dry_run": false,
+    "deleted": true,
+    "related_counts": {
+      "application_drafts": 1,
+      "application_versions": 0,
+      "builds": 0,
+      "workflow_runs": 1,
+      "schedule_fires": 0,
+      "draft_idempotency": 5
+    }
+  },
+  "console_errors": [],
+  "failed_requests": [],
+  "screenshots": [
+    {
+      "id": "acceptance-running",
+      "path": "/Users/zhonghaoyang/Code/agent/Lilies/.tmp/v0411-closure/acceptance/acceptance-running.png",
+      "sha256": "b7a5435c4bf76cc4b3f6bc81d0f1790d5493f576e199fe4f5cbba0d7c526ba9b"
+    },
+    {
+      "id": "acceptance-finished",
+      "path": "/Users/zhonghaoyang/Code/agent/Lilies/.tmp/v0411-closure/acceptance/acceptance-finished.png",
+      "sha256": "07d3c108d82f82be69476df697d42dd5e76f01eec2559db3e05d2353f70ca9b0"
+    },
+    {
+      "id": "acceptance-repair-preview",
+      "path": "/Users/zhonghaoyang/Code/agent/Lilies/.tmp/v0411-closure/acceptance/acceptance-repair-preview.png",
+      "sha256": "07d3c108d82f82be69476df697d42dd5e76f01eec2559db3e05d2353f70ca9b0"
+    },
+    {
+      "id": "acceptance-repair-rerun",
+      "path": "/Users/zhonghaoyang/Code/agent/Lilies/.tmp/v0411-closure/acceptance/acceptance-repair-rerun.png",
+      "sha256": "0340f1a73e3a4ff7dbd5bffebe13710c9a97b980d41ccb2c3006f71986c43451"
+    },
+    {
+      "id": "acceptance-repair-passed",
+      "path": "/Users/zhonghaoyang/Code/agent/Lilies/.tmp/v0411-closure/acceptance/acceptance-repair-passed.png",
+      "sha256": "dec78c1c29f65ec956d7ce6b25ba5736fc1d4535f9213a9b55bc0dfeb09ce10f"
+    }
+  ],
+  "error": null,
+  "finished_at": "2026-07-17T00:49:12.467Z",
+  "chrome_output": "\nDevTools listening on ws://127.0.0.1:19316/devtools/browser/d628e16c-4020-4ffe-a929-14ff39fb450c\nTrying to load the allocator multiple times. This is *not* supported.\n[13865:22235012:0717/094909.144869:ERROR:google_apis/gcm/engine/registration_request.cc:291] Registration response error message: DEPRECATED_ENDPOINT\n"
+}

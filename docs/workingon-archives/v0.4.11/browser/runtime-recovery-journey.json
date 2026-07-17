@@ -1,0 +1,230 @@
+{
+  "schema_version": "1.0",
+  "started_at": "2026-07-17T00:49:18.684Z",
+  "seeded": {
+    "application_id": "d0033605-3d86-49ac-8baa-bec03aa2113b",
+    "revision": 4,
+    "failed_run": {
+      "id": "b483f9cf-f4bb-47b4-8d63-004a7b55d020",
+      "application_id": "d0033605-3d86-49ac-8baa-bec03aa2113b",
+      "version": null,
+      "draft_revision": 4,
+      "status": "failed",
+      "error": "node start failed: missing required input: request",
+      "created_at": "2026-07-17T00:49:18.963878+00:00",
+      "updated_at": "2026-07-17T00:49:19.021463+00:00",
+      "state": {
+        "run_id": "b483f9cf-f4bb-47b4-8d63-004a7b55d020",
+        "application_id": "d0033605-3d86-49ac-8baa-bec03aa2113b",
+        "snapshot": {
+          "name": "v0.4.11-smoke 客户退款说明助手",
+          "description": "接收退款请求并生成可直接发送给客户的说明。",
+          "mode": "workflow",
+          "delivery_mode": "guided",
+          "governed_hard_gate": false,
+          "requirement": "v0.4.11-smoke: verify required input guidance and exactly-once retry behavior.",
+          "capability_build_contract": null,
+          "workflow": {
+            "nodes": [
+              {
+                "id": "start",
+                "type": "start",
+                "block_version": 1,
+                "title": "填写退款请求",
+                "description": "接收本次需要处理的客户退款问题。",
+                "config": {
+                  "inputs": [
+                    {
+                      "name": "request",
+                      "label": "客户退款请求",
+                      "description": "说明客户遇到的问题和希望得到的处理。",
+                      "type": "string",
+                      "required": true
+                    }
+                  ]
+                },
+                "position": {
+                  "x": 80,
+                  "y": 120
+                },
+                "retry": {
+                  "enabled": false,
+                  "max_attempts": 1,
+                  "delay_seconds": 0.5
+                },
+                "error_strategy": "fail",
+                "contract": null,
+                "degraded_value": null,
+                "fallback_value": null
+              },
+              {
+                "id": "answer",
+                "type": "answer",
+                "block_version": 1,
+                "title": "客户说明",
+                "description": "返回可直接使用的客户说明。",
+                "config": {
+                  "answer": {
+                    "$ref": {
+                      "node_id": "start",
+                      "path": [
+                        "request"
+                      ]
+                    }
+                  }
+                },
+                "position": {
+                  "x": 420,
+                  "y": 120
+                },
+                "retry": {
+                  "enabled": false,
+                  "max_attempts": 1,
+                  "delay_seconds": 0.5
+                },
+                "error_strategy": "fail",
+                "contract": null,
+                "degraded_value": null,
+                "fallback_value": null
+              }
+            ],
+            "edges": [
+              {
+                "id": "start_answer",
+                "source": "start",
+                "target": "answer",
+                "source_port": "output",
+                "target_port": "input",
+                "branch": null
+              }
+            ],
+            "viewport": {
+              "x": 0,
+              "y": 0,
+              "zoom": 0.8
+            }
+          },
+          "agents": {},
+          "tests": []
+        },
+        "inputs": {},
+        "workspace_path": ".",
+        "outputs": {},
+        "completed": [],
+        "skipped": [],
+        "waiting_node_id": null,
+        "resumed_values": null,
+        "created_at": "2026-07-17T00:49:18.963842+00:00"
+      },
+      "outputs": {}
+    }
+  },
+  "initial_failed_state": {
+    "run_id": "b483f9cf-f4bb-47b4-8d63-004a7b55d020",
+    "status": "failed",
+    "retry_label": "重新运行",
+    "raw_error_visible": false,
+    "empty_result_visible": false,
+    "recovery_in_view": true,
+    "summary_result": "未生成"
+  },
+  "missing_input_state": {
+    "run_id": "b483f9cf-f4bb-47b4-8d63-004a7b55d020",
+    "alert": "现在还不能继续\n请填写“客户退款请求”后再启动。",
+    "invalid_field": "true",
+    "aria_invalid": "true",
+    "focused": true,
+    "retry_request_count": 0
+  },
+  "retry_samples": [
+    {
+      "at": 1826.6000000238419,
+      "disabled": false,
+      "label": "重新运行",
+      "run_id": "b483f9cf-f4bb-47b4-8d63-004a7b55d020",
+      "status": "failed"
+    },
+    {
+      "at": 1836.3999999761581,
+      "disabled": true,
+      "label": "正在重新运行",
+      "run_id": "b483f9cf-f4bb-47b4-8d63-004a7b55d020",
+      "status": "failed"
+    },
+    {
+      "at": 1881,
+      "disabled": false,
+      "label": "",
+      "run_id": "4c9e243b-948b-4b70-8fc2-0ec20ed0d279",
+      "status": "queued"
+    },
+    {
+      "at": 1905.8999999761581,
+      "disabled": false,
+      "label": "",
+      "run_id": "4c9e243b-948b-4b70-8fc2-0ec20ed0d279",
+      "status": "running"
+    },
+    {
+      "at": 3102.199999988079,
+      "disabled": false,
+      "label": "",
+      "run_id": "4c9e243b-948b-4b70-8fc2-0ec20ed0d279",
+      "status": "succeeded"
+    }
+  ],
+  "retry_requests": [
+    {
+      "request_id": "13958.45",
+      "url": "http://127.0.0.1:3000/api/platform/api/v1/applications/d0033605-3d86-49ac-8baa-bec03aa2113b/runs",
+      "at": "2026-07-17T00:49:25.576Z"
+    }
+  ],
+  "final_state": {
+    "run_id": "4c9e243b-948b-4b70-8fc2-0ec20ed0d279",
+    "status": "succeeded",
+    "result": "工作流结果\n已按可读格式整理\n展开阅读\n\n请确认退款条件，并给出一段可以直接发送给客户的说明。",
+    "completed_steps": 1,
+    "total_steps": 1
+  },
+  "cleanup": {
+    "application_id": "d0033605-3d86-49ac-8baa-bec03aa2113b",
+    "smoke_marker": "v0.4.11-smoke",
+    "dry_run": false,
+    "deleted": true,
+    "related_counts": {
+      "application_drafts": 1,
+      "application_versions": 0,
+      "builds": 0,
+      "workflow_runs": 2,
+      "schedule_fires": 0,
+      "draft_idempotency": 4
+    }
+  },
+  "screenshots": [
+    {
+      "id": "failed-run",
+      "path": "/Users/zhonghaoyang/Code/agent/Lilies/.tmp/v0411-closure/runtime-recovery/01-failed-run.png",
+      "sha256": "102301152e7e65b295100756f1d429819cda26e55a9f93fce26e7f62796615b9"
+    },
+    {
+      "id": "missing-input",
+      "path": "/Users/zhonghaoyang/Code/agent/Lilies/.tmp/v0411-closure/runtime-recovery/02-missing-input.png",
+      "sha256": "cdc3c88ebe47557b971f9d8962c9dec71d3fb95b1f6b7e57c68a71739960a2ef"
+    },
+    {
+      "id": "recovered-run",
+      "path": "/Users/zhonghaoyang/Code/agent/Lilies/.tmp/v0411-closure/runtime-recovery/03-recovered-run.png",
+      "sha256": "b2a7edcd888190904da31681ca96c31bab9ca9eec3da25153bba7236950c391c"
+    }
+  ],
+  "console_errors": [],
+  "failed_requests": [],
+  "error": null,
+  "finished_at": "2026-07-17T00:49:27.491Z",
+  "chrome_output_tail": [
+    "DevTools listening on ws://127.0.0.1:19317/devtools/browser/788ad3e5-fa16-458f-861c-597e393e170f",
+    "Trying to load the allocator multiple times. This is *not* supported.",
+    "[13936:22237017:0717/094926.006632:ERROR:google_apis/gcm/engine/registration_request.cc:291] Registration response error message: DEPRECATED_ENDPOINT"
+  ]
+}

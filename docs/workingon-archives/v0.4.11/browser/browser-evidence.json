@@ -1,0 +1,131 @@
+{
+  "schema_version": "1.0",
+  "version": "v0.4.11",
+  "evidence_boundary": "Local real-browser product evidence on the restarted v0.4.11 development platform; not customer-production reliability evidence.",
+  "journeys": {
+    "acceptance_repair": {
+      "passed": true,
+      "initial_statuses": [
+        "未运行"
+      ],
+      "failed_statuses": [
+        "失败"
+      ],
+      "final_statuses": [
+        "通过"
+      ],
+      "repair_supported": true,
+      "test_run_request_count": 2,
+      "test_run_statuses": [
+        200,
+        200
+      ],
+      "identifier_underscores_preserved": true,
+      "cleanup_deleted": true,
+      "console_errors": [],
+      "failed_requests": []
+    },
+    "failed_runtime_recovery": {
+      "passed": true,
+      "initial_status": "failed",
+      "raw_error_visible": false,
+      "recovery_in_view": true,
+      "missing_input_request_count": 0,
+      "invalid_field_focused": true,
+      "aria_invalid": "true",
+      "retry_request_count": 1,
+      "final_status": "succeeded",
+      "completed_steps": 1,
+      "total_steps": 1,
+      "cleanup_deleted": true,
+      "console_errors": [],
+      "failed_requests": []
+    },
+    "maintainer_studio": {
+      "passed": true,
+      "node_count": 6,
+      "stable_node_inspectors": true,
+      "arrange_completed": true,
+      "wasd_pan_changed": true,
+      "reference_count": 1,
+      "preview_supported": true,
+      "operation_count": 2,
+      "readable_step_count": 6,
+      "automation_state": "not-configured",
+      "integrations_state": "not-configured",
+      "governance_automation_state": "not-configured",
+      "homepage_application_found": true,
+      "console_errors": [],
+      "failed_requests": []
+    },
+    "customer_mobile": {
+      "passed": true,
+      "viewport": [
+        390,
+        844
+      ],
+      "horizontal_overflow": false,
+      "start_button_in_view": true,
+      "final_status": "succeeded",
+      "completed_steps": 3,
+      "total_steps": 3,
+      "readable_classification": true,
+      "raw_serialized_classification": false,
+      "result_in_width": true,
+      "result_in_view": true,
+      "console_errors": [],
+      "failed_requests": []
+    },
+    "paid_builder_runtime": {
+      "passed": true,
+      "provider_path": "configured paid model",
+      "journey_mode": "requirement-to-runtime",
+      "requirement_status": "ready",
+      "build_status": "published",
+      "node_count": 3,
+      "mandatory_test_count": 1,
+      "final_status": "succeeded",
+      "business_headings": [
+        "紧急程度",
+        "问题类型",
+        "回复建议",
+        "说明",
+        "下一步",
+        "处理步骤"
+      ],
+      "structured_step_count": 5,
+      "result_in_width": true,
+      "horizontal_overflow": false,
+      "cleanup_deleted": true,
+      "console_errors": [],
+      "failed_requests": []
+    }
+  },
+  "all_passed": true,
+  "artifacts": [
+    "acceptance-journey.json",
+    "acceptance-repair-preview.png",
+    "acceptance-repair-rerun.png",
+    "acceptance-repair-passed.png",
+    "runtime-recovery-journey.json",
+    "runtime-failed.png",
+    "runtime-missing-input.png",
+    "runtime-recovered.png",
+    "maintainer-journey.json",
+    "maintainer-studio.png",
+    "maintainer-automation.png",
+    "maintainer-integrations.png",
+    "maintainer-governance-automation.png",
+    "maintainer-home-application.png",
+    "customer-mobile-journey.json",
+    "customer-mobile-start.png",
+    "customer-mobile-result.png",
+    "paid-builder-runtime-journey.json",
+    "paid-builder-runtime-diagnostic.json",
+    "paid-requirement-entered.png",
+    "paid-requirement-ready.png",
+    "paid-application-loaded.png",
+    "paid-customer-runtime.png",
+    "paid-runtime-finished.png"
+  ]
+}

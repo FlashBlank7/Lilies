@@ -1,0 +1,80 @@
+{
+  "schema_version": "1.0",
+  "version": "v0.4.11",
+  "checked_at": "2026-07-17T07:25:30Z",
+  "implementation_commit": "7851713768618828a398bc6b14328e6754bf0c72",
+  "targeted_ruff": {
+    "status": "pass",
+    "files": [
+      "platform/backend/src/agent_platform/__init__.py",
+      "platform/backend/src/agent_platform/api.py",
+      "platform/backend/src/agent_platform/applications.py",
+      "platform/backend/src/agent_platform/builder.py",
+      "platform/backend/src/agent_platform/capability_contracts.py",
+      "platform/backend/src/agent_platform/connector_sdk.py",
+      "platform/backend/src/agent_platform/draft_patch_preview.py",
+      "platform/backend/src/agent_platform/scheduler.py",
+      "platform/backend/src/agent_platform/template_store.py",
+      "platform/backend/src/agent_platform/workflow_models.py",
+      "platform/backend/src/agent_platform/workflow_runtime.py",
+      "platform/backend/src/agent_platform/workflow_storage.py",
+      "scripts/generate_capability_achievement_report.py",
+      "tests/test_application_display_description.py",
+      "tests/test_builder_live_progress.py",
+      "tests/test_human_usability_regressions.py",
+      "tests/test_schedule_status_boundaries.py",
+      "tests/test_smoke_cleanup_version_boundary.py",
+      "tests/test_v03_52_workflow_edit_transform_and_node_click_repair.py",
+      "tests/test_v04_00_ai_requirement_intake.py",
+      "tests/test_v04_03_regression_time_boundary.py",
+      "tests/test_v04_05_capability_build_contract.py",
+      "tests/test_v04_06_versioned_module_evidence_registry.py",
+      "tests/test_v04_09_durable_daily_collection.py",
+      "tests/test_v04_10_connector_embedding.py",
+      "tests/test_v04_11_model_workflow_edit.py",
+      "tests/test_workflow.py"
+    ]
+  },
+  "frontend_lint": {
+    "status": "pass",
+    "command": "PATH=/Users/zhonghaoyang/.nvm/versions/node/v24.15.0/bin:/usr/bin:/bin npm run lint",
+    "result": "TypeScript noEmit passed"
+  },
+  "frontend_build": {
+    "status": "pass",
+    "command": "PATH=/Users/zhonghaoyang/.nvm/versions/node/v24.15.0/bin:/usr/bin:/bin npm run build",
+    "result": "Next.js 16.2.9 production build completed"
+  },
+  "node_syntax": {
+    "status": "pass",
+    "files": [
+      "scripts/human_acceptance_journey.mjs",
+      "scripts/human_customer_journey.mjs",
+      "scripts/human_maintainer_journey.mjs",
+      "scripts/human_runtime_recovery_journey.mjs"
+    ]
+  },
+  "git_diff_check": {
+    "status": "pass"
+  },
+  "full_repository_ruff": {
+    "status": "diagnostic_failed",
+    "finding_count": 397,
+    "evidence": "full-ruff-diagnostic.json",
+    "claim_boundary": "No whole-repository Ruff-clean claim; findings predate or lie outside the v0.4.11 modified-file set."
+  },
+  "current_release_gate": {
+    "status": "pass",
+    "passed_count": 159,
+    "failed_count": 0,
+    "warning_count": 1
+  },
+  "full_suite": {
+    "status": "pass",
+    "passed_count": 771,
+    "expected_failure_count": 85,
+    "failed_count": 0,
+    "warning_count": 1,
+    "evidence": "full-suite-classification.json"
+  }
+}

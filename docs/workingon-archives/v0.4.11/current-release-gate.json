@@ -1,0 +1,57 @@
+{
+  "schema_version": "1.0",
+  "version": "v0.4.11",
+  "source_stage_report": "docs/stage-reports/v0.4.11_human_journey_usability_repair.md",
+  "run_at": "2026-07-17T07:25:30Z",
+  "gate": {
+    "id": "v0.4.x_current_release_gate",
+    "command": [
+      ".venv/bin/python",
+      "-m",
+      "pytest",
+      "tests/test_v04_03_regression_time_boundary.py",
+      "tests/test_v04_03_delivery_modes.py",
+      "tests/test_v04_03_evidence_publish_lifecycle.py",
+      "tests/test_v04_03_acceptance_repair_context.py",
+      "tests/test_v04_03_schema_driven_block_config.py",
+      "tests/test_v04_03_integrated_browser_closure.py",
+      "tests/test_v04_03_browser_closure_gate.py",
+      "tests/test_v04_03_browser_evidence_recorder.py",
+      "tests/test_v04_03_browser_environment.py",
+      "tests/test_v03_52_workflow_edit_transform_and_node_click_repair.py",
+      "tests/test_v04_00_ai_requirement_intake.py",
+      "tests/test_v04_04_codex_feedback_loop.py",
+      "tests/test_v04_05_capability_build_contract.py",
+      "tests/test_v04_06_versioned_module_evidence_registry.py",
+      "tests/test_v04_07_governance_console.py",
+      "tests/test_v04_08_evaluation_harness.py",
+      "tests/test_v04_09_durable_daily_collection.py",
+      "tests/test_v04_10_connector_embedding.py",
+      "tests/test_v04_11_model_workflow_edit.py",
+      "tests/test_application_display_description.py",
+      "tests/test_builder_live_progress.py",
+      "tests/test_human_usability_regressions.py",
+      "tests/test_schedule_status_boundaries.py",
+      "tests/test_smoke_cleanup_version_boundary.py",
+      "tests/test_factory.py",
+      "tests/test_workflow.py::test_application_placeholder_name_is_derived_from_requirement",
+      "tests/test_workflow.py::test_application_placeholder_name_uses_markdown_business_goal",
+      "tests/test_workflow.py::test_branch_outputs_join_with_variable_aggregator",
+      "tests/test_workflow.py::test_model_turn_system_prompt_json_fields_feed_downstream_refs",
+      "tests/test_workflow.py::test_contains_assertion_searches_structured_output_text",
+      "tests/test_workflow.py::test_platform_harness_worker_runner_never_reports_expired_completion_as_success",
+      "tests/test_v03_6_runtime_health_identity.py",
+      "tests/test_stage_report_template_validation.py",
+      "-q"
+    ],
+    "expected": {
+      "pass_count": 159,
+      "warning_count": 1
+    },
+    "observed": {
+      "passed_count": 159,
+      "failed_count": 0,
+      "warning_count": 1
+    }
+  }
+}

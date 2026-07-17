@@ -88,7 +88,7 @@
         "tests/test_stage_report_template_validation.py"
       ],
       "expected": {
-        "pass_count": 139,
+        "pass_count": 159,
         "warning_count": 1
       }
     },
@@ -107,7 +107,7 @@
       "last_observed": {
         "source_stage_report": "docs/stage-reports/v0.4.11_human_journey_usability_repair.md",
         "command": ".venv/bin/python -m pytest tests -q --junitxml=.tmp/lilies-v0411-final.xml",
-        "passed_count": 748,
+        "passed_count": 771,
         "failed_count": 0,
         "expected_failure_count": 85,
         "warning_count": 1,

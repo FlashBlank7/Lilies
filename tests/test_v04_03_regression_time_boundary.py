@@ -138,7 +138,7 @@ def test_current_gate_declares_existing_tests_and_exact_source() -> None:
         "v0.4.11_human_journey_usability_repair.md"
     )
     assert gate["status"] == "gating"
-    assert gate["expected"]["pass_count"] == 139
+    assert gate["expected"]["pass_count"] == 159
     assert "tests/test_v04_10_connector_embedding.py" in gate["test_files"]
     assert "tests/test_v04_11_model_workflow_edit.py" in gate["test_files"]
     assert "tests/test_human_usability_regressions.py" in gate["test_files"]

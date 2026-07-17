@@ -1,0 +1,58 @@
+{
+  "status": "ok",
+  "runtime": {
+    "version": "v0.4.11",
+    "product_phase": "v0.4.x",
+    "git": {
+      "commit": "7851713",
+      "branch": "usabilityEnhence",
+      "tracked_dirty": true,
+      "untracked_present": true
+    },
+    "route_availability": {
+      "health": true,
+      "applications_list": true,
+      "applications_create": true,
+      "application_detail": true,
+      "draft_detail": true,
+      "smoke_cleanup": true,
+      "requirement_intake": true,
+      "scenario_catalog": true,
+      "scenario_apply": true,
+      "capability_contract_validate": true,
+      "application_capability_contract": true,
+      "capability_modules": true,
+      "capability_evidence": true,
+      "governance_overview": true,
+      "governance_usage": true,
+      "evaluation_profiles": true,
+      "evaluation_plan": true,
+      "durable_jobs": true,
+      "connector_manifests": true,
+      "connector_test_run": true,
+      "embedding_invoke": true,
+      "governance_connectors": true
+    },
+    "current_code_ready": true
+  },
+  "deepseek_configured": true,
+  "docker_available": true,
+  "provider": "multi",
+  "tools": [
+    "Agent",
+    "Bash",
+    "Edit",
+    "Glob",
+    "Grep",
+    "MCP",
+    "Read",
+    "Skill",
+    "Task",
+    "WebSearch",
+    "Write"
+  ],
+  "checked_at": "2026-07-17T07:21:52Z",
+  "frontend_http": 200,
+  "frontend_url": "http://127.0.0.1:3000",
+  "backend_health_url": "http://127.0.0.1:8001/health"
+}
