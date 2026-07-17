@@ -467,6 +467,7 @@ class RequirementIntakeOptionEffect(BaseModel):
         "carrier",
         "evidence",
         "runtime_interface",
+        "permission_boundary",
         "target_user",
     ]
     target_id: str = Field(default="", max_length=160)
@@ -504,7 +505,7 @@ class RequirementIntakeAnswer(BaseModel):
 class RequirementIntakeRequest(BaseModel):
     requirement: str = Field(min_length=1, max_length=30_000)
     locale: Literal["zh", "en"] = "zh"
-    answers: list[RequirementIntakeAnswer] = Field(default_factory=list, max_length=12)
+    answers: list[RequirementIntakeAnswer] = Field(default_factory=list, max_length=32)
     max_questions: int = Field(default=5, ge=1, le=8)
 
 
@@ -521,6 +522,7 @@ class RequirementIntakeQuestion(BaseModel):
         "carrier",
         "evidence",
         "runtime_interface",
+        "permission_boundary",
         "target_user",
     ] = "functional_capability"
     choice_type: Literal["single", "multi"] = "single"
@@ -582,14 +584,23 @@ def _requirement_intake_system(locale: str) -> str:
         "Do not ask open-ended free-text questions as the primary interaction. "
         "Every needs_input question must include 2 to 5 concrete selectable options; never return more than five options for one question. "
         "Use choice_type single for mutually exclusive decisions and multi when the customer may select several capabilities. "
-        "The first option should be recommended and should set recommended true. "
+        "Recommend the lowest-friction option that satisfies the original request; never recommend extra review gates, permissions, tools, integrations, state, or orchestration merely because they sound safer or more complete. "
+        "For a low-risk non-mutating pure-text request that explicitly excludes external systems, the default must be automatic execution without human approval, network access, tool calls, durable state, or E2+ infrastructure unless the user explicitly asks for one of them. "
+        "The first option should normally be recommended and should set recommended true, but semantic fit with the original request is more important than option order. "
         "Use custom_allowed only as an optional Other/custom escape hatch; the default path must be selecting options. "
         "Questions must be workflow-building decisions: target user, functional capability (F), runtime guarantee (G), external contract (X), E0-E5 execution envelope, carrier, runtime interface, permission boundary, and evidence. "
-        "Every question must set decision_axis. Every option must include at least one typed effect that says what capability, envelope, carrier, evidence, runtime-interface, or target-user decision the selection changes. "
+        "Every question must set decision_axis. Every option must include at least one typed effect that says what capability, envelope, carrier, evidence, runtime-interface, permission-boundary, or target-user decision the selection changes. "
         "Do not fill missing fields with generic placeholders. Do not invent a target customer, runtime tools, permissions, or acceptance criteria. "
+        "Treat prior_answers as cumulative authoritative decisions from every completed clarification round. Never re-ask an answered question, and do not ask another question on an already-covered decision axis unless the answers are contradictory. Once target user, core capabilities, runtime interface or envelope, permission boundary, and acceptance evidence are covered, return ready; optional refinements must not create an endless clarification loop. "
         "When the request is ready, return status ready and capability_build_contract. The contract is the authoritative Builder input; completed_requirement may be null because the server renders the customer plan from the same contract. "
         "The model, not a fixed scenario template, must infer the contract contents from the original requirement and selected answers. Preserve the exact original source_requirement. "
         "Use stable F.*, G.*, and X.* ids. Every required F/G/X capability, including every runtime guarantee, needs a proposed carrier decision, an explicit workflow/evaluation/platform/external owner, and at least one evidence-plan item. "
+        "Carrier planning is many-to-one: related capabilities may share one node or module. For a cohesive E0/E1 pure-text transformation, propose one structured model node by default; do not create one serial LLM call per capability unless separate tools, permissions, branches, state boundaries, or independently editable behavior require it. "
+        "Each carrier_decision.capability_id must contain exactly one declared F/G/X id. Express many-to-one reuse as one carrier decision per capability with the same resource_hint; never concatenate multiple capability ids into one field. "
+        "Step traceability is supplied by workflow-runtime node events plus a structured step_log in the result; it does not justify serial model calls or a separate Event Recorder block. Identical resource_hint values mean those capabilities should bind to the same carrier. "
+        "Do not duplicate step_log or execution trace as both an F capability and a G guarantee; model it as an observability or audit G guarantee when it is runtime evidence rather than a customer business function. "
+        "Do not invent human review or approval. Preserve it only when the original request or a selected answer explicitly requires it. "
+        "An explicit absence of external dependencies is a claim-scope exclusion, not an X capability: do not create X.no_external, X.no_tools, or similar negative external contracts. "
         "E0-E5 is cumulative execution context: E0 one-shot cognition, E1 stateful workflow, E2 interactive tool loop, E3 durable task, E4 governed automation, E5 production embedding. Risk is a separate field and must not be inferred from envelope alone. "
         "Unavailable external contracts must use availability=unavailable with a reason and blocked_by_environment evidence; do not misreport them as workflow graph defects or live success. "
         "Distinguish workflow_runtime, evaluation_harness, platform_harness, and external_system ownership. Choose among atomic_block, reusable_module, runtime_service, platform_control, and connector_external_contract before implying a new block. "
@@ -601,7 +612,7 @@ def _requirement_intake_system(locale: str) -> str:
         "\"reasoning_summary\":\"short rationale\","
         "\"detected_goal\":\"what the user is trying to build\","
         "\"missing\":[\"specific missing facts\"],"
-        "\"questions\":[{\"id\":\"stable_snake_case\",\"label\":\"short label\",\"question\":\"decision question\",\"why\":\"why it matters\",\"decision_axis\":\"functional_capability|runtime_guarantee|external_contract|execution_envelope|carrier|evidence|runtime_interface|target_user\",\"choice_type\":\"single|multi\",\"options\":[{\"id\":\"stable_option_id\",\"label\":\"option label\",\"description\":\"what this means\",\"impact\":\"how it changes the workflow\",\"recommended\":true,\"effects\":[{\"axis\":\"functional_capability|runtime_guarantee|external_contract|execution_envelope|carrier|evidence|runtime_interface|target_user\",\"target_id\":\"F.example\",\"action\":\"include|require|exclude|configure|raise_envelope\",\"value\":\"specific effect\"}]}],\"custom_allowed\":true,\"custom_placeholder\":\"optional custom answer placeholder\"}],"
+        "\"questions\":[{\"id\":\"stable_snake_case\",\"label\":\"short label\",\"question\":\"decision question\",\"why\":\"why it matters\",\"decision_axis\":\"functional_capability|runtime_guarantee|external_contract|execution_envelope|carrier|evidence|runtime_interface|permission_boundary|target_user\",\"choice_type\":\"single|multi\",\"options\":[{\"id\":\"stable_option_id\",\"label\":\"option label\",\"description\":\"what this means\",\"impact\":\"how it changes the workflow\",\"recommended\":true,\"effects\":[{\"axis\":\"functional_capability|runtime_guarantee|external_contract|execution_envelope|carrier|evidence|runtime_interface|permission_boundary|target_user\",\"target_id\":\"F.example\",\"action\":\"include|require|exclude|configure|raise_envelope\",\"value\":\"specific effect\"}]}],\"custom_allowed\":true,\"custom_placeholder\":\"optional custom answer placeholder\"}],"
         "\"completed_requirement\":\"string or null\","
         "\"workflow_intent\":{\"target_user\":\"\",\"runtime_input\":\"\",\"runtime_output\":\"\",\"core_steps\":[\"\"],\"permissions\":[\"\"],\"acceptance_cases\":[\"\"]},"
         "\"capability_build_contract\":{}"
@@ -626,14 +637,28 @@ def _requirement_intake_prompt(body: RequirementIntakeRequest) -> str:
         }
         for answer in body.answers
     ]
+    answered_axes = sorted({
+        effect.axis
+        for answer in body.answers
+        for option in answer.selected_options
+        for effect in option.effects
+    })
     return json.dumps(
         {
             "requirement": body.requirement,
             "prior_answers": answers,
+            "answered_question_ids": [answer.question_id for answer in body.answers],
+            "answered_decision_axes": answered_axes,
+            "selected_option_count": sum(
+                len(answer.selected_option_ids) for answer in body.answers
+            ),
             "max_questions": body.max_questions,
             "instruction": (
+                "prior_answers contains the cumulative selections from every earlier round. "
+                "Do not ask those questions again or reopen a covered decision axis without a concrete contradiction. "
                 "Return needs_input if the most important workflow design facts are still missing. "
                 "If returning needs_input, return selectable options with typed decision axes and effects rather than free-text questions. "
+                "As soon as target user, core capability, runtime interface or execution envelope, permission boundary, and acceptance evidence are covered, return ready. "
                 "Return ready only when capability_build_contract can guide editable workflow generation, carrier selection, routing, and scoped evidence without generic fallback fields."
             ),
         },
@@ -669,6 +694,701 @@ def _validate_requirement_intake_response(result: RequirementIntakeResponse) -> 
             )
 
 
+_NO_EXTERNAL_RE = re.compile(
+    r"(?:不(?:调用|接入|访问|连接|依赖|使用)|无需|无|禁止|不要).{0,12}"
+    r"(?:外部(?:系统|API| API|服务|工具)?|网络|数据库)"
+    r"|\b(?:without|no|do not use|does not use|must not use|avoid)\b.{0,30}"
+    r"\b(?:external|network|api|connector|database|tool)s?\b",
+    re.I,
+)
+_NO_HUMAN_REVIEW_RE = re.compile(
+    r"(?:无需|不需(?:要)?|不要|不设|取消|跳过|无)(?:任何)?(?:人工|主管|用户|操作员)?"
+    r"(?:审核|审批|确认|复核)"
+    r"|\b(?:without|no|skip|disable)\b.{0,16}\b(?:human|manual|operator)?\s*"
+    r"(?:review|approval|confirmation)\b",
+    re.I,
+)
+_HUMAN_REVIEW_RE = re.compile(
+    r"(?:人工|主管|用户|操作员).{0,8}(?:审核|审批|确认|复核)"
+    r"|(?:审核|审批|复核).{0,8}(?:人工|主管|用户|操作员)"
+    r"|\b(?:human|manual|operator).{0,16}(?:review|approval|confirmation)\b"
+    r"|\bapproval\s+gate\b",
+    re.I,
+)
+_SEPARATE_CARRIER_RE = re.compile(
+    r"(?:独立|分别|分开).{0,10}(?:积木|节点|模型调用|步骤|编辑)"
+    r"|可独立编辑|每个能力.{0,8}(?:一个|单独)"
+    r"|\b(?:separate|independent|independently editable).{0,20}"
+    r"(?:block|node|model call|step)s?\b"
+    r"|\bone\s+(?:block|node|model call)\s+per\s+capability\b",
+    re.I,
+)
+_LOW_FRICTION_RE = re.compile(
+    r"自动|直接|即时|轻量|最少|单次|本地|无需审核|不需要审核|无审批"
+    r"|\b(?:automatic|direct|immediate|minimal|single-pass|local|no approval)\b",
+    re.I,
+)
+_EXTERNAL_USE_RE = re.compile(
+    r"外部(?:系统|API| API|服务|工具)|访问网络|连接数据库|调用工具"
+    r"|\b(?:external system|external api|network access|connector|database|tool execution)\b",
+    re.I,
+)
+_LOCAL_RESOURCE_USE_RE = re.compile(
+    r"本地文件|工作区文件|文件系统|读取文件|访问文件"
+    r"|\b(?:local files?|workspace files?|filesystem|file access|read files?)\b",
+    re.I,
+)
+_HIGHER_ENVELOPE_RE = re.compile(r"\bE[2-5]\b|持久任务|定时调度|生产嵌入|durable|scheduled|production", re.I)
+_TRACE_CAPABILITY_RE = re.compile(
+    r"step[_ .-]?trace|traceability|step[_ .-]?log|execution[_ .-]?log"
+    r"|步骤(?:可)?追踪|步骤日志|执行日志",
+    re.I,
+)
+_TRACE_OUTPUT_RE = re.compile(r"step[_ .-]?log|trace|execution[_ .-]?log|步骤日志|执行日志", re.I)
+
+
+def _states_no_external(text: str) -> bool:
+    return bool(_NO_EXTERNAL_RE.search(text or ""))
+
+
+def _states_no_human_review(text: str) -> bool:
+    return bool(_NO_HUMAN_REVIEW_RE.search(text or ""))
+
+
+def _requests_human_review(text: str) -> bool:
+    without_negated_review = _NO_HUMAN_REVIEW_RE.sub("", text or "")
+    return bool(_HUMAN_REVIEW_RE.search(without_negated_review))
+
+
+def _requirement_decision_text(body: RequirementIntakeRequest) -> str:
+    parts = [body.requirement]
+    for answer in body.answers:
+        parts.extend((answer.custom_answer, answer.answer or ""))
+        for option in answer.selected_options:
+            parts.extend((option.label, option.description, option.impact))
+            parts.extend(effect.value for effect in option.effects)
+    return "\n".join(part for part in parts if part)
+
+
+def _intake_option_text(option: dict[str, Any]) -> str:
+    parts = [
+        str(option.get("id") or ""),
+        str(option.get("label") or ""),
+        str(option.get("description") or ""),
+        str(option.get("impact") or ""),
+    ]
+    effects = option.get("effects")
+    if isinstance(effects, list):
+        for effect in effects:
+            if not isinstance(effect, dict):
+                continue
+            parts.extend(
+                str(effect.get(key) or "")
+                for key in ("axis", "action", "target_id", "value")
+            )
+    return "\n".join(parts)
+
+
+def _option_excludes_external(option: dict[str, Any], text: str) -> bool:
+    if _states_no_external(text):
+        return True
+    effects = option.get("effects")
+    return bool(
+        isinstance(effects, list)
+        and any(
+            isinstance(effect, dict)
+            and effect.get("axis") == "external_contract"
+            and effect.get("action") == "exclude"
+            for effect in effects
+        )
+    )
+
+
+def _option_friction_score(
+    option: dict[str, Any],
+    *,
+    explicit_no_external: bool,
+    explicit_human_review: bool,
+    explicit_local_resources: bool,
+) -> int:
+    text = _intake_option_text(option)
+    score = 0
+    if _LOW_FRICTION_RE.search(text):
+        score -= 5
+    if _states_no_human_review(text):
+        score -= 20
+    if not explicit_human_review and _requests_human_review(text):
+        score += 60
+    if (
+        explicit_no_external
+        and not _option_excludes_external(option, text)
+        and _EXTERNAL_USE_RE.search(text)
+    ):
+        score += 60
+    if not explicit_local_resources and _LOCAL_RESOURCE_USE_RE.search(text):
+        score += 50
+    if _HIGHER_ENVELOPE_RE.search(text):
+        score += 20
+    if _SEPARATE_CARRIER_RE.search(text):
+        score += 10
+    return score
+
+
+def _normalize_intake_recommendations(
+    question: dict[str, Any],
+    body: RequirementIntakeRequest,
+) -> None:
+    options = question.get("options")
+    if not isinstance(options, list) or not options:
+        return
+    if question.get("decision_axis") == "target_user":
+        return
+
+    decision_text = _requirement_decision_text(body)
+    explicit_no_external = _states_no_external(body.requirement)
+    explicit_human_review = _requests_human_review(decision_text)
+    explicit_local_resources = bool(
+        _LOCAL_RESOURCE_USE_RE.search(body.requirement)
+    )
+    if not explicit_no_external:
+        return
+
+    scores = [
+        _option_friction_score(
+            option,
+            explicit_no_external=explicit_no_external,
+            explicit_human_review=explicit_human_review,
+            explicit_local_resources=explicit_local_resources,
+        )
+        if isinstance(option, dict)
+        else 100
+        for option in options
+    ]
+    compatible_indexes = [index for index, score in enumerate(scores) if score < 50]
+    if not compatible_indexes:
+        return
+
+    if question.get("choice_type") == "single":
+        best_index = min(compatible_indexes, key=lambda index: (scores[index], index))
+        for index, option in enumerate(options):
+            if isinstance(option, dict):
+                option["recommended"] = index == best_index
+        return
+
+    for index, option in enumerate(options):
+        if isinstance(option, dict) and scores[index] >= 50:
+            option["recommended"] = False
+    if not any(
+        isinstance(option, dict) and option.get("recommended")
+        for option in options
+    ):
+        best_index = min(compatible_indexes, key=lambda index: (scores[index], index))
+        options[best_index]["recommended"] = True
+
+
+_INTAKE_DECISION_AXES = {
+    "functional_capability",
+    "runtime_guarantee",
+    "external_contract",
+    "execution_envelope",
+    "carrier",
+    "evidence",
+    "runtime_interface",
+    "permission_boundary",
+    "target_user",
+}
+_INTAKE_AXIS_ALIASES = {
+    "capability": "functional_capability",
+    "function": "functional_capability",
+    "guarantee": "runtime_guarantee",
+    "runtime": "runtime_guarantee",
+    "external": "external_contract",
+    "integration": "external_contract",
+    "envelope": "execution_envelope",
+    "interface": "runtime_interface",
+    "permissions": "permission_boundary",
+    "permission": "permission_boundary",
+    "user": "target_user",
+    "acceptance": "evidence",
+    "verification": "evidence",
+}
+_INTAKE_EFFECT_ACTIONS = {
+    "include",
+    "require",
+    "exclude",
+    "configure",
+    "raise_envelope",
+}
+_INTAKE_ACTION_ALIASES = {
+    "set": "configure",
+    "select": "configure",
+    "specify": "configure",
+    "update": "configure",
+    "add": "include",
+    "enable": "include",
+    "use": "include",
+    "must": "require",
+    "enforce": "require",
+    "remove": "exclude",
+    "omit": "exclude",
+    "disable": "exclude",
+    "forbid": "exclude",
+    "raise": "raise_envelope",
+    "upgrade": "raise_envelope",
+}
+
+
+def _intake_protocol_token(value: Any) -> str:
+    return re.sub(r"[\s-]+", "_", str(value or "").strip().casefold())
+
+
+def _normalize_intake_axis(value: Any, *, fallback: str) -> str:
+    token = _intake_protocol_token(value)
+    normalized = _INTAKE_AXIS_ALIASES.get(token, token)
+    if normalized in _INTAKE_DECISION_AXES:
+        return normalized
+    fallback_token = _intake_protocol_token(fallback)
+    fallback_axis = _INTAKE_AXIS_ALIASES.get(fallback_token, fallback_token)
+    return (
+        fallback_axis
+        if fallback_axis in _INTAKE_DECISION_AXES
+        else "functional_capability"
+    )
+
+
+def _normalize_intake_option_effects(
+    option: dict[str, Any],
+    *,
+    question_axis: str,
+) -> None:
+    raw_effects = option.get("effects")
+    effects = raw_effects if isinstance(raw_effects, list) else []
+    normalized: list[dict[str, Any]] = []
+    for raw_effect in effects[:12]:
+        if not isinstance(raw_effect, dict):
+            continue
+        axis = _normalize_intake_axis(
+            raw_effect.get("axis"),
+            fallback=question_axis,
+        )
+        action_token = _intake_protocol_token(raw_effect.get("action"))
+        action = _INTAKE_ACTION_ALIASES.get(action_token, action_token)
+        if action not in _INTAKE_EFFECT_ACTIONS:
+            action = "configure"
+        option_id = str(option.get("id") or "option")
+        target_id = str(
+            raw_effect.get("target_id")
+            or f"{axis}.{option_id}"
+        ).strip()[:160]
+        value = str(
+            raw_effect.get("value")
+            or option.get("impact")
+            or option.get("label")
+            or option_id
+        ).strip()[:500]
+        normalized.append({
+            "axis": axis,
+            "target_id": target_id,
+            "action": action,
+            "value": value or option_id,
+        })
+    if not normalized:
+        option_id = str(option.get("id") or "legacy_option")
+        normalized = [{
+            "axis": question_axis,
+            "target_id": f"{question_axis}.{option_id}"[:160],
+            "action": "configure",
+            "value": str(
+                option.get("impact")
+                or option.get("label")
+                or option_id
+            )[:500],
+        }]
+    option["effects"] = normalized
+
+
+def _capability_text(capability: dict[str, Any]) -> str:
+    return "\n".join(
+        str(capability.get(key) or "")
+        for key in ("id", "title", "description", "availability_reason")
+    )
+
+
+def _is_negative_external_contract(capability: dict[str, Any]) -> bool:
+    if capability.get("availability") != "not_required":
+        return False
+    text = _capability_text(capability)
+    return (
+        _states_no_external(text)
+        or "no_external" in str(capability.get("id") or "").casefold()
+        or "without_external" in str(capability.get("id") or "").casefold()
+    )
+
+
+def _references_any(text: str, identifiers: set[str]) -> bool:
+    lowered = (text or "").casefold()
+    return any(identifier.casefold() in lowered for identifier in identifiers)
+
+
+def _normalize_raw_carrier_decisions(
+    raw_contract: dict[str, Any],
+) -> dict[str, Any]:
+    capability_ids = [
+        item.get("id")
+        for key in ("functional_capabilities", "runtime_guarantees", "external_contracts")
+        for item in raw_contract.get(key, [])
+        if isinstance(item, dict) and isinstance(item.get("id"), str)
+    ]
+    decisions = raw_contract.get("carrier_decisions")
+    if not isinstance(decisions, list):
+        return raw_contract
+
+    exact = {
+        decision.get("capability_id"): decision
+        for decision in decisions
+        if isinstance(decision, dict)
+        and decision.get("capability_id") in capability_ids
+    }
+    normalized = list(exact.values())
+    normalized_ids = set(exact)
+    for decision in decisions:
+        if not isinstance(decision, dict):
+            continue
+        raw_id = str(decision.get("capability_id") or "")
+        if raw_id in exact:
+            continue
+        tokens = set(re.findall(r"[A-Za-z][A-Za-z0-9_.-]{1,119}", raw_id))
+        for capability_id in capability_ids:
+            if capability_id not in tokens or capability_id in normalized_ids:
+                continue
+            normalized.append({
+                **decision,
+                "capability_id": capability_id,
+            })
+            normalized_ids.add(capability_id)
+    raw_contract["carrier_decisions"] = normalized
+    return raw_contract
+
+
+def _ensure_explicit_runtime_guarantees(
+    raw_contract: dict[str, Any],
+    body: RequirementIntakeRequest,
+) -> dict[str, Any]:
+    decision_text = _requirement_decision_text(body)
+    if not _TRACE_CAPABILITY_RE.search(decision_text):
+        return raw_contract
+
+    guarantees = raw_contract.setdefault("runtime_guarantees", [])
+    if not isinstance(guarantees, list):
+        guarantees = []
+        raw_contract["runtime_guarantees"] = guarantees
+    trace_guarantees = [
+        item
+        for item in guarantees
+        if isinstance(item, dict)
+        and _TRACE_CAPABILITY_RE.search(_capability_text(item))
+    ]
+    if trace_guarantees:
+        for guarantee in trace_guarantees:
+            guarantee["guarantee_type"] = "observability"
+        return raw_contract
+
+    existing_ids = {
+        str(item.get("id"))
+        for key in ("functional_capabilities", "runtime_guarantees", "external_contracts")
+        for item in raw_contract.get(key, [])
+        if isinstance(item, dict) and item.get("id")
+    }
+    capability_id = "G.step_traceability"
+    suffix = 2
+    while capability_id in existing_ids:
+        capability_id = f"G.step_traceability_{suffix}"
+        suffix += 1
+    envelope = str(raw_contract.get("required_envelope") or "E1")
+    if envelope not in {"E0", "E1", "E2", "E3", "E4", "E5"}:
+        envelope = "E1"
+    guarantees.append({
+        "id": capability_id,
+        "title": "步骤可追踪" if body.locale == "zh" else "Traceable workflow steps",
+        "description": (
+            "由工作流运行时记录节点进度，并在结果中保留结构化步骤证据。"
+            if body.locale == "zh"
+            else "Record node progress in the workflow runtime and retain structured "
+            "step evidence in the result."
+        ),
+        "required_envelope": envelope,
+        "guarantee_type": "observability",
+        "acceptance": [
+            (
+                "运行记录包含可定位的节点步骤，客户结果包含结构化步骤证据。"
+                if body.locale == "zh"
+                else "The run exposes addressable node steps and the customer result "
+                "contains structured step evidence."
+            )
+        ],
+    })
+    return raw_contract
+
+
+def _normalize_ready_capability_contract(
+    contract: CapabilityBuildContract,
+    body: RequirementIntakeRequest,
+) -> CapabilityBuildContract:
+    data = contract.model_dump(mode="json")
+    decision_text = _requirement_decision_text(body)
+    explicit_no_external = _states_no_external(body.requirement)
+    explicit_human_review = _requests_human_review(decision_text)
+    explicit_separate_carriers = bool(_SEPARATE_CARRIER_RE.search(decision_text))
+    low_risk_text_scope = (
+        data.get("risk_level") == "low"
+        and data.get("required_envelope") in {"E0", "E1"}
+        and all(
+            item.get("value_type") == "string"
+            for item in data.get("start_inputs", [])
+            if isinstance(item, dict) and item.get("required", True)
+        )
+    )
+
+    removed_external_ids = {
+        item["id"]
+        for item in data.get("external_contracts", [])
+        if isinstance(item, dict) and _is_negative_external_contract(item)
+    }
+    removed_review_ids: set[str] = set()
+    if low_risk_text_scope and explicit_no_external and not explicit_human_review:
+        removed_review_ids.update(
+            item["id"]
+            for item in data.get("functional_capabilities", [])
+            if isinstance(item, dict) and _requests_human_review(_capability_text(item))
+        )
+        removed_review_ids.update(
+            item["id"]
+            for item in data.get("runtime_guarantees", [])
+            if isinstance(item, dict)
+            and (
+                item.get("guarantee_type") == "permission"
+                or _requests_human_review(_capability_text(item))
+            )
+        )
+    has_trace_guarantee = any(
+        item.get("guarantee_type") in {"audit", "observability"}
+        and _TRACE_CAPABILITY_RE.search(_capability_text(item))
+        for item in data.get("runtime_guarantees", [])
+        if isinstance(item, dict) and item.get("required", True)
+    )
+    removed_duplicate_function_ids = {
+        item["id"]
+        for item in data.get("functional_capabilities", [])
+        if isinstance(item, dict)
+        and has_trace_guarantee
+        and _TRACE_CAPABILITY_RE.search(_capability_text(item))
+        and item.get("outputs")
+        and all(_TRACE_OUTPUT_RE.search(str(output)) for output in item["outputs"])
+    }
+    removed_ids = (
+        removed_external_ids
+        | removed_review_ids
+        | removed_duplicate_function_ids
+    )
+
+    data["external_contracts"] = [
+        item
+        for item in data.get("external_contracts", [])
+        if item.get("id") not in removed_external_ids
+    ]
+    data["functional_capabilities"] = [
+        item
+        for item in data.get("functional_capabilities", [])
+        if item.get("id") not in removed_review_ids
+        and item.get("id") not in removed_duplicate_function_ids
+    ]
+    data["runtime_guarantees"] = [
+        item
+        for item in data.get("runtime_guarantees", [])
+        if item.get("id") not in removed_review_ids
+    ]
+
+    for key in ("functional_capabilities", "runtime_guarantees", "external_contracts"):
+        known_capability_ids = {
+            item["id"]
+            for capability_key in (
+                "functional_capabilities",
+                "runtime_guarantees",
+                "external_contracts",
+            )
+            for item in data.get(capability_key, [])
+        }
+        for capability in data.get(key, []):
+            capability["requires"] = [
+                item for item in capability.get("requires", []) if item not in removed_ids
+            ]
+            capability["excludes"] = [
+                item
+                for item in capability.get("excludes", [])
+                if item not in removed_ids and item in known_capability_ids
+            ]
+
+    data["carrier_decisions"] = [
+        item
+        for item in data.get("carrier_decisions", [])
+        if item.get("capability_id") not in removed_ids
+    ]
+    data["platform_coverage"] = [
+        item
+        for item in data.get("platform_coverage", [])
+        if item.get("capability_id") not in removed_ids
+    ]
+    normalized_evidence = []
+    for item in data.get("evidence_plan", []):
+        capability_ids = [
+            capability_id
+            for capability_id in item.get("capability_ids", [])
+            if capability_id not in removed_ids
+        ]
+        if capability_ids:
+            item["capability_ids"] = capability_ids
+            normalized_evidence.append(item)
+    data["evidence_plan"] = normalized_evidence
+
+    if removed_review_ids:
+        data["workflow_outline"] = [
+            item
+            for item in data.get("workflow_outline", [])
+            if not _references_any(item, removed_review_ids)
+            and not _requests_human_review(item)
+        ]
+        data["risk_reasons"] = [
+            item
+            for item in data.get("risk_reasons", [])
+            if not _requests_human_review(item)
+        ]
+        if _requests_human_review(str(data.get("runtime_interface") or "")):
+            data["runtime_interface"] = (
+                "用户在客户运行界面提交启动输入，工作流自动完成处理，并展示结构化结果、"
+                "当前步骤和运行证据。"
+                if body.locale == "zh"
+                else "The user submits the start input in the customer runtime; the workflow "
+                "runs automatically and shows the structured result, current step, and evidence."
+            )
+
+    claim_scope = data.get("claim_scope")
+    if isinstance(claim_scope, dict):
+        claim_scope["verified"] = [
+            item
+            for item in claim_scope.get("verified", [])
+            if not _references_any(item, removed_ids)
+            and not (removed_review_ids and _requests_human_review(item))
+        ]
+        if removed_external_ids and not any(
+            "外部" in item or "external" in item.casefold()
+            for item in claim_scope.get("excluded", [])
+        ):
+            claim_scope.setdefault("excluded", []).append(
+                "外部系统集成" if body.locale == "zh" else "External system integration"
+            )
+
+    data["unresolved_decisions"] = [
+        item
+        for item in data.get("unresolved_decisions", [])
+        if not _references_any(item, removed_ids)
+    ]
+
+    remaining_required_external = [
+        item
+        for item in data.get("external_contracts", [])
+        if item.get("required", True) and item.get("availability") != "not_required"
+    ]
+    share_text_carrier = (
+        low_risk_text_scope
+        and explicit_no_external
+        and not remaining_required_external
+        and not explicit_separate_carriers
+    )
+    if share_text_carrier:
+        functional_ids = {
+            item["id"]
+            for item in data.get("functional_capabilities", [])
+            if item.get("required", True)
+        }
+        functional_titles = [
+            item["title"]
+            for item in data.get("functional_capabilities", [])
+            if item.get("required", True)
+        ]
+        guarantee_types = {
+            item["id"]: item.get("guarantee_type")
+            for item in data.get("runtime_guarantees", [])
+            if item.get("required", True)
+        }
+        outline = data.get("workflow_outline", [])
+        model_step_indexes = [
+            index
+            for index, item in enumerate(outline)
+            if re.search(r"LLM|模型|model", item, re.I)
+        ]
+        if len(model_step_indexes) > 1:
+            first_model_step = model_step_indexes[0]
+            combined_model_step = (
+                "使用一个结构化模型步骤同时完成："
+                + "、".join(functional_titles)
+                if body.locale == "zh"
+                else "Use one structured model step for: "
+                + ", ".join(functional_titles)
+            )
+            data["workflow_outline"] = [
+                *outline[:first_model_step],
+                combined_model_step,
+                *[
+                    item
+                    for index, item in enumerate(outline[first_model_step + 1 :], first_model_step + 1)
+                    if index not in model_step_indexes
+                ],
+            ]
+        for decision in data.get("carrier_decisions", []):
+            capability_id = decision.get("capability_id")
+            if (
+                capability_id in functional_ids
+                and decision.get("carrier_type") in {"atomic_block", "reusable_module"}
+            ):
+                decision.update({
+                    "carrier_type": "atomic_block",
+                    "resource_hint": "shared:model_turn:structured_workflow_result",
+                    "rationale": (
+                        "One structured Model Turn covers the related text capabilities; "
+                        "runtime node events and the structured step_log preserve traceability."
+                    ),
+                    "status": "proposed",
+                    "implementation_refs": [],
+                })
+            elif guarantee_types.get(capability_id) in {"state", "audit", "observability"}:
+                decision.update({
+                    "carrier_type": "runtime_service",
+                    "resource_hint": "runtime:workflow_runtime",
+                    "rationale": (
+                        "The workflow runtime records node progress and structured result evidence; "
+                        "no extra model call or Event Recorder node is required."
+                    ),
+                    "status": "proposed",
+                    "implementation_refs": [],
+                })
+        for coverage in data.get("platform_coverage", []):
+            if guarantee_types.get(coverage.get("capability_id")) in {
+                "state",
+                "audit",
+                "observability",
+            }:
+                coverage.update({
+                    "owner": "workflow_runtime",
+                    "surface": "runtime:workflow_runtime",
+                    "notes": (
+                        "Runtime node events and structured outputs provide step evidence "
+                        "without adding a separate workflow node."
+                    ),
+                })
+
+    return CapabilityBuildContract.model_validate(data)
+
+
 def _normalize_requirement_intake_payload(
     payload: dict[str, Any],
     body: RequirementIntakeRequest,
@@ -690,8 +1410,10 @@ def _normalize_requirement_intake_payload(
                     question[text_key] = ""
             if question.get("custom_allowed") is None:
                 question["custom_allowed"] = True
-            if not question.get("decision_axis"):
-                question["decision_axis"] = "functional_capability"
+            question["decision_axis"] = _normalize_intake_axis(
+                question.get("decision_axis"),
+                fallback="functional_capability",
+            )
             options = question.get("options")
             if isinstance(options, list) and len(options) > 5:
                 question["options"] = options[:5]
@@ -704,14 +1426,11 @@ def _normalize_requirement_intake_payload(
                             option[text_key] = ""
                     if option.get("recommended") is None:
                         option["recommended"] = False
-                    if not option.get("effects"):
-                        option_id = str(option.get("id") or "legacy_option")
-                        option["effects"] = [{
-                            "axis": "functional_capability",
-                            "target_id": f"F.option.{option_id}"[:160],
-                            "action": "configure",
-                            "value": str(option.get("impact") or option.get("label") or option_id)[:500],
-                        }]
+                    _normalize_intake_option_effects(
+                        option,
+                        question_axis=question["decision_axis"],
+                    )
+            _normalize_intake_recommendations(question, body)
         return payload
 
     if payload.get("status") != "ready":
@@ -721,8 +1440,13 @@ def _normalize_requirement_intake_payload(
         raw_contract = dict(raw_contract)
         raw_contract["source_requirement"] = body.requirement
         raw_contract["generation_source"] = "model"
-        contract = complete_capability_contract_scaffolding(
-            CapabilityBuildContract.model_validate(raw_contract)
+        raw_contract = _normalize_raw_carrier_decisions(raw_contract)
+        raw_contract = _ensure_explicit_runtime_guarantees(raw_contract, body)
+        contract = _normalize_ready_capability_contract(
+            complete_capability_contract_scaffolding(
+                CapabilityBuildContract.model_validate(raw_contract)
+            ),
+            body,
         )
     else:
         workflow_intent = payload.get("workflow_intent")
@@ -3127,11 +3851,45 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         body: SmokeCleanupRequest,
     ) -> dict[str, Any]:
         try:
-            return await services.workflow_store.smoke_cleanup_application(
+            cancelled_build_ids: list[str] = []
+            cancelled_run_ids: list[str] = []
+            if not body.dry_run:
+                build_tasks: list[asyncio.Task[Any]] = []
+                for build in await services.workflow_store.list_builds(application_id):
+                    build_id = str(build["id"])
+                    task = services.builder.active.get(build_id)
+                    if task is None or task.done():
+                        continue
+                    services.builder.cancel(build_id)
+                    cancelled_build_ids.append(build_id)
+                    build_tasks.append(task)
+                if build_tasks:
+                    await asyncio.gather(*build_tasks, return_exceptions=True)
+
+                run_tasks: list[asyncio.Task[Any]] = []
+                for run_id, task in list(services.workflow_runtime.active_tasks.items()):
+                    if task.done():
+                        continue
+                    try:
+                        run = await services.workflow_store.get_run(run_id)
+                    except KeyError:
+                        continue
+                    if run["application_id"] != application_id:
+                        continue
+                    services.workflow_runtime.cancel(run_id)
+                    cancelled_run_ids.append(run_id)
+                    run_tasks.append(task)
+                if run_tasks:
+                    await asyncio.gather(*run_tasks, return_exceptions=True)
+
+            result = await services.workflow_store.smoke_cleanup_application(
                 application_id,
                 smoke_marker=body.smoke_marker,
                 dry_run=body.dry_run,
             )
+            result["cancelled_build_ids"] = cancelled_build_ids
+            result["cancelled_run_ids"] = cancelled_run_ids
+            return result
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
         except ValueError as error:

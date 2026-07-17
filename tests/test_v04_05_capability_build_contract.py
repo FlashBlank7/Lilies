@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 
 from agent_platform.acceptance_repair import AcceptanceRepairPreviewer
 from agent_platform.api import create_app
+from agent_platform.builder import WorkflowBuilder
 from agent_platform.capability_contracts import (
     AcceptanceEvidenceTarget,
     CarrierStatus,
@@ -566,8 +567,27 @@ def test_builder_binds_real_carriers_and_refuses_incomplete_contract(tmp_path: P
                 auto_publish=False,
             )
 
-        for decision in contract.carrier_decisions:
+        with pytest.raises(
+            RuntimeError,
+            match="acceptance tests cannot run until the Capability Build Contract",
+        ):
             await builder._execute(
+                "build-contract-test",
+                application["id"],
+                state,
+                "test_run",
+                {},
+                max_repair_cycles=2,
+                auto_publish=False,
+            )
+
+        for index, decision in enumerate(contract.carrier_decisions):
+            references = binding_refs[decision.capability_id]
+            if index == 0:
+                references = [
+                    f"node:{reference}" for reference in references
+                ]
+            bound = await builder._execute(
                 "build-contract-test",
                 application["id"],
                 state,
@@ -576,11 +596,15 @@ def test_builder_binds_real_carriers_and_refuses_incomplete_contract(tmp_path: P
                     "action": "bind",
                     "capability_id": decision.capability_id,
                     "status": "bound",
-                    "implementation_refs": binding_refs[decision.capability_id],
+                    "implementation_refs": references,
                 },
                 max_repair_cycles=2,
                 auto_publish=False,
             )
+            if index == 0:
+                assert bound["carrier"]["implementation_refs"] == binding_refs[
+                    decision.capability_id
+                ]
         validated = await builder._execute(
             "build-contract-test",
             application["id"],
@@ -635,6 +659,213 @@ def test_acceptance_repair_preserves_capability_and_claim_context(tmp_path: Path
     assert context.claim_ceiling == "blocked_by_environment"
     assert context.external_contract_gaps == ["X.site_access"]
     assert "G.provenance" in preview.instruction
+
+
+def test_shared_model_carrier_rejects_split_bindings_and_extra_model_turns() -> None:
+    contract = reference_capability_contract("daily_web_collection").model_copy(
+        deep=True
+    )
+    functional_ids = {
+        item.id for item in contract.functional_capabilities
+    }
+    for decision in contract.carrier_decisions:
+        if decision.capability_id not in functional_ids:
+            continue
+        decision.resource_hint = "shared:model_turn:structured_workflow_result"
+        decision.status = CarrierStatus.bound
+        decision.implementation_refs = [
+            (
+                "analysis_node"
+                if decision.capability_id == "F.collect_sources"
+                else "reply_node"
+            )
+        ]
+    snapshot = ApplicationSnapshot.model_validate({
+        "name": "Shared carrier guard",
+        "description": "One shared model turn must carry both text capabilities.",
+        "requirement": contract.source_requirement,
+        "capability_build_contract": contract.model_dump(mode="json"),
+        "workflow": {
+            "nodes": [
+                {"id": "start", "type": "start", "title": "Start", "config": {"inputs": []}},
+                {"id": "analysis_node", "type": "model_turn", "title": "Analysis", "config": {}},
+                {"id": "reply_node", "type": "model_turn", "title": "Reply", "config": {}},
+                {"id": "answer", "type": "answer", "title": "Answer", "config": {"answer": "done"}},
+            ],
+            "edges": [],
+        },
+    })
+
+    split_errors = WorkflowBuilder._shared_carrier_binding_errors(
+        snapshot,
+        contract,
+    )
+    assert any("must reuse identical implementation_refs" in item for item in split_errors)
+
+    for decision in contract.carrier_decisions:
+        if decision.capability_id in functional_ids:
+            decision.implementation_refs = ["analysis_node"]
+    extra_node_errors = WorkflowBuilder._shared_carrier_binding_errors(
+        snapshot,
+        contract,
+    )
+    assert any("extra Model Turn nodes" in item for item in extra_node_errors)
+
+
+def test_builder_delivery_gate_requires_customer_trace_assertion(
+    tmp_path: Path,
+) -> None:
+    builder = create_app(
+        settings(tmp_path),
+        PassiveProvider(),
+    ).state.services.builder
+    snapshot_payload = {
+        "name": "Traceable complaint workflow",
+        "description": "Classifies a complaint and returns a reply.",
+        "requirement": "输入客户投诉并生成回复，同时输出结构化步骤日志。",
+        "capability_build_contract": {
+            "source_requirement": (
+                "输入客户投诉并生成回复，同时输出结构化步骤日志。"
+            ),
+            "target_user": "客服主管",
+            "business_goal": "快速处理投诉",
+            "start_inputs": [{
+                "name": "complaint",
+                "label": "客户投诉",
+                "value_type": "string",
+            }],
+            "functional_capabilities": [{
+                "id": "F.reply",
+                "title": "回复建议",
+                "description": "生成客户回复建议",
+                "outputs": ["reply_suggestion"],
+            }],
+            "runtime_guarantees": [{
+                "id": "G.step_trace",
+                "title": "步骤日志",
+                "description": "在客户结果中保留结构化 step_log",
+                "guarantee_type": "observability",
+                "acceptance": ["客户结果包含结构化步骤日志"],
+            }],
+            "required_envelope": "E1",
+            "risk_level": "low",
+            "workflow_outline": ["接收投诉", "生成回复与步骤日志"],
+            "runtime_interface": "提交投诉后直接展示结果",
+            "claim_scope": {"ceiling": "design_only"},
+        },
+        "workflow": {
+            "nodes": [
+                {
+                    "id": "start",
+                    "type": "start",
+                    "title": "Start",
+                    "config": {
+                        "inputs": [{
+                            "name": "complaint",
+                            "label": "客户投诉",
+                            "type": "string",
+                        }],
+                    },
+                },
+                {
+                    "id": "end",
+                    "type": "end",
+                    "title": "End",
+                    "config": {
+                        "outputs": {
+                            "reply_suggestion": "已处理",
+                            "step_log": [{"step": 1}],
+                        },
+                    },
+                },
+            ],
+            "edges": [{
+                "id": "start-end",
+                "source": "start",
+                "target": "end",
+            }],
+        },
+        "tests": [{
+            "id": "complaint_acceptance",
+            "name": "Complaint acceptance",
+            "requirement": "回复和步骤日志必须存在",
+            "inputs": {"complaint": "鞋底开胶"},
+            "assertions": [{
+                "path": ["reply_suggestion"],
+                "operator": "min_length",
+                "expected": 1,
+                "structural": True,
+            }, {
+                "path": ["reply_suggestion"],
+                "operator": "not_contains",
+                "expected": "强力胶",
+            }],
+            "capability_ids": ["F.reply", "G.step_trace"],
+            "evidence_target": {
+                "level": "H2",
+                "environment": "sandbox",
+                "expected_status": "static_verified",
+            },
+        }],
+    }
+
+    weak_snapshot = ApplicationSnapshot.model_validate(snapshot_payload)
+    weak_errors = builder._draft_delivery_errors(weak_snapshot)
+    assert any(
+        "customer-visible structured step-log output" in error
+        for error in weak_errors
+    )
+
+    snapshot_payload["tests"][0]["assertions"].append({
+        "path": ["step_log"],
+        "operator": "min_length",
+        "expected": 1,
+        "structural": True,
+    })
+    strong_snapshot = ApplicationSnapshot.model_validate(snapshot_payload)
+    assert builder._draft_delivery_errors(strong_snapshot) == []
+
+    snapshot_payload["tests"][0]["assertions"] = [
+        assertion
+        for assertion in snapshot_payload["tests"][0]["assertions"]
+        if assertion["operator"] != "not_contains"
+    ]
+    no_negative_test = ApplicationSnapshot.model_validate(snapshot_payload)
+    assert any(
+        "not_contains safety assertions" in error
+        for error in builder._draft_delivery_errors(no_negative_test)
+    )
+    snapshot_payload["tests"][0]["assertions"].append({
+        "path": ["reply_suggestion"],
+        "operator": "not_contains",
+        "expected": "强力胶",
+    })
+
+    snapshot_payload["workflow"]["nodes"].insert(1, {
+        "id": "analysis",
+        "type": "model_turn",
+        "title": "Analyze",
+        "config": {
+            "input": "complaint",
+            "settings": {"system": "生成具体客服回复。"},
+        },
+    })
+    snapshot_payload["workflow"]["edges"] = [
+        {"id": "start-analysis", "source": "start", "target": "analysis"},
+        {"id": "analysis-end", "source": "analysis", "target": "end"},
+    ]
+    unsafe_prompt = ApplicationSnapshot.model_validate(snapshot_payload)
+    assert any(
+        "must forbid unsafe DIY remedies" in error
+        for error in builder._draft_delivery_errors(unsafe_prompt)
+    )
+
+    snapshot_payload["workflow"]["nodes"][1]["config"]["settings"]["system"] = (
+        "不得建议危险操作或虚构已完成操作，不得作出未经验证的承诺。"
+        "绝不指示客户自行维修、拆解、粘合或使用胶水。"
+    )
+    guarded_prompt = ApplicationSnapshot.model_validate(snapshot_payload)
+    assert builder._draft_delivery_errors(guarded_prompt) == []
 
 
 def test_frontend_carries_option_effects_and_contract_into_creation() -> None:

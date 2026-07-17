@@ -317,12 +317,18 @@ class WorkflowStorage:
         ]
         with self.storage._connect() as conn:
             row = conn.execute(
-                "SELECT id,name,description,requirement FROM applications WHERE id=?",
+                """SELECT a.id,a.name,a.description,a.requirement,d.snapshot_json
+                   FROM applications a
+                   LEFT JOIN application_drafts d ON d.application_id=a.id
+                   WHERE a.id=?""",
                 (application_id,),
             ).fetchone()
             if not row:
                 raise KeyError(f"application not found: {application_id}")
-            haystack = "\n".join(str(row[key]) for key in ("name", "description", "requirement"))
+            haystack = "\n".join(
+                str(row[key] or "")
+                for key in ("name", "description", "requirement", "snapshot_json")
+            )
             if smoke_marker not in haystack:
                 raise ValueError(f"application does not contain smoke marker: {smoke_marker}")
             related_counts = {

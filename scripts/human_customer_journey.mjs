@@ -16,8 +16,15 @@ const outputDir = resolve(args.get('--output') || '.tmp/human-customer-journey')
 const chromePath = args.get('--chrome') || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
 const requirement = args.get('--requirement') || 'Build a workflow for a customer support lead. It accepts one complaint, classifies urgency and issue type, and returns a concise reply suggestion with reasons and a next action. It must not call external systems.'
 const existingApplicationId = args.get('--application-id') || ''
+const smokeMarker = args.get('--smoke-marker') || ''
+const submittedRequirement = smokeMarker
+  ? `${requirement}\n\n[${smokeMarker}]`
+  : requirement
 const runtimeInput = args.get('--runtime-input') || '我收到的商品已经破损，而且客服两天没有回复，请尽快给出处理建议。'
 const expectReadableStructuredResult = args.get('--expect-readable-structured-result') === 'true'
+const expectResultContains = args.get('--expect-result-contains') || ''
+const expectedResultHeadings = (args.get('--expect-result-headings') || '').split('|').map(value => value.trim()).filter(Boolean)
+const rejectedResultTerms = (args.get('--reject-result-contains') || '').split('|').map(value => value.trim()).filter(Boolean)
 const viewportWidth = Number(args.get('--viewport-width') || 1440)
 const viewportHeight = Number(args.get('--viewport-height') || 960)
 const profileDir = resolve('.tmp/human-customer-journey/chrome-profile')
@@ -46,18 +53,30 @@ class CdpClient {
         const pending = this.pending.get(message.id)
         if (!pending) return
         this.pending.delete(message.id)
+        clearTimeout(pending.timer)
         if (message.error) pending.reject(new Error(`${pending.method}: ${message.error.message}`))
         else pending.resolve(message.result || {})
         return
       }
       for (const listener of this.listeners.get(message.method) || []) listener(message.params || {})
     })
+    this.socket.addEventListener('close', () => {
+      for (const pending of this.pending.values()) {
+        clearTimeout(pending.timer)
+        pending.reject(new Error(`Chrome DevTools connection closed during ${pending.method}`))
+      }
+      this.pending.clear()
+    })
   }
 
-  send(method, params = {}) {
+  send(method, params = {}, timeoutMs = 30000) {
     const id = this.nextId++
     return new Promise((resolveCommand, rejectCommand) => {
-      this.pending.set(id, { method, resolve: resolveCommand, reject: rejectCommand })
+      const timer = setTimeout(() => {
+        this.pending.delete(id)
+        rejectCommand(new Error(`${method} did not respond within ${timeoutMs}ms`))
+      }, timeoutMs)
+      this.pending.set(id, { method, resolve: resolveCommand, reject: rejectCommand, timer })
       this.socket.send(JSON.stringify({ id, method, params }))
     })
   }
@@ -78,13 +97,13 @@ class CdpClient {
     })
   }
 
-  async evaluate(expression) {
+  async evaluate(expression, timeoutMs = 10000) {
     const response = await this.send('Runtime.evaluate', {
       expression,
       awaitPromise: true,
       returnByValue: true,
       userGesture: true,
-    })
+    }, timeoutMs)
     if (response.exceptionDetails) {
       throw new Error(response.exceptionDetails.exception?.description || response.exceptionDetails.text)
     }
@@ -102,7 +121,8 @@ class CdpClient {
     let lastError = null
     while (Date.now() < deadline) {
       try {
-        if (await this.evaluate(expression)) return
+        const remaining = Math.max(250, deadline - Date.now())
+        if (await this.evaluate(expression, Math.min(5000, remaining))) return
       } catch (error) {
         lastError = error
       }
@@ -132,7 +152,11 @@ class CdpClient {
   }
 
   async screenshot(name) {
-    const response = await this.send('Page.captureScreenshot', { format: 'png', fromSurface: true })
+    const response = await this.send(
+      'Page.captureScreenshot',
+      { format: 'png', fromSurface: true },
+      60000,
+    )
     const path = resolve(outputDir, name)
     writeFileSync(path, Buffer.from(response.data, 'base64'))
     return {
@@ -156,6 +180,36 @@ async function waitForDebugger() {
   throw new Error('Chrome DevTools endpoint did not start')
 }
 
+async function platformApi(path, options = {}) {
+  const { timeoutMs = 30000, ...fetchOptions } = options
+  const response = await fetch(`${webBase}/api/platform${path}`, {
+    ...fetchOptions,
+    signal: fetchOptions.signal || AbortSignal.timeout(timeoutMs),
+    headers: { 'Content-Type': 'application/json', ...(fetchOptions.headers || {}) },
+  })
+  const body = await response.json().catch(() => null)
+  if (!response.ok) throw new Error(`${fetchOptions.method || 'GET'} ${path} returned ${response.status}: ${JSON.stringify(body)}`)
+  return body
+}
+
+async function waitForBuildTerminal(buildId, timeoutMs = 540000) {
+  const terminal = new Set(['published', 'ready', 'needs_attention', 'failed', 'cancelled'])
+  const deadline = Date.now() + timeoutMs
+  let latest = null
+  while (Date.now() < deadline) {
+    latest = await platformApi(`/api/v1/builds/${buildId}`)
+    if (terminal.has(latest.status)) return latest
+    await new Promise(resolveWait => setTimeout(resolveWait, 1000))
+  }
+  const graceDeadline = Date.now() + 15000
+  while (Date.now() < graceDeadline) {
+    latest = await platformApi(`/api/v1/builds/${buildId}`)
+    if (terminal.has(latest.status)) return latest
+    await new Promise(resolveWait => setTimeout(resolveWait, 1000))
+  }
+  throw new Error(`Timed out waiting for Builder terminal status; latest=${latest?.status || 'unknown'}`)
+}
+
 const chromeOutput = []
 const chrome = spawn(chromePath, [
   '--headless=new',
@@ -175,6 +229,7 @@ const evidence = {
   started_at: new Date().toISOString(),
   web_base: webBase,
   requirement,
+  smoke_marker: smokeMarker || null,
   journey_mode: existingApplicationId ? 'existing-application-runtime' : 'requirement-to-runtime',
   intake_rounds: [],
   application: null,
@@ -184,11 +239,14 @@ const evidence = {
   failed_requests: [],
   ignored_requests: [],
   viewport: null,
+  diagnostic_snapshot: null,
+  cleanup: null,
   error: null,
 }
 
 let client
 let exitCode = 0
+let createdApplicationId = ''
 
 async function submitIntake(previousTaskId = '') {
   await client.click('.requirement-completion-actions button:nth-of-type(2)')
@@ -220,19 +278,25 @@ async function chooseRecommendedOptions() {
     const selection = await client.evaluate(`(() => {
       const question = document.querySelectorAll('.requirement-question-card')[${index}]
       const labels = [...question.querySelectorAll('label.requirement-option-card')]
-      const selected = labels.find(label => label.querySelector('i')) || labels[0]
-      const input = selected?.querySelector('input')
-      if (!input) return null
-      input.click()
-      return {
-        question: question.querySelector('.requirement-question-head span')?.innerText || '',
-        option: selected.querySelector('b')?.innerText || '',
-        type: input.type,
-      }
+      const firstInput = labels[0]?.querySelector('input')
+      const recommended = labels.filter(label => label.querySelector('i'))
+      const selected = firstInput?.type === 'checkbox'
+        ? (recommended.length ? recommended : labels.slice(0, 1))
+        : [recommended[0] || labels[0]]
+      return selected.flatMap(label => {
+        const input = label?.querySelector('input')
+        if (!input) return []
+        input.click()
+        return [{
+          question: question.querySelector('.requirement-question-head span')?.innerText || '',
+          option: label.querySelector('b')?.innerText || '',
+          type: input.type,
+        }]
+      })
     })()`)
-    if (!selection) continue
+    if (!selection?.length) continue
     await client.waitFor(`document.querySelectorAll('.requirement-question-card')[${index}].querySelector('input:checked') !== null`)
-    selections.push(selection)
+    selections.push(...selection)
   }
   return selections
 }
@@ -304,7 +368,7 @@ try {
   } else {
     await client.navigate(`${webBase}/`)
     await client.waitFor(`document.querySelector('[data-runtime-status]')?.dataset.runtimeStatus === 'connected'`, 30000)
-    await client.fill('form.create-card > textarea', requirement)
+    await client.fill('form.create-card > textarea', submittedRequirement)
     evidence.screenshots.push({ id: 'requirement-entered', ...(await client.screenshot('01-requirement-entered.png')) })
 
     let intake = await submitIntake()
@@ -333,11 +397,15 @@ try {
       safe_draft: new URL(location.href).searchParams.get('safeDraft') === '1',
     }))()`)
     evidence.application = applicationState
+    createdApplicationId = applicationState.id
     if (applicationState.build_id) {
+      const apiBuild = await waitForBuildTerminal(applicationState.build_id)
+      evidence.application.api_build_status = apiBuild.status
+      evidence.application.api_build_error = apiBuild.error || ''
       await client.waitFor(`(() => {
         const value = document.querySelector('.build-status b')?.innerText?.trim().toLowerCase()
-        return ['published', 'ready', 'failed', 'cancelled'].includes(value)
-      })()`, 600000)
+        return ['published', 'ready', 'needs_attention', 'failed', 'cancelled'].includes(value)
+      })()`, 30000)
       Object.assign(evidence.application, await client.evaluate(`(() => ({
         build_status: document.querySelector('.build-status b')?.innerText?.trim().toLowerCase() || '',
         build_detail: document.querySelector('.build-status')?.innerText || '',
@@ -352,6 +420,18 @@ try {
       }))()`))
     }
     evidence.screenshots.push({ id: 'application-loaded', ...(await client.screenshot('03-application-loaded.png')) })
+
+    if (!['published', 'ready'].includes(evidence.application.build_status)) {
+      throw new Error(
+        `Builder did not produce a deliverable: ${evidence.application.build_detail || evidence.application.api_build_error}`,
+      )
+    }
+    await client.navigate(`${webBase}/`)
+    await client.waitFor(`document.querySelector('[data-runtime-status]')?.dataset.runtimeStatus === 'connected'`, 30000)
+    const applicationSelector = JSON.stringify(`a[href="/applications/${applicationState.id}"]`)
+    await client.waitFor(`Boolean(document.querySelector(${applicationSelector}))`, 60000)
+    evidence.application.home_visible = await client.evaluate(`Boolean(document.querySelector(${applicationSelector}))`)
+    if (!evidence.application.home_visible) throw new Error('Created application is missing from the home application list')
   }
 
   await client.navigate(`${webBase}/runtime/${applicationState.id}`)
@@ -414,6 +494,10 @@ try {
     status: document.querySelector('[data-run-status]')?.dataset.runStatus || '',
     run_id: document.querySelector('[data-customer-runtime="true"]')?.dataset.runtimeRunId || '',
     result_text: document.querySelector('[data-markdown-surface="customer-runtime-result"]')?.innerText?.trim() || '',
+    result_headings: [...(document.querySelector('[data-markdown-surface="customer-runtime-result"]')?.querySelectorAll('h1, h2, h3, h4, h5, h6') || [])].map(heading => ({
+      level: Number(heading.tagName.slice(1)),
+      text: heading.textContent?.trim() || '',
+    })),
     completed_steps: document.querySelectorAll('[data-step-status="completed"], [data-step-status="skipped"]').length,
     total_steps: document.querySelectorAll('[data-step-status]').length,
     error_text: document.querySelector('[role="alert"]')?.innerText || document.querySelector('.error')?.innerText || '',
@@ -436,8 +520,25 @@ try {
 
   if (finalRuntimeState.status !== 'succeeded') throw new Error(`Customer Runtime finished with ${finalRuntimeState.status}: ${finalRuntimeState.error_text}`)
   if (!finalRuntimeState.result_text) throw new Error('Customer Runtime succeeded without a readable result')
-  if (expectReadableStructuredResult && (/"classification"\s*:/.test(finalRuntimeState.result_text) || !finalRuntimeState.result_text.includes('分类结果'))) {
-    throw new Error(`Customer Runtime exposed serialized JSON instead of readable sections: ${finalRuntimeState.result_text}`)
+  const exposesSerializedKeys = /"(?:classification|problem_type|reply_suggestion|trace_log)"\s*:/.test(finalRuntimeState.result_text)
+  const hasReadableClassification = ['分类结果', '问题类型'].some(label => finalRuntimeState.result_text.includes(label))
+  const resultHeadingNames = finalRuntimeState.result_headings.map(heading => heading.text.toLocaleLowerCase())
+  const internalResultHeadings = resultHeadingNames.filter(heading => ['text', 'structured', 'tool use blocks', 'usage'].includes(heading))
+  const customerResultHeadings = finalRuntimeState.result_headings.filter(heading => ['分类结果', '紧急程度', '问题类型', '回复建议', '下一步'].includes(heading.text.toLocaleLowerCase()))
+  const topCustomerHeadingLevel = customerResultHeadings.length ? Math.min(...customerResultHeadings.map(heading => heading.level)) : 0
+  const customerHeadingNames = customerResultHeadings.filter(heading => heading.level === topCustomerHeadingLevel).map(heading => heading.text.toLocaleLowerCase())
+  const duplicateCustomerHeadings = [...new Set(customerHeadingNames.filter((heading, index) => customerHeadingNames.indexOf(heading) !== index))]
+  const untranslatedResultHeadings = resultHeadingNames.filter(heading => /^[a-z][a-z0-9 _-]*$/i.test(heading))
+  const missingResultHeadings = expectedResultHeadings.filter(heading => !resultHeadingNames.includes(heading.toLocaleLowerCase()))
+  if (expectReadableStructuredResult && (exposesSerializedKeys || !hasReadableClassification || internalResultHeadings.length || duplicateCustomerHeadings.length || untranslatedResultHeadings.length || missingResultHeadings.length)) {
+    throw new Error(`Customer Runtime result is not customer-readable or complete: ${finalRuntimeState.result_text}`)
+  }
+  if (expectResultContains && !finalRuntimeState.result_text.includes(expectResultContains)) {
+    throw new Error(`Customer Runtime result lost required input context "${expectResultContains}": ${finalRuntimeState.result_text}`)
+  }
+  const presentRejectedTerms = rejectedResultTerms.filter(term => finalRuntimeState.result_text.includes(term))
+  if (presentRejectedTerms.length) {
+    throw new Error(`Customer Runtime result contains rejected terms ${JSON.stringify(presentRejectedTerms)}: ${finalRuntimeState.result_text}`)
   }
   if (finalRuntimeState.completed_steps !== finalRuntimeState.total_steps) throw new Error(`Customer Runtime progress is incomplete: ${finalRuntimeState.completed_steps}/${finalRuntimeState.total_steps}`)
   if (evidence.runtime.final_viewport.horizontal_overflow || !evidence.runtime.final_viewport.result_in_width || !evidence.runtime.final_viewport.result_in_view) {
@@ -456,6 +557,38 @@ try {
     }
   }
 } finally {
+  if (!existingApplicationId && createdApplicationId) {
+    const diagnostic = {}
+    for (const [key, path] of [
+      ['application', `/api/v1/applications/${createdApplicationId}`],
+      ['draft', `/api/v1/applications/${createdApplicationId}/draft`],
+      ['build', evidence.application?.build_id ? `/api/v1/builds/${evidence.application.build_id}` : ''],
+      ['run', evidence.runtime?.final?.run_id ? `/api/v1/runs/${evidence.runtime.final.run_id}` : ''],
+    ]) {
+      if (!path) continue
+      try {
+        diagnostic[key] = await platformApi(path)
+      } catch (error) {
+        diagnostic[`${key}_error`] = error instanceof Error ? error.message : String(error)
+      }
+    }
+    const diagnosticPath = resolve(outputDir, 'diagnostic-snapshot.json')
+    writeFileSync(diagnosticPath, `${JSON.stringify(diagnostic, null, 2)}\n`)
+    evidence.diagnostic_snapshot = diagnosticPath
+  }
+  if (!existingApplicationId && smokeMarker && createdApplicationId) {
+    try {
+      evidence.cleanup = await platformApi(`/api/v1/applications/${createdApplicationId}/smoke-cleanup`, {
+        method: 'POST',
+        body: JSON.stringify({ smoke_marker: smokeMarker, dry_run: false }),
+      })
+      if (evidence.cleanup.deleted !== true) throw new Error('Smoke cleanup did not report deletion')
+    } catch (error) {
+      evidence.cleanup = { error: error instanceof Error ? error.message : String(error) }
+      if (!evidence.error) evidence.error = `Smoke cleanup failed: ${evidence.cleanup.error}`
+      exitCode = 1
+    }
+  }
   evidence.finished_at = new Date().toISOString()
   evidence.chrome_output_tail = chromeOutput.join('').split('\n').filter(Boolean).slice(-20)
   const outputPath = resolve(outputDir, 'journey.json')

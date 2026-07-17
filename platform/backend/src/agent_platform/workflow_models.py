@@ -307,9 +307,9 @@ class DraftOperation(BaseModel):
 class BuildRequest(BaseModel):
     requirement: str = Field(min_length=10, max_length=30_000)
     auto_publish: bool = True
-    max_turns: int = Field(default=60, ge=5, le=200)
-    max_repair_cycles: int = Field(default=8, ge=1, le=30)
-    max_elapsed_seconds: float | None = Field(default=None, ge=0.001, le=86_400)
+    max_turns: int = Field(default=36, ge=5, le=200)
+    max_repair_cycles: int = Field(default=4, ge=1, le=30)
+    max_elapsed_seconds: float | None = Field(default=480.0, ge=0.001, le=86_400)
     planning_mode: Literal["auto", "required", "disabled"] = "auto"
 
 

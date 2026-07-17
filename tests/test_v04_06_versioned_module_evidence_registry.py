@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import AsyncIterator
 from uuid import uuid4
@@ -258,6 +260,27 @@ def test_evidence_claim_ceiling_rejects_inflation_and_approximation() -> None:
     ))
     assert blocked.verification_status == VerificationStatus.blocked_by_environment
     assert blocked.evidence_level.value == "H0"
+
+
+def test_atomic_module_state_write_uses_unique_concurrent_temporary_files(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "registry" / "module.state.json"
+    payloads = [f'{{"writer": {index}}}' for index in range(16)]
+    barrier = threading.Barrier(len(payloads))
+
+    def write(payload: str) -> None:
+        barrier.wait()
+        TemplateStore._atomic_write(path, payload)
+
+    with ThreadPoolExecutor(max_workers=len(payloads)) as executor:
+        futures = [executor.submit(write, payload) for payload in payloads]
+        for future in futures:
+            future.result()
+
+    assert path.read_text(encoding="utf-8") in payloads
+    assert not list(path.parent.glob("*.tmp"))
+    assert not list(path.parent.glob(".*.tmp"))
 
 
 def test_module_versions_are_immutable_restart_safe_and_tamper_detected(

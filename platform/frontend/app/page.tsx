@@ -32,7 +32,7 @@ type AppListUrlState = { filter?: AppFilter; q?: string; sort?: AppSort }
 type Copy = (typeof messages)[Locale]
 type RequirementIntakeChoiceType = 'single' | 'multi'
 type RequirementIntakeOptionEffect = {
-  axis: 'functional_capability' | 'runtime_guarantee' | 'external_contract' | 'execution_envelope' | 'carrier' | 'evidence' | 'runtime_interface' | 'target_user'
+  axis: 'functional_capability' | 'runtime_guarantee' | 'external_contract' | 'execution_envelope' | 'carrier' | 'evidence' | 'runtime_interface' | 'permission_boundary' | 'target_user'
   target_id?: string
   action: 'include' | 'require' | 'exclude' | 'configure' | 'raise_envelope'
   value: string
@@ -50,12 +50,27 @@ type RequirementClarificationSelection = {
   customAnswer: string
 }
 type RequirementClarificationSelections = Record<string, RequirementClarificationSelection>
+type RequirementIntakeAnswer = {
+  question_id: string
+  question: string
+  choice_type: RequirementIntakeChoiceType
+  selected_option_ids: string[]
+  selected_options: {
+    id: string
+    label: string
+    description: string
+    impact: string
+    effects: RequirementIntakeOptionEffect[]
+  }[]
+  custom_answer: string
+  answer: string
+}
 type RequirementIntakeQuestion = {
   id: string
   label: string
   question: string
   why?: string
-  decision_axis: 'functional_capability' | 'runtime_guarantee' | 'external_contract' | 'execution_envelope' | 'carrier' | 'evidence' | 'runtime_interface' | 'target_user'
+  decision_axis: 'functional_capability' | 'runtime_guarantee' | 'external_contract' | 'execution_envelope' | 'carrier' | 'evidence' | 'runtime_interface' | 'permission_boundary' | 'target_user'
   choice_type: RequirementIntakeChoiceType
   options: RequirementIntakeOption[]
   custom_allowed?: boolean
@@ -374,7 +389,7 @@ function requirementReadiness(requirement: string, t: Copy) {
 function requirementIntakeAnswers(
   questions: RequirementIntakeQuestion[],
   selections: RequirementClarificationSelections,
-) {
+): RequirementIntakeAnswer[] {
   return questions
     .map(question => {
       const selection = selections[question.id] || { selectedOptionIds: [], customAnswer: '' }
@@ -399,6 +414,15 @@ function requirementIntakeAnswers(
       }
     })
     .filter(answer => answer.selected_option_ids.length > 0 || answer.custom_answer)
+}
+
+function mergeRequirementIntakeAnswers(
+  history: RequirementIntakeAnswer[],
+  current: RequirementIntakeAnswer[],
+) {
+  const merged = new Map(history.map(answer => [answer.question_id, answer]))
+  current.forEach(answer => merged.set(answer.question_id, answer))
+  return Array.from(merged.values()).slice(-32)
 }
 
 function requirementQuestionAnswered(question: RequirementIntakeQuestion, selections: RequirementClarificationSelections) {
@@ -439,6 +463,7 @@ export default function Home() {
   const [requirementIntakeBusy, setRequirementIntakeBusy] = useState(false)
   const [buildIntentConfirmed, setBuildIntentConfirmed] = useState(false)
   const [requirementSelections, setRequirementSelections] = useState<RequirementClarificationSelections>({})
+  const [requirementAnswerHistory, setRequirementAnswerHistory] = useState<RequirementIntakeAnswer[]>([])
   const [requirementIntake, setRequirementIntake] = useState<RequirementIntakeResponse | null>(null)
   const [capabilityBuildContract, setCapabilityBuildContract] = useState<CapabilityBuildContract | null>(null)
   const [notice, setNotice] = useState('')
@@ -673,15 +698,21 @@ export default function Home() {
     setRequirementIntakeBusy(true)
     clearFeedback()
     try {
+      const answers = mergeRequirementIntakeAnswers(
+        requirementAnswerHistory,
+        requirementIntakeAnswers(requirementQuestions, requirementSelections),
+      )
       const result = await api<RequirementIntakeResponse>('/api/v1/requirements/complete', {
         method: 'POST',
         body: JSON.stringify({
           requirement: text,
           locale,
-          answers: requirementIntakeAnswers(requirementQuestions, requirementSelections),
+          answers,
           max_questions: 5,
         }),
       })
+      setRequirementAnswerHistory(answers)
+      setRequirementSelections({})
       setRequirementIntake(result)
       setAuthRequired(false)
       showNotice(result.status === 'ready' ? t.requirementCompletionReadyNotice : t.requirementCompletionNeedsInputNotice)
@@ -705,11 +736,13 @@ export default function Home() {
     setBuildIntentConfirmed(true)
     setRequirementIntake(null)
     setRequirementSelections({})
+    setRequirementAnswerHistory([])
     showNotice(t.requirementCompletionApplied)
   }
 
   function resetRequirementCompletion() {
     setRequirementSelections({})
+    setRequirementAnswerHistory([])
     setRequirementIntake(null)
     setCapabilityBuildContract(null)
     setBuildIntentConfirmed(false)
@@ -738,7 +771,14 @@ export default function Home() {
       }
       try {
         const build = await api<{ build_id: string }>(`/api/v1/applications/${app.id}/builds`, {
-          method: 'POST', body: JSON.stringify({ requirement, auto_publish: true }),
+          method: 'POST',
+          body: JSON.stringify({
+            requirement,
+            auto_publish: true,
+            max_turns: 36,
+            max_repair_cycles: 4,
+            max_elapsed_seconds: 480,
+          }),
         })
         window.location.href = `/applications/${app.id}?build=${build.build_id}`
       } catch {
@@ -798,6 +838,7 @@ export default function Home() {
   function applyCustomerExample(example: (typeof t.customerExamples)[number]) {
     setRequirement(example.requirement)
     setRequirementSelections({})
+    setRequirementAnswerHistory([])
     setRequirementIntake(null)
     setCapabilityBuildContract(null)
     setSelectedExampleId(example.id)
@@ -813,7 +854,7 @@ export default function Home() {
         <h1>{t.heroTitleA}<br/><em>{t.heroTitleB}</em></h1>
         <p>{t.heroCopy}</p>
         <form className="create-card" onSubmit={create}>
-          <textarea ref={requirementInputRef} aria-label={t.requirementAria} value={requirement} onChange={event => { setRequirement(event.target.value); setRequirementIntake(null); setCapabilityBuildContract(null); setBuildIntentConfirmed(false) }} />
+          <textarea ref={requirementInputRef} aria-label={t.requirementAria} value={requirement} onChange={event => { setRequirement(event.target.value); setRequirementIntake(null); setRequirementSelections({}); setRequirementAnswerHistory([]); setCapabilityBuildContract(null); setBuildIntentConfirmed(false) }} />
           <section className="delivery-mode-picker" data-delivery-mode={deliveryMode}>
             <div className="delivery-mode-heading"><strong>{t.deliveryModeTitle}</strong><small>{t.deliveryModeHelp}</small></div>
             <div className="delivery-mode-segments" role="group" aria-label={t.deliveryModeTitle}>

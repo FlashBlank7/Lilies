@@ -257,14 +257,93 @@ const RESULT_FIELD_LABELS: Record<string, string> = {
   content: '内容',
   classification: '分类结果',
   urgency_level: '紧急程度',
+  urgency: '紧急程度',
+  urgent_level: '紧急程度',
+  emergency_level: '紧急程度',
+  priority: '紧急程度',
+  priority_level: '紧急程度',
+  severity: '紧急程度',
+  severity_level: '紧急程度',
   category: '问题类型',
+  complaint_type: '问题类型',
+  issue_category: '问题类型',
+  issue_kind: '问题类型',
+  issue_type: '问题类型',
+  problem_type: '问题类型',
+  problem_category: '问题类型',
+  issue_detail: '问题详情',
+  reply: '回复建议',
+  response: '回复建议',
+  reply_suggestion: '回复建议',
+  suggested_reply: '回复建议',
+  recommended_reply: '回复建议',
+  customer_reply: '回复建议',
   reason: '说明',
+  reasoning: '判断依据',
+  rationale: '判断依据',
+  justification: '判断依据',
+  analysis: '判断依据',
+  urgency_reason: '紧急程度说明',
+  reply_rationale: '回复理由',
   next_step: '下一步',
+  next_steps: '下一步',
+  next_action: '下一步',
+  recommended_action: '下一步',
+  recommended_next_step: '下一步',
+  follow_up: '下一步',
+  follow_up_action: '下一步',
+  trace_log: '处理轨迹',
+  step_log: '处理步骤',
+  process_log: '处理步骤',
+  execution_log: '处理步骤',
+  trace: '处理步骤',
+  steps: '处理步骤',
+  execution_steps: '处理步骤',
+  step: '步骤',
+  input: '输入',
+  input_summary: '输入摘要',
+  output_summary: '步骤结果',
+  description: '步骤说明',
+  action: '处理内容',
   status: '状态',
 }
 
+const RESULT_WRAPPER_FIELDS = new Set(['answer', 'text', 'result', 'summary', 'output', 'content'])
+const RESULT_METADATA_FIELDS = new Set([
+  'usage',
+  'state',
+  'branch',
+  'iterations',
+  'session_id',
+  'tool_calls',
+  'tool_use_blocks',
+  'node',
+  'node_id',
+  'stop_reason',
+  'cancelled',
+  'degraded',
+  'fallback_used',
+])
+
+function normalizedResultFieldKey(key: string) {
+  return key
+    .trim()
+    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .replace(/[\s-]+/g, '_')
+    .toLocaleLowerCase()
+}
+
 function resultFieldLabel(key: string) {
-  return RESULT_FIELD_LABELS[key] || key.replaceAll('_', ' ')
+  const normalized = normalizedResultFieldKey(key)
+  const knownLabel = RESULT_FIELD_LABELS[normalized]
+  if (knownLabel) return knownLabel
+  if (/(?:urgency|urgent|emergency|priority|severity)/.test(normalized)) return '紧急程度'
+  if (/(?:issue|problem|complaint).*(?:type|category|kind)|^(?:category|type)$/.test(normalized)) return '问题类型'
+  if (/(?:reply|response)/.test(normalized)) return '回复建议'
+  if (/(?:reason|rationale|justification|explanation)/.test(normalized)) return '判断依据'
+  if (/(?:next|follow_up|recommended).*(?:step|action)/.test(normalized)) return '下一步'
+  if (/(?:step|process|execution).*(?:log|trace)|^trace$/.test(normalized)) return '处理步骤'
+  return key.replaceAll('_', ' ').replaceAll('-', ' ')
 }
 
 function escapeJsonStringControlCharacters(value: string) {
@@ -324,15 +403,20 @@ function resultText(value: unknown, depth = 0): string {
   }
   if (Array.isArray(value)) return value.map(item => resultText(item, depth + 1)).filter(Boolean).join('\n\n')
   const record = asRecord(value)
-  for (const key of ['answer', 'text', 'result', 'summary', 'output', 'content']) {
-    if (record[key] !== undefined) {
-      const resolved = resultText(record[key], depth)
-      if (resolved) return resolved
-    }
+  const entries = Object.entries(record)
+  const structuredEntry = entries.find(([key]) => normalizedResultFieldKey(key) === 'structured')
+  if (structuredEntry) {
+    const structured = resultText(structuredEntry[1], depth)
+    if (structured) return structured
   }
-  if (Object.keys(record).length) {
+  const businessEntries = entries.filter(([key]) => !RESULT_METADATA_FIELDS.has(normalizedResultFieldKey(key)))
+  const visibleEntries = businessEntries.length ? businessEntries : entries
+  if (visibleEntries.length === 1 && RESULT_WRAPPER_FIELDS.has(normalizedResultFieldKey(visibleEntries[0][0]))) {
+    return resultText(visibleEntries[0][1], depth)
+  }
+  if (visibleEntries.length) {
     const heading = '#'.repeat(Math.min(depth + 2, 4))
-    return Object.entries(record)
+    return visibleEntries
       .map(([key, item]) => `${heading} ${resultFieldLabel(key)}\n\n${resultText(item, depth + 1) || String(item)}`)
       .join('\n\n')
   }
@@ -342,12 +426,7 @@ function resultText(value: unknown, depth = 0): string {
 function runResultMarkdown(run: RunRecord | null) {
   if (!run) return ''
   if (run.status === 'failed') return ''
-  const values = Object.values(run.outputs || {})
-  for (const value of values.reverse()) {
-    const rendered = resultText(value)
-    if (rendered) return rendered
-  }
-  return ''
+  return resultText(run.outputs || {})
 }
 
 function eventNodeMatches(event: StoredEvent, nodeId: string) {

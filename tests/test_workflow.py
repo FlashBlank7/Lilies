@@ -17,6 +17,7 @@ from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
 from agent_platform.builder import (
+    BuildDraftGuard,
     TEAMMATE_MIN_REMAINING_SECONDS,
     TEAMMATE_REPAIR_BUDGET_EXHAUSTED_REASON,
     WorkflowBuilder,
@@ -35,7 +36,11 @@ from agent_platform.sandbox import CommandResult
 from agent_platform.storage import Storage
 from agent_platform.tools import Tool, ToolContext, ToolResult
 from agent_platform.worker_runner import PlatformHarnessWorkerRunner, build_platform_worker_handlers, run_worker_once
-from agent_platform.workflow_models import BuildTeamState
+from agent_platform.workflow_models import (
+    ApplicationSnapshot,
+    BuildTeamState,
+    DraftOperation,
+)
 from agent_platform.workflow_runtime import WorkflowRuntime
 from tests.test_runtime import ScriptedProvider
 
@@ -573,26 +578,20 @@ class RepairConfirmationBuilderProvider(ModelProvider):
                 "source_port": "output", "target_port": "input",
             }}),
             ("test_add", {"test": {
-                "id": "summary_missing",
-                "name": "Wrong summary path",
-                "requirement": "This first test intentionally points at the wrong output path.",
+                "id": "answer_fixed",
+                "name": "Answer is repaired",
+                "requirement": "The answer must contain the repaired value.",
                 "inputs": {"text": "hello"},
-                "assertions": [{"path": ["summary"], "operator": "exists"}],
+                "assertions": [{"path": ["answer"], "operator": "equals", "expected": "fixed"}],
                 "required_node_types": ["start", "answer"],
                 "mandatory": True,
             }}),
             ("draft_validate", {}),
             ("test_run", {}),
-            ("test_remove", {"test_id": "summary_missing"}),
-            ("test_add", {"test": {
-                "id": "answer_exists",
-                "name": "Answer output exists",
-                "requirement": "The repaired test points at the actual answer output.",
-                "inputs": {"text": "hello"},
-                "assertions": [{"path": ["answer"], "operator": "type", "expected": "string"}],
-                "required_node_types": ["start", "answer"],
-                "mandatory": True,
-            }}),
+            ("draft_update_node", {
+                "node_id": "answer",
+                "changes": {"config": {"answer": "fixed"}},
+            }),
             ("test_run", {}),
         ]
         self.calls += 1
@@ -1400,6 +1399,103 @@ def test_run_suite_returns_readable_test_frame_report(tmp_path: Path) -> None:
         assert result["readable_report"]["feedback_hints"] == [
             "Inspect the end node output mapping if this fails."
         ]
+
+
+def test_acceptance_assertions_follow_structured_json_inside_answer_output(
+    tmp_path: Path,
+) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+    )
+    app = create_app(settings, ScriptedProvider())
+    with TestClient(app) as client:
+        app_id = client.post(
+            "/api/v1/applications",
+            headers=headers(),
+            json={
+                "name": "Semantic acceptance",
+                "requirement": "Return structured complaint fields in a readable answer.",
+            },
+        ).json()["id"]
+        revision = 0
+        for node in [
+            {
+                "id": "start",
+                "type": "start",
+                "title": "Start",
+                "config": {"inputs": []},
+            },
+            {
+                "id": "format",
+                "type": "template_transform",
+                "title": "Format",
+                "config": {
+                    "template": (
+                        '{"urgency_level":"中","issue_type":"质量",'
+                        '"reply_suggestion":"立即处理"}'
+                    ),
+                    "variables": {},
+                },
+            },
+            {
+                "id": "answer",
+                "type": "answer",
+                "title": "Answer",
+                "config": {
+                    "answer": {
+                        "$ref": {"node_id": "format", "path": ["text"]}
+                    }
+                },
+            },
+        ]:
+            revision = mutate(client, app_id, revision, "add_node", {"node": node})
+        for edge in [
+            {
+                "id": "start-format",
+                "source": "start",
+                "target": "format",
+                "source_port": "output",
+                "target_port": "input",
+            },
+            {
+                "id": "format-answer",
+                "source": "format",
+                "target": "answer",
+                "source_port": "text",
+                "target_port": "input",
+            },
+        ]:
+            revision = mutate(client, app_id, revision, "add_edge", {"edge": edge})
+        mutate(client, app_id, revision, "add_test", {"test": {
+            "name": "Semantic structured fields",
+            "requirement": "The readable answer contains complaint result fields.",
+            "inputs": {},
+            "assertions": [
+                {
+                    "path": ["urgency_level"],
+                    "operator": "equals",
+                    "expected": "中",
+                },
+                {
+                    "path": ["reply_suggestion"],
+                    "operator": "exists",
+                },
+            ],
+        }})
+
+        response = client.post(
+            f"/api/v1/applications/{app_id}/tests/run",
+            headers=headers(),
+        )
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["passed"] is True
+        assert all(
+            assertion["semantic_unwrap"]
+            for assertion in body["tests"][0]["assertions"]
+        )
 
 
 def test_template_suggestions_include_reuse_depth_actions(tmp_path: Path) -> None:
@@ -3675,6 +3771,108 @@ def test_tool_result_can_feed_next_model_turn_context(tmp_path: Path) -> None:
         assert "subtract returned 5" in provider.prompts[-1]
 
 
+def test_model_turn_static_instruction_keeps_resolved_customer_input(tmp_path: Path) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+    )
+    provider = PromptCaptureProvider()
+    app = create_app(settings, provider)
+    complaint = "我收到的商品已经破损，而且客服两天没有回复。"
+    with TestClient(app) as client:
+        app_id = client.post(
+            "/api/v1/applications",
+            headers=headers(),
+            json={
+                "name": "Complaint input",
+                "requirement": "The model must receive the real customer complaint.",
+            },
+        ).json()["id"]
+        revision = 0
+        for node in [
+            {
+                "id": "start",
+                "type": "start",
+                "title": "Start",
+                "config": {"inputs": [{"name": "complaint_text", "type": "string"}]},
+            },
+            {
+                "id": "turn",
+                "type": "model_turn",
+                "title": "Analyze complaint",
+                "config": {
+                    "input": {
+                        "$ref": {
+                            "node_id": "start",
+                            "path": ["complaint_text"],
+                        }
+                    },
+                    "settings": {
+                        "prompt": "请分析客户投诉并给出处理建议。",
+                        "system": "Return a concise answer.",
+                    },
+                },
+            },
+            {
+                "id": "end",
+                "type": "end",
+                "title": "End",
+                "config": {
+                    "outputs": {
+                        "answer": {
+                            "$ref": {
+                                "node_id": "turn",
+                                "path": ["text"],
+                            }
+                        }
+                    }
+                },
+            },
+        ]:
+            revision = mutate(client, app_id, revision, "add_node", {"node": node})
+        for edge in [
+            {
+                "id": "start-turn",
+                "source": "start",
+                "target": "turn",
+                "source_port": "output",
+                "target_port": "input",
+            },
+            {
+                "id": "turn-end",
+                "source": "turn",
+                "target": "end",
+                "source_port": "output",
+                "target_port": "input",
+            },
+        ]:
+            revision = mutate(client, app_id, revision, "add_edge", {"edge": edge})
+        revision = mutate(client, app_id, revision, "add_test", {"test": {
+            "name": "Customer input reaches model",
+            "requirement": "Static model instructions retain the resolved workflow input.",
+            "inputs": {"complaint_text": complaint},
+            "assertions": [{
+                "path": ["answer"],
+                "operator": "equals",
+                "expected": "saw tool evidence",
+            }],
+            "required_node_types": ["model_turn"],
+        }})
+
+        report = client.post(
+            f"/api/v1/applications/{app_id}/tests/run",
+            headers=headers(),
+        )
+
+    assert report.status_code == 200, report.text
+    assert report.json()["passed"] is True, report.text
+    assert provider.prompts
+    assert "请分析客户投诉并给出处理建议。" in provider.prompts[-1]
+    assert complaint in provider.prompts[-1]
+    assert "<workflow_input>" in provider.prompts[-1]
+
+
 def test_subagent_spawn_has_independent_context_tools_budget_and_events(tmp_path: Path) -> None:
     settings = Settings(
         api_token="workflow-test",
@@ -4124,7 +4322,7 @@ def test_builder_uses_incremental_brick_operations_and_publishes(tmp_path: Path)
         assert tools == [name for name, _ in [
             ("draft_add_node", {}), ("draft_add_node", {}), ("draft_add_node", {}),
             ("draft_connect", {}), ("draft_connect", {}), ("test_add", {}),
-            ("draft_validate", {}), ("test_run", {}), ("draft_publish", {}),
+            ("draft_validate", {}), ("test_run", {}),
         ]]
 
 
@@ -5136,8 +5334,8 @@ def test_model_turn_system_prompt_json_fields_feed_downstream_refs(tmp_path: Pat
             {"id": "format", "type": "template_transform", "title": "Format", "config": {
                 "template": "{{ category }}|{{ owner }}|{{ summary }}",
                 "variables": {
-                    "category": {"$ref": {"node_id": "turn", "path": ["output", "category"]}},
-                    "owner": {"$ref": {"node_id": "turn", "path": ["output", "owner"]}},
+                    "category": {"$ref": {"node_id": "turn", "path": ["category"]}},
+                    "owner": {"$ref": {"node_id": "turn", "path": ["structured", "owner"]}},
                     "summary": {"$ref": {"node_id": "turn", "path": ["output", "summary"]}},
                 },
             }},
@@ -5164,6 +5362,86 @@ def test_model_turn_system_prompt_json_fields_feed_downstream_refs(tmp_path: Pat
         assert result.status_code == 200, result.text
         assert result.json()["passed"] is True, result.text
         assert provider.systems == ["Return JSON only with category, suggestions, owner, info_gaps, and summary."]
+
+
+def test_builder_guard_rejects_same_id_test_replacement_that_weakens_assertions(
+    tmp_path: Path,
+) -> None:
+    app = create_app(
+        Settings(
+            api_token="workflow-test",
+            data_dir=tmp_path / "data",
+            workspace_root=tmp_path / "workspaces",
+        ),
+        ScriptedProvider(),
+    )
+    builder = app.state.services.builder
+    snapshot = ApplicationSnapshot.model_validate({
+        "name": "Protected acceptance",
+        "description": "Keep failed acceptance semantics intact during repair.",
+        "requirement": "Classify complaint urgency and issue type.",
+        "workflow": {
+            "nodes": [
+                {
+                    "id": "start",
+                    "type": "start",
+                    "title": "Start",
+                    "config": {"inputs": []},
+                },
+                {
+                    "id": "end",
+                    "type": "end",
+                    "title": "End",
+                    "config": {"outputs": {"urgency": "紧急", "issue_type": "质量"}},
+                },
+            ],
+            "edges": [
+                {
+                    "id": "start-end",
+                    "source": "start",
+                    "target": "end",
+                    "source_port": "output",
+                    "target_port": "input",
+                },
+            ],
+        },
+        "tests": [{
+            "id": "complaint-acceptance",
+            "name": "Complaint classification",
+            "requirement": "Expose both the urgency and issue type.",
+            "assertions": [
+                {"path": ["urgency"], "operator": "exists"},
+                {"path": ["issue_type"], "operator": "exists"},
+            ],
+            "mandatory": True,
+        }],
+    })
+    guard = BuildDraftGuard(protected_snapshot=snapshot.model_copy(deep=True))
+    builder._freeze_acceptance_floor(snapshot, guard)
+    replacement = DraftOperation(
+        expected_revision=0,
+        idempotency_key="weaken-test",
+        op="add_test",
+        data={
+            "test": {
+                "id": "complaint-acceptance",
+                "name": "Complaint classification",
+                "requirement": "Expose a readable answer.",
+                "assertions": [
+                    {"path": [], "operator": "contains", "expected": "处理建议"},
+                ],
+                "mandatory": True,
+            },
+        },
+    )
+
+    with pytest.raises(RuntimeError, match="cannot remove or weaken frozen assertions"):
+        builder._enforce_builder_draft_guard(
+            "test_add",
+            snapshot,
+            replacement,
+            guard,
+        )
 
 
 def test_contains_assertion_searches_structured_output_text(tmp_path: Path) -> None:

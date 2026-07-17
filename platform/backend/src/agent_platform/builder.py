@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import time
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import Any
 from uuid import uuid4
 
@@ -37,6 +39,7 @@ from .template_strategy import (
     suggestion_default_metadata,
 )
 from .workflow_models import (
+    ApplicationSnapshot,
     BuildPlan,
     BuildTask,
     BuildTeamState,
@@ -70,6 +73,26 @@ Core rules:
   does not automatically mean one atomic block. Bind actual node/module/runtime/platform/external references with
   capability_contract action="bind" only after those references exist in the resource_inventory returned by
   action="get". A made-up string with a plausible prefix is not implementation evidence.
+- Carrier mapping is many-to-one. For a cohesive E0/E1 text transformation, prefer one structured Model Turn shared
+  by related capabilities instead of a serial LLM call for every capability. Split model calls only when different
+  tools, permissions, branches, state boundaries, or independently editable behavior require it.
+- Capabilities with the same resource_hint are an explicit instruction to reuse the same node, module, or runtime
+  service. Runtime node events and a structured step_log provide traceability; traceability alone never justifies
+  one model call per capability or a separate Event Recorder node. Contract validation rejects different
+  implementation_refs for a shared resource hint and rejects extra Model Turn nodes when one shared Model Turn
+  carries all functional capabilities.
+- Runtime node events satisfy an internal traceability guarantee, but they do not replace a customer-visible
+  output explicitly requested by the source requirement. If the customer asks to output or return a structured
+  step log, expose step_log (or an equivalent trace field) from the terminal node and add a structural assertion
+  for that field.
+- For a workflow that generates customer-facing replies or recommendations, constrain every model instruction:
+  do not invent completed actions or guarantees, and do not suggest hazardous or loss-amplifying DIY remedies;
+  direct the customer to a safe official next step when uncertain. A customer-support workflow only provides
+  communication and official process guidance: never instruct the customer to repair, disassemble, glue, medicate,
+  alter, or otherwise self-remediate a product, body, account, or asset. If use may be unsafe, advise stopping use
+  and contacting official support or a qualified professional. Its mandatory acceptance test must include
+  at least one scenario-specific not_contains assertion against an unsafe remedy, fabricated completion claim,
+  or unsupported guarantee in the reply or next-step field.
 - An unavailable external contract is a scoped evidence gap, not a workflow graph defect. Preserve
   blocked_by_environment and the contract claim ceiling; never claim live or production success for it.
 - A build with a Capability Build Contract cannot complete until capability_contract action="validate" with
@@ -99,6 +122,15 @@ Core rules:
   block and then update tests to match the current draft.
 - Use spawn_teammate for bounded independent design or verification work. Roles are dynamic, not predefined.
 - Add and configure one node or edge per mutation tool call. Never assume an operation succeeded.
+- Batch independent inspection, planning, task, node, edge, and test tool calls in one model response when
+  their inputs do not depend on one another. The platform persists every result separately.
+- Treat the turn and deadline budget shown in each turn as a delivery constraint. Establish a valid runnable
+  draft early, reserve the final third for validation, tests, repair, and publication, and do not spend repeated
+  turns only inspecting or narrating.
+- Keep the shared task ledger truthful: move active work to in_progress and mark verified work completed.
+- Once the draft is valid and has a mandatory acceptance test, preserve that deliverable. Add and connect a
+  replacement path before removing the old path. Never dismantle a working graph or delete its acceptance tests
+  as a debugging experiment.
 - Prefer explicit workflow bricks and agent architecture bricks over hiding behavior inside one Claude Agent. Use Tool bricks for registered
   tools such as WebSearch, HTTP Request for simple HTTP calls, Question Classifier/If/Else for routing,
   Variable Aggregator for joins, and Template/Answer/End for final formatting.
@@ -115,8 +147,15 @@ Core rules:
        "category": {"$ref": {"node_id": "classifier", "path": ["branch"]}},
        "answer": {"$ref": {"node_id": "llm", "path": ["text"]}}
      }}
+  For structured JSON returned by a Model Turn, prefer ["structured", "<field>"] or
+  ["output", "<field>"]. A top-level ["<field>"] alias is also supported.
+  Every template variable must reference a field the upstream block explicitly produces. Do not invent
+  timestamp, trace, or metadata references that are absent from the upstream output contract.
   NEVER use Python str.format() placeholders like {0} or {1} — they will render literally.
   ALWAYS use {{ name }} syntax where the name matches a key declared in variables.
+- draft_update_node merges nested config by default. To remove an obsolete nested key, call it with
+  merge_config=false and provide the complete valid replacement config; omitting a key from a merge does not
+  delete it.
 - If you declare Start inputs, at least one downstream business-critical node must actually use them
   via "$inputs" or the Start node output. Search queries, prompts, HTTP params, and Agent tasks must
   incorporate user-provided inputs instead of ignoring them behind hard-coded text.
@@ -124,6 +163,8 @@ Core rules:
   reference so a skipped branch resolves to null instead of failing.
 - A valid graph has exactly one start, at least one end/answer, no implicit cycles, and no unreachable nodes.
 - Add mandatory tests that demonstrate the user's actual acceptance criteria. Run them with test_run.
+- Close and validate every required Capability Build Contract carrier before test_run. Acceptance is the final
+  executable proof, not a checkpoint followed by contract mutations.
 - Each test should include a readable frame with category, purpose, reviewer_guidance, reference, and failure_target.
   The frame should explain where the test sits in the acceptance framework, for example outline adherence,
   tool evidence, safety, or human review.
@@ -131,7 +172,14 @@ Core rules:
   when a concrete Tool brick is required, e.g. WebSearch. This prevents a single opaque Agent node from passing.
 - When a requirement depends on external tools, tests must set required_tools, minimum_tool_calls, and
   require_cited_tool_urls so a model cannot pass by inventing plausible output without tool evidence.
-- If a test fails, inspect events and modify blocks; do not weaken the assertion merely to make it green.
+- test_add is an atomic add-or-replace operation: calling it with an existing test id replaces that test in one
+  revision. Repair a failed test with the same id; do not delete it first or temporarily reduce acceptance coverage.
+- If a test fails, inspect its frame.failure_target and runtime events, then repair the implementation before
+  changing the test. Once acceptance is first executed, its assertion semantics are frozen: do not remove,
+  replace, or weaken assertions merely to make the build green.
+- Once test_run passes all mandatory tests, the delivery is frozen. Do not inspect more catalogs, change nodes,
+  edges, agents, templates, or tests, or delegate more work. Finish task and plan bookkeeping, close the Capability
+  Build Contract before testing; after a passing test the platform auto-publishes when auto_publish is enabled.
 - Treat draft_validate warnings about disconnected inputs as issues to repair before publishing.
 - Publish only after draft_validate and all mandatory tests pass for the exact current content hash.
 - Do not claim completion before draft_publish returns a version (unless auto-publish is disabled).
@@ -140,6 +188,104 @@ Core rules:
 
 TEAMMATE_MIN_REMAINING_SECONDS = 90.0
 TEAMMATE_REPAIR_BUDGET_EXHAUSTED_REASON = "repair_budget_exhausted"
+BUILDER_MAX_STALLED_PROGRESS_TURNS = 6
+BUILDER_MAX_DISCOVERY_ONLY_TURNS = 10
+BUILDER_TEAMMATE_MAX_TURNS = 8
+
+_CUSTOMER_TRACE_OUTPUT_RE = re.compile(
+    r"(?:输出|返回|展示|包含).{0,24}(?:结构化)?(?:步骤|执行|处理).{0,8}(?:日志|记录|轨迹|证据)"
+    r"|\b(?:output|return|show|include|expose)\b.{0,40}"
+    r"\b(?:structured\s+)?(?:step|execution|process)\s*(?:log|trace|evidence)\b",
+    re.I,
+)
+_CUSTOMER_ADVICE_GUARD_RE = re.compile(
+    r"(?:不得|不要|禁止|避免).{0,100}"
+    r"(?:危险|伤害|扩大损失|自行(?:维修|修复|处置)|未经验证|虚构|承诺)"
+    r"|\b(?:do not|never|avoid)\b.{0,120}"
+    r"\b(?:hazardous|harmful|unsafe|diy|unverified|invent|fabricat|guarantee|promise)",
+    re.I,
+)
+_CUSTOMER_SELF_REPAIR_GUARD_RE = re.compile(
+    r"(?:不得|不要|禁止|绝不).{0,100}"
+    r"(?:自行(?:维修|修复|拆解|拆机|粘合|处置)|使用(?:胶水|药物)|产品维修)"
+    r"|\b(?:do not|never|must not)\b.{0,140}"
+    r"\b(?:self[- ]?repair|disassembl|glue|adhesive|medicat|self[- ]?remed)",
+    re.I,
+)
+_OUTPUT_SEMANTIC_GROUPS = {
+    "urgency": ("urgency", "urgent", "emergency", "priority", "severity"),
+    "issue_type": (
+        "issue_type",
+        "issue_category",
+        "issue_kind",
+        "problem_type",
+        "problem_category",
+        "complaint_type",
+        "category",
+    ),
+    "reply": ("reply", "response"),
+    "reason": ("reason", "reasoning", "rationale", "justification"),
+    "next_step": ("next_step", "next_action", "follow_up", "recommended_action"),
+    "trace": (
+        "step_log",
+        "steps",
+        "trace",
+        "trace_log",
+        "process_log",
+        "execution_log",
+        "structured_step",
+    ),
+}
+
+
+def _normalized_output_key(value: str) -> str:
+    normalized = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", str(value or ""))
+    return re.sub(r"[^a-z0-9]+", "_", normalized.casefold()).strip("_")
+
+
+def _output_assertion_key(value: str) -> str:
+    normalized = _normalized_output_key(value)
+    for group, aliases in _OUTPUT_SEMANTIC_GROUPS.items():
+        if any(alias in normalized for alias in aliases):
+            return group
+    return normalized
+BUILDER_TEAMMATE_FOLLOWUP_MAX_TURNS = 6
+
+BUILDER_DISCOVERY_TOOLS = {
+    "architecture_blueprint",
+    "capability_contract",
+    "catalog_get",
+    "catalog_search",
+    "draft_inspect",
+    "manual_get",
+    "manual_search",
+    "template_list",
+    "template_suggestions",
+}
+BUILDER_VERIFICATION_TOOLS = {"draft_validate", "test_run"}
+BUILDER_POST_VERIFICATION_TOOLS = {
+    "build_plan",
+    "capability_contract",
+    "draft_inspect",
+    "draft_publish",
+    "draft_validate",
+    "task",
+    "test_run",
+}
+
+
+@dataclass
+class BuildDraftGuard:
+    protected_snapshot: ApplicationSnapshot | None = None
+    protected_revision: int | None = None
+    observed_revision: int | None = None
+    mandatory_test_floor: int | None = None
+    acceptance_coverage_floor: dict[str, set[str]] | None = None
+    minimum_tool_calls_floor: int = 0
+    cited_tool_urls_required: bool = False
+    acceptance_floor_frozen: bool = False
+    delivery_verified: bool = False
+    verified_revision: int | None = None
 
 
 class BuildDeadlineExceeded(RuntimeError):
@@ -212,8 +358,9 @@ class WorkflowBuilder:
     async def _run(self, build_id: str, *, manage_harness_task: bool = True) -> dict[str, Any]:
         build = await self.workflow_store.get_build(build_id)
         state: BuildTeamState = build["team_state"]
-        build_started_at = time.monotonic()
+        build_started_at = time.time()
         max_elapsed_seconds = self._coerce_max_elapsed_seconds(build.get("max_elapsed_seconds"))
+        draft_guard = await self._initialize_draft_guard(build["application_id"])
         task_metadata: dict[str, Any] = {
             "max_turns": build["max_turns"],
             "max_repair_cycles": build["max_repair_cycles"],
@@ -269,44 +416,35 @@ class WorkflowBuilder:
         # Create a DecisionTracker to record the Builder's choices
         tracker = DecisionTracker(f"Build-{build_id[:8]}")
         try:
-            try:
-                if max_elapsed_seconds is not None:
-                    async with asyncio.timeout(max_elapsed_seconds):
-                        await self._agent_loop(
-                            build_id,
-                            build["application_id"],
-                            state,
-                            messages,
-                            max_turns=int(build["max_turns"]),
-                            max_repair_cycles=int(build["max_repair_cycles"]),
-                            auto_publish=bool(build["auto_publish"]),
-                            teammate=None,
-                            tracker=tracker,
-                            build_started_at=build_started_at,
-                            max_elapsed_seconds=max_elapsed_seconds,
-                        )
-                else:
-                    await self._agent_loop(
-                        build_id,
-                        build["application_id"],
-                        state,
-                        messages,
-                        max_turns=int(build["max_turns"]),
-                        max_repair_cycles=int(build["max_repair_cycles"]),
-                        auto_publish=bool(build["auto_publish"]),
-                        teammate=None,
-                        tracker=tracker,
+            agent_loop = self._agent_loop(
+                build_id,
+                build["application_id"],
+                state,
+                messages,
+                max_turns=int(build["max_turns"]),
+                max_repair_cycles=int(build["max_repair_cycles"]),
+                auto_publish=bool(build["auto_publish"]),
+                teammate=None,
+                tracker=tracker,
+                build_started_at=build_started_at,
+                max_elapsed_seconds=max_elapsed_seconds,
+                draft_guard=draft_guard,
+            )
+            if max_elapsed_seconds is not None:
+                try:
+                    await self._await_with_wall_clock_deadline(
+                        agent_loop,
+                        max_elapsed_seconds=max_elapsed_seconds,
+                        build_started_at=build_started_at,
                     )
-            except asyncio.TimeoutError as error:
-                elapsed_seconds = time.monotonic() - build_started_at
-                await self._emit(build_id, "build.deadline.exceeded", {
-                    "max_elapsed_seconds": max_elapsed_seconds,
-                    "elapsed_seconds": round(elapsed_seconds, 3),
-                })
-                raise BuildDeadlineExceeded(
-                    max_elapsed_seconds or 0,
-                    elapsed_seconds,
-                ) from error
+                except BuildDeadlineExceeded as error:
+                    await self._emit(build_id, "build.deadline.exceeded", {
+                        "max_elapsed_seconds": max_elapsed_seconds,
+                        "elapsed_seconds": round(error.elapsed_seconds, 3),
+                    })
+                    raise
+            else:
+                await agent_loop
             self._trackers[build_id] = tracker
             await self._validate_capability_contract_completion(
                 build["application_id"],
@@ -329,6 +467,10 @@ class WorkflowBuilder:
                     status = "published"
                 else:
                     status = "ready"
+            completed_progress = self._complete_verified_progress(state)
+            if completed_progress:
+                await self.workflow_store.update_build(build_id, team_state=state)
+                await self._emit(build_id, "build.progress.completed", completed_progress)
             if manage_harness_task:
                 await self.harness.finish_task(build_id, status="succeeded")
             await self._emit(build_id, "build.completed", {
@@ -347,12 +489,26 @@ class WorkflowBuilder:
                 "published_version": state.published_version,
             }
         except asyncio.CancelledError:
+            await self._restore_protected_draft(
+                build_id,
+                build["application_id"],
+                state,
+                draft_guard,
+                reason="build_cancelled",
+            )
             if manage_harness_task:
                 await self.harness.finish_task(build_id, status="cancelled")
             await self._emit(build_id, "build.cancelled", {})
             await self.workflow_store.update_build(build_id, status="cancelled", team_state=state)
             raise
         except Exception as error:
+            await self._restore_protected_draft(
+                build_id,
+                build["application_id"],
+                state,
+                draft_guard,
+                reason=type(error).__name__,
+            )
             failure_metadata = self._failure_metadata(error)
             if manage_harness_task:
                 await self.harness.finish_task(
@@ -444,6 +600,80 @@ class WorkflowBuilder:
             if reference not in allowed
         )
 
+    @staticmethod
+    def _shared_carrier_binding_errors(
+        snapshot: ApplicationSnapshot,
+        contract: Any,
+    ) -> list[str]:
+        required_ids = {
+            item.id for item in contract.capabilities if item.required
+        }
+        functional_ids = {
+            item.id
+            for item in contract.functional_capabilities
+            if item.required
+        }
+        groups: dict[str, list[CapabilityCarrierDecision]] = {}
+        for decision in contract.carrier_decisions:
+            if (
+                decision.capability_id in required_ids
+                and decision.resource_hint.startswith("shared:")
+            ):
+                groups.setdefault(decision.resource_hint, []).append(decision)
+
+        node_types = {
+            node.id: node.type for node in snapshot.workflow.nodes
+        }
+        model_turn_ids = {
+            node.id
+            for node in snapshot.workflow.nodes
+            if node.type == "model_turn"
+        }
+        shared_model_function_ids: set[str] = set()
+        shared_model_refs: set[str] = set()
+        errors: list[str] = []
+        for resource_hint, decisions in groups.items():
+            reference_sets = {
+                tuple(sorted(decision.implementation_refs))
+                for decision in decisions
+            }
+            if len(reference_sets) != 1:
+                bindings = {
+                    decision.capability_id: decision.implementation_refs
+                    for decision in decisions
+                }
+                errors.append(
+                    f"shared carrier {resource_hint} must reuse identical "
+                    f"implementation_refs: {bindings}"
+                )
+                continue
+            references = set(next(iter(reference_sets), ()))
+            if resource_hint.startswith("shared:model_turn:"):
+                shared_model_function_ids.update(
+                    decision.capability_id
+                    for decision in decisions
+                    if decision.capability_id in functional_ids
+                )
+                shared_model_refs.update(references)
+                if len(references) != 1:
+                    errors.append(
+                        f"shared Model Turn carrier {resource_hint} must bind exactly one "
+                        f"workflow node, got {sorted(references)}"
+                    )
+                elif node_types.get(next(iter(references))) != "model_turn":
+                    errors.append(
+                        f"shared Model Turn carrier {resource_hint} must bind a model_turn node"
+                    )
+
+        if functional_ids and shared_model_function_ids == functional_ids:
+            extra_model_turns = sorted(model_turn_ids - shared_model_refs)
+            if extra_model_turns:
+                errors.append(
+                    "all functional capabilities use shared Model Turn carriers, but the "
+                    f"workflow contains extra Model Turn nodes: {extra_model_turns}"
+                )
+        return errors
+
     async def _validate_capability_contract_completion(
         self,
         application_id: str,
@@ -499,6 +729,15 @@ class WorkflowBuilder:
             raise RuntimeError(
                 "carrier bindings reference resources that are not present in the draft or registered inventory: "
                 f"{invalid_refs}"
+            )
+        shared_carrier_errors = self._shared_carrier_binding_errors(
+            draft["snapshot"],
+            contract,
+        )
+        if shared_carrier_errors:
+            raise RuntimeError(
+                "shared carrier contract is not closed: "
+                + "; ".join(shared_carrier_errors)
             )
         state.capability_build_contract = contract
         state.capability_closure = closure.model_dump(mode="json")
@@ -659,9 +898,12 @@ class WorkflowBuilder:
 
     async def _draft_validation_summary(self, application_id: str) -> dict[str, Any]:
         validation = await self.applications.validate_draft(application_id)
+        draft = await self.workflow_store.get_draft(application_id)
+        delivery_errors = self._draft_delivery_errors(draft["snapshot"])
+        errors = list(dict.fromkeys([*validation["errors"], *delivery_errors]))
         return {
-            "valid": validation["valid"],
-            "errors": validation["errors"],
+            "valid": not errors,
+            "errors": errors,
             "warnings": validation["warnings"],
             "revision": validation["revision"],
             "test_count": validation["test_count"],
@@ -731,12 +973,17 @@ class WorkflowBuilder:
         tracker: DecisionTracker | None = None,
         build_started_at: float | None = None,
         max_elapsed_seconds: float | None = None,
+        draft_guard: BuildDraftGuard | None = None,
     ) -> str:
         final = ""
         tools = self._definitions(
             allow_team=teammate is None,
             planning_mode=state.planning_mode,
         )
+        progress_fingerprint = self._durable_progress_fingerprint(state)
+        stalled_progress_turns = 0
+        discovery_only_turns = 0
+        seen_progress_evidence: set[str] = set()
         for turn in range(1, max_turns + 1):
             teammate_stop_reason: str | None = None
             await self.harness.record_usage(
@@ -744,17 +991,29 @@ class WorkflowBuilder:
                 "model_call",
                 metadata={"actor": teammate or "coordinator", "turn": turn, "model": self.generator_model},
             )
+            turn_budget_prompt = self._turn_budget_prompt(
+                turn,
+                max_turns,
+                state,
+                stalled_progress_turns=stalled_progress_turns,
+                discovery_only_turns=discovery_only_turns,
+                delivery_verified=bool(draft_guard and draft_guard.delivery_verified),
+                remaining_seconds=self._remaining_build_seconds(
+                    build_started_at,
+                    max_elapsed_seconds,
+                ),
+            )
             stream = self.provider.stream(
                 model=self.generator_model,
-                system=BUILDER_SYSTEM_PROMPT + self._planning_mode_prompt(state.planning_mode) + (
+                system=BUILDER_SYSTEM_PROMPT + self._planning_mode_prompt(state.planning_mode) + turn_budget_prompt + (
                     f"\nYou are teammate {teammate}. Complete your assigned bounded task and report evidence."
                     if teammate else "\nYou are the coordinator. Delegate when useful and synthesize results."
                 ),
                 messages=messages,
                 tools=tools,
-                max_output_tokens=16_384,
+                max_output_tokens=8_192,
                 thinking_enabled=True,
-                effort="xhigh",
+                effort="high",
                 tool_choice={"type": "auto"},
                 user_id=f"{build_id}-{teammate or 'coordinator'}",
             )
@@ -787,6 +1046,8 @@ class WorkflowBuilder:
                     ]
                 break
             results: list[ContentBlock] = []
+            turn_discovery_progress = False
+            turn_verification_progress = False
             for call in calls:
                 try:
                     await self.harness.record_usage(
@@ -816,12 +1077,27 @@ class WorkflowBuilder:
                         tracker=tracker,
                         build_started_at=build_started_at,
                         max_elapsed_seconds=max_elapsed_seconds,
+                        draft_guard=draft_guard,
                     )
+                    if draft_guard is not None:
+                        await self._refresh_draft_guard(application_id, draft_guard)
                     # Persist user-visible progress before emitting the operation event so
                     # a client reacting to that event can immediately read the new state.
                     await self.workflow_store.update_build(build_id, team_state=state)
                     content = json.dumps(value, ensure_ascii=False, default=str)
                     is_error = False
+                    progress_kind = self._builder_evidence_progress_kind(
+                        call.name or "",
+                        call.input or {},
+                        value,
+                        seen_progress_evidence,
+                    )
+                    turn_discovery_progress = (
+                        turn_discovery_progress or progress_kind == "discovery"
+                    )
+                    turn_verification_progress = (
+                        turn_verification_progress or progress_kind == "verification"
+                    )
                 except Exception as error:
                     content = f"{type(error).__name__}: {error}"
                     is_error = True
@@ -848,6 +1124,41 @@ class WorkflowBuilder:
                     message.model_dump(mode="json") for message in messages
                 ]
             await self.workflow_store.update_build(build_id, team_state=state)
+            next_fingerprint = self._durable_progress_fingerprint(state)
+            durable_progress = next_fingerprint != progress_fingerprint
+            if durable_progress:
+                progress_fingerprint = next_fingerprint
+            if durable_progress or turn_verification_progress:
+                stalled_progress_turns = 0
+                discovery_only_turns = 0
+            elif turn_discovery_progress:
+                stalled_progress_turns = 0
+                discovery_only_turns += 1
+            else:
+                stalled_progress_turns += 1
+                discovery_only_turns += 1
+            if stalled_progress_turns >= BUILDER_MAX_STALLED_PROGRESS_TURNS:
+                await self._emit(build_id, "build.progress.stalled", {
+                    "actor": teammate or "coordinator",
+                    "turn": turn,
+                    "stalled_turns": stalled_progress_turns,
+                    "draft_revision": state.revision,
+                })
+                raise RuntimeError(
+                    "builder progress stalled: no durable draft, plan, task, or repair progress for "
+                    f"{stalled_progress_turns} consecutive turns"
+                )
+            if discovery_only_turns >= BUILDER_MAX_DISCOVERY_ONLY_TURNS:
+                await self._emit(build_id, "build.progress.exploration_exhausted", {
+                    "actor": teammate or "coordinator",
+                    "turn": turn,
+                    "discovery_only_turns": discovery_only_turns,
+                    "draft_revision": state.revision,
+                })
+                raise RuntimeError(
+                    "builder exploration budget exhausted: no task, plan, draft, test, or verification "
+                    f"delivery progress for {discovery_only_turns} consecutive turns"
+                )
             if teammate is not None and teammate_stop_reason is not None:
                 final = (
                     "Stopped teammate work after test_run exhausted the repair budget at the current draft "
@@ -868,7 +1179,7 @@ class WorkflowBuilder:
                 "draft_revision": state.revision,
             }
             if build_started_at is not None:
-                turn_completed["elapsed_seconds"] = round(time.monotonic() - build_started_at, 3)
+                turn_completed["elapsed_seconds"] = round(time.time() - build_started_at, 3)
             if max_elapsed_seconds is not None:
                 turn_completed["max_elapsed_seconds"] = max_elapsed_seconds
             await self._emit(build_id, "build.turn.completed", turn_completed)
@@ -887,7 +1198,27 @@ class WorkflowBuilder:
         tracker: DecisionTracker | None = None,
         build_started_at: float | None = None,
         max_elapsed_seconds: float | None = None,
+        draft_guard: BuildDraftGuard | None = None,
     ) -> Any:
+        if (
+            draft_guard is not None
+            and draft_guard.delivery_verified
+            and tool not in BUILDER_POST_VERIFICATION_TOOLS
+        ):
+            raise RuntimeError(
+                "builder delivery is frozen after all mandatory tests passed; finish contract, task, "
+                "and plan bookkeeping, then publish without changing or exploring the verified workflow"
+            )
+        if (
+            draft_guard is not None
+            and draft_guard.delivery_verified
+            and tool == "capability_contract"
+            and str(data.get("action") or "") != "validate"
+        ):
+            raise RuntimeError(
+                "builder delivery is frozen after all mandatory tests passed; capability carriers "
+                "must be bound before test_run, so only validation is allowed now"
+            )
         if state.planning_mode == "disabled" and tool == "build_plan":
             raise RuntimeError("build_plan is disabled for this build planning_mode")
         if tool == "catalog_search":
@@ -1241,6 +1572,19 @@ class WorkflowBuilder:
                 status = CarrierStatus(
                     data.get("status") or CarrierStatus.bound.value
                 )
+                resource_hint = str(
+                    data.get("resource_hint")
+                    or (existing.resource_hint if existing else "")
+                )
+                if (
+                    existing is not None
+                    and existing.resource_hint.startswith("shared:")
+                    and resource_hint != existing.resource_hint
+                ):
+                    raise ValueError(
+                        "authoritative shared resource_hint cannot be changed during binding: "
+                        f"{existing.resource_hint}"
+                    )
                 implementation_refs = [
                     str(item)
                     for item in data.get(
@@ -1249,15 +1593,22 @@ class WorkflowBuilder:
                     )
                     if str(item).strip()
                 ]
+                node_refs = {
+                    item.id for item in draft["snapshot"].workflow.nodes
+                }
+                implementation_refs = list(dict.fromkeys(
+                    reference.removeprefix("node:")
+                    if reference.startswith("node:")
+                    and reference.removeprefix("node:") in node_refs
+                    else reference
+                    for reference in implementation_refs
+                ))
                 if status in {CarrierStatus.bound, CarrierStatus.blocked_by_environment} and not implementation_refs:
                     raise ValueError("bound carrier decisions require implementation_refs")
                 decision = CapabilityCarrierDecision(
                     capability_id=capability_id,
                     carrier_type=carrier_type,
-                    resource_hint=str(
-                        data.get("resource_hint")
-                        or (existing.resource_hint if existing else "")
-                    ),
+                    resource_hint=resource_hint,
                     rationale=str(
                         data.get("rationale")
                         or (existing.rationale if existing else "")
@@ -1265,6 +1616,26 @@ class WorkflowBuilder:
                     status=status,
                     implementation_refs=implementation_refs,
                 )
+                if decision.resource_hint.startswith("shared:"):
+                    peer_bindings = {
+                        item.capability_id: item.implementation_refs
+                        for item in contract.carrier_decisions
+                        if item.capability_id != capability_id
+                        and item.resource_hint == decision.resource_hint
+                        and item.status == CarrierStatus.bound
+                        and item.implementation_refs
+                    }
+                    mismatched_peers = {
+                        peer_id: references
+                        for peer_id, references in peer_bindings.items()
+                        if set(references) != set(decision.implementation_refs)
+                    }
+                    if mismatched_peers:
+                        raise ValueError(
+                            f"shared carrier {decision.resource_hint} must reuse "
+                            "implementation_refs already bound by peer capabilities: "
+                            f"{mismatched_peers}"
+                        )
                 invalid_references = self._invalid_capability_references(
                     draft["snapshot"],
                     contract,
@@ -1399,14 +1770,21 @@ class WorkflowBuilder:
                 }
             else:
                 op, payload = "remove_test", {"test_id": data["test_id"]}
+            operation = DraftOperation(
+                expected_revision=int(draft["revision"]),
+                idempotency_key=f"{build_id}:{tool}:{uuid4()}",
+                op=op,
+                data=payload,
+            )
+            self._enforce_builder_draft_guard(
+                tool,
+                draft["snapshot"],
+                operation,
+                draft_guard,
+            )
             result = await self.applications.apply_operation(
                 application_id,
-                DraftOperation(
-                    expected_revision=int(draft["revision"]),
-                    idempotency_key=f"{build_id}:{tool}:{uuid4()}",
-                    op=op,
-                    data=payload,
-                ),
+                operation,
             )
             # Record design decisions for meta-cognition
             if tracker and tool in ("draft_add_node", "draft_connect", "draft_publish", "template_expand"):
@@ -1423,13 +1801,41 @@ class WorkflowBuilder:
                 result["validation"] = await self._draft_validation_summary(application_id)
             return result
         if tool == "draft_validate":
-            return await self.applications.validate_draft(application_id)
+            return await self._draft_validation_summary(application_id)
         if tool == "test_run":
+            if (
+                draft_guard is not None
+                and draft_guard.delivery_verified
+                and draft_guard.verified_revision == state.revision
+            ):
+                raise RuntimeError(
+                    "all mandatory tests already passed for this exact draft revision; publish now"
+                )
+            try:
+                await self._validate_capability_contract_completion(
+                    application_id,
+                    state,
+                )
+            except RuntimeError as error:
+                raise RuntimeError(
+                    "acceptance tests cannot run until the Capability Build Contract and BuildPlan "
+                    f"are closed: {error}"
+                ) from error
+            draft = await self.workflow_store.get_draft(application_id)
+            delivery_errors = self._draft_delivery_errors(draft["snapshot"])
+            if delivery_errors:
+                raise RuntimeError(
+                    "acceptance tests cannot run until delivery coverage is complete: "
+                    + "; ".join(delivery_errors[:8])
+                )
             if state.repair_cycles > max_repair_cycles or (
                 state.repair_cycles == max_repair_cycles
                 and state.last_failed_test_revision == state.revision
             ):
                 raise RuntimeError(f"maximum repair cycles reached ({max_repair_cycles})")
+            if draft_guard is not None and not draft_guard.acceptance_floor_frozen:
+                draft = await self.workflow_store.get_draft(application_id)
+                self._freeze_acceptance_floor(draft["snapshot"], draft_guard)
             report = await self.runtime.run_test_suite(application_id)
             if not report["passed"]:
                 if state.last_failed_test_revision != state.revision:
@@ -1437,8 +1843,31 @@ class WorkflowBuilder:
                     state.last_failed_test_revision = state.revision
             else:
                 state.last_failed_test_revision = None
+                if draft_guard is not None:
+                    newly_verified = (
+                        not draft_guard.delivery_verified
+                        or draft_guard.verified_revision != state.revision
+                    )
+                    draft_guard.delivery_verified = True
+                    draft_guard.verified_revision = state.revision
+                    if newly_verified:
+                        await self._emit(build_id, "build.delivery.frozen", {
+                            "draft_revision": state.revision,
+                            "reason": "all mandatory acceptance tests passed",
+                        })
+                if auto_publish:
+                    published = await self.workflow_store.publish(application_id)
+                    state.published_version = published["version"]
+                    report["publication"] = published
+                    await self._emit(build_id, "build.published", published)
             return report
         if tool == "draft_publish":
+            if state.published_version is not None:
+                return {
+                    "application_id": application_id,
+                    "version": state.published_version,
+                    "status": "already_published",
+                }
             if not auto_publish and not data.get("explicit", False):
                 return {"status": "ready", "message": "auto publish is disabled"}
             await self._validate_capability_contract_completion(application_id, state)
@@ -1564,12 +1993,16 @@ class WorkflowBuilder:
                 application_id,
                 state,
                 messages,
-                max_turns=min(int(data.get("max_turns", 12)), 20),
+                max_turns=min(
+                    int(data.get("max_turns", BUILDER_TEAMMATE_MAX_TURNS)),
+                    BUILDER_TEAMMATE_MAX_TURNS,
+                ),
                 max_repair_cycles=max_repair_cycles,
                 auto_publish=auto_publish,
                 teammate=name,
                 build_started_at=build_started_at,
                 max_elapsed_seconds=max_elapsed_seconds,
+                draft_guard=draft_guard,
             )
             teammate.messages = [message.model_dump(mode="json") for message in messages]
             teammate.status = "idle"
@@ -1600,12 +2033,16 @@ class WorkflowBuilder:
                 application_id,
                 state,
                 messages,
-                max_turns=min(int(data.get("max_turns", 8)), 12),
+                max_turns=min(
+                    int(data.get("max_turns", BUILDER_TEAMMATE_FOLLOWUP_MAX_TURNS)),
+                    BUILDER_TEAMMATE_FOLLOWUP_MAX_TURNS,
+                ),
                 max_repair_cycles=max_repair_cycles,
                 auto_publish=auto_publish,
                 teammate=name,
                 build_started_at=build_started_at,
                 max_elapsed_seconds=max_elapsed_seconds,
+                draft_guard=draft_guard,
             )
             teammate.messages = [message.model_dump(mode="json") for message in messages]
             teammate.mailbox.clear()
@@ -1638,7 +2075,7 @@ class WorkflowBuilder:
             ToolDefinition(name="draft_remove_edge", description="Remove one edge.", input_schema={"type": "object", "properties": {"edge_id": {"type": "string"}}, "required": ["edge_id"]}),
             ToolDefinition(name="draft_upsert_agent", description="Create or update one inline Claude Agent definition.", input_schema={"type": "object", "properties": {"agent": AgentSpec.model_json_schema()}, "required": ["agent"]}),
             ToolDefinition(name="draft_validate", description="Run graph, schema, port, agent-binding, and test-presence validation.", input_schema={"type": "object", "properties": {}}),
-            ToolDefinition(name="test_add", description="Add one traceable workflow acceptance test. Include a readable frame plus required_node_types and required_tool_nodes for visible architecture gates.", input_schema={"type": "object", "properties": {"test": WorkflowTestCase.model_json_schema()}, "required": ["test"]}),
+            ToolDefinition(name="test_add", description="Atomically add or replace one traceable workflow acceptance test. Reuse the same test id when repairing it; never delete first. Include a readable frame plus required_node_types and required_tool_nodes for visible architecture gates.", input_schema={"type": "object", "properties": {"test": WorkflowTestCase.model_json_schema()}, "required": ["test"]}),
             ToolDefinition(name="test_remove", description="Remove an incorrect test, never to hide a real failure.", input_schema={"type": "object", "properties": {"test_id": {"type": "string"}}, "required": ["test_id"]}),
             ToolDefinition(name="test_run", description="Run all mandatory tests against the exact current draft using real providers and tools.", input_schema={"type": "object", "properties": {}}),
             ToolDefinition(name="draft_publish", description="Publish an immutable version; fails unless current hash passed all mandatory tests.", input_schema={"type": "object", "properties": {"explicit": {"type": "boolean"}}}),
@@ -1676,6 +2113,512 @@ class WorkflowBuilder:
                 f"build_plan required before {tool} when planning_mode=required"
             )
 
+    @staticmethod
+    def _turn_budget_prompt(
+        turn: int,
+        max_turns: int,
+        state: BuildTeamState,
+        *,
+        stalled_progress_turns: int,
+        discovery_only_turns: int,
+        delivery_verified: bool,
+        remaining_seconds: float | None,
+    ) -> str:
+        remaining = max_turns - turn + 1
+        final_third = (
+            turn > (max_turns * 2) // 3
+            or (remaining_seconds is not None and remaining_seconds < 180)
+        )
+        phase = (
+            "publication"
+            if delivery_verified
+            else "verification and delivery"
+            if final_third
+            else "construction"
+        )
+        statuses = WorkflowBuilder._team_progress(state)["task_statuses"]
+        time_budget = (
+            f"; approximately {max(0, remaining_seconds):.0f}s remain"
+            if remaining_seconds is not None
+            else ""
+        )
+        delivery_directive = (
+            " The current draft has passed all mandatory tests and is frozen. Do not explore or mutate it; "
+            "finish task/plan bookkeeping; if auto_publish is enabled the platform has already published it."
+            if delivery_verified
+            else ""
+        )
+        return (
+            f"\n\nCurrent delivery budget: turn {turn}/{max_turns}; {remaining} turns remain"
+            f"{time_budget}; "
+            f"phase={phase}; draft_revision={state.revision}; repair_cycles={state.repair_cycles}; "
+            f"task_statuses={json.dumps(statuses, sort_keys=True)}; "
+            f"consecutive_turns_without_any_new_progress={stalled_progress_turns}; "
+            f"consecutive_discovery_only_turns={discovery_only_turns}. "
+            "Use tools now. Batch independent calls. Make durable draft, plan, task, or test progress on "
+            "this turn. In the delivery phase, stop broad exploration and prioritize a valid draft, "
+            f"mandatory tests, task status updates, and publication.{delivery_directive}"
+        )
+
+    @staticmethod
+    def _builder_evidence_progress_kind(
+        tool: str,
+        tool_input: dict[str, Any],
+        value: Any,
+        seen: set[str],
+    ) -> str | None:
+        kind: str | None = None
+        if tool in BUILDER_VERIFICATION_TOOLS:
+            kind = "verification"
+        elif tool in BUILDER_DISCOVERY_TOOLS:
+            if tool in {"catalog_search", "manual_search"} and not value:
+                return None
+            kind = "discovery"
+        if kind is None:
+            return None
+        signature = json.dumps(
+            {"tool": tool, "input": tool_input, "value": value},
+            ensure_ascii=False,
+            sort_keys=True,
+            default=str,
+        )
+        if signature in seen:
+            return None
+        seen.add(signature)
+        return kind
+
+    @staticmethod
+    def _durable_progress_fingerprint(state: BuildTeamState) -> str:
+        payload = {
+            "revision": state.revision,
+            "repair_cycles": state.repair_cycles,
+            "published_version": state.published_version,
+            "tasks": [task.model_dump(mode="json") for task in state.tasks],
+            "build_plan": (
+                state.build_plan.model_dump(mode="json")
+                if state.build_plan is not None
+                else None
+            ),
+            "manual_lookups": sorted(state.manual_lookups),
+            "capability_closure": state.capability_closure,
+            "teammates": {
+                name: teammate.status
+                for name, teammate in sorted(state.teammates.items())
+            },
+        }
+        return json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
+
+    def _draft_delivery_errors(self, snapshot: ApplicationSnapshot) -> list[str]:
+        errors = list(self.blocks.validate_workflow(snapshot.workflow))
+        mandatory_tests = [test for test in snapshot.tests if test.mandatory]
+        if not mandatory_tests:
+            errors.append("at least one mandatory acceptance test is required")
+            return errors
+        node_types = {node.type for node in snapshot.workflow.nodes}
+        tool_node_names = {
+            str(node.config.get("tool_name"))
+            for node in snapshot.workflow.nodes
+            if node.type == "tool" and node.config.get("tool_name")
+        }
+        tool_node_names.update(
+            str(node.config.get("settings", {}).get("tool_name"))
+            for node in snapshot.workflow.nodes
+            if node.type == "tool_executor"
+            and node.config.get("settings", {}).get("tool_name")
+        )
+        for test in mandatory_tests:
+            missing_types = sorted(set(test.required_node_types) - node_types)
+            if missing_types:
+                errors.append(f"test {test.id} missing required node types: {missing_types}")
+            missing_tools = sorted(set(test.required_tool_nodes) - tool_node_names)
+            if missing_tools:
+                errors.append(f"test {test.id} missing required tool nodes: {missing_tools}")
+        contract = snapshot.capability_build_contract
+        if contract is None:
+            return errors
+
+        required_capabilities = {
+            capability.id
+            for capability in contract.capabilities
+            if capability.required
+        }
+        tested_capabilities = {
+            capability_id
+            for test in mandatory_tests
+            for capability_id in test.capability_ids
+        }
+        missing_capability_tests = sorted(
+            required_capabilities - tested_capabilities
+        )
+        if missing_capability_tests:
+            errors.append(
+                "mandatory acceptance tests do not cover required contract capabilities: "
+                f"{missing_capability_tests}"
+            )
+
+        assertions_by_capability: dict[str, set[str]] = {}
+        for test in mandatory_tests:
+            asserted_keys = {
+                _output_assertion_key(path_part)
+                for assertion in test.assertions
+                for path_part in assertion.path
+                if _normalized_output_key(path_part)
+            }
+            for capability_id in test.capability_ids:
+                assertions_by_capability.setdefault(capability_id, set()).update(
+                    asserted_keys
+                )
+
+        for capability in contract.functional_capabilities:
+            if not capability.required:
+                continue
+            required_output_keys = {
+                _output_assertion_key(output)
+                for output in capability.outputs
+                if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", output)
+            }
+            missing_output_keys = sorted(
+                required_output_keys
+                - assertions_by_capability.get(capability.id, set())
+            )
+            if missing_output_keys:
+                errors.append(
+                    f"mandatory acceptance for {capability.id} lacks output assertions: "
+                    f"{missing_output_keys}"
+                )
+
+        customer_reply_capabilities = {
+            capability.id
+            for capability in contract.functional_capabilities
+            if capability.required
+            and any(
+                _output_assertion_key(output) == "reply"
+                for output in capability.outputs
+            )
+        }
+        if customer_reply_capabilities:
+            model_nodes = [
+                node
+                for node in snapshot.workflow.nodes
+                if node.type in {"model_turn", "llm"}
+            ]
+            if model_nodes and any(
+                (
+                    not _CUSTOMER_ADVICE_GUARD_RE.search(
+                        json.dumps(node.config, ensure_ascii=False)
+                    )
+                    or not _CUSTOMER_SELF_REPAIR_GUARD_RE.search(
+                        json.dumps(node.config, ensure_ascii=False)
+                    )
+                )
+                for node in model_nodes
+            ):
+                errors.append(
+                    "customer-facing reply model instructions must forbid unsafe "
+                    "DIY remedies including self-repair, disassembly, or glue; "
+                    "they must also forbid fabricated actions and unsupported guarantees"
+                )
+            negative_reply_coverage = {
+                capability_id
+                for test in mandatory_tests
+                for capability_id in test.capability_ids
+                if capability_id in customer_reply_capabilities
+                and any(
+                    assertion.operator == "not_contains"
+                    and any(
+                        _output_assertion_key(path_part)
+                        in {"reply", "next_step"}
+                        for path_part in assertion.path
+                    )
+                    and isinstance(assertion.expected, str)
+                    and bool(assertion.expected.strip())
+                    for assertion in test.assertions
+                )
+            }
+            missing_negative_coverage = sorted(
+                customer_reply_capabilities - negative_reply_coverage
+            )
+            if missing_negative_coverage:
+                errors.append(
+                    "customer-facing reply capabilities require scenario-specific "
+                    "not_contains safety assertions: "
+                    f"{missing_negative_coverage}"
+                )
+
+        if _CUSTOMER_TRACE_OUTPUT_RE.search(contract.source_requirement):
+            for guarantee in contract.runtime_guarantees:
+                guarantee_text = " ".join([
+                    guarantee.id,
+                    guarantee.title,
+                    guarantee.description,
+                    *guarantee.acceptance,
+                ])
+                if (
+                    guarantee.required
+                    and guarantee.guarantee_type in {"audit", "observability"}
+                    and _output_assertion_key(guarantee_text) == "trace"
+                    and "trace" not in assertions_by_capability.get(
+                        guarantee.id,
+                        set(),
+                    )
+                ):
+                    errors.append(
+                        f"mandatory acceptance for {guarantee.id} must assert a "
+                        "customer-visible structured step-log output"
+                    )
+        return errors
+
+    @staticmethod
+    def _mandatory_acceptance_coverage(
+        snapshot: ApplicationSnapshot,
+    ) -> tuple[dict[str, set[str]], int, bool]:
+        coverage = {
+            "capability_ids": set(),
+            "required_node_types": set(),
+            "required_tool_nodes": set(),
+            "required_tools": set(),
+            "frame_categories": set(),
+            "assertion_signatures": set(),
+        }
+        minimum_tool_calls = 0
+        cited_tool_urls_required = False
+        for test in (item for item in snapshot.tests if item.mandatory):
+            coverage["capability_ids"].update(test.capability_ids)
+            coverage["required_node_types"].update(test.required_node_types)
+            coverage["required_tool_nodes"].update(test.required_tool_nodes)
+            coverage["required_tools"].update(test.required_tools)
+            if test.frame is not None:
+                coverage["frame_categories"].add(test.frame.category)
+            for assertion in test.assertions:
+                coverage["assertion_signatures"].add(
+                    json.dumps(
+                        {
+                            "test_id": test.id,
+                            "path": assertion.path,
+                            "operator": assertion.operator,
+                            "expected": assertion.expected,
+                            "structural": assertion.structural,
+                        },
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        default=str,
+                    )
+                )
+            minimum_tool_calls = max(minimum_tool_calls, test.minimum_tool_calls)
+            cited_tool_urls_required = cited_tool_urls_required or test.require_cited_tool_urls
+        return coverage, minimum_tool_calls, cited_tool_urls_required
+
+    def _freeze_acceptance_floor(
+        self,
+        snapshot: ApplicationSnapshot,
+        guard: BuildDraftGuard,
+    ) -> None:
+        if guard.acceptance_floor_frozen:
+            return
+        mandatory_tests = [test for test in snapshot.tests if test.mandatory]
+        coverage, minimum_tool_calls, cited_tool_urls_required = (
+            self._mandatory_acceptance_coverage(snapshot)
+        )
+        guard.mandatory_test_floor = len(mandatory_tests)
+        guard.acceptance_coverage_floor = coverage
+        guard.minimum_tool_calls_floor = minimum_tool_calls
+        guard.cited_tool_urls_required = cited_tool_urls_required
+        guard.acceptance_floor_frozen = True
+
+    async def _initialize_draft_guard(self, application_id: str) -> BuildDraftGuard:
+        guard = BuildDraftGuard()
+        await self._refresh_draft_guard(application_id, guard)
+        return guard
+
+    async def _refresh_draft_guard(
+        self,
+        application_id: str,
+        guard: BuildDraftGuard,
+    ) -> None:
+        draft = await self.workflow_store.get_draft(application_id)
+        revision = int(draft["revision"])
+        if guard.observed_revision == revision:
+            return
+        guard.observed_revision = revision
+        snapshot: ApplicationSnapshot = draft["snapshot"]
+        if not self._draft_delivery_errors(snapshot):
+            guard.protected_snapshot = snapshot.model_copy(deep=True)
+            guard.protected_revision = revision
+
+    def _enforce_builder_draft_guard(
+        self,
+        tool: str,
+        snapshot: ApplicationSnapshot,
+        operation: DraftOperation,
+        guard: BuildDraftGuard | None,
+    ) -> None:
+        target_is_protected = False
+        if tool == "draft_remove_node":
+            node_id = str(operation.data["node_id"])
+            node = next((item for item in snapshot.workflow.nodes if item.id == node_id), None)
+            if node is None:
+                raise KeyError(f"node not found: {node_id}")
+            if node.type == "start" and sum(
+                item.type == "start" for item in snapshot.workflow.nodes
+            ) <= 1:
+                raise RuntimeError("builder draft guard: cannot remove the only start node")
+            if node.type in {"end", "answer"} and sum(
+                item.type in {"end", "answer"} for item in snapshot.workflow.nodes
+            ) <= 1:
+                raise RuntimeError("builder draft guard: cannot remove the last terminal node")
+            if guard and guard.protected_snapshot:
+                target_is_protected = any(
+                    item.id == node_id
+                    for item in guard.protected_snapshot.workflow.nodes
+                )
+        elif tool == "draft_remove_edge":
+            edge_id = str(operation.data["edge_id"])
+            if guard and guard.protected_snapshot:
+                target_is_protected = any(
+                    item.id == edge_id
+                    for item in guard.protected_snapshot.workflow.edges
+                )
+        elif tool == "draft_update_node":
+            node_id = str(operation.data["node_id"])
+            if guard and guard.protected_snapshot:
+                target_is_protected = any(
+                    item.id == node_id
+                    for item in guard.protected_snapshot.workflow.nodes
+                )
+        elif tool == "test_remove":
+            test_id = str(operation.data["test_id"])
+            test = next((item for item in snapshot.tests if item.id == test_id), None)
+            if test is None:
+                raise KeyError(f"test not found: {test_id}")
+            if test.mandatory and sum(item.mandatory for item in snapshot.tests) <= 1:
+                raise RuntimeError(
+                    "builder draft guard: cannot remove the last mandatory acceptance test"
+                )
+            if guard and guard.protected_snapshot:
+                target_is_protected = any(
+                    item.id == test_id for item in guard.protected_snapshot.tests
+                )
+        elif tool == "test_add":
+            replacement = WorkflowTestCase.model_validate(operation.data["test"])
+            if guard and guard.protected_snapshot:
+                target_is_protected = any(
+                    item.id == replacement.id
+                    for item in guard.protected_snapshot.tests
+                )
+
+        if guard is not None and guard.protected_snapshot is None:
+            if not self._draft_delivery_errors(snapshot):
+                guard.protected_snapshot = snapshot.model_copy(deep=True)
+        if guard is None or guard.protected_snapshot is None or not target_is_protected:
+            return
+        preview = self.applications.validate_preview_operations(snapshot, [operation])
+        preview_errors = self._draft_delivery_errors(preview)
+        if tool in {"test_remove", "test_add"} and guard.acceptance_floor_frozen:
+            remaining_mandatory = [test for test in preview.tests if test.mandatory]
+            if len(remaining_mandatory) < guard.mandatory_test_floor:
+                preview_errors.append(
+                    "mandatory acceptance test count would fall below the protected baseline; "
+                    "add a replacement test before removing this one"
+                )
+            coverage, minimum_tool_calls, cited_tool_urls_required = (
+                self._mandatory_acceptance_coverage(preview)
+            )
+            for dimension, required_values in (
+                guard.acceptance_coverage_floor or {}
+            ).items():
+                missing = sorted(required_values - coverage.get(dimension, set()))
+                if missing:
+                    preview_errors.append(
+                        f"mandatory acceptance coverage would lose {dimension}: {missing}"
+                    )
+            if minimum_tool_calls < guard.minimum_tool_calls_floor:
+                preview_errors.append(
+                    "mandatory acceptance minimum_tool_calls would fall below the protected baseline"
+                )
+            if guard.cited_tool_urls_required and not cited_tool_urls_required:
+                preview_errors.append(
+                    "mandatory acceptance would lose cited tool URL evidence"
+                )
+        if preview_errors:
+            repair_guidance = (
+                "repair the failing implementation; a same-id test replacement cannot remove or "
+                "weaken frozen assertions"
+                if tool == "test_add"
+                else "add and connect a valid replacement before removing protected content; for a test "
+                "repair, call test_add with the same id for an atomic replacement"
+            )
+            raise RuntimeError(
+                "builder draft guard: this change would degrade the protected deliverable; "
+                f"{repair_guidance}. "
+                f"Preview errors: {'; '.join(preview_errors[:5])}"
+            )
+
+    async def _restore_protected_draft(
+        self,
+        build_id: str,
+        application_id: str,
+        state: BuildTeamState,
+        guard: BuildDraftGuard,
+        *,
+        reason: str,
+    ) -> None:
+        if guard.protected_snapshot is None:
+            return
+        try:
+            source_protected_revision = guard.protected_revision
+            draft = await self.workflow_store.get_draft(application_id)
+            current_snapshot: ApplicationSnapshot = draft["snapshot"]
+            if not self._draft_delivery_errors(current_snapshot):
+                return
+            if current_snapshot.content_hash() == guard.protected_snapshot.content_hash():
+                return
+            result = await self.workflow_store.save_draft(
+                application_id,
+                guard.protected_snapshot.model_copy(deep=True),
+                expected_revision=int(draft["revision"]),
+                idempotency_key=f"{build_id}:draft_guard_restore:{uuid4()}",
+                change_context={
+                    "operation": "builder_draft_guard_restore",
+                    "reason": reason,
+                    "protected_revision": source_protected_revision,
+                },
+            )
+            state.revision = int(result["revision"])
+            guard.observed_revision = state.revision
+            guard.protected_revision = state.revision
+            await self.workflow_store.update_build(build_id, team_state=state)
+            await self._emit(build_id, "build.draft.restored", {
+                "reason": reason,
+                "restored_revision": state.revision,
+                "protected_revision": source_protected_revision,
+            })
+        except Exception as restore_error:
+            await self._emit(build_id, "build.draft.restore_failed", {
+                "reason": reason,
+                "error": f"{type(restore_error).__name__}: {restore_error}",
+            })
+
+    @staticmethod
+    def _complete_verified_progress(state: BuildTeamState) -> dict[str, Any]:
+        completed_task_ids: list[int] = []
+        for task in state.tasks:
+            if task.status in {"pending", "in_progress"}:
+                task.status = "completed"
+                completed_task_ids.append(task.id)
+        completed_module_ids: list[str] = []
+        if state.build_plan is not None:
+            for module in state.build_plan.modules:
+                if module.status != "blocked" and module.status != "done":
+                    module.status = "done"
+                    completed_module_ids.append(module.id)
+        if not completed_task_ids and not completed_module_ids:
+            return {}
+        return {
+            "task_ids": completed_task_ids,
+            "module_ids": completed_module_ids,
+            "basis": "draft validation and mandatory acceptance suite passed",
+        }
+
     async def _emit(self, stream_id: str, kind: str, data: dict[str, Any]) -> None:
         await self.storage.append_event(stream_id, kind, data)
 
@@ -1708,13 +2651,44 @@ class WorkflowBuilder:
         return seconds if seconds > 0 else None
 
     @staticmethod
+    async def _await_with_wall_clock_deadline(
+        operation: Awaitable[Any],
+        *,
+        max_elapsed_seconds: float,
+        build_started_at: float,
+    ) -> Any:
+        task = asyncio.ensure_future(operation)
+        try:
+            while not task.done():
+                elapsed_seconds = time.time() - build_started_at
+                remaining_seconds = max_elapsed_seconds - elapsed_seconds
+                if remaining_seconds <= 0:
+                    task.cancel()
+                    await asyncio.gather(task, return_exceptions=True)
+                    raise BuildDeadlineExceeded(max_elapsed_seconds, elapsed_seconds)
+                await asyncio.wait(
+                    {task},
+                    timeout=min(1.0, remaining_seconds),
+                )
+            try:
+                return await task
+            except TimeoutError as error:
+                raise RuntimeError(
+                    "builder operation timed out before the overall build deadline"
+                ) from error
+        except asyncio.CancelledError:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            raise
+
+    @staticmethod
     def _remaining_build_seconds(
         build_started_at: float | None,
         max_elapsed_seconds: float | None,
     ) -> float | None:
         if build_started_at is None or max_elapsed_seconds is None:
             return None
-        return max_elapsed_seconds - (time.monotonic() - build_started_at)
+        return max_elapsed_seconds - (time.time() - build_started_at)
 
     @staticmethod
     def _is_repair_budget_exhausted_message(message: str) -> bool:

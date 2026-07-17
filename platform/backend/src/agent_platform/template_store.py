@@ -8,6 +8,7 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Literal
+from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -140,9 +141,14 @@ class TemplateStore:
     @staticmethod
     def _atomic_write(path: Path, payload: str) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = path.with_suffix(path.suffix + ".tmp")
-        temporary.write_text(payload, encoding="utf-8")
-        temporary.replace(path)
+        temporary = path.with_name(
+            f".{path.name}.{uuid4().hex}.tmp"
+        )
+        try:
+            temporary.write_text(payload, encoding="utf-8")
+            temporary.replace(path)
+        finally:
+            temporary.unlink(missing_ok=True)
 
     def _persist_content(self, template: Template) -> None:
         if not self._dir:

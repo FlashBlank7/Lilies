@@ -54,6 +54,7 @@ from .workflow_models import (
     WorkflowRunRequest,
     WorkflowRunState,
     WorkflowSpec,
+    WorkflowTestCase,
 )
 from .workflow_storage import WorkflowStorage
 from .web_collection import ControlledWebCollector
@@ -61,6 +62,9 @@ from .web_collection import ControlledWebCollector
 
 class HumanInputPause(RuntimeError):
     pass
+
+
+TEST_SUITE_MAX_CONCURRENCY = 4
 
 
 @dataclass(slots=True)
@@ -915,7 +919,11 @@ class WorkflowRuntime:
         # ── Model loop group ────────────────────────────────────────
 
         if node.type == "model_turn":
-            prompt = str(settings.get("prompt", json.dumps(value, ensure_ascii=False, default=str) if not isinstance(value, str) else value))
+            prompt = self._model_turn_prompt(
+                settings.get("prompt"),
+                value,
+                context.get("inputs", {}),
+            )
             tool_names = [str(t) for t in settings.get("tools", [])]
             system = str(settings.get("system") or settings.get("system_prompt") or "You are a precise coding agent runtime block.")
             model = str(settings.get("model") or self.runtime_model)
@@ -937,19 +945,27 @@ class WorkflowRuntime:
                 "tool_use_blocks": [],
                 "stop_reason": None,
             }
+            structured: dict[str, Any] | None = None
             if "json" in system.casefold() or str(settings.get("output_format", "")).casefold() == "json":
                 try:
-                    structured = self._json_from_text(text)
+                    parsed = self._json_from_text(text)
                 except ValueError:
-                    structured = None
-                if isinstance(structured, dict):
+                    parsed = None
+                if isinstance(parsed, dict):
+                    structured = parsed
                     output.update(structured)
                     output["structured"] = structured
-            return {
+            result: dict[str, Any] = {
                 "output": output,
                 "text": text,
                 "state": {"mechanism": node.type},
             }
+            if structured is not None:
+                result["structured"] = structured
+                for key, item in structured.items():
+                    if key not in result:
+                        result[key] = item
+            return result
 
         if node.type == "tool_call_router":
             tool_use_blocks: list[dict[str, Any]] = []
@@ -2205,17 +2221,24 @@ class WorkflowRuntime:
                 await self.harness.finish_task(test_task_id, status="failed")
             await self._emit(application_id, "tests.completed", report)
             return report
+        semaphore = asyncio.Semaphore(TEST_SUITE_MAX_CONCURRENCY)
+
+        async def execute_test(test: WorkflowTestCase) -> tuple[WorkflowTestCase, str]:
+            async with semaphore:
+                created = await self.create_run(
+                    application_id,
+                    WorkflowRunRequest(inputs=test.inputs, use_draft=True, workspace_path="."),
+                    parent_task_id=test_task_id,
+                    origin=origin,
+                )
+                run_id = created["run_id"]
+                task = self.active_tasks[run_id]
+                await task
+                return test, run_id
+
+        test_runs = await asyncio.gather(*(execute_test(test) for test in snapshot.tests))
         results: list[dict[str, Any]] = []
-        for test in snapshot.tests:
-            created = await self.create_run(
-                application_id,
-                WorkflowRunRequest(inputs=test.inputs, use_draft=True, workspace_path="."),
-                parent_task_id=test_task_id,
-                origin=origin,
-            )
-            run_id = created["run_id"]
-            task = self.active_tasks[run_id]
-            await task
+        for test, run_id in test_runs:
             record = await self.workflow_store.get_run(run_id)
             workflow_events = await self.storage.list_events(run_id)
             session_ids = [
@@ -2270,10 +2293,27 @@ class WorkflowRuntime:
             for assertion in test.assertions:
                 try:
                     actual: Any = record["outputs"]
-                    for key in assertion.path:
-                        actual = actual[key]
-                    passed = self._assert(actual, assertion.operator, assertion.expected)
-                    assertions.append({"passed": passed, "actual": actual, **assertion.model_dump(mode="json")})
+                    semantic_unwrap = False
+                    try:
+                        for key in assertion.path:
+                            actual = actual[key]
+                    except (KeyError, TypeError, IndexError):
+                        actual = self._semantic_acceptance_output(record["outputs"])
+                        for key in assertion.path:
+                            actual = actual[key]
+                        semantic_unwrap = True
+                    assertion_result = {
+                        "passed": self._assert(
+                            actual,
+                            assertion.operator,
+                            assertion.expected,
+                        ),
+                        "actual": actual,
+                        **assertion.model_dump(mode="json"),
+                    }
+                    if semantic_unwrap:
+                        assertion_result["semantic_unwrap"] = True
+                    assertions.append(assertion_result)
                 except Exception as error:
                     assertions.append({"passed": False, "error": str(error), **assertion.model_dump(mode="json")})
             failed_checks: list[str] = []
@@ -2503,6 +2543,61 @@ class WorkflowRuntime:
         return re.sub(r"{{\s*([\w.]+)\s*}}", replace, template)
 
     @staticmethod
+    def _model_turn_prompt(
+        configured_prompt: Any,
+        value: Any,
+        workflow_inputs: dict[str, Any],
+    ) -> str:
+        def as_text(item: Any) -> str:
+            if isinstance(item, str):
+                return item
+            return json.dumps(item, ensure_ascii=False, default=str)
+
+        def has_content(item: Any) -> bool:
+            if item is None:
+                return False
+            if isinstance(item, str):
+                return bool(item.strip())
+            if isinstance(item, dict):
+                return any(has_content(nested) for nested in item.values())
+            if isinstance(item, (list, tuple, set)):
+                return any(has_content(nested) for nested in item)
+            return True
+
+        input_text = as_text(value)
+        if configured_prompt is None:
+            return input_text
+
+        prompt = as_text(configured_prompt)
+        if prompt.strip() == input_text.strip():
+            return prompt
+
+        variables: dict[str, Any] = {
+            **workflow_inputs,
+            "input": value,
+            "value": value,
+        }
+        if isinstance(value, dict):
+            variables.update(value)
+        injected_input = False
+
+        def replace(match: re.Match[str]) -> str:
+            nonlocal injected_input
+            current: Any = variables
+            try:
+                for key in match.group(1).strip().split("."):
+                    current = current[int(key)] if isinstance(current, list) else current[key]
+            except (KeyError, IndexError, TypeError, ValueError):
+                return match.group(0)
+            injected_input = True
+            return as_text(current)
+
+        rendered = re.sub(r"{{\s*([\w.]+)\s*}}", replace, prompt)
+        if injected_input or not has_content(value) or input_text in rendered:
+            return rendered
+        return f"{rendered.rstrip()}\n\n<workflow_input>\n{input_text}\n</workflow_input>"
+
+    @staticmethod
     def _json_from_text(text: str) -> Any:
         stripped = text.strip()
         if stripped.startswith("```"):
@@ -2514,6 +2609,28 @@ class WorkflowRuntime:
             if not match:
                 raise ValueError("model did not return valid JSON")
             return json.loads(match.group(1))
+
+    @classmethod
+    def _semantic_acceptance_output(cls, outputs: Any) -> Any:
+        value = outputs
+        terminal_keys = {"answer", "result", "output", "text", "content"}
+        for _ in range(4):
+            if isinstance(value, dict) and len(value) == 1:
+                key, nested = next(iter(value.items()))
+                if key in terminal_keys:
+                    value = nested
+                    continue
+            if isinstance(value, str):
+                try:
+                    parsed = cls._json_from_text(value)
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    break
+                if parsed is value:
+                    break
+                value = parsed
+                continue
+            break
+        return value
 
     @staticmethod
     def _json_type(value: str) -> str:
