@@ -1,26 +1,27 @@
-# Active Stage Reports
+# 当前阶段报告
 
-This directory contains only the current major phase's active small-version reports plus the canonical template.
+本目录只保存当前大版本阶段仍然有效的小版本报告，以及统一的中文阶段报告模板。
 
-## Current State
+## 当前状态
 
-| Field | Value |
+| 字段 | 值 |
 | --- | --- |
-| Active phase | `v0.4.x` |
-| Program charter | `docs/evolution-control/PROGRAM_CHARTER.md` |
-| Intent registry | `docs/evolution-control/report_intents.json` |
-| Current stage | `docs/stage-reports/v0.4.8_evaluation_harness_profiles_and_environments.md` |
-| Current task authority | The current stage report's locked `Stage Contract` and, after closure, its `Next-stage Task Set` |
-| Previous phase archive | `docs/stage-report-archives/v0.3.x/` |
-| Previous phase report | `docs/phase-reports/v0.3.0_product_usability_buffer_closeout.md` |
+| 当前大版本 | `v0.4.x` |
+| 项目总纲 | `docs/evolution-control/PROGRAM_CHARTER.md` |
+| 意图登记表 | `docs/evolution-control/report_intents.json` |
+| 最新阶段 | `docs/stage-reports/v0.4.11_human_journey_usability_repair.md` |
+| 当前任务权威 | 当前阶段报告中已锁定的“阶段合同”；阶段闭环后则以“下一阶段任务集”为准 |
+| 上一大版本归档 | `docs/stage-report-archives/v0.3.x/` |
+| 上一大版本总结 | `docs/phase-reports/v0.3.0_product_usability_buffer_closeout.md` |
 
-Active v0.4 reports currently include v0.4.0 through the active v0.4.8 Evaluation Harness vertical. Historical v0.2 and v0.3 reports are not active task sources; v0.4.8 was accepted only from the closed v0.4.7 report's `V04-08-T01` handoff.
+当前有效报告包括 v0.4.0 至 v0.4.11。v0.2 和 v0.3 的历史报告不再是当前任务来源。
 
-## Rules
+## 规则
 
-- Start or resume from the latest validator-valid v2 stage report and its stable current task ID.
-- `Next-stage Task Set` is the only next-task authority. Program Charter and intent registry constrain coverage but do not choose work.
-- Workingon stores intermediate evidence only.
-- A mandatory task cannot be deferred, reclassified, or weakened by the implementing agent.
-- Version archive requires a passing fresh-context Closure Audit plus `scripts/validate_stage_report_template.py` and `scripts/validate_evolution_control.py`.
-- Major-version completion requires a phase report, a complete versioned stage-report archive, index repair, and an unresolved-intent handoff.
+- 开始或恢复工作时，先读取最新且通过验证的 v2 阶段报告及其稳定任务 ID。
+- “下一阶段任务集”是下一项任务的唯一权威来源；项目总纲和意图登记表约束覆盖范围，但不自行选择下一项工作。
+- workingon 只保存中间证据，不能拆解或授权下一阶段任务。
+- 实施者不能自行延期、重新分类或降低强制任务的验收标准。
+- 版本归档前，必须通过新的闭环审计上下文，以及 `scripts/validate_stage_report_template.py` 和 `scripts/validate_evolution_control.py`。
+- 完成大版本时，必须同时归档阶段报告、更新索引、生成大版本总结，并明确交接所有未解决意图。
+- 新阶段报告默认使用中文；代码标识、命令、文件路径和固定产品名称可以保留原文。

@@ -46,7 +46,7 @@ def test_campaign_priority_outranks_stage_mechanics_and_external_evidence() -> N
     assert "Campaign Objective And Priority" in charter
     assert "blocked_by_environment" in charter
     assert "Do not retry an unchanged external blocker" in agents
-    assert "## Evidence Debt" in template
+    assert "## 证据债务" in template
     assert "forbids restoring, editing, or using" in agents
 
 
@@ -168,14 +168,14 @@ def test_closure_pass_rejects_incomplete_mandatory_task(tmp_path: Path) -> None:
     template = (ROOT / "docs/stage-reports/STAGE_REPORT_TEMPLATE.md").read_text(encoding="utf-8")
     text = (
         template.replace(
-            "Explain why this is a serious version-sized unit. A prerequisite-only or repeated one-design version is invalid unless it is an explicit hotfix exception.",
-            "Vertical process repair across docs, validator, tests, and runtime instructions.",
+            "说明为什么这是一个具有足够复杂度、值得单独推进版本的任务单元。除明确的紧急修复外，只完成一个前置条件或反复只做一份设计文档，不足以推进版本。",
+            "跨越文档、验证器、测试和运行指令的垂直流程修复。",
         )
         .replace("`TASK-001`", "`V04-02-T01`")
         .replace("`INTENT-001`", "`EVOL-001`")
-        .replace("process / backend / frontend / runtime / test / report / operations", "process")
-        .replace("- Verdict: pending", "- Verdict: pass")
-        .replace("- Version-size gate: pending", "- Version-size gate: pass")
+        .replace("流程 / 后端 / 前端 / 运行时 / 测试 / 报告 / 运维", "流程")
+        .replace("- 结论: 待定", "- 结论: 通过")
+        .replace("- 版本规模门禁: 待定", "- 版本规模门禁: 通过")
     )
     report = tmp_path / "incomplete.md"
     report.write_text(text, encoding="utf-8")
@@ -189,11 +189,11 @@ def test_closure_pass_rejects_incomplete_mandatory_task(tmp_path: Path) -> None:
 def test_next_stage_task_requires_known_intent(tmp_path: Path) -> None:
     module = load_validator()
     template = (ROOT / "docs/stage-reports/STAGE_REPORT_TEMPLATE.md").read_text(encoding="utf-8")
-    prefix, marker, next_stage = template.partition("## Next-stage Task Set")
+    prefix, marker, next_stage = template.partition("## 下一阶段任务集")
     assert marker
     next_stage = next_stage.replace(
-        "| `none` | `none` | none | none | none | none |",
-        "| `V04-03-T01` | `PRODUCT-999` | Implement something | now | vertical | mandatory |",
+        "| `无` | `无` | 无 | 无 | 无 | 无 |",
+        "| `V04-03-T01` | `PRODUCT-999` | 实现某项能力 | 现在 | 垂直闭环 | 强制 |",
         1,
     )
     text = prefix + marker + next_stage
@@ -213,15 +213,15 @@ def test_repository_rules_cannot_legalize_drift_or_tiny_versions() -> None:
 
     assert "PROGRAM_CHARTER.md" in combined
     assert "report_intents.json" in combined
-    assert "Closure Audit" in combined
-    assert "Current task ID" in combined
+    assert "闭环审计" in template
+    assert "当前任务 ID" in template
     assert "First workingon" not in combined
     assert "open the smallest next stage" not in combined
     assert "Shrink the next stage" not in combined
     assert "explicitly blocked/deferred with evidence" not in combined
     assert "campaign blocker exists only when no remaining report intent" in combined.lower()
     assert "higher-level evidence limits the claim" in combined
-    assert "serious version-sized unit" in combined
+    assert "具有足够复杂度、值得单独推进版本的任务单元" in template
     assert not (ROOT / "skills-tempmask/lilies-evolution-development").exists()
 
 

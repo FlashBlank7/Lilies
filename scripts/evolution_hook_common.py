@@ -10,7 +10,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from validate_evolution_control import validate_stage_report
+from validate_evolution_control import (
+    BULLET_LABEL_ALIASES,
+    SECTION_ALIASES,
+    clean_code,
+    validate_stage_report,
+)
 
 
 VERSION_RE = re.compile(r"v(\d+)\.(\d+)\.(\d+)")
@@ -36,7 +41,12 @@ def is_v2_stage_report(path: Path) -> bool:
         text = path.read_text(encoding="utf-8")
     except OSError:
         return False
-    return "| Template version | `2.0` |" in text and "## Stage Contract" in text
+    has_version = (
+        "| Template version | `2.0` |" in text
+        or "| 模板版本 | `2.0` |" in text
+    )
+    has_contract = "## Stage Contract" in text or "## 阶段合同" in text
+    return has_version and has_contract
 
 
 def v2_stage_reports(root: Path) -> list[Path]:
@@ -72,18 +82,36 @@ def latest_v2_stage_report(root: Path) -> Path | None:
 
 
 def section_text(text: str, heading: str, next_heading: str | None = None) -> str:
-    marker = f"## {heading}"
-    start = text.find(marker)
-    if start < 0:
+    matches = []
+    for alias in SECTION_ALIASES.get(heading, (heading,)):
+        marker = f"## {alias}"
+        position = text.find(marker)
+        if position >= 0:
+            matches.append((position, len(marker)))
+    if not matches:
         return ""
-    start += len(marker)
-    end = text.find(f"## {next_heading}", start) if next_heading else -1
+    position, marker_length = min(matches)
+    start = position + marker_length
+    next_positions = []
+    if next_heading:
+        for alias in SECTION_ALIASES.get(next_heading, (next_heading,)):
+            next_position = text.find(f"## {alias}", start)
+            if next_position >= 0:
+                next_positions.append(next_position)
+    end = min(next_positions) if next_positions else -1
     return text[start:] if end < 0 else text[start:end]
 
 
 def bullet_value(block: str, label: str) -> str:
-    match = re.search(rf"^- {re.escape(label)}:[ \t]*(.*)$", block, flags=re.MULTILINE)
-    return match.group(1).strip().strip("`") if match else ""
+    for alias in BULLET_LABEL_ALIASES.get(label, (label,)):
+        match = re.search(
+            rf"^- {re.escape(alias)}:[ \t]*(.*)$",
+            block,
+            flags=re.MULTILINE,
+        )
+        if match:
+            return clean_code(match.group(1))
+    return ""
 
 
 def active_stage_state(root: Path) -> dict[str, str]:

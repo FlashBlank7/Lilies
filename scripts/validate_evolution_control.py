@@ -19,7 +19,7 @@ INTENT_ID_RE = re.compile(r"\b(?:PRODUCT|ARCH|EVAL|GOV|SCENARIO|EVOL)-\d{3}\b")
 TASK_ID_RE = re.compile(r"^[A-Z0-9]+(?:-[A-Z0-9]+)+$")
 GIT_COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 FORBIDDEN_WORKINGON_HEADINGS = re.compile(
-    r"^#{1,6}\s+(?:Next-stage Task Set|Automatic Evolution Handoff|Roadmap Authority|Next Version)\b",
+    r"^#{1,6}\s+(?:Next-stage Task Set|Automatic Evolution Handoff|Roadmap Authority|Next Version|下一阶段任务集|自动演进交接|路线图权限|下一版本)\b",
     flags=re.IGNORECASE | re.MULTILINE,
 )
 FORBIDDEN_WORKINGON_KEYS = {
@@ -29,6 +29,167 @@ FORBIDDEN_WORKINGON_KEYS = {
     "next_task_id",
     "next_version",
     "first_task_id",
+}
+
+SECTION_ALIASES = {
+    "Stage Identity": ("Stage Identity", "阶段信息"),
+    "Campaign Alignment": ("Campaign Alignment", "总体目标对齐"),
+    "Source Task Set": ("Source Task Set", "来源任务集"),
+    "Stage Contract": ("Stage Contract", "阶段合同"),
+    "Stage Objective": ("Stage Objective", "阶段目标"),
+    "Completed Work": ("Completed Work", "已完成工作"),
+    "Verification": ("Verification", "验证"),
+    "Closure Audit": ("Closure Audit", "闭环审计"),
+    "Deviations": ("Deviations", "偏移记录"),
+    "Unresolved / Blocked / Deferred": (
+        "Unresolved / Blocked / Deferred",
+        "未解决、阻塞与延期",
+    ),
+    "Evidence Debt": ("Evidence Debt", "证据债务"),
+    "Intent Coverage": ("Intent Coverage", "意图覆盖"),
+    "Experiment / Product Status Updates": (
+        "Experiment / Product Status Updates",
+        "实验与产品状态更新",
+    ),
+    "Historical Designs": ("Historical Designs", "历史设计"),
+    "Workingon Archive": ("Workingon Archive", "工作记录归档"),
+    "Next-stage Task Set": ("Next-stage Task Set", "下一阶段任务集"),
+    "Archive Commit": ("Archive Commit", "归档提交"),
+    "Automatic Evolution Handoff": (
+        "Automatic Evolution Handoff",
+        "自动演进交接",
+    ),
+}
+
+SUBSECTION_ALIASES = {
+    "Mandatory Tasks": ("Mandatory Tasks", "强制任务"),
+    "Optional Tasks": ("Optional Tasks", "可选任务"),
+}
+
+TABLE_HEADER_ALIASES = {
+    "字段": "Field",
+    "值": "Value",
+    "任务 ID": "Task ID",
+    "来源意图 ID 列表": "Source intent IDs",
+    "来源意图 IDs": "Source intent IDs",
+    "上一阶段报告中的来源任务": "Source task from previous stage report",
+    "本阶段处置": "Disposition in this stage",
+    "设计 / 证据": "Design / evidence",
+    "授权 / 原因": "Authority / reason",
+    "涉及界面 / 角色": "Surface / role",
+    "验收标准": "Acceptance criteria",
+    "必需证据": "Required evidence",
+    "状态": "Status",
+    "事项": "Item",
+    "证据": "Evidence",
+    "检查": "Check",
+    "结果": "Result",
+    "证据 / 准确命令": "Evidence / exact command",
+    "强制任务 ID": "Mandatory task ID",
+    "验收结果": "Acceptance result",
+    "证据有效": "Evidence valid",
+    "审计结论": "Auditor finding",
+    "偏移 ID": "Deviation ID",
+    "类型": "Class",
+    "原合同": "Original contract",
+    "调整后的路线": "Changed route",
+    "验收是否保持": "Acceptance preserved",
+    "授权 / 证据": "Authority / evidence",
+    "强制 / 可选": "Mandatory / optional",
+    "原因": "Reason",
+    "下一步 / 决策权": "Next action / decision authority",
+    "证据债务 ID": "Evidence debt ID",
+    "目标等级": "Intended level",
+    "已达到等级": "Achieved level",
+    "不可用依赖": "Unavailable dependency",
+    "声明上限": "Claim ceiling",
+    "负责人 / 承接目标": "Owner / carry target",
+    "复查触发条件": "Recheck trigger",
+    "来源意图 ID": "Source intent ID",
+    "阶段前": "Before stage",
+    "阶段后": "After stage",
+    "剩余差距": "Remaining gap",
+    "台账 / 界面": "Ledger / surface",
+    "更新": "Update",
+    "历史设计": "Historical design",
+    "最终状态": "Final status",
+    "归档": "Archive",
+    "内容": "Contents",
+    "任务": "Task",
+    "为什么现在做": "Why now",
+    "闭环目标": "Closure target",
+}
+
+FIELD_LABEL_ALIASES = {
+    "模板版本": "Template version",
+    "版本": "Version",
+    "项目总纲": "Program charter",
+    "来源报告": "Source report",
+    "来源阶段报告": "Source stage report",
+    "阶段类型": "Stage type",
+    "闭环等级": "Closure level",
+    "阶段范围说明": "Stage scope justification",
+    "总体目标": "Campaign objective",
+    "本阶段贡献": "Stage contribution",
+    "声明边界": "Claim boundary",
+    "总体阻塞判断": "Campaign blocker test",
+}
+
+BULLET_LABEL_ALIASES = {
+    "Contract status": ("Contract status", "合同状态"),
+    "Contract revision": ("Contract revision", "合同修订"),
+    "Contract lock": ("Contract lock", "合同锁文件"),
+    "Contract fingerprint": ("Contract fingerprint", "合同指纹"),
+    "Contract approval": ("Contract approval", "合同授权"),
+    "Contract baseline commit": ("Contract baseline commit", "合同基线提交"),
+    "Contract change authority": ("Contract change authority", "合同变更权限"),
+    "Auditor context": ("Auditor context", "审计上下文"),
+    "Verdict": ("Verdict", "结论"),
+    "Missing mandatory tasks": ("Missing mandatory tasks", "缺失的强制任务"),
+    "Unsupported claims": ("Unsupported claims", "不受支持的声明"),
+    "Version-size gate": ("Version-size gate", "版本规模门禁"),
+    "Commit": ("Commit", "提交"),
+    "Closure validator": ("Closure validator", "闭环验证器"),
+    "Intent coverage validator": ("Intent coverage validator", "意图覆盖验证器"),
+    "Active current-design clean": (
+        "Active current-design clean",
+        "当前 current-design 是否干净",
+    ),
+    "Active workingon clean": (
+        "Active workingon clean",
+        "当前 workingon 是否干净",
+    ),
+    "Continue": ("Continue", "是否继续"),
+    "Current task ID": ("Current task ID", "当前任务 ID"),
+    "Next version": ("Next version", "下一版本"),
+    "First task ID": ("First task ID", "第一任务 ID"),
+    "Resume from stage report": (
+        "Resume from stage report",
+        "恢复所依据的阶段报告",
+    ),
+    "Stop reason, if any": ("Stop reason, if any", "停止原因"),
+}
+
+VALUE_ALIASES = {
+    "已锁定": "locked",
+    "已接受": "accepted",
+    "进行中": "in_progress",
+    "已完成": "completed",
+    "已实现并验证": "implemented_verified",
+    "阻塞": "blocked",
+    "通过": "pass",
+    "失败": "fail",
+    "是": "yes",
+    "否": "no",
+    "无": "none",
+    "待定": "pending",
+    "未知": "unknown",
+    "强制": "mandatory",
+    "可选": "optional",
+    "已接受，强制": "accepted mandatory",
+    "延续": "carried",
+    "延期": "deferred",
+    "已取代": "superseded",
 }
 
 
@@ -110,17 +271,39 @@ def validate_registry(
     return errors
 
 
+def _heading_match(
+    text: str,
+    heading: str,
+    *,
+    level: int,
+    start: int = 0,
+) -> tuple[int, int] | None:
+    matches: list[tuple[int, int]] = []
+    aliases = (
+        SECTION_ALIASES.get(heading, (heading,))
+        if level == 2
+        else SUBSECTION_ALIASES.get(heading, (heading,))
+    )
+    prefix = "#" * level
+    for alias in aliases:
+        marker = f"{prefix} {alias}"
+        position = text.find(marker, start)
+        if position >= 0:
+            matches.append((position, len(marker)))
+    return min(matches) if matches else None
+
+
 def section_text(text: str, heading: str, next_headings: Iterable[str] = ()) -> str:
-    marker = f"## {heading}"
-    start = text.find(marker)
-    if start < 0:
+    match = _heading_match(text, heading, level=2)
+    if match is None:
         return ""
-    start += len(marker)
+    position, marker_length = match
+    start = position + marker_length
     end = len(text)
     for next_heading in next_headings:
-        position = text.find(f"## {next_heading}", start)
-        if position >= 0:
-            end = min(end, position)
+        next_match = _heading_match(text, next_heading, level=2, start=start)
+        if next_match is not None:
+            end = min(end, next_match[0])
     return text[start:end]
 
 
@@ -131,7 +314,10 @@ def parse_first_table(block: str) -> MarkdownTable | None:
             continue
         if index + 1 >= len(lines) or not re.fullmatch(r"\|[\s:|-]+\|", lines[index + 1]):
             continue
-        headers = [cell.strip() for cell in line.strip("|").split("|")]
+        headers = [
+            TABLE_HEADER_ALIASES.get(cell.strip(), cell.strip())
+            for cell in line.strip("|").split("|")
+        ]
         rows: list[dict[str, str]] = []
         for row_line in lines[index + 2 :]:
             if not row_line.startswith("|"):
@@ -147,8 +333,11 @@ def parse_first_table(block: str) -> MarkdownTable | None:
 def clean_code(value: str) -> str:
     cleaned = value.strip()
     if re.fullmatch(r"`[^`]+`", cleaned):
-        return cleaned[1:-1].strip()
-    return cleaned
+        cleaned = cleaned[1:-1].strip()
+    lock_value = re.search(r"<!--\s*lock:(.*?)\s*-->", cleaned, flags=re.DOTALL)
+    if lock_value is not None:
+        cleaned = lock_value.group(1).strip()
+    return VALUE_ALIASES.get(cleaned, cleaned)
 
 
 def split_ids(value: str, pattern: re.Pattern[str]) -> list[str]:
@@ -160,21 +349,32 @@ def field_value(block: str, field: str) -> str:
     if not table:
         return ""
     for row in table.rows:
-        if clean_code(row.get("Field", "")) == field:
+        row_field = FIELD_LABEL_ALIASES.get(
+            clean_code(row.get("Field", "")),
+            clean_code(row.get("Field", "")),
+        )
+        if row_field == field:
             return clean_code(row.get("Value", ""))
     return ""
 
 
 def bullet_value(block: str, label: str) -> str:
-    match = re.search(rf"^- {re.escape(label)}:[ \t]*(.*)$", block, flags=re.MULTILINE)
-    return clean_code(match.group(1)) if match else ""
+    for alias in BULLET_LABEL_ALIASES.get(label, (label,)):
+        match = re.search(
+            rf"^- {re.escape(alias)}:[ \t]*(.*)$",
+            block,
+            flags=re.MULTILINE,
+        )
+        if match:
+            return clean_code(match.group(1))
+    return ""
 
 
 def contract_tables(stage_contract: str) -> tuple[MarkdownTable | None, MarkdownTable | None]:
-    mandatory_marker = "### Mandatory Tasks"
-    optional_marker = "### Optional Tasks"
-    mandatory_start = stage_contract.find(mandatory_marker)
-    optional_start = stage_contract.find(optional_marker)
+    mandatory_match = _heading_match(stage_contract, "Mandatory Tasks", level=3)
+    optional_match = _heading_match(stage_contract, "Optional Tasks", level=3)
+    mandatory_start = mandatory_match[0] if mandatory_match else -1
+    optional_start = optional_match[0] if optional_match else -1
     mandatory = None
     optional = None
     if mandatory_start >= 0:
@@ -345,7 +545,9 @@ def validate_workingon_authority(root: Path) -> list[str]:
         if FORBIDDEN_WORKINGON_HEADINGS.search(text):
             errors.append(f"workingon contains authoritative next-task heading: {relative}")
         if re.search(
-            r"^- (?:First task ID|Next version):", text, flags=re.MULTILINE | re.IGNORECASE
+            r"^- (?:First task ID|Next version|第一任务 ID|下一版本):",
+            text,
+            flags=re.MULTILINE | re.IGNORECASE,
         ):
             errors.append(f"workingon contains authoritative handoff field: {relative}")
     return errors
@@ -466,7 +668,11 @@ def validate_stage_report(path: Path, registry_path: Path = DEFAULT_REGISTRY) ->
         return [*errors, "evolution-controlled stage report must use template version 2.0"]
     if field_value(identity, "Program charter") != "docs/evolution-control/PROGRAM_CHARTER.md":
         errors.append("stage report must reference the program charter")
-    if not field_value(identity, "Stage scope justification") or "Explain why" in identity:
+    if (
+        not field_value(identity, "Stage scope justification")
+        or "Explain why" in identity
+        or "说明为什么" in identity
+    ):
         errors.append("stage scope justification is missing or placeholder")
     version = field_value(identity, "Version")
     errors.extend(validate_prior_major_archives(root, version))
@@ -500,7 +706,8 @@ def validate_stage_report(path: Path, registry_path: Path = DEFAULT_REGISTRY) ->
     contract = section_text(text, "Stage Contract", ["Stage Objective"])
     if bullet_value(contract, "Contract status") != "locked":
         errors.append("stage contract must be locked")
-    if "user" not in bullet_value(contract, "Contract change authority").lower():
+    change_authority = bullet_value(contract, "Contract change authority").lower()
+    if "user" not in change_authority and "用户" not in change_authority:
         errors.append("mandatory contract change authority must require user approval")
     mandatory_table, optional_table = contract_tables(contract)
     mandatory_rows = non_none_rows(mandatory_table, "Task ID")
@@ -627,11 +834,20 @@ def validate_stage_report(path: Path, registry_path: Path = DEFAULT_REGISTRY) ->
         errors.append(f"handoff Current task ID is not in the Stage Contract: {current_task}")
     if first_task and first_task.lower() != "none" and first_task not in next_task_ids:
         errors.append(f"handoff First task ID is not in Next-stage Task Set: {first_task}")
-    if "First workingon" in handoff:
+    if "First workingon" in handoff or "第一 workingon" in handoff:
         errors.append("workingon cannot be used as handoff task authority")
     evidence_only_stop = any(
         marker in stop_reason.lower()
-        for marker in ("browser", "evidence provider", "verification environment", "live evidence")
+        for marker in (
+            "browser",
+            "evidence provider",
+            "verification environment",
+            "live evidence",
+            "浏览器",
+            "证据提供方",
+            "验证环境",
+            "真实证据",
+        )
     )
     if continue_value == "no" and next_rows and evidence_only_stop:
         errors.append(

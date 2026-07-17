@@ -21,16 +21,22 @@ def load_validator() -> Any:
 
 def test_stage_report_template_contains_required_sections() -> None:
     module = load_validator()
-    template = (
-        Path(__file__).resolve().parents[1] / "docs" / "stage-reports" / "STAGE_REPORT_TEMPLATE.md"
-    )
+    reports_dir = Path(__file__).resolve().parents[1] / "docs" / "stage-reports"
+    template = reports_dir / "STAGE_REPORT_TEMPLATE.md"
+    current_report = reports_dir / "v0.4.11_human_journey_usability_repair.md"
 
     assert module.validate_stage_report(template) == []
     assert module.report_template_version(template.read_text(encoding="utf-8")) == 2
     text = template.read_text(encoding="utf-8")
-    assert "## Campaign Alignment" in text
-    assert "## Evidence Debt" in text
-    assert "Claim ceiling" in text
+    assert "## 总体目标对齐" in text
+    assert "## 证据债务" in text
+    assert "声明上限" in text
+
+    assert module.validate_stage_report(current_report) == []
+    current_text = current_report.read_text(encoding="utf-8")
+    assert "## 阶段信息" in current_text
+    assert "## 自动演进交接" in current_text
+    assert "## Stage Identity" not in current_text
 
 
 def test_stage_report_validator_rejects_missing_sections(tmp_path: Path) -> None:
@@ -51,8 +57,8 @@ def test_stage_report_validator_rejects_unlocked_v2_contract(tmp_path: Path) -> 
     )
     report = tmp_path / "bad_v2.md"
     text = template.read_text(encoding="utf-8").replace(
-        "- Contract status: locked",
-        "- Contract status: draft",
+        "- 合同状态: 已锁定",
+        "- 合同状态: 草稿",
     )
     report.write_text(text, encoding="utf-8")
 
@@ -67,7 +73,10 @@ def test_stage_report_validator_requires_frozen_contract_markers(tmp_path: Path)
         Path(__file__).resolve().parents[1] / "docs" / "stage-reports" / "STAGE_REPORT_TEMPLATE.md"
     )
     report = tmp_path / "missing_lock.md"
-    text = template.read_text(encoding="utf-8").replace("- Contract lock:", "- Removed lock:")
+    text = template.read_text(encoding="utf-8").replace(
+        "- 合同锁文件:",
+        "- 已删除的合同锁文件:",
+    )
     report.write_text(text, encoding="utf-8")
 
     errors = module.validate_stage_report(report)
@@ -82,8 +91,8 @@ def test_stage_report_validator_rejects_workingon_handoff(tmp_path: Path) -> Non
     )
     report = tmp_path / "bad_handoff.md"
     text = template.read_text(encoding="utf-8").replace(
-        "- First task ID:",
-        "- First workingon:",
+        "- 第一任务 ID:",
+        "- 第一 workingon:",
     )
     report.write_text(text, encoding="utf-8")
 

@@ -1,152 +1,152 @@
-# v0.x.y_topic
+# v0.x.y 主题
 
-## Stage Identity
+## 阶段信息
 
-| Field | Value |
+| 字段 | 值 |
 | --- | --- |
-| Template version | `2.0` |
-| Version | `v0.x.y` |
-| Program charter | `docs/evolution-control/PROGRAM_CHARTER.md` |
-| Source report | `docs/lilies_agent_scenario_capability_boundary_v0_4_x_latest.docx` |
-| Source stage report | `docs/stage-reports/<previous>.md` |
-| Stage type | product / experiment / process / architecture / report / repair |
-| Closure level | backend slice / vertical slice / platform boundary / product capability / research experiment / process architecture |
-| Stage scope justification | Explain why this is a serious version-sized unit. A prerequisite-only or repeated one-design version is invalid unless it is an explicit hotfix exception. |
+| 模板版本 | `2.0` |
+| 版本 | `v0.x.y` |
+| 项目总纲 | `docs/evolution-control/PROGRAM_CHARTER.md` |
+| 来源报告 | `docs/lilies_agent_scenario_capability_boundary_v0_4_x_latest.docx` |
+| 来源阶段报告 | `docs/stage-reports/<previous>.md` |
+| 阶段类型 | 产品 / 实验 / 流程 / 架构 / 报告 / 修复 |
+| 闭环等级 | 后端切片 / 垂直切片 / 平台边界 / 产品能力 / 研究实验 / 流程架构 |
+| 阶段范围说明 | 说明为什么这是一个具有足够复杂度、值得单独推进版本的任务单元。除明确的紧急修复外，只完成一个前置条件或反复只做一份设计文档，不足以推进版本。 |
 
-## Campaign Alignment
+## 总体目标对齐
 
-| Field | Value |
+| 字段 | 值 |
 | --- | --- |
-| Campaign objective | Implement and verify every intent in the capability-boundary report. |
-| Stage contribution | State which report intents become more true in this stage. |
-| Claim boundary | State the strongest evidence level this stage can honestly claim. |
-| Campaign blocker test | State why remaining gaps do or do not block every other authorized report intent. |
+| 总体目标 | 实现并验证能力边界报告中的每一项意图。 |
+| 本阶段贡献 | 说明本阶段让哪些报告意图变得更加真实、可用或可验证。 |
+| 声明边界 | 说明本阶段根据现有证据，最多可以诚实声明到什么程度。 |
+| 总体阻塞判断 | 说明剩余缺口为什么会或不会阻塞其他已经授权的报告任务。 |
 
-## Source Task Set
+## 来源任务集
 
-| Task ID | Source intent IDs | Source task from previous stage report | Disposition in this stage | Design / evidence | Authority / reason |
+| 任务 ID | 来源意图 ID 列表 | 上一阶段报告中的来源任务 | 本阶段处置 | 设计 / 证据 | 授权 / 原因 |
 | --- | --- | --- | --- | --- | --- |
-| `none` | `none` | none | none | none | none |
+| `无` | `无` | 无 | 无 | 无 | 无 |
 
-## Stage Contract
+## 阶段合同
 
-- Contract status: locked
-- Contract revision: `1`
-- Contract lock: `docs/evolution-control/stage-contracts/v0.x.y.json`
-- Contract fingerprint: `sha256:<generated from the lock file>`
-- Contract approval: `initial contract from source task authority`
-- Contract baseline commit: `pending until the locked contract is committed`
-- Contract change authority: user approval required for mandatory scope or acceptance changes
+- 合同状态: 已锁定
+- 合同修订: `1`
+- 合同锁文件: `docs/evolution-control/stage-contracts/v0.x.y.json`
+- 合同指纹: `sha256:<根据锁文件生成>`
+- 合同授权: `来自来源任务权威的初始合同`
+- 合同基线提交: `锁文件提交后填写`
+- 合同变更权限: 强制范围或验收标准的变更必须由用户批准
 
-### Mandatory Tasks
+### 强制任务
 
-| Task ID | Source intent IDs | Surface / role | Acceptance criteria | Required evidence | Status |
+| 任务 ID | 来源意图 ID 列表 | 涉及界面 / 角色 | 验收标准 | 必需证据 | 状态 |
 | --- | --- | --- | --- | --- | --- |
-| `TASK-001` | `INTENT-001` | process / backend / frontend / runtime / test / report / operations | State measurable behavior, not an activity. | Code / tests / browser or live evidence as applicable. | accepted |
+| `TASK-001` | `INTENT-001` | 流程 / 后端 / 前端 / 运行时 / 测试 / 报告 / 运维 | 写可测量的行为结果，不要只写活动。 | 根据任务提供代码、测试、浏览器或真实运行证据。 | 已接受 |
 
-### Optional Tasks
+### 可选任务
 
-| Task ID | Source intent IDs | Surface / role | Acceptance criteria | Required evidence | Status |
+| 任务 ID | 来源意图 ID 列表 | 涉及界面 / 角色 | 验收标准 | 必需证据 | 状态 |
 | --- | --- | --- | --- | --- | --- |
-| `none` | `none` | none | none | none | none |
+| `无` | `无` | 无 | 无 | 无 | 无 |
 
-## Stage Objective
+## 阶段目标
 
-State the single coherent version outcome and its customer, architecture, or experiment value.
+说明这个版本唯一且连贯的结果，以及它对客户、架构或实验的价值。
 
-## Completed Work
+## 已完成工作
 
-| Task ID | Item | Status | Evidence |
+| 任务 ID | 事项 | 状态 | 证据 |
 | --- | --- | --- | --- |
-| `none` | none | none | none |
+| `无` | 无 | 无 | 无 |
 
-## Verification
+## 验证
 
-| Task ID | Check | Result | Evidence / exact command |
+| 任务 ID | 检查 | 结果 | 证据 / 准确命令 |
 | --- | --- | --- | --- |
-| `none` | none | none | none |
+| `无` | 无 | 无 | 无 |
 
-## Closure Audit
+## 闭环审计
 
-- Auditor context: fresh review against Stage Contract, not implementation summary
-- Verdict: pending
-- Missing mandatory tasks: unknown
-- Unsupported claims: unknown
-- Version-size gate: pending
+- 审计上下文: 使用新的审查上下文，根据阶段合同反向检查，而不是照抄实现总结
+- 结论: 待定
+- 缺失的强制任务: 未知
+- 不受支持的声明: 未知
+- 版本规模门禁: 待定
 
-| Mandatory task ID | Acceptance result | Evidence valid | Auditor finding |
+| 强制任务 ID | 验收结果 | 证据有效 | 审计结论 |
 | --- | --- | --- | --- |
-| `TASK-001` | pending | pending | pending |
+| `TASK-001` | 待定 | 待定 | 待定 |
 
-## Deviations
+## 偏移记录
 
-| Deviation ID | Class | Task ID | Original contract | Changed route | Acceptance preserved | Authority / evidence |
+| 偏移 ID | 类型 | 任务 ID | 原合同 | 调整后的路线 | 验收是否保持 | 授权 / 证据 |
 | --- | --- | --- | --- | --- | --- | --- |
-| `none` | none | none | none | none | none | none |
+| `无` | 无 | 无 | 无 | 无 | 无 | 无 |
 
-## Unresolved / Blocked / Deferred
+## 未解决、阻塞与延期
 
-| Task ID | Item | Status | Mandatory / optional | Reason | Next action / decision authority |
+| 任务 ID | 事项 | 状态 | 强制 / 可选 | 原因 | 下一步 / 决策权 |
 | --- | --- | --- | --- | --- | --- |
-| `none` | none | none | none | none | none |
+| `无` | 无 | 无 | 无 | 无 | 无 |
 
-Mandatory tasks in this section prevent archive unless a user-approved Stage Contract revision removes or replaces them while preserving the original intent.
+本节中的强制任务会阻止版本归档。只有用户批准阶段合同修订，并且原始意图仍被保留，才能删除或替换这些任务。
 
-## Evidence Debt
+## 证据债务
 
-| Evidence debt ID | Task ID | Intended level | Achieved level | Status | Unavailable dependency | Claim ceiling | Owner / carry target | Recheck trigger |
+| 证据债务 ID | 任务 ID | 目标等级 | 已达到等级 | 状态 | 不可用依赖 | 声明上限 | 负责人 / 承接目标 | 复查触发条件 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `none` | `none` | none | none | none | none | none | none | none |
+| `无` | `无` | 无 | 无 | 无 | 无 | 无 | 无 | 无 |
 
-Evidence debt records desired verification above the contracted closure floor. It cannot hide missing mandatory behavior, and the unavailable level must never be reported as passed.
+证据债务只记录高于合同闭环底线的验证目标。它不能隐藏未完成的强制行为，也不能把尚未获得的证据写成已经通过。
 
-## Intent Coverage
+## 意图覆盖
 
-| Source intent ID | Before stage | After stage | Evidence | Remaining gap |
+| 来源意图 ID | 阶段前 | 阶段后 | 证据 | 剩余差距 |
 | --- | --- | --- | --- | --- |
-| `none` | none | none | none | none |
+| `无` | 无 | 无 | 无 | 无 |
 
-No source intent may disappear between the Source Task Set, Stage Contract, and this coverage table.
+来源任务集、阶段合同和本表之间，任何来源意图都不允许无故消失。
 
-## Experiment / Product Status Updates
+## 实验与产品状态更新
 
-| Ledger / surface | Update | Evidence |
+| 台账 / 界面 | 更新 | 证据 |
 | --- | --- | --- |
-| none | none | none |
+| 无 | 无 | 无 |
 
-## Historical Designs
+## 历史设计
 
-| Historical design | Final status | Evidence |
+| 历史设计 | 最终状态 | 证据 |
 | --- | --- | --- |
-| none | none | none |
+| 无 | 无 | 无 |
 
-## Workingon Archive
+## 工作记录归档
 
-| Archive | Contents |
+| 归档 | 内容 |
 | --- | --- |
-| none | none |
+| 无 | 无 |
 
-## Next-stage Task Set
+## 下一阶段任务集
 
-| Task ID | Source intent IDs | Task | Why now | Closure target | Mandatory / optional |
+| 任务 ID | 来源意图 ID 列表 | 任务 | 为什么现在做 | 闭环目标 | 强制 / 可选 |
 | --- | --- | --- | --- | --- | --- |
-| `none` | `none` | none | none | none | none |
+| `无` | `无` | 无 | 无 | 无 | 无 |
 
-This table is the only next-stage task authority. Every task uses a stable task ID and source intent ID. Workingon and current-design cannot add another authoritative next-stage list.
+本表是下一阶段任务的唯一权威来源。每项任务必须使用稳定的任务 ID 和来源意图 ID；workingon 和 current-design 不能另行定义下一阶段任务。
 
-## Archive Commit
+## 归档提交
 
-- Commit:
-- Closure validator:
-- Intent coverage validator:
-- Active current-design clean:
-- Active workingon clean:
+- 提交:
+- 闭环验证器:
+- 意图覆盖验证器:
+- 当前 current-design 是否干净:
+- 当前 workingon 是否干净:
 
-## Automatic Evolution Handoff
+## 自动演进交接
 
-- Continue:
-- Current task ID:
-- Next version:
-- First task ID:
-- Resume from stage report:
-- Stop reason, if any:
+- 是否继续:
+- 当前任务 ID:
+- 下一版本:
+- 第一任务 ID:
+- 恢复所依据的阶段报告:
+- 停止原因:
