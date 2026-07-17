@@ -85,6 +85,22 @@
   color: #91decf;
 }
 
+.emptyState {
+  display: grid;
+  justify-items: start;
+  gap: 6px;
+  padding: 14px 0;
+  border-block: 1px solid #303842;
+  color: #8f9aa5;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.emptyState strong {
+  color: #eef2f5;
+  font-size: 13px;
+}
+
 .section {
   display: grid;
   gap: 11px;

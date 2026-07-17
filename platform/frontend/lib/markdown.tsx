@@ -220,6 +220,13 @@ function renderInline(text: string, keyPrefix: string): ReactNode[] {
 
     const marker = text[index]
     if (marker === '*' || marker === '_') {
+      const previous = text[index - 1] || ''
+      const next = text[index + 1] || ''
+      if (marker === '_' && /[\p{L}\p{N}]/u.test(previous) && /[\p{L}\p{N}]/u.test(next)) {
+        buffer += marker
+        index += 1
+        continue
+      }
       const end = text.indexOf(marker, index + 1)
       if (end > index + 1) {
         pushText()

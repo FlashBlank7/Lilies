@@ -115,12 +115,13 @@ export function ConnectorOperationsPanel({ applicationId, locale, onAuthRequired
     setLoading(true)
     setError('')
     try {
+      const applicationScope = `application_id=${encodeURIComponent(applicationId)}`
       const [nextManifests, nextBindings, nextPolicies, nextExecutions, nextExercises] = await Promise.all([
         api<ConnectorManifest[]>('/api/v1/connectors/manifests'),
-        api<ConnectorBinding[]>('/api/v1/connectors/bindings'),
-        api<ConnectorPolicy[]>('/api/v1/connectors/policies'),
-        api<ConnectorExecutionPage>('/api/v1/connectors/executions?limit=50'),
-        api<ConnectorExercise[]>('/api/v1/connectors/exercises'),
+        api<ConnectorBinding[]>(`/api/v1/connectors/bindings?${applicationScope}`),
+        api<ConnectorPolicy[]>(`/api/v1/connectors/policies?${applicationScope}`),
+        api<ConnectorExecutionPage>(`/api/v1/connectors/executions?${applicationScope}&limit=50`),
+        api<ConnectorExercise[]>(`/api/v1/connectors/exercises?${applicationScope}`),
       ])
       setManifests(nextManifests)
       setBindings(nextBindings)
@@ -128,7 +129,7 @@ export function ConnectorOperationsPanel({ applicationId, locale, onAuthRequired
       setExecutions(nextExecutions)
       setExercises(nextExercises)
       const firstManifest = nextManifests[0]
-      const firstBinding = nextBindings.find(item => item.application_ids.includes(applicationId)) || nextBindings[0]
+      const firstBinding = nextBindings[0]
       setBindingDraft(current => ({
         ...current,
         connectorId: current.connectorId || firstManifest?.connector_id || '',
@@ -421,7 +422,15 @@ export function ConnectorOperationsPanel({ applicationId, locale, onAuthRequired
     }
   }
 
-  return <div className={styles.panel} data-engineer-connector-workspace="true">
+  const connectorState = loading
+    ? 'loading'
+    : manifests.length === 0
+      ? 'not-configured'
+      : bindings.length === 0
+        ? 'available-unbound'
+        : 'bound'
+
+  return <div className={styles.panel} data-connector-state={connectorState} data-engineer-connector-workspace="true">
     <header className={styles.heading}>
       <div><span><PlugZap size={15} />Connector SDK</span><h2>{zh ? '客户系统集成' : 'Customer integrations'}</h2></div>
       <button className={styles.iconButton} onClick={() => void refresh()} disabled={loading} aria-label={zh ? '刷新集成数据' : 'Refresh integrations'} title={zh ? '刷新' : 'Refresh'}><RefreshCw className={loading ? styles.spin : ''} size={16} /></button>
@@ -434,6 +443,11 @@ export function ConnectorOperationsPanel({ applicationId, locale, onAuthRequired
     </div>
     {error && <div className={styles.error} role="alert"><AlertTriangle size={16} /><span>{error}</span></div>}
     {notice && <div className={styles.notice}><CheckCircle2 size={16} /><span>{notice}</span></div>}
+    {!loading && manifests.length === 0 && <div className={styles.emptyState}>
+      <PlugZap size={20} />
+      <strong>{zh ? '尚未配置客户系统连接器' : 'No customer connector configured'}</strong>
+      <span>{zh ? '先登记一个版本化连接器合同，再为当前应用绑定测试租户。' : 'Register a versioned connector contract, then bind a test tenant to this application.'}</span>
+    </div>}
 
     <section className={styles.section} data-connector-section="contract">
       <header><FileJson size={16} /><div><strong>{zh ? '版本化合同' : 'Versioned contracts'}</strong><small>H3 max · mock/test/live/private</small></div></header>
@@ -441,7 +455,7 @@ export function ConnectorOperationsPanel({ applicationId, locale, onAuthRequired
       <details className={styles.details}><summary>{zh ? '登记不可变合同版本' : 'Register immutable contract version'}</summary><textarea value={manifestText} onChange={event => setManifestText(event.target.value)} placeholder="Connector manifest JSON" /><button onClick={() => void registerManifest()} disabled={!manifestText.trim() || busy === 'manifest'}><FileJson size={15} />{busy === 'manifest' ? (zh ? '登记中' : 'Registering') : (zh ? '登记版本' : 'Register version')}</button></details>
     </section>
 
-    <section className={styles.section} data-connector-section="tenant-policy">
+    {manifests.length > 0 && <section className={styles.section} data-connector-section="tenant-policy">
       <header><KeyRound size={16} /><div><strong>{zh ? '测试租户与策略' : 'Test tenant and policy'}</strong><small>{selectedPolicy ? `r${selectedPolicy.revision}` : zh ? '尚未配置' : 'not configured'}</small></div></header>
       <div className={styles.formGrid}>
         <label><span>Connector</span><select value={bindingDraft.connectorId} onChange={event => setBindingDraft(current => ({ ...current, connectorId: event.target.value }))}>{manifests.map(item => <option key={`${item.connector_id}:${item.version}`} value={item.connector_id}>{item.connector_id}@{item.version}</option>)}</select></label>
@@ -455,9 +469,9 @@ export function ConnectorOperationsPanel({ applicationId, locale, onAuthRequired
       </div>
       <div className={styles.actions}><button onClick={() => void saveBinding()} disabled={!bindingDraft.tenantId || busy === 'binding'}><KeyRound size={15} />{zh ? '保存绑定' : 'Save binding'}</button><button className={styles.secondary} onClick={() => void savePolicy()} disabled={!bindingDraft.tenantId || busy === 'policy'}><ShieldCheck size={15} />{zh ? '保存策略' : 'Save policy'}</button></div>
       {selectedPolicy && <div className={styles.stopRow}><input value={policyReason} onChange={event => setPolicyReason(event.target.value)} aria-label={zh ? '策略变更原因' : 'Policy change reason'} /><button className={selectedPolicy.emergency_stop ? styles.resume : styles.stop} data-connector-action="emergency-stop" onClick={() => void setEmergency(selectedPolicy, !selectedPolicy.emergency_stop)} disabled={!policyReason.trim() || busy.startsWith('stop:')}><Octagon size={15} />{selectedPolicy.emergency_stop ? (zh ? '解除停止' : 'Clear stop') : (zh ? '紧急停止' : 'Emergency stop')}</button>{selectedPolicy.emergency_stop && <button className={styles.secondary} onClick={() => void runExercise(selectedPolicy)}><ShieldCheck size={15} />{zh ? '验证停止' : 'Verify stop'}</button>}</div>}
-    </section>
+    </section>}
 
-    <section className={styles.section} data-connector-section="controlled-execution">
+    {manifests.length > 0 && <section className={styles.section} data-connector-section="controlled-execution">
       <header><Play size={16} /><div><strong>{zh ? '受控执行' : 'Controlled execution'}</strong><small>{executionDraft.dryRun ? 'dry-run' : zh ? '已请求写入' : 'mutation requested'}</small></div></header>
       <div className={styles.formGrid}>
         <label><span>{zh ? '租户' : 'Tenant'}</span><select value={executionDraft.tenantId} onChange={event => setExecutionDraft(current => ({ ...current, tenantId: event.target.value }))}>{bindings.map(item => <option key={`${item.connector_id}:${item.tenant_id}`} value={item.tenant_id}>{item.tenant_id}</option>)}</select></label>
@@ -468,7 +482,7 @@ export function ConnectorOperationsPanel({ applicationId, locale, onAuthRequired
         <label className={styles.check}><input type="checkbox" checked={executionDraft.dryRun} onChange={event => setExecutionDraft(current => ({ ...current, dryRun: event.target.checked }))} /><span>Dry-run</span></label>
       </div>
       <button data-connector-action="execute" onClick={() => void execute()} disabled={!selectedBinding || !executionDraft.operationId || busy === 'execute'}><Play size={15} />{busy === 'execute' ? (zh ? '执行中' : 'Running') : executionDraft.dryRun ? (zh ? '预演' : 'Preview') : (zh ? '执行已授权操作' : 'Execute authorized action')}</button>
-    </section>
+    </section>}
 
     <section className={styles.section} data-connector-section="receipts">
       <header><ShieldCheck size={16} /><div><strong>{zh ? '执行回执' : 'Execution receipts'}</strong><small>{executions?.claim_boundary}</small></div></header>

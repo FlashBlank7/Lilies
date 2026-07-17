@@ -1,4 +1,5 @@
-export const expectedRuntimeVersion = 'v0.3.6'
+export const expectedRuntimeProductPhase = 'v0.4.x'
+export const expectedRuntimeVersionPattern = /^v0\.4\.\d+$/
 
 export type RuntimeStatusState = 'checking' | 'connected' | 'auth_required' | 'stale' | 'unavailable'
 
@@ -27,7 +28,8 @@ export function classifyRuntimeStatus(
   if (!health) return 'checking'
   const runtime = health.runtime
   if (!runtime) return 'stale'
-  if (runtime.version !== expectedRuntimeVersion) return 'stale'
+  if (runtime.product_phase !== expectedRuntimeProductPhase) return 'stale'
+  if (!runtime.version || !expectedRuntimeVersionPattern.test(runtime.version)) return 'stale'
   if (runtime.current_code_ready !== true) return 'stale'
   if (runtime.route_availability && Object.values(runtime.route_availability).some(value => value !== true)) return 'stale'
   return 'connected'

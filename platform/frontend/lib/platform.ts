@@ -72,6 +72,9 @@ export type Snapshot = {
   workflow: { nodes: WorkflowNode[]; edges: WorkflowEdge[]; viewport: Record<string, number> }
   agents: Record<string, unknown>
   tests: Array<Record<string, unknown>>
+  capability_build_contract?: {
+    business_goal?: string
+  } | null
 }
 
 export type Draft = {
@@ -694,6 +697,8 @@ export type CollectionReceipt = {
 
 export type ScheduleStatus = {
   application_id: string
+  status: 'not_configured' | 'draft_unpublished' | 'active'
+  draft_has_schedule: boolean
   schedule: {
     application_id: string
     application_name: string
@@ -709,7 +714,7 @@ export type ScheduleStatus = {
     next_fire_at: string
     last_fire?: Record<string, unknown> | null
     latest_job?: DurableJob | null
-  }
+  } | null
   job_count: number
   active_job_count: number
   latest_job?: DurableJob | null

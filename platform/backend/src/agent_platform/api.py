@@ -33,6 +33,7 @@ from .capability_contracts import (
     CapabilityBuildContract,
     VerificationStatus,
     capability_contract_routing,
+    complete_capability_contract_scaffolding,
     evaluate_capability_contract,
     legacy_intake_capability_contract,
     reference_capability_contracts,
@@ -72,7 +73,11 @@ from .evaluation_harness import (
     EvaluationPlanRequest,
     EvaluationRunRequest,
 )
-from .draft_patch_preview import DraftPatchPreviewer, DraftPatchPreviewRequest
+from .draft_patch_preview import (
+    DraftPatchPreviewer,
+    DraftPatchPreviewRequest,
+    DraftPatchPreviewResponse,
+)
 from .durable_jobs import DurableJobConflict, DurableJobStore
 from .acceptance_repair import (
     AcceptanceRepairApplyRequest,
@@ -121,6 +126,7 @@ from .template_store import TemplateStore
 from .tools import ToolRegistry, build_core_registry
 from .workflow_models import (
     ApplicationCreateRequest,
+    ApplicationSnapshot,
     BuildRequest,
     DraftOperation,
     ResumeRunRequest,
@@ -303,7 +309,7 @@ class PlatformWorkerProcessStartRequest(BaseModel):
 
 
 class SmokeCleanupRequest(BaseModel):
-    smoke_marker: str = Field(pattern=r"^v0\.3\.\d+-smoke$")
+    smoke_marker: str = Field(pattern=r"^v\d+\.\d+\.\d+-smoke$")
     dry_run: bool = True
 
 
@@ -460,6 +466,8 @@ class RequirementIntakeOptionEffect(BaseModel):
         "execution_envelope",
         "carrier",
         "evidence",
+        "runtime_interface",
+        "target_user",
     ]
     target_id: str = Field(default="", max_length=160)
     action: Literal["include", "require", "exclude", "configure", "raise_envelope"]
@@ -577,11 +585,11 @@ def _requirement_intake_system(locale: str) -> str:
         "The first option should be recommended and should set recommended true. "
         "Use custom_allowed only as an optional Other/custom escape hatch; the default path must be selecting options. "
         "Questions must be workflow-building decisions: target user, functional capability (F), runtime guarantee (G), external contract (X), E0-E5 execution envelope, carrier, runtime interface, permission boundary, and evidence. "
-        "Every question must set decision_axis. Every option must include at least one typed effect that says what capability, envelope, carrier, or evidence decision the selection changes. "
+        "Every question must set decision_axis. Every option must include at least one typed effect that says what capability, envelope, carrier, evidence, runtime-interface, or target-user decision the selection changes. "
         "Do not fill missing fields with generic placeholders. Do not invent a target customer, runtime tools, permissions, or acceptance criteria. "
         "When the request is ready, return status ready and capability_build_contract. The contract is the authoritative Builder input; completed_requirement may be null because the server renders the customer plan from the same contract. "
         "The model, not a fixed scenario template, must infer the contract contents from the original requirement and selected answers. Preserve the exact original source_requirement. "
-        "Use stable F.*, G.*, and X.* ids. Every required capability needs a proposed carrier decision, an explicit workflow/evaluation/platform/external owner, and at least one evidence-plan item. "
+        "Use stable F.*, G.*, and X.* ids. Every required F/G/X capability, including every runtime guarantee, needs a proposed carrier decision, an explicit workflow/evaluation/platform/external owner, and at least one evidence-plan item. "
         "E0-E5 is cumulative execution context: E0 one-shot cognition, E1 stateful workflow, E2 interactive tool loop, E3 durable task, E4 governed automation, E5 production embedding. Risk is a separate field and must not be inferred from envelope alone. "
         "Unavailable external contracts must use availability=unavailable with a reason and blocked_by_environment evidence; do not misreport them as workflow graph defects or live success. "
         "Distinguish workflow_runtime, evaluation_harness, platform_harness, and external_system ownership. Choose among atomic_block, reusable_module, runtime_service, platform_control, and connector_external_contract before implying a new block. "
@@ -593,7 +601,7 @@ def _requirement_intake_system(locale: str) -> str:
         "\"reasoning_summary\":\"short rationale\","
         "\"detected_goal\":\"what the user is trying to build\","
         "\"missing\":[\"specific missing facts\"],"
-        "\"questions\":[{\"id\":\"stable_snake_case\",\"label\":\"short label\",\"question\":\"decision question\",\"why\":\"why it matters\",\"decision_axis\":\"functional_capability|runtime_guarantee|external_contract|execution_envelope|carrier|evidence|runtime_interface|target_user\",\"choice_type\":\"single|multi\",\"options\":[{\"id\":\"stable_option_id\",\"label\":\"option label\",\"description\":\"what this means\",\"impact\":\"how it changes the workflow\",\"recommended\":true,\"effects\":[{\"axis\":\"functional_capability|runtime_guarantee|external_contract|execution_envelope|carrier|evidence\",\"target_id\":\"F.example\",\"action\":\"include|require|exclude|configure|raise_envelope\",\"value\":\"specific effect\"}]}],\"custom_allowed\":true,\"custom_placeholder\":\"optional custom answer placeholder\"}],"
+        "\"questions\":[{\"id\":\"stable_snake_case\",\"label\":\"short label\",\"question\":\"decision question\",\"why\":\"why it matters\",\"decision_axis\":\"functional_capability|runtime_guarantee|external_contract|execution_envelope|carrier|evidence|runtime_interface|target_user\",\"choice_type\":\"single|multi\",\"options\":[{\"id\":\"stable_option_id\",\"label\":\"option label\",\"description\":\"what this means\",\"impact\":\"how it changes the workflow\",\"recommended\":true,\"effects\":[{\"axis\":\"functional_capability|runtime_guarantee|external_contract|execution_envelope|carrier|evidence|runtime_interface|target_user\",\"target_id\":\"F.example\",\"action\":\"include|require|exclude|configure|raise_envelope\",\"value\":\"specific effect\"}]}],\"custom_allowed\":true,\"custom_placeholder\":\"optional custom answer placeholder\"}],"
         "\"completed_requirement\":\"string or null\","
         "\"workflow_intent\":{\"target_user\":\"\",\"runtime_input\":\"\",\"runtime_output\":\"\",\"core_steps\":[\"\"],\"permissions\":[\"\"],\"acceptance_cases\":[\"\"]},"
         "\"capability_build_contract\":{}"
@@ -665,7 +673,12 @@ def _normalize_requirement_intake_payload(
     payload: dict[str, Any],
     body: RequirementIntakeRequest,
 ) -> dict[str, Any]:
+    if not isinstance(payload.get("workflow_intent"), dict):
+        payload["workflow_intent"] = {}
     if payload.get("status") == "needs_input":
+        payload["completed_requirement"] = None
+        payload["capability_build_contract"] = None
+        payload["capability_closure"] = None
         questions = payload.get("questions")
         if not isinstance(questions, list):
             return payload
@@ -708,7 +721,9 @@ def _normalize_requirement_intake_payload(
         raw_contract = dict(raw_contract)
         raw_contract["source_requirement"] = body.requirement
         raw_contract["generation_source"] = "model"
-        contract = CapabilityBuildContract.model_validate(raw_contract)
+        contract = complete_capability_contract_scaffolding(
+            CapabilityBuildContract.model_validate(raw_contract)
+        )
     else:
         workflow_intent = payload.get("workflow_intent")
         contract = legacy_intake_capability_contract(
@@ -792,6 +807,167 @@ async def complete_requirement_intake(
     except Exception as error:
         await services.harness.finish_task(task_id, status="failed", error=str(error))
         raise
+
+
+def _workflow_edit_needs_model(preview: DraftPatchPreviewResponse) -> bool:
+    if not preview.supported:
+        return True
+    if preview.intent != "update_workflow_requirement":
+        return False
+    warnings = " ".join(preview.warnings).casefold()
+    return "deterministic" in warnings or "later builder-team" in warnings
+
+
+async def _model_workflow_edit_preview(
+    services: Services,
+    *,
+    task_id: str,
+    snapshot: ApplicationSnapshot,
+    revision: int,
+    body: DraftPatchPreviewRequest,
+) -> DraftPatchPreviewResponse:
+    model = services.settings.deepseek_runtime_model
+    block_catalog = [
+        {
+            "type": block.type,
+            "title": block.title,
+            "description": block.description,
+        }
+        for block in services.blocks.list()
+    ]
+    system = (
+        "You are Lilies' whole-workflow editing planner. Translate one natural-language "
+        "instruction into precise, reviewable draft operations over the supplied workflow. "
+        "Referenced nodes are context, not an edit-scope restriction. Preserve everything the "
+        "user did not ask to change. Never store the instruction itself as the workflow requirement "
+        "or description as a substitute for a structural edit. Resolve human node titles to the "
+        "existing node ids. Use only the listed block types and only these operations: add_node, "
+        "update_node, remove_node, add_edge, remove_edge, set_metadata, upsert_agent, add_test, "
+        "remove_test, set_capability_build_contract. For update_node, use data.node_id, "
+        "data.changes, and data.merge_config. For set_metadata, include only fields explicitly "
+        "requested. If the instruction is ambiguous, return supported=false with one concise "
+        "clarification question and no operations. Return JSON only with keys supported, intent, "
+        "message, operations, warnings."
+    )
+    prompt = json.dumps(
+        {
+            "instruction": body.instruction,
+            "reference_node_ids": body.reference_node_ids,
+            "expected_revision": revision,
+            "snapshot": snapshot.model_dump(mode="json"),
+            "available_blocks": block_catalog,
+            "output_example": {
+                "supported": True,
+                "intent": "multi_operation_edit",
+                "message": "Preview two precise workflow changes.",
+                "operations": [
+                    {
+                        "op": "update_node",
+                        "data": {
+                            "node_id": "existing_node_id",
+                            "changes": {"title": "New title"},
+                            "merge_config": True,
+                        },
+                    }
+                ],
+                "warnings": [],
+            },
+        },
+        ensure_ascii=False,
+    )
+    await services.harness.record_usage(
+        task_id,
+        "model_call",
+        metadata={"model": model, "mode": "whole_workflow_edit_preview"},
+    )
+    stream = services.provider.stream(
+        model=model,
+        system=system,
+        messages=[ChatMessage(role="user", content=[ContentBlock(type="text", text=prompt)])],
+        tools=[],
+        max_output_tokens=8_000,
+        thinking_enabled=False,
+        effort="low",
+        user_id=task_id,
+    )
+    model_response = await services.runtime._collect_stream(
+        task_id,
+        stream,
+        "workflow_edit.model",
+        model,
+        timeout_seconds=min(services.settings.deepseek_timeout_seconds, 120.0),
+    )
+    await services.harness.record_model_usage(
+        task_id,
+        model_response.usage,
+        model=model,
+        provider=services.provider.provider_name_for(model),
+        metadata={"phase": "whole_workflow_edit_preview"},
+    )
+    model_text = "".join(
+        block.text or "" for block in model_response.blocks if block.type == "text"
+    )
+    payload = _json_object_from_text(model_text)
+    if payload.get("supported") is False:
+        return DraftPatchPreviewResponse(
+            supported=False,
+            intent="unsupported",
+            message=str(payload.get("message") or "The workflow edit needs clarification."),
+            operations=[],
+            warnings=[str(item) for item in payload.get("warnings", []) if str(item).strip()],
+            reference_node_ids=body.reference_node_ids,
+        )
+    raw_operations = payload.get("operations")
+    if not isinstance(raw_operations, list) or not raw_operations:
+        raise ValueError("AI workflow edit preview returned no draft operations")
+    if len(raw_operations) > 40:
+        raise ValueError("AI workflow edit preview exceeded the 40-operation review boundary")
+
+    parsed_operations: list[DraftOperation] = []
+    explicit_requirement_change = bool(re.search(r"requirement|goal|需求|目标", body.instruction, re.I))
+    explicit_removal = bool(re.search(r"remove|delete|删除|移除|去掉", body.instruction, re.I))
+    for raw_operation in raw_operations:
+        if not isinstance(raw_operation, dict):
+            raise ValueError("AI workflow edit operation must be an object")
+        normalized = dict(raw_operation)
+        normalized["expected_revision"] = revision
+        normalized["idempotency_key"] = str(uuid4())
+        operation = DraftOperation.model_validate(normalized)
+        if operation.op == "remove_node" and not explicit_removal:
+            raise ValueError("AI workflow edit attempted node removal without an explicit removal request")
+        if (
+            operation.op == "set_metadata"
+            and "requirement" in operation.data
+            and not explicit_requirement_change
+        ):
+            raise ValueError("AI workflow edit attempted to overwrite the requirement without a requirement-change request")
+        parsed_operations.append(operation)
+    services.applications.validate_preview_operations(snapshot, parsed_operations)
+    intent = str(payload.get("intent") or "multi_operation_edit")
+    if intent not in {
+        "multi_operation_edit",
+        "rename_node",
+        "update_node_description",
+        "remove_disconnected_node",
+        "update_workflow_metadata",
+        "update_workflow_requirement",
+        "update_start_inputs",
+        "upsert_template_transform",
+    }:
+        intent = "multi_operation_edit"
+    warnings = [str(item) for item in payload.get("warnings", []) if str(item).strip()]
+    warnings.append("AI-generated whole-workflow preview; inspect every operation before applying.")
+    return DraftPatchPreviewResponse(
+        supported=True,
+        intent=intent,
+        message=str(payload.get("message") or "Preview AI-planned whole-workflow edit."),
+        operations=[
+            operation.model_dump(mode="json", exclude={"idempotency_key"})
+            for operation in parsed_operations
+        ],
+        warnings=warnings,
+        reference_node_ids=body.reference_node_ids,
+    )
 
 
 def deadline_summary(max_elapsed_seconds: float | None) -> dict[str, Any]:
@@ -1521,10 +1697,12 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
     async def list_connector_bindings(
         connector_id: str | None = None,
         tenant_id: str | None = None,
+        application_id: str | None = None,
     ) -> list[dict[str, Any]]:
         bindings = await services.connectors.list_bindings(
             connector_id,
             tenant_id=tenant_id,
+            application_id=application_id,
         )
         return [item.model_dump(mode="json") for item in bindings]
 
@@ -1546,8 +1724,10 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             raise HTTPException(422, str(error)) from error
 
     @app.get("/api/v1/connectors/policies", dependencies=[Depends(require_token)])
-    async def list_connector_policies() -> list[dict[str, Any]]:
-        policies = await services.connectors.list_policies()
+    async def list_connector_policies(
+        application_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        policies = await services.connectors.list_policies(application_id=application_id)
         return [item.model_dump(mode="json") for item in policies]
 
     @app.put("/api/v1/connectors/policies", dependencies=[Depends(require_token)])
@@ -1653,6 +1833,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
     async def list_connector_executions(
         connector_id: str | None = None,
         tenant_id: str | None = None,
+        application_id: str | None = None,
         operation_id: str | None = None,
         execution_status: str | None = Query(default=None, alias="status"),
         limit: int = Query(default=100, ge=1, le=200),
@@ -1661,6 +1842,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         records = await services.connectors.list_executions(
             connector_id=connector_id,
             tenant_id=tenant_id,
+            application_id=application_id,
             operation_id=operation_id,
             status=execution_status,
             limit=limit,
@@ -1786,10 +1968,12 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
     async def list_connector_exercises(
         connector_id: str | None = None,
         tenant_id: str | None = None,
+        application_id: str | None = None,
     ) -> list[dict[str, Any]]:
         exercises = await services.connectors.list_exercises(
             connector_id=connector_id,
             tenant_id=tenant_id,
+            application_id=application_id,
         )
         return [item.model_dump(mode="json") for item in exercises]
 
@@ -3076,10 +3260,34 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                 body.instruction,
                 body.reference_node_ids,
             )
+            preview_source = "deterministic"
+            if _workflow_edit_needs_model(response):
+                preview_source = "model"
+                try:
+                    response = await _model_workflow_edit_preview(
+                        services,
+                        task_id=task_id,
+                        snapshot=draft["snapshot"],
+                        revision=int(draft["revision"]),
+                        body=body,
+                    )
+                except Exception as error:
+                    response = DraftPatchPreviewResponse(
+                        supported=False,
+                        intent="unsupported",
+                        message="AI workflow edit preview could not produce a valid, reviewable change.",
+                        warnings=[str(error)],
+                        reference_node_ids=body.reference_node_ids,
+                    )
             await services.harness.finish_task(
                 task_id,
                 status="succeeded" if response.supported else "failed",
-                metadata={"intent": response.intent},
+                metadata={
+                    "intent": response.intent,
+                    "preview_source": preview_source,
+                    "operation_count": len(response.operations),
+                },
+                error="" if response.supported else response.message,
             )
             return {"task_id": task_id, **response.model_dump(mode="json")}
         except KeyError as error:

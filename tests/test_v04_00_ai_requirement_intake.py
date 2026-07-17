@@ -9,6 +9,7 @@ from typing import AsyncIterator
 from fastapi.testclient import TestClient
 
 from agent_platform.api import create_app
+from agent_platform.capability_contracts import reference_capability_contract
 from agent_platform.config import Settings
 from agent_platform.models import ChatMessage, StreamEvent, ToolDefinition
 from agent_platform.providers.base import ModelProvider, ProviderCapabilities
@@ -154,6 +155,79 @@ def test_v04_00_requirement_intake_asks_option_based_codex_like_questions(tmp_pa
         assert tasks[0]["usage_counts"]["model_call"] == 1
 
 
+def test_v04_00_needs_input_ignores_premature_contract_and_keeps_interface_effects(
+    tmp_path: Path,
+) -> None:
+    provider = IntakeProvider({
+        "status": "needs_input",
+        "confidence": 0.78,
+        "reasoning_summary": "The runtime interface and target user still need a decision.",
+        "detected_goal": "Build a complaint triage workflow.",
+        "missing": ["runtime interface"],
+        "questions": [{
+            "id": "runtime_interface",
+            "label": "运行界面",
+            "question": "使用者从哪里启动并查看结果？",
+            "decision_axis": "runtime_interface",
+            "choice_type": "single",
+            "options": [
+                {
+                    "id": "customer_runtime",
+                    "label": "客户运行界面",
+                    "description": "使用独立运行页面。",
+                    "impact": "显示输入、进度和结果。",
+                    "recommended": True,
+                    "effects": [{
+                        "axis": "runtime_interface",
+                        "target_id": "runtime.customer",
+                        "action": "configure",
+                        "value": "customer_runtime",
+                    }],
+                },
+                {
+                    "id": "api_only",
+                    "label": "仅 API",
+                    "description": "由其他系统调用。",
+                    "impact": "不提供客户页面。",
+                    "recommended": False,
+                    "effects": [{
+                        "axis": "target_user",
+                        "target_id": "user.integrator",
+                        "action": "configure",
+                        "value": "system_integrator",
+                    }],
+                },
+            ],
+        }],
+        "completed_requirement": "This premature plan must be ignored.",
+        "workflow_intent": None,
+        "capability_build_contract": {},
+        "capability_closure": {},
+    })
+    app = create_app(Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+        scheduler_poll_seconds=3600,
+    ), provider)
+
+    with TestClient(app) as client:
+        response = client.post("/api/v1/requirements/complete", headers=headers(), json={
+            "requirement": "为客服主管制作投诉分类和回复建议工作流",
+            "locale": "zh",
+        })
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["status"] == "needs_input"
+    assert body["completed_requirement"] is None
+    assert body["capability_build_contract"] is None
+    assert body["capability_closure"] is None
+    assert body["workflow_intent"] == {}
+    assert body["questions"][0]["options"][0]["effects"][0]["axis"] == "runtime_interface"
+    assert body["questions"][0]["options"][1]["effects"][0]["axis"] == "target_user"
+
+
 def test_v04_00_requirement_intake_returns_ready_completed_requirement(tmp_path: Path) -> None:
     completed = (
         "目标：为内部工程师创建 Codex-like 工作流。\n"
@@ -229,6 +303,58 @@ def test_v04_00_requirement_intake_returns_ready_completed_requirement(tmp_path:
         assert "selected_option_ids" in prompt
         assert "Plan and clarify first" in prompt
         assert "运行态输出要面向工作流使用者" in prompt
+
+
+def test_v04_00_ready_contract_completes_omitted_internal_scaffolding(tmp_path: Path) -> None:
+    contract = reference_capability_contract("codex_like_workspace_agent").model_dump(mode="json")
+    guarantee_id = contract["runtime_guarantees"][0]["id"]
+    contract["carrier_decisions"] = [
+        item for item in contract["carrier_decisions"]
+        if item["capability_id"] != guarantee_id
+    ]
+    contract["platform_coverage"] = [
+        item for item in contract["platform_coverage"]
+        if item["capability_id"] != guarantee_id
+    ]
+    contract["evidence_plan"] = [
+        item for item in contract["evidence_plan"]
+        if guarantee_id not in item["capability_ids"]
+    ]
+    provider = IntakeProvider({
+        "status": "ready",
+        "confidence": 0.9,
+        "reasoning_summary": "The declared workflow is ready to build.",
+        "detected_goal": "Build a bounded workspace agent.",
+        "missing": [],
+        "questions": [],
+        "completed_requirement": None,
+        "workflow_intent": None,
+        "capability_build_contract": contract,
+    })
+    app = create_app(Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+        scheduler_poll_seconds=3600,
+    ), provider)
+
+    with TestClient(app) as client:
+        response = client.post("/api/v1/requirements/complete", headers=headers(), json={
+            "requirement": "Build a Codex-like workflow inside a selected workspace.",
+            "locale": "en",
+        })
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["status"] == "ready"
+    assert body["capability_closure"]["valid"] is True
+    assert guarantee_id not in body["capability_closure"]["missing_carrier_decisions"]
+    assert guarantee_id not in body["capability_closure"]["missing_coverage"]
+    assert guarantee_id not in body["capability_closure"]["missing_evidence_plan"]
+    assert any(
+        guarantee_id in decision
+        for decision in body["capability_build_contract"]["unresolved_decisions"]
+    )
 
 
 def load_v04_script():

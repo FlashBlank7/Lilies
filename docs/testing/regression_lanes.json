@@ -1,6 +1,6 @@
 {
-  "version": "v0.4.10",
-  "source_stage_report": "docs/stage-reports/v0.4.10_connector_embedding_governed_writeback.md",
+  "version": "v0.4.11",
+  "source_stage_report": "docs/stage-reports/v0.4.11_human_journey_usability_repair.md",
   "policy": {
     "current_gate": "v0.4.x_current_release_gate",
     "full_historical_sweep": "diagnostic_non_gating",
@@ -12,7 +12,7 @@
       "id": "v0.4.x_current_release_gate",
       "status": "gating",
       "phase": "v0.4.x",
-      "reason": "Current v0.4.10 product gate: prior usability, capability-contract, module, interface, Evaluation Harness, and durable collection baselines plus versioned Connector contracts, signed tenant embedding, governed writeback, compensation, callbacks, and tenant-safe governance boundaries.",
+      "reason": "Current v0.4.11 product gate: all prior v0.4.x capability boundaries plus application persistence, live Builder progress, stable canvas and whole-workflow editing, acceptance auto-repair, Customer Runtime recovery and readable mobile results, schedule status truthfulness, and application/tenant-scoped Connector operations.",
       "command": [
         ".venv/bin/python",
         "-m",
@@ -26,6 +26,7 @@
         "tests/test_v04_03_browser_closure_gate.py",
         "tests/test_v04_03_browser_evidence_recorder.py",
         "tests/test_v04_03_browser_environment.py",
+        "tests/test_v03_52_workflow_edit_transform_and_node_click_repair.py",
         "tests/test_v04_00_ai_requirement_intake.py",
         "tests/test_v04_04_codex_feedback_loop.py",
         "tests/test_v04_05_capability_build_contract.py",
@@ -34,6 +35,12 @@
         "tests/test_v04_08_evaluation_harness.py",
         "tests/test_v04_09_durable_daily_collection.py",
         "tests/test_v04_10_connector_embedding.py",
+        "tests/test_v04_11_model_workflow_edit.py",
+        "tests/test_application_display_description.py",
+        "tests/test_builder_live_progress.py",
+        "tests/test_human_usability_regressions.py",
+        "tests/test_schedule_status_boundaries.py",
+        "tests/test_smoke_cleanup_version_boundary.py",
         "tests/test_factory.py",
         "tests/test_workflow.py::test_application_placeholder_name_is_derived_from_requirement",
         "tests/test_workflow.py::test_application_placeholder_name_uses_markdown_business_goal",
@@ -55,6 +62,7 @@
         "tests/test_v04_03_browser_closure_gate.py",
         "tests/test_v04_03_browser_evidence_recorder.py",
         "tests/test_v04_03_browser_environment.py",
+        "tests/test_v03_52_workflow_edit_transform_and_node_click_repair.py",
         "tests/test_v04_00_ai_requirement_intake.py",
         "tests/test_v04_04_codex_feedback_loop.py",
         "tests/test_v04_05_capability_build_contract.py",
@@ -63,6 +71,12 @@
         "tests/test_v04_08_evaluation_harness.py",
         "tests/test_v04_09_durable_daily_collection.py",
         "tests/test_v04_10_connector_embedding.py",
+        "tests/test_v04_11_model_workflow_edit.py",
+        "tests/test_application_display_description.py",
+        "tests/test_builder_live_progress.py",
+        "tests/test_human_usability_regressions.py",
+        "tests/test_schedule_status_boundaries.py",
+        "tests/test_smoke_cleanup_version_boundary.py",
         "tests/test_factory.py",
         "tests/test_workflow.py::test_application_placeholder_name_is_derived_from_requirement",
         "tests/test_workflow.py::test_application_placeholder_name_uses_markdown_business_goal",
@@ -74,7 +88,7 @@
         "tests/test_stage_report_template_validation.py"
       ],
       "expected": {
-        "pass_count": 111,
+        "pass_count": 139,
         "warning_count": 1
       }
     },
@@ -91,13 +105,13 @@
         "-q"
       ],
       "last_observed": {
-        "source_stage_report": "docs/stage-reports/v0.4.10_connector_embedding_governed_writeback.md",
-        "command": ".venv/bin/python -m pytest tests -q --junitxml=/tmp/lilies-v0410-final.xml",
-        "passed_count": 728,
+        "source_stage_report": "docs/stage-reports/v0.4.11_human_journey_usability_repair.md",
+        "command": ".venv/bin/python -m pytest tests -q --junitxml=.tmp/lilies-v0411-final.xml",
+        "passed_count": 748,
         "failed_count": 0,
         "expected_failure_count": 85,
         "warning_count": 1,
-        "classification_evidence": "docs/workingon-archives/v0.4.10/full-suite-classification.json",
+        "classification_evidence": "docs/workingon-archives/v0.4.11/full-suite-classification.json",
         "v0_4_7_preclassification_observation": {
           "command": ".venv/bin/python -m pytest -q",
           "passed_count": 701,

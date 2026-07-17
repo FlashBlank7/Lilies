@@ -732,6 +732,8 @@ def test_daily_scenario_runs_as_durable_job_and_is_governable(tmp_path: Path) ->
             f"/api/v1/applications/{application_id}/schedule-status",
             headers=HEADERS,
         ).json()
+        assert schedule_status["status"] == "active"
+        assert schedule_status["draft_has_schedule"] is True
         assert schedule_status["schedule"]["durable"] is True
         assert schedule_status["latest_job"]["id"] == job_id
 

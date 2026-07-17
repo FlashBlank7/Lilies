@@ -575,6 +575,75 @@ def test_manifest_schema_contract_is_immutable_restart_safe_and_secret_free(
             assert TENANT_SECRET not in json.dumps(bindings)
 
 
+def test_application_scoped_connector_lists_do_not_cross_tenants(tmp_path: Path) -> None:
+    with customer_server() as (base_url, _):
+        app = create_app(settings(tmp_path), DecisionProvider())
+        with TestClient(app) as client:
+            register_manifest(client, base_url)
+            register_tenant(
+                client,
+                application_ids=["app-a"],
+                tenant_id="tenant-a",
+                external_tenant_id="customer-a",
+                external_subject="subject-a",
+                actor_id="operator-a",
+                secret="tenant-a-secret",
+            )
+            register_tenant(
+                client,
+                application_ids=["app-b"],
+                tenant_id="tenant-b",
+                external_tenant_id="customer-b",
+                external_subject="subject-b",
+                actor_id="operator-b",
+                secret="tenant-b-secret",
+            )
+            for application_id, tenant_id, actor_id in (
+                ("app-a", "tenant-a", "operator-a"),
+                ("app-b", "tenant-b", "operator-b"),
+            ):
+                response = client.post(
+                    "/api/v1/connectors/executions",
+                    headers=HEADERS,
+                    json=execute_body(
+                        operation_id="get_case",
+                        payload={"case_id": application_id},
+                        idempotency_key=f"scope-{application_id}",
+                        dry_run=True,
+                        tenant_id=tenant_id,
+                        actor_id=actor_id,
+                        application_id=application_id,
+                    ),
+                )
+                assert response.status_code == 201, response.text
+
+            bindings = client.get(
+                "/api/v1/connectors/bindings",
+                headers=HEADERS,
+                params={"application_id": "app-a"},
+            )
+            policies = client.get(
+                "/api/v1/connectors/policies",
+                headers=HEADERS,
+                params={"application_id": "app-a"},
+            )
+            executions = client.get(
+                "/api/v1/connectors/executions",
+                headers=HEADERS,
+                params={"application_id": "app-a"},
+            )
+
+            assert [item["tenant_id"] for item in bindings.json()] == ["tenant-a"]
+            assert [item["tenant_id"] for item in policies.json()] == ["tenant-a"]
+            assert [item["tenant_id"] for item in executions.json()["items"]] == [
+                "tenant-a"
+            ]
+            assert len(client.get("/api/v1/connectors/bindings", headers=HEADERS).json()) == 2
+            assert len(
+                client.get("/api/v1/connectors/executions", headers=HEADERS).json()["items"]
+            ) == 2
+
+
 def test_signed_identity_rejects_expiry_replay_unknown_subject_and_cross_tenant(
     tmp_path: Path,
 ) -> None:

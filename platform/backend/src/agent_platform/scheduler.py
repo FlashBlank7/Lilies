@@ -707,16 +707,27 @@ class WorkflowScheduler:
         return result
 
     async def schedule_status(self, application_id: str) -> dict[str, Any]:
+        draft = await self.workflow_store.get_draft(application_id)
+        draft_has_schedule = any(
+            node.type == "schedule_trigger"
+            for node in draft["snapshot"].workflow.nodes
+        )
         schedules = [
             item for item in await self.list_schedules() if item["application_id"] == application_id
         ]
-        if not schedules:
-            raise KeyError(f"application has no published schedule: {application_id}")
         jobs = await self.durable_jobs.list(application_id, limit=50)
         latest = jobs[0] if jobs else None
         return {
             "application_id": application_id,
-            "schedule": schedules[0],
+            "status": (
+                "active"
+                if schedules
+                else "draft_unpublished"
+                if draft_has_schedule
+                else "not_configured"
+            ),
+            "draft_has_schedule": draft_has_schedule,
+            "schedule": schedules[0] if schedules else None,
             "job_count": len(jobs),
             "active_job_count": sum(
                 item.status in {"queued", "running", "retry_wait", "paused"} for item in jobs

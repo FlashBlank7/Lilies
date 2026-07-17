@@ -278,7 +278,7 @@ class WorkflowStorage:
             rows = conn.execute(
                 """SELECT a.*, d.revision AS draft_revision, d.tested_hash, d.content_hash,
                           d.evidence_invalidated_at,d.evidence_invalidated_revision,
-                          d.evidence_change_summary_json
+                          d.evidence_change_summary_json,d.snapshot_json AS draft_snapshot_json
                    FROM applications a JOIN application_drafts d ON d.application_id=a.id
                    ORDER BY a.updated_at DESC"""
             ).fetchall()
@@ -305,8 +305,8 @@ class WorkflowStorage:
         smoke_marker: str,
         dry_run: bool,
     ) -> dict[str, Any]:
-        if not re.fullmatch(r"v0\.3\.\d+-smoke", smoke_marker):
-            raise ValueError("smoke_marker must match v0.3.<n>-smoke")
+        if not re.fullmatch(r"v\d+\.\d+\.\d+-smoke", smoke_marker):
+            raise ValueError("smoke_marker must match v<major>.<minor>.<patch>-smoke")
         related_tables = [
             "application_drafts",
             "application_versions",
@@ -351,7 +351,8 @@ class WorkflowStorage:
             row = conn.execute(
                 """SELECT a.*, d.revision AS draft_revision, d.tested_hash, d.content_hash,
                           d.validation_report_json,d.evidence_invalidated_at,
-                          d.evidence_invalidated_revision,d.evidence_change_summary_json
+                          d.evidence_invalidated_revision,d.evidence_change_summary_json,
+                          d.snapshot_json AS draft_snapshot_json
                    FROM applications a JOIN application_drafts d ON d.application_id=a.id
                    WHERE a.id=?""",
                 (application_id,),
@@ -488,6 +489,11 @@ class WorkflowStorage:
 
     @staticmethod
     def _application_result(result: dict[str, Any]) -> dict[str, Any]:
+        snapshot_json = result.pop("draft_snapshot_json", None)
+        result["display_description"] = WorkflowStorage._display_description(
+            snapshot_json,
+            fallback=str(result.get("description") or result.get("requirement") or ""),
+        )
         result["governed_hard_gate"] = bool(result["governed_hard_gate"])
         result["delivery_policy"] = resolve_delivery_policy(
             result["delivery_mode"],
@@ -497,6 +503,19 @@ class WorkflowStorage:
         report = json.loads(validation_report_json) if validation_report_json else None
         result["evidence"] = WorkflowStorage._evidence_result(result, report)
         return result
+
+    @staticmethod
+    def _display_description(snapshot_json: str | None, *, fallback: str) -> str:
+        try:
+            snapshot = json.loads(snapshot_json or "{}")
+        except json.JSONDecodeError:
+            snapshot = {}
+        contract = snapshot.get("capability_build_contract")
+        if isinstance(contract, dict) and str(contract.get("business_goal") or "").strip():
+            source = str(contract["business_goal"])
+        else:
+            source = fallback
+        return re.sub(r"\s+", " ", source).strip()[:500]
 
     @staticmethod
     def _json_list(value: str | None) -> list[dict[str, Any]]:

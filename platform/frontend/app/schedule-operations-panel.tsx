@@ -96,7 +96,6 @@ export function ScheduleOperationsPanel({
   const [loading, setLoading] = useState(hasSchedule)
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
-  const [publishedScheduleMissing, setPublishedScheduleMissing] = useState(false)
 
   const loadJob = useCallback(async (jobId: string) => {
     if (!jobId) {
@@ -129,13 +128,11 @@ export function ScheduleOperationsPanel({
       ])
       setSchedule(nextSchedule)
       setJobs(nextJobs)
-      setPublishedScheduleMissing(false)
       const nextSelected = nextJobs.some(item => item.id === selectedId) ? selectedId : nextJobs[0]?.id || ''
       setSelectedId(nextSelected)
       await loadJob(nextSelected)
     } catch (caught) {
       if (isAuthError(caught)) onAuthRequired?.()
-      else if (String(caught).includes('404')) setPublishedScheduleMissing(true)
       else setError(String(caught).replace(/^Error:\s*/, ''))
     } finally {
       setLoading(false)
@@ -197,7 +194,7 @@ export function ScheduleOperationsPanel({
 
   const latest = selected || schedule?.latest_job || jobs[0] || null
   const digest = useMemo(() => longestText(latest?.result), [latest?.result])
-  const scheduledAt = schedule?.schedule.next_fire_at
+  const scheduledAt = schedule?.schedule?.next_fire_at
   const active = Boolean(latest && ACTIVE.has(latest.status))
 
   if (!hasSchedule) {
@@ -210,7 +207,13 @@ export function ScheduleOperationsPanel({
     return <section className={`${styles.root} ${styles[audience]}`} data-automation-state="loading"><div className={styles.empty}><LoaderCircle className={styles.spin} size={22} /><strong>{locale === 'zh' ? '正在读取自动化状态' : 'Loading automation'}</strong></div></section>
   }
 
-  if (publishedScheduleMissing) {
+  if (schedule?.status === 'not_configured') {
+    return <section className={`${styles.root} ${styles[audience]}`} data-automation-state="not-configured">
+      <div className={styles.empty}><CalendarClock size={22} /><strong>{locale === 'zh' ? '尚未配置定时运行' : 'No schedule configured'}</strong><span>{locale === 'zh' ? '添加并发布“定时触发”积木后，这里会显示运行计划和历史。' : 'Add and publish a schedule trigger to manage automation here.'}</span></div>
+    </section>
+  }
+
+  if (schedule?.status === 'draft_unpublished') {
     return <section className={`${styles.root} ${styles[audience]}`} data-automation-state="unpublished">
       <div className={styles.empty}><Pause size={22} /><strong>{locale === 'zh' ? '定时配置尚未生效' : 'Schedule is not active'}</strong><span>{locale === 'zh' ? '草稿里已有定时触发积木。发布包含该积木的版本后才能运行。' : 'Publish the draft containing the schedule trigger to activate it.'}</span></div>
     </section>
@@ -229,7 +232,7 @@ export function ScheduleOperationsPanel({
 
     <dl className={styles.scheduleFacts}>
       <div><dt><CalendarClock size={14} />{locale === 'zh' ? '下一次' : 'Next run'}</dt><dd>{dateTime(scheduledAt, locale)}</dd></div>
-      <div><dt><Clock3 size={14} />{locale === 'zh' ? '运行时间' : 'Schedule'}</dt><dd>{String(schedule?.schedule.hour ?? 0).padStart(2, '0')}:{String(schedule?.schedule.minute ?? 0).padStart(2, '0')} · {schedule?.schedule.timezone}</dd></div>
+      <div><dt><Clock3 size={14} />{locale === 'zh' ? '运行时间' : 'Schedule'}</dt><dd>{String(schedule?.schedule?.hour ?? 0).padStart(2, '0')}:{String(schedule?.schedule?.minute ?? 0).padStart(2, '0')} · {schedule?.schedule?.timezone}</dd></div>
       <div><dt><History size={14} />{locale === 'zh' ? '最近状态' : 'Latest status'}</dt><dd><span className={styles[`status_${latest?.status || 'empty'}`]}>{statusLabel(latest?.status, locale)}</span></dd></div>
     </dl>
 

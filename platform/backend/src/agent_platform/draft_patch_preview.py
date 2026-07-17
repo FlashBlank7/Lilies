@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from .workflow_models import ApplicationSnapshot
 
 PatchIntent = Literal[
+    "multi_operation_edit",
     "rename_node",
     "update_node_description",
     "remove_disconnected_node",
@@ -48,6 +49,10 @@ class DraftPatchPreviewer:
     ) -> DraftPatchPreviewResponse:
         text = instruction.strip()
         references = self._valid_reference_node_ids(snapshot, reference_node_ids or [])
+
+        multi_operation = self._multi_operation_preview(snapshot, revision, text)
+        if multi_operation:
+            return self._with_references(multi_operation, references)
 
         metadata = self._workflow_metadata_preview(revision, text)
         if metadata:
@@ -162,6 +167,58 @@ class DraftPatchPreviewer:
                 "No deterministic structural transform matched this instruction; the workflow-level request remains applicable and can be used for a later builder-team expansion.",
             ],
             reference_node_ids=references,
+        )
+
+    def _multi_operation_preview(
+        self,
+        snapshot: ApplicationSnapshot,
+        revision: int,
+        text: str,
+    ) -> DraftPatchPreviewResponse | None:
+        operations: list[dict[str, Any]] = []
+        messages: list[str] = []
+        rename = re.search(
+            r"(?:把|将)\s*[\"'“‘]?(?P<node>[^\"'“”‘’]+?)[\"'”’]?\s*(?:积木|节点|node)?\s*(?:的)?\s*(?:标题|名称|title|name)\s*(?:改为|修改为|更新为|设置为|改成|to|as)\s*[\"'“‘]?(?P<value>[^\"'“”‘’，,；;。\n]+)[\"'”’]?",
+            text,
+            flags=re.IGNORECASE,
+        )
+        if rename:
+            node = self._node_by_reference(snapshot, rename.group("node"))
+            if not node:
+                return None
+            title = rename.group("value").strip()
+            operations.append({
+                "expected_revision": revision,
+                "op": "update_node",
+                "data": {
+                    "node_id": node.id,
+                    "changes": {"title": title},
+                    "merge_config": True,
+                },
+            })
+            messages.append(f"rename node {node.id} to {title}")
+
+        description = re.search(
+            r"(?:把|将)?\s*(?:工作流|流程|workflow)(?:的)?\s*(?:描述|说明|description)\s*(?:更新|修改|改|设置)?(?:为|成|to|as)\s*[\"'“‘]?(?P<value>[^\"'“”‘’\n]+)[\"'”’]?",
+            text,
+            flags=re.IGNORECASE,
+        )
+        if description:
+            value = description.group("value").strip().rstrip("。.;；")
+            operations.append({
+                "expected_revision": revision,
+                "op": "set_metadata",
+                "data": {"description": value},
+            })
+            messages.append("update workflow description")
+
+        if not operations:
+            return None
+        return DraftPatchPreviewResponse(
+            supported=True,
+            intent="multi_operation_edit",
+            message="Preview precise workflow edits: " + "; ".join(messages) + ".",
+            operations=operations,
         )
 
     def _workflow_metadata_preview(
@@ -362,6 +419,18 @@ class DraftPatchPreviewer:
                 "op": "update_node",
                 "data": {"node_id": node_id, "changes": changes, "merge_config": True},
             }],
+        )
+
+    @staticmethod
+    def _node_by_reference(snapshot: ApplicationSnapshot, reference: str) -> Any | None:
+        value = reference.strip()
+        exact_id = next((node for node in snapshot.workflow.nodes if node.id == value), None)
+        if exact_id:
+            return exact_id
+        folded = value.casefold()
+        return next(
+            (node for node in snapshot.workflow.nodes if node.title.strip().casefold() == folded),
+            None,
         )
 
     @staticmethod

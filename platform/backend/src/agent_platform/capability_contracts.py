@@ -292,6 +292,117 @@ class CapabilityClosureResult(BaseModel):
 _ENVELOPE_ORDER = {item: index for index, item in enumerate(ExecutionEnvelope)}
 
 
+def complete_capability_contract_scaffolding(
+    contract: CapabilityBuildContract,
+) -> CapabilityBuildContract:
+    """Fill omitted internal planning metadata without inventing user capabilities."""
+    completed = contract.model_copy(deep=True)
+    carrier_ids = {item.capability_id for item in completed.carrier_decisions}
+    coverage_ids = {item.capability_id for item in completed.platform_coverage}
+    evidence_ids = {
+        capability_id
+        for item in completed.evidence_plan
+        for capability_id in item.capability_ids
+    }
+    additions: dict[str, list[str]] = {}
+
+    for capability in completed.capabilities:
+        if not capability.required:
+            continue
+        if isinstance(capability, ExternalContract):
+            carrier_type = CarrierType.connector_external_contract
+            owner = CoverageOwner.external_system
+            unavailable = capability.availability == EnvironmentAvailability.unavailable
+            carrier_status = (
+                CarrierStatus.blocked_by_environment
+                if unavailable
+                else CarrierStatus.proposed
+            )
+            coverage_status = CoverageStatus.missing if unavailable else CoverageStatus.partial
+            evidence_environment = EvidenceEnvironment.contract
+            verification_status = (
+                VerificationStatus.blocked_by_environment
+                if unavailable
+                else VerificationStatus.static_verified
+            )
+        elif isinstance(capability, RuntimeGuarantee):
+            carrier_type = (
+                CarrierType.platform_control
+                if capability.guarantee_type in {"permission", "isolation", "audit"}
+                else CarrierType.runtime_service
+            )
+            owner = (
+                CoverageOwner.platform_harness
+                if carrier_type == CarrierType.platform_control
+                else CoverageOwner.workflow_runtime
+            )
+            carrier_status = CarrierStatus.proposed
+            coverage_status = CoverageStatus.partial
+            evidence_environment = EvidenceEnvironment.sandbox
+            verification_status = VerificationStatus.static_verified
+        else:
+            carrier_type = CarrierType.reusable_module
+            owner = CoverageOwner.workflow_runtime
+            carrier_status = CarrierStatus.proposed
+            coverage_status = CoverageStatus.partial
+            evidence_environment = EvidenceEnvironment.mock
+            verification_status = VerificationStatus.static_verified
+
+        if capability.id not in carrier_ids:
+            completed.carrier_decisions.append(CapabilityCarrierDecision(
+                capability_id=capability.id,
+                carrier_type=carrier_type,
+                resource_hint=f"Builder-selected {carrier_type.value} for {capability.id}",
+                rationale=(
+                    "Requirement intake supplied a conservative proposed carrier because "
+                    "the model omitted internal build metadata."
+                ),
+                status=carrier_status,
+                implementation_refs=(
+                    [f"contract:{capability.id}"]
+                    if carrier_status == CarrierStatus.blocked_by_environment
+                    else []
+                ),
+            ))
+            additions.setdefault(capability.id, []).append("carrier")
+        if capability.id not in coverage_ids:
+            completed.platform_coverage.append(CapabilityCoverage(
+                capability_id=capability.id,
+                owner=owner,
+                status=coverage_status,
+                surface=f"requirement-intake:{owner.value}",
+                notes="Conservative ownership proposal; Builder must confirm implementation coverage.",
+            ))
+            additions.setdefault(capability.id, []).append("coverage")
+        if capability.id not in evidence_ids:
+            completed.evidence_plan.append(CapabilityEvidencePlanItem(
+                capability_ids=[capability.id],
+                target_level=EvidenceLevel.H1,
+                environment=evidence_environment,
+                expected_status=verification_status,
+                required_evidence=(
+                    capability.acceptance
+                    or [f"Builder evidence for declared capability {capability.id}"]
+                ),
+                claim_scope=(
+                    f"Planning evidence for {capability.title}; intake completion alone "
+                    "does not verify live behavior."
+                ),
+            ))
+            additions.setdefault(capability.id, []).append("evidence")
+
+    if additions:
+        summary = ", ".join(
+            f"{capability_id} ({'/'.join(parts)})"
+            for capability_id, parts in additions.items()
+        )
+        completed.unresolved_decisions.append(
+            "Requirement intake supplied conservative internal scaffolding for "
+            f"{summary}; Builder must bind and verify it."
+        )
+    return CapabilityBuildContract.model_validate(completed.model_dump(mode="json"))
+
+
 def evaluate_capability_contract(
     contract: CapabilityBuildContract,
     *,

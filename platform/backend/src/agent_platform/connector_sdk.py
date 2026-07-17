@@ -726,12 +726,15 @@ class ConnectorService:
         connector_id: str | None = None,
         *,
         tenant_id: str | None = None,
+        application_id: str | None = None,
     ) -> list[ConnectorTenantBinding]:
         items = list(self._bindings.values())
         if connector_id:
             items = [item for item in items if item.connector_id == connector_id]
         if tenant_id:
             items = [item for item in items if item.tenant_id == tenant_id]
+        if application_id:
+            items = [item for item in items if application_id in item.application_ids]
         return sorted(items, key=lambda item: (item.connector_id, item.tenant_id))
 
     async def set_policy(
@@ -847,13 +850,28 @@ class ConnectorService:
         )
         return ConnectorDomainPolicy.model_validate_json(row["record_json"])
 
-    async def list_policies(self) -> list[ConnectorDomainPolicy]:
+    async def list_policies(
+        self,
+        *,
+        application_id: str | None = None,
+    ) -> list[ConnectorDomainPolicy]:
         rows = await asyncio.to_thread(
             self.storage._get_all,
             "SELECT record_json FROM connector_domain_policies ORDER BY connector_id,tenant_id",
             (),
         )
-        return [ConnectorDomainPolicy.model_validate_json(row["record_json"]) for row in rows]
+        items = [ConnectorDomainPolicy.model_validate_json(row["record_json"]) for row in rows]
+        if application_id:
+            bindings = await self.list_bindings(application_id=application_id)
+            allowed = {
+                (item.connector_id, item.connector_version, item.tenant_id)
+                for item in bindings
+            }
+            items = [
+                item for item in items
+                if (item.connector_id, item.connector_version, item.tenant_id) in allowed
+            ]
+        return items
 
     async def create_authorization(
         self,
@@ -1807,6 +1825,7 @@ class ConnectorService:
         *,
         connector_id: str | None = None,
         tenant_id: str | None = None,
+        application_id: str | None = None,
         run_id: str | None = None,
         operation_id: str | None = None,
         status: str | None = None,
@@ -1821,6 +1840,9 @@ class ConnectorService:
         if tenant_id:
             clauses.append("tenant_id=?")
             values.append(tenant_id)
+        if application_id:
+            clauses.append("json_extract(record_json, '$.application_id')=?")
+            values.append(application_id)
         if run_id:
             clauses.append("json_extract(record_json, '$.run_id')=?")
             values.append(run_id)
@@ -1887,6 +1909,7 @@ class ConnectorService:
         *,
         connector_id: str | None = None,
         tenant_id: str | None = None,
+        application_id: str | None = None,
     ) -> list[ConnectorExercise]:
         clauses: list[str] = []
         values: list[Any] = []
@@ -1902,7 +1925,18 @@ class ConnectorService:
             f"SELECT record_json FROM connector_exercises {where} ORDER BY created_at DESC,id DESC",
             tuple(values),
         )
-        return [ConnectorExercise.model_validate_json(row["record_json"]) for row in rows]
+        items = [ConnectorExercise.model_validate_json(row["record_json"]) for row in rows]
+        if application_id:
+            bindings = await self.list_bindings(application_id=application_id)
+            allowed = {
+                (item.connector_id, item.connector_version, item.tenant_id)
+                for item in bindings
+            }
+            items = [
+                item for item in items
+                if (item.connector_id, item.connector_version, item.tenant_id) in allowed
+            ]
+        return items
 
     def contract_availability(self, connector_id: str, version: int) -> dict[str, Any]:
         manifest = self._manifests.get((connector_id, version))

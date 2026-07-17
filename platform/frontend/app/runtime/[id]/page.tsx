@@ -73,6 +73,13 @@ type RuntimeField = {
   checked: boolean
 }
 
+class RuntimeInputError extends Error {
+  constructor(readonly fieldName: string, message: string) {
+    super(message)
+    this.name = 'RuntimeInputError'
+  }
+}
+
 type PermissionRequest = {
   request_id: string
   session_id: string
@@ -222,18 +229,18 @@ function parseInputs(fields: RuntimeField[]) {
   for (const field of fields) {
     const raw = field.type === 'boolean' ? field.checked : field.value.trim()
     if (field.required && (raw === '' || raw === undefined)) {
-      throw new Error(`请填写“${field.label}”后再启动。`)
+      throw new RuntimeInputError(field.name, `请填写“${field.label}”后再启动。`)
     }
     if (raw === '' || raw === undefined) continue
     if (field.type === 'number') {
       const number = Number(raw)
-      if (!Number.isFinite(number)) throw new Error(`“${field.label}”需要填写数字。`)
+      if (!Number.isFinite(number)) throw new RuntimeInputError(field.name, `“${field.label}”需要填写数字。`)
       values[field.name] = number
     } else if (field.type === 'object' || field.type === 'array' || field.type === 'file_list') {
       try {
         values[field.name] = JSON.parse(String(raw))
       } catch {
-        throw new Error(`“${field.label}”的内容格式无法识别，请检查括号和引号。`)
+        throw new RuntimeInputError(field.name, `“${field.label}”的内容格式无法识别，请检查括号和引号。`)
       }
     } else {
       values[field.name] = raw
@@ -242,19 +249,91 @@ function parseInputs(fields: RuntimeField[]) {
   return values
 }
 
-function resultText(value: unknown): string {
-  if (typeof value === 'string') return value
-  if (Array.isArray(value)) return value.map(item => resultText(item)).filter(Boolean).join('\n\n')
+const RESULT_FIELD_LABELS: Record<string, string> = {
+  answer: '回答',
+  result: '结果',
+  summary: '摘要',
+  output: '输出',
+  content: '内容',
+  classification: '分类结果',
+  urgency_level: '紧急程度',
+  category: '问题类型',
+  reason: '说明',
+  next_step: '下一步',
+  status: '状态',
+}
+
+function resultFieldLabel(key: string) {
+  return RESULT_FIELD_LABELS[key] || key.replaceAll('_', ' ')
+}
+
+function escapeJsonStringControlCharacters(value: string) {
+  let result = ''
+  let inString = false
+  let escaped = false
+  for (const character of value) {
+    if (!inString) {
+      result += character
+      if (character === '"') inString = true
+      continue
+    }
+    if (escaped) {
+      result += character
+      escaped = false
+      continue
+    }
+    if (character === '\\') {
+      result += character
+      escaped = true
+      continue
+    }
+    if (character === '"') {
+      result += character
+      inString = false
+      continue
+    }
+    if (character === '\n') result += '\\n'
+    else if (character === '\r') result += '\\r'
+    else if (character === '\t') result += '\\t'
+    else if (character.charCodeAt(0) < 0x20) result += `\\u${character.charCodeAt(0).toString(16).padStart(4, '0')}`
+    else result += character
+  }
+  return result
+}
+
+function serializedStructure(value: string) {
+  const trimmed = value.trim()
+  if (!(trimmed.startsWith('{') && trimmed.endsWith('}')) && !(trimmed.startsWith('[') && trimmed.endsWith(']'))) return null
+  try {
+    const parsed: unknown = JSON.parse(trimmed)
+    return parsed && typeof parsed === 'object' ? parsed : null
+  } catch {
+    try {
+      const parsed: unknown = JSON.parse(escapeJsonStringControlCharacters(trimmed))
+      return parsed && typeof parsed === 'object' ? parsed : null
+    } catch {
+      return null
+    }
+  }
+}
+
+function resultText(value: unknown, depth = 0): string {
+  if (typeof value === 'string') {
+    const structured = serializedStructure(value)
+    return structured ? resultText(structured, depth) : value
+  }
+  if (Array.isArray(value)) return value.map(item => resultText(item, depth + 1)).filter(Boolean).join('\n\n')
   const record = asRecord(value)
   for (const key of ['answer', 'text', 'result', 'summary', 'output', 'content']) {
     if (record[key] !== undefined) {
-      const resolved = resultText(record[key])
+      const resolved = resultText(record[key], depth)
       if (resolved) return resolved
     }
   }
   if (Object.keys(record).length) {
+    const heading = '#'.repeat(Math.min(depth + 2, 4))
     return Object.entries(record)
-      .map(([key, item]) => `### ${key.replaceAll('_', ' ')}\n\n${resultText(item) || String(item)}`)
+      .map(([key, item]) => `${heading} ${resultFieldLabel(key)}\n\n${resultText(item, depth + 1) || String(item)}`)
       .join('\n\n')
   }
   return value === undefined || value === null ? '' : String(value)
@@ -262,12 +341,13 @@ function resultText(value: unknown): string {
 
 function runResultMarkdown(run: RunRecord | null) {
   if (!run) return ''
+  if (run.status === 'failed') return ''
   const values = Object.values(run.outputs || {})
   for (const value of values.reverse()) {
     const rendered = resultText(value)
     if (rendered) return rendered
   }
-  return run.error ? `## 运行未完成\n\n${run.error}` : ''
+  return ''
 }
 
 function eventNodeMatches(event: StoredEvent, nodeId: string) {
@@ -343,6 +423,13 @@ function runStatusLabel(status?: RunRecord['status']) {
   return '可以启动'
 }
 
+function resultAvailabilityLabel(run: RunRecord | null, resultMarkdown: string) {
+  if (resultMarkdown) return '已生成'
+  if (run?.status === 'failed') return '未生成'
+  if (run?.status === 'cancelled') return '已停止'
+  return '等待中'
+}
+
 function recoveryMessage(run: RunRecord | null) {
   if (!run?.error) return ''
   const value = run.error.toLowerCase()
@@ -351,6 +438,11 @@ function recoveryMessage(run: RunRecord | null) {
   if (value.includes('missing required input')) return '有必填内容尚未提供。补充上方输入后重新启动。'
   if (value.includes('interrupted')) return '运行被服务重启中断。重新启动会创建一条新的运行记录。'
   return '请检查上方输入后重试。问题仍然存在时，请联系工作流维护人员处理。'
+}
+
+function customerErrorMessage(error: unknown) {
+  if (error instanceof Error) return error.message
+  return String(error).replace(/^(?:Error|RuntimeInputError):\s*/, '')
 }
 
 export default function CustomerRuntimePage() {
@@ -365,32 +457,42 @@ export default function CustomerRuntimePage() {
   const [starting, setStarting] = useState(false)
   const [actionPending, setActionPending] = useState('')
   const [error, setError] = useState('')
+  const [invalidFieldName, setInvalidFieldName] = useState('')
   const [authNeeded, setAuthNeeded] = useState(false)
   const [accessKey, setAccessKey] = useState('')
   const [resumeValue, setResumeValue] = useState('')
   const pollRef = useRef<number | null>(null)
+  const loadGenerationRef = useRef(0)
+  const startRunLockedRef = useRef(false)
+  const runtimeInputRefs = useRef(new Map<string, HTMLInputElement | HTMLTextAreaElement>())
 
   const load = useCallback(async () => {
+    const generation = loadGenerationRef.current + 1
+    loadGenerationRef.current = generation
     setLoading(true)
     setError('')
+    setInvalidFieldName('')
     try {
       const [nextApplication, nextDefinition, recentRuns] = await Promise.all([
         api<ApplicationRecord>(`/api/v1/applications/${id}`),
         api<RuntimeDefinition>(`/api/v1/applications/${id}/runtime-definition`),
         api<RunRecord[]>(`/api/v1/applications/${id}/runs?limit=1`),
       ])
+      const latestRun = recentRuns[0] || null
+      const nextEvents = latestRun ? await api<StoredEvent[]>(`/v1/streams/${latestRun.id}`) : []
+      if (generation !== loadGenerationRef.current) return
       setApplication(nextApplication)
       setDefinition(nextDefinition)
       setFields(runtimeFields(nextDefinition.snapshot))
-      const latestRun = recentRuns[0] || null
       setRun(latestRun)
-      setEvents(latestRun ? await api<StoredEvent[]>(`/v1/streams/${latestRun.id}`) : [])
+      setEvents(nextEvents)
       setAuthNeeded(false)
     } catch (caught) {
+      if (generation !== loadGenerationRef.current) return
       if (isAuthError(caught)) setAuthNeeded(true)
-      else setError(String(caught))
+      else setError(customerErrorMessage(caught))
     } finally {
-      setLoading(false)
+      if (generation === loadGenerationRef.current) setLoading(false)
     }
   }, [id])
 
@@ -409,9 +511,9 @@ export default function CustomerRuntimePage() {
 
   const watchRun = useCallback((runId: string) => {
     if (pollRef.current) window.clearInterval(pollRef.current)
-    void refreshRun(runId).catch(caught => setError(String(caught)))
+    void refreshRun(runId).catch(caught => setError(customerErrorMessage(caught)))
     pollRef.current = window.setInterval(() => {
-      void refreshRun(runId).catch(caught => setError(String(caught)))
+      void refreshRun(runId).catch(caught => setError(customerErrorMessage(caught)))
     }, 1200)
   }, [refreshRun])
 
@@ -428,6 +530,10 @@ export default function CustomerRuntimePage() {
   }, [run, watchRun])
 
   const displaySnapshot = run?.state.snapshot || definition?.snapshot || null
+  const purposeDescription = displaySnapshot?.capability_build_contract?.business_goal
+    || displaySnapshot?.description
+    || application?.description
+    || displaySnapshot?.requirement
   const scheduledWorkflow = Boolean(
     displaySnapshot?.workflow.nodes.some(node => node.type === 'schedule_trigger'),
   )
@@ -459,9 +565,20 @@ export default function CustomerRuntimePage() {
     return null
   }, [events])
 
+  function updateRuntimeField(name: string, changes: Partial<Pick<RuntimeField, 'value' | 'checked'>>) {
+    setFields(current => current.map(item => item.name === name ? { ...item, ...changes } : item))
+    if (invalidFieldName === name) {
+      setInvalidFieldName('')
+      setError('')
+    }
+  }
+
   async function startRun() {
+    if (startRunLockedRef.current) return
+    startRunLockedRef.current = true
     setStarting(true)
     setError('')
+    setInvalidFieldName('')
     try {
       const inputs = parseInputs(fields)
       const result = connectorWorkflow
@@ -485,8 +602,17 @@ export default function CustomerRuntimePage() {
       setEvents([])
       watchRun(result.run_id)
     } catch (caught) {
-      setError(String(caught).replace(/^Error:\s*/, ''))
+      if (caught instanceof RuntimeInputError) {
+        setInvalidFieldName(caught.fieldName)
+        window.requestAnimationFrame(() => {
+          const input = runtimeInputRefs.current.get(caught.fieldName)
+          input?.focus()
+          input?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        })
+      }
+      setError(customerErrorMessage(caught))
     } finally {
+      startRunLockedRef.current = false
       setStarting(false)
     }
   }
@@ -499,7 +625,7 @@ export default function CustomerRuntimePage() {
       await api(`/api/v1/runs/${run.id}/cancel`, { method: 'POST' })
       watchRun(run.id)
     } catch (caught) {
-      setError(String(caught).replace(/^Error:\s*/, ''))
+      setError(customerErrorMessage(caught))
     } finally {
       setActionPending('')
     }
@@ -516,7 +642,7 @@ export default function CustomerRuntimePage() {
       })
       if (run) watchRun(run.id)
     } catch (caught) {
-      setError(String(caught).replace(/^Error:\s*/, ''))
+      setError(customerErrorMessage(caught))
     } finally {
       setActionPending('')
     }
@@ -541,7 +667,7 @@ export default function CustomerRuntimePage() {
       })
       watchRun(run.id)
     } catch (caught) {
-      setError(String(caught).replace(/^Error:\s*/, ''))
+      setError(customerErrorMessage(caught))
     } finally {
       setActionPending('')
     }
@@ -554,7 +680,15 @@ export default function CustomerRuntimePage() {
 
   const running = run?.status === 'queued' || run?.status === 'running'
 
-  return <main className={`${styles.shell} ${responsive.shell}`} data-customer-runtime="true">
+  const runtimeReady = !loading && !authNeeded && Boolean(application && displaySnapshot)
+
+  return <main
+    className={`${styles.shell} ${responsive.shell}`}
+    data-customer-runtime="true"
+    data-runtime-loading={loading ? 'true' : 'false'}
+    data-runtime-ready={runtimeReady ? 'true' : 'false'}
+    data-runtime-run-id={run?.id || ''}
+  >
     <header className={styles.header}>
       <Link className={styles.iconLink} href="/" aria-label="返回应用列表" title="返回应用列表"><ArrowLeft size={18} /></Link>
       <div className={styles.identity}>
@@ -572,7 +706,7 @@ export default function CustomerRuntimePage() {
       <section className={styles.mainColumn}>
         <div className={styles.introBand}>
           <div className={styles.introIcon}><Workflow size={24} /></div>
-          <div className={responsive.introContent}><span>工作流用途</span><h1>{displaySnapshot?.name || application?.name}</h1><p>{displaySnapshot?.description || application?.description || displaySnapshot?.requirement}</p>{connectorWorkflow && <b className={connectorStyles.boundary} data-customer-connector-view="bounded">受控测试租户 · 仅预演</b>}</div>
+          <div className={responsive.introContent}><span>工作流用途</span><h1>{displaySnapshot?.name || application?.name}</h1><p data-runtime-purpose="true">{purposeDescription}</p>{connectorWorkflow && <b className={connectorStyles.boundary} data-customer-connector-view="bounded">受控测试租户 · 仅预演</b>}</div>
           <div className={styles.runState} data-run-status={run?.status || 'ready'}><i />{runStatusLabel(run?.status)}</div>
         </div>
 
@@ -583,15 +717,36 @@ export default function CustomerRuntimePage() {
           locale="zh"
           onAuthRequired={() => setAuthNeeded(true)}
         /> : <>
+        {run?.status === 'failed' && <div className={styles.recovery}><CircleAlert size={18} /><div><strong>建议这样处理</strong><p>{recoveryMessage(run)}</p></div><button data-customer-runtime-action="retry" disabled={starting || running} onClick={() => void startRun()}><RefreshCw className={starting ? styles.spin : undefined} size={15} />{starting ? '正在重新运行' : '重新运行'}</button></div>}
         <section className={styles.inputSection} aria-labelledby="runtime-input-title">
           <div className={styles.sectionHeading}><div><span>01</span><div><h2 id="runtime-input-title">开始这次运行</h2><p>{connectorWorkflow ? '提交业务请求后，将在受控测试租户中完成读取与写回预演。' : fields.length ? '填写你希望这次工作流处理的内容。' : '这个工作流不需要额外输入，可以直接启动。'}</p></div></div>{run && <button className={styles.iconButton} onClick={() => void refreshRun(run.id)} aria-label="刷新运行状态" title="刷新运行状态"><RefreshCw size={16} /></button>}</div>
-          {fields.length > 0 && <div className={styles.formGrid}>{fields.map(field => <label className={styles.field} data-runtime-input={field.name} key={field.name}>
+          {fields.length > 0 && <div className={styles.formGrid}>{fields.map(field => <label className={styles.field} data-runtime-input={field.name} data-runtime-invalid={invalidFieldName === field.name ? 'true' : 'false'} key={field.name}>
             <span>{field.label}{field.required && <b>必填</b>}</span>
             {field.description && <small>{field.description}</small>}
-            {field.type === 'boolean' ? <input type="checkbox" checked={field.checked} onChange={event => setFields(current => current.map(item => item.name === field.name ? { ...item, checked: event.target.checked } : item))} /> : field.type === 'object' || field.type === 'array' || field.type === 'file_list' ? <textarea value={field.value} onChange={event => setFields(current => current.map(item => item.name === field.name ? { ...item, value: event.target.value } : item))} /> : <input type={field.type === 'number' ? 'number' : 'text'} value={field.value} onChange={event => setFields(current => current.map(item => item.name === field.name ? { ...item, value: event.target.value } : item))} />}
+            {field.type === 'boolean' ? <input
+              ref={element => { if (element) runtimeInputRefs.current.set(field.name, element); else runtimeInputRefs.current.delete(field.name) }}
+              type="checkbox"
+              checked={field.checked}
+              aria-invalid={invalidFieldName === field.name ? 'true' : undefined}
+              aria-describedby={invalidFieldName === field.name ? 'runtime-input-error' : undefined}
+              onChange={event => updateRuntimeField(field.name, { checked: event.target.checked })}
+            /> : field.type === 'object' || field.type === 'array' || field.type === 'file_list' ? <textarea
+              ref={element => { if (element) runtimeInputRefs.current.set(field.name, element); else runtimeInputRefs.current.delete(field.name) }}
+              value={field.value}
+              aria-invalid={invalidFieldName === field.name ? 'true' : undefined}
+              aria-describedby={invalidFieldName === field.name ? 'runtime-input-error' : undefined}
+              onChange={event => updateRuntimeField(field.name, { value: event.target.value })}
+            /> : <input
+              ref={element => { if (element) runtimeInputRefs.current.set(field.name, element); else runtimeInputRefs.current.delete(field.name) }}
+              type={field.type === 'number' ? 'number' : 'text'}
+              value={field.value}
+              aria-invalid={invalidFieldName === field.name ? 'true' : undefined}
+              aria-describedby={invalidFieldName === field.name ? 'runtime-input-error' : undefined}
+              onChange={event => updateRuntimeField(field.name, { value: event.target.value })}
+            />}
           </label>)}</div>}
-          {error && <div className={styles.inlineError} role="alert"><CircleAlert size={17} /><div><strong>现在还不能继续</strong><span>{error}</span></div></div>}
-          <div className={styles.primaryActions}><button className={styles.primaryButton} data-customer-runtime-action="start" onClick={() => void startRun()} disabled={starting || running}><Play size={17} fill="currentColor" />{starting ? '正在启动' : running ? '正在运行' : '启动工作流'}</button>{running && <button className={styles.stopButton} disabled={actionPending === 'cancel'} onClick={() => void cancelRun()}><Square size={15} fill="currentColor" />{actionPending === 'cancel' ? '正在停止' : '停止'}</button>}</div>
+          {error && <div className={styles.inlineError} id="runtime-input-error" role="alert"><CircleAlert size={17} /><div><strong>现在还不能继续</strong><span>{error}</span></div></div>}
+          {run?.status !== 'failed' && <div className={styles.primaryActions}><button className={styles.primaryButton} data-customer-runtime-action="start" onClick={() => void startRun()} disabled={starting || running}><Play size={17} fill="currentColor" />{starting ? '正在启动' : running ? '正在运行' : '启动工作流'}</button>{running && <button className={styles.stopButton} disabled={actionPending === 'cancel'} onClick={() => void cancelRun()}><Square size={15} fill="currentColor" />{actionPending === 'cancel' ? '正在停止' : '停止'}</button>}</div>}
         </section>
 
         <section className={styles.progressSection} aria-labelledby="runtime-progress-title">
@@ -619,15 +774,14 @@ export default function CustomerRuntimePage() {
         <section className={styles.resultSection} aria-labelledby="runtime-result-title">
           <div className={styles.sectionHeading}><div><span>03</span><div><h2 id="runtime-result-title">本次结果</h2><p>{run?.status === 'succeeded' ? '结果已经整理完成。' : run?.status === 'failed' ? '这次运行没有完成，下面给出了恢复建议。' : '工作流完成后，结果会显示在这里。'}</p></div></div>{run?.updated_at && <time><Clock3 size={14} />{new Date(run.updated_at).toLocaleTimeString()}</time>}</div>
           {boundedConnectorReceipt && <dl className={connectorStyles.receipt} data-customer-connector-receipt="redacted"><div><dt>执行状态</dt><dd data-connector-receipt-status={text(boundedConnectorReceipt.status, 'unknown')}>{connectorStatusLabel(boundedConnectorReceipt.status)}</dd></div><div><dt>副作用</dt><dd data-connector-side-effect={text(boundedConnectorReceipt.side_effect_state, 'unknown')}>{connectorSideEffectLabel(boundedConnectorReceipt.side_effect_state)}</dd></div><div><dt>外部引用</dt><dd>{text(boundedConnectorReceipt.external_reference, '尚未生成')}</dd></div><div><dt>下一步</dt><dd>{boundedConnectorReceipt.status === 'dry_run' ? '等待维护人员核对并授权' : boundedConnectorReceipt.compensation_execution_id ? '补偿已记录' : '查看最终结果'}</dd></div></dl>}
-          {resultMarkdown && !connectorWorkflow ? <MarkdownResultCard source={resultMarkdown} emptyLabel="暂无结果" title="工作流结果" description="已按可读格式整理" openLabel="展开阅读" closeLabel="关闭" dataSurface="customer-runtime-result" /> : !boundedConnectorReceipt && <div className={styles.emptyResult}><Workflow size={24} /><span>{running ? '正在生成结果' : '尚无运行结果'}</span></div>}
-          {run?.status === 'failed' && <div className={styles.recovery}><CircleAlert size={18} /><div><strong>建议这样处理</strong><p>{recoveryMessage(run)}</p></div><button onClick={() => void startRun()}><RefreshCw size={15} />重新运行</button></div>}
+          {resultMarkdown && !connectorWorkflow ? <MarkdownResultCard source={resultMarkdown} emptyLabel="暂无结果" title="工作流结果" description="已按可读格式整理" openLabel="展开阅读" closeLabel="关闭" dataSurface="customer-runtime-result" /> : !boundedConnectorReceipt && <div className={styles.emptyResult}><Workflow size={24} /><span>{running ? '正在生成结果' : run?.status === 'failed' ? '这次运行没有生成可用结果' : '尚无运行结果'}</span></div>}
         </section>
         </>}
       </section>
 
       <aside className={styles.summaryColumn}>
         <div className={styles.summaryHeader}><span>本次运行</span><strong>{run ? run.id.slice(0, 8) : '尚未开始'}</strong></div>
-        <dl><div><dt>状态</dt><dd>{runStatusLabel(run?.status)}</dd></div><div><dt>步骤</dt><dd>{steps.length}</dd></div><div><dt>已完成</dt><dd>{completedCount}</dd></div><div><dt>结果</dt><dd>{resultMarkdown ? '已生成' : '等待中'}</dd></div></dl>
+        <dl><div><dt>状态</dt><dd>{runStatusLabel(run?.status)}</dd></div><div><dt>步骤</dt><dd>{steps.length}</dd></div><div><dt>已完成</dt><dd>{completedCount}</dd></div><div><dt>结果</dt><dd>{resultAvailabilityLabel(run, resultMarkdown)}</dd></div></dl>
         <p>需要修改处理方式时，请联系工作流维护人员。</p>
       </aside>
     </div>}

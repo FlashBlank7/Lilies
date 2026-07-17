@@ -12,6 +12,7 @@ type Application = {
   id: string
   name: string
   description: string
+  display_description?: string
   mode: string
   delivery_mode: DeliveryMode
   active_version?: number | null
@@ -31,7 +32,7 @@ type AppListUrlState = { filter?: AppFilter; q?: string; sort?: AppSort }
 type Copy = (typeof messages)[Locale]
 type RequirementIntakeChoiceType = 'single' | 'multi'
 type RequirementIntakeOptionEffect = {
-  axis: 'functional_capability' | 'runtime_guarantee' | 'external_contract' | 'execution_envelope' | 'carrier' | 'evidence'
+  axis: 'functional_capability' | 'runtime_guarantee' | 'external_contract' | 'execution_envelope' | 'carrier' | 'evidence' | 'runtime_interface' | 'target_user'
   target_id?: string
   action: 'include' | 'require' | 'exclude' | 'configure' | 'raise_envelope'
   value: string
@@ -127,6 +128,22 @@ function deriveApplicationName(requirement: string) {
     .replace(/[，,]\s*(支持|用于|并|以及|and|with).*$/i, '')
     .replace(/^[\s，,：:；;]+|[\s，,：:；;]+$/g, '')
   return (cleaned || first || text).slice(0, 32).replace(/[\s，,：:；;]+$/g, '') || '新智能体'
+}
+
+function deriveApplicationDescription(
+  requirement: string,
+  contract: CapabilityBuildContract | null,
+) {
+  const goalMatch = requirement.match(/(?:^|\n)\s{0,3}#{0,4}\s*(?:业务目标|Business goal)\s*[:：]?\s*\n+([\s\S]*?)(?=\n\s{0,3}#{1,6}\s+|$)/i)
+  const source = contract?.business_goal?.trim() || goalMatch?.[1]?.trim() || requirement.trim()
+  return source
+    .replace(/^\s{0,3}#{1,6}\s*/gm, '')
+    .replace(/^\s*[-*+]\s*/gm, '')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\*\*/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 500)
 }
 
 async function applyDraftOperation(applicationId: string, expectedRevision: number, op: string, data: Record<string, unknown>) {
@@ -424,11 +441,24 @@ export default function Home() {
   const [requirementSelections, setRequirementSelections] = useState<RequirementClarificationSelections>({})
   const [requirementIntake, setRequirementIntake] = useState<RequirementIntakeResponse | null>(null)
   const [capabilityBuildContract, setCapabilityBuildContract] = useState<CapabilityBuildContract | null>(null)
+  const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
   const [authRequired, setAuthRequired] = useState(false)
   const [tokenInput, setTokenInput] = useState('')
   const [runtimeHealth, setRuntimeHealth] = useState<RuntimeHealth | null>(null)
   const [runtimeUnavailable, setRuntimeUnavailable] = useState(false)
+  function clearFeedback() {
+    setNotice('')
+    setError('')
+  }
+  function showNotice(message: string) {
+    setError('')
+    setNotice(message)
+  }
+  function showError(message: string) {
+    setNotice('')
+    setError(message)
+  }
   const writeAppListUrlState = useCallback((updates: AppListUrlState, options: { replace?: boolean } = {}) => {
     if (typeof window === 'undefined') return
     const query = new URLSearchParams(window.location.search)
@@ -560,7 +590,7 @@ export default function Home() {
   const statusFilteredApps = appFilter === 'all' ? apps : apps.filter(item => appReadinessState(item) === appFilter)
   const normalizedAppSearch = appSearch.trim().toLocaleLowerCase()
   const searchedApps = normalizedAppSearch
-    ? statusFilteredApps.filter(item => `${item.name} ${item.description}`.toLocaleLowerCase().includes(normalizedAppSearch))
+    ? statusFilteredApps.filter(item => `${item.name} ${item.display_description || item.description}`.toLocaleLowerCase().includes(normalizedAppSearch))
     : statusFilteredApps
   const visibleApps = [...searchedApps].sort((left, right) => {
     if (appSort === 'recent') return Date.parse(right.updated_at || right.created_at || '') - Date.parse(left.updated_at || left.created_at || '') || right.draft_revision - left.draft_revision || left.name.localeCompare(right.name)
@@ -575,10 +605,10 @@ export default function Home() {
   const refresh = () => api<Application[]>('/api/v1/applications').then(applications => {
     setApps(applications)
     setAuthRequired(false)
-    setError('')
+    clearFeedback()
   }).catch(error => {
     if (isAuthError(error)) setAuthRequired(true)
-    setError(String(error))
+    showError(String(error))
   })
   const refreshRuntimeStatus = () => api<RuntimeHealth>('/health').then(health => {
     setRuntimeHealth(health)
@@ -637,11 +667,11 @@ export default function Home() {
     const text = requirement.trim()
     if (!text) {
       requirementInputRef.current?.focus()
-      setError(t.requirementCompletionEmptyRequirement)
+      showError(t.requirementCompletionEmptyRequirement)
       return
     }
     setRequirementIntakeBusy(true)
-    setError('')
+    clearFeedback()
     try {
       const result = await api<RequirementIntakeResponse>('/api/v1/requirements/complete', {
         method: 'POST',
@@ -654,10 +684,10 @@ export default function Home() {
       })
       setRequirementIntake(result)
       setAuthRequired(false)
-      setError(result.status === 'ready' ? t.requirementCompletionReadyNotice : t.requirementCompletionNeedsInputNotice)
+      showNotice(result.status === 'ready' ? t.requirementCompletionReadyNotice : t.requirementCompletionNeedsInputNotice)
     } catch (cause) {
       if (isAuthError(cause)) setAuthRequired(true)
-      setError(String(cause))
+      showError(String(cause))
     } finally {
       setRequirementIntakeBusy(false)
     }
@@ -666,7 +696,7 @@ export default function Home() {
   function applyRequirementCompletion() {
     const completed = requirementIntake?.completed_requirement?.trim()
     if (!completed) {
-      setError(t.requirementCompletionNoDraft)
+      showError(t.requirementCompletionNoDraft)
       return
     }
     setRequirement(completed)
@@ -675,7 +705,7 @@ export default function Home() {
     setBuildIntentConfirmed(true)
     setRequirementIntake(null)
     setRequirementSelections({})
-    setError(t.requirementCompletionApplied)
+    showNotice(t.requirementCompletionApplied)
   }
 
   function resetRequirementCompletion() {
@@ -683,23 +713,23 @@ export default function Home() {
     setRequirementIntake(null)
     setCapabilityBuildContract(null)
     setBuildIntentConfirmed(false)
-    setError('')
+    clearFeedback()
   }
 
   async function create(event: FormEvent) {
     event.preventDefault()
     if (!buildIntentConfirmed) {
       setBuildIntentConfirmed(true)
-      setError(t.buildIntentHomeConfirm)
+      showNotice(t.buildIntentHomeConfirm)
       return
     }
     setBusy(true)
-    setError('')
+    clearFeedback()
     try {
       const name = deriveApplicationName(requirement)
       const app = await api<Application>('/api/v1/applications', {
         method: 'POST',
-        body: JSON.stringify({ name, description: requirement.slice(0, 180), requirement, mode: 'workflow', delivery_mode: deliveryMode, capability_build_contract: capabilityBuildContract }),
+        body: JSON.stringify({ name, description: deriveApplicationDescription(requirement, capabilityBuildContract), requirement, mode: 'workflow', delivery_mode: deliveryMode, capability_build_contract: capabilityBuildContract }),
       })
       setApps(current => [app, ...current.filter(item => item.id !== app.id)])
       resetAppListView()
@@ -715,19 +745,19 @@ export default function Home() {
         window.location.href = `/applications/${app.id}?safeDraft=1`
       }
     } catch (cause) {
-      setError(String(cause))
+      showError(String(cause))
       setBusy(false)
     }
   }
 
   async function saveDraftOnly() {
     setDraftBusy(true)
-    setError('')
+    clearFeedback()
     try {
       const name = deriveApplicationName(requirement)
       const app = await api<Application>('/api/v1/applications', {
         method: 'POST',
-        body: JSON.stringify({ name, description: requirement.slice(0, 180), requirement, mode: 'workflow', delivery_mode: deliveryMode, capability_build_contract: capabilityBuildContract }),
+        body: JSON.stringify({ name, description: deriveApplicationDescription(requirement, capabilityBuildContract), requirement, mode: 'workflow', delivery_mode: deliveryMode, capability_build_contract: capabilityBuildContract }),
       })
       if (isCodexWorkspaceRequirement(requirement) && !capabilityBuildContract) {
         await applyCodexWorkspaceScenario(app)
@@ -736,14 +766,14 @@ export default function Home() {
       }
       window.location.href = `/applications/${app.id}?safeDraft=1`
     } catch (cause) {
-      setError(String(cause))
+      showError(String(cause))
       setDraftBusy(false)
     }
   }
 
   async function runRecommendedCreateAction() {
     if (recommendedAction.disabled) return
-    setError('')
+    clearFeedback()
     if (recommendedAction.target === 'requirement_focus') {
       requirementInputRef.current?.focus()
       return
@@ -754,14 +784,14 @@ export default function Home() {
     }
     if (recommendedAction.target === 'guarded_build_button') {
       buildButtonRef.current?.focus()
-      setError(t.recommendedActionTeamGuardDetail)
+      showNotice(t.recommendedActionTeamGuardDetail)
     }
   }
 
   function saveToken(event: FormEvent) {
     event.preventDefault()
     saveClientToken(tokenInput)
-    setError(t.authSaved)
+    showNotice(t.authSaved)
     void refresh()
   }
 
@@ -772,7 +802,7 @@ export default function Home() {
     setCapabilityBuildContract(null)
     setSelectedExampleId(example.id)
     setBuildIntentConfirmed(false)
-    setError('')
+    clearFeedback()
   }
 
   return (
@@ -954,7 +984,8 @@ export default function Home() {
           <input type="password" value={tokenInput} placeholder={t.authPlaceholder} onChange={event => setTokenInput(event.target.value)} />
           <div className="auth-actions"><button>{t.authSave}</button><button type="button" className="ghost" onClick={() => { clearClientToken(); setTokenInput('') }}>{t.authClear}</button></div>
         </form>}
-        {error && <div className="error-banner">{error}</div>}
+        {notice && <div className="success-banner" role="status">{notice}</div>}
+        {error && <div className="error-banner" role="alert">{error}</div>}
       </section>
       <section className="customer-section">
         <div className="section-heading"><h2>{t.customerScenariosTitle}</h2><span>{t.customerScenariosHelp}</span></div>
@@ -995,7 +1026,7 @@ export default function Home() {
           {visibleApps.map(item => <article className="app-card" data-app-card-action-state={appReadinessState(item)} key={item.id}>
             <Link className="app-card-main" href={`/applications/${item.id}`} aria-label={`${t.appActionOpen}: ${item.name}`}>
               <div className="app-icon">{item.name.slice(0, 1).toUpperCase()}</div>
-              <div><h3>{item.name}</h3><span className="delivery-mode-chip">{item.delivery_mode === 'quick' ? t.deliveryModeQuick : item.delivery_mode === 'governed' ? t.deliveryModeGoverned : t.deliveryModeGuided}</span><p>{item.description || t.fallbackDescription}</p>
+              <div><h3>{item.name}</h3><span className="delivery-mode-chip">{item.delivery_mode === 'quick' ? t.deliveryModeQuick : item.delivery_mode === 'governed' ? t.deliveryModeGoverned : t.deliveryModeGuided}</span><p>{item.display_description || item.description || t.fallbackDescription}</p>
                 <div className="app-readiness" data-app-card-guidance="readiness">{appCardReadiness(item).map(signal => <span className={signal.ready ? 'ready' : ''} key={signal.label}><b>{signal.label}</b>{signal.value}</span>)}</div>
                 <small className="app-next-action" data-app-card-guidance="next-action">{appCardNextAction(item)}</small>
               </div>

@@ -119,6 +119,67 @@ def test_v03_52_preview_operations_apply_to_real_draft(tmp_path: Path) -> None:
         assert end["config"]["outputs"]["result"]["$ref"]["node_id"] == "workflow_edit_transform"
 
 
+def test_v03_52_composite_edit_updates_node_and_metadata_without_replacing_requirement(
+    tmp_path: Path,
+) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+    )
+    app = create_app(settings, ScriptedProvider())
+    with TestClient(app) as client:
+        created = client.post(
+            "/api/v1/applications",
+            headers=HEADERS,
+            json={
+                "name": "Composite edit",
+                "description": "Original description",
+                "requirement": "Summarize a topic for a customer.",
+            },
+        )
+        app_id = created.json()["id"]
+        revision = seed_workflow(client, app_id)
+        instruction = (
+            "把“Summarize”积木标题改为“Customer Summary”，"
+            "并把工作流描述更新为面向客户的总结流程。"
+        )
+
+        response = client.post(
+            f"/api/v1/applications/{app_id}/draft/preview-patch",
+            headers=HEADERS,
+            json={"instruction": instruction, "reference_node_ids": ["summarize"]},
+        )
+
+        assert response.status_code == 200, response.text
+        preview = response.json()
+        assert preview["supported"] is True
+        assert preview["intent"] == "multi_operation_edit"
+        assert [item["op"] for item in preview["operations"]] == [
+            "update_node",
+            "set_metadata",
+        ]
+        assert all("requirement" not in item["data"] for item in preview["operations"])
+
+        current_revision = revision
+        for operation in preview["operations"]:
+            current_revision = mutate(
+                client,
+                app_id,
+                current_revision,
+                operation["op"],
+                operation["data"],
+            )
+        draft = client.get(f"/api/v1/applications/{app_id}/draft", headers=HEADERS).json()
+        summarize = next(
+            node for node in draft["snapshot"]["workflow"]["nodes"]
+            if node["id"] == "summarize"
+        )
+        assert summarize["title"] == "Customer Summary"
+        assert draft["snapshot"]["description"] == "面向客户的总结流程"
+        assert draft["snapshot"]["requirement"] == "Summarize a topic for a customer."
+
+
 def test_v03_52_static_evidence_passes_without_live_services() -> None:
     module = load_audit_module()
     evidence = module.build_evidence()

@@ -143,6 +143,23 @@ function safeStudioNodeData(node: Partial<WorkflowNode>, fallbackDescription: st
   }
 }
 
+function readableWorkflowPurpose(snapshot: Draft['snapshot'] | undefined, fallback: string) {
+  if (!snapshot) return fallback
+  const goalMatch = snapshot.requirement.match(/(?:^|\n)\s{0,3}#{0,4}\s*(?:业务目标|Business goal)\s*[:：]?\s*\n+([\s\S]*?)(?=\n\s{0,3}#{1,6}\s+|$)/i)
+  const source = snapshot.capability_build_contract?.business_goal?.trim()
+    || goalMatch?.[1]?.trim()
+    || snapshot.description.trim()
+    || snapshot.requirement.trim()
+  return source
+    .replace(/^\s{0,3}#{1,6}\s*/gm, '')
+    .replace(/^\s*[-*+]\s*/gm, '')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\*\*/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 600) || fallback
+}
+
 function visiblePositions(workflowNodes: WorkflowNode[], workflowEdges: Draft['snapshot']['workflow']['edges']) {
   const depth = new Map(workflowNodes.map(node => [node.id, 0]))
   const incoming = new Map(workflowNodes.map(node => [node.id, 0]))
@@ -642,6 +659,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   const canvasWrapRef = useRef<HTMLElement>(null)
   const detailBuildRequirementRef = useRef<HTMLTextAreaElement>(null)
   const detailBuildStartButtonRef = useRef<HTMLButtonElement>(null)
+  const acceptanceRepairRef = useRef<HTMLElement>(null)
   const initialLoadStartedRef = useRef(false)
   const latestRevision = useRef(0)
   const lastFitSignature = useRef('')
@@ -794,11 +812,16 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     }
   }, [id, syncCanvas])
 
-  const scheduleBuildRefresh = useCallback((delay = 80) => {
+  const scheduleBuildRefresh = useCallback((buildId: string, delay = 80) => {
     if (buildRefreshTimer.current) window.clearTimeout(buildRefreshTimer.current)
     buildRefreshTimer.current = window.setTimeout(() => {
       buildRefreshTimer.current = null
-      void refresh().catch(error => setNotice(String(error)))
+      void Promise.all([
+        refresh(),
+        api<Build>(`/api/v1/builds/${buildId}`),
+      ]).then(([, currentBuild]) => {
+        setBuild(currentBuild)
+      }).catch(error => setNotice(String(error)))
     }, delay)
   }, [refresh])
 
@@ -833,6 +856,14 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     window.addEventListener('popstate', syncStudioTabFromLocation)
     return () => window.removeEventListener('popstate', syncStudioTabFromLocation)
   }, [syncStudioTabFromLocation])
+  useEffect(() => {
+    if (!acceptanceRepairPreview) return
+    const frame = window.requestAnimationFrame(() => {
+      acceptanceRepairRef.current?.focus({ preventScroll: true })
+      acceptanceRepairRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [acceptanceRepairPreview])
   useEffect(() => {
     syncStudioTabFromLocation()
     const query = new URLSearchParams(window.location.search)
@@ -1180,7 +1211,8 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
       setAcceptanceRepairTestId(null)
       setTestReport(null)
       setNotice(t.acceptanceRepairApplied)
-      setStudioTab('edit')
+      setStudioTab('test')
+      await runTests()
     } catch (error) {
       setNotice(String(error))
       await refresh().catch(() => undefined)
@@ -1297,7 +1329,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
       const data = JSON.parse(event.data)
       setEvents(current => [...current.slice(-199), { type, data }])
       if (type === 'build.operation' || type === 'build.turn.completed' || type === 'team.teammate.idle' || type === 'tests.completed' || type === 'build.published') {
-        scheduleBuildRefresh()
+        scheduleBuildRefresh(buildId)
       }
       if (type === 'build.completed' || type === 'build.needs_attention') {
         source.close()
@@ -1578,16 +1610,16 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   const workflowStepSummaryItems = useMemo(() => {
     const workflow = draft?.snapshot.workflow
     if (!workflow) return []
-    return workflow.nodes.map((node, index) => {
-      const next = workflow.edges.filter(edge => edge.source === node.id).map(edge => edge.target)
-      const type = safeWorkflowNodeType(node)
-      return {
-        id: node.id,
-        title: `${index + 1}. ${safeText(node.title, node.id)}`,
-        detail: `${type.replaceAll('_', ' ')}${next.length ? ` -> ${next.join(', ')}` : ` -> ${t.terminal}`}`,
-      }
-    })
-  }, [draft, t.terminal])
+    return workflow.nodes.map((node, index) => ({
+      id: node.id,
+      title: `${index + 1}. ${safeText(node.title, node.id)}`,
+      detail: safeText(node.description, t.nodeInspectorNoDescription),
+    }))
+  }, [draft, t.nodeInspectorNoDescription])
+  const workflowPurposeSummary = useMemo(
+    () => readableWorkflowPurpose(draft?.snapshot, t.fallbackDescription),
+    [draft, t.fallbackDescription],
+  )
   const selectedBlockDefinition = blocks.find(block => block.type === selected?.type)
   const selectedEditorFields = editorFieldsForBlock(selectedBlockDefinition)
   const selectedEditorNotices = selectedBlockDefinition?.editor?.notices || []
@@ -1703,7 +1735,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
           <div className="panel-kicker">{t.workflowEditKicker}</div><h2>{t.patchPreviewTitle}</h2>
           <section className="workflow-readable-summary" data-workflow-readable-summary="natural-language">
             <div className="workflow-readable-head"><strong>{t.workflowReadableTitle}</strong><small>{t.workflowReadableHelp}</small></div>
-            <p><b>{t.workflowReadablePurpose}</b>{draft?.snapshot.requirement || draft?.snapshot.description || t.fallbackDescription}</p>
+            <p data-workflow-readable-purpose="true"><b>{t.workflowReadablePurpose}</b>{workflowPurposeSummary}</p>
             <div className="workflow-readable-steps">{workflowStepSummaryItems.length ? workflowStepSummaryItems.map(item => <article key={item.id}><strong>{item.title}</strong><small>{item.detail}</small></article>) : <p className="muted">{t.nodeInspectorNoConfig}</p>}</div>
           </section>
           <section className="workflow-edit-dialog" data-workflow-edit-dialog="whole-workflow" data-workflow-edit-reference-count={workflowEditReferenceIds.length}>
@@ -1783,10 +1815,14 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
             <div className="acceptance-readiness-list">{acceptanceReadinessItems.map(item => <article className={item.ready ? 'ready' : ''} key={item.label}><span>{item.label}</span><b>{item.ready ? t.tryReady : t.tryNeedsAttention}</b><small>{item.detail}</small></article>)}</div>
             <p className="publish-guidance" data-acceptance-guidance="publish-next-action">{publishGuidance}</p>
           </section>
-          {testReport && !Boolean(testReport.passed) && <section className={`acceptance-repair-panel ${acceptanceRepairPreview?.supported ? 'supported' : ''}`} data-acceptance-repair="failed-gate-preview">
+          {testReport && !Boolean(testReport.passed) && <section className={`acceptance-repair-panel ${acceptanceRepairPreview?.supported ? 'supported' : ''}`} data-acceptance-repair="failed-gate-preview" ref={acceptanceRepairRef} tabIndex={-1}>
             <div className="acceptance-repair-head">
               <div><strong>{t.acceptanceRepairTitle}</strong><small>{t.acceptanceRepairHelp}</small></div>
               <span>{acceptanceRepairPreview ? (acceptanceRepairPreview.supported ? t.patchSupported : t.patchUnsupported) : t.tryNeedsAttention}</span>
+            </div>
+            <div className="acceptance-repair-actions">
+              <button className="wide secondary" data-acceptance-repair-action="preview" onClick={() => previewAcceptanceRepair()} disabled={acceptanceRepairLoading}>{acceptanceRepairLoading ? t.acceptanceRepairPreviewing : t.acceptanceRepairPreview}</button>
+              <button className="wide" data-acceptance-repair-action="apply" onClick={applyAcceptanceRepair} disabled={!acceptanceRepairPreview?.supported || acceptanceRepairPreview.operations.length === 0 || acceptanceRepairApplying}>{acceptanceRepairApplying ? t.acceptanceRepairApplying : t.acceptanceRepairApply}</button>
             </div>
             {acceptanceRepairPreview ? <div className="acceptance-repair-body">
               <p>{acceptanceRepairPreview.message}</p>
@@ -1809,10 +1845,6 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
               {acceptanceRepairPreview.operations.length > 0 && <details><summary>{t.acceptanceRepairOperations}</summary><pre>{JSON.stringify(acceptanceRepairPreview.operations, null, 2)}</pre></details>}
               <details><summary>{t.acceptanceRepairContext}</summary><pre>{JSON.stringify({ task_id: acceptanceRepairPreview.task_id, preview_source: acceptanceRepairPreview.preview_source, repair_context: acceptanceRepairPreview.repair_context, workflow_edit_preview: acceptanceRepairPreview.workflow_edit_preview }, null, 2)}</pre></details>
             </div> : <p className="muted">{t.acceptanceRepairNoPreview}</p>}
-            <div className="acceptance-repair-actions">
-              <button className="wide secondary" data-acceptance-repair-action="preview" onClick={() => previewAcceptanceRepair()} disabled={acceptanceRepairLoading}>{acceptanceRepairLoading ? t.acceptanceRepairPreviewing : t.acceptanceRepairPreview}</button>
-              <button className="wide" data-acceptance-repair-action="apply" onClick={applyAcceptanceRepair} disabled={!acceptanceRepairPreview?.supported || acceptanceRepairPreview.operations.length === 0 || acceptanceRepairApplying}>{acceptanceRepairApplying ? t.acceptanceRepairApplying : t.acceptanceRepairApply}</button>
-            </div>
           </section>}
           <button className="wide" data-acceptance-action="run-all" data-acceptance-running={testsRunning ? 'true' : 'false'} onClick={runTests} disabled={testsRunning}>{testsRunning ? t.testing : t.runAllTests}</button>
           <div className="acceptance-list">{acceptanceCaseViews.map(test => {

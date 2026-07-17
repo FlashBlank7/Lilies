@@ -93,6 +93,16 @@ class ApplicationService:
         })
         return result
 
+    def validate_preview_operations(
+        self,
+        snapshot: ApplicationSnapshot,
+        operations: list[DraftOperation],
+    ) -> ApplicationSnapshot:
+        preview = snapshot.model_copy(deep=True)
+        for operation in operations:
+            self._apply_to_snapshot(preview, operation.op, operation.data)
+        return ApplicationSnapshot.model_validate(preview.model_dump(mode="json"))
+
     def _apply_to_snapshot(
         self,
         snapshot: ApplicationSnapshot,

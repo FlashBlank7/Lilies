@@ -817,6 +817,9 @@ class WorkflowBuilder:
                         build_started_at=build_started_at,
                         max_elapsed_seconds=max_elapsed_seconds,
                     )
+                    # Persist user-visible progress before emitting the operation event so
+                    # a client reacting to that event can immediately read the new state.
+                    await self.workflow_store.update_build(build_id, team_state=state)
                     content = json.dumps(value, ensure_ascii=False, default=str)
                     is_error = False
                 except Exception as error:
@@ -837,6 +840,7 @@ class WorkflowBuilder:
                     "input": self._redact(call.input or {}),
                     "success": not is_error,
                     "result": content[:10_000],
+                    "progress": self._team_progress(state),
                 })
             messages.append(ChatMessage(role="user", content=results))
             if teammate is None:
@@ -1674,6 +1678,24 @@ class WorkflowBuilder:
 
     async def _emit(self, stream_id: str, kind: str, data: dict[str, Any]) -> None:
         await self.storage.append_event(stream_id, kind, data)
+
+    @staticmethod
+    def _team_progress(state: BuildTeamState) -> dict[str, Any]:
+        task_statuses: dict[str, int] = {}
+        for task in state.tasks:
+            task_statuses[task.status] = task_statuses.get(task.status, 0) + 1
+        teammate_statuses: dict[str, int] = {}
+        for teammate in state.teammates.values():
+            teammate_statuses[teammate.status] = teammate_statuses.get(teammate.status, 0) + 1
+        return {
+            "task_count": len(state.tasks),
+            "task_statuses": task_statuses,
+            "teammate_count": len(state.teammates),
+            "teammate_statuses": teammate_statuses,
+            "repair_cycles": state.repair_cycles,
+            "draft_revision": state.revision,
+            "published_version": state.published_version,
+        }
 
     @staticmethod
     def _coerce_max_elapsed_seconds(value: Any) -> float | None:
