@@ -1,0 +1,76 @@
+{
+  "schema_version": "1.0",
+  "stage_version": "v0.4.11",
+  "stage_report": "docs/stage-reports/v0.4.11_human_journey_usability_repair.md",
+  "contract_revision": 1,
+  "approval_ref": "direct user authorization to simulate human platform use, repair discovered bugs, and archive the completed current version",
+  "source_tasks": [
+    {
+      "task_id": "V04-11-T01",
+      "source_intent_ids": [
+        "ARCH-007",
+        "ARCH-008",
+        "EVAL-002",
+        "EVAL-003",
+        "EVOL-003",
+        "EVOL-006",
+        "GOV-004",
+        "PRODUCT-001",
+        "PRODUCT-005",
+        "PRODUCT-006",
+        "PRODUCT-007",
+        "PRODUCT-008",
+        "SCENARIO-002",
+        "SCENARIO-003"
+      ],
+      "source_task": "Simulate distinct human roles using the running platform, repair the bugs they expose, and archive a version-sized usability repair with reproducible evidence.",
+      "disposition": "accepted mandatory",
+      "authority": "Direct user repair and archive instruction after v0.4.10 closure."
+    }
+  ],
+  "mandatory_tasks": [
+    {
+      "task_id": "V04-11-T01A",
+      "source_intent_ids": ["PRODUCT-001", "PRODUCT-008"],
+      "surface": "requirement intake / Builder Team / application persistence / homepage",
+      "acceptance": "Starting Builder Team from a completed workflow proposal creates or reuses one durable application and draft, exposes live progress for the exact build operation, survives navigation and refresh, and presents the application with a customer-readable purpose instead of silently disappearing or dumping internal requirement text.",
+      "required_evidence": "Application persistence and display-description tests, Builder progress operation tests, option-based requirement intake regression tests, API behavior tests, and a maintainer browser journey that returns to the homepage and finds the application."
+    },
+    {
+      "task_id": "V04-11-T01B",
+      "source_intent_ids": ["PRODUCT-001", "PRODUCT-006", "PRODUCT-008"],
+      "surface": "Engineer Studio / workflow canvas / natural-language workflow editing",
+      "acceptance": "Opening and selecting workflow blocks does not crash the frontend; canvas arrange and WASD navigation remain usable; right-drag references are captured without limiting edit scope; and model-backed whole-workflow editing can perform supported structural and semantic changes while validating every emitted operation before preview or apply.",
+      "required_evidence": "Node-selection and transform regression tests, model workflow-edit tests, frontend lint/build, and an Engineer Studio browser journey covering block selection, reference capture, arrange, WASD, edit preview, apply, and stable readable workflow summary."
+    },
+    {
+      "task_id": "V04-11-T01C",
+      "source_intent_ids": ["EVAL-003", "PRODUCT-005", "PRODUCT-007"],
+      "surface": "acceptance gate / repair preview / evidence lifecycle",
+      "acceptance": "A failed real acceptance run exposes an actionable repair, keeps preview actions visible before long content, applies the selected workflow repair, automatically reruns the real tests, and reaches a truthful passing or failing terminal state without corrupting Markdown block identifiers or requiring an unexplained manual refresh.",
+      "required_evidence": "Acceptance repair context and workflow-edit tests, usability source contracts, two-request browser network evidence for apply plus automatic rerun, preview/running/passed screenshots, and no failed browser requests or console errors."
+    },
+    {
+      "task_id": "V04-11-T01D",
+      "source_intent_ids": ["EVAL-002", "PRODUCT-008"],
+      "surface": "Customer Runtime / input validation / failure recovery / mobile result",
+      "acceptance": "A customer opening a failed run sees a customer-readable recovery state rather than internal errors; retry with missing input sends no run request and focuses the invalid field; correcting input clears the error; synchronous double activation creates only one run; the recovered run succeeds; and structured results render readably without raw serialized JSON on desktop or a 390-pixel mobile viewport.",
+      "required_evidence": "Runtime source-contract tests, failed-run recovery browser journey with request counts and accessibility state, mobile customer journey with layout assertions, readable-result screenshot, frontend lint/build, and backend run-state tests."
+    },
+    {
+      "task_id": "V04-11-T01E",
+      "source_intent_ids": ["ARCH-007", "ARCH-008", "GOV-004", "SCENARIO-002", "SCENARIO-003"],
+      "surface": "automation status / Connector operations / tenant and application isolation",
+      "acceptance": "Automation distinguishes not configured, unpublished draft, and active schedule states; Connector bindings, policies, authorizations, executions, callbacks, exercises, and related queries remain scoped to the selected application and tenant; empty operational surfaces do not masquerade as failures; and the existing durable scheduling and governed Connector behavior remains intact.",
+      "required_evidence": "Schedule boundary tests, durable collection tests, Connector cross-application and cross-tenant tests, maintainer automation and integration browser views, governance status checks, full backend regression, and restart health evidence."
+    },
+    {
+      "task_id": "V04-11-T01F",
+      "source_intent_ids": ["EVOL-003", "EVOL-006", "PRODUCT-005", "PRODUCT-008"],
+      "surface": "human journey harness / regression policy / release evidence / archive",
+      "acceptance": "Reusable browser journeys model customer, maintainer, acceptance-repair, and failed-run recovery behavior; each journey asserts layout, network, console, state transition, and cleanup invariants; the current release gate includes the new regressions; the full suite has no current failures; artifacts are checksummed; and runtime health reports v0.4.11 after a clean restart.",
+      "required_evidence": "Four executable browser journey scripts, archived JSON and screenshots, current release gate, full pytest JUnit classification, targeted Ruff, frontend lint/build, script syntax checks, git diff check, evolution-control validation, artifact digests, and post-restart health response."
+    }
+  ],
+  "optional_tasks": []
+}
