@@ -244,7 +244,28 @@ class AcceptanceRepairPreviewer:
             previous_id = node_id
 
         terminal_id, terminal_type = self._terminal(snapshot)
-        answer_ref = {"$ref": {"node_id": previous_id, "path": ["text" if self._node_type_after_ops(snapshot, operations, previous_id) == "template_transform" else "output"]}}
+        if previous_id == source_id and terminal_id:
+            previous_id = self._terminal_input_source(snapshot, terminal_id) or previous_id
+        source_port = (
+            "text"
+            if self._node_type_after_ops(snapshot, operations, previous_id)
+            in {"llm", "question_classifier", "template_transform"}
+            else "output"
+        )
+        answer_ref = {"$ref": {"node_id": previous_id, "path": [source_port]}}
+        terminal_connected = bool(
+            terminal_id
+            and self._edge_exists(snapshot, operations, previous_id, terminal_id)
+        )
+        terminal_answer_matches = bool(
+            terminal_id
+            and self._terminal_answer_matches(
+                snapshot,
+                terminal_id,
+                terminal_type,
+                answer_ref,
+            )
+        )
         if answer_node_required and terminal_id and terminal_type == "end" and "end" not in self._required_node_types(snapshot):
             operations.append({
                 "expected_revision": revision,
@@ -260,20 +281,29 @@ class AcceptanceRepairPreviewer:
                     "merge_config": False,
                 },
             })
-            if previous_id != terminal_id:
-                operations.append(self._add_edge(revision, self._edge(previous_id, terminal_id, existing_edge_ids, source_port="text" if self._node_type_after_ops(snapshot, operations, previous_id) == "template_transform" else "output")))
+            if previous_id != terminal_id and not terminal_connected:
+                operations.append(self._add_edge(
+                    revision,
+                    self._edge(previous_id, terminal_id, existing_edge_ids, source_port=source_port),
+                ))
             fixes.append({"kind": "convert_terminal_to_answer", "node_id": terminal_id})
-        elif answer_assertion_required and terminal_id and terminal_type == "end":
-            operations.append({
-                "expected_revision": revision,
-                "op": "update_node",
-                "data": {
-                    "node_id": terminal_id,
-                    "changes": {"config": {"outputs": {"answer": answer_ref}}},
-                },
-            })
-            if previous_id != terminal_id:
-                operations.append(self._add_edge(revision, self._edge(previous_id, terminal_id, existing_edge_ids, source_port="text" if self._node_type_after_ops(snapshot, operations, previous_id) == "template_transform" else "output")))
+        elif answer_assertion_required and terminal_id and terminal_type == "end" and (
+            not terminal_answer_matches or not terminal_connected
+        ):
+            if not terminal_answer_matches:
+                operations.append({
+                    "expected_revision": revision,
+                    "op": "update_node",
+                    "data": {
+                        "node_id": terminal_id,
+                        "changes": {"config": {"outputs": {"answer": answer_ref}}},
+                    },
+                })
+            if previous_id != terminal_id and not terminal_connected:
+                operations.append(self._add_edge(
+                    revision,
+                    self._edge(previous_id, terminal_id, existing_edge_ids, source_port=source_port),
+                ))
             fixes.append({"kind": "update_terminal_answer_output", "node_id": terminal_id})
         elif answer_node_required and not any(node.type == "answer" for node in snapshot.workflow.nodes):
             node_id = self._unique_id("acceptance_repair_answer", existing_node_ids)
@@ -285,21 +315,43 @@ class AcceptanceRepairPreviewer:
                 config={"answer": answer_ref},
                 position={"x": 900, "y": 220},
             )))
-            operations.append(self._add_edge(revision, self._edge(previous_id, node_id, existing_edge_ids, source_port="text" if self._node_type_after_ops(snapshot, operations, previous_id) == "template_transform" else "output")))
+            operations.append(self._add_edge(
+                revision,
+                self._edge(previous_id, node_id, existing_edge_ids, source_port=source_port),
+            ))
             fixes.append({"kind": "add_missing_node_type", "node_type": "answer", "node_id": node_id})
-        elif answer_assertion_required and terminal_id and terminal_type == "answer":
-            operations.append({
-                "expected_revision": revision,
-                "op": "update_node",
-                "data": {
-                    "node_id": terminal_id,
-                    "changes": {"config": {"answer": answer_ref}},
-                    "merge_config": False,
-                },
-            })
-            if previous_id != terminal_id:
-                operations.append(self._add_edge(revision, self._edge(previous_id, terminal_id, existing_edge_ids, source_port="text" if self._node_type_after_ops(snapshot, operations, previous_id) == "template_transform" else "output")))
+        elif answer_assertion_required and terminal_id and terminal_type == "answer" and (
+            not terminal_answer_matches or not terminal_connected
+        ):
+            if not terminal_answer_matches:
+                operations.append({
+                    "expected_revision": revision,
+                    "op": "update_node",
+                    "data": {
+                        "node_id": terminal_id,
+                        "changes": {"config": {"answer": answer_ref}},
+                        "merge_config": False,
+                    },
+                })
+            if previous_id != terminal_id and not terminal_connected:
+                operations.append(self._add_edge(
+                    revision,
+                    self._edge(previous_id, terminal_id, existing_edge_ids, source_port=source_port),
+                ))
             fixes.append({"kind": "update_answer_output", "node_id": terminal_id})
+
+        if terminal_id and previous_id != source_id:
+            for edge in snapshot.workflow.edges:
+                if edge.source == source_id and edge.target == terminal_id and edge.branch is None:
+                    operations.append({
+                        "expected_revision": revision,
+                        "op": "remove_edge",
+                        "data": {"edge_id": edge.id},
+                    })
+                    fixes.append({
+                        "kind": "remove_redundant_start_terminal_edge",
+                        "edge_id": edge.id,
+                    })
 
         operations = self._dedupe_operations(operations)
         supported = bool(operations)
@@ -480,6 +532,52 @@ class AcceptanceRepairPreviewer:
     def _terminal(snapshot: ApplicationSnapshot) -> tuple[str, str]:
         node = next((item for item in snapshot.workflow.nodes if item.type in {"answer", "end"}), None)
         return (node.id, node.type) if node else ("", "")
+
+    @staticmethod
+    def _terminal_input_source(snapshot: ApplicationSnapshot, terminal_id: str) -> str:
+        node_types = {node.id: node.type for node in snapshot.workflow.nodes}
+        sources = [
+            edge.source
+            for edge in snapshot.workflow.edges
+            if edge.target == terminal_id and edge.branch is None
+        ]
+        non_start_sources = [
+            source
+            for source in sources
+            if node_types.get(source) not in {"start", "schedule_trigger"}
+        ]
+        return (non_start_sources or sources or [""])[-1]
+
+    @staticmethod
+    def _terminal_answer_matches(
+        snapshot: ApplicationSnapshot,
+        terminal_id: str,
+        terminal_type: str,
+        answer_ref: dict[str, Any],
+    ) -> bool:
+        node = next((item for item in snapshot.workflow.nodes if item.id == terminal_id), None)
+        if not node:
+            return False
+        if terminal_type == "answer":
+            return node.config.get("answer") == answer_ref
+        outputs = node.config.get("outputs")
+        return isinstance(outputs, dict) and outputs.get("answer") == answer_ref
+
+    @staticmethod
+    def _edge_exists(
+        snapshot: ApplicationSnapshot,
+        operations: list[dict[str, Any]],
+        source: str,
+        target: str,
+    ) -> bool:
+        if any(edge.source == source and edge.target == target for edge in snapshot.workflow.edges):
+            return True
+        return any(
+            operation.get("op") == "add_edge"
+            and operation.get("data", {}).get("edge", {}).get("source") == source
+            and operation.get("data", {}).get("edge", {}).get("target") == target
+            for operation in operations
+        )
 
     @staticmethod
     def _start_inputs_from_tests(snapshot: ApplicationSnapshot) -> list[dict[str, Any]]:

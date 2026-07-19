@@ -249,6 +249,106 @@ def test_v03_54_backend_defers_unsafe_required_node_types() -> None:
     assert not any(operation.get("data", {}).get("node", {}).get("type") == "tool_executor" for operation in preview.operations)
 
 
+def test_v03_54_repair_uses_existing_business_output_instead_of_start_input() -> None:
+    from agent_platform.acceptance_repair import AcceptanceRepairPreviewer
+    from agent_platform.blocks import build_block_registry
+    from agent_platform.workflow_models import ApplicationSnapshot
+
+    snapshot = ApplicationSnapshot.model_validate({
+        "name": "Preserve business output",
+        "description": "",
+        "requirement": "Return the formatted workflow result.",
+        "workflow": {
+            "nodes": [
+                {
+                    "id": "start",
+                    "type": "start",
+                    "title": "Start",
+                    "config": {"inputs": [{"name": "request"}]},
+                },
+                {
+                    "id": "format",
+                    "type": "template_transform",
+                    "title": "Format",
+                    "config": {
+                        "template": "Result: {{ request }}",
+                        "variables": {
+                            "request": {
+                                "$ref": {"node_id": "start", "path": ["request"]}
+                            }
+                        },
+                    },
+                },
+                {
+                    "id": "answer",
+                    "type": "answer",
+                    "title": "Answer",
+                    "config": {
+                        "answer": {
+                            "$ref": {"node_id": "start", "path": ["output"]}
+                        }
+                    },
+                },
+            ],
+            "edges": [
+                {"id": "start_format", "source": "start", "target": "format"},
+                {"id": "format_answer", "source": "format", "target": "answer"},
+                {"id": "start_answer", "source": "start", "target": "answer"},
+            ],
+        },
+        "tests": [{
+            "id": "formatted_answer",
+            "name": "Formatted answer",
+            "requirement": "The customer sees the formatted business result.",
+            "inputs": {"request": "hello"},
+            "assertions": [
+                {"path": ["answer"], "operator": "contains", "expected": "Result:"}
+            ],
+            "mandatory": True,
+        }],
+    })
+
+    preview = AcceptanceRepairPreviewer(build_block_registry()).preview(
+        snapshot,
+        3,
+        {
+            "passed": False,
+            "tests": [{
+                "test_id": "formatted_answer",
+                "passed": False,
+                "assertions": [{
+                    "path": ["answer"],
+                    "operator": "contains",
+                    "expected": "Result:",
+                    "actual": {"request": "hello"},
+                    "passed": False,
+                }],
+            }],
+        },
+    )
+
+    answer_update = next(
+        operation
+        for operation in preview.operations
+        if operation["op"] == "update_node"
+        and operation["data"]["node_id"] == "answer"
+    )
+    assert answer_update["data"]["changes"]["config"]["answer"] == {
+        "$ref": {"node_id": "format", "path": ["text"]}
+    }
+    assert any(
+        operation["op"] == "remove_edge"
+        and operation["data"]["edge_id"] == "start_answer"
+        for operation in preview.operations
+    )
+    assert not any(
+        operation["op"] == "add_edge"
+        and operation["data"]["edge"]["source"] == "start"
+        and operation["data"]["edge"]["target"] == "answer"
+        for operation in preview.operations
+    )
+
+
 def test_v03_54_static_evidence_passes_and_writes_json(tmp_path: Path) -> None:
     module = load_audit_module()
     evidence = module.build_evidence()

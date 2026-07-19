@@ -185,6 +185,41 @@ def test_acceptance_repair_applies_and_reruns_without_manual_navigation() -> Non
     assert "应用修复并重新验收" in copy
 
 
+def test_acceptance_results_explain_the_verdict_and_survive_refresh() -> None:
+    source = (ROOT / "platform/frontend/app/applications/[id]/page.tsx").read_text(
+        encoding="utf-8"
+    )
+    backend = (
+        ROOT / "platform/backend/src/agent_platform/workflow_runtime.py"
+    ).read_text(encoding="utf-8")
+    storage = (
+        ROOT / "platform/backend/src/agent_platform/workflow_storage.py"
+    ).read_text(encoding="utf-8")
+
+    assert "function currentAcceptanceReport(" in source
+    assert "draft?.evidence?.last_validation_report" in source
+    assert "validation.content_hash === draft?.content_hash" in source
+    assert 'data-acceptance-outcome=' in source
+    assert 'data-acceptance-gate-verdicts="visible"' in source
+    assert 'data-acceptance-failure-reasons="visible"' in source
+    assert "acceptanceFailedAtBrick" in source
+    assert "result.run_error" in source
+    assert "acceptanceActualOutput" in source
+    assert 'data-acceptance-actual-output=' in source
+    assert 'data-acceptance-assertion-comparison="visible"' in source
+    assert "acceptanceExpectedValue" in source
+    assert "acceptanceActualValue" in source
+    assert '"run_error": run_error' in backend
+    assert '"outputs": record["outputs"]' in backend
+    assert '"failed_node": failed_node' in backend
+    assert "workflow error: {run_error}" in backend
+    assert "await self.workflow_store.record_test_report(" in backend
+    assert "async def record_test_report(" in storage
+    assert "SET validation_report_json=?,updated_at=?" in storage
+    assert '"latest_validation_failed": latest_validation_failed' in storage
+    assert '"code": "failed_evidence"' in storage
+
+
 def test_markdown_preserves_workflow_identifiers_with_underscores() -> None:
     source = (ROOT / "platform/frontend/lib/markdown.tsx").read_text(encoding="utf-8")
 

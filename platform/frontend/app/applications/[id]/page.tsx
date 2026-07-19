@@ -42,7 +42,7 @@ import {
   withFrontendToken,
 } from '@/lib/platform'
 import { defaultLocale, isLocale, messages, nextLocale, type Locale } from '@/lib/i18n'
-import { MarkdownResultCard } from '@/lib/markdown'
+import { MarkdownDocument, MarkdownResultCard } from '@/lib/markdown'
 import { classifyRuntimeStatus, runtimeCommit, runtimeVersion, type RuntimeHealth } from '@/lib/runtime-status'
 import surfaceStyles from '@/app/surface-boundaries.module.css'
 import { EvaluationHarnessPanel } from './evaluation-harness-panel'
@@ -73,6 +73,12 @@ type AcceptanceResult = {
   mandatory?: boolean
   passed?: boolean
   run_id?: string
+  run_status?: string
+  run_error?: string
+  failure_code?: string
+  failed_node?: Record<string, unknown> | null
+  outputs?: Record<string, unknown>
+  readable_report?: Record<string, unknown>
   assertions?: Array<Record<string, unknown>>
   tool_evidence?: Record<string, unknown>
 }
@@ -525,6 +531,70 @@ function acceptanceCases(draft: Draft | null, testReport: Record<string, unknown
   })
 }
 
+function currentAcceptanceReport(
+  draft: Draft | null,
+  inMemoryReport: Record<string, unknown> | null,
+) {
+  if (inMemoryReport) return inMemoryReport
+  const persisted = asRecord(draft?.evidence?.last_validation_report)
+  if (!Object.keys(persisted).length) return null
+  const validation = asRecord(persisted.validation)
+  return validation.content_hash === draft?.content_hash ? persisted : null
+}
+
+function acceptanceOutputValue(result: AcceptanceResult): unknown {
+  const outputs = asRecord(result.outputs)
+  if (!Object.keys(outputs).length) return undefined
+  for (const key of ['answer', 'result', 'output', 'text', 'content']) {
+    if (Object.prototype.hasOwnProperty.call(outputs, key)) return outputs[key]
+  }
+  if (Object.keys(outputs).length === 1) return Object.values(outputs)[0]
+  return outputs
+}
+
+function acceptanceDisplayValue(value: unknown, emptyLabel: string) {
+  if (value === undefined || value === null) return emptyLabel
+  if (typeof value === 'string') return value || emptyLabel
+  return JSON.stringify(value, null, 2)
+}
+
+function acceptanceFailureReasons(result: AcceptanceResult, t: Copy): string[] {
+  const reasons: string[] = []
+  const failureCode = String(result.failure_code || '')
+  const failedNode = asRecord(result.failed_node)
+  const failedNodeLabel = String(failedNode.title || failedNode.id || '')
+  if (failureCode === 'structured_output_invalid') {
+    reasons.push(t.acceptanceFailureStructuredOutput)
+  } else if (failureCode === 'draft_validation_failed') {
+    reasons.push(t.acceptanceFailureDraftValidation)
+  } else if (failureCode === 'node_execution_failed') {
+    reasons.push(t.acceptanceFailureNode(failedNodeLabel || t.acceptanceUnknownBrick))
+  } else if (failureCode === 'workflow_run_failed') {
+    reasons.push(t.acceptanceFailureWorkflow)
+  }
+
+  const readable = asRecord(result.readable_report)
+  for (const check of asStringArray(readable.failed_checks)) {
+    if (check.startsWith('missing required node types:')) {
+      reasons.push(`${t.acceptanceFailureMissingBricks}: ${check.split(':').slice(1).join(':').trim()}`)
+    } else if (
+      check.startsWith('missing required tool nodes:')
+      || check.startsWith('missing required tool evidence:')
+    ) {
+      reasons.push(`${t.acceptanceFailureMissingTools}: ${check.split(':').slice(1).join(':').trim()}`)
+    } else if (check.startsWith('tool calls below minimum:')) {
+      reasons.push(`${t.acceptanceFailureToolCalls}: ${check.split(':').slice(1).join(':').trim()}`)
+    } else if (check === 'output URLs are not fully backed by tool evidence') {
+      reasons.push(t.acceptanceFailureCitations)
+    }
+  }
+
+  const failedAssertions = (result.assertions || []).filter(assertion => !assertion.passed)
+  if (failedAssertions.length) reasons.push(t.acceptanceFailureAssertions(failedAssertions.length))
+  if (!reasons.length && !result.passed) reasons.push(t.acceptanceFailureUnknown)
+  return [...new Set(reasons)]
+}
+
 function acceptanceRunErrorReport(draft: Draft | null, error: unknown): Record<string, unknown> {
   const tests = workflowTests(draft)
   const message = String(error)
@@ -556,6 +626,11 @@ function acceptanceRunErrorReport(draft: Draft | null, error: unknown): Record<s
       mandatory: test.mandatory !== false,
       passed: false,
       run_id: '',
+      run_status: 'request_failed',
+      run_error: message,
+      failure_code: 'workflow_run_failed',
+      failed_node: null,
+      outputs: {},
       assertions: (Array.isArray(test.assertions) ? test.assertions : []).map(item => ({
         ...asRecord(item),
         passed: false,
@@ -1163,7 +1238,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   }
 
   async function previewAcceptanceRepair(
-    report: Record<string, unknown> | null = testReport,
+    report: Record<string, unknown> | null = currentAcceptanceReport(draftRef.current, testReport),
     testId: string | null = acceptanceRepairTestId,
   ) {
     setAcceptanceRepairLoading(true)
@@ -1411,7 +1486,14 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   const evidenceState = draft?.evidence?.state || (tested ? 'current' : 'missing')
   const evidenceStateLabel = evidenceState === 'current' ? t.evidenceStateCurrent : evidenceState === 'stale' ? t.evidenceStateStale : t.evidenceStateMissing
   const activeVersion = versions[0]?.version
-  const acceptanceCaseViews = useMemo(() => acceptanceCases(draft, testReport), [draft, testReport])
+  const displayedTestReport = useMemo(
+    () => currentAcceptanceReport(draft, testReport),
+    [draft, testReport],
+  )
+  const acceptanceCaseViews = useMemo(
+    () => acceptanceCases(draft, displayedTestReport),
+    [draft, displayedTestReport],
+  )
   const canvasStats = useMemo(() => ({
     nodes: draft?.snapshot.workflow.nodes.length || 0,
     edges: validWorkflowEdges(draft?.snapshot.workflow.nodes || [], draft?.snapshot.workflow.edges || []).length,
@@ -1517,6 +1599,9 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   ]
   const acceptancePassedCount = acceptanceCaseViews.filter(test => test.result?.passed).length
   const acceptanceFailedCount = acceptanceCaseViews.filter(test => test.result && !test.result.passed).length
+  const acceptancePrimaryFailure = acceptanceCaseViews
+    .filter(test => test.result && !test.result.passed)
+    .flatMap(test => acceptanceFailureReasons(test.result as AcceptanceResult, t))[0] || ''
   const acceptanceReadinessItems = [
     { label: t.acceptanceReadinessCases, ready: acceptanceCaseViews.length > 0, detail: t.acceptanceCases(acceptanceCaseViews.length) },
     { label: t.acceptanceReadinessPassed, ready: acceptancePassedCount > 0 && acceptanceFailedCount === 0, detail: `${acceptancePassedCount}/${acceptanceCaseViews.length}` },
@@ -1815,7 +1900,11 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
             <div className="acceptance-readiness-list">{acceptanceReadinessItems.map(item => <article className={item.ready ? 'ready' : ''} key={item.label}><span>{item.label}</span><b>{item.ready ? t.tryReady : t.tryNeedsAttention}</b><small>{item.detail}</small></article>)}</div>
             <p className="publish-guidance" data-acceptance-guidance="publish-next-action">{publishGuidance}</p>
           </section>
-          {testReport && !Boolean(testReport.passed) && <section className={`acceptance-repair-panel ${acceptanceRepairPreview?.supported ? 'supported' : ''}`} data-acceptance-repair="failed-gate-preview" ref={acceptanceRepairRef} tabIndex={-1}>
+          {displayedTestReport && <section className={`acceptance-outcome-summary ${displayedTestReport.passed ? 'passed' : 'failed'}`} data-acceptance-outcome={displayedTestReport.passed ? 'passed' : 'failed'}>
+            <strong>{displayedTestReport.passed ? t.acceptanceOutcomePassed(acceptancePassedCount, acceptanceCaseViews.length) : t.acceptanceOutcomeFailed(acceptanceFailedCount, acceptanceCaseViews.length)}</strong>
+            <p>{displayedTestReport.passed ? t.acceptanceOutcomePassedDetail : acceptancePrimaryFailure || t.acceptanceFailureUnknown}</p>
+          </section>}
+          {displayedTestReport && !Boolean(displayedTestReport.passed) && <section className={`acceptance-repair-panel ${acceptanceRepairPreview?.supported ? 'supported' : ''}`} data-acceptance-repair="failed-gate-preview" ref={acceptanceRepairRef} tabIndex={-1}>
             <div className="acceptance-repair-head">
               <div><strong>{t.acceptanceRepairTitle}</strong><small>{t.acceptanceRepairHelp}</small></div>
               <span>{acceptanceRepairPreview ? (acceptanceRepairPreview.supported ? t.patchSupported : t.patchUnsupported) : t.tryNeedsAttention}</span>
@@ -1850,6 +1939,23 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
           <div className="acceptance-list">{acceptanceCaseViews.map(test => {
             const statusClass = testsRunning ? 'running' : test.result ? (test.result.passed ? 'passed' : 'failed') : 'pending'
             const statusText = testsRunning ? t.testing : test.result ? (test.result.passed ? t.passedLabel : t.failedLabel) : t.notRunLabel
+            const result = test.result
+            const assertions = result?.assertions || []
+            const evidence = asRecord(result?.tool_evidence)
+            const failedNode = asRecord(result?.failed_node)
+            const outputValue = result ? acceptanceOutputValue(result) : undefined
+            const outputText = acceptanceDisplayValue(outputValue, t.acceptanceNoFinalOutput)
+            const intermediateOutput = String(failedNode.output_preview || '')
+            const failureReasons = result ? acceptanceFailureReasons(result, t) : []
+            const assertionGatePassed = assertions.every(assertion => assertion.passed)
+            const structureGatePassed = evidence.required_node_types_passed !== false && evidence.required_tool_nodes_passed !== false
+            const toolGatePassed = evidence.required_tools_passed !== false && evidence.minimum_calls_passed !== false && evidence.citation_passed !== false
+            const gateResults = result ? [
+              { label: t.acceptanceGateRun, passed: result.run_status ? result.run_status === 'succeeded' : Boolean(result.passed) },
+              { label: t.acceptanceGateAssertions, passed: assertionGatePassed },
+              { label: t.acceptanceGateStructure, passed: structureGatePassed },
+              { label: t.acceptanceGateTools, passed: toolGatePassed },
+            ] : []
             return <section className="acceptance-card" key={test.id}>
               <div className="acceptance-card-head"><div><strong>{test.name}</strong><small>{test.requirement || t.noRequirementText}</small></div><span className={statusClass}>{statusText}</span></div>
               <div className="acceptance-grid">
@@ -1858,11 +1964,49 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
                 <div><h4>{t.structureGate}</h4>{test.requiredNodeTypes.length || test.requiredToolNodes.length ? <ul>{test.requiredNodeTypes.length > 0 && <li>{t.requiredBrickTypes}: <code>{test.requiredNodeTypes.join(', ')}</code></li>}{test.requiredToolNodes.length > 0 && <li>{t.requiredToolNodes}: <code>{test.requiredToolNodes.join(', ')}</code></li>}</ul> : <p>{t.noStructureGate}</p>}</div>
                 <div><h4>{t.toolEvidence}</h4>{test.requiredTools.length || test.minimumToolCalls || test.requireCitedToolUrls ? <ul>{test.requiredTools.length > 0 && <li>{t.requiredRuntimeTools}: <code>{test.requiredTools.join(', ')}</code></li>}{test.minimumToolCalls > 0 && <li>{t.minToolCalls}: <code>{test.minimumToolCalls}</code></li>}<li>{test.requireCitedToolUrls ? t.citedUrlsRequired : t.citedUrlsNotRequired}</li></ul> : <p>{t.noToolGate}</p>}</div>
               </div>
-              {test.result && <div className="acceptance-result"><h4>{t.latestResult}</h4><p>{t.runId}: <code>{test.result.run_id || '-'}</code></p><p>{t.usedTools}: <code>{asStringArray(asRecord(test.result.tool_evidence).used_tools).join(', ') || '-'}</code></p><p>{t.assertionPassCount}: <code>{(test.result.assertions || []).filter(item => item.passed).length}/{(test.result.assertions || []).length}</code></p>{!test.result.passed && <button type="button" className="acceptance-case-repair" data-acceptance-repair-case={test.id} onClick={() => void previewAcceptanceRepair(testReport, test.id)}>{t.acceptanceRepairThisCase}</button>}</div>}
+              {result && <div className="acceptance-result">
+                <div className="acceptance-result-head"><h4>{t.latestResult}</h4><span>{t.runStatus}: <b>{result.run_status || (result.passed ? 'succeeded' : 'failed')}</b></span></div>
+                <div className="acceptance-gate-verdicts" data-acceptance-gate-verdicts="visible">{gateResults.map(gate => <span data-state={gate.passed ? 'passed' : 'failed'} key={gate.label}><b>{gate.label}</b><em>{gate.passed ? t.passedLabel : t.failedLabel}</em></span>)}</div>
+                <div className="acceptance-run-meta"><p>{t.runId}: <code>{result.run_id || '-'}</code></p><p>{t.usedTools}: <code>{asStringArray(evidence.used_tools).join(', ') || '-'}</code></p><p>{t.assertionPassCount}: <code>{assertions.filter(item => item.passed).length}/{assertions.length}</code></p></div>
+                {!result.passed && <div className="acceptance-failure-reasons" data-acceptance-failure-reasons="visible">
+                  <strong>{t.acceptanceWhyFailed}</strong>
+                  {Boolean(failedNode.id) && <p>{t.acceptanceFailedAtBrick}: <code>{String(failedNode.title || failedNode.id)} ({String(failedNode.id)})</code></p>}
+                  <ul>{failureReasons.map(reason => <li key={reason}>{reason}</li>)}</ul>
+                  {result.run_error && <details><summary>{t.acceptanceTechnicalError}</summary><code>{result.run_error}</code></details>}
+                </div>}
+                <div className="acceptance-actual-output" data-acceptance-actual-output={outputValue === undefined ? 'missing' : 'present'}>
+                  <strong>{t.acceptanceActualOutput}</strong>
+                  {outputValue === undefined ? <p>{t.acceptanceNoFinalOutput}</p> : typeof outputValue === 'string'
+                    ? <MarkdownDocument compact emptyLabel={t.acceptanceNoFinalOutput} source={outputText} />
+                    : <pre>{outputText}</pre>}
+                  {outputValue !== undefined && <details><summary>{t.acceptanceRawOutput}</summary><pre>{JSON.stringify(result.outputs, null, 2)}</pre></details>}
+                </div>
+                {intermediateOutput && <div className="acceptance-intermediate-output" data-acceptance-intermediate-output="present">
+                  <strong>{t.acceptanceIntermediateOutput}</strong>
+                  <small>{t.acceptanceIntermediateOutputHelp}</small>
+                  <MarkdownDocument compact emptyLabel={t.acceptanceNoFinalOutput} source={intermediateOutput} />
+                </div>}
+                <div className="acceptance-assertion-comparison" data-acceptance-assertion-comparison="visible">
+                  <strong>{t.acceptanceAssertionComparison}</strong>
+                  {assertions.length ? assertions.map((assertion, index) => {
+                    const assertionPassed = assertion.passed === true
+                    const path = asStringArray(assertion.path).join('.') || '<root>'
+                    const expected = assertion.expected === undefined || assertion.expected === null ? String(assertion.operator || 'exists') : acceptanceDisplayValue(assertion.expected, t.acceptanceNotProduced)
+                    const actual = Object.prototype.hasOwnProperty.call(assertion, 'actual') ? acceptanceDisplayValue(assertion.actual, t.acceptanceNotProduced) : t.acceptanceNotProduced
+                    return <article data-state={assertionPassed ? 'passed' : 'failed'} key={`${path}-${index}`}>
+                      <div><code>{path}</code><span>{String(assertion.operator || 'exists')}</span><b>{assertionPassed ? t.passedLabel : t.failedLabel}</b></div>
+                      <p>{t.acceptanceExpectedValue}: <code>{expected}</code></p>
+                      <p>{t.acceptanceActualValue}: <code>{actual}</code></p>
+                      {Boolean(assertion.error) && <small>{String(assertion.error)}</small>}
+                    </article>
+                  }) : <p>{t.noAssertions}</p>}
+                </div>
+                {!result.passed && <button type="button" className="acceptance-case-repair" data-acceptance-repair-case={test.id} onClick={() => void previewAcceptanceRepair(displayedTestReport, test.id)}>{t.acceptanceRepairThisCase}</button>}
+              </div>}
               <details><summary>{t.engineeringDetails}</summary><pre>{JSON.stringify(test.raw, null, 2)}</pre></details>
             </section>
           })}</div>
-          {testReport && <><h3>{t.latestReport}</h3><pre className="trace-log">{JSON.stringify(testReport, null, 2)}</pre></>}
+          {displayedTestReport && <details className="acceptance-full-report"><summary>{t.latestReport}</summary><pre className="trace-log">{JSON.stringify(displayedTestReport, null, 2)}</pre></details>}
           <h3>{t.versionHistory}</h3>{versions.map(version => <div className="version-row" key={version.version}><span>v{version.version}</span><small>{version.content_hash.slice(0, 9)}</small><button onClick={async () => { await api(`/api/v1/applications/${id}/versions/${version.version}/restore`, { method: 'POST' }); await refresh() }}>{t.loadEdit}</button></div>)}
         </div>}
         {tab === 'automation' && <div className="panel-body" data-studio-workspace="automation">

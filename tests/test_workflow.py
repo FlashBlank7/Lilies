@@ -980,6 +980,7 @@ class JsonModelTurnProvider(ModelProvider):
     def __init__(self) -> None:
         self.prompts: list[str] = []
         self.systems: list[str] = []
+        self.valid_json = True
 
     def capabilities(self, model: str) -> ProviderCapabilities:
         return ProviderCapabilities(True, True, True, False, False, 100_000, 10_000)
@@ -999,13 +1000,17 @@ class JsonModelTurnProvider(ModelProvider):
     ) -> AsyncIterator[StreamEvent]:
         self.systems.append(system)
         self.prompts.append("\n".join(block.text or "" for message in messages for block in message.content))
-        text = json.dumps({
-            "category": "账单问题",
-            "suggestions": ["核对发票差额", "确认付款周期"],
-            "owner": "财务专员",
-            "info_gaps": ["发票编号"],
-            "summary": "账单问题处理摘要",
-        }, ensure_ascii=False)
+        text = (
+            json.dumps({
+                "category": "账单问题",
+                "suggestions": ["核对发票差额", "确认付款周期"],
+                "owner": "财务专员",
+                "info_gaps": ["发票编号"],
+                "summary": "账单问题处理摘要",
+            }, ensure_ascii=False)
+            if self.valid_json
+            else "not json"
+        )
         yield StreamEvent(type="message_start", data={"message": {"usage": {"input_tokens": 1}}})
         yield StreamEvent(type="content_block_start", data={
             "index": 0, "content_block": {"type": "text", "text": ""}
@@ -5280,8 +5285,8 @@ def test_branch_outputs_join_with_variable_aggregator(tmp_path: Path) -> None:
             {"id": "no", "type": "variable_assigner", "title": "No", "config": {"assignments": {"value": "rejected"}}},
             {"id": "join", "type": "variable_aggregator", "title": "Join", "config": {
                 "variables": [
-                    {"$ref": {"node_id": "yes", "path": ["output", "value"]}},
-                    {"$ref": {"node_id": "no", "path": ["output", "value"]}},
+                    {"$ref": {"node_id": "yes", "path": ["output", "value"]}, "optional": True},
+                    {"$ref": {"node_id": "no", "path": ["output", "value"]}, "optional": True},
                 ], "mode": "first_non_null",
             }},
             {"id": "end", "type": "end", "title": "End", "config": {"outputs": {
@@ -5308,6 +5313,211 @@ def test_branch_outputs_join_with_variable_aggregator(tmp_path: Path) -> None:
             }})
         result = client.post(f"/api/v1/applications/{app_id}/tests/run", headers=headers())
         assert result.json()["passed"] is True, result.text
+
+
+def test_llm_structured_output_contract_overrides_conflicting_markdown_instruction(
+    tmp_path: Path,
+) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+    )
+    provider = JsonModelTurnProvider()
+    app = create_app(settings, provider)
+    with TestClient(app) as client:
+        app_id = client.post(
+            "/api/v1/applications",
+            headers=headers(),
+            json={
+                "name": "Structured LLM contract",
+                "requirement": "Structured model output must survive a conflicting display instruction.",
+            },
+        ).json()["id"]
+        nodes = [
+            {
+                "id": "start",
+                "type": "start",
+                "title": "Start",
+                "config": {"inputs": [{"name": "request"}]},
+            },
+            {
+                "id": "analyze",
+                "type": "llm",
+                "title": "Analyze",
+                "config": {
+                    "system": "Format the complete response as Markdown.",
+                    "prompt": {"$ref": {"node_id": "start", "path": ["request"]}},
+                    "structured_output": {
+                        "type": "object",
+                        "properties": {"category": {"type": "string"}},
+                        "required": ["category"],
+                    },
+                },
+            },
+            {
+                "id": "answer",
+                "type": "answer",
+                "title": "Answer",
+                "config": {
+                    "answer": {
+                        "$ref": {
+                            "node_id": "analyze",
+                            "path": ["structured", "category"],
+                        }
+                    }
+                },
+            },
+        ]
+        revision = 0
+        for node in nodes:
+            revision = mutate(client, app_id, revision, "add_node", {"node": node})
+        for edge in [
+            {"id": "s-a", "source": "start", "target": "analyze"},
+            {
+                "id": "a-r",
+                "source": "analyze",
+                "target": "answer",
+                "source_port": "structured",
+            },
+        ]:
+            revision = mutate(client, app_id, revision, "add_edge", {"edge": edge})
+        revision = mutate(client, app_id, revision, "add_test", {"test": {
+            "name": "Structured answer",
+            "requirement": "The configured JSON field reaches the terminal answer.",
+            "inputs": {"request": "发票金额不对"},
+            "assertions": [{"path": ["answer"], "operator": "equals", "expected": "账单问题"}],
+        }})
+
+        result = client.post(f"/api/v1/applications/{app_id}/tests/run", headers=headers())
+        assert result.status_code == 200, result.text
+        assert result.json()["passed"] is True, result.text
+        assert "return exactly one valid JSON value" in provider.systems[0]
+        assert "overrides any earlier output-format instruction" in provider.systems[0]
+        assert '"required": ["category"]' in provider.systems[0]
+
+        provider.valid_json = False
+        failed = client.post(
+            f"/api/v1/applications/{app_id}/tests/run",
+            headers=headers(),
+        )
+        assert failed.status_code == 200, failed.text
+        assert failed.json()["passed"] is False
+        draft = client.get(
+            f"/api/v1/applications/{app_id}/draft",
+            headers=headers(),
+        ).json()
+        assert draft["tested_hash"] == draft["content_hash"]
+        assert draft["evidence"]["state"] == "stale"
+        assert draft["evidence"]["latest_validation_failed"] is True
+        decision = client.get(
+            f"/api/v1/applications/{app_id}/publication-decision",
+            headers=headers(),
+        ).json()
+        assert decision["evidence_state"] == "stale"
+        assert decision["warning_codes"] == ["failed_evidence"]
+
+
+def test_failed_acceptance_report_persists_runtime_error_and_actual_output(
+    tmp_path: Path,
+) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+    )
+    app = create_app(settings, PromptCaptureProvider())
+    with TestClient(app) as client:
+        app_id = client.post(
+            "/api/v1/applications",
+            headers=headers(),
+            json={
+                "name": "Failed acceptance diagnostics",
+                "requirement": "Persist a readable failed acceptance result.",
+            },
+        ).json()["id"]
+        nodes = [
+            {
+                "id": "start",
+                "type": "start",
+                "title": "Start",
+                "config": {"inputs": [{"name": "request"}]},
+            },
+            {
+                "id": "analyze",
+                "type": "llm",
+                "title": "Analyze",
+                "config": {
+                    "system": "Analyze the request.",
+                    "prompt": {"$ref": {"node_id": "start", "path": ["request"]}},
+                    "structured_output": {
+                        "type": "object",
+                        "properties": {"answer": {"type": "string"}},
+                        "required": ["answer"],
+                    },
+                },
+            },
+            {
+                "id": "answer",
+                "type": "answer",
+                "title": "Answer",
+                "config": {
+                    "answer": {
+                        "$ref": {
+                            "node_id": "analyze",
+                            "path": ["structured", "answer"],
+                        }
+                    }
+                },
+            },
+        ]
+        revision = 0
+        for node in nodes:
+            revision = mutate(client, app_id, revision, "add_node", {"node": node})
+        for edge in [
+            {"id": "s-a", "source": "start", "target": "analyze"},
+            {
+                "id": "a-r",
+                "source": "analyze",
+                "target": "answer",
+                "source_port": "structured",
+            },
+        ]:
+            revision = mutate(client, app_id, revision, "add_edge", {"edge": edge})
+        revision = mutate(client, app_id, revision, "add_test", {"test": {
+            "name": "Answer exists",
+            "requirement": "A final answer must be produced.",
+            "inputs": {"request": "hello"},
+            "assertions": [{"path": ["answer"], "operator": "exists"}],
+        }})
+
+        response = client.post(
+            f"/api/v1/applications/{app_id}/tests/run",
+            headers=headers(),
+        )
+        assert response.status_code == 200, response.text
+        report = response.json()
+        assert report["passed"] is False
+        result = report["tests"][0]
+        assert result["run_status"] == "failed"
+        assert result["failure_code"] == "structured_output_invalid"
+        assert "node analyze failed: model did not return valid JSON" in result["run_error"]
+        assert result["failed_node"]["id"] == "analyze"
+        assert result["failed_node"]["title"] == "Analyze"
+        assert result["failed_node"]["output_preview"] == "saw tool evidence"
+        assert result["outputs"] == {}
+        assert "workflow error: node analyze failed" in "\n".join(
+            result["readable_report"]["failed_checks"]
+        )
+        assert result["assertions"][0]["error"] == "output path not found: answer"
+
+        persisted = client.get(
+            f"/api/v1/applications/{app_id}/draft",
+            headers=headers(),
+        ).json()
+        assert persisted["tested_hash"] is None
+        assert persisted["validation_report"] == report
+        assert persisted["evidence"]["last_validation_report"] == report
 
 
 def test_model_turn_system_prompt_json_fields_feed_downstream_refs(tmp_path: Path) -> None:

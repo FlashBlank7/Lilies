@@ -475,8 +475,18 @@ class WorkflowRuntime:
             return {"output": result, **result}
         if isinstance(config, LLMConfig):
             prompt = str(self._resolve(config.prompt, context))
+            system = config.system
+            if config.structured_output is not None:
+                schema = json.dumps(config.structured_output, ensure_ascii=False)
+                system = (
+                    f"{system.rstrip()}\n\n"
+                    "Runtime output contract: return exactly one valid JSON value that matches "
+                    f"this JSON Schema: {schema}\n"
+                    "Do not return Markdown, prose, XML, comments, or a fenced code block. "
+                    "This runtime instruction overrides any earlier output-format instruction."
+                )
             text, usage = await self._model_text(
-                run_id, config.model or self.runtime_model, config.system, prompt, scoped_id
+                run_id, config.model or self.runtime_model, system, prompt, scoped_id
             )
             result = {"text": text, "usage": usage.model_dump(mode="json")}
             if config.structured_output is not None:
@@ -2175,6 +2185,11 @@ class WorkflowRuntime:
                     "mandatory": test.mandatory,
                     "passed": False,
                     "run_id": "",
+                    "run_status": "not_run",
+                    "run_error": "draft validation failed before execution",
+                    "failure_code": "draft_validation_failed",
+                    "failed_node": None,
+                    "outputs": {},
                     "frame": frame,
                     "readable_report": readable_report,
                     "assertions": assertions,
@@ -2217,6 +2232,13 @@ class WorkflowRuntime:
                 "summary": summary,
                 "tests": results,
             }
+            await self.workflow_store.record_test_report(
+                application_id,
+                draft["revision"],
+                draft["content_hash"],
+                report,
+                passed=False,
+            )
             if manage_harness_task:
                 await self.harness.finish_task(test_task_id, status="failed")
             await self._emit(application_id, "tests.completed", report)
@@ -2241,6 +2263,34 @@ class WorkflowRuntime:
         for test, run_id in test_runs:
             record = await self.workflow_store.get_run(run_id)
             workflow_events = await self.storage.list_events(run_id)
+            failed_event = next(
+                (event for event in reversed(workflow_events) if event.type == "node.failed"),
+                None,
+            )
+            failed_node_id = str(failed_event.data.get("node_id", "")) if failed_event else ""
+            failed_node_spec = next(
+                (node for node in snapshot.workflow.nodes if node.id == failed_node_id),
+                None,
+            )
+            failed_node_output = "".join(
+                str(event.data.get("text", ""))
+                for event in workflow_events
+                if failed_node_id
+                and event.type == f"node.{failed_node_id}.model.text.delta"
+            )
+            failed_node = (
+                {
+                    "id": failed_node_id,
+                    "title": failed_node_spec.title if failed_node_spec else failed_node_id,
+                    "type": failed_node_spec.type if failed_node_spec else "",
+                    "error": str(failed_event.data.get("error", "")),
+                    "output_preview": failed_node_output[:4_000],
+                }
+                if failed_event
+                else None
+            )
+            run_error = str(record.get("error") or "")
+            failure_code = self._acceptance_failure_code(run_error)
             session_ids = [
                 str(event.data["session_id"])
                 for event in workflow_events
@@ -2315,10 +2365,23 @@ class WorkflowRuntime:
                         assertion_result["semantic_unwrap"] = True
                     assertions.append(assertion_result)
                 except Exception as error:
-                    assertions.append({"passed": False, "error": str(error), **assertion.model_dump(mode="json")})
+                    path = ".".join(str(item) for item in assertion.path) or "<root>"
+                    message = (
+                        f"output path not found: {path}"
+                        if isinstance(error, (KeyError, TypeError, IndexError))
+                        else str(error)
+                    )
+                    assertions.append({
+                        "passed": False,
+                        "actual": None,
+                        "error": message,
+                        **assertion.model_dump(mode="json"),
+                    })
             failed_checks: list[str] = []
             if record["status"] != "succeeded":
                 failed_checks.append(f"run status is {record['status']}")
+                if run_error:
+                    failed_checks.append(f"workflow error: {run_error}")
             if not required_node_types_passed:
                 missing = sorted(set(test.required_node_types) - set(node_types))
                 failed_checks.append(f"missing required node types: {missing}")
@@ -2372,6 +2435,7 @@ class WorkflowRuntime:
                 "failure_target": frame.get("failure_target", ""),
                 "failed_checks": failed_checks,
                 "failed_assertions": failed_assertions,
+                "failure_code": failure_code,
                 "feedback_hints": test.feedback_hints,
             }
             results.append({
@@ -2380,6 +2444,11 @@ class WorkflowRuntime:
                 "mandatory": test.mandatory,
                 "passed": passed,
                 "run_id": run_id,
+                "run_status": record["status"],
+                "run_error": run_error,
+                "failure_code": failure_code,
+                "failed_node": failed_node,
+                "outputs": record["outputs"],
                 "frame": frame,
                 "readable_report": readable_report,
                 "assertions": assertions,
@@ -2420,10 +2489,13 @@ class WorkflowRuntime:
             ],
         }
         report = {"passed": passed, "validation": validation, "summary": summary, "tests": results}
-        if passed:
-            await self.workflow_store.mark_tested(
-                application_id, draft["revision"], draft["content_hash"], report
-            )
+        await self.workflow_store.record_test_report(
+            application_id,
+            draft["revision"],
+            draft["content_hash"],
+            report,
+            passed=passed,
+        )
         if manage_harness_task:
             await self.harness.finish_task(test_task_id, status="succeeded" if passed else "failed")
         await self._emit(application_id, "tests.completed", report)
@@ -2480,8 +2552,14 @@ class WorkflowRuntime:
 
     @classmethod
     def _resolve(cls, value: Any, context: dict[str, Any]) -> Any:
-        if isinstance(value, dict) and set(value) == {"$ref"}:
-            reference = value["$ref"]
+        if (
+            isinstance(value, dict)
+            and "$ref" in value
+            and set(value).issubset({"$ref", "optional"})
+        ):
+            reference = dict(value["$ref"])
+            if value.get("optional"):
+                reference["optional"] = True
             try:
                 if reference.get("node_id") == "$inputs":
                     current: Any = context["inputs"]
@@ -2506,7 +2584,11 @@ class WorkflowRuntime:
     def _references_skipped_node(cls, value: Any, skipped_nodes: set[str]) -> bool:
         if not skipped_nodes:
             return False
-        if isinstance(value, dict) and set(value) == {"$ref"}:
+        if (
+            isinstance(value, dict)
+            and "$ref" in value
+            and set(value).issubset({"$ref", "optional"})
+        ):
             return str(value["$ref"].get("node_id")) in skipped_nodes
         if isinstance(value, dict):
             return any(cls._references_skipped_node(item, skipped_nodes) for item in value.values())
@@ -2604,11 +2686,25 @@ class WorkflowRuntime:
             stripped = re.sub(r"^```(?:json)?\s*|\s*```$", "", stripped, flags=re.I)
         try:
             return json.loads(stripped)
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as error:
             match = re.search(r"(\{.*\}|\[.*\])", stripped, re.S)
             if not match:
-                raise ValueError("model did not return valid JSON")
-            return json.loads(match.group(1))
+                raise ValueError("model did not return valid JSON") from error
+            try:
+                return json.loads(match.group(1))
+            except json.JSONDecodeError as nested_error:
+                raise ValueError("model did not return valid JSON") from nested_error
+
+    @staticmethod
+    def _acceptance_failure_code(run_error: str) -> str:
+        normalized = run_error.casefold()
+        if "valid json" in normalized or "json" in normalized and "parse" in normalized:
+            return "structured_output_invalid"
+        if "node " in normalized and " failed:" in normalized:
+            return "node_execution_failed"
+        if run_error:
+            return "workflow_run_failed"
+        return ""
 
     @classmethod
     def _semantic_acceptance_output(cls, outputs: Any) -> Any:

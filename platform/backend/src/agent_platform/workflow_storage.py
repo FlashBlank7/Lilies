@@ -543,10 +543,34 @@ class WorkflowStorage:
         row: dict[str, Any],
         validation_report: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        if validation_report is None and isinstance(row.get("validation_report_json"), str):
+            try:
+                parsed_report = json.loads(row["validation_report_json"])
+            except json.JSONDecodeError:
+                parsed_report = None
+            validation_report = parsed_report if isinstance(parsed_report, dict) else None
+        latest_validation = (
+            validation_report.get("validation", {})
+            if isinstance(validation_report, dict)
+            else {}
+        )
+        latest_validation_current = (
+            isinstance(latest_validation, dict)
+            and latest_validation.get("content_hash") == row["content_hash"]
+        )
+        latest_validation_failed = bool(
+            latest_validation_current
+            and validation_report
+            and validation_report.get("passed") is False
+        )
+        state = cls._evidence_state(row.get("tested_hash"), row["content_hash"])
+        if latest_validation_failed and state == "current":
+            state = "stale"
         result = {
-            "state": cls._evidence_state(row.get("tested_hash"), row["content_hash"]),
+            "state": state,
             "current_hash": row["content_hash"],
             "last_tested_hash": row.get("tested_hash"),
+            "latest_validation_failed": latest_validation_failed,
             "invalidated_at": row.get("evidence_invalidated_at"),
             "invalidated_revision": row.get("evidence_invalidated_revision"),
             "change_summary": cls._json_list(row.get("evidence_change_summary_json")),
@@ -559,13 +583,40 @@ class WorkflowStorage:
     async def mark_tested(
         self, application_id: str, revision: int, content_hash: str, report: dict[str, Any]
     ) -> None:
+        await self.record_test_report(
+            application_id,
+            revision,
+            content_hash,
+            report,
+            passed=True,
+        )
+
+    async def record_test_report(
+        self,
+        application_id: str,
+        revision: int,
+        content_hash: str,
+        report: dict[str, Any],
+        *,
+        passed: bool,
+    ) -> None:
         async with self._lock:
             await asyncio.to_thread(
-                self._mark_tested_sync, application_id, revision, content_hash, report
+                self._record_test_report_sync,
+                application_id,
+                revision,
+                content_hash,
+                report,
+                passed,
             )
 
-    def _mark_tested_sync(
-        self, application_id: str, revision: int, content_hash: str, report: dict[str, Any]
+    def _record_test_report_sync(
+        self,
+        application_id: str,
+        revision: int,
+        content_hash: str,
+        report: dict[str, Any],
+        passed: bool,
     ) -> None:
         with self.storage._connect() as conn:
             row = conn.execute(
@@ -574,13 +625,25 @@ class WorkflowStorage:
             ).fetchone()
             if not row or int(row["revision"]) != revision or row["content_hash"] != content_hash:
                 raise RevisionConflict("draft changed while tests were running")
-            conn.execute(
-                """UPDATE application_drafts SET tested_hash=?,validation_report_json=?,
-                   evidence_invalidated_at=NULL,evidence_invalidated_revision=NULL,
-                   evidence_change_summary_json='[]',updated_at=?
-                   WHERE application_id=?""",
-                (content_hash, json.dumps(report, ensure_ascii=False), utc_now(), application_id),
-            )
+            if passed:
+                conn.execute(
+                    """UPDATE application_drafts SET tested_hash=?,validation_report_json=?,
+                       evidence_invalidated_at=NULL,evidence_invalidated_revision=NULL,
+                       evidence_change_summary_json='[]',updated_at=?
+                       WHERE application_id=?""",
+                    (
+                        content_hash,
+                        json.dumps(report, ensure_ascii=False),
+                        utc_now(),
+                        application_id,
+                    ),
+                )
+            else:
+                conn.execute(
+                    """UPDATE application_drafts SET validation_report_json=?,updated_at=?
+                       WHERE application_id=?""",
+                    (json.dumps(report, ensure_ascii=False), utc_now(), application_id),
+                )
 
     async def publication_decision(self, application_id: str) -> dict[str, Any]:
         return await asyncio.to_thread(self._publication_decision_sync, application_id)
@@ -605,7 +668,12 @@ class WorkflowStorage:
         ).model_dump(mode="json")
         evidence = cls._evidence_result(row)
         warnings: list[dict[str, str]] = []
-        if evidence["state"] == "missing":
+        if evidence["latest_validation_failed"]:
+            warnings.append({
+                "code": "failed_evidence",
+                "message": "The latest acceptance run for the current draft failed.",
+            })
+        elif evidence["state"] == "missing":
             warnings.append({
                 "code": "missing_evidence",
                 "message": "The current draft has no successful acceptance evidence.",
