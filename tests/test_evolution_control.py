@@ -39,13 +39,13 @@ def test_campaign_priority_outranks_stage_mechanics_and_external_evidence() -> N
     charter = (ROOT / "docs/evolution-control/PROGRAM_CHARTER.md").read_text(encoding="utf-8")
     template = (ROOT / "docs/stage-reports/STAGE_REPORT_TEMPLATE.md").read_text(encoding="utf-8")
 
-    assert "traditional-enterprise Product North Star" in registry["campaign_objective"]
+    assert "separately reported individual workflows" in registry["campaign_objective"]
     assert "Product Supremacy" in agents
     assert "docs/PRODUCT_NORTH_STAR.md" in agents
     assert "传统企业" in north_star
     assert "机器学习/深度学习" in north_star
     assert any(item["id"] == "PRODUCT-010" for item in registry["intents"])
-    assert any(item["id"] == "SCENARIO-005" for item in registry["intents"])
+    assert any(item["id"] == "SCENARIO-008" for item in registry["intents"])
     assert "Campaign Objective And Priority" in charter
     assert "blocked_by_environment" in charter
     assert "Do not retry an unchanged external blocker" in agents
@@ -143,7 +143,7 @@ def test_campaign_closure_rejects_reopened_product_intents() -> None:
     errors = module.validate_registry(require_terminal=True)
 
     assert any("PRODUCT-010 is not terminal" in error for error in errors)
-    assert any("SCENARIO-005 is not terminal" in error for error in errors)
+    assert any("SCENARIO-008 is not terminal" in error for error in errors)
 
 
 def test_v2_template_is_structural_but_not_a_closable_stage() -> None:

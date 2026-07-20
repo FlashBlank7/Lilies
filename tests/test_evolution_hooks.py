@@ -51,9 +51,9 @@ def test_checkpoint_contains_current_task_but_no_next_task_authority(tmp_path: P
     payload = json.loads(destination.read_text(encoding="utf-8"))
     assert payload["current_task_id"] == expected_task
     assert payload["purpose"].startswith("intermediate resume evidence")
-    assert "traditional-enterprise Product North Star" in payload["campaign_objective"]
+    assert "separately reported individual workflows" in payload["campaign_objective"]
     assert payload["campaign_completion_status"] == "open"
-    assert "SCENARIO-005" in payload["open_intent_ids"]
+    assert "SCENARIO-008" in payload["open_intent_ids"]
     assert "next_stage" not in payload
     assert "next_task" not in payload
 
@@ -105,7 +105,7 @@ def test_stop_guard_does_not_treat_closed_stage_as_product_completion(monkeypatc
                 "validation_status": "valid",
                 "invalid_newer_reports": "none",
                 "campaign_completion_status": "open",
-                "open_intent_ids": "PRODUCT-010, SCENARIO-005",
+                "open_intent_ids": "PRODUCT-010, SCENARIO-008",
             },
         )
         warning = guard.stop_warning(ROOT)

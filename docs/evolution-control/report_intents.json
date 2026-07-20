@@ -4,9 +4,9 @@
   "source_report": "docs/PRODUCT_NORTH_STAR.md",
   "legacy_source_report": "docs/lilies_agent_scenario_capability_boundary_v0_4_x_latest.docx",
   "audit_report": "docs/lilies_product_intent_drift_audit_2026-07-21.md",
-  "campaign_objective": "Implement and verify the traditional-enterprise Product North Star and its real data, ML/DL, RAG, artifact-delivery, and industrial workflow intents; preserve the completed capability-boundary report work as enabling infrastructure rather than treating it as product completion.",
+  "campaign_objective": "Implement and verify the Product North Star through real enterprise and separately reported individual workflows spanning data, ML/DL, RAG, prediction, optimization, document processing, artifact delivery, and continuous operation; preserve the completed capability-boundary report work as enabling infrastructure rather than treating it as product completion.",
   "priority_rule": "latest_user_instruction > product_north_star > report_campaign_and_intent_registry > stage_report_sequence > stage_contract > current_design > working_evidence",
-  "program_charter_lock": "docs/evolution-control/program_charter_lock_v1_4.json",
+  "program_charter_lock": "docs/evolution-control/program_charter_lock_v1_5.json",
   "task_authority": "stage_report_only",
   "product_completion_status": "reopened_after_intent_drift_audit",
   "legacy_capability_campaign_status": "enabling_subset_completed_not_product_completion",
@@ -157,8 +157,8 @@
       "id": "PRODUCT-010",
       "category": "product",
       "priority": "P0",
-      "statement": "Preserve traditional enterprises that need AI transformation as the primary target customer and derive platform work from their real business or technical workflows.",
-      "acceptance": "Active product documents, stage tasks, scenario catalogs, and experiment denominators name the enterprise role, real problem, input data or model, external system, deliverable, and business oracle; engineering pressure tests remain separately labeled.",
+      "statement": "Preserve traditional enterprises that need AI transformation as the primary target customer, test individual and small-team needs as a separate cohort, and derive platform work from real business, technical, or personal workflows.",
+      "acceptance": "Active product documents, stage tasks, scenario catalogs, and experiment denominators name the user role, real problem, input data or model, external system, deliverable, and independent oracle; enterprise, individual, and engineering pressure-test results remain separately labeled.",
       "status": "unassessed",
       "evidence": [
         "docs/PRODUCT_NORTH_STAR.md",
@@ -174,7 +174,7 @@
       "status": "unassessed",
       "evidence": [
         "docs/PRODUCT_NORTH_STAR.md",
-        "docs/traditional_enterprise_ai_workflow_experiment_plan_2026-07-21.md"
+        "docs/platform_generated_workflow_real_project_experiment_design_2026-07-21.md"
       ]
     },
     {
@@ -186,7 +186,7 @@
       "status": "unassessed",
       "evidence": [
         "docs/PRODUCT_NORTH_STAR.md",
-        "docs/traditional_enterprise_ai_workflow_experiment_plan_2026-07-21.md"
+        "docs/platform_generated_workflow_real_project_experiment_design_2026-07-21.md"
       ]
     },
     {
@@ -198,7 +198,7 @@
       "status": "unassessed",
       "evidence": [
         "docs/PRODUCT_NORTH_STAR.md",
-        "docs/traditional_enterprise_ai_workflow_experiment_plan_2026-07-21.md"
+        "docs/platform_generated_workflow_real_project_experiment_design_2026-07-21.md"
       ]
     },
     {
@@ -210,19 +210,19 @@
       "status": "unassessed",
       "evidence": [
         "docs/PRODUCT_NORTH_STAR.md",
-        "docs/traditional_enterprise_ai_workflow_experiment_plan_2026-07-21.md"
+        "docs/platform_generated_workflow_real_project_experiment_design_2026-07-21.md"
       ]
     },
     {
       "id": "PRODUCT-015",
       "category": "product",
       "priority": "P0",
-      "statement": "Evaluate platform success on generated workflows solving held-out real enterprise problems with independent business evidence.",
-      "acceptance": "Formal platform reports separate requirement fidelity, Build, workflow Run, model or business outcome, artifact or system delivery, repeatability, and human usability; structural acceptance or Builder success cannot substitute for the business result.",
+      "statement": "Evaluate platform success on generated workflows solving held-out real enterprise or individual problems with independent outcome evidence and separate cohort reporting.",
+      "acceptance": "Formal platform reports separate requirement fidelity, Build, workflow Run, model or task outcome, artifact or system delivery, repeatability, and human usability; enterprise and individual denominators stay separate, and structural acceptance or Builder success cannot substitute for the real result.",
       "status": "unassessed",
       "evidence": [
         "docs/PRODUCT_NORTH_STAR.md",
-        "docs/traditional_enterprise_ai_workflow_experiment_plan_2026-07-21.md"
+        "docs/platform_generated_workflow_real_project_experiment_design_2026-07-21.md"
       ]
     },
     {
@@ -532,36 +532,84 @@
       "id": "SCENARIO-004",
       "category": "scenario",
       "priority": "P0",
-      "statement": "Use an elevator fault detection workflow centered on a real ML model as an industrial platform acceptance scenario.",
-      "acceptance": "The platform generates and runs an editable workflow that ingests equipment or sensor data, validates and transforms it, invokes a versioned model, applies confidence and rule thresholds, exposes traceable fault results, routes uncertain cases to a person, and records the downstream alert or work-order boundary.",
+      "statement": "Use real detection and diagnosis workflows as a platform acceptance family without fixing the product to one industry example.",
+      "acceptance": "At least one generated and editable workflow ingests real tabular, time-series, image, or event data, validates and transforms it, invokes a versioned detector or classifier, applies confidence and rule thresholds, exposes traceable results, routes uncertain cases to a person, and records any downstream action boundary.",
       "status": "unassessed",
       "evidence": [
         "docs/PRODUCT_NORTH_STAR.md",
-        "docs/traditional_enterprise_ai_workflow_experiment_plan_2026-07-21.md"
+        "docs/platform_generated_workflow_real_project_experiment_design_2026-07-21.md"
       ]
     },
     {
       "id": "SCENARIO-005",
       "category": "scenario",
       "priority": "P0",
-      "statement": "Use optical-fiber process parameter inheritance or prediction with Excel and API delivery as an industrial platform acceptance scenario.",
-      "acceptance": "The platform generates and runs an editable workflow that consumes historical tested parameters and drawing-process parameters, validates their schema, invokes a versioned ML/DL decision, handles confidence and review, creates a validated Excel result, uploads it to a contract endpoint, and retains an auditable receipt.",
+      "statement": "Use real prediction and decision workflows with typed artifact or API delivery as a platform acceptance family.",
+      "acceptance": "At least one generated and editable workflow consumes historical and current data, validates schema and units, invokes a versioned forecasting or predictive model, handles uncertainty and review, creates a validated file or structured result, optionally writes it to a contract endpoint, and retains an auditable receipt.",
       "status": "unassessed",
       "evidence": [
         "docs/PRODUCT_NORTH_STAR.md",
-        "docs/traditional_enterprise_ai_workflow_experiment_plan_2026-07-21.md"
+        "docs/platform_generated_workflow_real_project_experiment_design_2026-07-21.md"
       ]
     },
     {
       "id": "SCENARIO-006",
       "category": "scenario",
       "priority": "P1",
-      "statement": "Use an enterprise equipment or process knowledge RAG workflow as a document-grounded platform acceptance scenario.",
-      "acceptance": "The platform generates and runs an editable workflow over a frozen document corpus, enforces document access, answers held-out domain questions with valid citations, rejects unsupported claims, and records retrieval and evaluation evidence.",
+      "statement": "Use document-grounded enterprise or personal knowledge workflows as a RAG platform acceptance family.",
+      "acceptance": "The platform generates and runs an editable workflow over a frozen document corpus, enforces document access, answers held-out questions with valid citations, rejects unsupported claims, and records ingestion, retrieval, update, and evaluation evidence.",
       "status": "unassessed",
       "evidence": [
         "docs/PRODUCT_NORTH_STAR.md",
-        "docs/traditional_enterprise_ai_workflow_experiment_plan_2026-07-21.md"
+        "docs/platform_generated_workflow_real_project_experiment_design_2026-07-21.md"
+      ]
+    },
+    {
+      "id": "SCENARIO-007",
+      "category": "scenario",
+      "priority": "P1",
+      "statement": "Use forecasting, constrained optimization, and planning workflows as a platform acceptance family.",
+      "acceptance": "A generated workflow backtests or validates its forecast, translates predictions and business constraints into a feasible plan, reports objective and constraint evidence, routes infeasible or high-impact cases to a person, and emits a reproducible schedule, route, order, or recommendation artifact.",
+      "status": "unassessed",
+      "evidence": [
+        "docs/PRODUCT_NORTH_STAR.md",
+        "docs/platform_generated_workflow_real_project_experiment_design_2026-07-21.md"
+      ]
+    },
+    {
+      "id": "SCENARIO-008",
+      "category": "scenario",
+      "priority": "P1",
+      "statement": "Use document intake, extraction, validation, reconciliation, and governed writeback as a platform acceptance family.",
+      "acceptance": "A generated workflow processes varied real documents, preserves the source artifact, extracts typed fields, validates totals and duplicates, routes ambiguous records to review, and delivers independently checked records or files without unsafe duplicate writes.",
+      "status": "unassessed",
+      "evidence": [
+        "docs/PRODUCT_NORTH_STAR.md",
+        "docs/platform_generated_workflow_real_project_experiment_design_2026-07-21.md"
+      ]
+    },
+    {
+      "id": "SCENARIO-009",
+      "category": "scenario",
+      "priority": "P1",
+      "statement": "Use scheduled monitoring and controlled adaptation workflows as a platform acceptance family.",
+      "acceptance": "A generated workflow repeatedly evaluates new data or results against a versioned baseline, distinguishes drift from execution failure, deduplicates alerts, pauses for required approval, and records any model, threshold, index, or process update and rollback.",
+      "status": "unassessed",
+      "evidence": [
+        "docs/PRODUCT_NORTH_STAR.md",
+        "docs/platform_generated_workflow_real_project_experiment_design_2026-07-21.md"
+      ]
+    },
+    {
+      "id": "SCENARIO-010",
+      "category": "scenario",
+      "priority": "P2",
+      "statement": "Use personal or small-team document, finance, knowledge, and recurring-information workflows as a separately reported platform generalization family.",
+      "acceptance": "At least one generated workflow solves a repeated individual or small-team task with real local data, explicit privacy and approval boundaries, deterministic output checks, and no unsupported external side effect; its results are not mixed into the traditional-enterprise denominator.",
+      "status": "unassessed",
+      "evidence": [
+        "docs/PRODUCT_NORTH_STAR.md",
+        "docs/platform_generated_workflow_real_project_experiment_design_2026-07-21.md"
       ]
     },
     {

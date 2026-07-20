@@ -2,7 +2,7 @@
 
 本目录采用文档驱动开发结构。入口顺序如下：
 
-1. `PRODUCT_NORTH_STAR.md`：最高产品意图、目标客户、工业场景锚点和场景选择硬门。
+1. `PRODUCT_NORTH_STAR.md`：最高产品意图、目标客户、通用任务原型和场景选择硬门。
 2. `PROJECT_EVOLUTION_STRATEGY.md`：文档分层、阶段归档和智力资产筛选规范。
 3. `stage-reports/`：当前大版本的小版本阶段报告 active 区，采用 compact factsheet。
 4. `stage-report-archives/`：已完成大版本的 stage-report 集合归档。
@@ -35,6 +35,8 @@
 
 - 产品最高意图：`PRODUCT_NORTH_STAR.md`
 - 意图偏移审计：`lilies_product_intent_drift_audit_2026-07-21.md`
+- 真实项目实验预注册：`platform_generated_workflow_real_project_experiment_design_2026-07-21.md`
+- 候选项目探针证据：`evidence/platform_workflow_candidate_probe_2026-07-21.json`
 - 能力边界历史基线：`lilies_agent_scenario_capability_boundary_v0_4_x_latest.docx`，作为底座能力分析使用，不再单独定义产品场景
 - Program Charter：`evolution-control/PROGRAM_CHARTER.md`
 - 产品与底座意图登记：`evolution-control/report_intents.json`
@@ -45,7 +47,7 @@
 
 - 模板：`stage-reports/STAGE_REPORT_TEMPLATE.md`
 - 最新 active stage report：`stage-reports/v0.4.11_human_journey_usability_repair.md`
-- 当前产品方向：原 v0.4.x 能力报告落地作为底座建设保留，但产品完成状态已因工业 ML/DL、RAG、数据工件和传统企业场景缺失而重新打开。后续阶段必须从 `PRODUCT_NORTH_STAR.md` 和非终态产品意图出发。
+- 当前产品方向：原 v0.4.x 能力报告落地作为底座建设保留，但产品完成状态已因真实数据、ML/DL、RAG、预测优化、文档工件和企业/个人真实任务交付缺失而重新打开。电梯和光纤只保留为任务原型示例，不是固定项目。后续阶段必须从 `PRODUCT_NORTH_STAR.md`、真实项目实验预注册和非终态产品意图出发。
 
 ## 已归档 Stage Report Sets
 

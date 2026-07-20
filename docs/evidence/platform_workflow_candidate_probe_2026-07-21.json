@@ -1,0 +1,197 @@
+{
+  "schema_version": "1.0",
+  "evidence_id": "platform-workflow-candidate-probe-2026-07-21",
+  "created_at": "2026-07-21",
+  "purpose": "Qualify real GitHub projects for a later causal experiment on platform-generated workflow delivery. These probes are not platform workflow results.",
+  "environment": {
+    "host_os": "macOS",
+    "architecture": "arm64",
+    "memory_bytes": 17179869184,
+    "free_disk_observed": "167 GiB",
+    "system_python": "3.9.6",
+    "isolated_probe_python": "3.12.13",
+    "docker_available": false,
+    "node_available_in_probe_shell": false,
+    "network_available": true
+  },
+  "platform_baseline": {
+    "block_count": 46,
+    "business_workflow_blocks": 19,
+    "agent_architecture_blocks": 26,
+    "legacy_compatibility_blocks": 1,
+    "targeted_mechanism_tests": {
+      "result": "passed",
+      "passed": 63,
+      "failed": 0,
+      "warning": "Existing Starlette httpx deprecation warning",
+      "files": [
+        "tests/test_v04_00_ai_requirement_intake.py",
+        "tests/test_v04_03_acceptance_repair_context.py",
+        "tests/test_v04_05_capability_build_contract.py",
+        "tests/test_v04_06_versioned_module_evidence_registry.py",
+        "tests/test_v04_08_evaluation_harness.py",
+        "tests/test_v04_09_durable_daily_collection.py",
+        "tests/test_v04_10_connector_embedding.py",
+        "tests/test_v04_11_model_workflow_edit.py"
+      ]
+    },
+    "known_first_class_gaps": [
+      "typed customer file and artifact lifecycle",
+      "dataframe schema and quality execution",
+      "feature and dataset lineage",
+      "ML/DL model import, evaluation, registry, inference, and monitoring",
+      "document parsing and OCR",
+      "RAG ingestion, index, ACL, citation, and evaluation",
+      "Excel generation and independent validation",
+      "optimization solver contract and infeasibility explanation"
+    ]
+  },
+  "dataset_probes": [
+    {
+      "id": "uci-ai4i-2020",
+      "source": "https://archive.ics.uci.edu/dataset/601/ai4i+2020+predictive+maintenance+dataset",
+      "file": "ai4i2020.csv",
+      "sha256": "dc6630cd9b1f0f853922fad78a1b6436570d3f1ec863f1dd5c4340ac56bc8a8e",
+      "rows": 10000,
+      "machine_failure_rows": 339
+    }
+  ],
+  "project_probes": [
+    {
+      "id": "pyod",
+      "repository": "https://github.com/yzhao062/pyod",
+      "release": "v2.0.7",
+      "commit": "aebd3bf65c08419cef7ee8335d331226c8be3df1",
+      "license": "BSD-2-Clause",
+      "probe": "Isolation Forest on a fixed stratified split of UCI AI4I 2020 using five process features",
+      "result": {
+        "status": "passed",
+        "roc_auc": 0.807771,
+        "average_precision": 0.199217
+      },
+      "selection_note": "Version 2.0.7 is used instead of agentic PyOD 3.x so the external project does not confound platform mechanism attribution."
+    },
+    {
+      "id": "statsforecast",
+      "repository": "https://github.com/Nixtla/statsforecast",
+      "release": "v2.1.1",
+      "commit": "264166ec0ddbfd481ee8e0b71e5ca42d2c0676fc",
+      "license": "Apache-2.0",
+      "probe": "Three daily series, 168 input rows, SeasonalNaive and AutoETS, seven-step probabilistic forecast",
+      "result": {
+        "status": "passed",
+        "series": 3,
+        "forecast_rows": 21,
+        "models": [
+          "SeasonalNaive",
+          "AutoETS"
+        ]
+      }
+    },
+    {
+      "id": "or-tools",
+      "repository": "https://github.com/google/or-tools",
+      "release": "v9.15",
+      "package_version": "9.15.6755",
+      "commit": "551ad10d94835c99e5e1e684500d3db398c0e345",
+      "license": "Apache-2.0",
+      "probe": "Official flexible_job_shop_sat.py example",
+      "result": {
+        "status": "passed",
+        "solver_status": "OPTIMAL",
+        "objective": 6.0
+      }
+    },
+    {
+      "id": "haystack",
+      "repository": "https://github.com/deepset-ai/haystack",
+      "release": "v2.31.0",
+      "commit": "df44022bbd85d38123b76350f639803068f43aba",
+      "license": "Apache-2.0",
+      "probe": "Offline InMemoryBM25Retriever over four frozen GitHub README documents",
+      "result": {
+        "status": "passed",
+        "top1_correct": 3,
+        "queries": 3
+      },
+      "selection_note": "The last 2.x line is preferred over the newly released 3.0 major version for the first reproducible tranche."
+    },
+    {
+      "id": "evidently",
+      "repository": "https://github.com/evidentlyai/evidently",
+      "release": "v0.7.21",
+      "commit": "17071a2a1d9e41c129226826d3fda9911782ca99",
+      "license": "Apache-2.0",
+      "probe": "DataDriftPreset over two 4,000-row AI4I batches with an injected +25 Nm torque shift",
+      "result": {
+        "status": "passed",
+        "reference_rows": 4000,
+        "current_rows": 4000,
+        "serialized_result_bytes": 5585
+      }
+    },
+    {
+      "id": "invoice2data",
+      "repository": "https://github.com/invoice-x/invoice2data",
+      "release": "v1.0.0",
+      "commit": "5d913b57059810c6d6743f82bb33277f35349414",
+      "license": "MIT",
+      "probe": "Repository custom invoice extraction fixture suite",
+      "result": {
+        "status": "passed",
+        "tests_run": 1,
+        "fixture_group": "all tests/custom PDF and text fixtures",
+        "warnings_observed": [
+          "no lines found for one optional field",
+          "unrecognized field spelling",
+          "missing optional regex field"
+        ]
+      },
+      "selection_note": "Warnings are retained as candidate reliability cases rather than hidden."
+    }
+  ],
+  "web_qualified_not_locally_executed": [
+    {
+      "id": "docling",
+      "repository": "https://github.com/docling-project/docling",
+      "candidate_release": "v2.113.0",
+      "reason": "Useful for multi-format parsing and OCR, but model downloads and document corpus costs should be isolated in the expansion tranche."
+    },
+    {
+      "id": "anomalib",
+      "repository": "https://github.com/open-edge-platform/anomalib",
+      "candidate_release": "lib/v2.5.1",
+      "reason": "Useful for industrial visual anomaly detection, but dataset, model, and compute requirements make it unsuitable for the high-repetition causal pilot."
+    },
+    {
+      "id": "paperless-ngx",
+      "repository": "https://github.com/paperless-ngx/paperless-ngx",
+      "candidate_release": "v2.20.15",
+      "reason": "Useful as a real document-management integration target, but Docker is not available in the current probe environment."
+    },
+    {
+      "id": "mlflow",
+      "repository": "https://github.com/mlflow/mlflow",
+      "candidate_release": "v3.14.0",
+      "reason": "Useful for model lifecycle and deployment evidence after the core model and artifact modules exist."
+    },
+    {
+      "id": "bentoml",
+      "repository": "https://github.com/bentoml/BentoML",
+      "candidate_release": "v1.4.39",
+      "reason": "Useful for a real inference API boundary after a model-serving adapter is specified."
+    },
+    {
+      "id": "actual",
+      "repository": "https://github.com/actualbudget/actual",
+      "candidate_release": "v26.7.0",
+      "reason": "Useful for a separately reported individual finance workflow, but Node or Docker execution is unavailable in the current probe shell."
+    }
+  ],
+  "claim_boundary": [
+    "A passed project probe proves only that the frozen external component can run in the observed local environment.",
+    "No platform-generated workflow has been built or evaluated by this evidence package.",
+    "No customer deployment, production SLO, real external write, or business outcome is claimed.",
+    "Synthetic or public proxy data cannot be reported as validation of a named customer's production process."
+  ]
+}

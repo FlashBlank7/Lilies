@@ -5,18 +5,18 @@
 | Field | Value |
 | --- | --- |
 | Charter ID | `LILIES-REPORT-APPLICATION-2026-07` |
-| Charter version | `1.4` |
+| Charter version | `1.5` |
 | Status | `frozen` |
 | Product authority | `docs/PRODUCT_NORTH_STAR.md` |
 | Legacy source report | `docs/lilies_agent_scenario_capability_boundary_v0_4_x_latest.docx` |
-| Source instruction | User instruction on 2026-07-21 to restore the Dify-class automatic workflow platform intent, prioritize traditional-enterprise AI transformation and industrial ML/RAG workflows, and audit the accumulated drift |
+| Source instruction | User instructions on 2026-07-21 to restore the Dify-class automatic workflow platform intent, derive general task archetypes instead of fixing the examples as anchors, test real enterprise and separately reported individual needs with GitHub projects, and measure mechanism contribution and module gaps |
 | Task authority | Latest valid stage report only |
 
 This charter is an intent constraint and completion contract. It is not a backlog and must not be used to select a next version directly. The legacy capability-boundary report remains an enabling-architecture source; it no longer defines the complete product or the customer-scenario denominator.
 
 ## Campaign Objective And Priority
 
-The campaign's highest-priority outcome is to implement and verify the Product North Star: a Dify-class visual agent/workflow platform whose Lilies Builder automatically creates useful AI workflows for traditional enterprises. Existing capability-boundary intents remain reusable foundation work, but product completion also requires the restored enterprise data, ML/DL, RAG, artifact delivery, and industrial scenario intents in `report_intents.json`.
+The campaign's highest-priority outcome is to implement and verify the Product North Star: a Dify-class visual agent/workflow platform whose Lilies Builder automatically creates useful AI workflows for traditional enterprises and can generalize to separately reported individual or small-team needs. Existing capability-boundary intents remain reusable foundation work, but product completion also requires the restored data, ML/DL, RAG, prediction, optimization, document, artifact-delivery, monitoring, and real-scenario intents in `report_intents.json`.
 
 Authority is ordered as follows:
 
@@ -33,7 +33,9 @@ A lower layer may constrain how a claim is verified, but it may not silently nar
 
 The complete product is the intelligent agent/workflow generation platform. Lilies is its named Builder agent, not the platform itself.
 
-The platform serves traditional enterprises that need AI transformation but do not already have a mature AI workflow stack. It combines Dify-class visual workflow construction with Lilies-driven requirement clarification, automatic composition, testing, and repair. Customer workflows may combine deterministic logic, data pipelines, ML/DL models, RAG, files and Excel artifacts, human review, and enterprise APIs.
+The platform primarily serves traditional enterprises that need AI transformation but do not already have a mature AI workflow stack. Individual and small-team needs form a separately reported generalization cohort. The platform combines Dify-class visual workflow construction with Lilies-driven requirement clarification, automatic composition, testing, and repair. Customer workflows may combine deterministic logic, data pipelines, ML/DL models, RAG, prediction, optimization, files and Excel artifacts, human review, and external APIs.
+
+Scenarios are derived from reusable task archetypes such as intake and structuring, extraction and normalization, detection and diagnosis, prediction and decision, retrieval and explanation, optimization and planning, delivery and execution, and monitoring and adaptation. User examples do not become permanent anchors or mandatory projects.
 
 Claude/Codex-style agent architecture is an enabling intelligence substrate. Harness, scheduling, connectors, evaluation, and governance are enabling platform mechanisms. Neither category may replace the target customer, the actual business/technical problem, or the customer workflow outcome.
 
@@ -50,12 +52,12 @@ Engineering Harness mechanisms must improve delivery reliability without making 
 7. `PRODUCT-007`: A behavior-affecting edit makes prior acceptance evidence stale and recommends revalidation without deleting the draft or hiding the user's publishing choice.
 8. `PRODUCT-008`: Customer Runtime, Engineer Studio, and Governance Console have distinct information architectures.
 9. `PRODUCT-009`: Reusable workflow modules and templates are first-class capability carriers.
-10. `PRODUCT-010`: Product planning and experiments preserve the traditional-enterprise target customer and start from a real business or technical workflow, not an engineering proxy.
+10. `PRODUCT-010`: Product planning and experiments preserve traditional enterprises as the primary target, report individual and small-team needs separately, and start from a real workflow rather than an engineering proxy or a fixed interpretation of an example.
 11. `PRODUCT-011`: Enterprise data workflows support typed files, tables, sensor or image inputs, schema and quality checks, transformations, feature/parameter lineage, and reproducible artifacts.
 12. `PRODUCT-012`: ML/DL workflows have explicit model lifecycle semantics for training or model import, evaluation, versioning, deployment, inference, monitoring, and human fallback.
-13. `PRODUCT-013`: Enterprise RAG workflows have explicit ingestion, parsing, chunking, embedding, indexing, retrieval, reranking, permission filtering, citation, evaluation, and update semantics.
+13. `PRODUCT-013`: Enterprise or personal RAG workflows have explicit ingestion, parsing, chunking, embedding, indexing, retrieval, reranking, permission filtering, citation, evaluation, and update semantics.
 14. `PRODUCT-014`: Customer delivery can produce validated files such as Excel, call a scoped external API, retain receipts, and expose failures or compensation without replacing the result with prose.
-15. `PRODUCT-015`: Platform success is measured on generated workflows handling held-out real enterprise inputs with independent business evidence; Build success and structural acceptance are insufficient.
+15. `PRODUCT-015`: Platform success is measured on generated workflows handling held-out real enterprise or individual inputs with independent outcome evidence and separate cohort reporting; Build success and structural acceptance are insufficient.
 16. `ARCH-003`: Capability placement is explicit: atomic block, module/subworkflow, runtime/platform service, platform hard control, or connector/external contract; not every missing capability becomes an atomic block.
 17. `GOV-003`: Product claims never exceed available code, test, integration, live-run, telemetry, and evidence-registry support.
 
