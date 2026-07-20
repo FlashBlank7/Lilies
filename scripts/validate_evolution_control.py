@@ -272,6 +272,7 @@ def validate_registry(
         "PRODUCT-013",
         "PRODUCT-014",
         "PRODUCT-015",
+        "PRODUCT-016",
         "SCENARIO-004",
         "SCENARIO-005",
         "SCENARIO-006",
@@ -279,6 +280,7 @@ def validate_registry(
         "SCENARIO-008",
         "SCENARIO-009",
         "SCENARIO-010",
+        "SCENARIO-011",
     }
     for intent_id in sorted(required_product_intents - seen):
         errors.append(f"registry is missing restored Product North Star intent: {intent_id}")
@@ -297,6 +299,9 @@ def validate_registry(
             "检测与诊断",
             "预测与决策",
             "优化与规划",
+            "增补型",
+            "替换型",
+            "接口适配",
         )
         for anchor in required_anchors:
             if anchor not in north_star:

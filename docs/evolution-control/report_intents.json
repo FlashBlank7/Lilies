@@ -4,9 +4,9 @@
   "source_report": "docs/PRODUCT_NORTH_STAR.md",
   "legacy_source_report": "docs/lilies_agent_scenario_capability_boundary_v0_4_x_latest.docx",
   "audit_report": "docs/lilies_product_intent_drift_audit_2026-07-21.md",
-  "campaign_objective": "Implement and verify the Product North Star through real enterprise and separately reported individual workflows spanning data, ML/DL, RAG, prediction, optimization, document processing, artifact delivery, and continuous operation; preserve the completed capability-boundary report work as enabling infrastructure rather than treating it as product completion.",
+  "campaign_objective": "Implement and verify the Product North Star through platform-generated workflows that automatically align official interfaces and augment or replace flows in real enterprise host projects and separately reported individual workflows; span data, ML/DL, RAG, prediction, optimization, document processing, artifact delivery, and continuous operation while preserving completed capability-boundary work only as enabling infrastructure.",
   "priority_rule": "latest_user_instruction > product_north_star > report_campaign_and_intent_registry > stage_report_sequence > stage_contract > current_design > working_evidence",
-  "program_charter_lock": "docs/evolution-control/program_charter_lock_v1_5.json",
+  "program_charter_lock": "docs/evolution-control/program_charter_lock_v1_6.json",
   "task_authority": "stage_report_only",
   "product_completion_status": "reopened_after_intent_drift_audit",
   "legacy_capability_campaign_status": "enabling_subset_completed_not_product_completion",
@@ -174,7 +174,7 @@
       "status": "unassessed",
       "evidence": [
         "docs/PRODUCT_NORTH_STAR.md",
-        "docs/platform_generated_workflow_real_project_experiment_design_2026-07-21.md"
+        "docs/platform_generated_workflow_host_project_intervention_experiment_2026-07-21.md"
       ]
     },
     {
@@ -186,7 +186,7 @@
       "status": "unassessed",
       "evidence": [
         "docs/PRODUCT_NORTH_STAR.md",
-        "docs/platform_generated_workflow_real_project_experiment_design_2026-07-21.md"
+        "docs/platform_generated_workflow_host_project_intervention_experiment_2026-07-21.md"
       ]
     },
     {
@@ -198,7 +198,7 @@
       "status": "unassessed",
       "evidence": [
         "docs/PRODUCT_NORTH_STAR.md",
-        "docs/platform_generated_workflow_real_project_experiment_design_2026-07-21.md"
+        "docs/platform_generated_workflow_host_project_intervention_experiment_2026-07-21.md"
       ]
     },
     {
@@ -210,19 +210,33 @@
       "status": "unassessed",
       "evidence": [
         "docs/PRODUCT_NORTH_STAR.md",
-        "docs/platform_generated_workflow_real_project_experiment_design_2026-07-21.md"
+        "docs/platform_generated_workflow_host_project_intervention_experiment_2026-07-21.md"
       ]
     },
     {
       "id": "PRODUCT-015",
       "category": "product",
       "priority": "P0",
-      "statement": "Evaluate platform success on generated workflows solving held-out real enterprise or individual problems with independent outcome evidence and separate cohort reporting.",
-      "acceptance": "Formal platform reports separate requirement fidelity, Build, workflow Run, model or task outcome, artifact or system delivery, repeatability, and human usability; enterprise and individual denominators stay separate, and structural acceptance or Builder success cannot substitute for the real result.",
+      "statement": "Evaluate platform success on generated workflows augmenting or replacing real host-project flows against held-out enterprise or individual problems with independent outcome evidence and separate cohort reporting.",
+      "acceptance": "Formal platform reports separate requirement fidelity, automatic interface alignment, Build, workflow Run, model or task outcome, artifact or system delivery, performance against the original or human implementation, repeatability, and human usability; enterprise and individual denominators stay separate, and structural acceptance or Builder success cannot substitute for the real result.",
       "status": "unassessed",
       "evidence": [
         "docs/PRODUCT_NORTH_STAR.md",
-        "docs/platform_generated_workflow_real_project_experiment_design_2026-07-21.md"
+        "docs/platform_generated_workflow_host_project_intervention_experiment_2026-07-21.md"
+      ]
+    },
+    {
+      "id": "PRODUCT-016",
+      "category": "product",
+      "priority": "P0",
+      "statement": "Make host-system interface discovery, schema mapping, authentication, event subscription, invocation, writeback, and contract verification a platform responsibility rather than an experimenter-supplied adapter.",
+      "acceptance": "Platform-generated workflows automatically align and pass hidden contracts for at least one REST/OpenAPI host and one non-HTTP host using MQTT, WebSocket, SDK, CLI, or plugin events; experimenters provide no adapter or mapping code, human rescue is reported separately, and unsupported cases produce a specific reusable capability gap.",
+      "status": "unassessed",
+      "evidence": [
+        "docs/PRODUCT_NORTH_STAR.md",
+        "docs/platform_generated_workflow_host_project_intervention_experiment_2026-07-21.md",
+        "docs/evidence/host_project_intervention_qualification_2026-07-21.json",
+        "docs/evidence/platform_interface_capability_audit_2026-07-21.json"
       ]
     },
     {
@@ -537,7 +551,7 @@
       "status": "unassessed",
       "evidence": [
         "docs/PRODUCT_NORTH_STAR.md",
-        "docs/platform_generated_workflow_real_project_experiment_design_2026-07-21.md"
+        "docs/platform_generated_workflow_host_project_intervention_experiment_2026-07-21.md"
       ]
     },
     {
@@ -549,7 +563,7 @@
       "status": "unassessed",
       "evidence": [
         "docs/PRODUCT_NORTH_STAR.md",
-        "docs/platform_generated_workflow_real_project_experiment_design_2026-07-21.md"
+        "docs/platform_generated_workflow_host_project_intervention_experiment_2026-07-21.md"
       ]
     },
     {
@@ -561,7 +575,7 @@
       "status": "unassessed",
       "evidence": [
         "docs/PRODUCT_NORTH_STAR.md",
-        "docs/platform_generated_workflow_real_project_experiment_design_2026-07-21.md"
+        "docs/platform_generated_workflow_host_project_intervention_experiment_2026-07-21.md"
       ]
     },
     {
@@ -573,7 +587,7 @@
       "status": "unassessed",
       "evidence": [
         "docs/PRODUCT_NORTH_STAR.md",
-        "docs/platform_generated_workflow_real_project_experiment_design_2026-07-21.md"
+        "docs/platform_generated_workflow_host_project_intervention_experiment_2026-07-21.md"
       ]
     },
     {
@@ -585,7 +599,7 @@
       "status": "unassessed",
       "evidence": [
         "docs/PRODUCT_NORTH_STAR.md",
-        "docs/platform_generated_workflow_real_project_experiment_design_2026-07-21.md"
+        "docs/platform_generated_workflow_host_project_intervention_experiment_2026-07-21.md"
       ]
     },
     {
@@ -597,7 +611,7 @@
       "status": "unassessed",
       "evidence": [
         "docs/PRODUCT_NORTH_STAR.md",
-        "docs/platform_generated_workflow_real_project_experiment_design_2026-07-21.md"
+        "docs/platform_generated_workflow_host_project_intervention_experiment_2026-07-21.md"
       ]
     },
     {
@@ -609,7 +623,20 @@
       "status": "unassessed",
       "evidence": [
         "docs/PRODUCT_NORTH_STAR.md",
-        "docs/platform_generated_workflow_real_project_experiment_design_2026-07-21.md"
+        "docs/platform_generated_workflow_host_project_intervention_experiment_2026-07-21.md"
+      ]
+    },
+    {
+      "id": "SCENARIO-011",
+      "category": "scenario",
+      "priority": "P0",
+      "statement": "Test platform-generated workflows as real augmentations and replacements inside frozen host projects rather than as isolated component demonstrations.",
+      "acceptance": "At least one enterprise host augmentation and one enterprise host replacement run against the host's official interfaces with zero experimenter adapter code; augmentation is compared with the manual process and human extension, replacement is compared with the original workflow under the same input and load, and task correctness gates performance claims.",
+      "status": "unassessed",
+      "evidence": [
+        "docs/PRODUCT_NORTH_STAR.md",
+        "docs/platform_generated_workflow_host_project_intervention_experiment_2026-07-21.md",
+        "docs/evidence/host_project_intervention_qualification_2026-07-21.json"
       ]
     },
     {

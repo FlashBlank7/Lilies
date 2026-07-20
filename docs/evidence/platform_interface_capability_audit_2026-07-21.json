@@ -1,0 +1,191 @@
+{
+  "schema_version": "1.0",
+  "evidence_id": "platform-interface-capability-audit-2026-07-21",
+  "created_at": "2026-07-21",
+  "code_baseline_commit": "62bc077",
+  "question": "Can the current platform itself discover, align, generate, and verify interfaces for real host projects without experimenter-written adapters?",
+  "verdict": "No. The platform has useful governed HTTP Connector primitives, but no end-to-end automatic interface alignment path is currently complete.",
+  "summary": {
+    "complete": 0,
+    "partial": 5,
+    "missing": 9,
+    "strong_existing_primitives": [
+      "generic HTTP request execution with secret references and egress policy",
+      "manually registered versioned Connector manifests",
+      "tenant and role policy",
+      "request and response object validation",
+      "dry-run and exact-payload authorization",
+      "idempotent execution receipts",
+      "compensation and callback records",
+      "immutable Connector manifest versions"
+    ],
+    "critical_boundary": "Existing tests construct and register the Connector manifest and field schemas in test code. They prove governed execution after an adapter contract exists, not platform generation of that contract from a host project."
+  },
+  "capabilities": [
+    {
+      "id": "IF-01",
+      "name": "interface material ingestion and integration-point discovery",
+      "status": "missing",
+      "current_fact": "No service reads host source, official interface documents, or machine-readable schemas to select triggers and writeback boundaries.",
+      "needed": "A source/document/schema ingestion pipeline that returns candidate integration surfaces with evidence and confidence.",
+      "evidence": [
+        "platform/backend/src/agent_platform/meta_cognition.py",
+        "platform/backend/src/agent_platform/builder.py"
+      ]
+    },
+    {
+      "id": "IF-02",
+      "name": "OpenAPI and JSON Schema import",
+      "status": "missing",
+      "current_fact": "ConnectorManifest can export a small OpenAPI-like contract_document, but no importer converts an external OpenAPI document into a Connector manifest.",
+      "needed": "OpenAPI 3.x and JSON Schema parsing, reference resolution, operation selection, security-scheme import, and typed Connector generation.",
+      "evidence": [
+        "platform/backend/src/agent_platform/connector_sdk.py:227",
+        "platform/backend/src/agent_platform/api.py:2391"
+      ]
+    },
+    {
+      "id": "IF-03",
+      "name": "semantic schema mapping",
+      "status": "missing",
+      "current_fact": "Request and response schemas validate manually declared shallow object fields; mappings in existing templates are manually authored.",
+      "needed": "AI-assisted, test-verified mapping for names, nested structures, enums, identifiers, units, time zones, optional fields, and business invariants.",
+      "evidence": [
+        "platform/backend/src/agent_platform/connector_sdk.py:45",
+        "platform/backend/src/agent_platform/blocks.py:982",
+        "platform/backend/src/agent_platform/blocks.py:1033"
+      ]
+    },
+    {
+      "id": "IF-04",
+      "name": "authentication and Secret Store mapping",
+      "status": "partial",
+      "current_fact": "Secret references, KMS-backed storage, egress policy, and bearer injection exist; ConnectorDeploymentProfile only supports none or bearer.",
+      "needed": "Import and configure Basic, API-key header/query, OAuth2 flows, HMAC signatures, mTLS, token refresh, and least-scope guidance.",
+      "evidence": [
+        "platform/backend/src/agent_platform/platform_harness.py",
+        "platform/backend/src/agent_platform/secret_kms.py",
+        "platform/backend/src/agent_platform/connector_sdk.py:148",
+        "platform/backend/src/agent_platform/workflow_runtime.py:2049"
+      ]
+    },
+    {
+      "id": "IF-05",
+      "name": "webhook lifecycle",
+      "status": "partial",
+      "current_fact": "Connector callback records and signed embedding ingress exist, but there is no generic host webhook registration, arbitrary signature verification, replay policy generation, renewal, or unregistration.",
+      "needed": "Webhook endpoint provisioning, registration calls, signature schemes, replay and ordering protection, acknowledgement, retries, renewal, and cleanup.",
+      "evidence": [
+        "platform/backend/src/agent_platform/connector_sdk.py:398",
+        "platform/backend/src/agent_platform/connector_sdk.py:942",
+        "tests/test_v04_10_connector_embedding.py"
+      ]
+    },
+    {
+      "id": "IF-06",
+      "name": "MQTT runtime",
+      "status": "missing",
+      "current_fact": "No workflow block or Connector deployment profile supports MQTT brokers, topics, QoS, retained messages, sessions, or reconnect.",
+      "needed": "Governed MQTT trigger/action runtime with Secret Store credentials, topic contracts, QoS semantics, deduplication, backpressure, and reconnect.",
+      "evidence": [
+        "platform/backend/src/agent_platform/blocks.py",
+        "platform/backend/src/agent_platform/connector_sdk.py:148"
+      ]
+    },
+    {
+      "id": "IF-07",
+      "name": "WebSocket runtime",
+      "status": "missing",
+      "current_fact": "No workflow block or Connector runtime supports authenticated WebSocket commands, subscriptions, correlation IDs, or reconnect.",
+      "needed": "Versioned WebSocket client runtime with authentication, request correlation, subscriptions, heartbeats, reconnect, and replay boundaries.",
+      "evidence": [
+        "platform/backend/src/agent_platform/blocks.py",
+        "platform/backend/src/agent_platform/workflow_runtime.py"
+      ]
+    },
+    {
+      "id": "IF-08",
+      "name": "SDK and CLI bridge",
+      "status": "missing",
+      "current_fact": "The workflow runtime can execute platform tools and MCP, but no generated Connector can package and run a host Node, Python, Java SDK, or CLI behind a typed contract.",
+      "needed": "Sandboxed dependency resolution, generated wrapper packaging, stdin/stdout and exit contracts, resource limits, artifact capture, and version locking.",
+      "evidence": [
+        "platform/backend/src/agent_platform/tools/mcp.py",
+        "platform/backend/src/agent_platform/workflow_runtime.py"
+      ]
+    },
+    {
+      "id": "IF-09",
+      "name": "plugin and event bridge",
+      "status": "missing",
+      "current_fact": "No generator consumes host plugin specifications or emits deployable event plugins.",
+      "needed": "Plugin-manifest understanding, generated package lifecycle, compatibility checks, installation approval, event subscription, and safe uninstall.",
+      "evidence": [
+        "platform/backend/src/agent_platform/builder.py",
+        "platform/backend/src/agent_platform/connector_sdk.py"
+      ]
+    },
+    {
+      "id": "IF-10",
+      "name": "pagination, rate limits, and asynchronous jobs",
+      "status": "missing",
+      "current_fact": "Generic HTTP and Connector calls execute one request; no contract-driven pagination or asynchronous job polling is generated.",
+      "needed": "Pagination strategies, Link/cursor handling, Retry-After budgets, async operation polling, cancellation, and partial-progress checkpoints.",
+      "evidence": [
+        "platform/backend/src/agent_platform/workflow_runtime.py:2049",
+        "platform/backend/src/agent_platform/connector_sdk.py:1407"
+      ]
+    },
+    {
+      "id": "IF-11",
+      "name": "idempotency, receipts, and compensation",
+      "status": "partial",
+      "current_fact": "Connector executions have durable idempotency keys, receipts, exact-payload authorization, emergency stop, and compensation. Coverage is limited to manually declared HTTP Connector operations and does not generate host-specific idempotency semantics.",
+      "needed": "Infer or ask for host idempotency rules, support asynchronous unknown outcomes, and apply equivalent guarantees across webhook, MQTT, WebSocket, SDK, CLI, and plugin surfaces.",
+      "evidence": [
+        "platform/backend/src/agent_platform/connector_sdk.py:1009",
+        "platform/backend/src/agent_platform/connector_sdk.py:1157",
+        "tests/test_v04_10_connector_embedding.py"
+      ]
+    },
+    {
+      "id": "IF-12",
+      "name": "automatic contract tests",
+      "status": "partial",
+      "current_fact": "Connector request and response validation and controlled test runs exist, but tests consume a manifest manually authored by the experiment code.",
+      "needed": "Generate positive, negative, auth, pagination, replay, and side-effect tests from imported host contracts and execute them before workflow publication.",
+      "evidence": [
+        "platform/backend/src/agent_platform/connector_sdk.py:79",
+        "tests/test_v04_10_connector_embedding.py:304"
+      ]
+    },
+    {
+      "id": "IF-13",
+      "name": "connector version and evidence registry",
+      "status": "partial",
+      "current_fact": "Connector manifests are immutable per version and governance receipts exist, but there is no host-interface fingerprint, compatibility diff, or automatic evidence invalidation when the upstream contract changes.",
+      "needed": "Host contract hashing, semantic diff, compatibility classification, stale-evidence invalidation, regeneration, canary validation, and rollback.",
+      "evidence": [
+        "platform/backend/src/agent_platform/connector_sdk.py:592",
+        "platform/backend/src/agent_platform/governance.py:1286"
+      ]
+    },
+    {
+      "id": "IF-14",
+      "name": "interface diagnostics and automatic repair",
+      "status": "missing",
+      "current_fact": "Runtime errors expose HTTP or Connector failures, but no interface-specific repair loop revises manifests, mappings, authentication, or event contracts from failed evidence.",
+      "needed": "Structured failure taxonomy, expected-versus-actual contract evidence, repair proposals, regression tests, and bounded automatic regeneration.",
+      "evidence": [
+        "platform/backend/src/agent_platform/workflow_runtime.py:2091",
+        "platform/backend/src/agent_platform/connector_sdk.py:1072",
+        "platform/backend/src/agent_platform/acceptance_repair.py"
+      ]
+    }
+  ],
+  "claim_boundary": [
+    "This is a static code and test audit, not a real-host execution result.",
+    "Partial means a useful primitive exists; it does not mean automatic interface alignment passes.",
+    "The current controlled Connector tests validate an experimenter-authored manifest and fixture, so they cannot support a zero-adapter claim."
+  ]
+}

@@ -35,8 +35,10 @@
 
 - 产品最高意图：`PRODUCT_NORTH_STAR.md`
 - 意图偏移审计：`lilies_product_intent_drift_audit_2026-07-21.md`
-- 真实项目实验预注册：`platform_generated_workflow_real_project_experiment_design_2026-07-21.md`
-- 候选项目探针证据：`evidence/platform_workflow_candidate_probe_2026-07-21.json`
+- 真实宿主项目增补/替换实验预注册：`platform_generated_workflow_host_project_intervention_experiment_2026-07-21.md`
+- 宿主项目接口资格证据：`evidence/host_project_intervention_qualification_2026-07-21.json`
+- 当前平台接口能力审计：`evidence/platform_interface_capability_audit_2026-07-21.json`
+- 算法/处理组件探针证据：`evidence/platform_workflow_candidate_probe_2026-07-21.json`
 - 能力边界历史基线：`lilies_agent_scenario_capability_boundary_v0_4_x_latest.docx`，作为底座能力分析使用，不再单独定义产品场景
 - Program Charter：`evolution-control/PROGRAM_CHARTER.md`
 - 产品与底座意图登记：`evolution-control/report_intents.json`
@@ -47,7 +49,7 @@
 
 - 模板：`stage-reports/STAGE_REPORT_TEMPLATE.md`
 - 最新 active stage report：`stage-reports/v0.4.11_human_journey_usability_repair.md`
-- 当前产品方向：原 v0.4.x 能力报告落地作为底座建设保留，但产品完成状态已因真实数据、ML/DL、RAG、预测优化、文档工件和企业/个人真实任务交付缺失而重新打开。电梯和光纤只保留为任务原型示例，不是固定项目。后续阶段必须从 `PRODUCT_NORTH_STAR.md`、真实项目实验预注册和非终态产品意图出发。
+- 当前产品方向：原 v0.4.x 能力报告落地作为底座建设保留，但产品完成状态已因真实数据、ML/DL、RAG、预测优化、文档工件和企业/个人真实任务交付缺失而重新打开。电梯和光纤只保留为任务原型示例，不是固定项目。真实项目实验必须由平台自行对齐宿主接口，以增补或替换方式完成任务；人工手写适配器只能算救援，不能算自动交付。后续阶段必须从 `PRODUCT_NORTH_STAR.md`、宿主项目干预实验预注册和非终态产品意图出发。
 
 ## 已归档 Stage Report Sets
 

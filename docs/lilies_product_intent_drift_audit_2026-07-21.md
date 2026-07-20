@@ -312,7 +312,7 @@ Memory 保存了以下有用事实：
 5. 文件/API 交付。
 6. 持续监控与受控更新。
 
-权威任务和 GitHub 项目组合见 `docs/platform_generated_workflow_real_project_experiment_design_2026-07-21.md`。
+权威任务和 GitHub 项目组合见 `docs/platform_generated_workflow_host_project_intervention_experiment_2026-07-21.md`。算法库仅作为组件候选；正式实验要求平台自行对齐宿主接口，以增补或替换方式介入真实项目。
 
 只有在真实需求、数据或可替代公共数据、模型基线、独立 oracle 和系统契约冻结后，才能宣称正式实验开始。
 

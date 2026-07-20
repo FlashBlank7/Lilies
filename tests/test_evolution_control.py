@@ -45,7 +45,10 @@ def test_campaign_priority_outranks_stage_mechanics_and_external_evidence() -> N
     assert "传统企业" in north_star
     assert "机器学习/深度学习" in north_star
     assert any(item["id"] == "PRODUCT-010" for item in registry["intents"])
+    assert any(item["id"] == "PRODUCT-016" for item in registry["intents"])
     assert any(item["id"] == "SCENARIO-008" for item in registry["intents"])
+    assert any(item["id"] == "SCENARIO-011" for item in registry["intents"])
+    assert "接口适配必须由平台完成" in north_star
     assert "Campaign Objective And Priority" in charter
     assert "blocked_by_environment" in charter
     assert "Do not retry an unchanged external blocker" in agents
@@ -143,7 +146,9 @@ def test_campaign_closure_rejects_reopened_product_intents() -> None:
     errors = module.validate_registry(require_terminal=True)
 
     assert any("PRODUCT-010 is not terminal" in error for error in errors)
+    assert any("PRODUCT-016 is not terminal" in error for error in errors)
     assert any("SCENARIO-008 is not terminal" in error for error in errors)
+    assert any("SCENARIO-011 is not terminal" in error for error in errors)
 
 
 def test_v2_template_is_structural_but_not_a_closable_stage() -> None:

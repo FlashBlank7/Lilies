@@ -2,7 +2,9 @@
   "schema_version": "1.0",
   "evidence_id": "platform-workflow-candidate-probe-2026-07-21",
   "created_at": "2026-07-21",
-  "purpose": "Qualify real GitHub projects for a later causal experiment on platform-generated workflow delivery. These probes are not platform workflow results.",
+  "artifact_role": "component_probe_only",
+  "purpose": "Qualify algorithm and processing components that a later platform-generated workflow may choose. These repositories are not the real host projects and these probes are not platform workflow results.",
+  "superseding_host_project_evidence": "docs/evidence/host_project_intervention_qualification_2026-07-21.json",
   "environment": {
     "host_os": "macOS",
     "architecture": "arm64",
@@ -179,7 +181,7 @@
       "id": "bentoml",
       "repository": "https://github.com/bentoml/BentoML",
       "candidate_release": "v1.4.39",
-      "reason": "Useful for a real inference API boundary after a model-serving adapter is specified."
+      "reason": "Useful for a real inference API boundary after the platform can generate and verify the model-serving connector without experimenter-supplied adapter code."
     },
     {
       "id": "actual",
@@ -189,7 +191,8 @@
     }
   ],
   "claim_boundary": [
-    "A passed project probe proves only that the frozen external component can run in the observed local environment.",
+    "A passed component probe proves only that the frozen external component can run in the observed local environment.",
+    "PyOD, StatsForecast, OR-Tools, invoice2data, Haystack, and Evidently are component candidates, not the six real host-project experiments.",
     "No platform-generated workflow has been built or evaluated by this evidence package.",
     "No customer deployment, production SLO, real external write, or business outcome is claimed.",
     "Synthetic or public proxy data cannot be reported as validation of a named customer's production process."
