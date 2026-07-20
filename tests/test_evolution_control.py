@@ -35,14 +35,17 @@ def test_campaign_priority_outranks_stage_mechanics_and_external_evidence() -> N
         (ROOT / "docs/evolution-control/report_intents.json").read_text(encoding="utf-8")
     )
     agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    north_star = (ROOT / "docs/PRODUCT_NORTH_STAR.md").read_text(encoding="utf-8")
     charter = (ROOT / "docs/evolution-control/PROGRAM_CHARTER.md").read_text(encoding="utf-8")
     template = (ROOT / "docs/stage-reports/STAGE_REPORT_TEMPLATE.md").read_text(encoding="utf-8")
 
-    assert (
-        "Implement and verify every capability-boundary report intent"
-        in registry["campaign_objective"]
-    )
-    assert "Campaign Supremacy" in agents
+    assert "traditional-enterprise Product North Star" in registry["campaign_objective"]
+    assert "Product Supremacy" in agents
+    assert "docs/PRODUCT_NORTH_STAR.md" in agents
+    assert "传统企业" in north_star
+    assert "机器学习/深度学习" in north_star
+    assert any(item["id"] == "PRODUCT-010" for item in registry["intents"])
+    assert any(item["id"] == "SCENARIO-005" for item in registry["intents"])
     assert "Campaign Objective And Priority" in charter
     assert "blocked_by_environment" in charter
     assert "Do not retry an unchanged external blocker" in agents
@@ -134,23 +137,13 @@ def test_prior_major_archive_validator_rejects_active_old_report(tmp_path: Path)
     assert any("completed prior-major stage report remains active" in error for error in errors)
 
 
-def test_campaign_closure_accepts_terminal_registry_and_rejects_non_terminal_copy(
-    tmp_path: Path,
-) -> None:
+def test_campaign_closure_rejects_reopened_product_intents() -> None:
     module = load_validator()
-    assert module.validate_registry(require_terminal=True) == []
+    assert module.validate_registry() == []
+    errors = module.validate_registry(require_terminal=True)
 
-    registry = json.loads(
-        (ROOT / "docs/evolution-control/report_intents.json").read_text(encoding="utf-8")
-    )
-    registry["intents"][0]["status"] = "planned"
-    registry_path = tmp_path / "docs/evolution-control/report_intents.json"
-    registry_path.parent.mkdir(parents=True)
-    registry_path.write_text(json.dumps(registry), encoding="utf-8")
-
-    errors = module.validate_registry(registry_path, require_terminal=True)
-
-    assert any("is not terminal" in error for error in errors)
+    assert any("PRODUCT-010 is not terminal" in error for error in errors)
+    assert any("SCENARIO-005 is not terminal" in error for error in errors)
 
 
 def test_v2_template_is_structural_but_not_a_closable_stage() -> None:

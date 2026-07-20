@@ -221,13 +221,14 @@ def validate_registry(
     priority_rule = str(data.get("priority_rule", ""))
     required_priority_layers = (
         "latest_user_instruction",
+        "product_north_star",
         "report_campaign_and_intent_registry",
         "stage_report_sequence",
         "stage_contract",
     )
     if not all(layer in priority_rule for layer in required_priority_layers):
         errors.append(
-            "registry priority_rule does not keep the report campaign above stage mechanics"
+            "registry priority_rule does not keep the Product North Star and report campaign above stage mechanics"
         )
     if data.get("task_authority") != "stage_report_only":
         errors.append("registry task_authority must be stage_report_only")
@@ -264,9 +265,28 @@ def validate_registry(
             evidence_path = root / evidence
             if "::" not in evidence and not evidence_path.exists():
                 errors.append(f"{intent_id} evidence path does not exist: {evidence}")
+    required_product_intents = {
+        "PRODUCT-010",
+        "PRODUCT-011",
+        "PRODUCT-012",
+        "PRODUCT-013",
+        "PRODUCT-014",
+        "PRODUCT-015",
+        "SCENARIO-004",
+        "SCENARIO-005",
+        "SCENARIO-006",
+    }
+    for intent_id in sorted(required_product_intents - seen):
+        errors.append(f"registry is missing restored Product North Star intent: {intent_id}")
     source_report = data.get("source_report", "")
     if not source_report or not (root / source_report).exists():
         errors.append(f"source report does not exist: {source_report}")
+    elif source_report == "docs/PRODUCT_NORTH_STAR.md":
+        north_star = (root / source_report).read_text(encoding="utf-8")
+        required_anchors = ("Dify", "传统企业", "机器学习", "RAG", "Excel", "电梯", "光纤")
+        for anchor in required_anchors:
+            if anchor not in north_star:
+                errors.append(f"Product North Star is missing required anchor: {anchor}")
     errors.extend(validate_program_charter_lock(root, data, require_git_baseline=require_terminal))
     return errors
 

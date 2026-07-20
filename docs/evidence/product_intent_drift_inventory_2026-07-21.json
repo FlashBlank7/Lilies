@@ -1,0 +1,63 @@
+{
+  "schema_version": "1.0",
+  "generated_at": "2026-07-21",
+  "audit": "docs/lilies_product_intent_drift_audit_2026-07-21.md",
+  "product_authority": "docs/PRODUCT_NORTH_STAR.md",
+  "verdict": "systemic_product_intent_drift",
+  "current_block_registry": {
+    "total": 46,
+    "agent_architecture": 26,
+    "business_workflow": 19,
+    "legacy_compatibility": 1,
+    "code_templates": [
+      "codex_like_workspace_agent",
+      "claude_like_coding_agent",
+      "daily_web_collection",
+      "customer_system_embedding"
+    ]
+  },
+  "builtin_template_probe": {
+    "json_files": 11,
+    "loaded": 10,
+    "loaded_status": "legacy_unverified",
+    "schema_rejected": [
+      "drone_intervention_v1"
+    ],
+    "workflow_validation_issue": [
+      {
+        "template": "app_automation_workflow",
+        "error": "unreachable nodes: ['agg']"
+      }
+    ],
+    "data_analyzer_boundary": "Accepts a prose data description and calls an LLM; it does not load a real dataset, run statistics, train a model, or produce a versioned data artifact."
+  },
+  "legacy_intent_registry": {
+    "terminal_intents_before_audit": 36,
+    "product": 9,
+    "architecture": 8,
+    "evaluation": 4,
+    "governance": 4,
+    "scenario": 3,
+    "evolution": 8,
+    "missing_primary_domains": [
+      "traditional_enterprise_target_customer",
+      "enterprise_data_substrate",
+      "ml_dl_lifecycle",
+      "enterprise_rag",
+      "excel_and_artifact_delivery",
+      "industrial_business_outcome_evaluation"
+    ]
+  },
+  "formal_enterprise_product_experiments_completed": {
+    "elevator_fault_detection": 0,
+    "optical_fiber_parameter_inheritance_prediction": 0,
+    "enterprise_rag": 0,
+    "excel_generation_and_customer_api_delivery": 0
+  },
+  "corrections": {
+    "product_completion_reopened": true,
+    "old_github_platform_plan_retracted": true,
+    "lilies_code_probe_retained_as_secondary": true,
+    "historical_skill_restored": false
+  }
+}

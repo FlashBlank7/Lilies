@@ -1,0 +1,155 @@
+{
+  "schema_version": "2.0",
+  "generated_at": "2026-07-20",
+  "experiment_subject": "lilies_agent",
+  "platform_name": "智能体/工作流生成平台",
+  "agent_name": "莉莉丝",
+  "portfolio_role": "secondary_lilies_agent_architecture_benchmark",
+  "included_in_platform_customer_success_denominator": false,
+  "scope_note": "These software-repository probes test Lilies as a Claude-style agent. They do not validate traditional-enterprise ML, RAG, data-artifact, or generated-workflow product outcomes.",
+  "experiment_status": "candidate_probe_only",
+  "formal_lilies_model_runs_performed": 0,
+  "purpose": "Verify that proposed Claude Code-type repository tasks can be installed and their baseline failures can be reproduced before any formal Lilies agent solve. This evidence does not evaluate platform-generated workflows.",
+  "sandbox": {
+    "image": "agent-platform-sandbox:latest",
+    "base_runtime": "python:3.12-slim",
+    "cpus": 2,
+    "memory": "1g",
+    "pids_limit": 256,
+    "uid": 10001,
+    "gid": 10001,
+    "dependency_setup_network": "bridge",
+    "planned_solver_network": "none",
+    "docker_cli": "/Applications/Docker.app/Contents/Resources/bin/docker"
+  },
+  "probes": [
+    {
+      "task_id": "L-CAL-CLICK-2939",
+      "repo": "pallets/click",
+      "source_url": "https://github.com/pallets/click/issues/2939",
+      "base_ref": "8.2.1",
+      "base_commit": "fd183b2ced1cb5857784fe7fb22f4982f671f098",
+      "probe_type": "public_reproducer",
+      "expected_baseline": "CliRunner exits with code 1 and emits Aborted",
+      "observed_baseline": {
+        "exit_code": 1,
+        "output": "\\nAborted!\\n"
+      },
+      "reproduced": true,
+      "selection": "calibration_only"
+    },
+    {
+      "task_id": "L-CODE-PYTEST-14737",
+      "repo": "pytest-dev/pytest",
+      "source_url": "https://github.com/pytest-dev/pytest/issues/14737",
+      "base_ref": "main snapshot on 2026-07-20",
+      "base_commit": "22ba7dfd77dd2274a821ac8b2ff94078c1a6cdd0",
+      "probe_type": "public_reproducer",
+      "expected_baseline": "A test under a package-level skip marker runs and fails",
+      "observed_baseline": {
+        "exit_code": 1,
+        "summary": "1 failed in 0.01s"
+      },
+      "reproduced": true,
+      "selection": "core"
+    },
+    {
+      "task_id": "L-CODE-SPHINX-11510",
+      "repo": "sphinx-doc/sphinx",
+      "source_url": "https://github.com/sphinx-doc/sphinx",
+      "benchmark_instance": "sphinx-doc__sphinx-11510",
+      "base_commit": "6cb783c0024a873722952a67ebb9f41771c8eb6d",
+      "probe_type": "coordinator_only_test_patch",
+      "expected_baseline": "Both include source-read event tests fail",
+      "observed_baseline": {
+        "exit_code": 1,
+        "fail_to_pass_failed": 2,
+        "failures": [
+          "tests/test_directive_other.py::test_include_source_read_event",
+          "tests/test_directive_other.py::test_include_source_read_event_nested_includes"
+        ]
+      },
+      "reproduced": true,
+      "selection": "core"
+    },
+    {
+      "task_id": "L-CODE-DJANGO-15957",
+      "repo": "django/django",
+      "source_url": "https://github.com/django/django",
+      "benchmark_instance": "django__django-15957",
+      "base_commit": "f387d024fc75569d2a4a338bfda76cc2f328f627",
+      "probe_type": "coordinator_only_test_patch",
+      "expected_baseline": "Four sliced prefetch relation tests fail",
+      "observed_baseline": {
+        "exit_code": 1,
+        "fail_to_pass_failed": 4,
+        "error": "TypeError: Cannot filter a query once a slice has been taken."
+      },
+      "reproduced": true,
+      "selection": "core"
+    },
+    {
+      "task_id": "L-CODE-NETWORKX-8737",
+      "repo": "networkx/networkx",
+      "source_url": "https://github.com/networkx/networkx/issues/8737",
+      "base_ref": "main snapshot on 2026-07-20",
+      "base_commit": "e6dda2927abffecb7f5328b0905331bb158c6cfb",
+      "probe_type": "public_reproducer_and_timing",
+      "expected_baseline": "No cycles are returned, but runtime grows exponentially",
+      "observed_baseline": {
+        "cycles_returned": 0,
+        "cpu_seconds_by_t": {
+          "18": 0.4634,
+          "19": 1.0012,
+          "20": 1.8253,
+          "21": 3.788,
+          "22": 7.3304
+        },
+        "growth_t18_to_t22": 15.82
+      },
+      "reproduced": true,
+      "selection": "core"
+    },
+    {
+      "task_id": "L-CODE-LOCUST-3428",
+      "repo": "locustio/locust",
+      "source_url": "https://github.com/locustio/locust/issues/3428",
+      "base_ref": "2.44.1",
+      "base_commit": "07fa12f05c9d28e1a421dd0ecc220d1cdd077e5e",
+      "probe_type": "public_multiprocess_reproducer",
+      "expected_baseline": "Each spawned worker rejects csv-full-history because csv was not propagated",
+      "observed_baseline": {
+        "worker_error_count": 2,
+        "worker_error": "'--csv-full-history' requires '--csv'.",
+        "parent_error": "Bad response code from worker children: 2"
+      },
+      "reproduced": true,
+      "selection": "core",
+      "additional_observation": {
+        "current_main_commit": "7615b4e74d2516ef9505944ef6d9396fc9373fb2",
+        "current_main_reproduced": false,
+        "reason_for_pin": "The historical release is required to preserve the real failure baseline."
+      }
+    }
+  ],
+  "excluded_probe": {
+    "task_id": "L-CODE-PYTEST-10356",
+    "repo": "pytest-dev/pytest",
+    "benchmark_instance": "pytest-dev__pytest-10356",
+    "base_commit": "3c1534944cbd34e8a41bc9e76818018fadefc9a1",
+    "selection": "reserve_requires_task_specific_python_image",
+    "reason": "The repository test configuration turns a Python 3.12 ast.Str deprecation into an import-time error before the target test executes. This is an environment incompatibility, not an agent failure."
+  },
+  "formal_preflight_blockers": [
+    "The current claude_like_coding_agent template has a fixed Read README.md tool execution path.",
+    "The current nested template loop allows only two iterations.",
+    "Dynamic model-selected Read, search, edit, Bash, test feedback, and continuation must pass the Click calibration three times before core runs.",
+    "Claude Code CLI is not installed, so no direct competitor run has been performed."
+  ],
+  "integrity_notes": [
+    "No gold solution patch was mounted into or intended for any Lilies solver workspace.",
+    "Historical test patches were applied only to disposable coordinator probe copies.",
+    "Dependency installation used network access; the formal solve and evaluation phases must use network none.",
+    "These records prove baseline reproducibility only. They are not Lilies task results and they do not evaluate the platform-generated workflow product."
+  ]
+}

@@ -69,10 +69,23 @@ def campaign_state(root: Path) -> dict[str, str]:
     try:
         registry = json.loads(registry_path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        return {"campaign_objective": "missing", "campaign_priority_rule": "missing"}
+        return {
+            "campaign_objective": "missing",
+            "campaign_priority_rule": "missing",
+            "campaign_completion_status": "unknown",
+            "open_intent_ids": "unknown",
+        }
+    terminal = set(registry.get("terminal_statuses", []))
+    open_intents = [
+        str(intent.get("id", "unknown"))
+        for intent in registry.get("intents", [])
+        if intent.get("status") not in terminal
+    ]
     return {
         "campaign_objective": str(registry.get("campaign_objective", "missing")),
         "campaign_priority_rule": str(registry.get("priority_rule", "missing")),
+        "campaign_completion_status": "open" if open_intents else "closed",
+        "open_intent_ids": ", ".join(open_intents) or "none",
     }
 
 

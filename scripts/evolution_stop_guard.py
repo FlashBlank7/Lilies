@@ -18,7 +18,15 @@ def stop_warning(root: Path) -> str:
         and state["closure_verdict"] == "pass"
         and invalid_newer == "none"
     ):
-        return ""
+        if state.get("campaign_completion_status") == "closed":
+            return ""
+        return (
+            f"Stage {state['stage_report']} is closed, but the Product North Star campaign remains "
+            f"{state.get('campaign_completion_status', 'unknown')} with open intents="
+            f"{state.get('open_intent_ids', 'unknown')}. Do not claim product or campaign completion. "
+            "Do not invent a next stage from working evidence; wait for an authorized stage task or "
+            "a newer explicit user instruction."
+        )
     if state["stage_report"] == "none":
         return (
             "No valid v2 stage report is available"
