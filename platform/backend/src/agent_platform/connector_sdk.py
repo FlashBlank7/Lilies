@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
 import hmac
 import json
@@ -21,6 +22,7 @@ from .storage import Storage
 ConnectorValueType = Literal["string", "number", "integer", "boolean", "object", "array"]
 ConnectorOperationKind = Literal["read", "write", "compensate"]
 ConnectorEnvironment = Literal["mock", "test", "live", "private"]
+ConnectorParameterLocation = Literal["path", "query", "header", "cookie"]
 ConnectorExecutionStatus = Literal[
     "executing",
     "dry_run",
@@ -68,6 +70,7 @@ class ConnectorObjectSchema(BaseModel):
     version: int = Field(default=1, ge=1)
     fields: list[ConnectorSchemaField] = Field(default_factory=list, max_length=100)
     additional_properties: bool = False
+    json_schema: dict[str, Any] | None = None
 
     @model_validator(mode="after")
     def unique_fields(self) -> ConnectorObjectSchema:
@@ -79,6 +82,9 @@ class ConnectorObjectSchema(BaseModel):
     def validate_payload(self, payload: Any, *, label: str) -> dict[str, Any]:
         if not isinstance(payload, dict):
             raise ValueError(f"{label} must be an object")
+        if self.json_schema:
+            self._validate_json_schema(payload, self.json_schema, label=label)
+            return dict(payload)
         declared = {item.name: item for item in self.fields}
         missing = [item.name for item in self.fields if item.required and item.name not in payload]
         if missing:
@@ -92,6 +98,57 @@ class ConnectorObjectSchema(BaseModel):
                 continue
             self._validate_value(value, field, label=f"{label}.{name}")
         return dict(payload)
+
+    @classmethod
+    def _validate_json_schema(
+        cls,
+        value: Any,
+        schema: dict[str, Any],
+        *,
+        label: str,
+    ) -> None:
+        nullable = bool(schema.get("nullable")) or "null" in schema.get("type", [])
+        if value is None:
+            if nullable:
+                return
+            raise ValueError(f"{label} must not be null")
+        raw_type = schema.get("type")
+        expected = next(
+            (item for item in raw_type if item != "null"),
+            None,
+        ) if isinstance(raw_type, list) else raw_type
+        valid = {
+            "string": isinstance(value, str),
+            "number": isinstance(value, (int, float)) and not isinstance(value, bool),
+            "integer": isinstance(value, int) and not isinstance(value, bool),
+            "boolean": isinstance(value, bool),
+            "object": isinstance(value, dict),
+            "array": isinstance(value, list),
+            None: True,
+        }.get(expected, True)
+        if not valid:
+            raise ValueError(f"{label} must be {expected}")
+        if "enum" in schema and value not in schema["enum"]:
+            raise ValueError(f"{label} must be one of {schema['enum']}")
+        if expected == "object" and isinstance(value, dict):
+            properties = schema.get("properties", {})
+            required = set(schema.get("required", []))
+            missing = sorted(required - set(value))
+            if missing:
+                raise ValueError(f"{label} is missing required fields: {missing}")
+            if schema.get("additionalProperties") is False:
+                unknown = sorted(set(value) - set(properties))
+                if unknown:
+                    raise ValueError(f"{label} contains undeclared fields: {unknown}")
+            for key, item in value.items():
+                item_schema = properties.get(key)
+                if isinstance(item_schema, dict):
+                    cls._validate_json_schema(item, item_schema, label=f"{label}.{key}")
+        if expected == "array" and isinstance(value, list):
+            item_schema = schema.get("items")
+            if isinstance(item_schema, dict):
+                for index, item in enumerate(value):
+                    cls._validate_json_schema(item, item_schema, label=f"{label}[{index}]")
 
     @classmethod
     def _validate_value(
@@ -127,6 +184,35 @@ class ConnectorObjectSchema(BaseModel):
                 cls._validate_value(item, item_field, label=f"{label}[{index}]")
 
 
+class ConnectorParameterBinding(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    input_key: str = Field(pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
+    wire_name: str = Field(min_length=1, max_length=300)
+    location: ConnectorParameterLocation
+    required: bool = False
+    style: str = "form"
+    explode: bool = True
+
+
+class ConnectorRequestBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    input_key: str = Field(default="body", pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
+    required: bool = False
+    content_type: str = Field(default="application/json", min_length=1, max_length=200)
+
+
+class ConnectorSecurityScheme(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(pattern=r"^[A-Za-z_][A-Za-z0-9_.-]*$")
+    type: Literal["http", "apiKey"]
+    scheme: str = ""
+    location: Literal["header", "query", "cookie"] = "header"
+    wire_name: str = "Authorization"
+
+
 class ConnectorOperation(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -137,6 +223,17 @@ class ConnectorOperation(BaseModel):
     path: str = Field(min_length=1, max_length=500)
     request_schema: ConnectorObjectSchema
     response_schema: ConnectorObjectSchema
+    parameters: list[ConnectorParameterBinding] = Field(default_factory=list, max_length=100)
+    request_body: ConnectorRequestBody | None = None
+    response_json_schema: dict[str, Any] | None = None
+    response_root_type: ConnectorValueType = "object"
+    success_status_codes: list[int] = Field(default_factory=lambda: [200], max_length=20)
+    response_content_types: list[str] = Field(
+        default_factory=lambda: ["application/json"],
+        max_length=20,
+    )
+    security_requirements: list[list[str]] = Field(default_factory=list, max_length=20)
+    error_responses: dict[str, str] = Field(default_factory=dict)
     required_roles: list[str] = Field(default_factory=list, max_length=40)
     compensation_operation_id: str | None = None
 
@@ -151,7 +248,10 @@ class ConnectorDeploymentProfile(BaseModel):
     id: str = Field(pattern=r"^[A-Za-z][A-Za-z0-9_.-]{1,119}$")
     environment: ConnectorEnvironment
     base_url: str = Field(min_length=1, max_length=1000)
-    auth_type: Literal["none", "bearer"] = "none"
+    auth_type: Literal["none", "bearer", "basic", "api_key"] = "none"
+    auth_location: Literal["header", "query", "cookie"] = "header"
+    auth_wire_name: str = "Authorization"
+    auth_prefix: str = ""
     allowed_hosts: list[str] = Field(min_length=1, max_length=100)
     available: bool = False
     timeout_seconds: float = Field(default=20, ge=1, le=300)
@@ -183,11 +283,13 @@ class ConnectorManifest(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     description: str = Field(min_length=1, max_length=2000)
     domain: str = Field(pattern=r"^[A-Za-z][A-Za-z0-9_.-]{1,119}$")
-    operations: list[ConnectorOperation] = Field(min_length=1, max_length=100)
+    operations: list[ConnectorOperation] = Field(min_length=1, max_length=1000)
     deployment_profiles: list[ConnectorDeploymentProfile] = Field(
         min_length=1,
         max_length=20,
     )
+    security_schemes: list[ConnectorSecurityScheme] = Field(default_factory=list, max_length=40)
+    source_provenance: dict[str, Any] = Field(default_factory=dict)
     callback_schema: ConnectorObjectSchema | None = None
     created_at: str = Field(default_factory=utc_now)
 
@@ -234,6 +336,14 @@ class ConnectorManifest(BaseModel):
                 "x-compensation-operation": operation.compensation_operation_id,
                 "requestSchema": operation.request_schema.model_dump(mode="json"),
                 "responseSchema": operation.response_schema.model_dump(mode="json"),
+                "parameters": [item.model_dump(mode="json") for item in operation.parameters],
+                "requestBody": (
+                    operation.request_body.model_dump(mode="json")
+                    if operation.request_body
+                    else None
+                ),
+                "successStatusCodes": operation.success_status_codes,
+                "securityRequirements": operation.security_requirements,
             }
         return {
             "openapi": "3.1.0",
@@ -251,6 +361,7 @@ class ConnectorManifest(BaseModel):
                     }
                     for item in self.deployment_profiles
                 ],
+                "source_provenance": self.source_provenance,
             },
             "paths": paths,
             "callbackSchema": (
@@ -279,7 +390,7 @@ class ConnectorTenantBinding(BaseModel):
     profile_id: str
     secret_ref: str = Field(pattern=r"^secret://[^/]+/.+$")
     application_ids: list[str] = Field(min_length=1, max_length=100)
-    allowed_operations: list[str] = Field(min_length=1, max_length=100)
+    allowed_operations: list[str] = Field(min_length=1, max_length=1000)
     subjects: list[ConnectorIdentitySubject] = Field(min_length=1, max_length=500)
     enabled: bool = True
     revision: int = Field(default=1, ge=1)
@@ -302,7 +413,7 @@ class ConnectorDomainPolicy(BaseModel):
     tenant_id: str
     domain: str
     allowed_profiles: list[str] = Field(min_length=1, max_length=20)
-    allowed_operations: list[str] = Field(min_length=1, max_length=100)
+    allowed_operations: list[str] = Field(min_length=1, max_length=1000)
     required_roles: list[str] = Field(default_factory=list, max_length=40)
     max_payload_bytes: int = Field(default=100_000, ge=1, le=10_000_000)
     mutation_preauthorization_required: bool = True
@@ -357,7 +468,7 @@ class ConnectorExecution(BaseModel):
     policy_revision: int
     authorization_id: str = ""
     adapter_called: bool = False
-    response: dict[str, Any] = Field(default_factory=dict)
+    response: Any = Field(default_factory=dict)
     response_hash: str = ""
     external_reference: str = ""
     compensation_payload: dict[str, Any] = Field(default_factory=dict)
@@ -1059,10 +1170,7 @@ class ConnectorService:
                 request=request,
                 payload=payload,
             )
-            operation.response_schema.validate_payload(
-                response,
-                label=f"{request.operation_id} response",
-            )
+            self.validate_operation_response(operation, response)
             return await asyncio.to_thread(
                 self._finish_execution_sync,
                 reserved.id,
@@ -1413,7 +1521,7 @@ class ConnectorService:
         binding: ConnectorTenantBinding,
         request: ConnectorExecutionRequest,
         payload: dict[str, Any],
-    ) -> dict[str, Any]:
+    ) -> Any:
         parsed = urlsplit(profile.base_url)
         host = (parsed.hostname or "").casefold()
         allowed_hosts = {
@@ -1428,13 +1536,43 @@ class ConnectorService:
             surface=f"connector:{manifest.connector_id}:{operation.id}",
             hostname=host,
         )
-        path_fields = set(re.findall(r"\{([A-Za-z_][A-Za-z0-9_]*)\}", operation.path))
-        missing_path = sorted(path_fields - set(payload))
-        if missing_path:
-            raise ValueError(f"connector operation path is missing fields: {missing_path}")
+        path_fields = set(re.findall(r"\{([^{}]+)\}", operation.path))
         rendered_path = operation.path
-        for field in path_fields:
-            rendered_path = rendered_path.replace(f"{{{field}}}", quote(str(payload[field]), safe=""))
+        query: dict[str, Any] = {}
+        request_headers: dict[str, str] = {}
+        cookies: dict[str, str] = {}
+        consumed: set[str] = set()
+        if operation.parameters:
+            for parameter in operation.parameters:
+                if parameter.input_key not in payload:
+                    if parameter.required:
+                        raise ValueError(
+                            f"connector operation is missing {parameter.location} parameter: "
+                            f"{parameter.wire_name}"
+                        )
+                    continue
+                value = payload[parameter.input_key]
+                consumed.add(parameter.input_key)
+                if parameter.location == "path":
+                    rendered_path = rendered_path.replace(
+                        f"{{{parameter.wire_name}}}",
+                        quote(str(value), safe=""),
+                    )
+                elif parameter.location == "query":
+                    query[parameter.wire_name] = value
+                elif parameter.location == "header":
+                    request_headers[parameter.wire_name] = str(value)
+                else:
+                    cookies[parameter.wire_name] = str(value)
+        else:
+            missing_path = sorted(path_fields - set(payload))
+            if missing_path:
+                raise ValueError(f"connector operation path is missing fields: {missing_path}")
+            for field in path_fields:
+                rendered_path = rendered_path.replace(
+                    f"{{{field}}}", quote(str(payload[field]), safe="")
+                )
+            consumed.update(path_fields)
         url = urljoin(profile.base_url.rstrip("/") + "/", rendered_path.lstrip("/"))
         headers = {
             "X-Lilies-Tenant": binding.external_tenant_id,
@@ -1444,25 +1582,79 @@ class ConnectorService:
         if profile.auth_type == "bearer":
             secret = await self._tenant_secret(binding)
             headers["Authorization"] = f"Bearer {secret}"
-        remaining = {key: value for key, value in payload.items() if key not in path_fields}
+        elif profile.auth_type == "basic":
+            secret = await self._tenant_secret(binding)
+            encoded = base64.b64encode(secret.encode()).decode()
+            headers["Authorization"] = f"Basic {encoded}"
+        elif profile.auth_type == "api_key":
+            secret = await self._tenant_secret(binding)
+            auth_value = f"{profile.auth_prefix}{secret}"
+            if profile.auth_location == "header":
+                headers[profile.auth_wire_name] = auth_value
+            elif profile.auth_location == "query":
+                query[profile.auth_wire_name] = auth_value
+            else:
+                cookies[profile.auth_wire_name] = auth_value
+        headers.update(request_headers)
+        body: Any = None
+        if operation.request_body:
+            consumed.add(operation.request_body.input_key)
+            body = payload.get(operation.request_body.input_key)
+            if body is None and operation.request_body.required:
+                raise ValueError("connector operation is missing required request body")
+            headers.setdefault("Content-Type", operation.request_body.content_type)
+        remaining = {key: value for key, value in payload.items() if key not in consumed}
+        if not operation.parameters and not operation.request_body:
+            if operation.method == "GET":
+                query.update(remaining)
+            else:
+                body = remaining
         async with httpx.AsyncClient(timeout=profile.timeout_seconds) as client:
             response = await client.request(
                 operation.method,
                 url,
                 headers=headers,
-                params=remaining if operation.method == "GET" else None,
-                json=remaining if operation.method != "GET" else None,
+                params=query or None,
+                cookies=cookies or None,
+                json=body,
             )
-            response.raise_for_status()
+            if response.status_code not in operation.success_status_codes:
+                expected = ", ".join(str(item) for item in operation.success_status_codes)
+                detail = response.text[:1000]
+                raise ValueError(
+                    f"connector response status {response.status_code}; expected {expected}; "
+                    f"body={detail}"
+                )
+            content_type = response.headers.get("content-type", "").split(";", 1)[0].strip()
+            if operation.response_content_types and content_type:
+                if content_type not in operation.response_content_types:
+                    raise ValueError(
+                        f"connector response content-type {content_type!r} is outside contract "
+                        f"{operation.response_content_types}"
+                    )
+            if response.status_code == 204 or not response.content:
+                return {}
             data = response.json()
-            if not isinstance(data, dict):
-                raise ValueError("connector adapter response must be an object")
             return data
+
+    @staticmethod
+    def validate_operation_response(operation: ConnectorOperation, response: Any) -> None:
+        if operation.response_json_schema:
+            ConnectorObjectSchema._validate_json_schema(
+                response,
+                operation.response_json_schema,
+                label=f"{operation.id} response",
+            )
+            return
+        operation.response_schema.validate_payload(
+            response,
+            label=f"{operation.id} response",
+        )
 
     def _finish_execution_sync(
         self,
         execution_id: str,
-        response: dict[str, Any],
+        response: Any,
         error: str,
     ) -> ConnectorExecution:
         now = utc_now()
@@ -1493,13 +1685,14 @@ class ConnectorService:
                 event_type = "connector.execution.failed"
                 event_data = {"error": error, "side_effect_state": saved.side_effect_state}
             else:
-                compensation = response.get("compensation_payload", {})
+                response_object = response if isinstance(response, dict) else {}
+                compensation = response_object.get("compensation_payload", {})
                 if not isinstance(compensation, dict):
                     compensation = {}
                 external_reference = str(
-                    response.get("external_id")
-                    or response.get("id")
-                    or response.get("case_id")
+                    response_object.get("external_id")
+                    or response_object.get("id")
+                    or response_object.get("case_id")
                     or ""
                 )
                 saved = current.model_copy(

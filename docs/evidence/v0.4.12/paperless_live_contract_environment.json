@@ -1,0 +1,18 @@
+{
+  "schema_version": "v0.4.12-openapi-live-contract-environment-1",
+  "experiment": "paperless",
+  "status": "blocked_by_environment",
+  "eligible_host": false,
+  "official_source": "https://github.com/paperless-ngx/paperless-ngx.git@80210bd3bf545bc68824e7f8960528df3cd326be",
+  "probe": {
+    "url": "https://demo.paperless-ngx.com/api/schema/",
+    "http_status": 403,
+    "content_type": "text/html; charset=UTF-8",
+    "actual": "Cloudflare interstitial returned before the API schema or application endpoint"
+  },
+  "read_contract": { "status": "not_run" },
+  "write_contract": { "status": "not_run" },
+  "claim_ceiling": "frozen-source generation evidence only",
+  "recheck_trigger": "a controlled Paperless runtime or an official demo API endpoint becomes available without an interstitial",
+  "fabricated_pass": false
+}

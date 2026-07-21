@@ -1,0 +1,18 @@
+{
+  "schema_version": "v0.4.12-openapi-live-contract-environment-1",
+  "experiment": "chatwoot",
+  "status": "blocked_by_environment",
+  "eligible_host": false,
+  "official_source": "https://github.com/chatwoot/chatwoot.git@ae49af354d018f17935f8824921c9c29c9d27948",
+  "probe": {
+    "url": "https://app.chatwoot.com/api/v1/accounts",
+    "http_status": 404,
+    "content_type": "text/html; charset=UTF-8",
+    "actual": "no dedicated test account, account identifier, or access token was available for contract execution"
+  },
+  "read_contract": { "status": "not_run" },
+  "write_contract": { "status": "not_run" },
+  "claim_ceiling": "frozen-source generation evidence only",
+  "recheck_trigger": "a dedicated Chatwoot test tenant and token or a controlled local runtime becomes available",
+  "fabricated_pass": false
+}

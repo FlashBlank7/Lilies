@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, AsyncIterator, Literal
 from uuid import uuid4
 
+import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, status
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -105,6 +106,12 @@ from .models import (
     PermissionDecision,
     SessionCreateRequest,
 )
+from .openapi_connector import (
+    ConnectorContractRunRequest,
+    OpenAPIMaterialError,
+    OpenAPIConnectorGenerationRequest,
+    OpenAPIConnectorService,
+)
 from .permissions import PermissionBroker
 from .platform_harness import PlatformHarness, PlatformHarnessViolation
 from .providers import ModelProvider
@@ -159,6 +166,7 @@ RUNTIME_ROUTE_CHECKS: dict[str, tuple[str, str]] = {
     "evaluation_plan": ("POST", "/api/v1/applications/{application_id}/evaluation/plan"),
     "durable_jobs": ("GET", "/api/v1/applications/{application_id}/durable-jobs"),
     "connector_manifests": ("GET", "/api/v1/connectors/manifests"),
+    "connector_generations": ("GET", "/api/v1/connectors/generations"),
     "connector_test_run": ("POST", "/api/v1/applications/{application_id}/connector-test-runs"),
     "embedding_invoke": ("POST", "/api/v1/embedding/invoke"),
     "governance_connectors": ("GET", "/api/v1/governance/connectors"),
@@ -267,6 +275,7 @@ class Services:
     durable_jobs: DurableJobStore
     harness: PlatformHarness
     connectors: ConnectorService
+    openapi_connectors: OpenAPIConnectorService
     applications: ApplicationService
     workflow_runtime: WorkflowRuntime
     evaluation_harness: EvaluationHarness
@@ -1769,6 +1778,11 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
     governed_memory = GovernedMemorySurface(storage)
     web_collector = ControlledWebCollector(jobs=durable_jobs, harness=harness)
     connectors = ConnectorService(storage=storage, harness=harness)
+    openapi_connectors = OpenAPIConnectorService(
+        storage=storage,
+        harness=harness,
+        connectors=connectors,
+    )
     workflow_runtime = WorkflowRuntime(
         storage=storage,
         workflow_store=workflow_store,
@@ -1864,6 +1878,7 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         durable_jobs=durable_jobs,
         harness=harness,
         connectors=connectors,
+        openapi_connectors=openapi_connectors,
         applications=applications,
         workflow_runtime=workflow_runtime,
         evaluation_harness=evaluation_harness,
@@ -1918,6 +1933,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         await services.workflow_store.initialize()
         await services.durable_jobs.initialize()
         await services.connectors.initialize()
+        await services.openapi_connectors.initialize()
         await services.workflow_store.fail_interrupted_runs()
         services.scheduler.start()
         adaptive_refresh_task: asyncio.Task[Any] | None = None
@@ -2382,6 +2398,100 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
     async def list_connector_manifests() -> list[dict[str, Any]]:
         manifests = await services.connectors.list_manifests()
         return [item.model_dump(mode="json") for item in manifests]
+
+    @app.get("/api/v1/connectors/generations", dependencies=[Depends(require_token)])
+    async def list_connector_generations() -> list[dict[str, Any]]:
+        generations = await services.openapi_connectors.list_generations()
+        return [item.model_dump(mode="json") for item in generations]
+
+    @app.post(
+        "/api/v1/connectors/generations",
+        status_code=201,
+        dependencies=[Depends(require_token)],
+    )
+    async def generate_connector(
+        body: OpenAPIConnectorGenerationRequest,
+    ) -> dict[str, Any]:
+        try:
+            generated = await services.openapi_connectors.generate(body)
+            return generated.model_dump(mode="json")
+        except OpenAPIMaterialError as error:
+            raise HTTPException(
+                422,
+                {
+                    "message": str(error),
+                    "capability_gap": error.gap.model_dump(mode="json"),
+                },
+            ) from error
+        except httpx.HTTPError as error:
+            raise HTTPException(422, f"OpenAPI document fetch failed: {error}") from error
+
+    @app.get(
+        "/api/v1/connectors/generations/{generation_id}",
+        dependencies=[Depends(require_token)],
+    )
+    async def get_connector_generation(generation_id: str) -> dict[str, Any]:
+        try:
+            generated = await services.openapi_connectors.get_generation(generation_id)
+            return generated.model_dump(mode="json")
+        except KeyError as error:
+            raise HTTPException(404, f"connector generation not found: {generation_id}") from error
+
+    @app.get(
+        "/api/v1/connectors/generations/{generation_id}/contract-cases",
+        dependencies=[Depends(require_token)],
+    )
+    async def get_generated_contract_cases(generation_id: str) -> list[dict[str, Any]]:
+        try:
+            cases = await services.openapi_connectors.generate_contract_cases(generation_id)
+            return [item.model_dump(mode="json") for item in cases]
+        except KeyError as error:
+            raise HTTPException(404, f"connector generation not found: {generation_id}") from error
+
+    @app.get(
+        "/api/v1/connectors/generations/{generation_id}/contract-runs",
+        dependencies=[Depends(require_token)],
+    )
+    async def list_generated_contract_runs(generation_id: str) -> list[dict[str, Any]]:
+        try:
+            await services.openapi_connectors.get_generation(generation_id)
+            runs = await services.openapi_connectors.list_contract_runs(generation_id)
+            return [item.model_dump(mode="json") for item in runs]
+        except KeyError as error:
+            raise HTTPException(404, f"connector generation not found: {generation_id}") from error
+
+    @app.post(
+        "/api/v1/connectors/generations/{generation_id}/contract-runs",
+        status_code=201,
+        dependencies=[Depends(require_token)],
+    )
+    async def run_generated_contracts(
+        generation_id: str,
+        body: ConnectorContractRunRequest,
+    ) -> dict[str, Any]:
+        try:
+            run = await services.openapi_connectors.run_contracts(generation_id, body)
+            return run.model_dump(mode="json")
+        except KeyError as error:
+            raise HTTPException(404, f"connector generation not found: {generation_id}") from error
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from error
+
+    @app.post(
+        "/api/v1/connectors/generations/{generation_id}/register",
+        status_code=201,
+        dependencies=[Depends(require_token)],
+    )
+    async def register_generated_connector(generation_id: str) -> dict[str, Any]:
+        try:
+            manifest = await services.openapi_connectors.register_verified(generation_id)
+            return manifest.model_dump(mode="json")
+        except KeyError as error:
+            raise HTTPException(404, f"connector generation not found: {generation_id}") from error
+        except ConnectorConflict as error:
+            raise HTTPException(409, str(error)) from error
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from error
 
     @app.post(
         "/api/v1/connectors/manifests",

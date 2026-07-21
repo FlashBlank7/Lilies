@@ -212,6 +212,15 @@ export type ConnectorManifest = {
     path: string
     required_roles: string[]
     compensation_operation_id?: string | null
+    parameters?: Array<{
+      input_key: string
+      wire_name: string
+      location: 'path' | 'query' | 'header' | 'cookie'
+      required: boolean
+    }>
+    request_body?: { input_key: string; required: boolean; content_type: string } | null
+    success_status_codes?: number[]
+    security_requirements?: string[][]
   }>
   deployment_profiles: Array<{
     id: string
@@ -220,6 +229,72 @@ export type ConnectorManifest = {
     claim_ceiling: 'H2' | 'H3' | 'H4' | 'H5'
     excluded_claims: string[]
   }>
+  source_provenance?: Record<string, unknown>
+}
+
+export type OpenAPICapabilityGap = {
+  code: string
+  capability: string
+  location: string
+  message: string
+  fatal: boolean
+}
+
+export type OpenAPIConnectorGeneration = {
+  id: string
+  connector_id: string
+  version: number
+  status: 'generated' | 'verified' | 'registered'
+  provenance: {
+    source_kind: 'inline' | 'url'
+    source_url: string
+    source_digest: string
+    openapi_version: string
+    title: string
+    document_version: string
+    size_bytes: number
+    fetched_at: string
+  }
+  manifest: ConnectorManifest
+  gaps: OpenAPICapabilityGap[]
+  discovered_operation_count: number
+  generated_operation_count: number
+  mapped_field_count: number
+  total_field_count: number
+  parse_ms: number
+  generate_ms: number
+  created_at: string
+  evidence_stale: boolean
+}
+
+export type ConnectorContractCaseResult = {
+  case: {
+    id: string
+    operation_id: string
+    kind: 'positive' | 'negative'
+    expected: string
+    generated_input: Record<string, unknown>
+  }
+  status: 'passed' | 'failed' | 'skipped' | 'unsupported' | 'blocked_by_environment'
+  actual: string
+  duration_ms: number
+}
+
+export type ConnectorContractRun = {
+  id: string
+  generation_id: string
+  source_digest: string
+  status: 'passed' | 'failed' | 'partial' | 'blocked_by_environment'
+  results: ConnectorContractCaseResult[]
+  passed: number
+  failed: number
+  skipped: number
+  unsupported: number
+  blocked_by_environment: number
+  attempts: number
+  test_ms: number
+  time_to_first_valid_contract_ms?: number | null
+  created_at: string
 }
 
 export type ConnectorBinding = {

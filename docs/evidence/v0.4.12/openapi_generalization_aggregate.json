@@ -1,0 +1,84 @@
+{
+  "schema_version": "v0.4.12-openapi-generalization-aggregate-1",
+  "status": "partial",
+  "claim": "REST/OpenAPI generation generalizes across three frozen official specifications; one eligible real host exposed one passing read contract and one failing POST contract",
+  "generation_denominator": {
+    "hosts": 3,
+    "discovered_operations": 955,
+    "generated_operations": 530,
+    "unsupported_operations": 425,
+    "supported_operation_rate": 0.5549738219895288,
+    "mapped_fields_in_generated_operations": 4663,
+    "total_fields_in_generated_operations": 4663,
+    "generated_field_mapping_rate": 1.0,
+    "generated_contract_cases": 981,
+    "capability_gaps": 426
+  },
+  "contract_case_denominator": {
+    "total_generated": 981,
+    "passed": 3,
+    "failed": 1,
+    "unsupported": 0,
+    "blocked_by_environment": 0,
+    "not_run": 977,
+    "note": "blocked host eligibility is counted separately; only case-level executions appear in passed/failed/not_run"
+  },
+  "host_results": {
+    "paperless": {
+      "generation_status": "completed",
+      "live_contract_status": "blocked_by_environment",
+      "eligible_host": false,
+      "generated_operations": 74,
+      "discovered_operations": 164
+    },
+    "inventree": {
+      "generation_status": "completed",
+      "live_contract_status": "failed",
+      "eligible_host": true,
+      "generated_operations": 333,
+      "discovered_operations": 645,
+      "executed_cases": 4,
+      "passed_cases": 3,
+      "failed_cases": 1,
+      "time_to_first_valid_contract_ms": 2035.7583749573678,
+      "test_ms": 4014.7021670127288,
+      "attempts": 2,
+      "failure": "search_create response is missing required fields: ['search']"
+    },
+    "chatwoot": {
+      "generation_status": "completed",
+      "live_contract_status": "blocked_by_environment",
+      "eligible_host": false,
+      "generated_operations": 123,
+      "discovered_operations": 146
+    }
+  },
+  "human_and_model_cost": {
+    "project_specific_adapters": 0,
+    "project_specific_mapping_code": 0,
+    "model_calls": 0,
+    "model_cost_usd": 0,
+    "human_rescue_count": 0,
+    "deployment_configuration_inputs_per_host": ["base_url", "allowed_host", "optional auth scheme"]
+  },
+  "largest_observed_gaps": {
+    "IF-06_schema_composition": 396,
+    "IF-11_binary_payload": 23,
+    "IF-14_response_contract": 3,
+    "IF-05_media_type": 3,
+    "IF-07_security_scheme": 1
+  },
+  "evidence": [
+    "paperless_openapi_generalization.json",
+    "inventree_openapi_generalization.json",
+    "chatwoot_openapi_generalization.json",
+    "inventree_live_contract.json",
+    "paperless_live_contract_environment.json",
+    "chatwoot_live_contract_environment.json",
+    "browser/browser-evidence.json"
+  ],
+  "runtime_performance_comparison": {
+    "status": "not_started",
+    "reason": "the user explicitly gates original-versus-replacement p95, throughput, CPU, memory, recovery, and labor comparison on functional correctness"
+  }
+}

@@ -1,0 +1,247 @@
+{
+  "schema_version": "v0.4.12-openapi-generalization-1",
+  "experiment": "chatwoot",
+  "claim": "static OpenAPI intake, Connector generation, and generated contract-case coverage",
+  "claim_ceiling": "H3 generation evidence; live contract evidence is reported separately",
+  "source": {
+    "repository": "https://github.com/chatwoot/chatwoot.git",
+    "commit": "ae49af354d018f17935f8824921c9c29c9d27948",
+    "spec_path": "/tmp/chatwoot/swagger/swagger.json",
+    "spec_sha256": "0c8c28831898462c019aaf1bcf53132427a435f7f0ae654a86b72dc38717d10a",
+    "spec_bytes": 481804,
+    "freeze_command": "git checkout frozen commit; use swagger/swagger.json",
+    "openapi_version": "3.1.0",
+    "document_version": "1.1.0",
+    "title": "Chatwoot"
+  },
+  "delivery": {
+    "discovered_operations": 146,
+    "generated_operations": 123,
+    "unsupported_operations": 23,
+    "supported_operation_rate": 0.8424657534246576,
+    "generated_operation_mix": {
+      "read": 56,
+      "write": 67
+    },
+    "mapped_fields_in_generated_operations": 1966,
+    "total_fields_in_generated_operations": 1966,
+    "generated_field_mapping_rate": 1.0,
+    "generated_contract_cases": {
+      "positive": 123,
+      "negative": 121,
+      "total": 244
+    },
+    "parse_ms": 21.536,
+    "generate_ms": 18.408,
+    "end_to_end_generation_ms": 43.593,
+    "generation_attempts": 1,
+    "repair_attempts": 0,
+    "model_calls": 0,
+    "model_cost_usd": 0,
+    "human_authored_adapter_count": 0,
+    "human_authored_mapping_count": 0,
+    "human_rescue_count": 0
+  },
+  "capability_gaps": {
+    "total": 23,
+    "by_code": {
+      "IF-01": 0,
+      "IF-02": 0,
+      "IF-03": 0,
+      "IF-04": 0,
+      "IF-05": 0,
+      "IF-06": 13,
+      "IF-07": 0,
+      "IF-08": 0,
+      "IF-09": 0,
+      "IF-10": 0,
+      "IF-11": 10,
+      "IF-12": 0,
+      "IF-13": 0,
+      "IF-14": 0
+    },
+    "items": [
+      {
+        "code": "IF-11",
+        "capability": "binary_payload",
+        "location": "$.paths./platform/api/v1/agent_bots.post.requestBody.schema.properties.avatar",
+        "message": "binary payload mapping is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-11",
+        "capability": "binary_payload",
+        "location": "$.paths./platform/api/v1/agent_bots/{id}.patch.requestBody.schema.properties.avatar",
+        "message": "binary payload mapping is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-11",
+        "capability": "binary_payload",
+        "location": "$.paths./public/api/v1/inboxes/{inbox_identifier}/contacts.post.requestBody.schema.properties.avatar",
+        "message": "binary payload mapping is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-11",
+        "capability": "binary_payload",
+        "location": "$.paths./public/api/v1/inboxes/{inbox_identifier}/contacts/{contact_identifier}.patch.requestBody.schema.properties.avatar",
+        "message": "binary payload mapping is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/v1/accounts/{account_id}.get.responses",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-11",
+        "capability": "binary_payload",
+        "location": "$.paths./api/v1/accounts/{account_id}/agent_bots.post.requestBody.schema.properties.avatar",
+        "message": "binary payload mapping is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-11",
+        "capability": "binary_payload",
+        "location": "$.paths./api/v1/accounts/{account_id}/agent_bots/{id}.patch.requestBody.schema.properties.avatar",
+        "message": "binary payload mapping is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-11",
+        "capability": "binary_payload",
+        "location": "$.paths./api/v1/accounts/{account_id}/contacts.post.requestBody.schema.properties.avatar",
+        "message": "binary payload mapping is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-11",
+        "capability": "binary_payload",
+        "location": "$.paths./api/v1/accounts/{account_id}/contacts/{id}.put.requestBody.schema.properties.avatar",
+        "message": "binary payload mapping is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/v1/accounts/{account_id}/contacts/{id}/conversations.get.responses.properties.payload.items",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/v1/accounts/{account_id}/actions/contact_merge.post.responses",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/v1/accounts/{account_id}/automation_rules.get.responses.properties.payload",
+        "message": "JSON Schema keyword oneOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/v1/accounts/{account_id}/automation_rules.post.responses.properties.payload",
+        "message": "JSON Schema keyword oneOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/v1/accounts/{account_id}/automation_rules/{id}.get.responses.properties.payload",
+        "message": "JSON Schema keyword oneOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/v1/accounts/{account_id}/automation_rules/{id}.patch.responses.properties.payload",
+        "message": "JSON Schema keyword oneOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/v1/accounts/{account_id}/conversations.get.responses.properties.data.properties.payload.items",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/v1/accounts/{account_id}/conversations/filter.post.responses.properties.data.properties.payload.items",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/v1/accounts/{account_id}/conversations/{conversation_id}.get.responses",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/v1/accounts/{account_id}/conversations/{conversation_id}.patch.responses.properties.last_non_activity_message",
+        "message": "JSON Schema keyword oneOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-11",
+        "capability": "binary_payload",
+        "location": "$.paths./api/v1/accounts/{account_id}/inboxes.post.requestBody.schema.properties.avatar",
+        "message": "binary payload mapping is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-11",
+        "capability": "binary_payload",
+        "location": "$.paths./api/v1/accounts/{account_id}/inboxes/{id}.patch.requestBody.schema.properties.avatar",
+        "message": "binary payload mapping is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/v1/accounts/{account_id}/conversations/{conversation_id}/messages.post.responses",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./accounts/{account_id}/conversations/{conversation_id}/messages.get.responses.properties.meta.properties.assignee",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      }
+    ]
+  },
+  "live_contracts": {
+    "status": "not_run",
+    "reason": "this command measures generation only; a controlled host run must append live evidence",
+    "read": {
+      "status": "not_run"
+    },
+    "write": {
+      "status": "not_run"
+    }
+  },
+  "forbidden_assistance_scan": {
+    "status": "pass",
+    "authored_contract_tokens": [],
+    "host_name_branch_files": [],
+    "method": "static scan of experiment fixture and platform source"
+  },
+  "reproduce": {
+    "command": "scripts/run_v04_12_openapi_generalization.py --name chatwoot --spec /tmp/chatwoot/swagger/swagger.json --connector-id chatwoot_generated --domain customer_support --base-url https://app.chatwoot.com --allowed-host app.chatwoot.com --source-repository https://github.com/chatwoot/chatwoot.git --source-commit ae49af354d018f17935f8824921c9c29c9d27948 --source-command git checkout frozen commit; use swagger/swagger.json --output docs/evidence/v0.4.12/chatwoot_openapi_generalization.json",
+    "python": "3.12.13"
+  }
+}

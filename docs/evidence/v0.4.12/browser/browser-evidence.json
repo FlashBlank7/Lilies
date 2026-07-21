@@ -1,0 +1,47 @@
+{
+  "version": "v0.4.12",
+  "application_id": "c2921c42-5556-4afd-979a-585ed10bab51",
+  "journey": [
+    "import_openapi",
+    "review_generated_mapping",
+    "pass_contract",
+    "register_verified",
+    "inspect_failed_contract"
+  ],
+  "pass_disclosure": {
+    "status": "passed",
+    "result": "passed\n2 通过 · 0 失败 · 0 环境受限 · 66.0 ms\nvalidGeneratedItem · positive\nHTTP status in [200] and response matches generated schema\nstatus, content type, and response schema matched\nPASSED\nvalidGeneratedItem · negative\nlocal schema rejects missing required input item_id\nvalidGeneratedItem request is missing required fields: ['item_id']\nPASSED",
+    "registerEnabled": true
+  },
+  "failure_disclosure": {
+    "status": "failed",
+    "result": "failed\n1 通过 · 1 失败 · 0 环境受限 · 9.3 ms\ninvalidGeneratedItem · positive\nHTTP status in [200] and response matches generated schema\ninvalidGeneratedItem response is missing required fields: ['name']\nFAILED\ninvalidGeneratedItem · negative\nlocal schema rejects missing required input item_id\ninvalidGeneratedItem request is missing required fields: ['item_id']\nPASSED",
+    "registerEnabled": false
+  },
+  "host_stats": {
+    "valid_reads": 1,
+    "invalid_reads": 1
+  },
+  "layout": {
+    "viewport": [
+      1440,
+      873
+    ],
+    "document_overflow": false,
+    "surface_overflow": false
+  },
+  "console_errors": [],
+  "failed_requests": [],
+  "screenshots": [
+    {
+      "id": "generated-contract-pass",
+      "path": "generated-contract-pass.png",
+      "sha256": "53409faf4d467f15a66c5c117b0bf8c6a879415e63bd69273be6587013822052"
+    },
+    {
+      "id": "generated-contract-failure",
+      "path": "generated-contract-failure.png",
+      "sha256": "7a89039b8e2c67176f256e95b6844b5eb18937c6f6bf57cfe95af00ee7b28f76"
+    }
+  ]
+}

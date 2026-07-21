@@ -1,0 +1,716 @@
+{
+  "schema_version": "v0.4.12-openapi-generalization-1",
+  "experiment": "paperless",
+  "claim": "static OpenAPI intake, Connector generation, and generated contract-case coverage",
+  "claim_ceiling": "H3 generation evidence; live contract evidence is reported separately",
+  "source": {
+    "repository": "https://github.com/paperless-ngx/paperless-ngx.git",
+    "commit": "80210bd3bf545bc68824e7f8960528df3cd326be",
+    "spec_path": "/tmp/paperless-openapi.yml",
+    "spec_sha256": "7381eaa199313c56f2a149d10410db19d963005d403452c2a0dcc0d82dbbab38",
+    "spec_bytes": 335565,
+    "freeze_command": "git checkout frozen commit; manage.py spectacular --skip-checks --file /tmp/paperless-openapi.yml",
+    "openapi_version": "3.0.3",
+    "document_version": "6.0.0",
+    "title": "Paperless-ngx REST API"
+  },
+  "delivery": {
+    "discovered_operations": 164,
+    "generated_operations": 74,
+    "unsupported_operations": 90,
+    "supported_operation_rate": 0.45121951219512196,
+    "generated_operation_mix": {
+      "read": 28,
+      "write": 46
+    },
+    "mapped_fields_in_generated_operations": 425,
+    "total_fields_in_generated_operations": 425,
+    "generated_field_mapping_rate": 1.0,
+    "generated_contract_cases": {
+      "positive": 74,
+      "negative": 48,
+      "total": 122
+    },
+    "parse_ms": 702.116,
+    "generate_ms": 22.337,
+    "end_to_end_generation_ms": 725.894,
+    "generation_attempts": 1,
+    "repair_attempts": 0,
+    "model_calls": 0,
+    "model_cost_usd": 0,
+    "human_authored_adapter_count": 0,
+    "human_authored_mapping_count": 0,
+    "human_rescue_count": 0
+  },
+  "capability_gaps": {
+    "total": 90,
+    "by_code": {
+      "IF-01": 0,
+      "IF-02": 0,
+      "IF-03": 0,
+      "IF-04": 0,
+      "IF-05": 2,
+      "IF-06": 85,
+      "IF-07": 0,
+      "IF-08": 0,
+      "IF-09": 0,
+      "IF-10": 0,
+      "IF-11": 3,
+      "IF-12": 0,
+      "IF-13": 0,
+      "IF-14": 0
+    },
+    "items": [
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/bulk_edit_objects/.post.requestBody.schema.properties.object_type",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/config/.get.responses.items.properties.output_type",
+        "message": "JSON Schema keyword oneOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/config/{id}/.get.responses.properties.output_type",
+        "message": "JSON Schema keyword oneOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/config/{id}/.put.requestBody.schema.properties.output_type",
+        "message": "JSON Schema keyword oneOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/config/{id}/.patch.requestBody.schema.properties.output_type",
+        "message": "JSON Schema keyword oneOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/correspondents/.get.responses.properties.results.items.properties.matching_algorithm",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/correspondents/.post.requestBody.schema.properties.matching_algorithm",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/correspondents/{id}/.get.responses.properties.matching_algorithm",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/correspondents/{id}/.put.requestBody.schema.properties.matching_algorithm",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/correspondents/{id}/.patch.requestBody.schema.properties.matching_algorithm",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/document_types/.get.responses.properties.results.items.properties.matching_algorithm",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/document_types/.post.requestBody.schema.properties.matching_algorithm",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/document_types/{id}/.get.responses.properties.matching_algorithm",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/document_types/{id}/.put.requestBody.schema.properties.matching_algorithm",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/document_types/{id}/.patch.requestBody.schema.properties.matching_algorithm",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/documents/.get.responses.properties.results.items.properties.notes.items.properties.user",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/documents/{id}/.get.responses.properties.notes.items.properties.user",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/documents/{id}/.put.requestBody.schema.properties.custom_fields.items.properties.value",
+        "message": "JSON Schema keyword oneOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/documents/{id}/.patch.requestBody.schema.properties.custom_fields.items.properties.value",
+        "message": "JSON Schema keyword oneOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-11",
+        "capability": "binary_payload",
+        "location": "$.paths./api/documents/{id}/download/.get.responses",
+        "message": "binary payload mapping is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/documents/{id}/notes/.get.responses.items.properties.user",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/documents/{id}/notes/.post.responses.items.properties.user",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/documents/{id}/notes/.delete.responses.items.properties.user",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-11",
+        "capability": "binary_payload",
+        "location": "$.paths./api/documents/{id}/preview/.get.responses",
+        "message": "binary payload mapping is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-11",
+        "capability": "binary_payload",
+        "location": "$.paths./api/documents/{id}/thumb/.get.responses",
+        "message": "binary payload mapping is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-05",
+        "capability": "request_media_type",
+        "location": "$.paths./api/documents/{id}/update_version/.post.requestBody",
+        "message": "only application/json request bodies are generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/documents/bulk_download/.post.requestBody.schema.properties.content",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/documents/bulk_edit/.post.requestBody.schema.properties.method",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-05",
+        "capability": "request_media_type",
+        "location": "$.paths./api/documents/post_document/.post.requestBody",
+        "message": "only application/json request bodies are generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/mail_accounts/.get.responses.properties.results.items.properties.imap_security",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/mail_accounts/.post.requestBody.schema.properties.imap_security",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/mail_accounts/{id}/.get.responses.properties.imap_security",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/mail_accounts/{id}/.put.requestBody.schema.properties.imap_security",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/mail_accounts/{id}/.patch.requestBody.schema.properties.imap_security",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/mail_accounts/{id}/process/.post.requestBody.schema.properties.imap_security",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/mail_accounts/test/.post.requestBody.schema.properties.imap_security",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/mail_rules/.get.responses.properties.results.items.properties.action",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/mail_rules/.post.requestBody.schema.properties.action",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/mail_rules/{id}/.get.responses.properties.action",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/mail_rules/{id}/.put.requestBody.schema.properties.action",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/mail_rules/{id}/.patch.requestBody.schema.properties.action",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/profile/.get.responses.properties.email",
+        "message": "JSON Schema keyword oneOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/profile/.patch.requestBody.schema.properties.email",
+        "message": "JSON Schema keyword oneOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/saved_views/.get.responses.properties.results.items.properties.filter_rules.items.properties.rule_type",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/saved_views/.post.requestBody.schema.properties.filter_rules.items.properties.rule_type",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/saved_views/{id}/.get.responses.properties.filter_rules.items.properties.rule_type",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/saved_views/{id}/.put.requestBody.schema.properties.filter_rules.items.properties.rule_type",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/saved_views/{id}/.patch.requestBody.schema.properties.filter_rules.items.properties.rule_type",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/search/.get.responses.properties.documents.items.properties.notes.items.properties.user",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/share_link_bundles/.get.responses.properties.results.items.properties.status",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/share_link_bundles/.post.responses.properties.status",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/share_link_bundles/{id}/.get.responses.properties.status",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/share_link_bundles/{id}/.put.responses.properties.status",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/share_link_bundles/{id}/.patch.responses.properties.status",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/share_link_bundles/{id}/rebuild/.post.responses.properties.status",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/storage_paths/.get.responses.properties.results.items.properties.matching_algorithm",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/storage_paths/.post.requestBody.schema.properties.matching_algorithm",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/storage_paths/{id}/.get.responses.properties.matching_algorithm",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/storage_paths/{id}/.put.requestBody.schema.properties.matching_algorithm",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/storage_paths/{id}/.patch.requestBody.schema.properties.matching_algorithm",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/tags/.get.responses.properties.results.items.properties.matching_algorithm",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/tags/.post.requestBody.schema.properties.matching_algorithm",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/tags/{id}/.get.responses.properties.matching_algorithm",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/tags/{id}/.put.requestBody.schema.properties.matching_algorithm",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/tags/{id}/.patch.requestBody.schema.properties.matching_algorithm",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/tasks/.get.responses.properties.results.items.properties.task_type",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/tasks/{id}/.get.responses.properties.task_type",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/tasks/active/.get.responses.items.properties.task_type",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/tasks/run/.post.requestBody.schema.properties.task_type",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/trash/.post.requestBody.schema.properties.action",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/users/.get.responses.properties.results.items.properties.email",
+        "message": "JSON Schema keyword oneOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/users/.post.requestBody.schema.properties.email",
+        "message": "JSON Schema keyword oneOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/users/{id}/.get.responses.properties.email",
+        "message": "JSON Schema keyword oneOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/users/{id}/.put.requestBody.schema.properties.email",
+        "message": "JSON Schema keyword oneOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/users/{id}/.patch.requestBody.schema.properties.email",
+        "message": "JSON Schema keyword oneOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/workflow_actions/.get.responses.properties.results.items.properties.type",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/workflow_actions/.post.requestBody.schema.properties.type",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/workflow_actions/{id}/.get.responses.properties.type",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/workflow_actions/{id}/.put.requestBody.schema.properties.type",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/workflow_actions/{id}/.patch.requestBody.schema.properties.type",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/workflow_triggers/.get.responses.properties.results.items.properties.type",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/workflow_triggers/.post.requestBody.schema.properties.type",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/workflow_triggers/{id}/.get.responses.properties.type",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/workflow_triggers/{id}/.put.requestBody.schema.properties.type",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/workflow_triggers/{id}/.patch.requestBody.schema.properties.type",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/workflows/.get.responses.properties.results.items.properties.triggers.items.properties.type",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/workflows/.post.requestBody.schema.properties.triggers.items.properties.type",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/workflows/{id}/.get.responses.properties.triggers.items.properties.type",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/workflows/{id}/.put.requestBody.schema.properties.triggers.items.properties.type",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      },
+      {
+        "code": "IF-06",
+        "capability": "schema_composition",
+        "location": "$.paths./api/workflows/{id}/.patch.requestBody.schema.properties.triggers.items.properties.type",
+        "message": "JSON Schema keyword allOf is not generated",
+        "fatal": false
+      }
+    ]
+  },
+  "live_contracts": {
+    "status": "not_run",
+    "reason": "this command measures generation only; a controlled host run must append live evidence",
+    "read": {
+      "status": "not_run"
+    },
+    "write": {
+      "status": "not_run"
+    }
+  },
+  "forbidden_assistance_scan": {
+    "status": "pass",
+    "authored_contract_tokens": [],
+    "host_name_branch_files": [],
+    "method": "static scan of experiment fixture and platform source"
+  },
+  "reproduce": {
+    "command": "scripts/run_v04_12_openapi_generalization.py --name paperless --spec /tmp/paperless-openapi.yml --connector-id paperless_generated --domain document_management --base-url https://demo.paperless-ngx.com --allowed-host demo.paperless-ngx.com --source-repository https://github.com/paperless-ngx/paperless-ngx.git --source-commit 80210bd3bf545bc68824e7f8960528df3cd326be --source-command git checkout frozen commit; manage.py spectacular --skip-checks --file /tmp/paperless-openapi.yml --output docs/evidence/v0.4.12/paperless_openapi_generalization.json",
+    "python": "3.12.13"
+  }
+}

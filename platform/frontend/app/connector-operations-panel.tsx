@@ -2,6 +2,7 @@
 
 import {
   AlertTriangle,
+  Braces,
   CheckCircle2,
   FileJson,
   KeyRound,
@@ -11,6 +12,8 @@ import {
   RefreshCw,
   RotateCcw,
   ShieldCheck,
+  TestTube2,
+  Upload,
 } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
@@ -19,10 +22,12 @@ import {
   idempotency,
   isAuthError,
   type ConnectorBinding,
+  type ConnectorContractRun,
   type ConnectorExecutionDetail,
   type ConnectorExecutionPage,
   type ConnectorExercise,
   type ConnectorManifest,
+  type OpenAPIConnectorGeneration,
   type ConnectorPolicy,
   type ConnectorReceipt,
 } from '@/lib/platform'
@@ -55,6 +60,19 @@ type ExecutionDraft = {
   dryRun: boolean
 }
 
+type GenerationDraft = {
+  connectorId: string
+  version: string
+  domain: string
+  profileId: string
+  baseUrl: string
+  allowedHosts: string
+  sourceMode: 'inline' | 'url'
+  document: string
+  documentUrl: string
+  allowedDocumentHosts: string
+}
+
 const emptyBinding: BindingDraft = {
   connectorId: '',
   version: '1',
@@ -76,6 +94,19 @@ const emptyExecution: ExecutionDraft = {
   dryRun: true,
 }
 
+const emptyGeneration: GenerationDraft = {
+  connectorId: '',
+  version: '1',
+  domain: '',
+  profileId: 'generated-test',
+  baseUrl: '',
+  allowedHosts: '',
+  sourceMode: 'inline',
+  document: '',
+  documentUrl: '',
+  allowedDocumentHosts: '',
+}
+
 function splitValues(value: string) {
   return value.split(/[\n,]/).map(item => item.trim()).filter(Boolean)
 }
@@ -94,6 +125,7 @@ export function ConnectorOperationsPanel({ applicationId, locale, onAuthRequired
   const zh = locale === 'zh'
   const onAuthRequiredRef = useRef(onAuthRequired)
   const [manifests, setManifests] = useState<ConnectorManifest[]>([])
+  const [generations, setGenerations] = useState<OpenAPIConnectorGeneration[]>([])
   const [bindings, setBindings] = useState<ConnectorBinding[]>([])
   const [policies, setPolicies] = useState<ConnectorPolicy[]>([])
   const [executions, setExecutions] = useState<ConnectorExecutionPage | null>(null)
@@ -101,6 +133,10 @@ export function ConnectorOperationsPanel({ applicationId, locale, onAuthRequired
   const [events, setEvents] = useState<Array<Record<string, unknown>>>([])
   const [selectedExecutionId, setSelectedExecutionId] = useState('')
   const [manifestText, setManifestText] = useState('')
+  const [generationDraft, setGenerationDraft] = useState<GenerationDraft>(emptyGeneration)
+  const [selectedGenerationId, setSelectedGenerationId] = useState('')
+  const [contractRun, setContractRun] = useState<ConnectorContractRun | null>(null)
+  const [allowMutatingContracts, setAllowMutatingContracts] = useState(false)
   const [bindingDraft, setBindingDraft] = useState<BindingDraft>(emptyBinding)
   const [executionDraft, setExecutionDraft] = useState<ExecutionDraft>(emptyExecution)
   const [policyReason, setPolicyReason] = useState('Operator-controlled integration boundary')
@@ -116,18 +152,21 @@ export function ConnectorOperationsPanel({ applicationId, locale, onAuthRequired
     setError('')
     try {
       const applicationScope = `application_id=${encodeURIComponent(applicationId)}`
-      const [nextManifests, nextBindings, nextPolicies, nextExecutions, nextExercises] = await Promise.all([
+      const [nextManifests, nextGenerations, nextBindings, nextPolicies, nextExecutions, nextExercises] = await Promise.all([
         api<ConnectorManifest[]>('/api/v1/connectors/manifests'),
+        api<OpenAPIConnectorGeneration[]>('/api/v1/connectors/generations'),
         api<ConnectorBinding[]>(`/api/v1/connectors/bindings?${applicationScope}`),
         api<ConnectorPolicy[]>(`/api/v1/connectors/policies?${applicationScope}`),
         api<ConnectorExecutionPage>(`/api/v1/connectors/executions?${applicationScope}&limit=50`),
         api<ConnectorExercise[]>(`/api/v1/connectors/exercises?${applicationScope}`),
       ])
       setManifests(nextManifests)
+      setGenerations(nextGenerations)
       setBindings(nextBindings)
       setPolicies(nextPolicies)
       setExecutions(nextExecutions)
       setExercises(nextExercises)
+      setSelectedGenerationId(current => current || nextGenerations[0]?.id || '')
       const firstManifest = nextManifests[0]
       const firstBinding = nextBindings[0]
       setBindingDraft(current => ({
@@ -156,12 +195,85 @@ export function ConnectorOperationsPanel({ applicationId, locale, onAuthRequired
   const selectedManifest = useMemo(() => manifests.find(item => (
     item.connector_id === bindingDraft.connectorId && item.version === Number(bindingDraft.version)
   )) || manifests[0], [bindingDraft.connectorId, bindingDraft.version, manifests])
+  const selectedGeneration = generations.find(item => item.id === selectedGenerationId)
+    || generations[0]
   const selectedBinding = bindings.find(item => item.tenant_id === executionDraft.tenantId)
     || bindings.find(item => item.application_ids.includes(applicationId))
     || bindings[0]
   const selectedPolicy = policies.find(item => item.tenant_id === bindingDraft.tenantId && (
     !bindingDraft.connectorId || item.connector_id === bindingDraft.connectorId
   ))
+
+  async function generateFromOpenAPI() {
+    setBusy('generation')
+    setError('')
+    setNotice('')
+    setContractRun(null)
+    try {
+      const body = {
+        connector_id: generationDraft.connectorId,
+        version: Number(generationDraft.version),
+        domain: generationDraft.domain,
+        document: generationDraft.sourceMode === 'inline' ? generationDraft.document : '',
+        document_url: generationDraft.sourceMode === 'url' ? generationDraft.documentUrl : '',
+        allowed_document_hosts: splitValues(generationDraft.allowedDocumentHosts),
+        deployment: {
+          profile_id: generationDraft.profileId,
+          environment: 'test',
+          base_url: generationDraft.baseUrl,
+          allowed_hosts: splitValues(generationDraft.allowedHosts),
+          available: true,
+          claim_ceiling: 'H3',
+        },
+      }
+      const generated = await api<OpenAPIConnectorGeneration>('/api/v1/connectors/generations', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      })
+      setSelectedGenerationId(generated.id)
+      setNotice(zh ? 'OpenAPI 已解析，映射与契约用例已生成。' : 'OpenAPI parsed; mappings and contract cases generated.')
+      await refresh()
+    } catch (caught) {
+      setError(String(caught))
+    } finally {
+      setBusy('')
+    }
+  }
+
+  async function runGeneratedContracts() {
+    if (!selectedGeneration) return
+    setBusy('contract-run')
+    setError('')
+    try {
+      const run = await api<ConnectorContractRun>(`/api/v1/connectors/generations/${selectedGeneration.id}/contract-runs`, {
+        method: 'POST',
+        body: JSON.stringify({ allow_mutating_operations: allowMutatingContracts }),
+      })
+      setContractRun(run)
+      setNotice(run.status === 'passed'
+        ? (zh ? '自动契约全部通过，可以登记。' : 'Generated contracts passed; registration is available.')
+        : (zh ? '契约未通过，失败原因已保留。' : 'Contracts did not pass; failure evidence is retained.'))
+    } catch (caught) {
+      setError(String(caught))
+    } finally {
+      setBusy('')
+    }
+  }
+
+  async function registerGenerated() {
+    if (!selectedGeneration) return
+    setBusy('generation-register')
+    setError('')
+    try {
+      await api(`/api/v1/connectors/generations/${selectedGeneration.id}/register`, { method: 'POST' })
+      setNotice(zh ? '已验证的 Connector 版本已登记。' : 'Verified Connector version registered.')
+      await refresh()
+    } catch (caught) {
+      setError(String(caught))
+    } finally {
+      setBusy('')
+    }
+  }
 
   async function registerManifest() {
     setBusy('manifest')
@@ -437,22 +549,53 @@ export function ConnectorOperationsPanel({ applicationId, locale, onAuthRequired
     </header>
 
     <div className={styles.metrics}>
-      <span><b>{manifests.length}</b>{zh ? '合同版本' : 'contracts'}</span>
+      <span><b>{generations.length}</b>{zh ? '自动生成' : 'generated'}</span>
+      <span><b>{manifests.length}</b>{zh ? '已登记' : 'registered'}</span>
       <span><b>{bindings.length}</b>{zh ? '租户' : 'tenants'}</span>
-      <span><b>{executions?.items.length || 0}</b>{zh ? '最近回执' : 'receipts'}</span>
     </div>
     {error && <div className={styles.error} role="alert"><AlertTriangle size={16} /><span>{error}</span></div>}
     {notice && <div className={styles.notice}><CheckCircle2 size={16} /><span>{notice}</span></div>}
     {!loading && manifests.length === 0 && <div className={styles.emptyState}>
       <PlugZap size={20} />
       <strong>{zh ? '尚未配置客户系统连接器' : 'No customer connector configured'}</strong>
-      <span>{zh ? '先登记一个版本化连接器合同，再为当前应用绑定测试租户。' : 'Register a versioned connector contract, then bind a test tenant to this application.'}</span>
+      <span>{zh ? '导入客户系统的 OpenAPI 文档并运行自动契约。' : 'Import the customer OpenAPI document and run generated contracts.'}</span>
     </div>}
+
+    <section className={styles.section} data-connector-section="openapi-generation" data-openapi-default-path="true">
+      <header><Upload size={16} /><div><strong>{zh ? 'OpenAPI 自动接入' : 'OpenAPI import'}</strong><small>{zh ? '来源 → 映射 → 契约 → 登记' : 'source → mapping → contract → registration'}</small></div></header>
+      <div className={styles.formGrid}>
+        <label><span>Connector ID</span><input data-openapi-field="connector-id" value={generationDraft.connectorId} onChange={event => setGenerationDraft(current => ({ ...current, connectorId: event.target.value }))} /></label>
+        <label><span>{zh ? '领域' : 'Domain'}</span><input data-openapi-field="domain" value={generationDraft.domain} onChange={event => setGenerationDraft(current => ({ ...current, domain: event.target.value }))} /></label>
+        <label><span>{zh ? '版本' : 'Version'}</span><input type="number" min="1" value={generationDraft.version} onChange={event => setGenerationDraft(current => ({ ...current, version: event.target.value }))} /></label>
+        <label><span>Profile</span><input value={generationDraft.profileId} onChange={event => setGenerationDraft(current => ({ ...current, profileId: event.target.value }))} /></label>
+        <label className={styles.wide}><span>Base URL</span><input data-openapi-field="base-url" value={generationDraft.baseUrl} onChange={event => setGenerationDraft(current => ({ ...current, baseUrl: event.target.value }))} placeholder="https://customer-system.example/api/" /></label>
+        <label className={styles.wide}><span>{zh ? '允许的运行主机' : 'Allowed runtime hosts'}</span><input data-openapi-field="allowed-hosts" value={generationDraft.allowedHosts} onChange={event => setGenerationDraft(current => ({ ...current, allowedHosts: event.target.value }))} placeholder="customer-system.example" /></label>
+        <label><span>{zh ? '文档来源' : 'Document source'}</span><select value={generationDraft.sourceMode} onChange={event => setGenerationDraft(current => ({ ...current, sourceMode: event.target.value as 'inline' | 'url' }))}><option value="inline">{zh ? '粘贴 JSON / YAML' : 'Paste JSON / YAML'}</option><option value="url">URL</option></select></label>
+        {generationDraft.sourceMode === 'url' && <label><span>{zh ? '允许的文档主机' : 'Allowed document hosts'}</span><input value={generationDraft.allowedDocumentHosts} onChange={event => setGenerationDraft(current => ({ ...current, allowedDocumentHosts: event.target.value }))} /></label>}
+        {generationDraft.sourceMode === 'inline'
+          ? <label className={styles.wide}><span>OpenAPI JSON / YAML</span><textarea data-openapi-field="document" value={generationDraft.document} onChange={event => setGenerationDraft(current => ({ ...current, document: event.target.value }))} /></label>
+          : <label className={styles.wide}><span>OpenAPI URL</span><input value={generationDraft.documentUrl} onChange={event => setGenerationDraft(current => ({ ...current, documentUrl: event.target.value }))} placeholder="https://customer-system.example/openapi.json" /></label>}
+      </div>
+      <button data-connector-action="generate-openapi" onClick={() => void generateFromOpenAPI()} disabled={!generationDraft.connectorId || !generationDraft.domain || !generationDraft.baseUrl || !(generationDraft.document || generationDraft.documentUrl) || busy === 'generation'}><Braces size={15} />{busy === 'generation' ? (zh ? '生成中' : 'Generating') : (zh ? '生成 Connector 与契约' : 'Generate Connector and contracts')}</button>
+
+      {generations.length > 0 && <div className={styles.contractList} data-openapi-generations="true">{generations.map(item => <button key={item.id} onClick={() => { setSelectedGenerationId(item.id); setContractRun(null) }} className={selectedGeneration?.id === item.id ? styles.selected : ''}><strong>{item.provenance.title}</strong><span>{item.connector_id}@{item.version} · {item.status}{item.evidence_stale ? ` · ${zh ? '证据已过期' : 'stale evidence'}` : ''}</span><small>{item.generated_operation_count}/{item.discovered_operation_count} ops · {item.mapped_field_count}/{item.total_field_count} fields · {(item.parse_ms + item.generate_ms).toFixed(1)} ms</small></button>)}</div>}
+
+      {selectedGeneration && <div className={styles.generationReview} data-openapi-generation-review={selectedGeneration.status}>
+        <div className={styles.operationMap}>{selectedGeneration.manifest.operations.map(operation => <div key={operation.id}><span><strong>{operation.title}</strong><small>{operation.method} {operation.path}</small></span><code>{operation.parameters?.length || 0} params{operation.request_body ? ' + body' : ''}</code></div>)}</div>
+        {selectedGeneration.gaps.length > 0 && <div className={styles.gapList}>{selectedGeneration.gaps.map(gap => <div key={`${gap.code}:${gap.location}`}><AlertTriangle size={14} /><span><strong>{gap.code} · {gap.capability}</strong><small>{gap.message}</small></span></div>)}</div>}
+        <div className={styles.actions}>
+          <label className={styles.inlineCheck}><input type="checkbox" checked={allowMutatingContracts} onChange={event => setAllowMutatingContracts(event.target.checked)} /><span>{zh ? '允许测试环境写契约' : 'Allow test-environment mutation contracts'}</span></label>
+          <button data-connector-action="run-generated-contracts" onClick={() => void runGeneratedContracts()} disabled={selectedGeneration.evidence_stale || busy === 'contract-run'}><TestTube2 size={15} />{busy === 'contract-run' ? (zh ? '测试中' : 'Testing') : (zh ? '运行自动契约' : 'Run generated contracts')}</button>
+          <button className={styles.secondary} data-connector-action="register-generated" onClick={() => void registerGenerated()} disabled={contractRun?.status !== 'passed' || busy === 'generation-register'}><ShieldCheck size={15} />{zh ? '登记已验证版本' : 'Register verified version'}</button>
+        </div>
+        {contractRun && <div className={styles.contractResults} data-contract-run-status={contractRun.status}><header><strong>{contractRun.status}</strong><span>{contractRun.passed} {zh ? '通过' : 'passed'} · {contractRun.failed} {zh ? '失败' : 'failed'} · {contractRun.blocked_by_environment} {zh ? '环境受限' : 'environment blocked'} · {contractRun.test_ms.toFixed(1)} ms</span></header>{contractRun.results.map(result => <div key={result.case.id} data-case-status={result.status}><span><strong>{result.case.operation_id} · {result.case.kind}</strong><small>{result.case.expected}</small><small>{result.actual}</small></span><b>{result.status}</b></div>)}</div>}
+      </div>}
+    </section>
 
     <section className={styles.section} data-connector-section="contract">
       <header><FileJson size={16} /><div><strong>{zh ? '版本化合同' : 'Versioned contracts'}</strong><small>H3 max · mock/test/live/private</small></div></header>
       <div className={styles.contractList}>{manifests.map(item => <button key={`${item.connector_id}:${item.version}`} onClick={() => setBindingDraft(current => ({ ...current, connectorId: item.connector_id, version: String(item.version), profileId: item.deployment_profiles[0]?.id || '' }))} className={selectedManifest === item ? styles.selected : ''}><strong>{item.title}</strong><span>{item.connector_id}@{item.version}</span><small>{item.operations.length} ops · {item.deployment_profiles.map(profile => `${profile.id}:${profile.environment}`).join(', ')}</small></button>)}</div>
-      <details className={styles.details}><summary>{zh ? '登记不可变合同版本' : 'Register immutable contract version'}</summary><textarea value={manifestText} onChange={event => setManifestText(event.target.value)} placeholder="Connector manifest JSON" /><button onClick={() => void registerManifest()} disabled={!manifestText.trim() || busy === 'manifest'}><FileJson size={15} />{busy === 'manifest' ? (zh ? '登记中' : 'Registering') : (zh ? '登记版本' : 'Register version')}</button></details>
+      <details className={styles.details} data-manual-manifest-legacy="true"><summary>{zh ? '专家旧路径：手工登记 manifest JSON' : 'Expert legacy path: register manifest JSON'}</summary><textarea value={manifestText} onChange={event => setManifestText(event.target.value)} placeholder="Connector manifest JSON" /><button onClick={() => void registerManifest()} disabled={!manifestText.trim() || busy === 'manifest'}><FileJson size={15} />{busy === 'manifest' ? (zh ? '登记中' : 'Registering') : (zh ? '手工登记' : 'Register manually')}</button></details>
     </section>
 
     {manifests.length > 0 && <section className={styles.section} data-connector-section="tenant-policy">
