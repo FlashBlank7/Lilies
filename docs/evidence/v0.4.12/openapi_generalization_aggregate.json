@@ -11,16 +11,16 @@
     "mapped_fields_in_generated_operations": 4663,
     "total_fields_in_generated_operations": 4663,
     "generated_field_mapping_rate": 1.0,
-    "generated_contract_cases": 981,
+    "generated_contract_cases": 1060,
     "capability_gaps": 426
   },
   "contract_case_denominator": {
-    "total_generated": 981,
+    "total_generated": 1060,
     "passed": 3,
     "failed": 1,
     "unsupported": 0,
     "blocked_by_environment": 0,
-    "not_run": 977,
+    "not_run": 1056,
     "note": "blocked host eligibility is counted separately; only case-level executions appear in passed/failed/not_run"
   },
   "host_results": {
@@ -40,8 +40,8 @@
       "executed_cases": 4,
       "passed_cases": 3,
       "failed_cases": 1,
-      "time_to_first_valid_contract_ms": 2035.7583749573678,
-      "test_ms": 4014.7021670127288,
+      "time_to_first_valid_contract_ms": 2020.642250077799,
+      "test_ms": 4273.789625032805,
       "attempts": 2,
       "failure": "search_create response is missing required fields: ['search']"
     },

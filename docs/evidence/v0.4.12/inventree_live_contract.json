@@ -5,7 +5,7 @@
   "credential_source": "INVENTREE_DEMO_CREDENTIALS",
   "credential_value_recorded": false,
   "generation": {
-    "id": "c52272be-d60b-46e4-b22f-36906f1b4899",
+    "id": "6bb25599-a88c-4602-af8b-d389e39328e4",
     "source_digest": "5dddddb043f242253b59ce6d67c2d5896745d323521e62b6baef8cafd89b4b8e",
     "discovered_operations": 645,
     "generated_operations": 333
@@ -15,8 +15,8 @@
     "search_create": "POST"
   },
   "contract_run": {
-    "id": "eeac1182-c0cc-4f57-a05e-e80be256012b",
-    "generation_id": "c52272be-d60b-46e4-b22f-36906f1b4899",
+    "id": "1c57292f-76db-4eac-91f8-d2f5dd134637",
+    "generation_id": "6bb25599-a88c-4602-af8b-d389e39328e4",
     "source_digest": "5dddddb043f242253b59ce6d67c2d5896745d323521e62b6baef8cafd89b4b8e",
     "status": "failed",
     "results": [
@@ -32,7 +32,7 @@
         },
         "status": "passed",
         "actual": "status, content type, and response schema matched",
-        "duration_ms": 2035.612750099972
+        "duration_ms": 2020.4943340504542
       },
       {
         "case": {
@@ -44,7 +44,7 @@
         },
         "status": "passed",
         "actual": "part_category_tree_list request is missing required fields: ['limit']",
-        "duration_ms": 0.020707957446575165
+        "duration_ms": 0.018417020328342915
       },
       {
         "case": {
@@ -65,7 +65,7 @@
         },
         "status": "failed",
         "actual": "search_create response is missing required fields: ['search']",
-        "duration_ms": 1978.3867499791086
+        "duration_ms": 2252.4906249018386
       },
       {
         "case": {
@@ -77,7 +77,7 @@
         },
         "status": "passed",
         "actual": "search_create request is missing required fields: ['body']",
-        "duration_ms": 0.013665994629263878
+        "duration_ms": 0.017125043086707592
       }
     ],
     "passed": 3,
@@ -86,9 +86,9 @@
     "unsupported": 0,
     "blocked_by_environment": 0,
     "attempts": 2,
-    "test_ms": 4014.7021670127288,
-    "time_to_first_valid_contract_ms": 2035.7583749573678,
-    "created_at": "2026-07-21T08:37:20.819601+00:00"
+    "test_ms": 4273.789625032805,
+    "time_to_first_valid_contract_ms": 2020.642250077799,
+    "created_at": "2026-07-21T09:00:02.513540+00:00"
   },
   "reproduce": {
     "command_without_secret": "scripts/run_v04_12_openapi_live_contract.py --name inventree --spec /tmp/inventree-schema/export/524/api.yaml --connector-id inventree_live_contract --domain inventory_management --base-url https://demo.inventree.org --allowed-host demo.inventree.org --auth-scheme-id basicAuth --credentials-env INVENTREE_DEMO_CREDENTIALS --operation part_category_tree_list --operation search_create --output docs/evidence/v0.4.12/inventree_live_contract.json",

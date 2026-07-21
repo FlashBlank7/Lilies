@@ -28,14 +28,18 @@
     "generated_field_mapping_rate": 1.0,
     "generated_contract_cases": {
       "positive": 333,
-      "negative": 282,
-      "total": 615
+      "negative": 333,
+      "total": 666
     },
-    "parse_ms": 2989.884,
-    "generate_ms": 33.733,
-    "end_to_end_generation_ms": 3026.627,
+    "parse_ms": 2412.466,
+    "generate_ms": 33.104,
+    "end_to_end_generation_ms": 2515.943,
     "generation_attempts": 1,
     "repair_attempts": 0,
+    "contract_validation_attempts": 0,
+    "test_ms": null,
+    "time_to_first_valid_contract_ms": null,
+    "upstream_revalidation_ms": 65.081,
     "model_calls": 0,
     "model_cost_usd": 0,
     "human_authored_adapter_count": 0,
@@ -2268,10 +2272,17 @@
     "status": "pass",
     "authored_contract_tokens": [],
     "host_name_branch_files": [],
-    "method": "static scan of experiment fixture and platform source"
+    "forbidden_term_hits": [],
+    "forbidden_terms": [
+      "paperless",
+      "inventree",
+      "chatwoot"
+    ],
+    "scanned_file_count": 247,
+    "method": "static scan of platform and all experiment-script source"
   },
   "reproduce": {
-    "command": "scripts/run_v04_12_openapi_generalization.py --name inventree --spec /tmp/inventree-schema/export/524/api.yaml --connector-id inventree_generated --domain inventory_management --base-url https://demo.inventree.org --allowed-host demo.inventree.org --source-repository https://github.com/inventree/schema.git --source-commit e63dca5144e53584abcce1663f1eafd1c9eb25d2 --source-command git checkout frozen schema commit; use export/524/api.yaml --output docs/evidence/v0.4.12/inventree_openapi_generalization.json",
+    "command": "scripts/run_v04_12_openapi_generalization.py --name inventree --spec /tmp/inventree-schema/export/524/api.yaml --connector-id inventree_generated --domain inventory_management --base-url https://demo.inventree.org --allowed-host demo.inventree.org --source-repository https://github.com/inventree/schema.git --source-commit e63dca5144e53584abcce1663f1eafd1c9eb25d2 --source-command git checkout frozen schema commit; use export/524/api.yaml --forbidden-term paperless --forbidden-term inventree --forbidden-term chatwoot --output docs/evidence/v0.4.12/inventree_openapi_generalization.json",
     "python": "3.12.13"
   }
 }

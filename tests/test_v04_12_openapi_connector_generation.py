@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import ipaddress
+import socket
 import subprocess
 import threading
 from collections.abc import Iterator
@@ -27,15 +29,35 @@ HEADERS = {"Authorization": "Bearer openapi-test", "Content-Type": "application/
 class GeneratedContractHandler(BaseHTTPRequestHandler):
     received_headers: list[str] = []
     received_authorization: list[str] = []
+    received_api_keys: list[str] = []
     received_bodies: list[dict[str, Any]] = []
+    received_paths: list[str] = []
+    received_cookies: list[str] = []
+    received_content_types: list[str] = []
 
     def do_GET(self) -> None:  # noqa: N802
-        if not self.path.startswith("/items/example"):
+        type(self).received_paths.append(self.path)
+        type(self).received_cookies.append(self.headers.get("Cookie", ""))
+        type(self).received_api_keys.append(self.headers.get("X-API-Key", ""))
+        if self.path.startswith("/wrong-content/"):
+            self._send(200, {"id": "wrong", "name": "Wrong"}, content_type="text/plain")
+            return
+        if self.path.startswith("/error/"):
+            self._send(422, {"error": "documented error"})
+            return
+        if not self.path.startswith("/items/"):
             self._send(404, {"error": "not found"})
             return
         type(self).received_headers.append(self.headers.get("X-Trace", ""))
         type(self).received_authorization.append(self.headers.get("Authorization", ""))
-        self._send(200, {"id": "example", "name": "Generated item"})
+        self._send(
+            200,
+            {
+                "id": "example",
+                "name": "Generated item",
+                "meta": {"source": "contract"},
+            },
+        )
 
     def do_POST(self) -> None:  # noqa: N802
         if self.path != "/items":
@@ -44,20 +66,48 @@ class GeneratedContractHandler(BaseHTTPRequestHandler):
         body = self._body()
         type(self).received_bodies.append(body)
         type(self).received_authorization.append(self.headers.get("Authorization", ""))
-        self._send(201, {"id": "created", "name": body.get("name", "")})
+        type(self).received_content_types.append(self.headers.get("Content-Type", ""))
+        self._send(
+            201,
+            {
+                "id": "created",
+                "name": body.get("name", ""),
+                "meta": {"source": "contract"},
+            },
+        )
 
     def _body(self) -> dict[str, Any]:
         length = int(self.headers.get("Content-Length", "0"))
         value = json.loads(self.rfile.read(length) if length else b"{}")
         return value if isinstance(value, dict) else {}
 
-    def _send(self, status: int, body: dict[str, Any]) -> None:
+    def _send(
+        self,
+        status: int,
+        body: dict[str, Any],
+        *,
+        content_type: str = "application/json",
+    ) -> None:
         payload = json.dumps(body).encode()
         self.send_response(status)
-        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
         self.wfile.write(payload)
+
+    def log_message(self, format: str, *args: Any) -> None:
+        del format, args
+
+
+class OpenAPIMaterialHandler(BaseHTTPRequestHandler):
+    payload = b""
+
+    def do_GET(self) -> None:  # noqa: N802
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(type(self).payload)))
+        self.end_headers()
+        self.wfile.write(type(self).payload)
 
     def log_message(self, format: str, *args: Any) -> None:
         del format, args
@@ -67,12 +117,30 @@ class GeneratedContractHandler(BaseHTTPRequestHandler):
 def generated_contract_server() -> Iterator[str]:
     GeneratedContractHandler.received_headers = []
     GeneratedContractHandler.received_authorization = []
+    GeneratedContractHandler.received_api_keys = []
     GeneratedContractHandler.received_bodies = []
+    GeneratedContractHandler.received_paths = []
+    GeneratedContractHandler.received_cookies = []
+    GeneratedContractHandler.received_content_types = []
     server = ThreadingHTTPServer(("127.0.0.1", 0), GeneratedContractHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
         yield f"http://127.0.0.1:{server.server_port}"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+@contextmanager
+def openapi_material_server(payload: bytes) -> Iterator[str]:
+    OpenAPIMaterialHandler.payload = payload
+    server = ThreadingHTTPServer(("127.0.0.1", 0), OpenAPIMaterialHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_port}/openapi.json"
     finally:
         server.shutdown()
         server.server_close()
@@ -106,7 +174,7 @@ def openapi_document(*, title: str = "Inventory API") -> dict[str, Any]:
                             "name": "item_id",
                             "in": "path",
                             "required": True,
-                            "schema": {"type": "string", "example": "example"},
+                            "schema": {"type": "string", "example": "folder/item"},
                         },
                         {
                             "name": "verbose",
@@ -117,6 +185,11 @@ def openapi_document(*, title: str = "Inventory API") -> dict[str, Any]:
                             "name": "X-Trace",
                             "in": "header",
                             "schema": {"type": "string", "example": "contract"},
+                        },
+                        {
+                            "name": "session",
+                            "in": "cookie",
+                            "schema": {"type": "string", "example": "cookie-contract"},
                         },
                     ],
                     "responses": {
@@ -173,8 +246,13 @@ def openapi_document(*, title: str = "Inventory API") -> dict[str, Any]:
                     "properties": {
                         "id": {"type": "string"},
                         "name": {"type": "string"},
+                        "meta": {
+                            "type": "object",
+                            "properties": {"source": {"type": "string"}},
+                            "required": ["source"],
+                        },
                     },
-                    "required": ["id", "name"],
+                    "required": ["id", "name", "meta"],
                     "additionalProperties": False,
                 }
             }
@@ -288,6 +366,77 @@ async def test_loader_rejects_oversized_and_unallowlisted_urls_with_typed_gap() 
     assert url_error.value.gap.capability == "document_url"
 
 
+@pytest.mark.asyncio
+async def test_loader_streams_allowlisted_url_and_enforces_dns_and_response_limit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    loader = OpenAPIMaterialLoader()
+
+    async def public_address(host: str, port: int | None) -> set[ipaddress.IPv4Address]:
+        del host, port
+        return {ipaddress.ip_address("8.8.8.8")}
+
+    monkeypatch.setattr(loader, "_resolved_addresses", public_address)
+    payload = json.dumps(openapi_document()).encode()
+    with openapi_material_server(payload) as url:
+        request = OpenAPIConnectorGenerationRequest.model_validate(
+            {
+                **generation_body("https://inventory.example"),
+                "document": "",
+                "document_url": url,
+                "allowed_document_hosts": ["127.0.0.1"],
+                "allow_insecure_document_http": True,
+            }
+        )
+        document, provenance, _ = await loader.load(request)
+        assert document["info"]["title"] == "Inventory API"
+        assert provenance.source_kind == "url"
+
+    with openapi_material_server(b"x" * 5_000_001) as url:
+        oversized = OpenAPIConnectorGenerationRequest.model_validate(
+            {
+                **generation_body("https://inventory.example"),
+                "document": "",
+                "document_url": url,
+                "allowed_document_hosts": ["127.0.0.1"],
+                "allow_insecure_document_http": True,
+            }
+        )
+        with pytest.raises(OpenAPIMaterialError) as captured:
+            await loader.load(oversized)
+        assert captured.value.gap.capability == "document_size"
+
+    dns_loader = OpenAPIMaterialLoader()
+    monkeypatch.setattr(
+        socket,
+        "getaddrinfo",
+        lambda *args, **kwargs: [
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 443))
+        ],
+    )
+    dns_request = OpenAPIConnectorGenerationRequest.model_validate(
+        {
+            **generation_body("https://inventory.example"),
+            "document": "",
+            "document_url": "https://allowed.example/openapi.json",
+            "allowed_document_hosts": ["allowed.example"],
+        }
+    )
+    with pytest.raises(OpenAPIMaterialError) as dns_error:
+        await dns_loader.load(dns_request)
+    assert dns_error.value.gap.capability == "document_host"
+
+    monkeypatch.setattr(
+        socket,
+        "getaddrinfo",
+        lambda *args, **kwargs: (_ for _ in ()).throw(socket.gaierror("dns unavailable")),
+    )
+    failed_dns_loader = OpenAPIMaterialLoader()
+    with pytest.raises(OpenAPIMaterialError) as failed_dns:
+        await failed_dns_loader.load(dns_request)
+    assert failed_dns.value.gap.capability == "document_dns"
+
+
 def test_api_generates_tests_and_registers_without_authored_manifest(tmp_path: Path) -> None:
     with generated_contract_server() as base_url:
         with TestClient(create_app(settings(tmp_path))) as client:
@@ -300,7 +449,7 @@ def test_api_generates_tests_and_registers_without_authored_manifest(tmp_path: P
             generated = generated_response.json()
             assert generated["discovered_operation_count"] == 2
             assert generated["generated_operation_count"] == 2
-            assert generated["mapped_field_count"] == generated["total_field_count"] == 8
+            assert generated["mapped_field_count"] == generated["total_field_count"] == 11
             assert generated["provenance"]["source_digest"]
             operations = {item["id"]: item for item in generated["manifest"]["operations"]}
             assert operations["getItem"]["parameters"] == [
@@ -327,6 +476,14 @@ def test_api_generates_tests_and_registers_without_authored_manifest(tmp_path: P
                     "required": False,
                     "style": "simple",
                     "explode": False,
+                },
+                {
+                    "input_key": "session",
+                    "wire_name": "session",
+                    "location": "cookie",
+                    "required": False,
+                    "style": "form",
+                    "explode": True,
                 },
             ]
             assert operations["createItem"]["request_body"]["input_key"] == "body"
@@ -376,7 +533,12 @@ def test_api_generates_tests_and_registers_without_authored_manifest(tmp_path: P
             assert run["attempts"] == 2
             assert run["time_to_first_valid_contract_ms"] is not None
             assert GeneratedContractHandler.received_headers == ["contract"]
+            assert GeneratedContractHandler.received_paths == [
+                "/items/folder%2Fitem?verbose=true"
+            ]
+            assert GeneratedContractHandler.received_cookies == ["session=cookie-contract"]
             assert GeneratedContractHandler.received_bodies == [{"name": "Created"}]
+            assert GeneratedContractHandler.received_content_types == ["application/json"]
             assert GeneratedContractHandler.received_authorization == [
                 "Basic dGVzdDpzZWNyZXQ=",
                 "Basic dGVzdDpzZWNyZXQ=",
@@ -426,6 +588,168 @@ def test_source_drift_marks_prior_contract_evidence_stale(tmp_path: Path) -> Non
             )
             assert stale_run.status_code == 422
             assert "source document changed" in stale_run.text
+
+
+def test_negative_contract_failure_blocks_verified_registration(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with generated_contract_server() as base_url:
+        app = create_app(settings(tmp_path))
+        with TestClient(app) as client:
+            generation = client.post(
+                "/api/v1/connectors/generations",
+                headers=HEADERS,
+                json=generation_body(base_url),
+            ).json()
+            secret = client.post(
+                "/api/v1/platform/secrets",
+                headers=HEADERS,
+                json={
+                    "owner_id": "contract-test",
+                    "name": "negative-gate",
+                    "value": "test:secret",
+                },
+            )
+            assert secret.status_code == 201
+            service = app.state.services.openapi_connectors
+            original = service.generate_contract_cases
+
+            async def accepted_negative(generation_id: str) -> list[Any]:
+                cases = await original(generation_id)
+                positive = next(
+                    item
+                    for item in cases
+                    if item.operation_id == "getItem" and item.kind == "positive"
+                )
+                return [
+                    positive,
+                    next(
+                        item.model_copy(update={"generated_input": positive.generated_input})
+                        for item in cases
+                        if item.operation_id == "getItem" and item.kind == "negative"
+                    ),
+                ]
+
+            monkeypatch.setattr(service, "generate_contract_cases", accepted_negative)
+            run_response = client.post(
+                f"/api/v1/connectors/generations/{generation['id']}/contract-runs",
+                headers=HEADERS,
+                json={
+                    "operation_ids": ["getItem"],
+                    "owner_id": "contract-test",
+                    "secret_ref": "secret://contract-test/negative-gate",
+                },
+            )
+            assert run_response.status_code == 201
+            run = run_response.json()
+            assert run["passed"] == 1
+            assert run["failed"] == 1
+            assert run["status"] == "failed"
+            registration = client.post(
+                f"/api/v1/connectors/generations/{generation['id']}/register",
+                headers=HEADERS,
+            )
+            assert registration.status_code == 422
+
+
+@pytest.mark.parametrize(
+    ("scheme", "security_scheme", "expected_authorization", "expected_api_key"),
+    [
+        (
+            "bearerAuth",
+            {"type": "http", "scheme": "bearer"},
+            "Bearer contract-secret",
+            "",
+        ),
+        (
+            "apiKeyAuth",
+            {"type": "apiKey", "in": "header", "name": "X-API-Key"},
+            "",
+            "contract-secret",
+        ),
+    ],
+)
+def test_generated_runtime_preserves_bearer_and_api_key_security(
+    tmp_path: Path,
+    scheme: str,
+    security_scheme: dict[str, Any],
+    expected_authorization: str,
+    expected_api_key: str,
+) -> None:
+    with generated_contract_server() as base_url:
+        document = openapi_document()
+        document["security"] = [{scheme: []}]
+        document["components"]["securitySchemes"] = {scheme: security_scheme}
+        with TestClient(create_app(settings(tmp_path))) as client:
+            body = generation_body(base_url, document)
+            body["connector_id"] = f"generated_{scheme}"
+            generation = client.post(
+                "/api/v1/connectors/generations", headers=HEADERS, json=body
+            ).json()
+            secret_name = f"secret-{scheme}"
+            client.post(
+                "/api/v1/platform/secrets",
+                headers=HEADERS,
+                json={
+                    "owner_id": "contract-test",
+                    "name": secret_name,
+                    "value": "contract-secret",
+                },
+            )
+            run = client.post(
+                f"/api/v1/connectors/generations/{generation['id']}/contract-runs",
+                headers=HEADERS,
+                json={
+                    "operation_ids": ["getItem"],
+                    "owner_id": "contract-test",
+                    "secret_ref": f"secret://contract-test/{secret_name}",
+                },
+            ).json()
+            assert run["status"] == "passed"
+            assert GeneratedContractHandler.received_authorization == [
+                expected_authorization
+            ]
+            assert GeneratedContractHandler.received_api_keys == [expected_api_key]
+
+
+@pytest.mark.parametrize(
+    ("path", "operation_id", "expected_error"),
+    [
+        ("/wrong-content/{item_id}", "wrongContent", "content-type 'text/plain'"),
+        ("/error/{item_id}", "documentedError", "response status 422; expected 200"),
+    ],
+)
+def test_generated_runtime_rejects_content_type_and_error_status_mismatches(
+    tmp_path: Path,
+    path: str,
+    operation_id: str,
+    expected_error: str,
+) -> None:
+    with generated_contract_server() as base_url:
+        document = openapi_document()
+        operation = document["paths"].pop("/items/{item_id}")["get"]
+        operation["operationId"] = operation_id
+        operation["security"] = []
+        operation["responses"]["422"] = {"description": "documented error"}
+        document["paths"] = {path: {"get": operation}}
+        document["security"] = []
+        with TestClient(create_app(settings(tmp_path))) as client:
+            body = generation_body(base_url, document)
+            body["connector_id"] = f"generated_{operation_id}"
+            generation = client.post(
+                "/api/v1/connectors/generations", headers=HEADERS, json=body
+            ).json()
+            generated_operation = generation["manifest"]["operations"][0]
+            assert generated_operation["error_responses"]["422"] == "documented error"
+            run = client.post(
+                f"/api/v1/connectors/generations/{generation['id']}/contract-runs",
+                headers=HEADERS,
+                json={"operation_ids": [operation_id]},
+            ).json()
+            assert run["status"] == "failed"
+            failed = next(item for item in run["results"] if item["status"] == "failed")
+            assert expected_error in failed["actual"]
 
 
 def test_experiment_fixture_does_not_author_connector_contracts() -> None:

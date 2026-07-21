@@ -1,0 +1,88 @@
+{
+  "schema_version": "v0.4.12-release-gate-1",
+  "status": "passed",
+  "commands": [
+    {
+      "name": "focused_backend",
+      "command": ".venv/bin/python -m pytest -q tests/test_v04_12_openapi_connector_generation.py tests/test_v04_10_connector_embedding.py",
+      "cwd": ".",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_ms": 19924.862,
+      "output_sha256": "75cd4c3f64cbd2be794b3de725673b17733d60b0c09399cff0adf377b909dce4",
+      "output_tail": "...........................                                              [100%]\n=============================== warnings summary ===============================\n.venv/lib/python3.12/site-packages/fastapi/testclient.py:1\n  /Users/zhonghaoyang/Code/agent/Lilies/.venv/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    from starlette.testclient import TestClient as TestClient  # noqa\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n27 passed, 1 warning in 19.29s\n"
+    },
+    {
+      "name": "full_backend",
+      "command": ".venv/bin/python -m pytest -q",
+      "cwd": ".",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_ms": 118820.319,
+      "output_sha256": "94f1cf16fcea6e989f311f70d34f2cf902c21c7f552380affd362135daf1dfb7",
+      "output_tail": "........................................................................ [  8%]\n........................................................................ [ 16%]\n......................................................x................. [ 24%]\n...............................................x......................x. [ 32%]\nx.x.x.x.x.x.xxx.xxx...x.xx........................x..............xx.x... [ 41%]\n.....xx.x....................x..x.x..................................... [ 49%]\n............................................x..x.xx..x.xx.xx.xx..x.xx..x [ 57%]\n.xx..x.xx..x.xx..x.x.....x..x.xx..x.xx..x.xx..x.xx..x.xx..x.x........... [ 65%]\n..x....x.xx....x.x....x..x..x.x...................x..x.......x.x........ [ 73%]\n........................................................................ [ 82%]\n........................................................................ [ 90%]\n........................................................................ [ 98%]\n.............                                                            [100%]\n=============================== warnings summary ===============================\n.venv/lib/python3.12/site-packages/fastapi/testclient.py:1\n  /Users/zhonghaoyang/Code/agent/Lilies/.venv/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    from starlette.testclient import TestClient as TestClient  # noqa\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n792 passed, 85 xfailed, 1 warning in 117.26s (0:01:57)\n"
+    },
+    {
+      "name": "ruff_changed_files",
+      "command": ".venv/bin/python -m ruff check platform/backend/src/agent_platform/openapi_connector.py platform/backend/src/agent_platform/connector_sdk.py platform/backend/src/agent_platform/api.py scripts/run_v04_12_openapi_generalization.py scripts/run_v04_12_openapi_live_contract.py scripts/validate_v04_12_openapi_evidence.py scripts/run_v04_12_release_gate.py tests/test_v04_12_openapi_connector_generation.py",
+      "cwd": ".",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_ms": 84.893,
+      "output_sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+      "output_tail": "All checks passed!\n"
+    },
+    {
+      "name": "frontend_typecheck",
+      "command": "npm run lint",
+      "cwd": "platform/frontend",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_ms": 1438.948,
+      "output_sha256": "c503eeb0e9bbf6ec0cbc23fb443cf231fb3b2e989b325dfd3851e2f46872f915",
+      "output_tail": "\n> agent-platform-studio@0.1.0 lint\n> tsc --noEmit\n\n"
+    },
+    {
+      "name": "frontend_production_build",
+      "command": "npm run build",
+      "cwd": "platform/frontend",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_ms": 11977.38,
+      "output_sha256": "2004dc593bc068ba5090f7c09e048281bf0d96659844c2f8c9b536ed4c4339f8",
+      "output_tail": "\n> agent-platform-studio@0.1.0 build\n> next build\n\n▲ Next.js 16.2.9 (Turbopack)\n- Environments: .env.local\n\n  Creating an optimized production build ...\n✓ Compiled successfully in 3.8s\n  Running TypeScript ...\n  Finished TypeScript in 5.6s ...\n  Collecting page data using 9 workers ...\n  Generating static pages using 9 workers (0/5) ...\n  Generating static pages using 9 workers (1/5) \n  Generating static pages using 9 workers (2/5) \n  Generating static pages using 9 workers (3/5) \n✓ Generating static pages using 9 workers (5/5) in 351ms\n  Finalizing page optimization ...\n\nRoute (app)\n┌ ○ /\n├ ○ /_not-found\n├ ƒ /api/platform/[...path]\n├ ƒ /applications/[id]\n├ ○ /governance\n├ ○ /icon.svg\n└ ƒ /runtime/[id]\n\n\n○  (Static)   prerendered as static content\nƒ  (Dynamic)  server-rendered on demand\n\n"
+    },
+    {
+      "name": "evidence_denominator",
+      "command": ".venv/bin/python scripts/validate_v04_12_openapi_evidence.py",
+      "cwd": ".",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_ms": 56.641,
+      "output_sha256": "8297bcb0c8224f274fe299c8b663dd939bf8533be9a4938bb7da20f9192c244a",
+      "output_tail": "v0.4.12 OpenAPI evidence validation passed\n"
+    },
+    {
+      "name": "stage_report_template",
+      "command": ".venv/bin/python scripts/validate_stage_report_template.py docs/stage-reports/v0.4.12_openapi_connector_generation_loop.md",
+      "cwd": ".",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_ms": 42.234,
+      "output_sha256": "4e8c213bcc1fcc7bd9cc9c34b3d25cc0476b8746bb878ad88d309ebb1ed1ab6e",
+      "output_tail": "stage report template validation passed\n"
+    },
+    {
+      "name": "evolution_control",
+      "command": ".venv/bin/python scripts/validate_evolution_control.py",
+      "cwd": ".",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_ms": 74.124,
+      "output_sha256": "38c3c12ee9345f5834e9ae27c5c70eab53a4350a2269c34584fd519e81343702",
+      "output_tail": "evolution control validation passed\n"
+    }
+  ],
+  "browser_evidence": "browser/browser-evidence.json",
+  "browser_execution_command": "node scripts/v04_12_openapi_connector_browser.mjs --api http://127.0.0.1:18120 --web http://127.0.0.1:13120 --token v0412-browser --output docs/evidence/v0.4.12/browser"
+}

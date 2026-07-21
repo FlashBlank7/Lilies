@@ -7,6 +7,7 @@ import argparse
 import asyncio
 import hashlib
 import json
+import re
 import sys
 import time
 from collections import Counter
@@ -39,6 +40,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--source-repository", required=True)
     parser.add_argument("--source-commit", required=True)
     parser.add_argument("--source-command", required=True)
+    parser.add_argument(
+        "--forbidden-term",
+        action="append",
+        default=[],
+        help="Host name that must not appear in platform or experiment source",
+    )
     parser.add_argument("--output", type=Path, required=True)
     return parser.parse_args()
 
@@ -49,36 +56,62 @@ def operation_kind(method: str) -> str:
 
 def generated_case_counts(generation: Any) -> dict[str, int]:
     positive = len(generation.manifest.operations)
-    negative = sum(
-        bool((operation.request_schema.json_schema or {}).get("required"))
-        for operation in generation.manifest.operations
-    )
+    negative = len(generation.manifest.operations)
     return {"positive": positive, "negative": negative, "total": positive + negative}
 
 
-def forbidden_assistance_scan() -> dict[str, Any]:
-    platform_files = sorted(
-        (ROOT / "platform").glob("**/*")
-    )
+def forbidden_assistance_scan(forbidden_terms: list[str]) -> dict[str, Any]:
+    source_files = [
+        path
+        for root in (ROOT / "platform", ROOT / "scripts")
+        for path in root.glob("**/*")
+        if path.is_file() and path.suffix in {".py", ".ts", ".tsx", ".js", ".mjs"}
+        and not {"node_modules", ".next", ".tmp"}.intersection(path.parts)
+    ]
     authored_contract_tokens = (
         "Connector" + "Manifest(",
         "Connector" + "Operation(",
         "ConnectorObject" + "Schema(",
     )
-    script_source = Path(__file__).read_text(encoding="utf-8")
-    authored_hits = [token for token in authored_contract_tokens if token in script_source]
-    host_branch_hits: list[str] = []
-    for path in platform_files:
-        if not path.is_file() or path.suffix not in {".py", ".ts", ".tsx", ".js", ".mjs"}:
-            continue
+    experiment_files = [
+        ROOT / "scripts" / "run_v04_12_openapi_generalization.py",
+        ROOT / "scripts" / "run_v04_12_openapi_live_contract.py",
+    ]
+    authored_hits = [
+        {"file": str(path.relative_to(ROOT)), "token": token}
+        for path in experiment_files
+        for token in authored_contract_tokens
+        if token in path.read_text(encoding="utf-8")
+    ]
+    host_branch_hits = [
+        str(path.relative_to(ROOT))
+        for path in experiment_files
+        if re.search(
+            r"\b(if|elif|match)\b[^\n]{0,160}\bargs\.name\b",
+            path.read_text(encoding="utf-8"),
+        )
+    ]
+    forbidden_term_hits: list[dict[str, str]] = []
+    for path in source_files:
         source = path.read_text(encoding="utf-8", errors="ignore")
-        if "--name" in source and "if args.name" in source:
-            host_branch_hits.append(str(path.relative_to(ROOT)))
+        compact = " ".join(source.casefold().split())
+        for term in forbidden_terms:
+            if term.casefold() in compact:
+                forbidden_term_hits.append(
+                    {"file": str(path.relative_to(ROOT)), "term": term}
+                )
     return {
-        "status": "pass" if not authored_hits and not host_branch_hits else "fail",
+        "status": (
+            "pass"
+            if not authored_hits and not host_branch_hits and not forbidden_term_hits
+            else "fail"
+        ),
         "authored_contract_tokens": authored_hits,
         "host_name_branch_files": host_branch_hits,
-        "method": "static scan of experiment fixture and platform source",
+        "forbidden_term_hits": forbidden_term_hits,
+        "forbidden_terms": forbidden_terms,
+        "scanned_file_count": len(source_files),
+        "method": "static scan of platform and all experiment-script source",
     }
 
 
@@ -112,6 +145,20 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
         gaps,
         parse_ms=parse_wall_ms,
     )
+    revalidation_started = time.perf_counter()
+    revalidated = OpenAPIConnectorGenerator().generate(
+        document,
+        request,
+        provenance,
+        gaps,
+        parse_ms=parse_wall_ms,
+    )
+    upstream_revalidation_ms = (time.perf_counter() - revalidation_started) * 1000
+    if (
+        revalidated.discovered_operation_count != generation.discovered_operation_count
+        or revalidated.generated_operation_count != generation.generated_operation_count
+    ):
+        raise RuntimeError("same-source revalidation changed the generated operation denominator")
     operations = generation.manifest.operations
     operation_mix = Counter(operation_kind(item.method) for item in operations)
     gap_counts = Counter(item.code for item in generation.gaps)
@@ -153,6 +200,10 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
             "end_to_end_generation_ms": round((time.perf_counter() - started) * 1000, 3),
             "generation_attempts": 1,
             "repair_attempts": 0,
+            "contract_validation_attempts": 0,
+            "test_ms": None,
+            "time_to_first_valid_contract_ms": None,
+            "upstream_revalidation_ms": round(upstream_revalidation_ms, 3),
             "model_calls": 0,
             "model_cost_usd": 0,
             "human_authored_adapter_count": 0,
@@ -170,7 +221,7 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
             "read": {"status": "not_run"},
             "write": {"status": "not_run"},
         },
-        "forbidden_assistance_scan": forbidden_assistance_scan(),
+        "forbidden_assistance_scan": forbidden_assistance_scan(args.forbidden_term),
         "reproduce": {
             "command": " ".join(sys.argv),
             "python": sys.version.split()[0],

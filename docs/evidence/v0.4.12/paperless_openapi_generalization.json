@@ -28,14 +28,18 @@
     "generated_field_mapping_rate": 1.0,
     "generated_contract_cases": {
       "positive": 74,
-      "negative": 48,
-      "total": 122
+      "negative": 74,
+      "total": 148
     },
-    "parse_ms": 702.116,
-    "generate_ms": 22.337,
-    "end_to_end_generation_ms": 725.894,
+    "parse_ms": 687.311,
+    "generate_ms": 22.592,
+    "end_to_end_generation_ms": 722.588,
     "generation_attempts": 1,
     "repair_attempts": 0,
+    "contract_validation_attempts": 0,
+    "test_ms": null,
+    "time_to_first_valid_contract_ms": null,
+    "upstream_revalidation_ms": 11.201,
     "model_calls": 0,
     "model_cost_usd": 0,
     "human_authored_adapter_count": 0,
@@ -707,10 +711,17 @@
     "status": "pass",
     "authored_contract_tokens": [],
     "host_name_branch_files": [],
-    "method": "static scan of experiment fixture and platform source"
+    "forbidden_term_hits": [],
+    "forbidden_terms": [
+      "paperless",
+      "inventree",
+      "chatwoot"
+    ],
+    "scanned_file_count": 247,
+    "method": "static scan of platform and all experiment-script source"
   },
   "reproduce": {
-    "command": "scripts/run_v04_12_openapi_generalization.py --name paperless --spec /tmp/paperless-openapi.yml --connector-id paperless_generated --domain document_management --base-url https://demo.paperless-ngx.com --allowed-host demo.paperless-ngx.com --source-repository https://github.com/paperless-ngx/paperless-ngx.git --source-commit 80210bd3bf545bc68824e7f8960528df3cd326be --source-command git checkout frozen commit; manage.py spectacular --skip-checks --file /tmp/paperless-openapi.yml --output docs/evidence/v0.4.12/paperless_openapi_generalization.json",
+    "command": "scripts/run_v04_12_openapi_generalization.py --name paperless --spec /tmp/paperless-openapi.yml --connector-id paperless_generated --domain document_management --base-url https://demo.paperless-ngx.com --allowed-host demo.paperless-ngx.com --source-repository https://github.com/paperless-ngx/paperless-ngx.git --source-commit 80210bd3bf545bc68824e7f8960528df3cd326be --source-command git checkout frozen commit; manage.py spectacular --skip-checks --file /tmp/paperless-openapi.yml --forbidden-term paperless --forbidden-term inventree --forbidden-term chatwoot --output docs/evidence/v0.4.12/paperless_openapi_generalization.json",
     "python": "3.12.13"
   }
 }

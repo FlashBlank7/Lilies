@@ -28,14 +28,18 @@
     "generated_field_mapping_rate": 1.0,
     "generated_contract_cases": {
       "positive": 123,
-      "negative": 121,
-      "total": 244
+      "negative": 123,
+      "total": 246
     },
-    "parse_ms": 21.536,
-    "generate_ms": 18.408,
-    "end_to_end_generation_ms": 43.593,
+    "parse_ms": 27.143,
+    "generate_ms": 21.928,
+    "end_to_end_generation_ms": 83.974,
     "generation_attempts": 1,
     "repair_attempts": 0,
+    "contract_validation_attempts": 0,
+    "test_ms": null,
+    "time_to_first_valid_contract_ms": null,
+    "upstream_revalidation_ms": 32.877,
     "model_calls": 0,
     "model_cost_usd": 0,
     "human_authored_adapter_count": 0,
@@ -238,10 +242,17 @@
     "status": "pass",
     "authored_contract_tokens": [],
     "host_name_branch_files": [],
-    "method": "static scan of experiment fixture and platform source"
+    "forbidden_term_hits": [],
+    "forbidden_terms": [
+      "paperless",
+      "inventree",
+      "chatwoot"
+    ],
+    "scanned_file_count": 247,
+    "method": "static scan of platform and all experiment-script source"
   },
   "reproduce": {
-    "command": "scripts/run_v04_12_openapi_generalization.py --name chatwoot --spec /tmp/chatwoot/swagger/swagger.json --connector-id chatwoot_generated --domain customer_support --base-url https://app.chatwoot.com --allowed-host app.chatwoot.com --source-repository https://github.com/chatwoot/chatwoot.git --source-commit ae49af354d018f17935f8824921c9c29c9d27948 --source-command git checkout frozen commit; use swagger/swagger.json --output docs/evidence/v0.4.12/chatwoot_openapi_generalization.json",
+    "command": "scripts/run_v04_12_openapi_generalization.py --name chatwoot --spec /tmp/chatwoot/swagger/swagger.json --connector-id chatwoot_generated --domain customer_support --base-url https://app.chatwoot.com --allowed-host app.chatwoot.com --source-repository https://github.com/chatwoot/chatwoot.git --source-commit ae49af354d018f17935f8824921c9c29c9d27948 --source-command git checkout frozen commit; use swagger/swagger.json --forbidden-term paperless --forbidden-term inventree --forbidden-term chatwoot --output docs/evidence/v0.4.12/chatwoot_openapi_generalization.json",
     "python": "3.12.13"
   }
 }

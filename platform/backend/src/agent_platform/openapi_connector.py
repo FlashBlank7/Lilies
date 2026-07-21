@@ -5,6 +5,7 @@ import hashlib
 import ipaddress
 import json
 import re
+import socket
 import time
 from typing import Any, Literal
 from urllib.parse import unquote, urlsplit
@@ -226,20 +227,67 @@ class OpenAPIMaterialLoader:
             raise self._error(
                 "IF-01", "document_host", "$", "document URL host is outside explicit allowlist"
             )
-        try:
-            address = ipaddress.ip_address(host)
-        except ValueError:
-            address = None
-        if address and (address.is_private or address.is_loopback or address.is_link_local):
+        addresses = await self._resolved_addresses(host, parsed.port)
+        if any(
+            address.is_private
+            or address.is_loopback
+            or address.is_link_local
+            or address.is_reserved
+            or address.is_unspecified
+            for address in addresses
+        ):
             raise self._error(
                 "IF-01", "document_host", "$", "private and loopback document URLs are disabled"
             )
         async with httpx.AsyncClient(follow_redirects=False, timeout=20) as client:
-            response = await client.get(request.document_url, headers={"Accept": "application/json, application/yaml, text/yaml"})
-            response.raise_for_status()
-            if len(response.content) > MAX_OPENAPI_BYTES:
-                raise self._error("IF-01", "document_size", "$", "OpenAPI document exceeds 5 MB")
-            return response.content
+            async with client.stream(
+                "GET",
+                request.document_url,
+                headers={"Accept": "application/json, application/yaml, text/yaml"},
+            ) as response:
+                response.raise_for_status()
+                length = response.headers.get("content-length")
+                if length and int(length) > MAX_OPENAPI_BYTES:
+                    raise self._error(
+                        "IF-01", "document_size", "$", "OpenAPI document exceeds 5 MB"
+                    )
+                chunks: list[bytes] = []
+                size = 0
+                async for chunk in response.aiter_bytes():
+                    size += len(chunk)
+                    if size > MAX_OPENAPI_BYTES:
+                        raise self._error(
+                            "IF-01", "document_size", "$", "OpenAPI document exceeds 5 MB"
+                        )
+                    chunks.append(chunk)
+                return b"".join(chunks)
+
+    async def _resolved_addresses(
+        self,
+        host: str,
+        port: int | None,
+    ) -> set[ipaddress.IPv4Address | ipaddress.IPv6Address]:
+        try:
+            literal = ipaddress.ip_address(host)
+        except ValueError:
+            try:
+                records = await asyncio.to_thread(
+                    socket.getaddrinfo,
+                    host,
+                    port or 443,
+                    type=socket.SOCK_STREAM,
+                )
+            except socket.gaierror as error:
+                raise self._error(
+                    "IF-01", "document_dns", "$", f"document host DNS lookup failed: {error}"
+                ) from error
+            addresses = {ipaddress.ip_address(record[4][0]) for record in records}
+            if not addresses:
+                raise self._error(
+                    "IF-01", "document_dns", "$", "document host resolved to no addresses"
+                )
+            return addresses
+        return {literal}
 
     def _parse(self, text: str) -> dict[str, Any]:
         try:
@@ -929,15 +977,21 @@ class OpenAPIConnectorService:
             if required:
                 invalid = dict(sample)
                 invalid.pop(required[0], None)
-                cases.append(
-                    ConnectorContractCase(
-                        id=f"{operation.id}.negative.missing_{required[0]}",
-                        operation_id=operation.id,
-                        kind="negative",
-                        expected=f"local schema rejects missing required input {required[0]}",
-                        generated_input=invalid,
-                    )
+                negative_id = f"{operation.id}.negative.missing_{required[0]}"
+                expected = f"local schema rejects missing required input {required[0]}"
+            else:
+                invalid = {**sample, "__unexpected_contract_field__": True}
+                negative_id = f"{operation.id}.negative.unexpected_field"
+                expected = "local schema rejects an undeclared input field"
+            cases.append(
+                ConnectorContractCase(
+                    id=negative_id,
+                    operation_id=operation.id,
+                    kind="negative",
+                    expected=expected,
+                    generated_input=invalid,
                 )
+            )
         return cases
 
     async def run_contracts(
@@ -969,7 +1023,11 @@ class OpenAPIConnectorService:
         )
         for case in cases:
             operation = manifest.operation(case.operation_id)
-            payload = request.sample_inputs.get(case.operation_id, case.generated_input)
+            payload = (
+                request.sample_inputs.get(case.operation_id, case.generated_input)
+                if case.kind == "positive"
+                else case.generated_input
+            )
             case_started = time.perf_counter()
             if case.kind == "negative":
                 try:
@@ -1016,10 +1074,10 @@ class OpenAPIConnectorService:
                     first_valid = (time.perf_counter() - started) * 1000
         counts = {status: sum(item.status == status for item in results) for status in ["passed", "failed", "skipped", "unsupported", "blocked_by_environment"]}
         positive_results = [item for item in results if item.case.kind == "positive"]
-        if positive_results and all(item.status == "passed" for item in positive_results):
-            status: Literal["passed", "failed", "partial", "blocked_by_environment"] = "passed"
-        elif any(item.status == "failed" for item in positive_results):
-            status = "failed"
+        if any(item.status == "failed" for item in results):
+            status: Literal["passed", "failed", "partial", "blocked_by_environment"] = "failed"
+        elif results and all(item.status == "passed" for item in results):
+            status = "passed"
         elif positive_results and all(item.status == "blocked_by_environment" for item in positive_results):
             status = "blocked_by_environment"
         else:
@@ -1108,6 +1166,16 @@ class OpenAPIConnectorService:
 
     @staticmethod
     def _environment_error(error: Exception) -> bool:
+        if isinstance(error, httpx.RequestError):
+            return True
         text = str(error).casefold()
-        markers = ["secret", "connect", "timeout", "network", "name or service", "nodename", "outside its allowlist"]
+        markers = [
+            "secret reference",
+            "secret does not exist",
+            "missing-contract-secret",
+            "outside its allowlist",
+            "network egress",
+            "name or service",
+            "nodename",
+        ]
         return any(marker in text for marker in markers)

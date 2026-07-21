@@ -1,6 +1,6 @@
 {
   "version": "v0.4.12",
-  "application_id": "c2921c42-5556-4afd-979a-585ed10bab51",
+  "application_id": "adb28e78-fb1e-4b69-a63c-283d5e68155f",
   "journey": [
     "import_openapi",
     "review_generated_mapping",
@@ -10,12 +10,12 @@
   ],
   "pass_disclosure": {
     "status": "passed",
-    "result": "passed\n2 通过 · 0 失败 · 0 环境受限 · 66.0 ms\nvalidGeneratedItem · positive\nHTTP status in [200] and response matches generated schema\nstatus, content type, and response schema matched\nPASSED\nvalidGeneratedItem · negative\nlocal schema rejects missing required input item_id\nvalidGeneratedItem request is missing required fields: ['item_id']\nPASSED",
+    "result": "passed\n2 通过 · 0 失败 · 0 环境受限 · 68.4 ms\nvalidGeneratedItem · positive\nHTTP status in [200] and response matches generated schema\nstatus, content type, and response schema matched\nPASSED\nvalidGeneratedItem · negative\nlocal schema rejects missing required input item_id\nvalidGeneratedItem request is missing required fields: ['item_id']\nPASSED",
     "registerEnabled": true
   },
   "failure_disclosure": {
     "status": "failed",
-    "result": "failed\n1 通过 · 1 失败 · 0 环境受限 · 9.3 ms\ninvalidGeneratedItem · positive\nHTTP status in [200] and response matches generated schema\ninvalidGeneratedItem response is missing required fields: ['name']\nFAILED\ninvalidGeneratedItem · negative\nlocal schema rejects missing required input item_id\ninvalidGeneratedItem request is missing required fields: ['item_id']\nPASSED",
+    "result": "failed\n1 通过 · 1 失败 · 0 环境受限 · 12.4 ms\ninvalidGeneratedItem · positive\nHTTP status in [200] and response matches generated schema\ninvalidGeneratedItem response is missing required fields: ['name']\nFAILED\ninvalidGeneratedItem · negative\nlocal schema rejects missing required input item_id\ninvalidGeneratedItem request is missing required fields: ['item_id']\nPASSED",
     "registerEnabled": false
   },
   "host_stats": {
@@ -36,12 +36,12 @@
     {
       "id": "generated-contract-pass",
       "path": "generated-contract-pass.png",
-      "sha256": "53409faf4d467f15a66c5c117b0bf8c6a879415e63bd69273be6587013822052"
+      "sha256": "a9fb4aed07ad6e97bc0f2ec2384bfab79a8f59ce0acd09daf6cbc43befb106cc"
     },
     {
       "id": "generated-contract-failure",
       "path": "generated-contract-failure.png",
-      "sha256": "7a89039b8e2c67176f256e95b6844b5eb18937c6f6bf57cfe95af00ee7b28f76"
+      "sha256": "4373f339e9b305b27a751682391559757f3d86c1026f76d810f04a82e55917c6"
     }
   ]
 }

@@ -1596,6 +1596,10 @@ class ConnectorService:
             else:
                 cookies[profile.auth_wire_name] = auth_value
         headers.update(request_headers)
+        if cookies:
+            headers["Cookie"] = "; ".join(
+                f"{name}={quote(str(value), safe='')}" for name, value in cookies.items()
+            )
         body: Any = None
         if operation.request_body:
             consumed.add(operation.request_body.input_key)
@@ -1615,7 +1619,6 @@ class ConnectorService:
                 url,
                 headers=headers,
                 params=query or None,
-                cookies=cookies or None,
                 json=body,
             )
             if response.status_code not in operation.success_status_codes:
