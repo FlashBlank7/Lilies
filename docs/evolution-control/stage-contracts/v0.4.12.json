@@ -1,0 +1,73 @@
+{
+  "schema_version": "1.0",
+  "stage_version": "v0.4.12",
+  "stage_report": "docs/stage-reports/v0.4.12_openapi_connector_generation_loop.md",
+  "contract_revision": 2,
+  "approval_ref": "direct user instructions on 2026-07-21 to complete and measure OpenAPI/document to Connector to schema mapping to contract-test generation as platform delivery performance, validate REST/OpenAPI generalization on Paperless, InvenTree, and Chatwoot without project-specific adapters, reject experimenter-authored manifests or schemas as automatic-alignment evidence, and gate only original-versus-replacement runtime performance comparisons on functional correctness",
+  "source_tasks": [
+    {
+      "task_id": "V04-12-T01",
+      "source_intent_ids": [
+        "PRODUCT-001",
+        "PRODUCT-008",
+        "PRODUCT-015",
+        "PRODUCT-016",
+        "ARCH-003",
+        "EVAL-003",
+        "GOV-003",
+        "SCENARIO-011",
+        "EVOL-002",
+        "EVOL-003",
+        "EVOL-006"
+      ],
+      "source_task": "Build, measure, and verify the zero-adapter OpenAPI-to-Connector delivery loop before adding non-HTTP transports or comparing original-versus-replacement runtime performance.",
+      "disposition": "accepted mandatory",
+      "authority": "Direct user correction after the platform-interface audit established that existing Connector tests pre-author their manifests and field schemas."
+    }
+  ],
+  "mandatory_tasks": [
+    {
+      "task_id": "V04-12-T01A",
+      "source_intent_ids": ["PRODUCT-016", "ARCH-003", "GOV-003"],
+      "surface": "OpenAPI material intake / provenance / safety boundary",
+      "acceptance": "The platform accepts raw OpenAPI 3.0 or 3.1 JSON or YAML as inline content or an explicitly allowed document URL, resolves local references without executing document code, enforces document size and network boundaries, records source digest and version provenance, and rejects unsupported or ambiguous constructs with typed reusable capability gaps rather than inventing a contract.",
+      "required_evidence": "Parser and safety tests covering JSON, YAML, local references, invalid documents, remote references, oversized input, unsafe URLs, unsupported constructs, and immutable generation provenance."
+    },
+    {
+      "task_id": "V04-12-T01B",
+      "source_intent_ids": ["PRODUCT-016", "ARCH-003"],
+      "surface": "Connector manifest generation / schema mapping / generic REST runtime",
+      "acceptance": "From only the imported OpenAPI document and deployment choices, the platform generates an immutable Connector manifest with operations, parameter locations, request bodies, response contracts, security requirements, error semantics, and field schemas; the generic runtime executes generated operations without project-specific code and preserves path, query, header, body, content-type, authentication, and response-envelope semantics required by the source contract.",
+      "required_evidence": "Focused unit and integration tests that never instantiate ConnectorManifest, ConnectorOperation, ConnectorObjectSchema, or project-specific adapters in the experiment fixture, plus regression tests for the existing governed Connector runtime."
+    },
+    {
+      "task_id": "V04-12-T01C",
+      "source_intent_ids": ["PRODUCT-015", "PRODUCT-016", "EVAL-003", "GOV-003"],
+      "surface": "automatic contract-test generation / execution / drift evidence",
+      "acceptance": "The platform derives runnable positive and negative contract cases from each generated operation, runs them against a controlled host or mock profile, distinguishes passed, failed, skipped, and unsupported cases, records expected versus actual evidence, prevents a failed contract from being promoted as verified, invalidates evidence when the source document digest changes, and measures time and attempts to first valid contract as part of platform delivery performance.",
+      "required_evidence": "Generated-case inspection, black-box contract execution, response and error mismatch tests, source-drift invalidation, evidence persistence, human-readable API results, and recorded generation, validation, repair-attempt, and first-pass timing."
+    },
+    {
+      "task_id": "V04-12-T01D",
+      "source_intent_ids": ["PRODUCT-001", "PRODUCT-008", "PRODUCT-016"],
+      "surface": "Engineer Studio / customer-system integration workspace",
+      "acceptance": "The default Studio integration flow imports OpenAPI material and shows source, discovered operations, generated mapping, unsupported gaps, and contract-test status; an operator can review and register the generated version without writing manifest or field-schema JSON, while manual manifest registration is clearly separated as an expert legacy path and never labeled automatic.",
+      "required_evidence": "Frontend source tests, type checking, production build, and a browser journey importing a document, reviewing generated operations, running contract tests, registering a verified Connector, and observing an understandable failure state."
+    },
+    {
+      "task_id": "V04-12-T01E",
+      "source_intent_ids": ["PRODUCT-015", "PRODUCT-016", "SCENARIO-011", "GOV-003"],
+      "surface": "Paperless / InvenTree / Chatwoot REST-OpenAPI generalization experiment",
+      "acceptance": "Three isolated runs start from frozen official OpenAPI material for Paperless, InvenTree, and Chatwoot and no platform manifest, field schema, mapping code, adapter, or project-name branch; each run treats automatic delivery itself as measured performance and reports discovered and supported operations, automatic field-mapping coverage, contract results, end-to-end time to first valid contract, parse/generate/test timing, generation and repair attempts, model or compute cost when applicable, human configuration and rescue count, upstream-change revalidation time, and exact IF-01 through IF-14 gaps. At least one read and one write contract must execute per eligible host; any unavailable official operation or environment remains an explicit failed or environment-limited result rather than a fabricated pass.",
+      "required_evidence": "Frozen source metadata and digests, forbidden-assistance scan, three per-host machine-readable delivery-performance result bundles, aggregate denominator including every pass/fail/unsupported/not-run case, timing and human-effort records, and commands that reproduce the runs."
+    },
+    {
+      "task_id": "V04-12-T01F",
+      "source_intent_ids": ["EVOL-002", "EVOL-003", "EVOL-006", "GOV-003"],
+      "surface": "release gate / evidence classification / stage report",
+      "acceptance": "The release gate distinguishes the existing human-authored Connector execution tests from automatic-generation evidence, includes all new backend and frontend regressions, contains no current failure, and the stage report measures automatic delivery performance now while stating only the verified REST/OpenAPI boundary and leaving WebSocket, MQTT, SDK/CLI plus original-versus-replacement runtime performance comparison to later authorized stages after functional correctness.",
+      "required_evidence": "Focused and full regression results, Ruff, frontend lint/build, browser evidence, forbidden-assistance audit, evolution-control validation, independent closure review, and archived result digests."
+    }
+  ],
+  "optional_tasks": []
+}
