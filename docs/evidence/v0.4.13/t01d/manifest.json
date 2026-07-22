@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0",
+  "task_id": "V04-13-T01D",
+  "captured_at_utc": "2026-07-22T23:09:30Z",
+  "baseline_commit": "91d68006de539df050b84c3791894b8dc81aaa63",
+  "files": [
+    {
+      "path": "deterministic-tests.txt",
+      "sha256": "2dbbb598603190dcb3a5a08868c63da717a1ca719acf3732d1774cff7424b6d7"
+    },
+    {
+      "path": "independent-audit.md",
+      "sha256": "b6db65d9679871453b67a48b5a5e84613e77699912124906217a68960e9502b9"
+    },
+    {
+      "path": "security-and-boundary-summary.json",
+      "sha256": "d22a992f27cf8fec25d32157f9e9e3fb71e86f7e78f6fcc418c610bf2cb0ea88"
+    }
+  ],
+  "claim_ceiling": "T01D is closed at deterministic in-process, real-ASGI HTTP, SQLite, and Git-object evidence levels. No T01E UI, T01F task-package/oracle, T01G qualification bundle, or T01H enterprise experiment pass is claimed."
+}

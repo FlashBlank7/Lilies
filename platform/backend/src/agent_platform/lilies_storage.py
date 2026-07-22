@@ -545,7 +545,150 @@ class LiliesStorage:
         running_turns = conn.execute(
             "SELECT * FROM turns WHERE status='running' ORDER BY created_at"
         ).fetchall()
+        interrupted_turn_count = 0
+        recovered_running_sessions: set[str] = set()
         for row in running_turns:
+            checkpoint = _json_load(row["checkpoint_json"], {})
+            pending = checkpoint.get("pending", {})
+            if (
+                isinstance(pending, dict)
+                and pending.get("kind") == "collaboration_side_effect_pending"
+                and isinstance(pending.get("tool_name"), str)
+                and isinstance(pending.get("tool_call_id"), str)
+                and isinstance(pending.get("tool_input"), dict)
+            ):
+                recovered_running_sessions.add(str(row["session_id"]))
+                self._append_event_conn(
+                    conn,
+                    row["session_id"],
+                    "collaboration.side_effect_recovery_scheduled",
+                    {
+                        "turn_id": row["id"],
+                        "tool_call_id": pending["tool_call_id"],
+                        "tool_name": pending["tool_name"],
+                    },
+                    created_at=now,
+                )
+                continue
+            if (
+                isinstance(pending, dict)
+                and pending.get("kind") == "collaboration_remote_result"
+                and isinstance(pending.get("pipeline_cursor"), int)
+                and not isinstance(pending.get("pipeline_cursor"), bool)
+                and isinstance(pending.get("tool_result_message_id"), str)
+                and isinstance(pending.get("tool_result_content"), list)
+            ):
+                wait_id = pending.get("wait_id")
+                cursor = int(pending["pipeline_cursor"])
+                message_id = str(pending["tool_result_message_id"])
+                content = pending["tool_result_content"]
+                existing = conn.execute(
+                    "SELECT * FROM messages WHERE id=?", (message_id,)
+                ).fetchone()
+                encoded_content = _json_dump(content)
+                if existing is None:
+                    conn.execute(
+                        """
+                        INSERT INTO messages(
+                          id,session_id,turn_id,role,content_json,created_at
+                        ) VALUES(?,?,?,'tool',?,?)
+                        """,
+                        (message_id, row["session_id"], row["id"], encoded_content, now),
+                    )
+                    self._append_event_conn(
+                        conn,
+                        row["session_id"],
+                        "message.created",
+                        {
+                            "message_id": message_id,
+                            "turn_id": row["id"],
+                            "role": "tool",
+                            "content": content,
+                            "recovered": True,
+                        },
+                        created_at=now,
+                    )
+                elif (
+                    existing["session_id"] != row["session_id"]
+                    or existing["turn_id"] != row["id"]
+                    or existing["role"] != "tool"
+                    or existing["content_json"] != encoded_content
+                ):
+                    raise LiliesConflictError(
+                        "recovered collaboration result identity conflicts"
+                    )
+                recovered_checkpoint = dict(checkpoint)
+                if isinstance(wait_id, str) and wait_id:
+                    recovered_checkpoint["pending"] = {
+                        "kind": "collaboration_wait",
+                        "wait_id": wait_id,
+                        "pipeline_cursor": cursor,
+                        "recovered_after_remote_commit": True,
+                    }
+                else:
+                    recovered_checkpoint["pending"] = {
+                        "kind": "collaboration_result_recovered",
+                        "tool_call_id": pending.get("tool_call_id"),
+                        "tool_name": pending.get("tool_name"),
+                        "recovered_after_remote_commit": True,
+                    }
+                    conn.execute(
+                        """
+                        UPDATE turns SET phase='collaboration_result_recovered',
+                          checkpoint_json=?,side_effect_state='completed',updated_at=?
+                        WHERE id=? AND status='running'
+                        """,
+                        (_json_dump(recovered_checkpoint), now, row["id"]),
+                    )
+                    recovered_running_sessions.add(str(row["session_id"]))
+                    self._append_event_conn(
+                        conn,
+                        row["session_id"],
+                        "collaboration.result_recovered",
+                        {
+                            "turn_id": row["id"],
+                            "tool_call_id": pending.get("tool_call_id"),
+                            "tool_name": pending.get("tool_name"),
+                        },
+                        created_at=now,
+                    )
+                    continue
+                conn.execute(
+                    """
+                    UPDATE turns SET status='waiting_collaboration',
+                      phase='waiting_collaboration',checkpoint_json=?,
+                      side_effect_state='completed',updated_at=?
+                    WHERE id=? AND status='running'
+                    """,
+                    (_json_dump(recovered_checkpoint), now, row["id"]),
+                )
+                changed = conn.execute(
+                    """
+                    UPDATE sessions SET status='waiting_collaboration',
+                      waiting_collaboration_id=?,
+                      last_pipeline_cursor=MAX(last_pipeline_cursor,?),updated_at=?
+                    WHERE id=? AND status='running'
+                    """,
+                    (wait_id, cursor, now, row["session_id"]),
+                ).rowcount
+                if changed != 1:
+                    raise LiliesConflictError(
+                        "collaboration recovery session state conflicts"
+                    )
+                self._append_event_conn(
+                    conn,
+                    row["session_id"],
+                    "collaboration.waiting",
+                    {
+                        "turn_id": row["id"],
+                        "wait_id": wait_id,
+                        "pipeline_cursor": cursor,
+                        "recovered_after_remote_commit": True,
+                    },
+                    created_at=now,
+                )
+                continue
+            interrupted_turn_count += 1
             metrics = _checkpoint_metrics(row["checkpoint_json"])
             should_settle = row["metrics_settled_at"] is None
             published_metrics = metrics if should_settle else {
@@ -603,7 +746,12 @@ class LiliesStorage:
         running_sessions = conn.execute(
             "SELECT id FROM sessions WHERE status='running' ORDER BY created_at"
         ).fetchall()
-        for row in running_sessions:
+        interrupted_sessions = [
+            row
+            for row in running_sessions
+            if str(row["id"]) not in recovered_running_sessions
+        ]
+        for row in interrupted_sessions:
             conn.execute(
                 "UPDATE sessions SET status='interrupted', updated_at=? WHERE id=? AND status='running'",
                 (now, row["id"]),
@@ -616,8 +764,8 @@ class LiliesStorage:
                 created_at=now,
             )
         return {
-            "interrupted_sessions": len(running_sessions),
-            "interrupted_turns": len(running_turns),
+            "interrupted_sessions": len(interrupted_sessions),
+            "interrupted_turns": interrupted_turn_count,
         }
 
     # Sessions -----------------------------------------------------------------
@@ -1232,6 +1380,66 @@ class LiliesStorage:
             self._list_messages_sync, session_id, after_created_at, limit, client_id
         )
 
+    async def list_recent_messages(
+        self,
+        session_id: str,
+        *,
+        limit: int = 1000,
+        client_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Return the newest bounded window in chronological order."""
+
+        return await asyncio.to_thread(
+            self._list_recent_messages_sync, session_id, limit, client_id
+        )
+
+    def _list_recent_messages_sync(
+        self,
+        session_id: str,
+        limit: int,
+        client_id: str | None,
+    ) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            self._require_session_conn(conn, session_id)
+            if client_id is not None:
+                self._require_session_access_conn(conn, client_id, session_id)
+            rows = conn.execute(
+                """
+                SELECT * FROM messages WHERE session_id=?
+                ORDER BY created_at DESC,id DESC LIMIT ?
+                """,
+                (session_id, max(1, min(limit, 5000))),
+            ).fetchall()
+        return [self._message_from_row(row) for row in reversed(rows)]
+
+    async def list_messages_for_compaction(
+        self,
+        session_id: str,
+    ) -> list[dict[str, Any]]:
+        """Read a complete session transcript for deterministic compaction.
+
+        This internal path intentionally has no public pagination ceiling.  The
+        resulting summary remains strictly bounded before it is persisted.
+        """
+
+        return await asyncio.to_thread(
+            self._list_messages_for_compaction_sync, session_id
+        )
+
+    def _list_messages_for_compaction_sync(
+        self,
+        session_id: str,
+    ) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            self._require_session_conn(conn, session_id)
+            rows = conn.execute(
+                """
+                SELECT * FROM messages WHERE session_id=? ORDER BY created_at,id
+                """,
+                (session_id,),
+            ).fetchall()
+        return [self._message_from_row(row) for row in rows]
+
     def _list_messages_sync(
         self,
         session_id: str,
@@ -1439,6 +1647,264 @@ class LiliesStorage:
                 created_at=now,
             )
             return self._turn_from_row(self._require_turn_conn(conn, turn_id))
+
+    async def begin_collaboration_wait(
+        self,
+        turn_id: str,
+        *,
+        wait_id: str,
+        pipeline_cursor: int,
+        checkpoint: Mapping[str, Any],
+        tool_result_content: Any | None = None,
+        tool_result_message_id: str | None = None,
+    ) -> dict[str, Any]:
+        if not wait_id or pipeline_cursor < 0:
+            raise ValueError("collaboration wait requires an id and non-negative cursor")
+        async with self._lock:
+            return await asyncio.to_thread(
+                self._begin_collaboration_wait_sync,
+                turn_id,
+                wait_id,
+                pipeline_cursor,
+                dict(checkpoint),
+                tool_result_content,
+                tool_result_message_id,
+            )
+
+    def _begin_collaboration_wait_sync(
+        self,
+        turn_id: str,
+        wait_id: str,
+        pipeline_cursor: int,
+        checkpoint: dict[str, Any],
+        tool_result_content: Any | None,
+        tool_result_message_id: str | None,
+    ) -> dict[str, Any]:
+        now = utc_now()
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            turn = self._require_turn_conn(conn, turn_id)
+            session = self._require_session_conn(conn, turn["session_id"])
+            if (
+                turn["status"] == "waiting_collaboration"
+                and session["status"] == "waiting_collaboration"
+                and session["waiting_collaboration_id"] == wait_id
+            ):
+                return {
+                    "turn": self._turn_from_row(turn),
+                    "session": self._session_from_row(session),
+                    "replayed": True,
+                }
+            if turn["status"] != "running" or session["status"] != "running":
+                raise LiliesConflictError(
+                    "collaboration can only pause an active running turn"
+                )
+            if tool_result_content is not None:
+                if not tool_result_message_id:
+                    raise ValueError("atomic collaboration wait result requires a message id")
+                encoded_result = _json_dump(tool_result_content)
+                existing_result = conn.execute(
+                    "SELECT * FROM messages WHERE id=?",
+                    (tool_result_message_id,),
+                ).fetchone()
+                if existing_result is None:
+                    conn.execute(
+                        """
+                        INSERT INTO messages(
+                          id,session_id,turn_id,role,content_json,created_at
+                        ) VALUES(?,?,?,'tool',?,?)
+                        """,
+                        (
+                            tool_result_message_id,
+                            turn["session_id"],
+                            turn_id,
+                            encoded_result,
+                            now,
+                        ),
+                    )
+                    self._append_event_conn(
+                        conn,
+                        turn["session_id"],
+                        "message.created",
+                        {
+                            "message_id": tool_result_message_id,
+                            "turn_id": turn_id,
+                            "role": "tool",
+                            "content": tool_result_content,
+                        },
+                        created_at=now,
+                    )
+                elif (
+                    existing_result["session_id"] != turn["session_id"]
+                    or existing_result["turn_id"] != turn_id
+                    or existing_result["role"] != "tool"
+                    or existing_result["content_json"] != encoded_result
+                ):
+                    raise LiliesConflictError(
+                        "atomic collaboration result id was reused with another payload"
+                    )
+            conn.execute(
+                """
+                UPDATE turns SET status='waiting_collaboration',
+                  phase='waiting_collaboration',checkpoint_json=?,
+                  side_effect_state='completed',updated_at=? WHERE id=?
+                """,
+                (_json_dump(checkpoint), now, turn_id),
+            )
+            self._transition_session_conn(
+                conn,
+                turn["session_id"],
+                "waiting_collaboration",
+                expected_status="running",
+            )
+            conn.execute(
+                """
+                UPDATE sessions SET waiting_collaboration_id=?,
+                  last_pipeline_cursor=MAX(last_pipeline_cursor,?),updated_at=?
+                WHERE id=?
+                """,
+                (wait_id, pipeline_cursor, now, turn["session_id"]),
+            )
+            self._append_event_conn(
+                conn,
+                turn["session_id"],
+                "collaboration.waiting",
+                {
+                    "turn_id": turn_id,
+                    "wait_id": wait_id,
+                    "pipeline_cursor": pipeline_cursor,
+                },
+                created_at=now,
+            )
+            return {
+                "turn": self._turn_from_row(self._require_turn_conn(conn, turn_id)),
+                "session": self._session_from_row(
+                    self._require_session_conn(conn, turn["session_id"])
+                ),
+                "replayed": False,
+            }
+
+    async def record_collaboration_update(
+        self,
+        turn_id: str,
+        *,
+        wait_id: str,
+        pipeline_cursor: int,
+        message_id: str,
+        content: Any,
+        resume: bool,
+    ) -> dict[str, Any]:
+        if pipeline_cursor < 0:
+            raise ValueError("collaboration cursor must be non-negative")
+        async with self._lock:
+            return await asyncio.to_thread(
+                self._record_collaboration_update_sync,
+                turn_id,
+                wait_id,
+                pipeline_cursor,
+                message_id,
+                content,
+                resume,
+            )
+
+    def _record_collaboration_update_sync(
+        self,
+        turn_id: str,
+        wait_id: str,
+        pipeline_cursor: int,
+        message_id: str,
+        content: Any,
+        resume: bool,
+    ) -> dict[str, Any]:
+        now = utc_now()
+        encoded_content = _json_dump(content)
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            turn = self._require_turn_conn(conn, turn_id)
+            session = self._require_session_conn(conn, turn["session_id"])
+            if (
+                turn["status"] != "waiting_collaboration"
+                or session["status"] != "waiting_collaboration"
+                or session["waiting_collaboration_id"] != wait_id
+            ):
+                raise LiliesConflictError("collaboration wait changed before update delivery")
+            existing = conn.execute(
+                "SELECT * FROM messages WHERE id=?", (message_id,)
+            ).fetchone()
+            if existing is None:
+                conn.execute(
+                    """
+                    INSERT INTO messages(id,session_id,turn_id,role,content_json,created_at)
+                    VALUES(?,?,?,'user',?,?)
+                    """,
+                    (message_id, turn["session_id"], turn_id, encoded_content, now),
+                )
+                self._append_event_conn(
+                    conn,
+                    turn["session_id"],
+                    "message.created",
+                    {
+                        "message_id": message_id,
+                        "turn_id": turn_id,
+                        "role": "user",
+                        "content": content,
+                    },
+                    created_at=now,
+                )
+            elif (
+                existing["session_id"] != turn["session_id"]
+                or existing["turn_id"] != turn_id
+                or existing["role"] != "user"
+                or existing["content_json"] != encoded_content
+            ):
+                raise LiliesConflictError(
+                    "collaboration update message id was reused with another payload"
+                )
+            if resume:
+                conn.execute(
+                    """
+                    UPDATE turns SET status='running',phase='collaboration_resumed',
+                      updated_at=? WHERE id=? AND status='waiting_collaboration'
+                    """,
+                    (now, turn_id),
+                )
+                self._transition_session_conn(
+                    conn,
+                    turn["session_id"],
+                    "running",
+                    expected_status="waiting_collaboration",
+                )
+            conn.execute(
+                """
+                UPDATE sessions SET last_pipeline_cursor=MAX(last_pipeline_cursor,?),
+                  waiting_collaboration_id=?,updated_at=? WHERE id=?
+                """,
+                (
+                    pipeline_cursor,
+                    None if resume else wait_id,
+                    now,
+                    turn["session_id"],
+                ),
+            )
+            self._append_event_conn(
+                conn,
+                turn["session_id"],
+                "collaboration.resumed" if resume else "collaboration.buffered",
+                {
+                    "turn_id": turn_id,
+                    "wait_id": wait_id,
+                    "pipeline_cursor": pipeline_cursor,
+                    "message_id": message_id,
+                },
+                created_at=now,
+            )
+            return {
+                "turn": self._turn_from_row(self._require_turn_conn(conn, turn_id)),
+                "session": self._session_from_row(
+                    self._require_session_conn(conn, turn["session_id"])
+                ),
+                "replayed": existing is not None,
+            }
 
     async def finish_turn(
         self,

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import hmac
 import json
 import re
 import shutil
@@ -56,6 +58,8 @@ from .complexity_router import (
     runtime_activation_rollout_metrics,
     validate_operator_override,
 )
+from .collaboration_service import CollaborationService
+from .collaboration_storage import CollaborationStore
 from .connector_sdk import (
     ConnectorAdapterError,
     ConnectorCallback,
@@ -231,6 +235,128 @@ def _git_differs(repo_root: Path, *args: str) -> bool:
     return result.returncode == 1
 
 
+def _resolve_reachable_git_commit(
+    repo_root: Path | None,
+    commit_sha: str,
+) -> str | None:
+    """Return a full commit OID only when it is retained by the current history."""
+
+    if repo_root is None:
+        return None
+    try:
+        resolved = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(repo_root),
+                "rev-parse",
+                "--verify",
+                f"{commit_sha}^{{commit}}",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+        if resolved.returncode != 0:
+            return None
+        full_commit = resolved.stdout.strip()
+        if commit_sha != full_commit or len(full_commit) not in {40, 64}:
+            return None
+        reachable = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(repo_root),
+                "merge-base",
+                "--is-ancestor",
+                full_commit,
+                "HEAD",
+            ],
+            check=False,
+            capture_output=True,
+            timeout=2,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return full_commit if reachable.returncode == 0 else None
+
+
+def _git_commit_exists(repo_root: Path | None, commit_sha: str) -> bool:
+    return _resolve_reachable_git_commit(repo_root, commit_sha) is not None
+
+
+def _git_tree_contains_blob(tree_output: bytes, blob_oid: str) -> bool:
+    """Parse `git ls-tree -z` metadata without trusting arbitrary path bytes."""
+
+    expected_oid = blob_oid.encode("ascii")
+    for record in tree_output.split(b"\0"):
+        if not record:
+            continue
+        metadata, separator, _path = record.partition(b"\t")
+        if not separator:
+            return False
+        fields = metadata.split(b" ")
+        if len(fields) != 3:
+            return False
+        _mode, object_type, object_oid = fields
+        if object_type == b"blob" and hmac.compare_digest(object_oid, expected_oid):
+            return True
+    return False
+
+
+def _git_developer_evidence_exists(
+    repo_root: Path | None,
+    commit_sha: str,
+    evidence: Any,
+) -> bool:
+    """Verify immutable evidence bytes in the declared implementation tree."""
+
+    full_commit = _resolve_reachable_git_commit(repo_root, commit_sha)
+    if full_commit is None:
+        return False
+    parts = str(evidence.evidence_id).split(":")
+    if len(parts) != 3 or parts[0] != "gitblob":
+        return False
+    evidence_commit, blob_oid = parts[1:]
+    if not hmac.compare_digest(evidence_commit, full_commit):
+        return False
+    if len(blob_oid) != len(full_commit) or any(
+        character not in "0123456789abcdef" for character in blob_oid
+    ):
+        return False
+    try:
+        tree = subprocess.run(
+            ["git", "-C", str(repo_root), "ls-tree", "-r", "-z", full_commit],
+            check=False,
+            capture_output=True,
+            timeout=5,
+        )
+        if tree.returncode != 0 or not _git_tree_contains_blob(tree.stdout, blob_oid):
+            return False
+        size = subprocess.run(
+            ["git", "-C", str(repo_root), "cat-file", "-s", blob_oid],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+        if size.returncode != 0 or int(size.stdout.strip()) > 16 * 1024 * 1024:
+            return False
+        blob = subprocess.run(
+            ["git", "-C", str(repo_root), "cat-file", "blob", blob_oid],
+            check=False,
+            capture_output=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return False
+    if blob.returncode != 0:
+        return False
+    actual_digest = "sha256:" + hashlib.sha256(blob.stdout).hexdigest()
+    return hmac.compare_digest(str(evidence.digest), actual_digest)
+
+
 @lru_cache(maxsize=1)
 def runtime_git_identity() -> dict[str, str | bool]:
     repo_root = _repo_root()
@@ -300,6 +426,7 @@ class Services:
     platform_blackbox_artifacts: PlatformBlackboxArtifactStore
     platform_contract_versions: PlatformContractVersionStore
     local_lilies_bridge: LocalLiliesBridge
+    collaboration: CollaborationService
     worker_supervisor: Any | None
     worker_process_manager: Any | None
     background_tasks: set[asyncio.Task[Any]]
@@ -1727,7 +1854,46 @@ def annotate_build_deadline(build: dict[str, Any]) -> dict[str, Any]:
     return build
 
 
+def _collaboration_secret_registry(
+    settings: Settings,
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Expose configured secret names and values only to the redaction boundary."""
+
+    fields: list[str] = []
+    values: list[str] = []
+    for name, field in type(settings).model_fields.items():
+        if field.repr is not False and not name.endswith(
+            ("_api_key", "_password", "_secret", "_token")
+        ):
+            continue
+        fields.append(name)
+        configured = getattr(settings, name)
+        if isinstance(configured, str):
+            if configured:
+                values.append(configured)
+        elif isinstance(configured, dict):
+            values.extend(
+                str(value) for value in configured.values() if str(value)
+            )
+    return tuple(fields), tuple(values)
+
+
+def _validate_collaboration_role_tokens(settings: Settings) -> None:
+    if not settings.lilies_collaboration_enabled:
+        return
+    tokens = (
+        settings.api_token,
+        settings.lilies_collaboration_developer_token,
+        settings.lilies_collaboration_verifier_token,
+    )
+    if any(not token.strip() for token in tokens):
+        raise ValueError("enabled collaboration requires all three role tokens")
+    if len(set(tokens)) != len(tokens):
+        raise ValueError("collaboration role tokens must differ")
+
+
 def build_services(settings: Settings, provider: ModelProvider | None = None) -> Services:
+    _validate_collaboration_role_tokens(settings)
     agent_core = build_agent_runtime_core(settings, provider)
     storage = agent_core.storage
     tools = agent_core.tools
@@ -1831,6 +1997,59 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         templates.evidence,
         evidence_root=_repo_root() or Path.cwd(),
     )
+    collaboration_secret_fields, collaboration_secret_values = (
+        _collaboration_secret_registry(settings)
+    )
+    repository_root = _repo_root()
+
+    async def resolve_developer_commit(commit_sha: str) -> bool:
+        return await asyncio.to_thread(
+            _git_commit_exists,
+            repository_root,
+            commit_sha,
+        )
+
+    async def resolve_developer_evidence(commit_sha: str, evidence: Any) -> bool:
+        return await asyncio.to_thread(
+            _git_developer_evidence_exists,
+            repository_root,
+            commit_sha,
+            evidence,
+        )
+
+    collaboration = CollaborationService(
+        store=CollaborationStore(
+            storage.db_path,
+            registered_secret_fields=collaboration_secret_fields,
+            registered_secret_values=collaboration_secret_values,
+        ),
+        enabled=settings.lilies_collaboration_enabled,
+        developer_token=settings.lilies_collaboration_developer_token,
+        verifier_token=settings.lilies_collaboration_verifier_token,
+        reserved_role_tokens=(settings.api_token,),
+        draft_state_provider=workflow_store.get_draft,
+        developer_commit_resolver=resolve_developer_commit,
+        developer_evidence_resolver=resolve_developer_evidence,
+    )
+
+    def invalidate_collaboration_claims_with_draft_write(
+        connection: Any,
+        application_id: str,
+        draft: dict[str, Any],
+    ) -> None:
+        if not settings.lilies_collaboration_enabled:
+            return
+        collaboration.store.invalidate_verification_claims_in_transaction(
+            connection,
+            application_id=application_id,
+            current_draft_revision=int(draft["revision"]),
+            current_content_hash=str(draft["content_hash"]),
+            reason="application draft revision or content changed",
+        )
+
+    workflow_store.on_draft_changed_in_transaction = (
+        invalidate_collaboration_claims_with_draft_write
+    )
     governance = GovernanceService(
         storage=storage,
         harness=harness,
@@ -1894,6 +2113,7 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         platform_blackbox_artifacts=platform_blackbox_artifacts,
         platform_contract_versions=platform_contract_versions,
         local_lilies_bridge=local_lilies_bridge,
+        collaboration=collaboration,
         worker_supervisor=None,
         worker_process_manager=None,
         background_tasks=set(),
@@ -1942,6 +2162,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             schema_digest=platform_contract_schema_digest(),
         )
         await services.local_lilies_bridge.initialize()
+        await services.collaboration.initialize()
         await services.durable_jobs.initialize()
         await services.connectors.initialize()
         await services.openapi_connectors.initialize()
@@ -5003,6 +5224,16 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         app,
         services.local_lilies_bridge,
         require_token=require_local_lilies_token,
+    )
+
+    from .collaboration_api import (  # pylint: disable=import-outside-toplevel
+        install_collaboration_api,
+    )
+
+    install_collaboration_api(
+        app,
+        services.collaboration,
+        require_user_token=require_local_lilies_token,
     )
 
     return app

@@ -1,0 +1,92 @@
+V04-13-T01D deterministic verification
+Captured at (UTC): 2026-07-22T23:04:25Z
+Baseline commit: 91d68006de539df050b84c3791894b8dc81aaa63
+
+1. Collaboration focused suite
+
+Command:
+  uv run --extra dev --frozen python -m pytest -q tests/test_v04_13_collaboration_*.py
+
+Result:
+  123 passed, 2 warnings, 0 failed in 21.09s
+
+Coverage includes strict schemas and access matrices; formal-only activation;
+credential/header isolation; deterministic report routing; explicit
+observed -> evidence_collecting -> platform-validation revisions; manual and
+task-local auto-forward approval; report withdrawal; durable seq/cursors/SSE;
+developer inbox isolation, single-snapshot projection and leases;
+DeveloperResponse, task amendment, environment response and independent Lilies
+rerun; reachable-commit and same-tree gitblob evidence resolution through the
+real create_app HTTP path; application-bound claim freeze/invalidation/result;
+post-close verifier completion; causal export; OpenAPI non-discoverability;
+daemon side-effect recovery, deadline handling, semantic compaction and
+projection redaction; and SQLite migration.
+
+The focused suite includes deterministic fault tests with:
+  - 100 subscriber overflow/reconnect rounds and contiguous durable recovery;
+  - 100 developer-lease retry/renew/expiry/stale-owner recovery rounds;
+  - 100-way identical report submission across independent stores/services;
+  - concurrent revise, approval, release, and close receipt replay;
+  - same-key payload drift rejection without duplicate side effects;
+  - missing commit, missing evidence blob, and mismatched evidence digest leave
+    the report implementing and preserve the active lease for retry;
+  - 13 compaction counterexample tests, including 121 unresolved reports under
+    the 30000-character model-summary ceiling without losing goal, route,
+    outcome, or evidence identity.
+
+2. Storage and security transaction subset
+
+Command:
+  uv run --extra dev --frozen python -m pytest -q \
+    tests/test_v04_13_collaboration_storage_transactions.py \
+    tests/test_v04_13_collaboration_storage_security.py
+
+Result:
+  20 passed, 0 failed in 1.84s
+
+3. Full repository regression
+
+Initial command:
+  uv run --extra dev --frozen python -m pytest -q
+
+Collection result:
+  Existing repository test tests/test_scenario_capability_report_revision.py
+  imports python-docx, but pyproject.toml does not declare it in the dev extra.
+  Collection stopped with ModuleNotFoundError: docx before tests ran. No lock or
+  dependency file was changed because the untracked uv.lock belongs to the user.
+
+Re-run with an ephemeral test-only dependency:
+  uv run --extra dev --with python-docx --frozen python -m pytest -q
+
+Result:
+  1219 passed, 85 xfailed, 2 warnings, 0 failed in 253.39s
+
+The xfails are the repository's existing expected cases. The two warnings are
+the existing Starlette TestClient deprecation and duplicate fallback OpenAPI
+operation ID warning. The undeclared python-docx test dependency is a truthful
+repository baseline/dependency debt for the later release gate; it is not
+reported as a passing default dev-extra collection.
+
+4. Static and evolution checks
+
+Commands:
+  uv run --extra dev --frozen python -m ruff check \
+    platform/backend/src/agent_platform/api.py \
+    platform/backend/src/agent_platform/config.py \
+    platform/backend/src/agent_platform/collaboration_api.py \
+    platform/backend/src/agent_platform/collaboration_models.py \
+    platform/backend/src/agent_platform/collaboration_service.py \
+    platform/backend/src/agent_platform/collaboration_storage.py \
+    platform/backend/src/agent_platform/lilies_collaboration_client.py \
+    platform/backend/src/agent_platform/lilies_collaboration_tools.py \
+    platform/backend/src/agent_platform/lilies_identity.py \
+    platform/backend/src/agent_platform/lilies_service.py \
+    platform/backend/src/agent_platform/workflow_storage.py \
+    tests/test_v04_13_collaboration_*.py
+  git diff --check
+  uv run --extra dev --frozen python scripts/validate_evolution_control.py
+
+Results:
+  Ruff: All checks passed.
+  git diff --check: passed.
+  evolution control validation passed.

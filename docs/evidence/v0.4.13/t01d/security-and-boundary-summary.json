@@ -1,0 +1,45 @@
+{
+  "schema_version": "1.0",
+  "task_id": "V04-13-T01D",
+  "captured_at_utc": "2026-07-22T23:04:25Z",
+  "baseline_commit": "91d68006de539df050b84c3791894b8dc81aaa63",
+  "implemented_boundaries": {
+    "ordinary_session_discovery": "BuildAssignment, prompt, tool schema, OpenAPI, and hidden-route errors reveal no collaboration surface unless formal assignment access is present",
+    "lilies_access": "a separate channel bearer is header-only, exact-channel and exact-assignment bound, expiry checked, and limited to report-write/response-read",
+    "developer_access": "preapproval content is absent from the developer inbox; only approved capability reports and direct task/environment routes are visible",
+    "verifier_access": "verification has a distinct principal and credential, reads only a frozen exact claim, and is the sole domain write allowed after close",
+    "daemon_persistence": "collaboration tool inputs and results are sanitized before message, checkpoint, event, permission, summary, archive, or UI-visible persistence; protected oracle input fails closed",
+    "payload_safety": "credential fields and values, Authorization, Cookie, private keys, provider tokens, registered daemon secrets, and credential query parameters are redacted; protected oracle references are rejected",
+    "storage": "dedicated normalized SQLite tables replace log scanning; seq, messages, revisions, receipts, cursors, leases, approvals, outbox, claims, verification, and audit updates are transactional",
+    "draft_claim_atomicity": "WorkflowStorage draft CAS and claim invalidation share one BEGIN IMMEDIATE transaction and one SQLite connection; stale frozen or independently verified claims cannot survive a committed draft mutation",
+    "application_binding": "formal channels bind an explicit application allowlist and claim creation/result transactions recheck the exact current application draft revision and hash",
+    "idempotency": "operation receipts bind operation, scope, actor, idempotency key, and the full canonical client request; exact concurrent retries return the first result and drift returns 409",
+    "state_authority": "capability intake persists observed, Lilies evidence_collecting, and platform validation as distinct revisions; user, Codex lease owner, Lilies reprobe, and independent verifier transitions remain role separated",
+    "developer_response_existence": "an implemented response requires a full commit reachable from current Git history plus every raw evidence blob in that exact commit tree with a matching SHA-256; real create_app HTTP tests prove valid transition and fail-closed missing commit, missing blob, and digest mismatch without consuming the active lease",
+    "developer_inbox_snapshot": "developer report and claim projections, pending-user-action health, and cursor are read from one SQLite snapshot; concurrent approval cannot create a torn inbox",
+    "side_effect_recovery": "daemon restart recovery distinguishes durable remote side-effect intent from observed result, queries receipt/idempotency status before retry, and requires contract refetch before a reported repair is re-probed",
+    "context_compaction": "bounded summaries preserve the original goal, decisions, contract changes, attempted routes and evidence identities, draft/run state, report lifecycle, claim verdicts and invalidations, and no-substitute constraints; a 121-report independent counterexample remains below the 30000-character model bound"
+  },
+  "deterministic_evidence": {
+    "focused_collaboration_tests": 123,
+    "full_repository_passed": 1219,
+    "full_repository_expected_xfails": 85,
+    "subscriber_overflow_reconnect_rounds": 100,
+    "lease_fault_rounds": 100,
+    "concurrent_identical_submitters": 100,
+    "developer_response_http_cases": 4,
+    "compaction_counterexample_tests": 13,
+    "current_failures": 0
+  },
+  "known_debt": [
+    {
+      "kind": "repository_test_dependency",
+      "detail": "python-docx is imported by an existing report test but is not declared in the pyproject dev extra; full regression passed with --with python-docx and no user lockfile mutation"
+    },
+    {
+      "kind": "later_stage_integration",
+      "detail": "formal task-package creation, workspace/oracle mounting, immutable run archives, and the independent verifier process belong to locked T01F; this task provides their strict channel, deadline, response, and claim protocol"
+    }
+  ],
+  "claim_ceiling": "T01D proves the temporary collaboration protocol, persistence, role isolation, deterministic routing, approvals, leases, commit-and-evidence-backed developer responses, reprobes, claim freeze/invalidation, post-close verification write, recovery/compaction invariants, and daemon secret safety at deterministic in-process/real-ASGI-HTTP/SQLite/Git-object levels. It does not claim the T01E monitor UI, T01F task-package/oracle process, T01G qualification bundle, or T01H enterprise experiment."
+}

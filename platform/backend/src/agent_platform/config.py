@@ -84,6 +84,8 @@ class Settings(BaseSettings):
     # product-wide default have later, independent gates.
     lilies_local_agent_enabled: bool = False
     lilies_collaboration_enabled: bool = False
+    lilies_collaboration_developer_token: str = Field(default="", repr=False)
+    lilies_collaboration_verifier_token: str = Field(default="", repr=False)
     lilies_local_builder_default: bool = False
     lilies_platform_base_url: str = ""
 

@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import sqlite3
+from collections.abc import Awaitable, Callable
 from typing import Any
 from uuid import uuid4
 
@@ -85,6 +87,10 @@ class WorkflowStorage:
     def __init__(self, storage: Storage) -> None:
         self.storage = storage
         self._lock = asyncio.Lock()
+        self.on_draft_changed: Callable[[str, dict[str, Any]], Awaitable[None]] | None = None
+        self.on_draft_changed_in_transaction: (
+            Callable[[sqlite3.Connection, str, dict[str, Any]], None] | None
+        ) = None
 
     async def initialize(self) -> None:
         await asyncio.to_thread(self._initialize_sync)
@@ -401,7 +407,7 @@ class WorkflowStorage:
         change_context: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         async with self._lock:
-            return await asyncio.to_thread(
+            result = await asyncio.to_thread(
                 self._save_draft_sync,
                 application_id,
                 snapshot,
@@ -409,6 +415,9 @@ class WorkflowStorage:
                 idempotency_key,
                 change_context,
             )
+        if self.on_draft_changed is not None:
+            await self.on_draft_changed(application_id, result)
+        return result
 
     def _save_draft_sync(
         self,
@@ -420,6 +429,7 @@ class WorkflowStorage:
     ) -> dict[str, Any]:
         now = utc_now()
         with self.storage._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
             previous = conn.execute(
                 "SELECT response_json FROM draft_idempotency WHERE application_id=? AND idempotency_key=?",
                 (application_id, idempotency_key),
@@ -451,10 +461,11 @@ class WorkflowStorage:
                 summary = dict(change_context or {"operation": "draft_update"})
                 summary.update({"revision": revision, "invalidated_at": now})
                 change_summary = [*change_summary, summary][-20:]
-            conn.execute(
+            changed = conn.execute(
                 """UPDATE application_drafts SET revision=?,snapshot_json=?,content_hash=?,
                    evidence_invalidated_at=?,evidence_invalidated_revision=?,
-                   evidence_change_summary_json=?,updated_at=? WHERE application_id=?""",
+                   evidence_change_summary_json=?,updated_at=?
+                   WHERE application_id=? AND revision=?""",
                 (
                     revision,
                     snapshot.model_dump_json(exclude_none=True),
@@ -464,8 +475,13 @@ class WorkflowStorage:
                     json.dumps(change_summary, ensure_ascii=False),
                     now,
                     application_id,
+                    expected_revision,
                 ),
             )
+            if changed.rowcount != 1:
+                raise RevisionConflict(
+                    "draft revision changed during compare-and-set"
+                )
             conn.execute(
                 """UPDATE applications SET name=?,description=?,mode=?,delivery_mode=?,
                    governed_hard_gate=?,requirement=?,updated_at=?
@@ -487,6 +503,8 @@ class WorkflowStorage:
                 "content_hash": content_hash,
                 "evidence_state": self._evidence_state(row["tested_hash"], content_hash),
             }
+            if self.on_draft_changed_in_transaction is not None:
+                self.on_draft_changed_in_transaction(conn, application_id, response)
             conn.execute(
                 "INSERT INTO draft_idempotency VALUES(?,?,?,?)",
                 (application_id, idempotency_key, json.dumps(response), now),
