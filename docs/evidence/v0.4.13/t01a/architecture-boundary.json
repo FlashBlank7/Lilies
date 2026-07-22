@@ -1,0 +1,50 @@
+{
+  "schema_version": "1.0",
+  "task_id": "V04-13-T01A",
+  "captured_at_utc": "2026-07-22T12:24:09Z",
+  "standalone_entrypoint": "lilies = agent_platform.lilies_cli:main",
+  "shared_core": {
+    "module": "agent_platform.agent_core",
+    "platform_factory": "agent_platform.agent_runtime_factory.build_agent_runtime_core",
+    "local_factory": "agent_platform.lilies_service.build_local_lilies_core"
+  },
+  "local_boundary": {
+    "storage_module": "agent_platform.lilies_storage",
+    "database_name": "lilies.db",
+    "schema_version": 3,
+    "default_data_directory": "~/.lilies",
+    "platform_data_directory_alias_rejected": true,
+    "platform_default_cwd_data_directory_rejected": true,
+    "platform_database_marker_rejected": true,
+    "loopback_default": true,
+    "non_loopback_requires_explicit_acknowledgement": true
+  },
+  "prohibited_import_scan": {
+    "command": "rg -n 'from [.]?(workflow_storage|applications|builder|api|storage) import|import agent_platform[.](workflow_storage|applications|builder|api|storage)' platform/backend/src/agent_platform/lilies_*.py",
+    "exit_code": 1,
+    "matches": [],
+    "workflow_storage_imported": false,
+    "builder_imported": false,
+    "platform_storage_imported": false,
+    "platform_api_imported": false
+  },
+  "identity": {
+    "key_agreement_curve": "X25519",
+    "public_key_derivation": "RFC 7748 Montgomery ladder",
+    "rfc_7748_alice_vector_passed": true,
+    "fingerprint": "SHA-256 of the raw 32-byte public key",
+    "private_key_mode": "0600",
+    "client_bearer_bound_to_current_fingerprint": true,
+    "old_bearer_rejected_after_identity_change": true
+  },
+  "security": {
+    "daemon_json_contains_token": false,
+    "database_stores_bearer_token_plaintext": false,
+    "database_stores_pairing_code_plaintext": false,
+    "credentials_project_secret": false,
+    "normal_api_schema_discovers_collaboration": false,
+    "private_thinking_persisted": false,
+    "workspace_symlink_escape_allowed": false
+  },
+  "claim_ceiling": "This artifact proves the local-process and persistence boundary only. Platform workflow HTTP tools and assignment coupling begin in V04-13-T01B/C."
+}

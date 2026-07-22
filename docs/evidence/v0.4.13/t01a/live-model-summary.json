@@ -1,0 +1,52 @@
+{
+  "schema_version": "1.0",
+  "task_id": "V04-13-T01A",
+  "captured_at_utc": "2026-07-22T12:24:09Z",
+  "implementation_baseline_commit": "0f9679c",
+  "provider": "DeepSeek",
+  "model": "deepseek-v4-flash",
+  "session_id": "16f74347-056b-56bf-8dd7-fe022480f7cc",
+  "daemon_fingerprint": "sha256:6c085815a86d54c73f245e564730a5db6dbb486366dc4f2bfbd0e91638f3a686",
+  "process_boundary": {
+    "cli_process": "independent",
+    "daemon_processes": 2,
+    "listen_address": "127.0.0.1:18917",
+    "data_directory_shared_with_platform": false
+  },
+  "configured_limits": {
+    "max_model_calls": 30,
+    "max_tool_calls": 100,
+    "max_budget_usd": 5.0,
+    "ordinary_turn_deadline_seconds": 3600
+  },
+  "observed": {
+    "pre_restart_turns": 3,
+    "post_restart_continuity_turns": 1,
+    "completed_turns": 4,
+    "model_calls": 5,
+    "tool_calls": 1,
+    "token_count": 1987,
+    "cost_usd": 0.00033054,
+    "final_session_status": "ready",
+    "tool": "local_time",
+    "context_recall_before_restart": true,
+    "context_recall_after_restart": true
+  },
+  "turn_metrics": [
+    {"ordinal": 1, "token_count": 1236, "cost_usd": 0.00018326, "tool_count": 0, "model_call_count": 1},
+    {"ordinal": 2, "token_count": 299, "cost_usd": 0.00005362, "tool_count": 1, "model_call_count": 2},
+    {"ordinal": 3, "token_count": 223, "cost_usd": 0.00003864, "tool_count": 0, "model_call_count": 1},
+    {"ordinal": 4, "token_count": 229, "cost_usd": 0.00005502, "tool_count": 0, "model_call_count": 1}
+  ],
+  "secret_scan": {
+    "thinking_rows": 0,
+    "message_secret_markers": 0,
+    "event_secret_markers": 0,
+    "security_event_secret_markers": 0,
+    "api_key_persisted": false,
+    "pairing_code_in_artifact": false,
+    "access_token_in_artifact": false
+  },
+  "evidence_level": "daemon_plus_real_model",
+  "claim_ceiling": "Standalone local Lilies interaction, tool use, durable context, and restart continuity passed in this controlled local environment. This evidence does not claim a platform black-box build, collaboration pipeline, enterprise experiment, or production readiness."
+}

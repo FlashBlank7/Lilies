@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field
 from . import PRODUCT_PHASE, __version__
 from .config import Settings, get_settings
 from .applications import ApplicationService
+from .agent_runtime_factory import build_agent_runtime_core
 from .adaptive_monitoring import (
     adaptive_monitoring_refresh_loop,
     adaptive_monitoring_schedule_status,
@@ -115,7 +116,6 @@ from .openapi_connector import (
 from .permissions import PermissionBroker
 from .platform_harness import PlatformHarness, PlatformHarnessViolation
 from .providers import ModelProvider
-from .providers.multi import MultiProvider
 from .runtime import AgentRuntime
 from .reference_modules import ensure_codex_reference_module
 from .sandbox import SandboxManager
@@ -130,7 +130,7 @@ from .template_strategy import (
     suggestion_default_metadata,
 )
 from .template_store import TemplateStore
-from .tools import ToolRegistry, build_core_registry
+from .tools import ToolRegistry
 from .workflow_models import (
     ApplicationCreateRequest,
     ApplicationSnapshot,
@@ -1716,61 +1716,15 @@ def annotate_build_deadline(build: dict[str, Any]) -> dict[str, Any]:
 
 
 def build_services(settings: Settings, provider: ModelProvider | None = None) -> Services:
-    storage = Storage(settings.data_dir)
-    tools = build_core_registry()
-    sandboxes = SandboxManager(settings)
-    permissions = PermissionBroker()
-    provider = provider or MultiProvider(
-        deepseek_api_key=settings.deepseek_api_key,
-        deepseek_base_url=settings.deepseek_base_url,
-        timeout_seconds=settings.deepseek_timeout_seconds,
-    )
-    from .secret_kms import build_secret_kms_provider  # pylint: disable=import-outside-toplevel
-
-    secret_kms_provider = build_secret_kms_provider(
-        provider=settings.platform_harness_secret_kms_provider,
-        provider_id=settings.platform_harness_secret_kms_provider_id,
-        key_id=settings.platform_harness_secret_kms_key_id,
-        key=settings.platform_harness_secret_kms_key,
-        previous_keys=settings.platform_harness_secret_kms_previous_keys,
-    )
-    harness = PlatformHarness(
-        storage=storage,
-        max_active_tasks=settings.platform_harness_max_active_tasks,
-        max_model_calls_per_task=settings.platform_harness_max_model_calls_per_task,
-        max_tool_calls_per_task=settings.platform_harness_max_tool_calls_per_task,
-        max_node_executions_per_task=settings.platform_harness_max_node_executions_per_task,
-        max_model_calls_per_owner=settings.platform_harness_max_model_calls_per_owner,
-        max_tool_calls_per_owner=settings.platform_harness_max_tool_calls_per_owner,
-        max_node_executions_per_owner=settings.platform_harness_max_node_executions_per_owner,
-        stale_active_task_seconds=settings.platform_harness_stale_active_task_seconds,
-        secret_policy_enabled=settings.platform_harness_secret_policy_enabled,
-        secret_envelope_key=settings.platform_harness_secret_envelope_key or settings.api_token,
-        secret_envelope_key_id=settings.platform_harness_secret_envelope_key_id,
-        secret_envelope_previous_keys=settings.platform_harness_secret_envelope_previous_keys,
-        secret_kms_provider=secret_kms_provider,
-        network_egress_policy=settings.platform_harness_network_egress_policy,
-        network_egress_allowlist=settings.platform_harness_network_egress_allowlist,
-        worker_id=settings.platform_harness_worker_id or None,
-        worker_lease_seconds=settings.platform_harness_worker_lease_seconds,
-    )
-    runtime = AgentRuntime(
-        settings=settings,
-        storage=storage,
-        provider=provider,
-        tools=tools,
-        sandboxes=sandboxes,
-        permissions=permissions,
-        harness=harness,
-    )
-    factory = AgentFactory(
-        settings=settings,
-        storage=storage,
-        provider=provider,
-        runtime=runtime,
-        tools=tools,
-        sandboxes=sandboxes,
-    )
+    agent_core = build_agent_runtime_core(settings, provider)
+    storage = agent_core.storage
+    tools = agent_core.tools
+    sandboxes = agent_core.sandboxes
+    permissions = agent_core.permissions
+    provider = agent_core.provider
+    harness = agent_core.harness
+    runtime = agent_core.runtime
+    factory = agent_core.factory
     blocks = build_block_registry()
     workflow_store = WorkflowStorage(storage)
     durable_jobs = DurableJobStore(storage)

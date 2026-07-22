@@ -1,0 +1,53 @@
+{
+  "schema_version": "1.0",
+  "task_id": "V04-13-T01A",
+  "captured_at_utc": "2026-07-22T12:24:09Z",
+  "data_directory": "/tmp/lilies-t01a-final-live.GQfu1o",
+  "session_id": "16f74347-056b-56bf-8dd7-fe022480f7cc",
+  "before_restart": {
+    "status": "ready",
+    "completed_turns": 3,
+    "token_count": 1758,
+    "cost_usd": 0.00027552,
+    "tool_count": 1,
+    "model_call_count": 4,
+    "fingerprint": "sha256:6c085815a86d54c73f245e564730a5db6dbb486366dc4f2bfbd0e91638f3a686",
+    "orderly_stop_accepted": true,
+    "serve_exit_code": 0,
+    "daemon_json_removed": true
+  },
+  "after_restart": {
+    "same_session_visible": true,
+    "same_session_attachable": true,
+    "same_fingerprint": true,
+    "status_before_probe": "ready",
+    "continuity_question": "daemon 重启前第二轮调用了哪个工具？只回答工具名。",
+    "continuity_answer": "local_time",
+    "status_after_probe": "ready",
+    "completed_turns": 4,
+    "token_count": 1987,
+    "cost_usd": 0.00033054,
+    "tool_count": 1,
+    "model_call_count": 5,
+    "final_stop_accepted": true,
+    "second_serve_exit_code": 0,
+    "daemon_json_removed": true
+  },
+  "permissions": {
+    "data_directory": "0700",
+    "daemon_key": "0600",
+    "daemon_json_while_running": "0600",
+    "database_and_wal": "0600",
+    "cli_client_record": "0600"
+  },
+  "deterministic_recovery_coverage": {
+    "running_turn_becomes_interrupted": true,
+    "checkpoint_usage_settled_exactly_once": true,
+    "waiting_permission_survives_implicit_restart": true,
+    "explicit_stop_cancels_waiting_permission": true,
+    "uncertain_side_effect_is_not_replayed": true,
+    "interrupted_session_requires_explicit_resume": true,
+    "durable_ack_controls_replay_cursor": true
+  },
+  "secrets_copied_to_evidence": false
+}

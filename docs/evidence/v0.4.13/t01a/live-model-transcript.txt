@@ -1,0 +1,52 @@
+V04-13-T01A bounded real-model transcript
+captured_at_utc: 2026-07-22T12:13:00Z through 2026-07-22T12:16:30Z
+provider: DeepSeek
+model: deepseek-v4-flash
+session_id: 16f74347-056b-56bf-8dd7-fe022480f7cc
+daemon_fingerprint: sha256:6c085815a86d54c73f245e564730a5db6dbb486366dc4f2bfbd0e91638f3a686
+transport: independent CLI process -> loopback local daemon -> real provider
+
+Turn 1
+user: 你好。请只用一句话介绍你自己。
+assistant: 我是莉莉丝（Lilies），一个专注于帮助传统企业实现真实 AI 转型的工作流 Builder 智能体，严格按照公开约束和可核验证据交付可运行的工作流。
+result: completed
+
+Turn 2
+user: 请调用 local_time 工具获取当前 UTC 时间，然后只返回工具结果。
+tool: local_time
+tool_result: 2026-07-22T12:14:52.886831+00:00
+assistant: 2026-07-22T12:14:52.886831+00:00
+result: completed
+
+Turn 3
+user: 回忆第一轮：我让你用什么形式介绍自己？只回答形式。
+assistant: 只用一句话。
+result: completed
+
+The CLI exited. `lilies stop` shut down the daemon with exit 0. The same data directory was
+then opened by a new `lilies serve` process and the same session was attached.
+
+Post-restart continuity probe
+user: daemon 重启前第二轮调用了哪个工具？只回答工具名。
+assistant: local_time
+result: completed
+
+Configured bounds:
+  max model calls/turn budget: session cumulative limit 30
+  max tool calls: session cumulative limit 100
+  max cost: session cumulative limit USD 5.00
+  relative deadline: 3600 seconds per ordinary chat turn
+
+Observed durable totals after the restart probe:
+  user turns: 4
+  model calls: 5
+  tool calls: 1
+  tokens: 1987
+  cost_usd: 0.00033054
+  session status: ready
+
+Secret handling:
+  The provider API key was supplied through the process environment and was never printed,
+  queried or copied. SQLite scans found zero message/event/security-event rows containing
+  thinking, Authorization, api_key or access_token markers. No private thinking block was
+  persisted or emitted by the local service.

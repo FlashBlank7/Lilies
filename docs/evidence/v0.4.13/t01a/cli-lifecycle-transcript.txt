@@ -1,0 +1,68 @@
+V04-13-T01A sanitized independent-process CLI transcript
+captured_at_utc: 2026-07-22T12:13:00Z through 2026-07-22T12:24:00Z
+data_dir: /tmp/lilies-t01a-final-live.GQfu1o
+workspace: /tmp/lilies-t01a-final-live.GQfu1o/workspace
+port: 18917
+
+$ .venv/bin/python -m agent_platform.lilies_cli --data-dir <data-dir> --workspace-root <workspace> serve --port 18917 --log-level warning
+Lilies daemon listening at http://127.0.0.1:18917 (sha256:6c085815a86d54c7…)
+
+$ .venv/bin/python -m agent_platform.lilies_cli --data-dir <data-dir> pair
+One-time Lilies pairing code (expires in ten minutes):
+code: [REDACTED_ONE_TIME_PAIRING_CODE]
+fingerprint: sha256:6c085815a86d54c73f245e564730a5db6dbb486366dc4f2bfbd0e91638f3a686
+scopes: lilies.session:read, lilies.session:write, lilies.credential:write
+expires: 2026-07-22T12:24:04.325721Z
+
+Immediately after public `pair`, no cli-client.json existed. File modes were:
+  drwx------ <data-dir>
+  -rw------- daemon.key
+  -rw------- daemon.json
+  -rw------- lilies.db
+  -rw------- lilies.db-wal
+  -rw------- lilies.db-shm
+
+$ .venv/bin/python -m agent_platform.lilies_cli --data-dir <data-dir> chat
+莉莉丝
+session: 16f74347-056   model: deepseek-v4-flash   platform: disconnected
+state: ready
+
+The CLI internally paired, created session 16f74347-056b-56bf-8dd7-fe022480f7cc,
+completed the live turns recorded in live-model-transcript.txt, and exited on `/exit` while
+the daemon stayed alive.
+
+$ .venv/bin/python -m agent_platform.lilies_cli --data-dir <data-dir> status
+daemon: running   model: deepseek-v4-flash   platform: disconnected   active: 0
+fingerprint: sha256:6c085815a86d54c73f245e564730a5db6dbb486366dc4f2bfbd0e91638f3a686
+schema: 1.0
+
+$ .venv/bin/python -m agent_platform.lilies_cli --data-dir <data-dir> sessions
+SESSION                               STATE                 ASSIGNMENT   UPDATED
+16f74347-056b-56bf-8dd7-fe022480f7cc  ready                 -            2026-07-22T12:15:47.51234
+
+$ .venv/bin/python -m agent_platform.lilies_cli --data-dir <data-dir> stop
+stop requested: accepted
+serve process exit: 0
+daemon.json after stop: absent
+remaining private files:
+  -rw------- daemon.key
+  -rw------- cli-client.json
+  -rw------- lilies.db
+
+$ .venv/bin/python -m agent_platform.lilies_cli --data-dir <data-dir> --workspace-root <workspace> serve --port 18917 --log-level warning
+Lilies daemon listening at http://127.0.0.1:18917 (sha256:6c085815a86d54c7…)
+
+$ .venv/bin/python -m agent_platform.lilies_cli --data-dir <data-dir> attach 16f74347-056b-56bf-8dd7-fe022480f7cc
+莉莉丝
+session: 16f74347-056   model: deepseek-v4-flash   platform: disconnected
+state: ready
+
+The post-restart recovery question completed successfully (see live-model-transcript.txt).
+
+$ .venv/bin/python -m agent_platform.lilies_cli --data-dir <data-dir> stop
+stop requested: accepted
+second serve process exit: 0
+daemon.json after final stop: absent
+
+No access token, API key, credential secret or unredacted pairing code is present in this
+transcript. cli-client.json was inspected only for mode and existence, never printed.

@@ -1,0 +1,53 @@
+{
+  "schema_version": "1.0",
+  "task_id": "V04-13-T01A",
+  "captured_at_utc": "2026-07-22T12:24:09Z",
+  "baseline_commit": "0f9679c",
+  "files": [
+    {
+      "path": "docs/evidence/v0.4.13/t01a/architecture-boundary.json",
+      "sha256": "46a185ade9e15e24dfa8d9ed21033183299c726c7a73e881d79cd4f380fb25a7"
+    },
+    {
+      "path": "docs/evidence/v0.4.13/t01a/cli-lifecycle-transcript.txt",
+      "sha256": "154704014e3536ccc39699884f77285401f86cd072125f50504bd3b83da6af70"
+    },
+    {
+      "path": "docs/evidence/v0.4.13/t01a/deterministic-tests.txt",
+      "sha256": "4f0a4bd4925e6f3f1559f0ad29f300354a6ff872603e7abb97c3b77d5b3e283a"
+    },
+    {
+      "path": "docs/evidence/v0.4.13/t01a/live-model-summary.json",
+      "sha256": "771e76edbe854a7d753151cbf7f414dcc2a5d3289e138010e7d5642249ba143d"
+    },
+    {
+      "path": "docs/evidence/v0.4.13/t01a/live-model-transcript.txt",
+      "sha256": "8ce8ba1bff136758bbff0d2393fc59874b6463e8dcd5554f5d7fa0e5c86e24c2"
+    },
+    {
+      "path": "docs/evidence/v0.4.13/t01a/recovery-evidence.json",
+      "sha256": "12c1bc38bf89cda2810851b3d19a176fc6d585f7d0f2c0b3bbfb101b68fcca25"
+    }
+  ],
+  "verification": {
+    "focused_tests": "102 passed, 1 warning",
+    "final_full_backend": "885 passed, 85 xfailed, 1 warning",
+    "ruff": "pass",
+    "git_diff_check": "pass",
+    "uv_lock_check": "pass",
+    "json_validation": "pass",
+    "artifact_secret_scan": "pass",
+    "independent_process_cli": "pass",
+    "bounded_real_model": "pass",
+    "same_session_restart_continuity": "pass"
+  },
+  "retained_non_final_result": {
+    "full_backend_attempt": "884 passed, 85 xfailed, 1 timing failure",
+    "failure": "existing 10 ms platform harness lease setup expired under suite load",
+    "isolated_rerun": "1 passed",
+    "subsequent_complete_rerun": "885 passed, 85 xfailed",
+    "treated_as_final_pass": false
+  },
+  "evidence_level": "daemon_plus_real_model",
+  "claim_ceiling": "T01A standalone local daemon, CLI, persistence, safety boundaries and controlled real-model recovery are supported. No T01B-J platform build, collaboration, browser or enterprise-experiment claim is made."
+}

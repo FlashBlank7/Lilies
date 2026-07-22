@@ -1,0 +1,42 @@
+V04-13-T01A deterministic verification
+captured_at_utc: 2026-07-22T12:24:09Z
+baseline_commit: 0f9679c
+implementation_state: uncommitted T01A worktree after the final X25519 identity change
+
+Focused command:
+  .venv/bin/python -m pytest -q tests/test_agent_core.py tests/test_runtime.py tests/test_api.py tests/test_v04_13_lilies_models.py tests/test_v04_13_lilies_storage.py tests/test_v04_13_lilies_daemon_and_tools.py tests/test_v04_13_lilies_service.py tests/test_v04_13_lilies_api.py tests/test_v04_13_lilies_cli.py
+Result:
+  102 passed, 1 warning in 7.89s
+  The warning is the existing Starlette TestClient/httpx2 deprecation warning.
+
+Final full backend command:
+  .venv/bin/python -m pytest -q
+Result:
+  885 passed, 85 xfailed, 1 warning in 116.00s
+  No current failure.
+
+Truthful retry history:
+  The immediately preceding full run reported 884 passed, 85 xfailed and one failure in
+  test_platform_harness_worker_runner_never_reports_expired_completion_as_success. The
+  failure happened in its 10 ms lease setup before the tested worker ran. The exact test
+  passed on an isolated rerun (1 passed), and the subsequent complete suite passed. This
+  is retained as timing-flake history rather than rewritten as an initial pass.
+
+Static verification:
+  .venv/bin/ruff check platform/backend/src/agent_platform/agent_core.py platform/backend/src/agent_platform/agent_runtime_factory.py platform/backend/src/agent_platform/runtime.py platform/backend/src/agent_platform/api.py platform/backend/src/agent_platform/lilies_*.py tests/test_agent_core.py tests/test_runtime.py tests/test_api.py tests/test_v04_13_lilies_*.py
+  All checks passed.
+
+  git diff --check
+  passed with no output.
+
+  uv lock --check
+  Resolved 33 packages; exit 0. The user-owned untracked uv.lock was not modified.
+
+Coverage represented by the focused suite:
+  strict request and response schemas; shared agent stream core; isolated SQLite schema
+  migrations v1-v3; persistent sessions, turns, events and usage; one-use scoped pairing;
+  access-token continuity rotation; ACL and acknowledgement replay; daemon fingerprint
+  binding; durable permission input approval and restart; exact-once checkpoint accounting;
+  cumulative model/cost/token/tool budgets; relative and absolute deadlines; cancellation;
+  credential provision/revoke idempotency and redaction; workspace escape rejection; local
+  API authorization; CLI auto-start, attach, status, pair and stop.

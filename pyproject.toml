@@ -28,6 +28,7 @@ dev = [
 [project.scripts]
 agent-platform = "agent_platform.cli:main"
 agent-platform-worker = "agent_platform.worker_runner:main"
+lilies = "agent_platform.lilies_cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["platform/backend/src/agent_platform"]

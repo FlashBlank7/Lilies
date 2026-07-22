@@ -1,20 +1,26 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlparse
 from uuid import uuid4
 
+from .agent_core import (
+    INVALID_TOOL_INPUT_JSON_KEY,
+    add_usage,
+    collect_model_stream,
+    merge_usage_payload,
+    price_usage,
+    redact_sensitive_fields,
+)
 from .config import Settings
 from .models import (
     AgentSpec,
     ChatMessage,
     ContentBlock,
     ModelResponse,
-    StreamEvent,
     Usage,
 )
 from .permissions import PermissionBroker
@@ -24,10 +30,6 @@ from .providers import ModelProvider, ProviderError
 from .sandbox import SandboxManager, SandboxSession
 from .storage import Storage
 from .tools import ToolContext, ToolRegistry
-
-
-INVALID_TOOL_INPUT_JSON_KEY = "_invalid_tool_input_json"
-
 
 @dataclass(slots=True)
 class SessionRuntime:
@@ -330,110 +332,31 @@ class AgentRuntime:
         timeout_seconds: float | None = None,
     ) -> ModelResponse:
         timeout = self.settings.deepseek_timeout_seconds if timeout_seconds is None else timeout_seconds
-        try:
-            if timeout > 0:
-                async with asyncio.timeout(timeout):
-                    return await self._collect_stream_unbounded(stream_id, stream, event_prefix, model)
-            return await self._collect_stream_unbounded(stream_id, stream, event_prefix, model)
-        except asyncio.TimeoutError as error:
-            await self.emit(stream_id, f"{event_prefix}.timeout", {
-                "model": model,
-                "timeout_seconds": timeout,
-            })
-            raise ProviderError(
-                f"model stream timed out after {timeout:g}s",
-                retryable=True,
-            ) from error
-        except ProviderError as error:
-            await self.emit(stream_id, f"{event_prefix}.failed", {
-                "model": model,
-                "error": str(error),
-                "error_type": type(error).__name__,
-                "retryable": error.retryable,
-                "status_code": error.status_code,
-            })
-            raise
+        return await collect_model_stream(
+            stream,
+            emit=lambda kind, data: self.emit(stream_id, kind, data),
+            event_prefix=event_prefix,
+            model=model,
+            timeout_seconds=timeout,
+            expose_thinking=True,
+            price_estimates_usd_per_million=(
+                self.settings.model_price_estimates_usd_per_million
+            ),
+        )
 
     async def _collect_stream_unbounded(
         self, stream_id: str, stream: Any, event_prefix: str, model: str = ""
     ) -> ModelResponse:
-        blocks: dict[int, ContentBlock] = {}
-        input_json: dict[int, str] = {}
-        usage = Usage()
-        stop_reason: str | None = None
-        async for event in stream:
-            assert isinstance(event, StreamEvent)
-            data = event.data
-            if event.type == "message_start":
-                raw_usage = data.get("message", {}).get("usage", {})
-                self._merge_usage_payload(usage, raw_usage)
-            elif event.type == "content_block_start":
-                index = int(data.get("index", len(blocks)))
-                raw = data.get("content_block", {})
-                block_type = raw.get("type")
-                if block_type == "text":
-                    blocks[index] = ContentBlock(type="text", text=raw.get("text", ""))
-                elif block_type == "thinking":
-                    blocks[index] = ContentBlock(type="thinking", thinking=raw.get("thinking", ""))
-                elif block_type == "tool_use":
-                    blocks[index] = ContentBlock(
-                        type="tool_use", id=raw.get("id"), name=raw.get("name"), input=raw.get("input", {})
-                    )
-                    input_json[index] = ""
-                    await self.emit(stream_id, "tool.requested", {
-                        "tool_use_id": raw.get("id"), "tool": raw.get("name")
-                    })
-            elif event.type == "content_block_delta":
-                index = int(data.get("index", 0))
-                delta = data.get("delta", {})
-                block = blocks.get(index)
-                if delta.get("type") == "text_delta" and block:
-                    value = delta.get("text", "")
-                    block.text = (block.text or "") + value
-                    await self.emit(stream_id, f"{event_prefix}.text.delta", {"text": value})
-                elif delta.get("type") == "thinking_delta" and block:
-                    value = delta.get("thinking", "")
-                    block.thinking = (block.thinking or "") + value
-                    await self.emit(stream_id, f"{event_prefix}.thinking.delta", {"thinking": value})
-                elif delta.get("type") == "signature_delta" and block:
-                    block.signature = (block.signature or "") + delta.get("signature", "")
-                elif delta.get("type") == "input_json_delta":
-                    input_json[index] = input_json.get(index, "") + delta.get("partial_json", "")
-            elif event.type == "content_block_stop":
-                index = int(data.get("index", 0))
-                block = blocks.get(index)
-                if block and block.type == "tool_use" and input_json.get(index):
-                    try:
-                        block.input = json.loads(input_json[index])
-                    except json.JSONDecodeError as error:
-                        raw = input_json[index]
-                        block.input = {
-                            INVALID_TOOL_INPUT_JSON_KEY: {
-                                "error": str(error),
-                                "raw_preview": raw[:2_000],
-                                "raw_length": len(raw),
-                            }
-                        }
-                        await self.emit(stream_id, "tool.input_json.invalid", {
-                            "tool": block.name,
-                            "error": str(error),
-                            "raw_length": len(raw),
-                            "raw_preview": raw[:500],
-                        })
-            elif event.type == "message_delta":
-                stop_reason = data.get("delta", {}).get("stop_reason", stop_reason)
-                self._merge_usage_payload(usage, data.get("usage", {}))
-            elif isinstance(data.get("usage"), dict):
-                self._merge_usage_payload(usage, data["usage"])
-            elif event.type == "error":
-                raise ProviderError(str(data.get("error", data)))
-        response = ModelResponse(
-            blocks=[blocks[index] for index in sorted(blocks)],
-            stop_reason=stop_reason,
-            usage=usage,
+        return await collect_model_stream(
+            stream,
+            emit=lambda kind, data: self.emit(stream_id, kind, data),
+            event_prefix=event_prefix,
+            model=model,
+            expose_thinking=True,
+            price_estimates_usd_per_million=(
+                self.settings.model_price_estimates_usd_per_million
+            ),
         )
-        self._price_usage(response.usage, model)
-        return response
 
     async def _execute_tool(
         self, session: SessionRuntime, block: ContentBlock, depth: int
@@ -660,17 +583,7 @@ class AgentRuntime:
 
     @staticmethod
     def _redact(value: Any) -> Any:
-        if isinstance(value, dict):
-            return {
-                key: "***" if any(
-                    token in key.casefold()
-                    for token in ("key", "secret", "token", "password", "authorization", "cookie", "credential")
-                ) else AgentRuntime._redact(item)
-                for key, item in value.items()
-            }
-        if isinstance(value, list):
-            return [AgentRuntime._redact(item) for item in value]
-        return value
+        return redact_sensitive_fields(value)
 
     @staticmethod
     def _consume_background_exception(task: asyncio.Task[None]) -> None:
@@ -679,93 +592,15 @@ class AgentRuntime:
 
     @staticmethod
     def _add_usage(total: Usage, current: Usage) -> None:
-        total.input_tokens += current.input_tokens
-        total.output_tokens += current.output_tokens
-        total.cache_read_input_tokens += current.cache_read_input_tokens
-        total.cache_creation_input_tokens += current.cache_creation_input_tokens
-        if current.reasoning_tokens is not None:
-            total.reasoning_tokens = (total.reasoning_tokens or 0) + current.reasoning_tokens
-        total.cost_usd += current.cost_usd
-        if current.cost_source == "provider_reported":
-            total.cost_source = "provider_reported"
-        elif (
-            current.cost_source == "estimated_configured_price"
-            and total.cost_source == "unsupported"
-        ):
-            total.cost_source = "estimated_configured_price"
-        for field_name, support in current.field_support.items():
-            prior = total.field_support.get(field_name)
-            if support == "reported" or prior is None:
-                total.field_support[field_name] = support
-            elif support == "estimated" and prior not in {"reported", "estimated"}:
-                total.field_support[field_name] = support
+        add_usage(total, current)
 
     @staticmethod
     def _merge_usage_payload(usage: Usage, raw_usage: Any) -> None:
-        if not isinstance(raw_usage, dict):
-            return
-        integer_fields = (
-            "input_tokens",
-            "output_tokens",
-            "cache_read_input_tokens",
-            "cache_creation_input_tokens",
-        )
-        for field_name in integer_fields:
-            value = raw_usage.get(field_name)
-            if isinstance(value, (int, float)) and not isinstance(value, bool):
-                setattr(usage, field_name, int(value))
-                usage.field_support[field_name] = "reported"
-
-        details = raw_usage.get("output_tokens_details")
-        reasoning = raw_usage.get("reasoning_tokens")
-        if reasoning is None and isinstance(details, dict):
-            reasoning = details.get("reasoning_tokens")
-        if isinstance(reasoning, (int, float)) and not isinstance(reasoning, bool):
-            usage.reasoning_tokens = int(reasoning)
-            usage.field_support["reasoning_tokens"] = "reported"
-
-        input_details = raw_usage.get("input_tokens_details")
-        if isinstance(input_details, dict):
-            cached = input_details.get("cached_tokens")
-            if isinstance(cached, (int, float)) and not isinstance(cached, bool):
-                usage.cache_read_input_tokens = int(cached)
-                usage.field_support["cache_read_input_tokens"] = "reported"
-
-        cost = raw_usage.get("cost_usd")
-        if isinstance(cost, (int, float)) and not isinstance(cost, bool):
-            usage.cost_usd = float(cost)
-            usage.cost_source = "provider_reported"
-            usage.field_support["cost_usd"] = "reported"
+        merge_usage_payload(usage, raw_usage)
 
     def _price_usage(self, usage: Usage, model: str) -> None:
-        if usage.cost_source == "provider_reported":
-            return
-        token_fields = ("input_tokens", "output_tokens")
-        pricing = self.settings.model_price_estimates_usd_per_million
-        bare_model = model.split("/", 1)[-1]
-        rates = pricing.get(model) or pricing.get(bare_model)
-        valid_rates = (
-            isinstance(rates, dict)
-            and all(
-                isinstance(rates.get(field), (int, float))
-                and not isinstance(rates.get(field), bool)
-                and float(rates[field]) >= 0
-                for field in token_fields
-            )
+        price_usage(
+            usage,
+            model,
+            self.settings.model_price_estimates_usd_per_million,
         )
-        if (
-            not all(usage.field_support.get(field) == "reported" for field in token_fields)
-            or not valid_rates
-        ):
-            usage.cost_usd = 0.0
-            usage.cost_source = "unsupported"
-            usage.field_support["cost_usd"] = "unsupported"
-            return
-        assert rates is not None
-        input_rate = float(rates["input_tokens"])
-        output_rate = float(rates["output_tokens"])
-        usage.cost_usd = (
-            usage.input_tokens * input_rate + usage.output_tokens * output_rate
-        ) / 1_000_000
-        usage.cost_source = "estimated_configured_price"
-        usage.field_support["cost_usd"] = "estimated"
