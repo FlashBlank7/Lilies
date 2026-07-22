@@ -5,21 +5,96 @@
   "credential_source": "INVENTREE_DEMO_CREDENTIALS",
   "credential_value_recorded": false,
   "generation": {
-    "id": "6bb25599-a88c-4602-af8b-d389e39328e4",
+    "id": "8b751091-a741-478c-b484-2fb10bb8029b",
     "source_digest": "5dddddb043f242253b59ce6d67c2d5896745d323521e62b6baef8cafd89b4b8e",
     "discovered_operations": 645,
     "generated_operations": 333
   },
   "selected_operations": {
-    "part_category_tree_list": "GET",
-    "search_create": "POST"
+    "company_contact_create": "POST",
+    "part_category_tree_list": "GET"
   },
   "contract_run": {
-    "id": "1c57292f-76db-4eac-91f8-d2f5dd134637",
-    "generation_id": "6bb25599-a88c-4602-af8b-d389e39328e4",
+    "id": "672729e8-08d6-4614-b273-eb8cf47c79fb",
+    "generation_id": "8b751091-a741-478c-b484-2fb10bb8029b",
     "source_digest": "5dddddb043f242253b59ce6d67c2d5896745d323521e62b6baef8cafd89b4b8e",
-    "status": "failed",
+    "status": "passed",
     "results": [
+      {
+        "case": {
+          "id": "company_contact_create.positive",
+          "operation_id": "company_contact_create",
+          "kind": "positive",
+          "expected": "HTTP status in [201] and response matches generated schema",
+          "generated_input": {
+            "body": {
+              "company": 1,
+              "name": "example"
+            }
+          }
+        },
+        "status": "passed",
+        "actual": "status, content type, and response schema matched",
+        "executed_input_evidence": {
+          "sha256": "b815d7da8d5367a33f75077f1a4052c59aa574277c443b1ff83d7f842dfc509c",
+          "canonical_bytes": 63,
+          "redaction_policy_version": "openapi-contract-evidence-v1",
+          "redacted_fields": [],
+          "body_preview": {
+            "body": {
+              "company": 1,
+              "name": "Lilies v0.4.12 OpenAPI contract"
+            }
+          }
+        },
+        "response_evidence": {
+          "sha256": "266e5041a9aca2f9cbfb1d8053fe5f792525561ee6192a32309ed0cf79573b94",
+          "root_type": "dict",
+          "top_level_keys": [
+            "company",
+            "company_name",
+            "email",
+            "name",
+            "phone",
+            "pk",
+            "role"
+          ],
+          "identity": {
+            "pk": 72
+          },
+          "redaction_policy_version": "openapi-contract-evidence-v1",
+          "redacted_fields": [],
+          "body_preview_source": "independent_side_effect_readback",
+          "preview_is_complete": false,
+          "body_preview": {
+            "pk": 72,
+            "company": 1,
+            "name": "Lilies v0.4.12 OpenAPI contract",
+            "company_name": "DigiKey"
+          }
+        },
+        "duration_ms": 2448.9433750277385
+      },
+      {
+        "case": {
+          "id": "company_contact_create.negative.missing_body",
+          "operation_id": "company_contact_create",
+          "kind": "negative",
+          "expected": "local schema rejects missing required input body",
+          "generated_input": {}
+        },
+        "status": "passed",
+        "actual": "company_contact_create request is missing required fields: ['body']",
+        "executed_input_evidence": {
+          "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+          "canonical_bytes": 2,
+          "redaction_policy_version": "openapi-contract-evidence-v1",
+          "redacted_fields": [],
+          "body_preview": {}
+        },
+        "response_evidence": {},
+        "duration_ms": 0.5345001118257642
+      },
       {
         "case": {
           "id": "part_category_tree_list.positive",
@@ -32,7 +107,24 @@
         },
         "status": "passed",
         "actual": "status, content type, and response schema matched",
-        "duration_ms": 2020.4943340504542
+        "executed_input_evidence": {
+          "sha256": "156fedef9af97685d0e6f43eebe55d8ae67fcbf34b2fea23c2b1af061b4bcdf0",
+          "canonical_bytes": 11,
+          "redaction_policy_version": "openapi-contract-evidence-v1",
+          "redacted_fields": [],
+          "body_preview": {"limit": 1}
+        },
+        "response_evidence": {
+          "sha256": "b466ff7ff42627e390bd38dcf53edbd931f3cc46be321ea74fc2f5e1ebc4f897",
+          "root_type": "dict",
+          "top_level_keys": [
+            "count",
+            "next",
+            "previous",
+            "results"
+          ]
+        },
+        "duration_ms": 2137.9039169987664
       },
       {
         "case": {
@@ -44,54 +136,29 @@
         },
         "status": "passed",
         "actual": "part_category_tree_list request is missing required fields: ['limit']",
-        "duration_ms": 0.018417020328342915
-      },
-      {
-        "case": {
-          "id": "search_create.positive",
-          "operation_id": "search_create",
-          "kind": "positive",
-          "expected": "HTTP status in [200] and response matches generated schema",
-          "generated_input": {
-            "body": {
-              "search": "example",
-              "search_regex": false,
-              "search_whole": false,
-              "search_notes": false,
-              "limit": 1,
-              "offset": 0
-            }
-          }
+        "executed_input_evidence": {
+          "sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+          "canonical_bytes": 2,
+          "redaction_policy_version": "openapi-contract-evidence-v1",
+          "redacted_fields": [],
+          "body_preview": {}
         },
-        "status": "failed",
-        "actual": "search_create response is missing required fields: ['search']",
-        "duration_ms": 2252.4906249018386
-      },
-      {
-        "case": {
-          "id": "search_create.negative.missing_body",
-          "operation_id": "search_create",
-          "kind": "negative",
-          "expected": "local schema rejects missing required input body",
-          "generated_input": {}
-        },
-        "status": "passed",
-        "actual": "search_create request is missing required fields: ['body']",
-        "duration_ms": 0.017125043086707592
+        "response_evidence": {},
+        "duration_ms": 0.023333006538450718
       }
     ],
-    "passed": 3,
-    "failed": 1,
+    "passed": 4,
+    "failed": 0,
     "skipped": 0,
     "unsupported": 0,
     "blocked_by_environment": 0,
     "attempts": 2,
-    "test_ms": 4273.789625032805,
-    "time_to_first_valid_contract_ms": 2020.642250077799,
-    "created_at": "2026-07-21T09:00:02.513540+00:00"
+    "test_ms": 4591.274041915312,
+    "time_to_first_valid_contract_ms": 2450.218291953206,
+    "created_at": "2026-07-22T08:26:03.075940+00:00"
   },
   "reproduce": {
-    "command_without_secret": "scripts/run_v04_12_openapi_live_contract.py --name inventree --spec /tmp/inventree-schema/export/524/api.yaml --connector-id inventree_live_contract --domain inventory_management --base-url https://demo.inventree.org --allowed-host demo.inventree.org --auth-scheme-id basicAuth --credentials-env INVENTREE_DEMO_CREDENTIALS --operation part_category_tree_list --operation search_create --output docs/evidence/v0.4.12/inventree_live_contract.json",
+    "command_without_secret": "scripts/run_v04_12_openapi_live_contract.py --name inventree --spec /tmp/inventree-schema/export/524/api.yaml --connector-id inventree_live_contract --domain inventory_management --base-url https://demo.inventree.org --allowed-host demo.inventree.org --auth-scheme-id basicAuth --credentials-env INVENTREE_DEMO_CREDENTIALS --operation part_category_tree_list --operation company_contact_create --sample-inputs docs/evidence/v0.4.12/inventree_live_sample_inputs.json --output docs/evidence/v0.4.12/inventree_live_contract.json",
     "required_secret_environment": "INVENTREE_DEMO_CREDENTIALS"
   }
 }

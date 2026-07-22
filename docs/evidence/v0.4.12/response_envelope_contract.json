@@ -1,0 +1,32 @@
+{
+  "schema_version": "v0.4.12-response-envelope-evidence-1",
+  "source": "tests/test_v04_12_openapi_connector_generation.py::test_generated_runtime_preserves_complete_response_envelope_semantics",
+  "claim": "controlled synthetic raw response envelopes are preserved and checked against the generated response contract",
+  "cases": [
+    {
+      "operation_id": "wrappedResponse",
+      "expected_result": "passed",
+      "http_status": 200,
+      "content_type": "application/json",
+      "raw_body": {"data": {"id": "wrapped"}, "meta": {"count": 1}},
+      "wire_bytes": 49,
+      "wire_sha256": "793099b5c0aeb1b7911da20ce3c8736be64f6e44555b32c3b6a22e772b5a41a0",
+      "canonical_bytes": 44,
+      "canonical_sha256": "aaef22661e9b05563847fc8720d43d9881cd9c1260c7cff2672af9db0746320e"
+    },
+    {
+      "operation_id": "wrongEnvelope",
+      "expected_result": "failed",
+      "expected_error": "missing required fields",
+      "http_status": 200,
+      "content_type": "application/json",
+      "raw_body": {"id": "unwrapped"},
+      "wire_bytes": 19,
+      "wire_sha256": "87e6e49977ea4c964049b07d91c3829e71058060ff3f1d0226bc428082e6e8df",
+      "canonical_bytes": 18,
+      "canonical_sha256": "f3a8a6157b86291bef8400ba6e46c006c7f54b978610b8256822d836af1cb8f3"
+    }
+  ],
+  "contains_customer_data": false,
+  "contains_credentials": false
+}

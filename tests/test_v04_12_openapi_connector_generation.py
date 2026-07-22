@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import ipaddress
+import shutil
 import socket
 import subprocess
 import threading
@@ -12,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import httpcore
 from fastapi.testclient import TestClient
 
 from agent_platform.api import create_app
@@ -21,6 +23,7 @@ from agent_platform.openapi_connector import (
     OpenAPIMaterialLoader,
     OpenAPIConnectorGenerationRequest,
 )
+from scripts import run_v04_12_release_gate
 
 
 HEADERS = {"Authorization": "Bearer openapi-test", "Content-Type": "application/json"}
@@ -44,6 +47,15 @@ class GeneratedContractHandler(BaseHTTPRequestHandler):
             return
         if self.path.startswith("/error/"):
             self._send(422, {"error": "documented error"})
+            return
+        if self.path == "/wrapped":
+            self._send(
+                200,
+                {"data": {"id": "wrapped"}, "meta": {"count": 1}},
+            )
+            return
+        if self.path == "/wrong-envelope":
+            self._send(200, {"id": "unwrapped"})
             return
         if not self.path.startswith("/items/"):
             self._send(404, {"error": "not found"})
@@ -84,7 +96,7 @@ class GeneratedContractHandler(BaseHTTPRequestHandler):
     def _send(
         self,
         status: int,
-        body: dict[str, Any],
+        body: Any,
         *,
         content_type: str = "application/json",
     ) -> None:
@@ -255,7 +267,7 @@ def openapi_document(*, title: str = "Inventory API") -> dict[str, Any]:
                     "required": ["id", "name", "meta"],
                     "additionalProperties": False,
                 }
-            }
+            },
         },
     }
 
@@ -305,7 +317,9 @@ components:
         }
     )
     document, provenance, gaps = await OpenAPIMaterialLoader().load(request)
-    schema = document["paths"]["/items"]["get"]["responses"]["200"]["content"]["application/json"]["schema"]
+    schema = document["paths"]["/items"]["get"]["responses"]["200"]["content"]["application/json"][
+        "schema"
+    ]
     assert schema["properties"]["count"]["type"] == "integer"
     assert provenance.openapi_version == "3.0.3"
     assert provenance.source_digest
@@ -324,7 +338,9 @@ components:
                     "openapi": "3.1.0",
                     "info": {"title": "remote", "version": "1"},
                     "paths": {},
-                    "components": {"schemas": {"Remote": {"$ref": "https://example.com/schema.json"}}},
+                    "components": {
+                        "schemas": {"Remote": {"$ref": "https://example.com/schema.json"}}
+                    },
                 }
             ),
             "IF-02",
@@ -371,6 +387,28 @@ async def test_loader_streams_allowlisted_url_and_enforces_dns_and_response_limi
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     loader = OpenAPIMaterialLoader()
+    connected_hosts: list[str] = []
+    real_connect = httpcore.AnyIOBackend.connect_tcp
+
+    async def route_pinned_test_address(
+        backend: httpcore.AnyIOBackend,
+        host: str,
+        port: int,
+        timeout: float | None = None,
+        local_address: str | None = None,
+        socket_options: Any = None,
+    ) -> httpcore.AsyncNetworkStream:
+        connected_hosts.append(host)
+        return await real_connect(
+            backend,
+            "127.0.0.1",
+            port,
+            timeout=timeout,
+            local_address=local_address,
+            socket_options=socket_options,
+        )
+
+    monkeypatch.setattr(httpcore.AnyIOBackend, "connect_tcp", route_pinned_test_address)
 
     async def public_address(host: str, port: int | None) -> set[ipaddress.IPv4Address]:
         del host, port
@@ -391,6 +429,7 @@ async def test_loader_streams_allowlisted_url_and_enforces_dns_and_response_limi
         document, provenance, _ = await loader.load(request)
         assert document["info"]["title"] == "Inventory API"
         assert provenance.source_kind == "url"
+        assert connected_hosts == ["8.8.8.8"]
 
     with openapi_material_server(b"x" * 5_000_001) as url:
         oversized = OpenAPIConnectorGenerationRequest.model_validate(
@@ -405,14 +444,15 @@ async def test_loader_streams_allowlisted_url_and_enforces_dns_and_response_limi
         with pytest.raises(OpenAPIMaterialError) as captured:
             await loader.load(oversized)
         assert captured.value.gap.capability == "document_size"
+        assert connected_hosts[-1] == "8.8.8.8"
+
+    assert set(connected_hosts) == {"8.8.8.8"}
 
     dns_loader = OpenAPIMaterialLoader()
     monkeypatch.setattr(
         socket,
         "getaddrinfo",
-        lambda *args, **kwargs: [
-            (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 443))
-        ],
+        lambda *args, **kwargs: [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 443))],
     )
     dns_request = OpenAPIConnectorGenerationRequest.model_validate(
         {
@@ -487,9 +527,12 @@ def test_api_generates_tests_and_registers_without_authored_manifest(tmp_path: P
                 },
             ]
             assert operations["createItem"]["request_body"]["input_key"] == "body"
-            assert "server_id" not in operations["createItem"]["request_schema"][
-                "json_schema"
-            ]["properties"]["body"]["properties"]
+            assert (
+                "server_id"
+                not in operations["createItem"]["request_schema"]["json_schema"]["properties"][
+                    "body"
+                ]["properties"]
+            )
             generation_id = generated["id"]
 
             cases_response = client.get(
@@ -532,10 +575,24 @@ def test_api_generates_tests_and_registers_without_authored_manifest(tmp_path: P
             assert run["failed"] == 0
             assert run["attempts"] == 2
             assert run["time_to_first_valid_contract_ms"] is not None
+            create_result = next(
+                item
+                for item in run["results"]
+                if item["case"]["operation_id"] == "createItem"
+                and item["case"]["kind"] == "positive"
+            )
+            assert create_result["response_evidence"]["identity"] == {"id": "created"}
+            assert len(create_result["response_evidence"]["sha256"]) == 64
+            assert create_result["executed_input_evidence"]["body_preview"] == {
+                "body": {"name": "Created"},
+            }
+            assert create_result["response_evidence"]["body_preview"] == {
+                "id": "created",
+                "name": "Created",
+                "meta": {"source": "contract"},
+            }
             assert GeneratedContractHandler.received_headers == ["contract"]
-            assert GeneratedContractHandler.received_paths == [
-                "/items/folder%2Fitem?verbose=true"
-            ]
+            assert GeneratedContractHandler.received_paths == ["/items/folder%2Fitem?verbose=true"]
             assert GeneratedContractHandler.received_cookies == ["session=cookie-contract"]
             assert GeneratedContractHandler.received_bodies == [{"name": "Created"}]
             assert GeneratedContractHandler.received_content_types == ["application/json"]
@@ -549,7 +606,10 @@ def test_api_generates_tests_and_registers_without_authored_manifest(tmp_path: P
                 headers=HEADERS,
             )
             assert registered.status_code == 201, registered.text
-            assert registered.json()["source_provenance"]["source_digest"] == generated["provenance"]["source_digest"]
+            assert (
+                registered.json()["source_provenance"]["source_digest"]
+                == generated["provenance"]["source_digest"]
+            )
 
             repeated = client.post(
                 "/api/v1/connectors/generations",
@@ -707,9 +767,7 @@ def test_generated_runtime_preserves_bearer_and_api_key_security(
                 },
             ).json()
             assert run["status"] == "passed"
-            assert GeneratedContractHandler.received_authorization == [
-                expected_authorization
-            ]
+            assert GeneratedContractHandler.received_authorization == [expected_authorization]
             assert GeneratedContractHandler.received_api_keys == [expected_api_key]
 
 
@@ -750,6 +808,89 @@ def test_generated_runtime_rejects_content_type_and_error_status_mismatches(
             assert run["status"] == "failed"
             failed = next(item for item in run["results"] if item["status"] == "failed")
             assert expected_error in failed["actual"]
+
+
+@pytest.mark.parametrize(
+    ("path", "operation_id", "expected_status", "expected_error"),
+    [
+        ("/wrapped", "wrappedResponse", "passed", ""),
+        ("/wrong-envelope", "wrongEnvelope", "failed", "missing required fields"),
+    ],
+)
+def test_generated_runtime_preserves_complete_response_envelope_semantics(
+    tmp_path: Path,
+    path: str,
+    operation_id: str,
+    expected_status: str,
+    expected_error: str,
+) -> None:
+    with generated_contract_server() as base_url:
+        document = {
+            "openapi": "3.1.0",
+            "info": {"title": "Envelope API", "version": "1"},
+            "paths": {
+                path: {
+                    "get": {
+                        "operationId": operation_id,
+                        "responses": {
+                            "200": {
+                                "description": "wrapped result",
+                                "content": {
+                                    "application/json": {
+                                        "schema": {
+                                            "type": "object",
+                                            "properties": {
+                                                "data": {
+                                                    "type": "object",
+                                                    "properties": {"id": {"type": "string"}},
+                                                    "required": ["id"],
+                                                    "additionalProperties": False,
+                                                },
+                                                "meta": {
+                                                    "type": "object",
+                                                    "properties": {"count": {"type": "integer"}},
+                                                    "required": ["count"],
+                                                    "additionalProperties": False,
+                                                },
+                                            },
+                                            "required": ["data", "meta"],
+                                            "additionalProperties": False,
+                                        }
+                                    }
+                                },
+                            }
+                        },
+                    }
+                }
+            },
+        }
+        with TestClient(create_app(settings(tmp_path))) as client:
+            body = generation_body(base_url, document)
+            body["connector_id"] = f"generated_{operation_id}"
+            generation = client.post(
+                "/api/v1/connectors/generations", headers=HEADERS, json=body
+            ).json()
+            operation = generation["manifest"]["operations"][0]
+            assert operation["response_json_schema"]["required"] == ["data", "meta"]
+            run = client.post(
+                f"/api/v1/connectors/generations/{generation['id']}/contract-runs",
+                headers=HEADERS,
+                json={"operation_ids": [operation_id]},
+            ).json()
+            assert run["status"] == expected_status
+            positive = next(item for item in run["results"] if item["case"]["kind"] == "positive")
+            expected_body = (
+                {"data": {"id": "wrapped"}, "meta": {"count": 1}}
+                if path == "/wrapped"
+                else {"id": "unwrapped"}
+            )
+            assert positive["response_evidence"]["body_preview"] == expected_body
+            assert positive["response_evidence"]["redacted_fields"] == []
+            assert positive["response_evidence"]["canonical_bytes"] > 0
+            if expected_error:
+                failed = positive
+                assert failed["status"] == "failed"
+                assert expected_error in failed["actual"]
 
 
 def test_experiment_fixture_does_not_author_connector_contracts() -> None:
@@ -808,8 +949,7 @@ def test_generalization_runner_uses_only_openapi_material(tmp_path: Path) -> Non
 
 def test_studio_uses_openapi_generation_as_default_and_labels_manual_legacy() -> None:
     source = (
-        Path(__file__).resolve().parents[1]
-        / "platform/frontend/app/connector-operations-panel.tsx"
+        Path(__file__).resolve().parents[1] / "platform/frontend/app/connector-operations-panel.tsx"
     ).read_text(encoding="utf-8")
     assert 'data-openapi-default-path="true"' in source
     assert "/api/v1/connectors/generations" in source
@@ -817,3 +957,46 @@ def test_studio_uses_openapi_generation_as_default_and_labels_manual_legacy() ->
     assert 'data-connector-action="register-generated"' in source
     assert 'data-manual-manifest-legacy="true"' in source
     assert "专家旧路径：手工登记 manifest JSON" in source
+
+
+@pytest.mark.parametrize(
+    ("artifact", "mutation"),
+    [
+        (
+            "inventree_live_contract_attempt_1_failure.json",
+            ("contract_run", "status", "passed"),
+        ),
+        (
+            "inventree_live_contract_attempt_1_failure.json",
+            ("contract_run", "failed", 0),
+        ),
+        (
+            "openapi_generalization_aggregate.json",
+            ("host_results", "inventree", "retained_failure", "case_id", "fabricated.positive"),
+        ),
+    ],
+)
+def test_release_gate_rejects_historical_failure_misreporting(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    artifact: str,
+    mutation: tuple[Any, ...],
+) -> None:
+    source = Path("docs/evidence/v0.4.12")
+    target = tmp_path / "docs" / "evidence" / "v0.4.12"
+    shutil.copytree(source, target)
+    path = target / artifact
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    cursor = payload
+    for key in mutation[:-2]:
+        cursor = cursor[key]
+    cursor[mutation[-2]] = mutation[-1]
+    path.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(run_v04_12_release_gate, "ROOT", tmp_path)
+
+    result = run_v04_12_release_gate.live_contract_gate()
+
+    assert result["status"] == "failed"

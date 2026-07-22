@@ -1,5 +1,5 @@
 {
-  "schema_version": "v0.4.12-release-gate-1",
+  "schema_version": "v0.4.12-release-gate-2",
   "status": "passed",
   "commands": [
     {
@@ -8,9 +8,9 @@
       "cwd": ".",
       "status": "passed",
       "exit_code": 0,
-      "duration_ms": 19924.862,
-      "output_sha256": "75cd4c3f64cbd2be794b3de725673b17733d60b0c09399cff0adf377b909dce4",
-      "output_tail": "...........................                                              [100%]\n=============================== warnings summary ===============================\n.venv/lib/python3.12/site-packages/fastapi/testclient.py:1\n  /Users/zhonghaoyang/Code/agent/Lilies/.venv/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    from starlette.testclient import TestClient as TestClient  # noqa\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n27 passed, 1 warning in 19.29s\n"
+      "duration_ms": 24765.377,
+      "output_sha256": "193052151dfc28f06a879fe64c9195345b7dcbb08f19c3a775685f92fc1a6fa3",
+      "output_tail": "................................                                         [100%]\n=============================== warnings summary ===============================\n.venv/lib/python3.12/site-packages/fastapi/testclient.py:1\n  /Users/zhonghaoyang/Code/agent/Lilies/.venv/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    from starlette.testclient import TestClient as TestClient  # noqa\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n32 passed, 1 warning in 24.10s\n"
     },
     {
       "name": "full_backend",
@@ -18,9 +18,9 @@
       "cwd": ".",
       "status": "passed",
       "exit_code": 0,
-      "duration_ms": 118820.319,
-      "output_sha256": "94f1cf16fcea6e989f311f70d34f2cf902c21c7f552380affd362135daf1dfb7",
-      "output_tail": "........................................................................ [  8%]\n........................................................................ [ 16%]\n......................................................x................. [ 24%]\n...............................................x......................x. [ 32%]\nx.x.x.x.x.x.xxx.xxx...x.xx........................x..............xx.x... [ 41%]\n.....xx.x....................x..x.x..................................... [ 49%]\n............................................x..x.xx..x.xx.xx.xx..x.xx..x [ 57%]\n.xx..x.xx..x.xx..x.x.....x..x.xx..x.xx..x.xx..x.xx..x.xx..x.x........... [ 65%]\n..x....x.xx....x.x....x..x..x.x...................x..x.......x.x........ [ 73%]\n........................................................................ [ 82%]\n........................................................................ [ 90%]\n........................................................................ [ 98%]\n.............                                                            [100%]\n=============================== warnings summary ===============================\n.venv/lib/python3.12/site-packages/fastapi/testclient.py:1\n  /Users/zhonghaoyang/Code/agent/Lilies/.venv/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    from starlette.testclient import TestClient as TestClient  # noqa\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n792 passed, 85 xfailed, 1 warning in 117.26s (0:01:57)\n"
+      "duration_ms": 113207.314,
+      "output_sha256": "2cf26915cc154995d0c9a8b873a24accc13babfdf9766895fa515553fab81801",
+      "output_tail": "........................................................................ [  8%]\n........................................................................ [ 16%]\n......................................................x................. [ 24%]\n...............................................x......................x. [ 32%]\nx.x.x.x.x.x.xxx.xxx...x.xx........................x..............xx.x... [ 40%]\n.....xx.x....................x..x.x..................................... [ 48%]\n............................................x..x.xx..x.xx.xx.xx..x.xx..x [ 57%]\n.xx..x.xx..x.xx..x.x.....x..x.xx..x.xx..x.xx..x.xx..x.xx..x.x........... [ 65%]\n..x....x.xx....x.x....x..x..x.x...................x..x.......x.x........ [ 73%]\n........................................................................ [ 81%]\n........................................................................ [ 89%]\n........................................................................ [ 97%]\n..................                                                       [100%]\n=============================== warnings summary ===============================\n.venv/lib/python3.12/site-packages/fastapi/testclient.py:1\n  /Users/zhonghaoyang/Code/agent/Lilies/.venv/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.\n    from starlette.testclient import TestClient as TestClient  # noqa\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n797 passed, 85 xfailed, 1 warning in 111.65s (0:01:51)\n"
     },
     {
       "name": "ruff_changed_files",
@@ -28,7 +28,7 @@
       "cwd": ".",
       "status": "passed",
       "exit_code": 0,
-      "duration_ms": 84.893,
+      "duration_ms": 74.409,
       "output_sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
       "output_tail": "All checks passed!\n"
     },
@@ -38,7 +38,7 @@
       "cwd": "platform/frontend",
       "status": "passed",
       "exit_code": 0,
-      "duration_ms": 1438.948,
+      "duration_ms": 1061.384,
       "output_sha256": "c503eeb0e9bbf6ec0cbc23fb443cf231fb3b2e989b325dfd3851e2f46872f915",
       "output_tail": "\n> agent-platform-studio@0.1.0 lint\n> tsc --noEmit\n\n"
     },
@@ -48,9 +48,9 @@
       "cwd": "platform/frontend",
       "status": "passed",
       "exit_code": 0,
-      "duration_ms": 11977.38,
-      "output_sha256": "2004dc593bc068ba5090f7c09e048281bf0d96659844c2f8c9b536ed4c4339f8",
-      "output_tail": "\n> agent-platform-studio@0.1.0 build\n> next build\n\n▲ Next.js 16.2.9 (Turbopack)\n- Environments: .env.local\n\n  Creating an optimized production build ...\n✓ Compiled successfully in 3.8s\n  Running TypeScript ...\n  Finished TypeScript in 5.6s ...\n  Collecting page data using 9 workers ...\n  Generating static pages using 9 workers (0/5) ...\n  Generating static pages using 9 workers (1/5) \n  Generating static pages using 9 workers (2/5) \n  Generating static pages using 9 workers (3/5) \n✓ Generating static pages using 9 workers (5/5) in 351ms\n  Finalizing page optimization ...\n\nRoute (app)\n┌ ○ /\n├ ○ /_not-found\n├ ƒ /api/platform/[...path]\n├ ƒ /applications/[id]\n├ ○ /governance\n├ ○ /icon.svg\n└ ƒ /runtime/[id]\n\n\n○  (Static)   prerendered as static content\nƒ  (Dynamic)  server-rendered on demand\n\n"
+      "duration_ms": 8271.508,
+      "output_sha256": "670e521a0321d964982f52b2276b69b8691ab33423212b694755034f4261e3bc",
+      "output_tail": "\n> agent-platform-studio@0.1.0 build\n> next build\n\n▲ Next.js 16.2.9 (Turbopack)\n- Environments: .env.local\n\n  Creating an optimized production build ...\n✓ Compiled successfully in 2.3s\n  Running TypeScript ...\n  Finished TypeScript in 3.8s ...\n  Collecting page data using 9 workers ...\n  Generating static pages using 9 workers (0/5) ...\n  Generating static pages using 9 workers (1/5) \n  Generating static pages using 9 workers (2/5) \n  Generating static pages using 9 workers (3/5) \n✓ Generating static pages using 9 workers (5/5) in 308ms\n  Finalizing page optimization ...\n\nRoute (app)\n┌ ○ /\n├ ○ /_not-found\n├ ƒ /api/platform/[...path]\n├ ƒ /applications/[id]\n├ ○ /governance\n├ ○ /icon.svg\n└ ƒ /runtime/[id]\n\n\n○  (Static)   prerendered as static content\nƒ  (Dynamic)  server-rendered on demand\n\n"
     },
     {
       "name": "evidence_denominator",
@@ -58,7 +58,7 @@
       "cwd": ".",
       "status": "passed",
       "exit_code": 0,
-      "duration_ms": 56.641,
+      "duration_ms": 49.455,
       "output_sha256": "8297bcb0c8224f274fe299c8b663dd939bf8533be9a4938bb7da20f9192c244a",
       "output_tail": "v0.4.12 OpenAPI evidence validation passed\n"
     },
@@ -68,7 +68,7 @@
       "cwd": ".",
       "status": "passed",
       "exit_code": 0,
-      "duration_ms": 42.234,
+      "duration_ms": 39.83,
       "output_sha256": "4e8c213bcc1fcc7bd9cc9c34b3d25cc0476b8746bb878ad88d309ebb1ed1ab6e",
       "output_tail": "stage report template validation passed\n"
     },
@@ -78,11 +78,45 @@
       "cwd": ".",
       "status": "passed",
       "exit_code": 0,
-      "duration_ms": 74.124,
+      "duration_ms": 72.54,
       "output_sha256": "38c3c12ee9345f5834e9ae27c5c70eab53a4350a2269c34584fd519e81343702",
       "output_tail": "evolution control validation passed\n"
     }
   ],
+  "required_live_contract": {
+    "path": "docs/evidence/v0.4.12/inventree_live_contract.json",
+    "sha256": "a7c23af152026f5ce03a0c18795b4d38e2eea71a245fd0ea19d3657bdfd9012b",
+    "history_path": "docs/evidence/v0.4.12/inventree_live_contract_attempt_1_failure.json",
+    "history_sha256": "017c55bb3c6d399ddf19388ec09f337b8a65f670af27357dff31c94c9bf12334",
+    "side_effect_path": "docs/evidence/v0.4.12/inventree_live_side_effect.json",
+    "side_effect_sha256": "2a8f2720be468328f2ebfc270b96799645f1c57a00af38ce5c95faf3c21a8a1f",
+    "aggregate_path": "docs/evidence/v0.4.12/openapi_generalization_aggregate.json",
+    "aggregate_sha256": "168e1a77ab4806a0c46b81b3836012b60eb0188302b531a2069854686f19420b",
+    "response_envelope_path": "docs/evidence/v0.4.12/response_envelope_contract.json",
+    "response_envelope_sha256": "7b04168a9c979c5cbd42df1e3819337ac540ba1e89be00ff9da5b61b9ec0d03d",
+    "status": "passed",
+    "contract_status": "passed",
+    "side_effect_status": "passed",
+    "selected_methods": [
+      "GET",
+      "POST"
+    ],
+    "passed_cases": 4,
+    "failed_cases": 0,
+    "retained_unique_case_counts": {
+      "passed": 5,
+      "failed": 1,
+      "skipped": 0,
+      "unsupported": 0,
+      "blocked_by_environment": 0
+    },
+    "retained_unique_case_total": 6,
+    "historical_failure_retained": true,
+    "historical_summary_consistent": true,
+    "current_summary_consistent": true,
+    "retained_failure_consistent": true,
+    "attempt_history_consistent": true
+  },
   "browser_evidence": "browser/browser-evidence.json",
   "browser_execution_command": "node scripts/v04_12_openapi_connector_browser.mjs --api http://127.0.0.1:18120 --web http://127.0.0.1:13120 --token v0412-browser --output docs/evidence/v0.4.12/browser"
 }

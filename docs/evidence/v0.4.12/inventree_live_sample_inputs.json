@@ -1,0 +1,11 @@
+{
+  "part_category_tree_list": {
+    "limit": 1
+  },
+  "company_contact_create": {
+    "body": {
+      "company": 1,
+      "name": "Lilies v0.4.12 OpenAPI contract"
+    }
+  }
+}

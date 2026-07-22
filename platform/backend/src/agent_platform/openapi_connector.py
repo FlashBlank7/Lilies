@@ -12,6 +12,7 @@ from urllib.parse import unquote, urlsplit
 from uuid import uuid4
 
 import httpx
+import httpcore
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -35,6 +36,60 @@ from .storage import Storage
 
 HTTP_METHODS = {"get", "post", "put", "patch", "delete"}
 MAX_OPENAPI_BYTES = 5_000_000
+
+
+class _PinnedNetworkBackend(httpcore.AsyncNetworkBackend):
+    """Connect an HTTP origin only through its prevalidated DNS answers."""
+
+    def __init__(
+        self,
+        host: str,
+        port: int,
+        addresses: set[ipaddress.IPv4Address | ipaddress.IPv6Address],
+    ) -> None:
+        self.host = host.casefold().rstrip(".")
+        self.port = port
+        self.addresses = tuple(sorted(addresses, key=lambda item: (item.version, str(item))))
+        self.backend = httpcore.AnyIOBackend()
+
+    async def connect_tcp(
+        self,
+        host: str,
+        port: int,
+        timeout: float | None = None,
+        local_address: str | None = None,
+        socket_options: Any = None,
+    ) -> httpcore.AsyncNetworkStream:
+        normalized = host.casefold().rstrip(".")
+        if normalized != self.host or port != self.port:
+            raise httpcore.ConnectError("pinned OpenAPI origin changed during connection")
+        last_error: Exception | None = None
+        for address in self.addresses:
+            try:
+                return await self.backend.connect_tcp(
+                    str(address),
+                    port,
+                    timeout=timeout,
+                    local_address=local_address,
+                    socket_options=socket_options,
+                )
+            except (httpcore.ConnectError, httpcore.ConnectTimeout) as error:
+                last_error = error
+        if last_error is not None:
+            raise last_error
+        raise httpcore.ConnectError("pinned OpenAPI origin has no validated address")
+
+    async def connect_unix_socket(
+        self,
+        path: str,
+        timeout: float | None = None,
+        socket_options: Any = None,
+    ) -> httpcore.AsyncNetworkStream:
+        del path, timeout, socket_options
+        raise httpcore.ConnectError("OpenAPI document fetch does not allow Unix sockets")
+
+    async def sleep(self, seconds: float) -> None:
+        await self.backend.sleep(seconds)
 
 
 class OpenAPICapabilityGap(BaseModel):
@@ -129,6 +184,8 @@ class ConnectorContractCaseResult(BaseModel):
     case: ConnectorContractCase
     status: Literal["passed", "failed", "skipped", "unsupported", "blocked_by_environment"]
     actual: str
+    executed_input_evidence: dict[str, Any] = Field(default_factory=dict)
+    response_evidence: dict[str, Any] = Field(default_factory=dict)
     duration_ms: float = 0
 
 
@@ -222,7 +279,9 @@ class OpenAPIMaterialLoader:
         if parsed.scheme not in {"https", "http"} or not host:
             raise self._error("IF-01", "document_url", "$", "document URL must be HTTP(S)")
         if parsed.scheme == "http" and not request.allow_insecure_document_http:
-            raise self._error("IF-01", "document_url", "$", "insecure HTTP document URL is disabled")
+            raise self._error(
+                "IF-01", "document_url", "$", "insecure HTTP document URL is disabled"
+            )
         if not any(host == item or host.endswith(f".{item}") for item in allowed):
             raise self._error(
                 "IF-01", "document_host", "$", "document URL host is outside explicit allowlist"
@@ -239,28 +298,73 @@ class OpenAPIMaterialLoader:
             raise self._error(
                 "IF-01", "document_host", "$", "private and loopback document URLs are disabled"
             )
-        async with httpx.AsyncClient(follow_redirects=False, timeout=20) as client:
-            async with client.stream(
-                "GET",
-                request.document_url,
-                headers={"Accept": "application/json, application/yaml, text/yaml"},
-            ) as response:
-                response.raise_for_status()
-                length = response.headers.get("content-length")
-                if length and int(length) > MAX_OPENAPI_BYTES:
-                    raise self._error(
-                        "IF-01", "document_size", "$", "OpenAPI document exceeds 5 MB"
-                    )
-                chunks: list[bytes] = []
-                size = 0
-                async for chunk in response.aiter_bytes():
-                    size += len(chunk)
-                    if size > MAX_OPENAPI_BYTES:
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        backend = _PinnedNetworkBackend(host, port, addresses)
+        timeout = {"connect": 20.0, "read": 20.0, "write": 20.0, "pool": 20.0}
+        try:
+            async with httpcore.AsyncConnectionPool(network_backend=backend) as pool:
+                async with pool.stream(
+                    "GET",
+                    request.document_url,
+                    headers=[
+                        (b"Accept", b"application/json, application/yaml, text/yaml"),
+                        (b"Accept-Encoding", b"identity"),
+                    ],
+                    extensions={"timeout": timeout},
+                ) as response:
+                    headers = {
+                        key.decode("latin-1").casefold(): value.decode("latin-1")
+                        for key, value in response.headers
+                    }
+                    if not 200 <= response.status < 300:
                         raise self._error(
-                            "IF-01", "document_size", "$", "OpenAPI document exceeds 5 MB"
+                            "IF-01",
+                            "document_http",
+                            "$",
+                            f"OpenAPI document returned HTTP {response.status}",
                         )
-                    chunks.append(chunk)
-                return b"".join(chunks)
+                    encoding = headers.get("content-encoding", "identity").casefold()
+                    if encoding not in {"", "identity"}:
+                        raise self._error(
+                            "IF-01",
+                            "document_encoding",
+                            "$",
+                            "compressed OpenAPI document responses are disabled",
+                        )
+                    length = headers.get("content-length")
+                    if length:
+                        try:
+                            declared_length = int(length)
+                        except ValueError as error:
+                            raise self._error(
+                                "IF-01",
+                                "document_http",
+                                "$",
+                                "OpenAPI document returned an invalid Content-Length",
+                            ) from error
+                        if declared_length > MAX_OPENAPI_BYTES:
+                            raise self._error(
+                                "IF-01", "document_size", "$", "OpenAPI document exceeds 5 MB"
+                            )
+                    chunks: list[bytes] = []
+                    size = 0
+                    async for chunk in response.aiter_stream():
+                        size += len(chunk)
+                        if size > MAX_OPENAPI_BYTES:
+                            raise self._error(
+                                "IF-01", "document_size", "$", "OpenAPI document exceeds 5 MB"
+                            )
+                        chunks.append(chunk)
+                    return b"".join(chunks)
+        except OpenAPIMaterialError:
+            raise
+        except (httpcore.NetworkError, httpcore.ProtocolError, httpcore.TimeoutException) as error:
+            raise self._error(
+                "IF-01",
+                "document_network",
+                "$",
+                f"OpenAPI document fetch failed: {error}",
+            ) from error
 
     async def _resolved_addresses(
         self,
@@ -298,7 +402,9 @@ class OpenAPIMaterialLoader:
             except yaml.YAMLError as error:
                 raise self._error("IF-01", "syntax", "$", f"invalid JSON/YAML: {error}") from error
         if not isinstance(value, dict):
-            raise self._error("IF-01", "document_root", "$", "OpenAPI document root must be an object")
+            raise self._error(
+                "IF-01", "document_root", "$", "OpenAPI document root must be an object"
+            )
         return value
 
     def _resolve_refs(
@@ -355,9 +461,15 @@ class OpenAPIMaterialLoader:
             for key, item in value.items()
         }
 
-    def _inspect_unsupported(self, document: dict[str, Any], gaps: list[OpenAPICapabilityGap]) -> None:
+    def _inspect_unsupported(
+        self, document: dict[str, Any], gaps: list[OpenAPICapabilityGap]
+    ) -> None:
         if document.get("webhooks"):
-            gaps.append(self._gap("IF-03", "webhooks", "$.webhooks", "webhooks require a later transport stage"))
+            gaps.append(
+                self._gap(
+                    "IF-03", "webhooks", "$.webhooks", "webhooks require a later transport stage"
+                )
+            )
         for path, path_item in document.get("paths", {}).items():
             if not isinstance(path_item, dict):
                 continue
@@ -366,13 +478,26 @@ class OpenAPIMaterialLoader:
                     continue
                 location = f"$.paths.{path}.{method}"
                 if operation.get("callbacks"):
-                    gaps.append(self._gap("IF-03", "callbacks", location, "callbacks are recorded but not generated"))
+                    gaps.append(
+                        self._gap(
+                            "IF-03",
+                            "callbacks",
+                            location,
+                            "callbacks are recorded but not generated",
+                        )
+                    )
 
     @staticmethod
-    def _gap(code: str, capability: str, location: str, message: str, *, fatal: bool = False) -> OpenAPICapabilityGap:
-        return OpenAPICapabilityGap(code=code, capability=capability, location=location, message=message, fatal=fatal)
+    def _gap(
+        code: str, capability: str, location: str, message: str, *, fatal: bool = False
+    ) -> OpenAPICapabilityGap:
+        return OpenAPICapabilityGap(
+            code=code, capability=capability, location=location, message=message, fatal=fatal
+        )
 
-    def _error(self, code: str, capability: str, location: str, message: str) -> OpenAPIMaterialError:
+    def _error(
+        self, code: str, capability: str, location: str, message: str
+    ) -> OpenAPIMaterialError:
         return OpenAPIMaterialError(self._gap(code, capability, location, message, fatal=True))
 
     @staticmethod
@@ -531,15 +656,36 @@ class OpenAPIConnectorGenerator:
             wire_name = str(parameter.get("name") or "")
             parameter_location = str(parameter.get("in") or "")
             schema = parameter.get("schema", {})
-            if not wire_name or parameter_location not in {"path", "query", "header", "cookie"} or not isinstance(schema, dict):
-                gaps.append(OpenAPIMaterialLoader._gap("IF-04", "parameter", f"{location}.parameters[{index}]", "unsupported parameter declaration"))
+            if (
+                not wire_name
+                or parameter_location not in {"path", "query", "header", "cookie"}
+                or not isinstance(schema, dict)
+            ):
+                gaps.append(
+                    OpenAPIMaterialLoader._gap(
+                        "IF-04",
+                        "parameter",
+                        f"{location}.parameters[{index}]",
+                        "unsupported parameter declaration",
+                    )
+                )
                 continue
             if not self._schema_supported(schema, f"{location}.parameters[{index}].schema", gaps):
                 continue
-            style = str(parameter.get("style") or ("simple" if parameter_location in {"path", "header"} else "form"))
+            style = str(
+                parameter.get("style")
+                or ("simple" if parameter_location in {"path", "header"} else "form")
+            )
             explode = bool(parameter.get("explode", style == "form"))
             if style not in {"simple", "form"}:
-                gaps.append(OpenAPIMaterialLoader._gap("IF-04", "parameter_serialization", f"{location}.parameters[{index}]", f"parameter style {style!r} is unsupported"))
+                gaps.append(
+                    OpenAPIMaterialLoader._gap(
+                        "IF-04",
+                        "parameter_serialization",
+                        f"{location}.parameters[{index}]",
+                        f"parameter style {style!r} is unsupported",
+                    )
+                )
                 continue
             input_key = self._unique_input_key(wire_name, parameter_location, request_properties)
             request_properties[input_key] = schema
@@ -563,7 +709,14 @@ class OpenAPIConnectorGenerator:
             content = body.get("content", {})
             media = content.get("application/json") if isinstance(content, dict) else None
             if not isinstance(media, dict) or not isinstance(media.get("schema", {}), dict):
-                gaps.append(OpenAPIMaterialLoader._gap("IF-05", "request_media_type", f"{location}.requestBody", "only application/json request bodies are generated"))
+                gaps.append(
+                    OpenAPIMaterialLoader._gap(
+                        "IF-05",
+                        "request_media_type",
+                        f"{location}.requestBody",
+                        "only application/json request bodies are generated",
+                    )
+                )
                 return None
             body_schema = self._schema_for_direction(media.get("schema", {}), request=True)
             body_field_count = self._schema_field_count(body_schema)
@@ -599,11 +752,15 @@ class OpenAPIConnectorGenerator:
         }
         request_schema = self._object_schema(f"{operation_id}.request", request_json_schema)
         security = raw.get("security", global_security)
-        security_requirements = [
-            [self._identifier(str(key), prefix="security") for key in item]
-            for item in security
-            if isinstance(item, dict)
-        ] if isinstance(security, list) else []
+        security_requirements = (
+            [
+                [self._identifier(str(key), prefix="security") for key in item]
+                for item in security
+                if isinstance(item, dict)
+            ]
+            if isinstance(security, list)
+            else []
+        )
         title = str(raw.get("summary") or raw.get("description") or operation_id)
         return (
             ConnectorOperation(
@@ -634,7 +791,11 @@ class OpenAPIConnectorGenerator:
         gaps: list[OpenAPICapabilityGap],
     ) -> tuple[dict[str, Any] | None, str, list[int], list[str], dict[str, str]]:
         if not isinstance(responses, dict):
-            gaps.append(OpenAPIMaterialLoader._gap("IF-14", "responses", f"{location}.responses", "responses must be an object"))
+            gaps.append(
+                OpenAPIMaterialLoader._gap(
+                    "IF-14", "responses", f"{location}.responses", "responses must be an object"
+                )
+            )
             return None, "object", [], [], {}
         success: list[tuple[int, dict[str, Any]]] = []
         errors: dict[str, str] = {}
@@ -646,26 +807,59 @@ class OpenAPIConnectorGenerator:
             else:
                 errors[str(status)] = str(response.get("description") or "documented error")
         if not success:
-            gaps.append(OpenAPIMaterialLoader._gap("IF-14", "success_response", f"{location}.responses", "operation has no explicit 2xx response"))
+            gaps.append(
+                OpenAPIMaterialLoader._gap(
+                    "IF-14",
+                    "success_response",
+                    f"{location}.responses",
+                    "operation has no explicit 2xx response",
+                )
+            )
             return None, "object", [], [], errors
         success.sort(key=lambda item: item[0])
         status, selected = success[0]
         content = selected.get("content", {})
         if status == 204 or not content:
-            return {"type": "object", "properties": {}, "additionalProperties": True}, "object", [item[0] for item in success], [], errors
+            return (
+                {"type": "object", "properties": {}, "additionalProperties": True},
+                "object",
+                [item[0] for item in success],
+                [],
+                errors,
+            )
         if not isinstance(content, dict) or "application/json" not in content:
-            gaps.append(OpenAPIMaterialLoader._gap("IF-05", "response_media_type", f"{location}.responses.{status}", "only application/json responses are generated"))
+            gaps.append(
+                OpenAPIMaterialLoader._gap(
+                    "IF-05",
+                    "response_media_type",
+                    f"{location}.responses.{status}",
+                    "only application/json responses are generated",
+                )
+            )
             return None, "object", [], [], errors
         media = content["application/json"]
         schema = media.get("schema", {}) if isinstance(media, dict) else {}
         if not isinstance(schema, dict):
-            gaps.append(OpenAPIMaterialLoader._gap("IF-14", "response_schema", f"{location}.responses.{status}", "response schema must be an object"))
+            gaps.append(
+                OpenAPIMaterialLoader._gap(
+                    "IF-14",
+                    "response_schema",
+                    f"{location}.responses.{status}",
+                    "response schema must be an object",
+                )
+            )
             return None, "object", [], [], errors
         root_type = self._schema_type(schema)
         return schema, root_type, [item[0] for item in success], ["application/json"], errors
 
-    def _security_schemes(self, document: dict[str, Any], gaps: list[OpenAPICapabilityGap]) -> list[ConnectorSecurityScheme]:
-        raw = document.get("components", {}).get("securitySchemes", {}) if isinstance(document.get("components"), dict) else {}
+    def _security_schemes(
+        self, document: dict[str, Any], gaps: list[OpenAPICapabilityGap]
+    ) -> list[ConnectorSecurityScheme]:
+        raw = (
+            document.get("components", {}).get("securitySchemes", {})
+            if isinstance(document.get("components"), dict)
+            else {}
+        )
         result: list[ConnectorSecurityScheme] = []
         if not isinstance(raw, dict):
             return result
@@ -673,7 +867,10 @@ class OpenAPIConnectorGenerator:
             if not isinstance(scheme, dict):
                 continue
             normalized_id = self._identifier(str(scheme_id), prefix="security")
-            if scheme.get("type") == "http" and str(scheme.get("scheme", "")).casefold() in {"bearer", "basic"}:
+            if scheme.get("type") == "http" and str(scheme.get("scheme", "")).casefold() in {
+                "bearer",
+                "basic",
+            }:
                 result.append(
                     ConnectorSecurityScheme(
                         id=normalized_id,
@@ -681,10 +878,28 @@ class OpenAPIConnectorGenerator:
                         scheme=str(scheme.get("scheme", "")).casefold(),
                     )
                 )
-            elif scheme.get("type") == "apiKey" and scheme.get("in") in {"header", "query", "cookie"}:
-                result.append(ConnectorSecurityScheme(id=normalized_id, type="apiKey", location=scheme["in"], wire_name=str(scheme.get("name") or "Authorization")))
+            elif scheme.get("type") == "apiKey" and scheme.get("in") in {
+                "header",
+                "query",
+                "cookie",
+            }:
+                result.append(
+                    ConnectorSecurityScheme(
+                        id=normalized_id,
+                        type="apiKey",
+                        location=scheme["in"],
+                        wire_name=str(scheme.get("name") or "Authorization"),
+                    )
+                )
             else:
-                gaps.append(OpenAPIMaterialLoader._gap("IF-07", "security_scheme", f"$.components.securitySchemes.{scheme_id}", f"security scheme {scheme.get('type')!r}/{scheme.get('scheme')!r} is unsupported"))
+                gaps.append(
+                    OpenAPIMaterialLoader._gap(
+                        "IF-07",
+                        "security_scheme",
+                        f"$.components.securitySchemes.{scheme_id}",
+                        f"security scheme {scheme.get('type')!r}/{scheme.get('scheme')!r} is unsupported",
+                    )
+                )
         return result
 
     def _schema_supported(
@@ -814,12 +1029,16 @@ class OpenAPIConnectorGenerator:
         return ConnectorObjectSchema(
             schema_id=self._identifier(schema_id, prefix="schema")[:120],
             fields=fields,
-            additional_properties=schema.get("additionalProperties", True) is not False if isinstance(schema, dict) else True,
+            additional_properties=schema.get("additionalProperties", True) is not False
+            if isinstance(schema, dict)
+            else True,
             json_schema=schema or None,
         )
 
     @staticmethod
-    def _schema_type(schema: dict[str, Any]) -> Literal["string", "number", "integer", "boolean", "object", "array"]:
+    def _schema_type(
+        schema: dict[str, Any],
+    ) -> Literal["string", "number", "integer", "boolean", "object", "array"]:
         raw = schema.get("type")
         if isinstance(raw, list):
             raw = next((item for item in raw if item != "null"), None)
@@ -895,7 +1114,9 @@ class OpenAPIConnectorService:
                 """
             )
 
-    async def generate(self, request: OpenAPIConnectorGenerationRequest) -> OpenAPIConnectorGeneration:
+    async def generate(
+        self, request: OpenAPIConnectorGenerationRequest
+    ) -> OpenAPIConnectorGeneration:
         started = time.perf_counter()
         document, provenance, gaps = await self.loader.load(request)
         parse_ms = (time.perf_counter() - started) * 1000
@@ -903,7 +1124,9 @@ class OpenAPIConnectorService:
         async with self._lock:
             return await asyncio.to_thread(self._save_generation_sync, generated)
 
-    def _save_generation_sync(self, generation: OpenAPIConnectorGeneration) -> OpenAPIConnectorGeneration:
+    def _save_generation_sync(
+        self, generation: OpenAPIConnectorGeneration
+    ) -> OpenAPIConnectorGeneration:
         with self.storage._connect() as conn:
             existing = conn.execute(
                 "SELECT record_json FROM openapi_connector_generations WHERE connector_id=? AND version=? AND source_digest=?",
@@ -937,7 +1160,12 @@ class OpenAPIConnectorService:
         for item in items:
             latest_digest.setdefault(item.connector_id, item.provenance.source_digest)
         return [
-            item.model_copy(update={"evidence_stale": latest_digest[item.connector_id] != item.provenance.source_digest})
+            item.model_copy(
+                update={
+                    "evidence_stale": latest_digest[item.connector_id]
+                    != item.provenance.source_digest
+                }
+            )
             for item in items
         ]
 
@@ -1019,7 +1247,13 @@ class OpenAPIConnectorService:
             secret_ref=request.secret_ref or f"secret://{request.owner_id}/missing-contract-secret",
             application_ids=["openapi-contract-test"],
             allowed_operations=[item.id for item in manifest.operations],
-            subjects=[{"external_subject": "contract-test", "actor_id": "contract-test", "roles": ["contract-test"]}],
+            subjects=[
+                {
+                    "external_subject": "contract-test",
+                    "actor_id": "contract-test",
+                    "roles": ["contract-test"],
+                }
+            ],
         )
         for case in cases:
             operation = manifest.operation(case.operation_id)
@@ -1029,20 +1263,56 @@ class OpenAPIConnectorService:
                 else case.generated_input
             )
             case_started = time.perf_counter()
+            executed_input_evidence = self._payload_evidence(payload)
             if case.kind == "negative":
                 try:
-                    operation.request_schema.validate_payload(payload, label=f"{operation.id} request")
+                    operation.request_schema.validate_payload(
+                        payload, label=f"{operation.id} request"
+                    )
                 except ValueError as error:
-                    results.append(ConnectorContractCaseResult(case=case, status="passed", actual=str(error), duration_ms=(time.perf_counter() - case_started) * 1000))
+                    results.append(
+                        ConnectorContractCaseResult(
+                            case=case,
+                            status="passed",
+                            actual=str(error),
+                            executed_input_evidence=executed_input_evidence,
+                            duration_ms=(time.perf_counter() - case_started) * 1000,
+                        )
+                    )
                 else:
-                    results.append(ConnectorContractCaseResult(case=case, status="failed", actual="invalid input was accepted", duration_ms=(time.perf_counter() - case_started) * 1000))
+                    results.append(
+                        ConnectorContractCaseResult(
+                            case=case,
+                            status="failed",
+                            actual="invalid input was accepted",
+                            executed_input_evidence=executed_input_evidence,
+                            duration_ms=(time.perf_counter() - case_started) * 1000,
+                        )
+                    )
                 continue
             if operation.mutating and not request.allow_mutating_operations:
-                results.append(ConnectorContractCaseResult(case=case, status="skipped", actual="mutating contract requires explicit allow_mutating_operations", duration_ms=0))
+                results.append(
+                    ConnectorContractCaseResult(
+                        case=case,
+                        status="skipped",
+                        actual="mutating contract requires explicit allow_mutating_operations",
+                        executed_input_evidence=executed_input_evidence,
+                        duration_ms=0,
+                    )
+                )
                 continue
             if operation.mutating and profile.environment in {"live", "private"}:
-                results.append(ConnectorContractCaseResult(case=case, status="unsupported", actual="automatic mutation contracts are restricted to mock/test deployments", duration_ms=0))
+                results.append(
+                    ConnectorContractCaseResult(
+                        case=case,
+                        status="unsupported",
+                        actual="automatic mutation contracts are restricted to mock/test deployments",
+                        executed_input_evidence=executed_input_evidence,
+                        duration_ms=0,
+                    )
+                )
                 continue
+            response: Any | None = None
             try:
                 operation.request_schema.validate_payload(payload, label=f"{operation.id} request")
                 response = await self.connectors._call_adapter(
@@ -1065,20 +1335,47 @@ class OpenAPIConnectorService:
                 )
                 self.connectors.validate_operation_response(operation, response)
             except Exception as error:
-                status: Literal["failed", "blocked_by_environment"] = "blocked_by_environment" if self._environment_error(error) else "failed"
-                results.append(ConnectorContractCaseResult(case=case, status=status, actual=str(error), duration_ms=(time.perf_counter() - case_started) * 1000))
+                status: Literal["failed", "blocked_by_environment"] = (
+                    "blocked_by_environment" if self._environment_error(error) else "failed"
+                )
+                results.append(
+                    ConnectorContractCaseResult(
+                        case=case,
+                        status=status,
+                        actual=str(error),
+                        executed_input_evidence=executed_input_evidence,
+                        response_evidence=self._response_evidence(response)
+                        if response is not None
+                        else {},
+                        duration_ms=(time.perf_counter() - case_started) * 1000,
+                    )
+                )
             else:
                 duration = (time.perf_counter() - case_started) * 1000
-                results.append(ConnectorContractCaseResult(case=case, status="passed", actual="status, content type, and response schema matched", duration_ms=duration))
+                results.append(
+                    ConnectorContractCaseResult(
+                        case=case,
+                        status="passed",
+                        actual="status, content type, and response schema matched",
+                        executed_input_evidence=executed_input_evidence,
+                        response_evidence=self._response_evidence(response),
+                        duration_ms=duration,
+                    )
+                )
                 if first_valid is None:
                     first_valid = (time.perf_counter() - started) * 1000
-        counts = {status: sum(item.status == status for item in results) for status in ["passed", "failed", "skipped", "unsupported", "blocked_by_environment"]}
+        counts = {
+            status: sum(item.status == status for item in results)
+            for status in ["passed", "failed", "skipped", "unsupported", "blocked_by_environment"]
+        }
         positive_results = [item for item in results if item.case.kind == "positive"]
         if any(item.status == "failed" for item in results):
             status: Literal["passed", "failed", "partial", "blocked_by_environment"] = "failed"
         elif results and all(item.status == "passed" for item in results):
             status = "passed"
-        elif positive_results and all(item.status == "blocked_by_environment" for item in positive_results):
+        elif positive_results and all(
+            item.status == "blocked_by_environment" for item in positive_results
+        ):
             status = "blocked_by_environment"
         else:
             status = "partial"
@@ -1104,7 +1401,13 @@ class OpenAPIConnectorService:
         with self.storage._connect() as conn:
             conn.execute(
                 "INSERT INTO openapi_connector_contract_runs VALUES(?,?,?,?,?)",
-                (run.id, run.generation_id, run.source_digest, run.model_dump_json(), run.created_at),
+                (
+                    run.id,
+                    run.generation_id,
+                    run.source_digest,
+                    run.model_dump_json(),
+                    run.created_at,
+                ),
             )
 
     async def list_contract_runs(self, generation_id: str) -> list[ConnectorContractRun]:
@@ -1131,12 +1434,17 @@ class OpenAPIConnectorService:
 
     def _mark_generation_status_sync(self, generation_id: str, status: str) -> None:
         with self.storage._connect() as conn:
-            row = conn.execute("SELECT record_json FROM openapi_connector_generations WHERE id=?", (generation_id,)).fetchone()
+            row = conn.execute(
+                "SELECT record_json FROM openapi_connector_generations WHERE id=?", (generation_id,)
+            ).fetchone()
             if not row:
                 raise KeyError(generation_id)
             current = OpenAPIConnectorGeneration.model_validate_json(row["record_json"])
             updated = current.model_copy(update={"status": status})
-            conn.execute("UPDATE openapi_connector_generations SET record_json=? WHERE id=?", (updated.model_dump_json(), generation_id))
+            conn.execute(
+                "UPDATE openapi_connector_generations SET record_json=? WHERE id=?",
+                (updated.model_dump_json(), generation_id),
+            )
 
     def _sample_payload(self, schema: dict[str, Any]) -> dict[str, Any]:
         value = self._sample_value(schema)
@@ -1157,12 +1465,103 @@ class OpenAPIConnectorService:
             return {
                 name: self._sample_value(item)
                 for name, item in properties.items()
-                if isinstance(item, dict) and (name in required or "example" in item or "default" in item)
+                if isinstance(item, dict)
+                and (name in required or "example" in item or "default" in item)
             }
         if schema_type == "array":
             items = schema.get("items", {})
             return [self._sample_value(items)] if isinstance(items, dict) else []
         return {"string": "example", "integer": 1, "number": 1.0, "boolean": True}[schema_type]
+
+    def _payload_evidence(self, payload: Any) -> dict[str, Any]:
+        redacted_fields: list[str] = []
+        preview = self._redacted_preview(payload, path="$", redacted_fields=redacted_fields)
+        canonical = json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        ).encode()
+        return {
+            "sha256": hashlib.sha256(canonical).hexdigest(),
+            "canonical_bytes": len(canonical),
+            "redaction_policy_version": "openapi-contract-evidence-v1",
+            "redacted_fields": redacted_fields,
+            "body_preview": preview,
+        }
+
+    def _response_evidence(self, response: Any) -> dict[str, Any]:
+        payload_evidence = self._payload_evidence(response)
+        evidence: dict[str, Any] = {
+            **payload_evidence,
+            "root_type": type(response).__name__,
+        }
+        if isinstance(response, dict):
+            evidence["top_level_keys"] = sorted(str(key) for key in response)[:100]
+            identity = {
+                key: response[key]
+                for key in ("id", "pk", "uuid", "external_id")
+                if key in response and isinstance(response[key], (str, int))
+            }
+            if identity:
+                evidence["identity"] = identity
+        elif isinstance(response, list):
+            evidence["item_count"] = len(response)
+        return evidence
+
+    def _redacted_preview(
+        self,
+        value: Any,
+        *,
+        path: str,
+        redacted_fields: list[str],
+        depth: int = 0,
+    ) -> Any:
+        if depth >= 8:
+            return "<depth-limit>"
+        if isinstance(value, dict):
+            preview: dict[str, Any] = {}
+            for index, (key, item) in enumerate(value.items()):
+                if index >= 100:
+                    preview["<truncated-fields>"] = len(value) - 100
+                    break
+                item_path = f"{path}.{key}"
+                if any(
+                    token in str(key).casefold()
+                    for token in (
+                        "key",
+                        "secret",
+                        "token",
+                        "password",
+                        "authorization",
+                        "cookie",
+                        "credential",
+                    )
+                ):
+                    redacted_fields.append(item_path)
+                    preview[str(key)] = "***"
+                else:
+                    preview[str(key)] = self._redacted_preview(
+                        item,
+                        path=item_path,
+                        redacted_fields=redacted_fields,
+                        depth=depth + 1,
+                    )
+            return preview
+        if isinstance(value, list):
+            return [
+                self._redacted_preview(
+                    item,
+                    path=f"{path}[{index}]",
+                    redacted_fields=redacted_fields,
+                    depth=depth + 1,
+                )
+                for index, item in enumerate(value[:20])
+            ] + ([f"<truncated-items:{len(value) - 20}>"] if len(value) > 20 else [])
+        if isinstance(value, str) and len(value) > 512:
+            return value[:512] + "<truncated>"
+        return value
 
     @staticmethod
     def _environment_error(error: Exception) -> bool:

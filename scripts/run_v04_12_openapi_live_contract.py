@@ -171,7 +171,7 @@ def main() -> int:
             ensure_ascii=False,
         )
     )
-    return 0
+    return 0 if result["contract_run"]["status"] == "passed" else 1
 
 
 if __name__ == "__main__":

@@ -1,7 +1,7 @@
 {
   "schema_version": "v0.4.12-openapi-generalization-aggregate-1",
-  "status": "partial",
-  "claim": "REST/OpenAPI generation generalizes across three frozen official specifications; one eligible real host exposed one passing read contract and one failing POST contract",
+  "status": "completed_with_retained_failure_and_environment_limits",
+  "claim": "REST/OpenAPI generation completed across three frozen official specifications; the latest eligible InvenTree qualification passed one generated read and write contract, an earlier failed write remains in the denominator, and two ineligible hosts remain explicitly environment-limited",
   "generation_denominator": {
     "hosts": 3,
     "discovered_operations": 955,
@@ -16,12 +16,26 @@
   },
   "contract_case_denominator": {
     "total_generated": 1060,
-    "passed": 3,
+    "passed": 5,
     "failed": 1,
     "unsupported": 0,
     "blocked_by_environment": 0,
-    "not_run": 1056,
-    "note": "blocked host eligibility is counted separately; only case-level executions appear in passed/failed/not_run"
+    "not_run": 1054,
+    "note": "counts unique generated case IDs observed across immutable live attempts; blocked host eligibility is counted separately and no historical failure is removed"
+  },
+  "execution_attempt_history": {
+    "run_count": 2,
+    "result_records": 8,
+    "passed_records": 7,
+    "failed_records": 1,
+    "overlapping_case_ids": [
+      "part_category_tree_list.positive",
+      "part_category_tree_list.negative.missing_limit"
+    ],
+    "artifacts": [
+      "inventree_live_contract_attempt_1_failure.json",
+      "inventree_live_contract.json"
+    ]
   },
   "host_results": {
     "paperless": {
@@ -33,17 +47,29 @@
     },
     "inventree": {
       "generation_status": "completed",
-      "live_contract_status": "failed",
+      "live_contract_status": "passed",
       "eligible_host": true,
       "generated_operations": 333,
       "discovered_operations": 645,
       "executed_cases": 4,
-      "passed_cases": 3,
-      "failed_cases": 1,
-      "time_to_first_valid_contract_ms": 2020.642250077799,
-      "test_ms": 4273.789625032805,
+      "passed_cases": 4,
+      "failed_cases": 0,
+      "historical_failed_cases": 1,
+      "retained_failure": {
+        "operation_id": "search_create",
+        "case_id": "search_create.positive",
+        "actual": "search_create response is missing required fields: ['search']",
+        "artifact": "inventree_live_contract_attempt_1_failure.json",
+        "classification": "retained live contract discrepancy; not required for the latest read/write qualification"
+      },
+      "time_to_first_valid_contract_ms": 2450.218291953206,
+      "test_ms": 4591.274041915312,
       "attempts": 2,
-      "failure": "search_create response is missing required fields: ['search']"
+      "write_operation": "company_contact_create",
+      "created_resource": {
+        "pk": 72,
+        "independent_readback": "passed"
+      }
     },
     "chatwoot": {
       "generation_status": "completed",
@@ -58,8 +84,10 @@
     "project_specific_mapping_code": 0,
     "model_calls": 0,
     "model_cost_usd": 0,
-    "human_rescue_count": 0,
-    "deployment_configuration_inputs_per_host": ["base_url", "allowed_host", "optional auth scheme"]
+    "human_rescue_count": 1,
+    "human_rescue_reason": "after the first write contract exposed a real source/host response mismatch, the qualification selected another generated write operation and supplied business-safe sample input; no adapter, manifest, schema, mapping code, or workflow was authored",
+    "human_configuration_count": 2,
+    "deployment_configuration_inputs_per_host": ["base_url", "allowed_host", "optional auth scheme", "business-safe sample inputs for selected live operations"]
   },
   "largest_observed_gaps": {
     "IF-06_schema_composition": 396,
@@ -72,7 +100,11 @@
     "paperless_openapi_generalization.json",
     "inventree_openapi_generalization.json",
     "chatwoot_openapi_generalization.json",
+    "inventree_live_contract_attempt_1_failure.json",
     "inventree_live_contract.json",
+    "inventree_live_sample_inputs.json",
+    "inventree_live_side_effect.json",
+    "response_envelope_contract.json",
     "paperless_live_contract_environment.json",
     "chatwoot_live_contract_environment.json",
     "browser/browser-evidence.json"

@@ -1,0 +1,39 @@
+{
+  "schema_version": "v0.4.12-openapi-side-effect-proof-1",
+  "status": "passed",
+  "claim": "the resource identity returned by the generated write contract exists on the real host with the submitted business fields",
+  "contract_evidence": "inventree_live_contract.json",
+  "operation_id": "company_contact_create",
+  "resource_url": "https://demo.inventree.org/api/company/contact/72/",
+  "http_status": 200,
+  "response_sha256": "ac6ef5caf50f0804b14baa22b032d1406a9ced864b213e91bff60752ded26c90",
+  "response_evidence": {
+    "redaction_policy_version": "openapi-contract-evidence-v1",
+    "redacted_fields": [],
+    "preview_is_complete": false,
+    "body_preview": {
+      "pk": 72,
+      "company": 1,
+      "name": "Lilies v0.4.12 OpenAPI contract",
+      "company_name": "DigiKey"
+    }
+  },
+  "expected": {
+    "pk": 72,
+    "company": 1,
+    "name": "Lilies v0.4.12 OpenAPI contract"
+  },
+  "actual": {
+    "pk": 72,
+    "company": 1,
+    "name": "Lilies v0.4.12 OpenAPI contract",
+    "company_name": "DigiKey"
+  },
+  "verified_at": "2026-07-22T08:27:09.241051+00:00",
+  "credential_source": "INVENTREE_DEMO_CREDENTIALS",
+  "credential_value_recorded": false,
+  "reproduce": {
+    "command_without_secret": "curl -sS -u \"$INVENTREE_DEMO_CREDENTIALS\" https://demo.inventree.org/api/company/contact/72/",
+    "required_secret_environment": "INVENTREE_DEMO_CREDENTIALS"
+  }
+}
