@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import json
+from pathlib import PurePosixPath
 from urllib.parse import urlencode
 from xml.etree import ElementTree
 from typing import Any, Literal
 
 import httpx
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from .base import Tool, ToolContext, ToolRegistry, ToolResult
 from .mcp import MCPClient
@@ -19,6 +20,19 @@ path = (root / sys.argv[1]).resolve()
 if path != root and root not in path.parents:
     raise SystemExit('path escapes workspace')
 """
+
+
+def _workspace_relative_path(value: str) -> str:
+    normalized = value.replace("\\", "/")
+    path = PurePosixPath(normalized)
+    if (
+        not normalized
+        or path.is_absolute()
+        or ".." in path.parts
+        or (path.parts and len(path.parts[0]) >= 2 and path.parts[0][1] == ":")
+    ):
+        raise ValueError("path must remain relative to the workspace")
+    return value
 
 
 class ReadInput(BaseModel):
@@ -103,6 +117,11 @@ class GlobInput(BaseModel):
     path: str = "."
     limit: int = Field(default=1000, ge=1, le=10_000)
 
+    @field_validator("path", "pattern")
+    @classmethod
+    def workspace_relative(cls, value: str) -> str:
+        return _workspace_relative_path(value)
+
 
 class GlobTool(Tool):
     name = "Glob"
@@ -128,6 +147,16 @@ class GrepInput(BaseModel):
     glob: str | None = None
     max_results: int = Field(default=500, ge=1, le=5000)
 
+    @field_validator("path")
+    @classmethod
+    def workspace_relative(cls, value: str) -> str:
+        return _workspace_relative_path(value)
+
+    @field_validator("glob")
+    @classmethod
+    def workspace_relative_glob(cls, value: str | None) -> str | None:
+        return _workspace_relative_path(value) if value is not None else None
+
 
 class GrepTool(Tool):
     name = "Grep"
@@ -136,11 +165,24 @@ class GrepTool(Tool):
 
     async def execute(self, data: dict[str, Any], context: ToolContext) -> ToolResult:
         args = GrepInput.model_validate(data)
-        command = ["rg", "--line-number", "--color", "never", "--max-count", str(args.max_results)]
-        if args.glob:
-            command.extend(["--glob", args.glob])
-        command.extend(["--", args.pattern, args.path])
-        result = await context.sandbox.run(command)
+        payload = json.dumps(args.model_dump(mode="json"), ensure_ascii=False)
+        script = _SAFE_PATH_SCRIPT + r"""
+import json, subprocess
+args = json.loads(sys.stdin.read())
+search_path = '.' if path == root else str(path.relative_to(root))
+command = ['rg', '--line-number', '--color', 'never', '--max-count', str(args['max_results'])]
+if args.get('glob'):
+    command.extend(['--glob', args['glob']])
+command.extend(['--', args['pattern'], search_path])
+completed = subprocess.run(command, cwd=root, capture_output=True, text=True)
+sys.stdout.write(completed.stdout)
+sys.stderr.write(completed.stderr)
+raise SystemExit(0 if completed.returncode in {0, 1} else completed.returncode)
+"""
+        result = await context.sandbox.run(
+            ["python", "-c", script, args.path],
+            stdin=payload,
+        )
         return ToolResult(result.stdout or result.stderr, result.exit_code not in {0, 1})
 
 

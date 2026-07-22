@@ -335,6 +335,23 @@ class WorkflowRunState(BaseModel):
     snapshot: ApplicationSnapshot
     inputs: dict[str, Any]
     workspace_path: str
+    # Optional execution policy set only by trusted platform callers.  Legacy
+    # API runs omit both fields and retain their historical behavior.  Keeping
+    # the policy in the persisted run state makes pause/resume and process
+    # recovery preserve the original black-box boundary.
+    workspace_boundary: str | None = None
+    allowed_nested_application_ids: list[str] | None = None
+    allowed_runtime_tools: list[str] | None = None
+    allowed_network_hosts: list[str] | None = None
+    # Black-box runs are owned by one exact task assignment and one exact
+    # Lilies session.  Legacy/internal runs leave both values unset and are
+    # intentionally undiscoverable through the public task-token facade.
+    assignment_id: str | None = None
+    session_id: str | None = None
+    # Ordered application ancestry, including this run's application.  It is
+    # persisted so nested workflow recursion/depth gates survive pause/resume
+    # and process recovery instead of relying on an in-memory call stack.
+    application_call_chain: list[str] = Field(default_factory=list, max_length=16)
     outputs: dict[str, dict[str, Any]] = Field(default_factory=dict)
     completed: list[str] = Field(default_factory=list)
     skipped: list[str] = Field(default_factory=list)

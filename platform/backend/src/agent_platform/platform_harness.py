@@ -950,17 +950,44 @@ class PlatformHarness:
     def is_secret_reference(self, value: Any) -> bool:
         return isinstance(value, dict) and any(key in value for key in SECRET_REFERENCE_KEYS)
 
-    async def inject_secret_references(self, *, owner_id: str, payload: Any) -> Any:
+    def contains_secret_reference(self, payload: Any) -> bool:
         if self.is_secret_reference(payload):
+            return True
+        if isinstance(payload, dict):
+            return any(self.contains_secret_reference(value) for value in payload.values())
+        if isinstance(payload, list):
+            return any(self.contains_secret_reference(value) for value in payload)
+        return False
+
+    async def inject_secret_references(
+        self,
+        *,
+        owner_id: str,
+        payload: Any,
+        allow_secret_references: bool = True,
+    ) -> Any:
+        if self.is_secret_reference(payload):
+            if not allow_secret_references:
+                raise PlatformHarnessViolation(
+                    "platform secret references are outside this execution policy"
+                )
             return await self._resolve_secret_reference(owner_id=owner_id, reference=payload)
         if isinstance(payload, dict):
             return {
-                key: await self.inject_secret_references(owner_id=owner_id, payload=value)
+                key: await self.inject_secret_references(
+                    owner_id=owner_id,
+                    payload=value,
+                    allow_secret_references=allow_secret_references,
+                )
                 for key, value in payload.items()
             }
         if isinstance(payload, list):
             return [
-                await self.inject_secret_references(owner_id=owner_id, payload=value)
+                await self.inject_secret_references(
+                    owner_id=owner_id,
+                    payload=value,
+                    allow_secret_references=allow_secret_references,
+                )
                 for value in payload
             ]
         return payload
@@ -970,6 +997,10 @@ class PlatformHarness:
         ref_owner, name = self._split_secret_reference(str(raw_ref), owner_id)
         if reference.get("owner_id"):
             ref_owner = str(reference["owner_id"])
+        if ref_owner != owner_id:
+            raise PlatformHarnessViolation(
+                "platform secret reference owner does not match the execution owner"
+            )
         self._validate_secret_identity(ref_owner, name)
         try:
             row = await self.storage.get_platform_secret(owner_id=ref_owner, name=name)

@@ -1,0 +1,48 @@
+{
+  "schema_version": "1.1",
+  "task_id": "V04-13-T01B",
+  "captured_at_utc": "2026-07-22T15:28:25Z",
+  "command": "uv run --extra dev --frozen python -m pytest -q tests/test_v04_13_lilies_platform_process_boundary.py",
+  "tests": [
+    "test_separate_process_http_only_minimal_build_failure_repair_and_run",
+    "test_separate_local_lilies_agent_loop_uses_assignment_scoped_http_tools"
+  ],
+  "result": "2 passed in 8.67s",
+  "topology": {
+    "platform": "independent uvicorn subprocess on an ephemeral loopback port",
+    "platform_builder_reference_removed_before_lifespan": true,
+    "local_lilies": "independent python -I subprocess running LocalLiliesService",
+    "model": "bounded deterministic provider driving the production tool loop",
+    "different_process_ids": true,
+    "local_working_directory_entries": [
+      "agent_client.py"
+    ],
+    "local_process_uses_production_http_client": true,
+    "local_process_imports_platform_api_or_workflow_store": false
+  },
+  "workflow": {
+    "contract_operation_count_seen_by_model": 16,
+    "first_model_platform_operation": "platform_contract_get",
+    "application_created_from_empty_assignment": true,
+    "initial_incremental_draft_operations": 6,
+    "first_acceptance_result": "failed as deliberately specified",
+    "repair_operations": 1,
+    "second_acceptance_result": "passed",
+    "published_version": 1,
+    "contract_refetched_after_publication": true,
+    "business_run_status": "succeeded",
+    "business_outputs": {
+      "greeting": "Hello Ada"
+    },
+    "legacy_builder_build_rows": 0
+  },
+  "security": {
+    "task_token_internal_endpoint_status": 403,
+    "every_platform_write_has_assignment_session_tool_call_and_idempotency": true,
+    "draft_apply_audit_rows": 7,
+    "access_token_present_in_child_output": false,
+    "access_token_present_in_platform_database_dump": false,
+    "access_token_present_in_platform_logs": false
+  },
+  "identifiers": "Random token, task, session, application and run identifiers are intentionally not copied into durable evidence."
+}

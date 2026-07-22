@@ -1,0 +1,106 @@
+{
+  "schema_version": "1.1",
+  "task_id": "V04-13-T01B",
+  "captured_at_utc": "2026-07-22T15:28:25Z",
+  "implementation_baseline_commit": "6036017",
+  "implementation_state": "final pre-commit T01B worktree",
+  "public_surface": {
+    "contract_endpoint": "/api/v1/lilies/platform-contract",
+    "operation_count": 16,
+    "transport": "HTTP(S) only",
+    "uniform_atomic_envelope": true,
+    "model_result_safe_character_limit": 400000,
+    "oversize_result_error": "platform_result_too_large",
+    "single_draft_operation_per_call": true,
+    "draft_operation_variants_in_public_schema": 10,
+    "idempotent_replay_response_header": "X-Lilies-Idempotent-Replay"
+  },
+  "local_agent_boundary": {
+    "production_modules": [
+      "agent_platform.lilies_service",
+      "agent_platform.lilies_platform_client",
+      "agent_platform.lilies_platform_tools"
+    ],
+    "imports_workflow_store": false,
+    "imports_application_service": false,
+    "imports_platform_database": false,
+    "offers_sql_tool": false,
+    "offers_internal_service_tool": false,
+    "offers_arbitrary_network_tool": false,
+    "offers_whole_graph_replace": false,
+    "redirect_following": false,
+    "environment_proxy_trust": false,
+    "tool_registry_scope": "per session and BuildAssignment",
+    "ordinary_session_exposes_platform_tools": false,
+    "assignment_requires_contract_fetch_before_other_platform_operations": true
+  },
+  "separate_process_evidence": {
+    "platform": "real uvicorn subprocess",
+    "local_lilies": "separate python -I process running the production LocalLiliesService model/tool loop",
+    "client_working_directory_entries": [
+      "agent_client.py"
+    ],
+    "client_script_imports_platform_api": false,
+    "client_script_imports_workflow_storage": false,
+    "client_script_imports_application_or_builder_service": false,
+    "served_platform_builder_reference": null,
+    "platform_build_rows": 0,
+    "standalone_result": "2 passed in 8.67s",
+    "claim_note": "This proves the independent process, isolated working directory and prohibited-import boundary; it does not claim an operating-system chroot or that an installed package file is physically unreadable."
+  },
+  "execution_policy": {
+    "run_workspace": "server-derived assignment/session/idempotency subtree",
+    "test_case_workspace": "independent descendant per acceptance case",
+    "workspace_policy_persisted_across_resume": true,
+    "dynamic_workspace_escape_denied": true,
+    "nested_workflow_application_allowlist": true,
+    "nested_workflow_cycle_and_depth_preflight": true,
+    "allowed_runtime_tools": [
+      "Edit",
+      "Glob",
+      "Grep",
+      "Read",
+      "Write"
+    ],
+    "network_hosts": [],
+    "secret_reference_resolution": "unavailable to task-token runs",
+    "private_model_reasoning_in_public_run_or_test_output": false
+  },
+  "publication_policy": {
+    "actor_scope": "autonomous task credential only",
+    "requires_current_mandatory_acceptance_for_exact_content_hash": true,
+    "context_dependent_nodes_rejected": [
+      "schedule",
+      "runtime tool",
+      "nested workflow",
+      "agent",
+      "network"
+    ],
+    "reason": "immutable application versions do not yet persist assignment workspace and execution policy",
+    "interactive_quick_or_guided_user_decision_changed": false
+  },
+  "compatibility_and_hardening": {
+    "legacy_customer_routes_removed_or_redirected": false,
+    "legacy_unrestricted_http_override_seam_preserved": true,
+    "intentional_global_hardening": [
+      "platform secret references require the exact execution owner",
+      "nested workflow creation rejects application cycles and depth greater than 16 before persistence"
+    ],
+    "claim": "Normal legacy/customer flows remain available, but previously unsafe owner-mismatched secret resolution and recursive nesting are intentionally rejected."
+  },
+  "artifact_boundary": {
+    "lookup": "opaque UUID registry bound to assignment, session, application, and run",
+    "whole_file_registration_limit_bytes": 2000000,
+    "maximum_raw_chunk_bytes": 65536,
+    "chunk_encodings": [
+      "utf8",
+      "base64"
+    ],
+    "full_file_digest_verified_before_projection": true,
+    "artifact_content_stored_in_registry_database": false,
+    "artifact_content_stored_in_idempotency_ledger": false,
+    "replay": "re-read immutable artifact, verify the whole-file digest, then return the requested bounded chunk",
+    "cross_assignment_or_application_read": "denied without resource enumeration"
+  },
+  "claim_ceiling": "T01B proves the controlled local black-box HTTP contract, assignment-scoped client wiring, audit, execution isolation, redaction and bounded artifact transport. It does not prove T01C platform-to-daemon assignment orchestration, collaboration, browser delivery, or the enterprise experiment. Registered artifacts remain capped at 2,000,000 bytes."
+}

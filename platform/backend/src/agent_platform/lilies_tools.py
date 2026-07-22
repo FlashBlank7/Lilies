@@ -27,6 +27,8 @@ class StrictToolInput(BaseModel):
 class LiliesToolContext:
     session_id: str
     workspace: Path
+    turn_id: str | None = None
+    tool_call_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,6 +44,10 @@ class LiliesTool(ABC):
     dangerous: bool = False
     mutating: bool = False
     side_effecting: bool = False
+    requires_permission: bool | None = None
+    handles_input_validation: bool = False
+    max_result_chars: int = 100_000
+    preserve_result_integrity: bool = False
 
     def definition(self) -> ToolDefinition:
         return ToolDefinition(

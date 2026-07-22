@@ -1,0 +1,132 @@
+{
+  "schema_version": "1.1",
+  "task_id": "V04-13-T01B",
+  "captured_at_utc": "2026-07-22T15:28:25Z",
+  "credential_storage": {
+    "verifier": "PBKDF2-derived hash with constant-time comparison",
+    "plaintext_access_token_stored_by_platform": false,
+    "assignment_and_session_bound": true,
+    "application_whitelist_bound": true,
+    "expiry_enforced": true,
+    "revocation_enforced": true
+  },
+  "exact_once": {
+    "key": "assignment_id plus idempotency_key",
+    "semantic_fingerprint": [
+      "assignment_id",
+      "session_id",
+      "application_id",
+      "operation",
+      "required_scope",
+      "canonical_payload_digest"
+    ],
+    "attempt_correlation_excluded_from_fingerprint": [
+      "request_id",
+      "tool_call_id",
+      "contract_digest"
+    ],
+    "identical_request_replays_original_envelope": true,
+    "cross_attempt_correlation_is_still_audited": true,
+    "same_key_different_payload_status": 409,
+    "same_key_different_payload_code": "idempotency_conflict",
+    "survives_process_restart": true,
+    "concurrent_create_across_two_store_instances": "one authorized and completed, one denied before callback"
+  },
+  "audit": {
+    "correlation_fields": [
+      "credential_id",
+      "authorization_id",
+      "request_id",
+      "assignment_id",
+      "session_id",
+      "tool_call_id",
+      "idempotency_key",
+      "application_id",
+      "operation"
+    ],
+    "database_rows_immutable": true,
+    "authorization_denials_audited": true,
+    "invalid_expired_and_revoked_requests_audited": true,
+    "run_resource_operations_use_actual_run_application": true
+  },
+  "execution_isolation": {
+    "server_owned_workspaces": true,
+    "acceptance_cases_have_independent_workspaces": true,
+    "absolute_parent_and_symlink_escape_denied": true,
+    "tool_executor_dynamic_override_denied": true,
+    "sandbox_boundary_dynamic_override_denied": true,
+    "subagent_dynamic_override_denied": true,
+    "nested_workflow_static_and_dynamic_cross_application_denied": true,
+    "nested_workflow_cycle_and_depth_denied_before_run_or_harness_persistence": true,
+    "policy_survives_run_resume": true,
+    "secret_reference_same_owner_denied_for_task_run": true,
+    "secret_reference_cross_owner_denied": true,
+    "secret_reference_denial_has_no_run_or_harness_side_effect": true,
+    "global_secret_reference_owner_must_match_execution_owner": true
+  },
+  "public_output": {
+    "trace_event_types_allowlisted": true,
+    "trace_fields_allowlisted": true,
+    "raw_model_payload_returned": false,
+    "raw_tool_payload_returned": false,
+    "private_reasoning_keys_recursively_removed": [
+      "thinking",
+      "reasoning",
+      "reasoning_content",
+      "raw_blocks",
+      "signature"
+    ],
+    "run_get_and_tests_run_covered": true,
+    "credentials_and_absolute_paths_redacted": true,
+    "token_count_and_budget_fields_preserved": true
+  },
+  "result_transport": {
+    "oversized_model_facing_result_is_sliced": false,
+    "oversized_result_returns_complete_standard_error": "platform_result_too_large",
+    "production_local_lilies_model_loop_covered": true
+  },
+  "artifacts": {
+    "identifier": "opaque UUID",
+    "binding_fields": [
+      "assignment_id",
+      "session_id",
+      "application_id",
+      "run_id"
+    ],
+    "whole_file_registration_limit_bytes": 2000000,
+    "maximum_raw_chunk_bytes": 65536,
+    "absolute_path_rejected": true,
+    "parent_traversal_rejected": true,
+    "windows_drive_path_rejected": true,
+    "backslash_path_rejected": true,
+    "symlink_escape_rejected": true,
+    "cross_binding_read_rejected": true,
+    "full_file_digest_verified_before_each_chunk_projection": true,
+    "digest_tamper_detected": true,
+    "invalid_range_status": 416,
+    "binary_and_control_character_reconstruction_exact": true,
+    "registry_mapping_immutable": true,
+    "content_absent_from_registry_and_request_ledger": true,
+    "exact_replay_rechecks_content_digest": true,
+    "test_run_artifact_end_to_end": true,
+    "restart_safe": true
+  },
+  "publication": {
+    "task_credential_requires_current_nonempty_mandatory_acceptance": true,
+    "tested_hash_must_equal_current_content_hash": true,
+    "context_dependent_workflow_version_policy_loss_prevented": true,
+    "no_version_created_on_policy_denial": true,
+    "interactive_quick_or_guided_user_publication_policy_changed": false
+  },
+  "identifier_validation": {
+    "malformed_run_id_routes_tested": [
+      "get",
+      "resume",
+      "cancel",
+      "trace",
+      "artifact"
+    ],
+    "malformed_status_and_code": "422 invalid_request",
+    "valid_unknown_uuid_status_and_code": "404 not_found"
+  }
+}

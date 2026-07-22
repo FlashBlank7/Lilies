@@ -5,7 +5,9 @@ import ipaddress
 import json
 import re
 from collections import defaultdict, deque
+from collections.abc import Collection
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 from uuid import uuid4
@@ -64,6 +66,39 @@ class HumanInputPause(RuntimeError):
     pass
 
 
+class WorkflowWorkspaceBoundaryViolation(ValueError):
+    """A trusted execution policy rejected a workflow-selected workspace."""
+
+
+class NestedWorkflowScopeDenied(ValueError):
+    """A workflow attempted to call an application outside its run policy."""
+
+
+class NestedWorkflowCycleDenied(ValueError):
+    """A nested workflow call would create an application cycle."""
+
+
+class NestedWorkflowDepthExceeded(ValueError):
+    """A nested workflow call exceeded the persisted application depth."""
+
+
+class WorkflowRuntimeToolScopeDenied(ValueError):
+    """A workflow attempted to execute a runtime tool outside its run policy."""
+
+
+class WorkflowRuntimeNetworkScopeDenied(ValueError):
+    """A workflow attempted network access outside its run policy."""
+
+
+class WorkflowRuntimeSecretScopeDenied(ValueError):
+    """A workflow attempted to resolve a secret outside its run policy."""
+
+
+BLACKBOX_RUNTIME_TOOL_ALLOWLIST = frozenset({"Edit", "Glob", "Grep", "Read", "Write"})
+BLACKBOX_RUNTIME_NETWORK_ALLOWLIST: frozenset[str] = frozenset()
+MAX_NESTED_WORKFLOW_DEPTH = 16
+
+
 TEST_SUITE_MAX_CONCURRENCY = 4
 
 
@@ -108,6 +143,10 @@ class WorkflowRuntime:
         self.web_collector = web_collector
         self.connector_service = connector_service
         self.active_tasks: dict[str, asyncio.Task[None]] = {}
+        self._workspace_boundaries: dict[str, Path] = {}
+        self._nested_application_allowlists: dict[str, frozenset[str]] = {}
+        self._runtime_tool_allowlists: dict[str, frozenset[str]] = {}
+        self._network_host_allowlists: dict[str, frozenset[str]] = {}
 
     async def create_run(
         self,
@@ -116,7 +155,37 @@ class WorkflowRuntime:
         *,
         parent_task_id: str | None = None,
         origin: str = "api",
+        workspace_boundary: str | None = None,
+        allowed_nested_application_ids: Collection[str] | None = None,
+        allowed_runtime_tools: Collection[str] | None = None,
+        allowed_network_hosts: Collection[str] | None = None,
+        assignment_id: str | None = None,
+        session_id: str | None = None,
+        application_call_chain: Collection[str] | None = None,
     ) -> dict[str, Any]:
+        ancestor_chain = [str(value) for value in (application_call_chain or ())]
+        if application_id in ancestor_chain:
+            raise NestedWorkflowCycleDenied(
+                "nested workflow application cycle is outside the execution policy"
+            )
+        if len(ancestor_chain) >= MAX_NESTED_WORKFLOW_DEPTH:
+            raise NestedWorkflowDepthExceeded(
+                "nested workflow application depth exceeds the execution policy"
+            )
+        current_call_chain = [*ancestor_chain, application_id]
+        restricted = any(
+            value is not None
+            for value in (
+                workspace_boundary,
+                allowed_nested_application_ids,
+                allowed_runtime_tools,
+                allowed_network_hosts,
+                assignment_id,
+                session_id,
+            )
+        )
+        if restricted:
+            self._validate_restricted_inputs(request.inputs)
         if request.use_draft:
             draft = await self.workflow_store.get_draft(application_id)
             snapshot, version, draft_revision = draft["snapshot"], None, int(draft["revision"])
@@ -126,7 +195,39 @@ class WorkflowRuntime:
         errors = self.blocks.validate_workflow(snapshot.workflow)
         if errors:
             raise ValueError("invalid workflow: " + "; ".join(errors))
-        self.sandboxes.resolve_workspace(request.workspace_path)
+        resolved_boundary = (
+            self.sandboxes.resolve_workspace(workspace_boundary).resolve()
+            if workspace_boundary is not None
+            else None
+        )
+        resolved_workspace = (
+            self._resolve_scoped_workspace(request.workspace_path, resolved_boundary)
+            if resolved_boundary is not None
+            else self.sandboxes.resolve_workspace(request.workspace_path)
+        )
+        nested_allowlist = (
+            frozenset(str(value) for value in allowed_nested_application_ids)
+            if allowed_nested_application_ids is not None
+            else None
+        )
+        runtime_tool_allowlist = (
+            frozenset(str(value) for value in allowed_runtime_tools)
+            if allowed_runtime_tools is not None
+            else None
+        )
+        network_host_allowlist = (
+            frozenset(str(value).casefold() for value in allowed_network_hosts)
+            if allowed_network_hosts is not None
+            else None
+        )
+        self._validate_execution_policy(
+            snapshot.workflow,
+            workspace_boundary=resolved_boundary,
+            allowed_nested_application_ids=nested_allowlist,
+            allowed_runtime_tools=runtime_tool_allowlist,
+            allowed_network_hosts=network_host_allowlist,
+            agents=snapshot.agents,
+        )
         run_id = str(uuid4())
         inputs = await self._inputs_with_governed_memory(
             application_id=application_id,
@@ -138,7 +239,26 @@ class WorkflowRuntime:
             application_id=application_id,
             snapshot=snapshot,
             inputs=inputs,
-            workspace_path=request.workspace_path,
+            workspace_path=(
+                str(resolved_workspace)
+                if resolved_boundary is not None
+                else request.workspace_path
+            ),
+            workspace_boundary=(
+                str(resolved_boundary) if resolved_boundary is not None else None
+            ),
+            allowed_nested_application_ids=(
+                sorted(nested_allowlist) if nested_allowlist is not None else None
+            ),
+            allowed_runtime_tools=(
+                sorted(runtime_tool_allowlist) if runtime_tool_allowlist is not None else None
+            ),
+            allowed_network_hosts=(
+                sorted(network_host_allowlist) if network_host_allowlist is not None else None
+            ),
+            assignment_id=assignment_id,
+            session_id=session_id,
+            application_call_chain=current_call_chain,
         )
         await self.workflow_store.create_run(
             state, version=version, draft_revision=draft_revision
@@ -153,7 +273,7 @@ class WorkflowRuntime:
                 "origin": origin,
                 "version": version,
                 "draft_revision": draft_revision,
-                "workspace_path": request.workspace_path,
+                "workspace_path": state.workspace_path,
                 "application_id": application_id,
                 "workflow_id": application_id,
                 "model": self.runtime_model,
@@ -162,6 +282,308 @@ class WorkflowRuntime:
         )
         self._start(state)
         return {"run_id": run_id, "status": "queued", "version": version, "draft_revision": draft_revision}
+
+    def _resolve_scoped_workspace(self, requested: str, boundary: Path) -> Path:
+        """Resolve a workflow-selected directory relative to its trusted boundary."""
+
+        candidate = Path(requested)
+        if not candidate.is_absolute():
+            candidate = boundary / candidate
+        resolved = candidate.resolve()
+        if resolved != boundary and boundary not in resolved.parents:
+            raise WorkflowWorkspaceBoundaryViolation(
+                "workflow workspace is outside the task-owned execution boundary"
+            )
+        try:
+            checked = self.sandboxes.resolve_workspace(str(resolved)).resolve()
+        except (OSError, RuntimeError, ValueError) as error:
+            raise WorkflowWorkspaceBoundaryViolation(
+                "workflow workspace is unavailable inside the task-owned execution boundary"
+            ) from error
+        if checked != boundary and boundary not in checked.parents:
+            raise WorkflowWorkspaceBoundaryViolation(
+                "workflow workspace is outside the task-owned execution boundary"
+            )
+        return checked
+
+    def _workspace_for_run(self, run_id: str, requested: str) -> str:
+        boundary = self._workspace_boundaries.get(run_id)
+        if boundary is None:
+            return requested
+        return str(self._resolve_scoped_workspace(requested, boundary))
+
+    def _validate_execution_policy(
+        self,
+        workflow: WorkflowSpec,
+        *,
+        workspace_boundary: Path | None,
+        allowed_nested_application_ids: frozenset[str] | None,
+        allowed_runtime_tools: frozenset[str] | None = None,
+        allowed_network_hosts: frozenset[str] | None = None,
+        agents: dict[str, AgentSpec] | None = None,
+    ) -> None:
+        """Reject statically declared boundary escapes before a run is persisted."""
+
+        for node in workflow.nodes:
+            if any(
+                value is not None
+                for value in (
+                    workspace_boundary,
+                    allowed_nested_application_ids,
+                    allowed_runtime_tools,
+                    allowed_network_hosts,
+                )
+            ):
+                definition = self.blocks.get(node.type)
+                if definition.block_kind == "legacy_compatibility" or not definition.available:
+                    raise WorkflowRuntimeToolScopeDenied(
+                        "workflow block is outside the public assigned run policy"
+                    )
+            if (
+                allowed_runtime_tools is not None
+                and self.harness.contains_secret_reference(node.config)
+            ):
+                raise WorkflowRuntimeSecretScopeDenied(
+                    "secret references are outside the assigned run policy"
+                )
+            config = self.blocks.validate_node(node)
+            if isinstance(config, ToolConfig):
+                self._validate_nested_workflow_target(
+                    config.tool_name,
+                    allowed_nested_application_ids,
+                )
+                self._validate_runtime_tool_target(config.tool_name, allowed_runtime_tools)
+            if isinstance(config, HTTPConfig) and allowed_network_hosts is not None:
+                self._validate_network_url(config.url, allowed_network_hosts)
+            if isinstance(config, (WebCollectionConfig, ConnectorActionConfig)) and (
+                allowed_network_hosts is not None
+            ):
+                raise WorkflowRuntimeNetworkScopeDenied(
+                    "network-backed workflow blocks are outside the assigned run policy"
+                )
+            if isinstance(config, ClaudeAgentConfig) and agents is not None:
+                agent = agents.get(config.agent_id)
+                if agent is not None:
+                    self._validate_agent_execution_policy(
+                        agent,
+                        allowed_runtime_tools=allowed_runtime_tools,
+                        allowed_network_hosts=allowed_network_hosts,
+                    )
+            if isinstance(config, AgentArchitectureConfig):
+                settings = config.settings
+                if allowed_runtime_tools is not None and node.type == "mcp_gateway":
+                    raise WorkflowRuntimeToolScopeDenied(
+                        "MCP process launch is outside the assigned run policy"
+                    )
+                workspace_key = {
+                    "tool_executor": "workspace_path",
+                    "sandbox_boundary": "workspace",
+                    "subagent_spawn": "workspace_path",
+                }.get(node.type)
+                if workspace_boundary is not None and workspace_key is not None:
+                    declared = settings.get(workspace_key)
+                    if isinstance(declared, str):
+                        self._resolve_scoped_workspace(declared, workspace_boundary)
+                if node.type == "tool_executor":
+                    tool_name = settings.get("tool_name")
+                    if isinstance(tool_name, str):
+                        self._validate_nested_workflow_target(
+                            tool_name,
+                            allowed_nested_application_ids,
+                        )
+                        self._validate_runtime_tool_target(
+                            tool_name,
+                            allowed_runtime_tools,
+                        )
+                declared_tools = settings.get("tools")
+                if isinstance(declared_tools, list):
+                    for tool_name in declared_tools:
+                        if isinstance(tool_name, str):
+                            self._validate_runtime_tool_target(
+                                tool_name,
+                                allowed_runtime_tools,
+                            )
+                if allowed_network_hosts is not None and node.type == "sandbox_boundary":
+                    declared_policy = str(settings.get("network_policy", "none"))
+                    if declared_policy != "none":
+                        raise WorkflowRuntimeNetworkScopeDenied(
+                            "sandbox network access is outside the assigned run policy"
+                        )
+            if isinstance(config, (IterationConfig, LoopConfig)):
+                self._validate_execution_policy(
+                    config.workflow,
+                    workspace_boundary=workspace_boundary,
+                    allowed_nested_application_ids=allowed_nested_application_ids,
+                    allowed_runtime_tools=allowed_runtime_tools,
+                    allowed_network_hosts=allowed_network_hosts,
+                    agents=agents,
+                )
+
+    @staticmethod
+    def _validate_runtime_tool_target(
+        tool_name: str,
+        allowed_runtime_tools: frozenset[str] | None,
+    ) -> None:
+        if tool_name.startswith("workflow:") or allowed_runtime_tools is None:
+            return
+        if tool_name not in allowed_runtime_tools:
+            raise WorkflowRuntimeToolScopeDenied(
+                "runtime tool is outside the assigned run policy"
+            )
+
+    @staticmethod
+    def _validate_network_url(
+        raw_url: Any,
+        allowed_network_hosts: frozenset[str],
+    ) -> None:
+        if not isinstance(raw_url, str):
+            if not allowed_network_hosts:
+                raise WorkflowRuntimeNetworkScopeDenied(
+                    "dynamic network destinations are outside the assigned run policy"
+                )
+            return
+        hostname = urlparse(raw_url).hostname
+        if hostname is None or hostname.casefold() not in allowed_network_hosts:
+            raise WorkflowRuntimeNetworkScopeDenied(
+                "network destination is outside the assigned run policy"
+            )
+
+    def _validate_agent_execution_policy(
+        self,
+        agent: AgentSpec,
+        *,
+        allowed_runtime_tools: frozenset[str] | None,
+        allowed_network_hosts: frozenset[str] | None,
+    ) -> None:
+        effective_agent = self._restricted_agent(agent, allowed_runtime_tools)
+        actual_tools = {
+            definition.name for definition in self.tools.definitions_for(effective_agent)
+        }
+        for tool_name in actual_tools:
+            self._validate_runtime_tool_target(tool_name, allowed_runtime_tools)
+        if allowed_runtime_tools is not None and agent.mcp_servers:
+            raise WorkflowRuntimeToolScopeDenied(
+                "agent MCP process launch is outside the assigned run policy"
+            )
+        if allowed_network_hosts is None:
+            return
+        policy = str(getattr(agent.network_policy, "value", agent.network_policy))
+        if policy == "full":
+            raise WorkflowRuntimeNetworkScopeDenied(
+                "full agent network access is outside the assigned run policy"
+            )
+        declared_hosts = {str(host).casefold() for host in agent.network_allowlist}
+        if not declared_hosts.issubset(allowed_network_hosts):
+            raise WorkflowRuntimeNetworkScopeDenied(
+                "agent network allowlist exceeds the assigned run policy"
+            )
+
+    def _restricted_agent(
+        self,
+        agent: AgentSpec,
+        allowed_runtime_tools: frozenset[str] | None,
+    ) -> AgentSpec:
+        """Materialize an empty restricted tool list as genuinely tool-free.
+
+        AgentRuntime preserves a legacy convention where an empty ``tools``
+        list means "all registered tools".  Restricted workflow runs cannot
+        inherit that convention, so subtract the complete registry from the
+        effective agent while leaving unrestricted/legacy runs unchanged.
+        """
+
+        if allowed_runtime_tools is None or agent.tools:
+            return agent
+        return agent.model_copy(
+            update={
+                "disallowed_tools": sorted(
+                    set(agent.disallowed_tools) | set(self.tools.names())
+                )
+            }
+        )
+
+    def validate_restricted_snapshot(
+        self,
+        snapshot: ApplicationSnapshot,
+        *,
+        workspace_boundary: str,
+        allowed_nested_application_ids: Collection[str],
+        allowed_runtime_tools: Collection[str],
+        allowed_network_hosts: Collection[str],
+        for_publication: bool = False,
+    ) -> None:
+        """Apply the same static policy used by black-box runs without persisting a run."""
+
+        for test in snapshot.tests:
+            self._validate_restricted_inputs(test.inputs)
+        boundary = self.sandboxes.resolve_workspace(workspace_boundary).resolve()
+        self._validate_execution_policy(
+            snapshot.workflow,
+            workspace_boundary=boundary,
+            allowed_nested_application_ids=frozenset(
+                str(value) for value in allowed_nested_application_ids
+            ),
+            allowed_runtime_tools=frozenset(str(value) for value in allowed_runtime_tools),
+            allowed_network_hosts=frozenset(
+                str(value).casefold() for value in allowed_network_hosts
+            ),
+            agents=snapshot.agents,
+        )
+        if for_publication:
+            self._validate_publication_policy(snapshot.workflow)
+
+    def _validate_publication_policy(self, workflow: WorkflowSpec) -> None:
+        """Reject nodes whose safety depends on ephemeral assignment run policy.
+
+        Immutable versions do not yet persist the assignment workspace, tool,
+        network, nested-application, or agent policy.  Publishing those nodes
+        would let a later scheduler/customer run interpret missing policy as
+        unrestricted, so only context-independent nodes may cross this gate.
+        """
+
+        for node in workflow.nodes:
+            config = self.blocks.validate_node(node)
+            if isinstance(config, (HTTPConfig, WebCollectionConfig, ConnectorActionConfig)):
+                raise WorkflowRuntimeNetworkScopeDenied(
+                    "network-dependent workflow blocks cannot be published until the "
+                    "immutable version preserves its assigned run policy"
+                )
+            if isinstance(
+                config,
+                (
+                    ScheduleTriggerConfig,
+                    ToolConfig,
+                    ClaudeAgentConfig,
+                    AgentArchitectureConfig,
+                ),
+            ):
+                raise WorkflowRuntimeToolScopeDenied(
+                    "context-dependent workflow blocks cannot be published until the "
+                    "immutable version preserves its assigned run policy"
+                )
+            if isinstance(config, (IterationConfig, LoopConfig)):
+                self._validate_publication_policy(config.workflow)
+
+    def _validate_restricted_inputs(self, inputs: dict[str, Any]) -> None:
+        reserved = sorted(str(key) for key in inputs if str(key).startswith("__"))
+        if reserved:
+            raise ValueError(f"reserved runtime input keys are not public: {reserved}")
+        if self.harness.contains_secret_reference(inputs):
+            raise WorkflowRuntimeSecretScopeDenied(
+                "secret references are outside the assigned run policy"
+            )
+
+    @staticmethod
+    def _validate_nested_workflow_target(
+        tool_name: str,
+        allowed_nested_application_ids: frozenset[str] | None,
+    ) -> None:
+        if not tool_name.startswith("workflow:") or allowed_nested_application_ids is None:
+            return
+        application_id = tool_name.split(":", 1)[1]
+        if application_id not in allowed_nested_application_ids:
+            raise NestedWorkflowScopeDenied(
+                "nested workflow target is outside the assigned application scope"
+            )
 
     async def _inputs_with_governed_memory(
         self,
@@ -271,6 +693,22 @@ class WorkflowRuntime:
         existing = self.active_tasks.get(state.run_id)
         if existing and not existing.done():
             raise RuntimeError("workflow run is already active")
+        if state.workspace_boundary is not None:
+            boundary = self.sandboxes.resolve_workspace(state.workspace_boundary).resolve()
+            self._resolve_scoped_workspace(state.workspace_path, boundary)
+            self._workspace_boundaries[state.run_id] = boundary
+        if state.allowed_nested_application_ids is not None:
+            self._nested_application_allowlists[state.run_id] = frozenset(
+                state.allowed_nested_application_ids
+            )
+        if state.allowed_runtime_tools is not None:
+            self._runtime_tool_allowlists[state.run_id] = frozenset(
+                state.allowed_runtime_tools
+            )
+        if state.allowed_network_hosts is not None:
+            self._network_host_allowlists[state.run_id] = frozenset(
+                host.casefold() for host in state.allowed_network_hosts
+            )
         task = asyncio.create_task(self._run(state))
         self.active_tasks[state.run_id] = task
         task.add_done_callback(lambda item: self._consume(state.run_id, item))
@@ -498,6 +936,15 @@ class WorkflowRuntime:
                 version = await self.storage.save_agent_version(agent, "application")
             else:
                 agent, version, _ = await self.storage.get_agent(config.agent_id, config.version)
+            self._validate_agent_execution_policy(
+                agent,
+                allowed_runtime_tools=self._runtime_tool_allowlists.get(run_id),
+                allowed_network_hosts=self._network_host_allowlists.get(run_id),
+            )
+            agent = self._restricted_agent(
+                agent,
+                self._runtime_tool_allowlists.get(run_id),
+            )
             session = await self.agent_runtime.create_session(
                 agent,
                 version,
@@ -505,6 +952,7 @@ class WorkflowRuntime:
                 parent_task_id=run_id,
                 governance_owner_id=state.application_id if state else None,
                 governance_application_id=state.application_id if state else None,
+                allow_secret_references=run_id not in self._runtime_tool_allowlists,
             )
             task = str(self._resolve(config.task, context))
             await self._emit(run_id, "node.agent.session", {"node_id": scoped_id, "session_id": session.id})
@@ -560,6 +1008,7 @@ class WorkflowRuntime:
                 run_id,
                 scoped_id,
                 owner_id=state.application_id if state else "",
+                state=state,
             )
         if isinstance(config, AgentArchitectureConfig):
             return await self._execute_agent_architecture_block(
@@ -623,8 +1072,26 @@ class WorkflowRuntime:
                 value = next((item for item in values if item is not None), None)
             return {"output": value}
         if isinstance(config, HTTPConfig):
-            return await self._http(config, context, owner_id=state.application_id if state else "")
+            if run_id in self._network_host_allowlists:
+                return await self._http(
+                    config,
+                    context,
+                    owner_id=state.application_id if state else "",
+                    run_id=run_id,
+                )
+            # Preserve the legacy override seam for unrestricted runs. Several
+            # integrations replace ``_http`` with the original three-argument
+            # callable; only policy-bound runs need the additional run key.
+            return await self._http(
+                config,
+                context,
+                owner_id=state.application_id if state else "",
+            )
         if isinstance(config, WebCollectionConfig):
+            if run_id in self._network_host_allowlists:
+                raise WorkflowRuntimeNetworkScopeDenied(
+                    "network-backed workflow blocks are outside the assigned run policy"
+                )
             if self.web_collector is None:
                 raise RuntimeError("controlled Web collection service is not configured")
             job_context = inputs.get("__job__", {})
@@ -645,6 +1112,10 @@ class WorkflowRuntime:
                 self._resolve(config.topic, context),
             )
         if isinstance(config, ConnectorActionConfig):
+            if run_id in self._network_host_allowlists:
+                raise WorkflowRuntimeNetworkScopeDenied(
+                    "network-backed workflow blocks are outside the assigned run policy"
+                )
             if self.connector_service is None:
                 raise RuntimeError("Connector service is not configured")
             tenant_id = str(self._resolve(config.tenant_id, context))
@@ -1091,14 +1562,16 @@ class WorkflowRuntime:
                     raise ValueError("tool_executor.settings.tool_name is required")
             else:
                 tool_input_value = settings.get("tool_input", value if isinstance(value, dict) else {"input": value})
-            effective_workspace = str(
+            requested_workspace = self._resolve(
                 settings.get("workspace_path")
                 or (
                     value.get("workspace")
                     if isinstance(value, dict) and value.get("workspace")
                     else workspace_path
-                )
+                ),
+                context,
             )
+            effective_workspace = self._workspace_for_run(run_id, str(requested_workspace))
             result = await self._execute_tool(
                 ToolConfig(tool_name=str(tool_name), input=tool_input_value),
                 snapshot,
@@ -1107,6 +1580,7 @@ class WorkflowRuntime:
                 run_id,
                 scoped_id,
                 owner_id=state.application_id if state else "",
+                state=state,
             )
             return {"output": result["output"], "state": {"mechanism": node.type, "tool_name": tool_name}}
 
@@ -1181,9 +1655,16 @@ class WorkflowRuntime:
             return {"output": value, "state": {"mechanism": node.type, "approved": True, "mode": mode}}
 
         if node.type == "sandbox_boundary":
-            declared_workspace = str(settings.get("workspace", workspace_path))
+            declared_workspace = self._workspace_for_run(
+                run_id,
+                str(self._resolve(settings.get("workspace", workspace_path), context)),
+            )
             network_policy = str(settings.get("network_policy", "none"))
             effective_policy = network_policy if network_policy in {"none", "full", "allowlist"} else "none"
+            if run_id in self._network_host_allowlists and effective_policy != "none":
+                raise WorkflowRuntimeNetworkScopeDenied(
+                    "sandbox network access is outside the assigned run policy"
+                )
             self.sandboxes.resolve_workspace(declared_workspace)
             await emit_harness_signal("sandbox", "declared", {
                 "workspace": declared_workspace,
@@ -1240,6 +1721,10 @@ class WorkflowRuntime:
             }
 
         if node.type == "mcp_gateway":
+            if run_id in self._runtime_tool_allowlists:
+                raise WorkflowRuntimeToolScopeDenied(
+                    "MCP process launch is outside the assigned run policy"
+                )
             servers = settings.get("servers", [])
             if isinstance(servers, dict):
                 servers = [servers]
@@ -1317,6 +1802,12 @@ class WorkflowRuntime:
             if not task:
                 raise ValueError("subagent_spawn.settings.task is required")
             tools = [str(item) for item in settings.get("tools", [])]
+            for tool_name in tools:
+                self._validate_runtime_tool_target(
+                    tool_name,
+                    self._runtime_tool_allowlists.get(run_id),
+                )
+            allowed_network_hosts = self._network_host_allowlists.get(run_id)
             budget = settings.get("budget", {}) if isinstance(settings.get("budget", {}), dict) else {}
             max_turns = int(budget.get("max_rounds", settings.get("max_turns", 4)))
             max_budget_usd = budget.get("max_cost_usd", settings.get("max_budget_usd"))
@@ -1330,17 +1821,40 @@ class WorkflowRuntime:
                 )),
                 tools=tools,
                 permission_mode=PermissionMode.bypass,
+                network_policy=(
+                    "allowlist"
+                    if allowed_network_hosts
+                    else "none"
+                    if allowed_network_hosts is not None
+                    else "full"
+                ),
+                network_allowlist=sorted(allowed_network_hosts or ()),
                 max_turns=max_turns,
                 max_budget_usd=float(max_budget_usd) if max_budget_usd is not None else None,
                 allow_subagents=False,
+            )
+            subagent = self._restricted_agent(
+                subagent,
+                self._runtime_tool_allowlists.get(run_id),
             )
             version = await self.storage.save_agent_version(subagent, "workflow-subagent")
             session_id = f"{run_id}-{scoped_id}-subagent"
             session = await self.agent_runtime.create_session(
                 subagent,
                 version,
-                str(settings.get("workspace_path") or workspace_path),
+                self._workspace_for_run(
+                    run_id,
+                    str(
+                        self._resolve(
+                            settings.get("workspace_path") or workspace_path,
+                            context,
+                        )
+                    ),
+                ),
                 session_id=session_id,
+                governance_owner_id=state.application_id if state else None,
+                governance_application_id=state.application_id if state else None,
+                allow_secret_references=run_id not in self._runtime_tool_allowlists,
             )
             await self._emit(run_id, "subagent.started", {
                 "node_id": scoped_id,
@@ -1840,6 +2354,10 @@ class WorkflowRuntime:
         )
         definitions: list[Any] = []
         for name in tool_names:
+            self._validate_runtime_tool_target(
+                name,
+                self._runtime_tool_allowlists.get(run_id),
+            )
             try:
                 tool = self.tools.get(name)
                 definitions.append(tool.definition())
@@ -1914,9 +2432,14 @@ class WorkflowRuntime:
         run_id: str,
         node_id: str,
         owner_id: str,
+        state: WorkflowRunState | None,
     ) -> dict[str, Any]:
         if config.tool_name.startswith("workflow:"):
             application_id = config.tool_name.split(":", 1)[1]
+            self._validate_nested_workflow_target(
+                config.tool_name,
+                self._nested_application_allowlists.get(run_id),
+            )
             await self.harness.record_usage(
                 run_id,
                 "nested_workflow_call",
@@ -1927,6 +2450,19 @@ class WorkflowRuntime:
                 WorkflowRunRequest(inputs=self._resolve(config.input, context), workspace_path=workspace_path),
                 parent_task_id=run_id,
                 origin="nested_workflow_tool",
+                workspace_boundary=(
+                    str(self._workspace_boundaries[run_id])
+                    if run_id in self._workspace_boundaries
+                    else None
+                ),
+                allowed_nested_application_ids=self._nested_application_allowlists.get(run_id),
+                allowed_runtime_tools=self._runtime_tool_allowlists.get(run_id),
+                allowed_network_hosts=self._network_host_allowlists.get(run_id),
+                assignment_id=state.assignment_id if state is not None else None,
+                session_id=state.session_id if state is not None else None,
+                application_call_chain=(
+                    state.application_call_chain if state is not None else None
+                ),
             )
             await self.active_tasks[nested["run_id"]]
             record = await self.workflow_store.get_run(nested["run_id"])
@@ -1935,13 +2471,26 @@ class WorkflowRuntime:
                     f"nested workflow {application_id} ended with {record['status']}: {record.get('error') or ''}"
                 )
             return {"output": record["outputs"], "run_id": nested["run_id"]}
+        self._validate_runtime_tool_target(
+            config.tool_name,
+            self._runtime_tool_allowlists.get(run_id),
+        )
         tool = self.tools.get(config.tool_name)
+        allowed_network_hosts = self._network_host_allowlists.get(run_id)
         agent = AgentSpec(
             name=f"Workflow tool {config.tool_name}",
             description="Executes one tool from a validated workflow.",
             system_prompt="Execute the configured workflow tool exactly and return its result.",
             tools=[config.tool_name],
             permission_mode=PermissionMode.bypass,
+            network_policy=(
+                "allowlist"
+                if allowed_network_hosts
+                else "none"
+                if allowed_network_hosts is not None
+                else "full"
+            ),
+            network_allowlist=sorted(allowed_network_hosts or ()),
         )
         session_id = f"workflow-{run_id}-{node_id}"
         sandbox = None
@@ -1966,6 +2515,7 @@ class WorkflowRuntime:
             injected_input = await self.harness.inject_secret_references(
                 owner_id=owner_id,
                 payload=resolved_input,
+                allow_secret_references=run_id not in self._runtime_tool_allowlists,
             )
             await self.harness.record_usage(
                 run_id,
@@ -2046,11 +2596,28 @@ class WorkflowRuntime:
                 hostname=parsed.hostname,
             )
 
-    async def _http(self, config: HTTPConfig, context: dict[str, Any], *, owner_id: str) -> dict[str, Any]:
+    async def _http(
+        self,
+        config: HTTPConfig,
+        context: dict[str, Any],
+        *,
+        owner_id: str,
+        run_id: str | None = None,
+    ) -> dict[str, Any]:
         url = str(self._resolve(config.url, context))
         parsed = urlparse(url)
         if parsed.scheme not in {"http", "https"} or not parsed.hostname:
             raise ValueError("HTTP block requires an http or https URL")
+        allowed_network_hosts = (
+            self._network_host_allowlists.get(run_id) if run_id is not None else None
+        )
+        if (
+            allowed_network_hosts is not None
+            and parsed.hostname.casefold() not in allowed_network_hosts
+        ):
+            raise WorkflowRuntimeNetworkScopeDenied(
+                "network destination is outside the assigned run policy"
+            )
         try:
             address = ipaddress.ip_address(parsed.hostname)
             if address.is_link_local or address.is_multicast or address.is_unspecified:
@@ -2072,15 +2639,24 @@ class WorkflowRuntime:
         injected_headers = await self.harness.inject_secret_references(
             owner_id=owner_id,
             payload=header_values,
+            allow_secret_references=(
+                run_id is None or run_id not in self._runtime_tool_allowlists
+            ),
         )
         headers = {key: str(value) for key, value in injected_headers.items()}
         query = await self.harness.inject_secret_references(
             owner_id=owner_id,
             payload=query,
+            allow_secret_references=(
+                run_id is None or run_id not in self._runtime_tool_allowlists
+            ),
         )
         body = await self.harness.inject_secret_references(
             owner_id=owner_id,
             payload=body,
+            allow_secret_references=(
+                run_id is None or run_id not in self._runtime_tool_allowlists
+            ),
         )
         async with httpx.AsyncClient(timeout=config.timeout_seconds, follow_redirects=True) as client:
             response = await client.request(
@@ -2099,10 +2675,73 @@ class WorkflowRuntime:
         harness_task_id: str | None = None,
         manage_harness_task: bool = True,
         origin: str = "test_suite",
+        workspace_path: str = ".",
+        workspace_boundary: str | None = None,
+        allowed_nested_application_ids: Collection[str] | None = None,
+        allowed_runtime_tools: Collection[str] | None = None,
+        allowed_network_hosts: Collection[str] | None = None,
+        assignment_id: str | None = None,
+        session_id: str | None = None,
     ) -> dict[str, Any]:
         draft = await self.workflow_store.get_draft(application_id)
         snapshot: ApplicationSnapshot = draft["snapshot"]
+        nested_allowlist = (
+            frozenset(str(value) for value in allowed_nested_application_ids)
+            if allowed_nested_application_ids is not None
+            else None
+        )
+        runtime_tool_allowlist = (
+            frozenset(str(value) for value in allowed_runtime_tools)
+            if allowed_runtime_tools is not None
+            else None
+        )
+        network_host_allowlist = (
+            frozenset(str(value).casefold() for value in allowed_network_hosts)
+            if allowed_network_hosts is not None
+            else None
+        )
+        if any(
+            value is not None
+            for value in (
+                workspace_boundary,
+                nested_allowlist,
+                runtime_tool_allowlist,
+                network_host_allowlist,
+            )
+        ):
+            for test in snapshot.tests:
+                self._validate_restricted_inputs(test.inputs)
+        case_workspaces: list[Path | None] = [None for _ in snapshot.tests]
+        suite_workspace: Path | None = None
+        if workspace_boundary is not None:
+            suite_boundary = self.sandboxes.resolve_workspace(workspace_boundary).resolve()
+            suite_workspace = self._resolve_scoped_workspace(workspace_path, suite_boundary)
+            # Validate once before draft validation and before any report, run,
+            # version, or active-version side effect.  This deliberately also
+            # covers an empty test suite.
+            self._validate_execution_policy(
+                snapshot.workflow,
+                workspace_boundary=suite_workspace,
+                allowed_nested_application_ids=nested_allowlist,
+                allowed_runtime_tools=runtime_tool_allowlist,
+                allowed_network_hosts=network_host_allowlist,
+                agents=snapshot.agents,
+            )
         validation = await self.applications.validate_draft(application_id)
+        if validation["valid"] and suite_workspace is not None:
+            for index, test in enumerate(snapshot.tests):
+                safe_test_id = re.sub(r"[^A-Za-z0-9_.-]", "-", str(test.id))[:48]
+                case_workspace = suite_workspace / f"case-{index:03d}-{safe_test_id or 'test'}"
+                case_workspace.mkdir(parents=False, exist_ok=True)
+                self._validate_execution_policy(
+                    snapshot.workflow,
+                    workspace_boundary=case_workspace,
+                    allowed_nested_application_ids=nested_allowlist,
+                    allowed_runtime_tools=runtime_tool_allowlist,
+                    allowed_network_hosts=network_host_allowlist,
+                    agents=snapshot.agents,
+                )
+                case_workspaces[index] = case_workspace
         test_task_id = harness_task_id or f"test-suite:{uuid4()}"
         if manage_harness_task:
             await self.harness.start_task(
@@ -2245,20 +2884,40 @@ class WorkflowRuntime:
             return report
         semaphore = asyncio.Semaphore(TEST_SUITE_MAX_CONCURRENCY)
 
-        async def execute_test(test: WorkflowTestCase) -> tuple[WorkflowTestCase, str]:
+        async def execute_test(
+            index: int,
+            test: WorkflowTestCase,
+        ) -> tuple[WorkflowTestCase, str]:
             async with semaphore:
+                case_workspace = case_workspaces[index]
                 created = await self.create_run(
                     application_id,
-                    WorkflowRunRequest(inputs=test.inputs, use_draft=True, workspace_path="."),
+                    WorkflowRunRequest(
+                        inputs=test.inputs,
+                        use_draft=True,
+                        workspace_path=(
+                            str(case_workspace) if case_workspace is not None else workspace_path
+                        ),
+                    ),
                     parent_task_id=test_task_id,
                     origin=origin,
+                    workspace_boundary=(
+                        str(case_workspace) if case_workspace is not None else None
+                    ),
+                    allowed_nested_application_ids=nested_allowlist,
+                    allowed_runtime_tools=runtime_tool_allowlist,
+                    allowed_network_hosts=network_host_allowlist,
+                    assignment_id=assignment_id,
+                    session_id=session_id,
                 )
                 run_id = created["run_id"]
                 task = self.active_tasks[run_id]
                 await task
                 return test, run_id
 
-        test_runs = await asyncio.gather(*(execute_test(test) for test in snapshot.tests))
+        test_runs = await asyncio.gather(
+            *(execute_test(index, test) for index, test in enumerate(snapshot.tests))
+        )
         results: list[dict[str, Any]] = []
         for test, run_id in test_runs:
             record = await self.workflow_store.get_run(run_id)
@@ -2813,3 +3472,7 @@ class WorkflowRuntime:
         if not task.cancelled():
             task.exception()
         self.active_tasks.pop(run_id, None)
+        self._workspace_boundaries.pop(run_id, None)
+        self._nested_application_allowlists.pop(run_id, None)
+        self._runtime_tool_allowlists.pop(run_id, None)
+        self._network_host_allowlists.pop(run_id, None)

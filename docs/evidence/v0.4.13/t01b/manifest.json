@@ -1,0 +1,47 @@
+{
+  "schema_version": "1.0",
+  "task_id": "V04-13-T01B",
+  "captured_at_utc": "2026-07-22T15:33:47Z",
+  "baseline_commit": "6036017",
+  "files": [
+    {
+      "path": "docs/evidence/v0.4.13/t01b/architecture-boundary.json",
+      "sha256": "09023cec35562098f3edae07341e30a2cebd5cfbee81ca97027c8d2fc7ea0363"
+    },
+    {
+      "path": "docs/evidence/v0.4.13/t01b/contract-and-scope.json",
+      "sha256": "29b7f7742d6f4965a5371ba1cf1926ea5526c83323bed5d416ba7b9bfd4966f2"
+    },
+    {
+      "path": "docs/evidence/v0.4.13/t01b/deterministic-tests.txt",
+      "sha256": "3edcebf81dd883fbd1c26056ed092be1b17d082ad622c15f71facc88ad3b1929"
+    },
+    {
+      "path": "docs/evidence/v0.4.13/t01b/http-only-minimal-build.json",
+      "sha256": "79d2d5e3a597ff288770642bcec0b47a052e705582cc86c035001081b5fd7472"
+    },
+    {
+      "path": "docs/evidence/v0.4.13/t01b/independent-audit.md",
+      "sha256": "eaac50c21cb3542a439b71788e322928787858c1f2aa43d1e6875280eee1960b"
+    },
+    {
+      "path": "docs/evidence/v0.4.13/t01b/security-audit-artifact.json",
+      "sha256": "f9799d935e4cc50f3f8fd6fceacfb61c26b4af4433ec4de03db306b98a93e5f9"
+    }
+  ],
+  "verification": {
+    "focused_tests": "303 passed, 1 warning",
+    "post_fix_compatibility": "42 passed, 1 warning",
+    "separate_process_http_only": "2 passed",
+    "final_full_repository": "1004 passed, 85 xfailed, 1 warning, 0 failed",
+    "ruff": "pass",
+    "git_diff_check": "pass",
+    "uv_lock_check": "pass",
+    "json_validation": "pass",
+    "artifact_secret_scan": "pass",
+    "manifest_hash_recheck": "pass",
+    "independent_read_only_audit": "pass"
+  },
+  "evidence_level": "deterministic_separate_process_http_blackbox",
+  "claim_ceiling": "T01B versioned HTTP contract, task-scoped authorization/client, audit, runtime isolation, redacted output and bounded artifact transport are supported. No T01C-J daemon bridge, collaboration, browser, live enterprise experiment, release, or campaign-closure claim is made."
+}

@@ -113,6 +113,12 @@ from .openapi_connector import (
     OpenAPIConnectorGenerationRequest,
     OpenAPIConnectorService,
 )
+from .platform_blackbox_auth import PlatformBlackboxAuthStore
+from .platform_blackbox_artifacts import PlatformBlackboxArtifactStore
+from .platform_contract_version import (
+    PlatformContractVersionStore,
+    platform_contract_schema_digest,
+)
 from .permissions import PermissionBroker
 from .platform_harness import PlatformHarness, PlatformHarnessViolation
 from .providers import ModelProvider
@@ -288,6 +294,9 @@ class Services:
     draft_patcher: DraftPatchPreviewer
     acceptance_repairer: AcceptanceRepairPreviewer
     governed_memory: GovernedMemorySurface
+    platform_blackbox_auth: PlatformBlackboxAuthStore
+    platform_blackbox_artifacts: PlatformBlackboxArtifactStore
+    platform_contract_versions: PlatformContractVersionStore
     worker_supervisor: Any | None
     worker_process_manager: Any | None
     background_tasks: set[asyncio.Task[Any]]
@@ -1730,6 +1739,9 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
     durable_jobs = DurableJobStore(storage)
     applications = ApplicationService(workflow_store, blocks, tools)
     governed_memory = GovernedMemorySurface(storage)
+    platform_blackbox_auth = PlatformBlackboxAuthStore(storage.db_path)
+    platform_blackbox_artifacts = PlatformBlackboxArtifactStore(storage.db_path)
+    platform_contract_versions = PlatformContractVersionStore(storage.db_path)
     web_collector = ControlledWebCollector(jobs=durable_jobs, harness=harness)
     connectors = ConnectorService(storage=storage, harness=harness)
     openapi_connectors = OpenAPIConnectorService(
@@ -1845,6 +1857,9 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         draft_patcher=draft_patcher,
         acceptance_repairer=acceptance_repairer,
         governed_memory=governed_memory,
+        platform_blackbox_auth=platform_blackbox_auth,
+        platform_blackbox_artifacts=platform_blackbox_artifacts,
+        platform_contract_versions=platform_contract_versions,
         worker_supervisor=None,
         worker_process_manager=None,
         background_tasks=set(),
@@ -1885,6 +1900,13 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         await services.storage.initialize()
         await services.workflow_store.initialize()
+        await services.platform_blackbox_auth.initialize()
+        await services.platform_blackbox_artifacts.initialize()
+        await services.platform_contract_versions.initialize()
+        await services.platform_contract_versions.observe(
+            contract_version=settings.lilies_platform_contract_version,
+            schema_digest=platform_contract_schema_digest(),
+        )
         await services.durable_jobs.initialize()
         await services.connectors.initialize()
         await services.openapi_connectors.initialize()
@@ -4867,6 +4889,12 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
     @app.get("/debug", response_class=HTMLResponse)
     async def debug_page() -> str:
         return DEBUG_HTML
+
+    from .lilies_platform_api import (  # pylint: disable=import-outside-toplevel
+        install_lilies_platform_api,
+    )
+
+    install_lilies_platform_api(app, services)
 
     return app
 

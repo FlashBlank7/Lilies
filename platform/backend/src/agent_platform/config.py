@@ -78,6 +78,7 @@ class Settings(BaseSettings):
     complexity_router_default_mode: Literal["disabled", "shadow_only", "operator_opt_in", "limited_default"] = "limited_default"
     complexity_router_limited_default_enabled: bool = True
     complexity_router_limited_default_min_confidence: float = 0.55
+    lilies_platform_contract_version: int = Field(default=1, ge=1, le=2**63 - 1)
 
     def prepare(self) -> None:
         self.data_dir.mkdir(parents=True, exist_ok=True)

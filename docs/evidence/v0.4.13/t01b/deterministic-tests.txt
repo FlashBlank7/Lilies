@@ -1,0 +1,56 @@
+V04-13-T01B deterministic verification
+captured_at_utc: 2026-07-22T15:28:25Z
+baseline_commit: 6036017
+implementation_state: final pre-commit T01B worktree
+
+Focused command:
+  uv run --extra dev --frozen python -m pytest -q tests/test_v04_13*.py tests/test_runtime.py tests/test_workflow.py tests/test_v04_03_regression_time_boundary.py
+Result:
+  303 passed, 1 warning in 79.23s
+  The warning is the existing Starlette TestClient/httpx2 deprecation warning.
+
+Post-fix compatibility command:
+  uv run --extra dev --frozen python -m pytest -q tests/test_v04_03_schema_driven_block_config.py::test_saved_model_and_http_controls_change_runtime_behavior tests/test_v04_13_lilies_platform_runtime_isolation.py tests/test_v04_13_lilies_platform_security_closure.py
+Result:
+  42 passed, 1 warning in 25.13s
+
+Separate-process acceptance command:
+  uv run --extra dev --frozen python -m pytest -q tests/test_v04_13_lilies_platform_process_boundary.py
+Result:
+  2 passed in 8.67s
+
+Final full repository command after the compatibility fix:
+  uv run --extra dev --frozen python -m pytest -q
+Result:
+  1004 passed, 85 xfailed, 1 warning in 182.67s
+  No current failure. The 85 xfails are pre-existing explicitly marked tests and are not T01B acceptance gaps.
+
+Static verification command:
+  uv run --extra dev --frozen python -m ruff check platform/backend/src/agent_platform/__init__.py platform/backend/src/agent_platform/api.py platform/backend/src/agent_platform/config.py platform/backend/src/agent_platform/lilies_service.py platform/backend/src/agent_platform/lilies_tools.py platform/backend/src/agent_platform/lilies_platform_api.py platform/backend/src/agent_platform/lilies_platform_client.py platform/backend/src/agent_platform/lilies_platform_contract.py platform/backend/src/agent_platform/lilies_platform_tools.py platform/backend/src/agent_platform/platform_blackbox_artifacts.py platform/backend/src/agent_platform/platform_blackbox_auth.py platform/backend/src/agent_platform/platform_contract_version.py platform/backend/src/agent_platform/platform_harness.py platform/backend/src/agent_platform/runtime.py platform/backend/src/agent_platform/tools/core.py platform/backend/src/agent_platform/workflow_models.py platform/backend/src/agent_platform/workflow_runtime.py tests/fixtures/v04_13_t01b_agent_client.py tests/test_v04_03_regression_time_boundary.py tests/test_v04_13_lilies_platform_*.py tests/test_v04_13_platform_*.py
+Result:
+  All checks passed.
+
+Lock and patch checks:
+  uv lock --check
+  Resolved 33 packages; exit 0. The user-owned untracked uv.lock was not modified.
+
+  git diff --check
+  passed with no output.
+
+Focused coverage:
+  stable scoped contract digest and 16 operations; strict DraftOperation discovery;
+  per-assignment LocalLiliesService wiring; mandatory contract fetch; role filtering;
+  hash-at-rest credential authentication; expiry, revocation and denial audit; application
+  isolation; concurrent one-application authorization; semantic exact-once replay and payload
+  conflict; contract drift; exact replay across correlation/digest changes; task-owned run and
+  acceptance-test workspaces; runtime tool/network/nested/secret restrictions; persisted cycle
+  and depth guards; private reasoning removal; context-dependent publication denial; malformed
+  identifier parity; opaque 2 MB artifact registration with digest-verified 64 KiB chunks;
+  complete platform_result_too_large envelopes; separate stdlib HTTP client; and a separate
+  production LocalLiliesService model/tool loop that performs build, failed acceptance, one
+  repair, pass, publish, contract refresh and successful business run.
+
+Claim ceiling:
+  These deterministic results close V04-13-T01B only. They do not claim the T01C daemon
+  assignment bridge, T01D-G collaboration pipeline, T01H enterprise experiment, T01I
+  qualification bundle, T01J browser/live-model release gate, or campaign closure.

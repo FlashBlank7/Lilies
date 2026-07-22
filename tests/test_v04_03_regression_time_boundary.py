@@ -155,6 +155,6 @@ def test_v0411_runtime_version_progresses_without_breaking_prior_v04_evidence() 
         encoding="utf-8"
     )
 
-    assert __version__ == "v0.4.11"
+    assert __version__ == "v0.4.13"
     assert "runtime_version = re.search" in historical_check
     assert "int(runtime_version.group(1)) >= 1" in historical_check

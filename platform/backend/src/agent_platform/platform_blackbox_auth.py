@@ -1,0 +1,1428 @@
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import hmac
+import json
+import os
+import re
+import secrets
+import sqlite3
+from collections.abc import Callable, Mapping
+from datetime import datetime, timedelta, timezone
+from enum import Enum
+from pathlib import Path
+from types import MappingProxyType
+from typing import Annotated, Any, Literal
+from uuid import UUID, uuid4
+
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SecretStr,
+    StringConstraints,
+    field_validator,
+)
+
+
+SCHEMA_VERSION = 1
+_TOKEN_PATTERN = re.compile(r"^lpt_([0-9a-f]{32})_([A-Za-z0-9_-]{43,128})$")
+_TOKEN_HASH_ITERATIONS = 120_000
+_DUMMY_SALT = bytes.fromhex("9b5f0f0f0ce437f097477c191e280317")
+
+Digest = Annotated[str, StringConstraints(pattern=r"^sha256:[0-9a-f]{64}$")]
+IdempotencyKey = Annotated[
+    str,
+    StringConstraints(
+        min_length=16,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+    ),
+]
+CorrelationLabel = Annotated[
+    str,
+    StringConstraints(
+        min_length=1,
+        max_length=200,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+    ),
+]
+
+
+def _derive_token_digest(token: str, salt: bytes) -> str:
+    return hashlib.pbkdf2_hmac(
+        "sha256",
+        token.encode("utf-8"),
+        salt,
+        _TOKEN_HASH_ITERATIONS,
+    ).hex()
+
+
+_DUMMY_TOKEN_DIGEST = _derive_token_digest("invalid-platform-task-token", _DUMMY_SALT)
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _require_utc(value: datetime) -> datetime:
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError("datetime must include a timezone")
+    if value.utcoffset() != timedelta(0):
+        raise ValueError("datetime must use UTC (offset +00:00)")
+    return value.astimezone(timezone.utc)
+
+
+def _parse_utc(value: str) -> datetime:
+    return _require_utc(datetime.fromisoformat(value.replace("Z", "+00:00")))
+
+
+def _canonical_json(value: Any) -> str:
+    try:
+        return json.dumps(
+            value,
+            ensure_ascii=False,
+            allow_nan=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+    except (TypeError, ValueError) as error:
+        raise ValueError("value must be finite canonical JSON") from error
+
+
+def _json_digest(value: Any) -> str:
+    payload = _canonical_json(value).encode("utf-8")
+    return f"sha256:{hashlib.sha256(payload).hexdigest()}"
+
+
+def _idempotency_fingerprint(
+    request: BlackboxAuthorizationRequest,
+    *,
+    required_scope: PlatformBlackboxScope,
+    payload_digest: str,
+) -> str:
+    """Bind exact-once behavior to operation semantics, not attempt correlation.
+
+    Request, tool-call, and contract identifiers remain durable audit correlation,
+    but retries may legitimately carry new values for each of them.  The assignment,
+    session, application, operation/scope, and canonical payload define whether an
+    idempotency-key use is a replay or a conflict.
+    """
+
+    return _json_digest(
+        {
+            "assignment_id": str(request.assignment_id),
+            "session_id": str(request.session_id),
+            "application_id": str(request.application_id),
+            "operation": request.operation.value,
+            "required_scope": required_scope.value,
+            "payload_digest": payload_digest,
+        }
+    )
+
+
+class StrictBlackboxModel(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        str_strip_whitespace=True,
+        validate_assignment=True,
+    )
+
+
+class PlatformBlackboxScope(str, Enum):
+    catalog_read = "workflow.catalog:read"
+    application_write = "workflow.application:write"
+    draft_write = "workflow.draft:write"
+    test_execute = "workflow.test:execute"
+    run_execute = "workflow.run:execute"
+    trace_read = "workflow.trace:read"
+    artifact_read = "workflow.artifact:read"
+    application_publish = "workflow.application:publish"
+
+
+class PlatformBlackboxOperation(str, Enum):
+    contract_get = "platform_contract_get"
+    block_search = "platform_block_search"
+    block_get = "platform_block_get"
+    tool_catalog = "platform_tool_catalog"
+    application_create = "platform_application_create"
+    application_get = "platform_application_get"
+    draft_inspect = "platform_draft_inspect"
+    draft_apply = "platform_draft_apply"
+    tests_run = "platform_tests_run"
+    run_start = "platform_run_start"
+    run_get = "platform_run_get"
+    run_resume = "platform_run_resume"
+    run_cancel = "platform_run_cancel"
+    trace_get = "platform_trace_get"
+    artifact_read = "platform_artifact_read"
+    publish = "platform_publish"
+
+
+OPERATION_SCOPES: Mapping[PlatformBlackboxOperation, PlatformBlackboxScope] = MappingProxyType(
+    {
+        PlatformBlackboxOperation.contract_get: PlatformBlackboxScope.catalog_read,
+        PlatformBlackboxOperation.block_search: PlatformBlackboxScope.catalog_read,
+        PlatformBlackboxOperation.block_get: PlatformBlackboxScope.catalog_read,
+        PlatformBlackboxOperation.tool_catalog: PlatformBlackboxScope.catalog_read,
+        PlatformBlackboxOperation.application_create: PlatformBlackboxScope.application_write,
+        PlatformBlackboxOperation.application_get: PlatformBlackboxScope.application_write,
+        PlatformBlackboxOperation.draft_inspect: PlatformBlackboxScope.draft_write,
+        PlatformBlackboxOperation.draft_apply: PlatformBlackboxScope.draft_write,
+        PlatformBlackboxOperation.tests_run: PlatformBlackboxScope.test_execute,
+        PlatformBlackboxOperation.run_start: PlatformBlackboxScope.run_execute,
+        PlatformBlackboxOperation.run_get: PlatformBlackboxScope.run_execute,
+        PlatformBlackboxOperation.run_resume: PlatformBlackboxScope.run_execute,
+        PlatformBlackboxOperation.run_cancel: PlatformBlackboxScope.run_execute,
+        PlatformBlackboxOperation.trace_get: PlatformBlackboxScope.trace_read,
+        PlatformBlackboxOperation.artifact_read: PlatformBlackboxScope.artifact_read,
+        PlatformBlackboxOperation.publish: PlatformBlackboxScope.application_publish,
+    }
+)
+
+_APPLICATION_SCOPED_OPERATIONS = frozenset(
+    {
+        PlatformBlackboxOperation.application_get,
+        PlatformBlackboxOperation.draft_inspect,
+        PlatformBlackboxOperation.draft_apply,
+        PlatformBlackboxOperation.tests_run,
+        PlatformBlackboxOperation.run_start,
+        PlatformBlackboxOperation.run_get,
+        PlatformBlackboxOperation.run_resume,
+        PlatformBlackboxOperation.run_cancel,
+        PlatformBlackboxOperation.trace_get,
+        PlatformBlackboxOperation.artifact_read,
+        PlatformBlackboxOperation.publish,
+    }
+)
+
+
+class TaskCredentialGrant(StrictBlackboxModel):
+    schema_version: Literal["1.0"] = "1.0"
+    assignment_id: UUID
+    session_id: UUID
+    scopes: list[PlatformBlackboxScope] = Field(min_length=1, max_length=16)
+    application_ids: list[UUID] = Field(default_factory=list, max_length=100)
+    expires_at: datetime
+
+    @field_validator("scopes")
+    @classmethod
+    def scopes_are_unique(cls, value: list[PlatformBlackboxScope]) -> list[PlatformBlackboxScope]:
+        if len(value) != len(set(value)):
+            raise ValueError("scopes must not contain duplicates")
+        return value
+
+    @field_validator("application_ids")
+    @classmethod
+    def applications_are_unique(cls, value: list[UUID]) -> list[UUID]:
+        if len(value) != len(set(value)):
+            raise ValueError("application_ids must not contain duplicates")
+        return value
+
+    @field_validator("expires_at")
+    @classmethod
+    def expiry_is_utc(cls, value: datetime) -> datetime:
+        return _require_utc(value)
+
+
+class TaskCredentialRecord(StrictBlackboxModel):
+    credential_id: UUID
+    credential_ref: CorrelationLabel
+    assignment_id: UUID
+    session_id: UUID
+    scopes: list[PlatformBlackboxScope]
+    application_ids: list[UUID]
+    expires_at: datetime
+    revoked_at: datetime | None = None
+    revoke_reason: str | None = Field(default=None, max_length=1_000)
+    created_at: datetime
+    updated_at: datetime
+
+    @field_validator("expires_at", "revoked_at", "created_at", "updated_at")
+    @classmethod
+    def timestamps_are_utc(cls, value: datetime | None) -> datetime | None:
+        return None if value is None else _require_utc(value)
+
+
+class IssuedTaskCredential(StrictBlackboxModel):
+    credential: TaskCredentialRecord
+    access_token: SecretStr
+
+
+class BlackboxAuthorizationRequest(StrictBlackboxModel):
+    schema_version: Literal["1.0"] = "1.0"
+    request_id: UUID
+    assignment_id: UUID
+    session_id: UUID
+    tool_call_id: CorrelationLabel
+    idempotency_key: IdempotencyKey
+    application_id: UUID
+    operation: PlatformBlackboxOperation
+    contract_digest: Digest
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("payload")
+    @classmethod
+    def payload_is_canonical_json(cls, value: dict[str, Any]) -> dict[str, Any]:
+        _canonical_json(value)
+        return value
+
+
+class BlackboxRequestState(str, Enum):
+    reserved = "reserved"
+    completed = "completed"
+
+
+class BlackboxAuthorizationDecision(StrictBlackboxModel):
+    authorization_id: UUID
+    credential_id: UUID
+    request_id: UUID
+    assignment_id: UUID
+    session_id: UUID
+    tool_call_id: CorrelationLabel
+    idempotency_key: IdempotencyKey
+    application_id: UUID
+    operation: PlatformBlackboxOperation
+    required_scope: PlatformBlackboxScope
+    contract_digest: Digest
+    payload_digest: Digest
+    state: BlackboxRequestState
+    replayed: bool
+    status_code: int | None = Field(default=None, ge=100, le=599)
+    result: dict[str, Any] | None = None
+    audit_event_id: UUID
+    created_at: datetime
+    completed_at: datetime | None = None
+
+    @field_validator("created_at", "completed_at")
+    @classmethod
+    def decision_timestamps_are_utc(cls, value: datetime | None) -> datetime | None:
+        return None if value is None else _require_utc(value)
+
+
+class BlackboxAuditEventType(str, Enum):
+    authorized = "request.authorized"
+    replayed = "request.replayed"
+    completed = "request.completed"
+    completion_replayed = "request.completion_replayed"
+    denied = "request.denied"
+
+
+class BlackboxAuditRecord(StrictBlackboxModel):
+    seq: int = Field(ge=1)
+    event_id: UUID
+    event_type: BlackboxAuditEventType
+    outcome: Literal["authorized", "replayed", "completed", "denied"]
+    credential_id: UUID | None = None
+    authorization_id: UUID | None = None
+    assignment_id: UUID
+    session_id: UUID
+    tool_call_id: CorrelationLabel
+    request_id: UUID
+    idempotency_key: IdempotencyKey
+    application_id: UUID
+    operation: PlatformBlackboxOperation
+    required_scope: PlatformBlackboxScope
+    contract_digest: Digest
+    payload_digest: Digest
+    reason_code: str | None = Field(default=None, max_length=100)
+    details: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+
+    @field_validator("created_at")
+    @classmethod
+    def audit_timestamp_is_utc(cls, value: datetime) -> datetime:
+        return _require_utc(value)
+
+
+class CredentialSecurityEvent(StrictBlackboxModel):
+    seq: int = Field(ge=1)
+    event_id: UUID
+    event_type: Literal[
+        "credential.issued",
+        "credential.revoked",
+        "credential.application_granted",
+    ]
+    credential_id: UUID
+    assignment_id: UUID
+    session_id: UUID
+    details: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+
+    @field_validator("created_at")
+    @classmethod
+    def security_timestamp_is_utc(cls, value: datetime) -> datetime:
+        return _require_utc(value)
+
+
+class PlatformBlackboxAuthError(RuntimeError):
+    code = "platform_blackbox_auth_error"
+
+
+class PlatformBlackboxStoreError(PlatformBlackboxAuthError):
+    code = "platform_blackbox_store_error"
+
+
+class PlatformBlackboxNotFound(PlatformBlackboxAuthError):
+    code = "not_found"
+
+
+class PlatformBlackboxAuthenticationError(PlatformBlackboxAuthError):
+    code = "invalid_credential"
+
+
+class PlatformBlackboxCredentialExpired(PlatformBlackboxAuthenticationError):
+    code = "credential_expired"
+
+
+class PlatformBlackboxCredentialRevoked(PlatformBlackboxAuthenticationError):
+    code = "credential_revoked"
+
+
+class PlatformBlackboxAuthorizationError(PlatformBlackboxAuthError):
+    code = "permission_denied"
+
+
+class PlatformBlackboxScopeDenied(PlatformBlackboxAuthorizationError):
+    code = "scope_denied"
+
+
+class PlatformBlackboxApplicationDenied(PlatformBlackboxAuthorizationError):
+    code = "application_denied"
+
+
+class PlatformBlackboxIdempotencyConflict(PlatformBlackboxAuthError):
+    code = "idempotency_conflict"
+
+
+class PlatformBlackboxRequestConflict(PlatformBlackboxAuthError):
+    code = "request_conflict"
+
+
+class _Failure:
+    def __init__(self, error_type: type[PlatformBlackboxAuthError], message: str) -> None:
+        self.error_type = error_type
+        self.message = message
+
+    @property
+    def code(self) -> str:
+        return self.error_type.code
+
+    def raise_error(self) -> None:
+        raise self.error_type(self.message)
+
+
+class PlatformBlackboxAuthStore:
+    """Durable task credential, request-idempotency, and immutable audit boundary.
+
+    The store only persists a salted verifier for each access token.  Callers first
+    reserve an authorized request, execute the public platform operation outside this
+    module, then persist its response with :meth:`complete_request`.  A retry with the
+    same assignment/idempotency binding returns the original reservation or response;
+    it never grants permission to repeat the side effect.
+    """
+
+    def __init__(
+        self,
+        db_path: Path,
+        *,
+        clock: Callable[[], datetime] | None = None,
+    ) -> None:
+        self.db_path = Path(db_path)
+        self._clock = clock or _utc_now
+        self._lock = asyncio.Lock()
+
+    async def initialize(self) -> dict[str, int]:
+        async with self._lock:
+            return await asyncio.to_thread(self._initialize_sync)
+
+    def _connect(self) -> sqlite3.Connection:
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(self.db_path, timeout=30.0)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys=ON")
+        conn.execute("PRAGMA busy_timeout=30000")
+        conn.execute("PRAGMA synchronous=FULL")
+        if self.db_path.exists():
+            os.chmod(self.db_path, 0o600)
+        return conn
+
+    def _now(self) -> datetime:
+        return _require_utc(self._clock())
+
+    def _initialize_sync(self) -> dict[str, int]:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS platform_blackbox_auth_schema (
+                  version INTEGER PRIMARY KEY,
+                  applied_at TEXT NOT NULL
+                )
+                """
+            )
+            current = int(
+                conn.execute(
+                    "SELECT COALESCE(MAX(version),0) AS version FROM platform_blackbox_auth_schema"
+                ).fetchone()["version"]
+            )
+            if current > SCHEMA_VERSION:
+                raise PlatformBlackboxStoreError(
+                    f"platform blackbox auth schema {current} is newer than supported "
+                    f"{SCHEMA_VERSION}"
+                )
+            if current < 1:
+                self._migrate_v1(conn)
+        self._secure_database_files()
+        return {"schema_version": SCHEMA_VERSION}
+
+    def _migrate_v1(self, conn: sqlite3.Connection) -> None:
+        conn.executescript(
+            """
+            CREATE TABLE platform_task_credentials (
+              id TEXT PRIMARY KEY,
+              credential_ref TEXT NOT NULL UNIQUE,
+              assignment_id TEXT NOT NULL,
+              session_id TEXT NOT NULL,
+              token_salt_hex TEXT NOT NULL,
+              token_digest TEXT NOT NULL,
+              scopes_json TEXT NOT NULL,
+              expires_at TEXT NOT NULL,
+              revoked_at TEXT,
+              revoke_reason TEXT,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL
+            );
+            CREATE TABLE platform_task_credential_applications (
+              credential_id TEXT NOT NULL,
+              application_id TEXT NOT NULL,
+              granted_at TEXT NOT NULL,
+              PRIMARY KEY(credential_id, application_id),
+              FOREIGN KEY(credential_id) REFERENCES platform_task_credentials(id)
+            );
+            CREATE TABLE platform_blackbox_requests (
+              authorization_id TEXT PRIMARY KEY,
+              credential_id TEXT NOT NULL,
+              idempotency_key TEXT NOT NULL,
+              request_id TEXT NOT NULL UNIQUE,
+              assignment_id TEXT NOT NULL,
+              session_id TEXT NOT NULL,
+              tool_call_id TEXT NOT NULL,
+              application_id TEXT NOT NULL,
+              operation TEXT NOT NULL,
+              required_scope TEXT NOT NULL,
+              contract_digest TEXT NOT NULL,
+              payload_digest TEXT NOT NULL,
+              request_fingerprint TEXT NOT NULL,
+              state TEXT NOT NULL CHECK(state IN ('reserved','completed')),
+              status_code INTEGER,
+              response_json TEXT,
+              response_digest TEXT,
+              created_application_id TEXT,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              completed_at TEXT,
+              UNIQUE(assignment_id, idempotency_key),
+              FOREIGN KEY(credential_id) REFERENCES platform_task_credentials(id)
+            );
+            CREATE TABLE platform_blackbox_audit (
+              seq INTEGER PRIMARY KEY AUTOINCREMENT,
+              event_id TEXT NOT NULL UNIQUE,
+              event_type TEXT NOT NULL,
+              outcome TEXT NOT NULL CHECK(outcome IN ('authorized','replayed','completed','denied')),
+              credential_id TEXT,
+              authorization_id TEXT,
+              assignment_id TEXT NOT NULL,
+              session_id TEXT NOT NULL,
+              tool_call_id TEXT NOT NULL,
+              request_id TEXT NOT NULL,
+              idempotency_key TEXT NOT NULL,
+              application_id TEXT NOT NULL,
+              operation TEXT NOT NULL,
+              required_scope TEXT NOT NULL,
+              contract_digest TEXT NOT NULL,
+              payload_digest TEXT NOT NULL,
+              reason_code TEXT,
+              details_json TEXT NOT NULL,
+              created_at TEXT NOT NULL,
+              FOREIGN KEY(credential_id) REFERENCES platform_task_credentials(id),
+              FOREIGN KEY(authorization_id) REFERENCES platform_blackbox_requests(authorization_id)
+            );
+            CREATE TABLE platform_task_credential_security_events (
+              seq INTEGER PRIMARY KEY AUTOINCREMENT,
+              event_id TEXT NOT NULL UNIQUE,
+              event_type TEXT NOT NULL,
+              credential_id TEXT NOT NULL,
+              assignment_id TEXT NOT NULL,
+              session_id TEXT NOT NULL,
+              details_json TEXT NOT NULL,
+              created_at TEXT NOT NULL,
+              FOREIGN KEY(credential_id) REFERENCES platform_task_credentials(id)
+            );
+            CREATE INDEX idx_platform_task_credentials_assignment
+              ON platform_task_credentials(assignment_id, session_id);
+            CREATE INDEX idx_platform_task_credentials_expiry
+              ON platform_task_credentials(expires_at);
+            CREATE INDEX idx_platform_blackbox_requests_credential_created
+              ON platform_blackbox_requests(credential_id, created_at);
+            CREATE INDEX idx_platform_blackbox_audit_assignment_seq
+              ON platform_blackbox_audit(assignment_id, seq);
+            CREATE TRIGGER platform_blackbox_audit_no_update
+              BEFORE UPDATE ON platform_blackbox_audit
+              BEGIN SELECT RAISE(ABORT, 'platform blackbox audit is immutable'); END;
+            CREATE TRIGGER platform_blackbox_audit_no_delete
+              BEFORE DELETE ON platform_blackbox_audit
+              BEGIN SELECT RAISE(ABORT, 'platform blackbox audit is immutable'); END;
+            CREATE TRIGGER platform_task_credential_events_no_update
+              BEFORE UPDATE ON platform_task_credential_security_events
+              BEGIN SELECT RAISE(ABORT, 'platform credential audit is immutable'); END;
+            CREATE TRIGGER platform_task_credential_events_no_delete
+              BEFORE DELETE ON platform_task_credential_security_events
+              BEGIN SELECT RAISE(ABORT, 'platform credential audit is immutable'); END;
+            CREATE TRIGGER platform_blackbox_request_correlation_no_update
+              BEFORE UPDATE OF credential_id,idempotency_key,request_id,assignment_id,session_id,
+                tool_call_id,application_id,operation,required_scope,contract_digest,payload_digest,
+                request_fingerprint,created_at
+              ON platform_blackbox_requests
+              BEGIN SELECT RAISE(ABORT, 'platform blackbox request correlation is immutable'); END;
+            CREATE TRIGGER platform_task_credentials_no_delete
+              BEFORE DELETE ON platform_task_credentials
+              BEGIN SELECT RAISE(ABORT, 'platform task credentials cannot be deleted'); END;
+            """
+        )
+        conn.execute(
+            "INSERT INTO platform_blackbox_auth_schema(version,applied_at) VALUES (?,?)",
+            (1, self._now().isoformat()),
+        )
+
+    def _secure_database_files(self) -> None:
+        for path in (
+            self.db_path,
+            Path(f"{self.db_path}-wal"),
+            Path(f"{self.db_path}-shm"),
+        ):
+            if path.exists():
+                os.chmod(path, 0o600)
+
+    async def issue_credential(self, grant: TaskCredentialGrant) -> IssuedTaskCredential:
+        async with self._lock:
+            return await asyncio.to_thread(self._issue_credential_sync, grant)
+
+    def _issue_credential_sync(self, grant: TaskCredentialGrant) -> IssuedTaskCredential:
+        now = self._now()
+        if grant.expires_at <= now:
+            raise ValueError("credential expires_at must be in the future")
+        credential_id = uuid4()
+        credential_ref = f"platform-task-credential:{credential_id}"
+        access_token = f"lpt_{credential_id.hex}_{secrets.token_urlsafe(32)}"
+        salt = secrets.token_bytes(16)
+        token_digest = _derive_token_digest(access_token, salt)
+        scopes = sorted(scope.value for scope in grant.scopes)
+        applications = sorted({str(application_id) for application_id in grant.application_ids})
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            conn.execute(
+                """
+                INSERT INTO platform_task_credentials(
+                  id,credential_ref,assignment_id,session_id,token_salt_hex,token_digest,
+                  scopes_json,expires_at,created_at,updated_at
+                ) VALUES (?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    str(credential_id),
+                    credential_ref,
+                    str(grant.assignment_id),
+                    str(grant.session_id),
+                    salt.hex(),
+                    token_digest,
+                    _canonical_json(scopes),
+                    grant.expires_at.isoformat(),
+                    now.isoformat(),
+                    now.isoformat(),
+                ),
+            )
+            conn.executemany(
+                """
+                INSERT INTO platform_task_credential_applications(
+                  credential_id,application_id,granted_at
+                ) VALUES (?,?,?)
+                """,
+                [
+                    (str(credential_id), application_id, now.isoformat())
+                    for application_id in applications
+                ],
+            )
+            self._append_security_event_conn(
+                conn,
+                event_type="credential.issued",
+                credential_id=str(credential_id),
+                assignment_id=str(grant.assignment_id),
+                session_id=str(grant.session_id),
+                details={"scopes": scopes, "application_ids": applications},
+                created_at=now,
+            )
+            row = self._require_credential_conn(conn, credential_ref)
+            record = self._credential_from_row(conn, row)
+        self._secure_database_files()
+        return IssuedTaskCredential(
+            credential=record,
+            access_token=SecretStr(access_token),
+        )
+
+    async def get_credential(self, credential_ref: str) -> TaskCredentialRecord:
+        return await asyncio.to_thread(self._get_credential_sync, credential_ref)
+
+    def _get_credential_sync(self, credential_ref: str) -> TaskCredentialRecord:
+        with self._connect() as conn:
+            row = self._require_credential_conn(conn, credential_ref)
+            return self._credential_from_row(conn, row)
+
+    async def authenticate_credential(
+        self,
+        access_token: str | SecretStr,
+    ) -> TaskCredentialRecord:
+        """Resolve a valid bearer without exposing its verifier or recording a request.
+
+        The HTTP facade uses this for scope-filtered contract construction and for
+        distinguishing a valid task credential on a forbidden legacy endpoint.  An
+        actual public operation must still call :meth:`authorize_request` so it is
+        reserved, payload-bound, and audited.
+        """
+
+        token = (
+            access_token.get_secret_value() if isinstance(access_token, SecretStr) else access_token
+        )
+        record, failure = await asyncio.to_thread(
+            self._authenticate_credential_sync,
+            token,
+        )
+        if failure is not None:
+            failure.raise_error()
+        if record is None:  # pragma: no cover - paired with failure above
+            raise PlatformBlackboxStoreError("credential verification produced no record")
+        return record
+
+    def _authenticate_credential_sync(
+        self,
+        access_token: str,
+    ) -> tuple[TaskCredentialRecord | None, _Failure | None]:
+        with self._connect() as conn:
+            row, failure = self._authenticate_conn(conn, access_token, self._now())
+            if row is None:
+                return None, failure
+            if failure is not None:
+                return None, failure
+            return self._credential_from_row(conn, row), None
+
+    async def revoke_credential(
+        self,
+        credential_ref: str,
+        *,
+        reason: str,
+    ) -> TaskCredentialRecord:
+        if not reason or len(reason) > 1_000:
+            raise ValueError("revoke reason must contain 1-1000 characters")
+        async with self._lock:
+            return await asyncio.to_thread(
+                self._revoke_credential_sync,
+                credential_ref,
+                reason,
+            )
+
+    def _revoke_credential_sync(
+        self,
+        credential_ref: str,
+        reason: str,
+    ) -> TaskCredentialRecord:
+        now = self._now()
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = self._require_credential_conn(conn, credential_ref)
+            if row["revoked_at"] is None:
+                conn.execute(
+                    """
+                    UPDATE platform_task_credentials
+                    SET revoked_at=?,revoke_reason=?,updated_at=? WHERE id=?
+                    """,
+                    (now.isoformat(), reason, now.isoformat(), row["id"]),
+                )
+                self._append_security_event_conn(
+                    conn,
+                    event_type="credential.revoked",
+                    credential_id=str(row["id"]),
+                    assignment_id=str(row["assignment_id"]),
+                    session_id=str(row["session_id"]),
+                    details={"reason": reason},
+                    created_at=now,
+                )
+                row = self._require_credential_conn(conn, credential_ref)
+            return self._credential_from_row(conn, row)
+
+    async def authorize_request(
+        self,
+        access_token: str | SecretStr,
+        request: BlackboxAuthorizationRequest,
+    ) -> BlackboxAuthorizationDecision:
+        token = (
+            access_token.get_secret_value() if isinstance(access_token, SecretStr) else access_token
+        )
+        async with self._lock:
+            decision, failure = await asyncio.to_thread(
+                self._authorize_request_sync,
+                token,
+                request,
+            )
+        if failure is not None:
+            failure.raise_error()
+        if decision is None:  # pragma: no cover - defensive invariant
+            raise PlatformBlackboxStoreError("authorization produced no decision")
+        return decision
+
+    def _authorize_request_sync(
+        self,
+        access_token: str,
+        request: BlackboxAuthorizationRequest,
+    ) -> tuple[BlackboxAuthorizationDecision | None, _Failure | None]:
+        now = self._now()
+        payload_digest = _json_digest(request.payload)
+        required_scope = OPERATION_SCOPES[request.operation]
+        fingerprint = _idempotency_fingerprint(
+            request,
+            required_scope=required_scope,
+            payload_digest=payload_digest,
+        )
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            credential, failure = self._authenticate_conn(conn, access_token, now)
+            if failure is None and credential is not None:
+                if credential["assignment_id"] != str(request.assignment_id) or credential[
+                    "session_id"
+                ] != str(request.session_id):
+                    failure = _Failure(
+                        PlatformBlackboxAuthorizationError,
+                        "credential is not bound to this assignment and session",
+                    )
+                elif required_scope.value not in set(json.loads(credential["scopes_json"])):
+                    failure = _Failure(
+                        PlatformBlackboxScopeDenied,
+                        f"credential does not grant {required_scope.value}",
+                    )
+            existing = (
+                conn.execute(
+                    """
+                    SELECT * FROM platform_blackbox_requests
+                    WHERE assignment_id=? AND idempotency_key=?
+                    """,
+                    (str(request.assignment_id), request.idempotency_key),
+                ).fetchone()
+                if failure is None
+                else None
+            )
+            if failure is None and credential is not None:
+                if (
+                    request.operation is PlatformBlackboxOperation.application_create
+                    and existing is None
+                ):
+                    existing_application = conn.execute(
+                        """
+                        SELECT 1 FROM platform_task_credential_applications
+                        WHERE credential_id=? LIMIT 1
+                        """,
+                        (credential["id"],),
+                    ).fetchone()
+                    pending_application_create = conn.execute(
+                        """
+                        SELECT 1 FROM platform_blackbox_requests
+                        WHERE credential_id=? AND operation=? AND state='reserved'
+                        LIMIT 1
+                        """,
+                        (
+                            credential["id"],
+                            PlatformBlackboxOperation.application_create.value,
+                        ),
+                    ).fetchone()
+                    if existing_application is not None:
+                        failure = _Failure(
+                            PlatformBlackboxApplicationDenied,
+                            "task credential is already bound to its application",
+                        )
+                    elif pending_application_create is not None:
+                        failure = _Failure(
+                            PlatformBlackboxApplicationDenied,
+                            "task credential already has an application creation in progress",
+                        )
+                elif request.operation in _APPLICATION_SCOPED_OPERATIONS:
+                    allowed = conn.execute(
+                        """
+                        SELECT 1 FROM platform_task_credential_applications
+                        WHERE credential_id=? AND application_id=?
+                        """,
+                        (credential["id"], str(request.application_id)),
+                    ).fetchone()
+                    if allowed is None:
+                        failure = _Failure(
+                            PlatformBlackboxApplicationDenied,
+                            "application is outside the task credential whitelist",
+                        )
+            if failure is not None:
+                self._append_audit_conn(
+                    conn,
+                    request=request,
+                    event_type=BlackboxAuditEventType.denied,
+                    outcome="denied",
+                    credential_id=str(credential["id"]) if credential is not None else None,
+                    authorization_id=None,
+                    required_scope=required_scope,
+                    payload_digest=payload_digest,
+                    reason_code=failure.code,
+                    details={},
+                    created_at=now,
+                )
+                return None, failure
+
+            if credential is None:  # pragma: no cover - paired with failure above
+                raise PlatformBlackboxStoreError("credential verification invariant failed")
+            if existing is not None:
+                if not hmac.compare_digest(existing["request_fingerprint"], fingerprint):
+                    failure = _Failure(
+                        PlatformBlackboxIdempotencyConflict,
+                        "idempotency key is already bound to a different request payload",
+                    )
+                    self._append_audit_conn(
+                        conn,
+                        request=request,
+                        event_type=BlackboxAuditEventType.denied,
+                        outcome="denied",
+                        credential_id=str(credential["id"]),
+                        authorization_id=str(existing["authorization_id"]),
+                        required_scope=required_scope,
+                        payload_digest=payload_digest,
+                        reason_code=failure.code,
+                        details={"original_request_id": existing["request_id"]},
+                        created_at=now,
+                    )
+                    return None, failure
+                audit = self._append_audit_conn(
+                    conn,
+                    request=request,
+                    event_type=BlackboxAuditEventType.replayed,
+                    outcome="replayed",
+                    credential_id=str(credential["id"]),
+                    authorization_id=str(existing["authorization_id"]),
+                    required_scope=required_scope,
+                    payload_digest=payload_digest,
+                    reason_code=None,
+                    details={"original_request_id": existing["request_id"]},
+                    created_at=now,
+                )
+                return self._decision_from_request_row(
+                    existing, audit.event_id, replayed=True
+                ), None
+
+            authorization_id = uuid4()
+            conn.execute(
+                """
+                INSERT INTO platform_blackbox_requests(
+                  authorization_id,credential_id,idempotency_key,request_id,assignment_id,
+                  session_id,tool_call_id,application_id,operation,required_scope,
+                  contract_digest,payload_digest,request_fingerprint,state,created_at,updated_at
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'reserved',?,?)
+                """,
+                (
+                    str(authorization_id),
+                    credential["id"],
+                    request.idempotency_key,
+                    str(request.request_id),
+                    str(request.assignment_id),
+                    str(request.session_id),
+                    request.tool_call_id,
+                    str(request.application_id),
+                    request.operation.value,
+                    required_scope.value,
+                    request.contract_digest,
+                    payload_digest,
+                    fingerprint,
+                    now.isoformat(),
+                    now.isoformat(),
+                ),
+            )
+            audit = self._append_audit_conn(
+                conn,
+                request=request,
+                event_type=BlackboxAuditEventType.authorized,
+                outcome="authorized",
+                credential_id=str(credential["id"]),
+                authorization_id=str(authorization_id),
+                required_scope=required_scope,
+                payload_digest=payload_digest,
+                reason_code=None,
+                details={},
+                created_at=now,
+            )
+            stored = self._require_request_conn(conn, str(authorization_id))
+            return self._decision_from_request_row(stored, audit.event_id, replayed=False), None
+
+    def _authenticate_conn(
+        self,
+        conn: sqlite3.Connection,
+        access_token: str,
+        now: datetime,
+    ) -> tuple[sqlite3.Row | None, _Failure | None]:
+        match = _TOKEN_PATTERN.fullmatch(access_token)
+        credential_id: str | None = None
+        if match is not None:
+            credential_id = str(UUID(hex=match.group(1)))
+        row = (
+            conn.execute(
+                "SELECT * FROM platform_task_credentials WHERE id=?",
+                (credential_id,),
+            ).fetchone()
+            if credential_id is not None
+            else None
+        )
+        salt = bytes.fromhex(row["token_salt_hex"]) if row is not None else _DUMMY_SALT
+        expected = row["token_digest"] if row is not None else _DUMMY_TOKEN_DIGEST
+        candidate = _derive_token_digest(access_token[:512], salt)
+        valid = hmac.compare_digest(candidate, expected)
+        if row is None or not valid:
+            return None, _Failure(
+                PlatformBlackboxAuthenticationError,
+                "platform task credential is invalid",
+            )
+        if row["revoked_at"] is not None:
+            return row, _Failure(
+                PlatformBlackboxCredentialRevoked,
+                "platform task credential is revoked",
+            )
+        if _parse_utc(row["expires_at"]) <= now:
+            return row, _Failure(
+                PlatformBlackboxCredentialExpired,
+                "platform task credential is expired",
+            )
+        return row, None
+
+    async def complete_request(
+        self,
+        authorization_id: UUID,
+        *,
+        status_code: int,
+        result: Mapping[str, Any],
+        created_application_id: UUID | None = None,
+        persist_result: bool = True,
+    ) -> BlackboxAuthorizationDecision:
+        if status_code < 100 or status_code > 599:
+            raise ValueError("status_code must be between 100 and 599")
+        result_dict = dict(result)
+        _canonical_json(result_dict)
+        async with self._lock:
+            decision, failure = await asyncio.to_thread(
+                self._complete_request_sync,
+                str(authorization_id),
+                status_code,
+                result_dict,
+                str(created_application_id) if created_application_id is not None else None,
+                persist_result,
+            )
+        if failure is not None:
+            failure.raise_error()
+        if decision is None:  # pragma: no cover - defensive invariant
+            raise PlatformBlackboxStoreError("request completion produced no decision")
+        return decision
+
+    def _complete_request_sync(
+        self,
+        authorization_id: str,
+        status_code: int,
+        result: dict[str, Any],
+        created_application_id: str | None,
+        persist_result: bool,
+    ) -> tuple[BlackboxAuthorizationDecision | None, _Failure | None]:
+        now = self._now()
+        response_json = _canonical_json(result) if persist_result else None
+        response_digest = _json_digest(result)
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = self._require_request_conn(conn, authorization_id)
+            request = self._request_model_from_row(row)
+            if row["state"] == BlackboxRequestState.completed.value:
+                same_result = (
+                    row["status_code"] == status_code
+                    and hmac.compare_digest(str(row["response_digest"]), response_digest)
+                    and row["created_application_id"] == created_application_id
+                )
+                if not same_result:
+                    failure = _Failure(
+                        PlatformBlackboxRequestConflict,
+                        "request completion is already bound to a different response",
+                    )
+                    self._append_audit_conn(
+                        conn,
+                        request=request,
+                        event_type=BlackboxAuditEventType.denied,
+                        outcome="denied",
+                        credential_id=str(row["credential_id"]),
+                        authorization_id=authorization_id,
+                        required_scope=PlatformBlackboxScope(row["required_scope"]),
+                        payload_digest=str(row["payload_digest"]),
+                        reason_code=failure.code,
+                        details={"phase": "complete"},
+                        created_at=now,
+                    )
+                    return None, failure
+                audit = self._append_audit_conn(
+                    conn,
+                    request=request,
+                    event_type=BlackboxAuditEventType.completion_replayed,
+                    outcome="replayed",
+                    credential_id=str(row["credential_id"]),
+                    authorization_id=authorization_id,
+                    required_scope=PlatformBlackboxScope(row["required_scope"]),
+                    payload_digest=str(row["payload_digest"]),
+                    reason_code=None,
+                    details={"phase": "complete"},
+                    created_at=now,
+                )
+                return self._decision_from_request_row(row, audit.event_id, replayed=True), None
+
+            if created_application_id is not None:
+                if row["operation"] != PlatformBlackboxOperation.application_create.value:
+                    raise ValueError(
+                        "created_application_id is only valid for platform_application_create"
+                    )
+                if status_code >= 400:
+                    raise ValueError("a failed application create cannot grant an application")
+                conn.execute(
+                    """
+                    INSERT OR IGNORE INTO platform_task_credential_applications(
+                      credential_id,application_id,granted_at
+                    ) VALUES (?,?,?)
+                    """,
+                    (row["credential_id"], created_application_id, now.isoformat()),
+                )
+                credential = conn.execute(
+                    "SELECT * FROM platform_task_credentials WHERE id=?",
+                    (row["credential_id"],),
+                ).fetchone()
+                self._append_security_event_conn(
+                    conn,
+                    event_type="credential.application_granted",
+                    credential_id=str(row["credential_id"]),
+                    assignment_id=str(row["assignment_id"]),
+                    session_id=str(row["session_id"]),
+                    details={"application_id": created_application_id},
+                    created_at=now,
+                )
+                if credential is None:  # pragma: no cover - protected by foreign key
+                    raise PlatformBlackboxStoreError("credential disappeared during completion")
+            elif (
+                row["operation"] == PlatformBlackboxOperation.application_create.value
+                and status_code < 400
+            ):
+                raise ValueError(
+                    "a successful platform_application_create must grant created_application_id"
+                )
+            conn.execute(
+                """
+                UPDATE platform_blackbox_requests
+                SET state='completed',status_code=?,response_json=?,response_digest=?,
+                  created_application_id=?,updated_at=?,completed_at=?
+                WHERE authorization_id=? AND state='reserved'
+                """,
+                (
+                    status_code,
+                    response_json,
+                    response_digest,
+                    created_application_id,
+                    now.isoformat(),
+                    now.isoformat(),
+                    authorization_id,
+                ),
+            )
+            audit = self._append_audit_conn(
+                conn,
+                request=request,
+                event_type=BlackboxAuditEventType.completed,
+                outcome="completed",
+                credential_id=str(row["credential_id"]),
+                authorization_id=authorization_id,
+                required_scope=PlatformBlackboxScope(row["required_scope"]),
+                payload_digest=str(row["payload_digest"]),
+                reason_code=None,
+                details={
+                    "status_code": status_code,
+                    "response_digest": response_digest,
+                    "created_application_id": created_application_id,
+                },
+                created_at=now,
+            )
+            updated = self._require_request_conn(conn, authorization_id)
+            return self._decision_from_request_row(updated, audit.event_id, replayed=False), None
+
+    async def list_audit(
+        self,
+        *,
+        assignment_id: UUID | None = None,
+        session_id: UUID | None = None,
+        limit: int = 500,
+    ) -> list[BlackboxAuditRecord]:
+        return await asyncio.to_thread(
+            self._list_audit_sync,
+            str(assignment_id) if assignment_id is not None else None,
+            str(session_id) if session_id is not None else None,
+            max(1, min(limit, 1_000)),
+        )
+
+    def _list_audit_sync(
+        self,
+        assignment_id: str | None,
+        session_id: str | None,
+        limit: int,
+    ) -> list[BlackboxAuditRecord]:
+        clauses: list[str] = []
+        values: list[Any] = []
+        if assignment_id is not None:
+            clauses.append("assignment_id=?")
+            values.append(assignment_id)
+        if session_id is not None:
+            clauses.append("session_id=?")
+            values.append(session_id)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        values.append(limit)
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"SELECT * FROM platform_blackbox_audit {where} ORDER BY seq LIMIT ?",  # noqa: S608
+                values,
+            ).fetchall()
+        return [self._audit_from_row(row) for row in rows]
+
+    async def list_security_events(self, *, limit: int = 500) -> list[CredentialSecurityEvent]:
+        return await asyncio.to_thread(
+            self._list_security_events_sync,
+            max(1, min(limit, 1_000)),
+        )
+
+    def _list_security_events_sync(self, limit: int) -> list[CredentialSecurityEvent]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM platform_task_credential_security_events
+                ORDER BY seq LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [self._security_event_from_row(row) for row in rows]
+
+    def _require_credential_conn(
+        self,
+        conn: sqlite3.Connection,
+        credential_ref: str,
+    ) -> sqlite3.Row:
+        row = conn.execute(
+            "SELECT * FROM platform_task_credentials WHERE credential_ref=?",
+            (credential_ref,),
+        ).fetchone()
+        if row is None:
+            raise PlatformBlackboxNotFound(f"task credential not found: {credential_ref}")
+        return row
+
+    def _require_request_conn(
+        self,
+        conn: sqlite3.Connection,
+        authorization_id: str,
+    ) -> sqlite3.Row:
+        row = conn.execute(
+            "SELECT * FROM platform_blackbox_requests WHERE authorization_id=?",
+            (authorization_id,),
+        ).fetchone()
+        if row is None:
+            raise PlatformBlackboxNotFound(
+                f"blackbox request authorization not found: {authorization_id}"
+            )
+        return row
+
+    def _credential_from_row(
+        self,
+        conn: sqlite3.Connection,
+        row: sqlite3.Row,
+    ) -> TaskCredentialRecord:
+        applications = conn.execute(
+            """
+            SELECT application_id FROM platform_task_credential_applications
+            WHERE credential_id=? ORDER BY application_id
+            """,
+            (row["id"],),
+        ).fetchall()
+        return TaskCredentialRecord(
+            credential_id=row["id"],
+            credential_ref=row["credential_ref"],
+            assignment_id=row["assignment_id"],
+            session_id=row["session_id"],
+            scopes=json.loads(row["scopes_json"]),
+            application_ids=[item["application_id"] for item in applications],
+            expires_at=_parse_utc(row["expires_at"]),
+            revoked_at=_parse_utc(row["revoked_at"]) if row["revoked_at"] else None,
+            revoke_reason=row["revoke_reason"],
+            created_at=_parse_utc(row["created_at"]),
+            updated_at=_parse_utc(row["updated_at"]),
+        )
+
+    def _request_model_from_row(self, row: sqlite3.Row) -> BlackboxAuthorizationRequest:
+        return BlackboxAuthorizationRequest(
+            request_id=row["request_id"],
+            assignment_id=row["assignment_id"],
+            session_id=row["session_id"],
+            tool_call_id=row["tool_call_id"],
+            idempotency_key=row["idempotency_key"],
+            application_id=row["application_id"],
+            operation=row["operation"],
+            contract_digest=row["contract_digest"],
+            payload={},
+        )
+
+    def _decision_from_request_row(
+        self,
+        row: sqlite3.Row,
+        audit_event_id: UUID,
+        *,
+        replayed: bool,
+    ) -> BlackboxAuthorizationDecision:
+        return BlackboxAuthorizationDecision(
+            authorization_id=row["authorization_id"],
+            credential_id=row["credential_id"],
+            request_id=row["request_id"],
+            assignment_id=row["assignment_id"],
+            session_id=row["session_id"],
+            tool_call_id=row["tool_call_id"],
+            idempotency_key=row["idempotency_key"],
+            application_id=row["application_id"],
+            operation=row["operation"],
+            required_scope=row["required_scope"],
+            contract_digest=row["contract_digest"],
+            payload_digest=row["payload_digest"],
+            state=row["state"],
+            replayed=replayed,
+            status_code=row["status_code"],
+            result=json.loads(row["response_json"]) if row["response_json"] else None,
+            audit_event_id=audit_event_id,
+            created_at=_parse_utc(row["created_at"]),
+            completed_at=_parse_utc(row["completed_at"]) if row["completed_at"] else None,
+        )
+
+    def _append_audit_conn(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        request: BlackboxAuthorizationRequest,
+        event_type: BlackboxAuditEventType,
+        outcome: Literal["authorized", "replayed", "completed", "denied"],
+        credential_id: str | None,
+        authorization_id: str | None,
+        required_scope: PlatformBlackboxScope,
+        payload_digest: str,
+        reason_code: str | None,
+        details: Mapping[str, Any],
+        created_at: datetime,
+    ) -> BlackboxAuditRecord:
+        event_id = uuid4()
+        conn.execute(
+            """
+            INSERT INTO platform_blackbox_audit(
+              event_id,event_type,outcome,credential_id,authorization_id,assignment_id,
+              session_id,tool_call_id,request_id,idempotency_key,application_id,operation,
+              required_scope,contract_digest,payload_digest,reason_code,details_json,created_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                str(event_id),
+                event_type.value,
+                outcome,
+                credential_id,
+                authorization_id,
+                str(request.assignment_id),
+                str(request.session_id),
+                request.tool_call_id,
+                str(request.request_id),
+                request.idempotency_key,
+                str(request.application_id),
+                request.operation.value,
+                required_scope.value,
+                request.contract_digest,
+                payload_digest,
+                reason_code,
+                _canonical_json(dict(details)),
+                created_at.isoformat(),
+            ),
+        )
+        row = conn.execute(
+            "SELECT * FROM platform_blackbox_audit WHERE event_id=?",
+            (str(event_id),),
+        ).fetchone()
+        if row is None:  # pragma: no cover - immediately inserted
+            raise PlatformBlackboxStoreError("audit event insert disappeared")
+        return self._audit_from_row(row)
+
+    def _append_security_event_conn(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        event_type: str,
+        credential_id: str,
+        assignment_id: str,
+        session_id: str,
+        details: Mapping[str, Any],
+        created_at: datetime,
+    ) -> None:
+        conn.execute(
+            """
+            INSERT INTO platform_task_credential_security_events(
+              event_id,event_type,credential_id,assignment_id,session_id,details_json,created_at
+            ) VALUES (?,?,?,?,?,?,?)
+            """,
+            (
+                str(uuid4()),
+                event_type,
+                credential_id,
+                assignment_id,
+                session_id,
+                _canonical_json(dict(details)),
+                created_at.isoformat(),
+            ),
+        )
+
+    @staticmethod
+    def _audit_from_row(row: sqlite3.Row) -> BlackboxAuditRecord:
+        return BlackboxAuditRecord(
+            seq=row["seq"],
+            event_id=row["event_id"],
+            event_type=row["event_type"],
+            outcome=row["outcome"],
+            credential_id=row["credential_id"],
+            authorization_id=row["authorization_id"],
+            assignment_id=row["assignment_id"],
+            session_id=row["session_id"],
+            tool_call_id=row["tool_call_id"],
+            request_id=row["request_id"],
+            idempotency_key=row["idempotency_key"],
+            application_id=row["application_id"],
+            operation=row["operation"],
+            required_scope=row["required_scope"],
+            contract_digest=row["contract_digest"],
+            payload_digest=row["payload_digest"],
+            reason_code=row["reason_code"],
+            details=json.loads(row["details_json"]),
+            created_at=_parse_utc(row["created_at"]),
+        )
+
+    @staticmethod
+    def _security_event_from_row(row: sqlite3.Row) -> CredentialSecurityEvent:
+        return CredentialSecurityEvent(
+            seq=row["seq"],
+            event_id=row["event_id"],
+            event_type=row["event_type"],
+            credential_id=row["credential_id"],
+            assignment_id=row["assignment_id"],
+            session_id=row["session_id"],
+            details=json.loads(row["details_json"]),
+            created_at=_parse_utc(row["created_at"]),
+        )

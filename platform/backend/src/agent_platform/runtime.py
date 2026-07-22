@@ -46,6 +46,7 @@ class SessionRuntime:
     governance_owner_id: str | None = None
     governance_application_id: str | None = None
     platform_task_id: str | None = None
+    allow_secret_references: bool = True
 
 
 class AgentRuntime:
@@ -88,6 +89,7 @@ class AgentRuntime:
         parent_task_id: str | None = None,
         governance_owner_id: str | None = None,
         governance_application_id: str | None = None,
+        allow_secret_references: bool = True,
     ) -> SessionRuntime:
         session_id = session_id or str(uuid4())
         sandbox = await self.sandboxes.get_or_create(
@@ -105,6 +107,7 @@ class AgentRuntime:
             governance_parent_task_id=parent_task_id,
             governance_owner_id=governance_owner_id,
             governance_application_id=governance_application_id,
+            allow_secret_references=allow_secret_references,
         )
         self.sessions[session_id] = session
         await self.storage.create_session(session_id, agent.id, version, workspace_path)
@@ -403,8 +406,9 @@ class AgentRuntime:
                 payload=tool_input,
             )
             tool_input = await self.harness.inject_secret_references(
-                owner_id=session.agent.id,
+                owner_id=session.governance_application_id or session.agent.id,
                 payload=tool_input,
+                allow_secret_references=session.allow_secret_references,
             )
             await self.emit(session.id, "tool.started", {
                 "tool_use_id": block.id, "tool": tool_name, "input": self._redact(tool_input)
@@ -499,6 +503,7 @@ class AgentRuntime:
             parent_task_id=parent.platform_task_id or parent.governance_parent_task_id,
             governance_owner_id=parent.governance_owner_id or parent.agent.id,
             governance_application_id=parent.governance_application_id,
+            allow_secret_references=parent.allow_secret_references,
         )
         try:
             # The child gets its own SessionRuntime, sandbox container, permission scope,

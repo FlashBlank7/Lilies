@@ -1,0 +1,131 @@
+{
+  "schema_version": "1.1",
+  "task_id": "V04-13-T01B",
+  "captured_at_utc": "2026-07-22T15:28:25Z",
+  "contract": {
+    "schema_version": "1.0",
+    "contract_version": 1,
+    "platform_version": "v0.4.13",
+    "empty_assignment_digest": "sha256:6836b56a5eb76c269e49b4edb9c8078011e4c24955701966290a617735d56279",
+    "contract_schema_digest": "sha256:578e399402c7d4e589a60ed83f021c1ce3c0d2143c2754f8fdf0c21a850cdece",
+    "version_store_schema_digest": "sha256:578e399402c7d4e589a60ed83f021c1ce3c0d2143c2754f8fdf0c21a850cdece",
+    "digest_is_canonical": true,
+    "generated_at_excluded_from_digest": true,
+    "role_filtered": true,
+    "operation_count_with_all_scopes": 16,
+    "operations": [
+      "platform_contract_get",
+      "platform_block_search",
+      "platform_block_get",
+      "platform_tool_catalog",
+      "platform_application_create",
+      "platform_application_get",
+      "platform_draft_inspect",
+      "platform_draft_apply",
+      "platform_tests_run",
+      "platform_run_start",
+      "platform_run_get",
+      "platform_run_resume",
+      "platform_run_cancel",
+      "platform_trace_get",
+      "platform_artifact_read",
+      "platform_publish"
+    ],
+    "draft_apply": {
+      "discriminator": "op",
+      "strict_variants": 10,
+      "held_out_schema_only_construction": [
+        "add_node",
+        "update_node",
+        "add_edge",
+        "add_test"
+      ],
+      "dynamic_node_config_schema_source": "platform_block_get"
+    }
+  },
+  "drift_probe": {
+    "baseline_digest": "sha256:6836b56a5eb76c269e49b4edb9c8078011e4c24955701966290a617735d56279",
+    "digest_with_one_assignment_owned_published_tool": "sha256:9b9fe47ec5f6e70effcd95198e248ca0b82873298b511d99fd680994cb790eb0",
+    "changed": true,
+    "old_digest_request_status": 409,
+    "old_digest_error_code": "contract_drift",
+    "client_auto_refreshes_after_drift": false,
+    "agent_loop_explicitly_refetched_after_publication": true,
+    "cross_digest_exact_replay_preserves_original_body": true
+  },
+  "authorization": {
+    "task_token_to_internal_endpoint_status": 403,
+    "task_token_to_internal_endpoint_code": "internal_endpoint_denied",
+    "missing_scope_status": 403,
+    "cross_application_status": 404,
+    "malformed_run_identifier_status": 422,
+    "valid_unknown_run_identifier_status": 404,
+    "credential_expiry_fail_closed": true,
+    "credential_revocation_fail_closed": true,
+    "invalid_expired_and_revoked_requests_audited": true,
+    "concurrent_application_create_limit": "one application per credential across independent store instances",
+    "publication_requires_distinct_scope": true,
+    "plaintext_task_token_persisted_by_platform": false,
+    "local_registry_filters_assignment_allowed_actions": true,
+    "fetched_contract_filters_remote_operations": true
+  },
+  "wire_contract": {
+    "success_and_error_envelope_keys": [
+      "ok",
+      "operation",
+      "request_id",
+      "status_code",
+      "contract_digest",
+      "data",
+      "error",
+      "evidence_refs"
+    ],
+    "error_keys": [
+      "code",
+      "message",
+      "retryable",
+      "failure_owner",
+      "expected",
+      "actual",
+      "evidence_ref"
+    ],
+    "body_models_reject_unknown_fields": true,
+    "atomic_result_character_limit": 400000,
+    "atomic_result_overflow_code": "platform_result_too_large",
+    "artifact_request_fields": [
+      "run_id",
+      "artifact_id",
+      "offset_bytes",
+      "max_bytes"
+    ],
+    "artifact_response_integrity_fields": [
+      "size_bytes",
+      "sha256",
+      "offset_bytes",
+      "chunk_size_bytes",
+      "next_offset_bytes",
+      "complete",
+      "encoding",
+      "content"
+    ],
+    "declared_policy_errors": [
+      "workspace_boundary_violation",
+      "nested_workflow_scope_denied",
+      "runtime_tool_scope_denied",
+      "runtime_network_scope_denied",
+      "runtime_secret_scope_denied"
+    ]
+  },
+  "known_boundary_codes": [
+    "scope_filtered_contract",
+    "incremental_draft_only",
+    "no_internal_access",
+    "trace_redaction",
+    "bounded_result_transport",
+    "registered_artifact_size_limit",
+    "assigned_runtime_policy",
+    "current_acceptance_required_for_publish",
+    "scheduled_publish_not_supported",
+    "context_dependent_publish_not_supported"
+  ]
+}

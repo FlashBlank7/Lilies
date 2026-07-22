@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -20,17 +21,24 @@ from .agent_core import (
 from .lilies_config import LiliesSettings
 from .lilies_identity import build_lilies_system_prompt
 from .lilies_models import (
+    AssignmentNetworkPolicy,
+    BuildAssignment,
+    CredentialKind,
     PermissionDecisionRequest,
     SessionCancelRequest,
     SessionCreateRequest,
     SessionMessageRequest,
     SessionResumeRequest,
 )
+from .lilies_platform_client import LiliesPlatformClient
+from .lilies_platform_contract import operation_by_name
+from .lilies_platform_tools import build_lilies_platform_registry
 from .lilies_storage import LiliesConflictError, LiliesNotFoundError, LiliesStorage
 from .lilies_tools import (
     LiliesTool,
     LiliesToolContext,
     LiliesToolRegistry,
+    LiliesToolResult,
     build_lilies_core_registry,
 )
 from .models import ChatMessage, ContentBlock, ModelResponse, Usage
@@ -99,6 +107,12 @@ class LocalLiliesCore:
     service: LocalLiliesService
 
 
+@dataclass(frozen=True, slots=True)
+class _AssignmentToolBinding:
+    fingerprint: str
+    registry: LiliesToolRegistry
+
+
 class LocalLiliesService:
     """Standalone durable Lilies loop, independent from all workflow platform services."""
 
@@ -118,6 +132,7 @@ class LocalLiliesService:
             settings.model_timeout_seconds,
         )
         self.tools = tools or build_lilies_core_registry()
+        self.assignment_tool_bindings: dict[str, _AssignmentToolBinding] = {}
         self.active_turns: dict[str, asyncio.Task[None]] = {}
         self.session_locks: dict[str, asyncio.Lock] = {}
         self.permission_waiters: dict[str, asyncio.Future[dict[str, Any]]] = {}
@@ -129,6 +144,103 @@ class LocalLiliesService:
         self.settings.prepare()
         self.recovery_summary = await self.storage.initialize()
         return self.recovery_summary
+
+    async def tool_registry_for_session(
+        self,
+        session_id: str,
+        *,
+        session: dict[str, Any] | None = None,
+    ) -> LiliesToolRegistry:
+        """Resolve the least-privilege tool surface for one durable session.
+
+        Ordinary sessions retain only the local registry supplied at service
+        construction.  A platform assignment resolves its bearer from the
+        daemon's private credential store and constructs HTTP adapters without
+        importing any platform workflow service or database implementation.
+        """
+
+        current = session or await self.storage.get_session(session_id)
+        raw_assignment = current.get("assignment")
+        if raw_assignment is None:
+            return self.tools
+        try:
+            assignment = BuildAssignment.model_validate(raw_assignment)
+        except ValidationError as error:
+            raise LiliesServiceError("persisted BuildAssignment is invalid") from error
+        assignment_id = str(assignment.assignment_id)
+        if current.get("assignment_id") != assignment_id:
+            raise LiliesServiceError("session and BuildAssignment identifiers do not match")
+        stored_digest = current.get("platform_contract_digest")
+        effective_digest = stored_digest or assignment.platform.contract_digest
+        if not isinstance(effective_digest, str) or re.fullmatch(
+            r"sha256:[0-9a-f]{64}", effective_digest
+        ) is None:
+            raise LiliesServiceError("session platform contract digest is invalid")
+
+        policy = assignment.constraints.network_policy
+        platform_host = (assignment.platform.base_url.host or "").casefold()
+        if policy is AssignmentNetworkPolicy.none:
+            raise LiliesServiceError("assignment network policy denies the platform connection")
+        if policy is AssignmentNetworkPolicy.allowlist and platform_host not in {
+            host.casefold() for host in assignment.constraints.allowed_hosts
+        }:
+            raise LiliesServiceError("platform host is absent from the assignment allowlist")
+
+        credential = await self.storage.get_credential(
+            assignment.platform.credential_ref,
+            assignment_id=assignment_id,
+        )
+        if credential.get("kind") != CredentialKind.platform_assignment.value:
+            raise LiliesServiceError("assignment credential has the wrong kind")
+        assignment_scopes = {scope.value for scope in assignment.platform.scopes}
+        credential_scopes = {str(scope) for scope in credential.get("scopes", [])}
+        if credential_scopes != assignment_scopes:
+            raise LiliesServiceError("assignment credential scopes do not match the assignment")
+
+        allowed_operations = {
+            action.value for action in assignment.constraints.allowed_actions
+        }
+        if "platform_contract_get" not in allowed_operations:
+            raise LiliesServiceError("assignment must allow platform_contract_get")
+        for operation in allowed_operations:
+            if str(operation_by_name(operation)["scope"]) not in assignment_scopes:
+                raise LiliesServiceError(
+                    f"assignment action {operation} is not covered by its credential scopes"
+                )
+
+        fingerprint = self._digest_json(
+            {
+                "assignment": assignment.model_dump(mode="json", exclude_none=True),
+                "credential_ref": credential["credential_ref"],
+                "credential_updated_at": credential.get("updated_at"),
+            }
+        )
+        cached = self.assignment_tool_bindings.get(session_id)
+        if cached is not None and cached.fingerprint == fingerprint:
+            return cached.registry
+        client = LiliesPlatformClient(
+            base_url=str(assignment.platform.base_url),
+            access_token=str(credential["value"]),
+            assignment_id=assignment.assignment_id,
+            session_id=session_id,
+            contract_digest=effective_digest,
+            require_contract_fetch=True,
+        )
+        registry = build_lilies_platform_registry(
+            client,
+            include_core_tools=False,
+            allowed_operations=allowed_operations,
+        )
+        self.assignment_tool_bindings[session_id] = _AssignmentToolBinding(
+            fingerprint=fingerprint,
+            registry=registry,
+        )
+        if stored_digest is None:
+            await self.storage.update_session_context(
+                session_id,
+                platform_contract_digest=assignment.platform.contract_digest,
+            )
+        return registry
 
     async def shutdown(self, *, reason: str = "daemon_shutdown") -> None:
         self.stopping = True
@@ -401,7 +513,8 @@ class LocalLiliesService:
             raise LiliesConflictError("permission input digest changed")
         approved_update = request.updated_input
         if approved_update is not None:
-            tool = self.tools.get(permission["tool_name"])
+            tools = await self.tool_registry_for_session(session_id)
+            tool = tools.get(permission["tool_name"])
             approved_update = tool.input_model.model_validate(approved_update).model_dump(
                 mode="json"
             )
@@ -652,10 +765,11 @@ class LocalLiliesService:
             )
             await self._compact_if_needed(session_id, session)
             session = await self.storage.get_session(session_id)
+            tools = await self.tool_registry_for_session(session_id, session=session)
             messages = await self._model_messages(session_id)
             system = build_lilies_system_prompt(
                 workspace=str(self._workspace_for(session_id)),
-                tool_names=self.tools.names(),
+                tool_names=tools.names(),
                 context_summary=session.get("context_summary") or None,
             )
             response = await self._request_model(
@@ -667,6 +781,7 @@ class LocalLiliesService:
                 baseline=baseline,
                 metrics=metrics,
                 max_model_calls=self._max_model_calls(config),
+                tools=tools,
             )
             visible_blocks = [block for block in response.blocks if block.type != "thinking"]
             await self.storage.add_message(
@@ -695,6 +810,7 @@ class LocalLiliesService:
                     config,
                     deadline,
                     baseline,
+                    tools,
                 )
                 await self._add_tool_result_message(session_id, turn_id, result)
             session = await self.storage.get_session(session_id)
@@ -710,6 +826,7 @@ class LocalLiliesService:
         baseline: CumulativeMetrics,
         metrics: TurnMetrics,
         max_model_calls: int,
+        tools: LiliesToolRegistry,
     ) -> ModelResponse:
         last_error: ProviderError | None = None
         for attempt in range(1, 4):
@@ -731,7 +848,7 @@ class LocalLiliesService:
                     model=self.settings.model,
                     system=system,
                     messages=messages,
-                    tools=self.tools.definitions(),
+                    tools=tools.definitions(),
                     max_output_tokens=self.settings.max_output_tokens,
                     thinking_enabled=True,
                     effort="high",
@@ -782,6 +899,7 @@ class LocalLiliesService:
         config: dict[str, Any],
         deadline: datetime,
         baseline: CumulativeMetrics,
+        tools: LiliesToolRegistry,
     ) -> ContentBlock:
         metrics.tool_calls += 1
         self._enforce_limits(config, deadline, baseline, metrics)
@@ -794,12 +912,21 @@ class LocalLiliesService:
             {"tool_call_id": block.id, "tool_name": tool_name},
         )
         try:
+            tool = tools.get(tool_name)
             invalid = tool_input.get(INVALID_TOOL_INPUT_JSON_KEY)
-            if invalid is not None:
+            if invalid is not None and not tool.handles_input_validation:
                 raise LiliesServiceError(f"invalid tool input JSON for {tool_name}")
-            tool = self.tools.get(tool_name)
-            validated = tool.input_model.model_validate(tool_input).model_dump(mode="json")
-            if tool.dangerous or tool.mutating:
+            validated = (
+                tool_input
+                if tool.handles_input_validation
+                else tool.input_model.model_validate(tool_input).model_dump(mode="json")
+            )
+            requires_permission = (
+                tool.requires_permission
+                if tool.requires_permission is not None
+                else tool.dangerous or tool.mutating
+            )
+            if requires_permission:
                 validated = await self._wait_for_permission(
                     session_id,
                     turn_id,
@@ -835,7 +962,14 @@ class LocalLiliesService:
                 LiliesToolContext(
                     session_id=session_id,
                     workspace=self._workspace_for(session_id),
+                    turn_id=turn_id,
+                    tool_call_id=block.id,
                 ),
+            )
+            await self._persist_platform_contract_digest(
+                session_id,
+                tool_name=tool_name,
+                outcome=outcome,
             )
             await self._checkpoint(
                 turn_id,
@@ -858,7 +992,7 @@ class LocalLiliesService:
             return ContentBlock(
                 type="tool_result",
                 tool_use_id=block.id,
-                content=outcome.content[:100_000],
+                content=self._model_tool_result_content(tool, outcome),
                 is_error=outcome.is_error,
             )
         except asyncio.CancelledError:
@@ -880,6 +1014,30 @@ class LocalLiliesService:
                 content=self._safe_error(error),
                 is_error=True,
             )
+
+    async def _persist_platform_contract_digest(
+        self,
+        session_id: str,
+        *,
+        tool_name: str,
+        outcome: LiliesToolResult,
+    ) -> None:
+        if tool_name != "platform_contract_get" or outcome.is_error:
+            return
+        try:
+            payload = json.loads(outcome.content)
+            digest = payload["data"]["contract_digest"]
+        except (KeyError, TypeError, ValueError):
+            return
+        if not isinstance(digest, str):
+            return
+        session = await self.storage.get_session(session_id)
+        if session.get("platform_contract_digest") == digest:
+            return
+        await self.storage.update_session_context(
+            session_id,
+            platform_contract_digest=digest,
+        )
 
     async def _wait_for_permission(
         self,
@@ -966,7 +1124,8 @@ class LocalLiliesService:
                 content=permission.get("message") or f"permission denied for {tool_name}",
                 is_error=True,
             )
-        tool = self.tools.get(tool_name)
+        tools = await self.tool_registry_for_session(session_id)
+        tool = tools.get(tool_name)
         validated = self._validated_approved_permission_input(tool, permission)
         await self._checkpoint(
             turn["id"],
@@ -995,6 +1154,8 @@ class LocalLiliesService:
             LiliesToolContext(
                 session_id=session_id,
                 workspace=self._workspace_for(session_id),
+                turn_id=turn["id"],
+                tool_call_id=tool_call_id,
             ),
         )
         await self._emit(
@@ -1019,9 +1180,20 @@ class LocalLiliesService:
         return ContentBlock(
             type="tool_result",
             tool_use_id=tool_call_id,
-            content=outcome.content,
+            content=self._model_tool_result_content(tool, outcome),
             is_error=outcome.is_error,
         )
+
+    @staticmethod
+    def _model_tool_result_content(
+        tool: LiliesTool,
+        outcome: LiliesToolResult,
+    ) -> str:
+        if tool.preserve_result_integrity:
+            # Platform HTTP tools produce an already-bounded atomic JSON
+            # envelope.  Never apply a character slice that could invalidate it.
+            return outcome.content
+        return outcome.content[: tool.max_result_chars]
 
     async def _checkpoint(
         self,
