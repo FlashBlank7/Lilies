@@ -3,10 +3,25 @@
 import Link from 'next/link'
 import { ShieldCheck } from 'lucide-react'
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react'
-import { api, clearClientToken, getClientToken, idempotency, isAuthError, saveClientToken, type DeliveryMode, type DraftEvidence } from '@/lib/platform'
+import {
+  api,
+  clearClientToken,
+  createLocalLiliesAssignment,
+  deriveLocalLiliesBusinessContext,
+  getClientToken,
+  idempotency,
+  isAuthError,
+  PlatformApiError,
+  saveClientToken,
+  type DeliveryMode,
+  type DraftEvidence,
+  type LocalLiliesAssignment,
+  type LocalLiliesStatus,
+} from '@/lib/platform'
 import { defaultLocale, isLocale, messages, nextLocale, type Locale } from '@/lib/i18n'
 import { classifyRuntimeStatus, runtimeCommit, runtimeVersion, type RuntimeHealth } from '@/lib/runtime-status'
 import surfaceStyles from '@/app/surface-boundaries.module.css'
+import { LocalLiliesConnectionPanel } from './local-lilies-connection-panel'
 
 type Application = {
   id: string
@@ -119,6 +134,14 @@ type RequirementIntakeResponse = {
 type DraftMutationResult = {
   revision: number
 }
+type BuilderRoute = 'local_lilies' | 'legacy_builder'
+
+const LOCAL_LILIES_WORKFLOW_DELIVERABLES = [{
+  name: 'Editable workflow application',
+  description: 'The workflow, acceptance evidence, and visible delivery status in Lilies.',
+  media_type: 'application/vnd.lilies.workflow+json',
+  required: true,
+}]
 
 function deriveApplicationName(requirement: string) {
   const raw = requirement.trim()
@@ -195,6 +218,40 @@ async function applyCodexWorkspaceScenario(application: Application) {
       }),
     },
   )
+}
+
+async function launchLocalLilies(
+  application: Application,
+  requirement: string,
+  connectionId: string,
+  capabilityContext: CapabilityBuildContract | null,
+) {
+  // The local route starts from the empty application returned by create. It
+  // must not mutate a draft, seed a scenario, or invoke the in-process Builder.
+  return createLocalLiliesAssignment(application.id, {
+    requirement,
+    idempotency_key: idempotency(),
+    connection_id: connectionId,
+    business_context: deriveLocalLiliesBusinessContext(requirement, capabilityContext, LOCAL_LILIES_WORKFLOW_DELIVERABLES),
+    deliverables: LOCAL_LILIES_WORKFLOW_DELIVERABLES,
+  })
+}
+
+async function launchLegacyBuilder(application: Application, requirement: string, capabilityBuildContract: CapabilityBuildContract | null) {
+  // Kept only as an explicit developer compatibility route.
+  if (isCodexWorkspaceRequirement(requirement) && !capabilityBuildContract) {
+    await applyCodexWorkspaceScenario(application)
+  }
+  return api<{ build_id: string }>(`/api/v1/applications/${application.id}/builds`, {
+    method: 'POST',
+    body: JSON.stringify({
+      requirement,
+      auto_publish: true,
+      max_turns: 36,
+      max_repair_cycles: 4,
+      max_elapsed_seconds: 480,
+    }),
+  })
 }
 
 const JAPANESE_LEARNING_COMMENT_FIXTURE_TEMPLATE = `受控样例评论线索（离线验证用，不代表已经抓取真实视频网站）
@@ -462,6 +519,15 @@ export default function Home() {
   const [draftBusy, setDraftBusy] = useState(false)
   const [requirementIntakeBusy, setRequirementIntakeBusy] = useState(false)
   const [buildIntentConfirmed, setBuildIntentConfirmed] = useState(false)
+  const [builderRoute, setBuilderRoute] = useState<BuilderRoute | null>(null)
+  const [localLilies, setLocalLilies] = useState<LocalLiliesStatus>({
+    enabled: false,
+    default_route: false,
+    connections: [],
+  })
+  const [selectedLocalConnectionId, setSelectedLocalConnectionId] = useState('')
+  const [lastLocalAssignment, setLastLocalAssignment] = useState<LocalLiliesAssignment | null>(null)
+  const [createdApplicationId, setCreatedApplicationId] = useState('')
   const [requirementSelections, setRequirementSelections] = useState<RequirementClarificationSelections>({})
   const [requirementAnswerHistory, setRequirementAnswerHistory] = useState<RequirementIntakeAnswer[]>([])
   const [requirementIntake, setRequirementIntake] = useState<RequirementIntakeResponse | null>(null)
@@ -472,6 +538,10 @@ export default function Home() {
   const [tokenInput, setTokenInput] = useState('')
   const [runtimeHealth, setRuntimeHealth] = useState<RuntimeHealth | null>(null)
   const [runtimeUnavailable, setRuntimeUnavailable] = useState(false)
+  const selectLocalConnection = useCallback((connectionId: string) => {
+    setSelectedLocalConnectionId(connectionId)
+    setBuildIntentConfirmed(false)
+  }, [])
   function clearFeedback() {
     setNotice('')
     setError('')
@@ -751,6 +821,15 @@ export default function Home() {
 
   async function create(event: FormEvent) {
     event.preventDefault()
+    if (!builderRoute) {
+      showError(locale === 'zh' ? '请先显式选择 Local Lilies 或旧 Builder（开发）路线。' : 'Choose Local Lilies or the legacy Builder (developer) route first.')
+      return
+    }
+    const localConnection = localLilies.connections.find(connection => connection.connection_id === selectedLocalConnectionId && connection.status === 'connected')
+    if (builderRoute === 'local_lilies' && (!localLilies.enabled || !localConnection)) {
+      showError(locale === 'zh' ? 'Local Lilies 未启用或 daemon 未连接；不会自动回退到旧 Builder。' : 'Local Lilies is disabled or disconnected; no legacy fallback was attempted.')
+      return
+    }
     if (!buildIntentConfirmed) {
       setBuildIntentConfirmed(true)
       showNotice(t.buildIntentHomeConfirm)
@@ -758,34 +837,42 @@ export default function Home() {
     }
     setBusy(true)
     clearFeedback()
+    let createdApp: Application | null = null
     try {
+      const launchContract = displayedCapabilityContract || null
       const name = deriveApplicationName(requirement)
       const app = await api<Application>('/api/v1/applications', {
         method: 'POST',
-        body: JSON.stringify({ name, description: deriveApplicationDescription(requirement, capabilityBuildContract), requirement, mode: 'workflow', delivery_mode: deliveryMode, capability_build_contract: capabilityBuildContract }),
+        body: JSON.stringify({ name, description: deriveApplicationDescription(requirement, launchContract), requirement, mode: 'workflow', delivery_mode: deliveryMode, capability_build_contract: launchContract }),
       })
+      createdApp = app
       setApps(current => [app, ...current.filter(item => item.id !== app.id)])
+      setCreatedApplicationId(app.id)
       resetAppListView()
-      if (isCodexWorkspaceRequirement(requirement) && !capabilityBuildContract) {
-        await applyCodexWorkspaceScenario(app)
-      }
-      try {
-        const build = await api<{ build_id: string }>(`/api/v1/applications/${app.id}/builds`, {
-          method: 'POST',
-          body: JSON.stringify({
-            requirement,
-            auto_publish: true,
-            max_turns: 36,
-            max_repair_cycles: 4,
-            max_elapsed_seconds: 480,
-          }),
-        })
+      if (builderRoute === 'local_lilies') {
+        const assignment = await launchLocalLilies(app, requirement, localConnection?.connection_id || '', launchContract)
+        setLastLocalAssignment(assignment)
+        // A daemon-unavailable record is still navigable: the Studio preserves
+        // all four correlation IDs and offers an explicit reconnect.
+        window.location.href = `/applications/${app.id}?assignment=${encodeURIComponent(assignment.assignment_id)}`
+      } else {
+        const build = await launchLegacyBuilder(app, requirement, launchContract)
         window.location.href = `/applications/${app.id}?build=${build.build_id}`
-      } catch {
-        window.location.href = `/applications/${app.id}?safeDraft=1`
       }
     } catch (cause) {
-      showError(String(cause))
+      if (cause instanceof PlatformApiError && cause.assignment_id) {
+        const recoverApplicationId = cause.application_id || createdApp?.id
+        if (recoverApplicationId) {
+          // The bridge records IDs before daemon side effects. A structured
+          // 503 is therefore a recoverable assignment, not a reason to invoke
+          // another builder or seed a substitute draft.
+          setBusy(false)
+          window.location.href = `/applications/${encodeURIComponent(recoverApplicationId)}?assignment=${encodeURIComponent(cause.assignment_id)}`
+          return
+        }
+      }
+      const context = createdApp ? ` application_id=${createdApp.id}` : ''
+      showError(`${String(cause)}${context}. ${locale === 'zh' ? '所选路线失败；未执行隐式 fallback。' : 'The selected route failed; no implicit fallback was run.'}`)
       setBusy(false)
     }
   }
@@ -991,10 +1078,23 @@ export default function Home() {
             <div className="create-copy"><span>{t.createHint}</span><small>{t.safeDraftHint}</small><small className="build-intent-copy" data-build-intent={buildIntentConfirmed ? 'confirmed' : 'needs-confirmation'}>{buildIntentConfirmed ? t.buildIntentHomeArmed : t.buildIntentHomeSafe}</small></div>
             <div className="create-actions">
               <button className="secondary-action" disabled={busy || draftBusy || requirement.length < 10} onClick={saveDraftOnly} type="button">{draftBusy ? t.saveDraftOnlyBusy : t.saveDraftOnlyButton}</button>
-              <button ref={buildButtonRef} className={`build-action ${buildIntentConfirmed ? 'armed' : ''}`} data-build-action="home-start-builder-team" data-build-intent={buildIntentConfirmed ? 'confirmed' : 'needs-confirmation'} disabled={busy || draftBusy || requirement.length < 10}>{busy ? t.createBusy : buildIntentConfirmed ? t.createConfirmButton : t.createButton}</button>
+              <button ref={buildButtonRef} className={`build-action ${buildIntentConfirmed ? 'armed' : ''}`} data-build-action="home-start-builder-team" data-build-route={builderRoute || 'unselected'} data-build-intent={buildIntentConfirmed ? 'confirmed' : 'needs-confirmation'} disabled={busy || draftBusy || requirement.length < 10 || !builderRoute}>{busy ? t.createBusy : builderRoute === 'local_lilies' ? (locale === 'zh' ? '启动 Local Lilies' : 'Launch Local Lilies') : builderRoute === 'legacy_builder' ? (locale === 'zh' ? '启动旧 Builder（开发）' : 'Launch legacy Builder (developer)') : (locale === 'zh' ? '先选择构建路线' : 'Choose a build route')}</button>
             </div>
           </div>
+          <section className="builder-route-choice" data-builder-route={builderRoute || 'unselected'}>
+            <div><strong>{locale === 'zh' ? '构建路线（必须显式选择）' : 'Build route (explicit choice required)'}</strong><small>{locale === 'zh' ? '两条路线互不回退。Local Lilies 不会预建草稿；旧 Builder 只用于开发兼容。' : 'Routes never fall back to one another. Local Lilies receives an empty application; legacy Builder is developer compatibility only.'}</small></div>
+            <button type="button" aria-pressed={builderRoute === 'local_lilies'} disabled={!localLilies.enabled || !localLilies.connections.some(connection => connection.connection_id === selectedLocalConnectionId && connection.status === 'connected')} onClick={() => { setBuilderRoute('local_lilies'); setBuildIntentConfirmed(false) }}><b>Local Lilies</b><span>{localLilies.connections.some(connection => connection.connection_id === selectedLocalConnectionId && connection.status === 'connected') ? (locale === 'zh' ? '所选 daemon 已连接' : 'selected daemon connected') : (locale === 'zh' ? '需要选择并配对 daemon' : 'select and pair a daemon first')}</span></button>
+            <button type="button" aria-pressed={builderRoute === 'legacy_builder'} onClick={() => { setBuilderRoute('legacy_builder'); setBuildIntentConfirmed(false) }}><b>{locale === 'zh' ? '旧 Builder（开发）' : 'Legacy Builder (developer)'}</b><span>{locale === 'zh' ? '显式兼容路线，不是 Local Lilies fallback' : 'Explicit compatibility route, never a Local Lilies fallback'}</span></button>
+          </section>
+          {(createdApplicationId || lastLocalAssignment) && <section className="local-lilies-launch-context" data-local-lilies-launch-context="preserved">
+            <strong>{locale === 'zh' ? '最近一次启动标识' : 'Last launch identifiers'}</strong>
+            <code>application_id={lastLocalAssignment?.application_id || createdApplicationId || '—'}</code>
+            <code>assignment_id={lastLocalAssignment?.assignment_id || '—'}</code>
+            <code>build_id={lastLocalAssignment?.build_id || '—'}</code>
+            <code>session_id={lastLocalAssignment?.session_id || '—'}</code>
+          </section>}
         </form>
+        <LocalLiliesConnectionPanel locale={locale} onStatusChange={setLocalLilies} onConnectionSelect={selectLocalConnection} />
         <section className="customer-intake-panel" aria-labelledby="customer-intake-title">
           <div className="customer-intake-head">
             <div>

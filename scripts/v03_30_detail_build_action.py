@@ -72,7 +72,7 @@ def source_marker_checks() -> list[dict[str, Any]]:
                 "data-detail-build-action-state",
                 "detail-build-action-explainer",
                 "build-intent-guard",
-                "data-build-action=\"detail-start-builder-team\"",
+                "data-build-action=\"detail-start-legacy-builder\"",
             ),
         ),
         (

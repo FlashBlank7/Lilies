@@ -79,6 +79,13 @@ class Settings(BaseSettings):
     complexity_router_limited_default_enabled: bool = True
     complexity_router_limited_default_min_confidence: float = 0.55
     lilies_platform_contract_version: int = Field(default=1, ge=1, le=2**63 - 1)
+    # v0.4.13 rollout gates.  The local daemon route remains opt-in until its
+    # deterministic and browser evidence is complete; collaboration and the
+    # product-wide default have later, independent gates.
+    lilies_local_agent_enabled: bool = False
+    lilies_collaboration_enabled: bool = False
+    lilies_local_builder_default: bool = False
+    lilies_platform_base_url: str = ""
 
     def prepare(self) -> None:
         self.data_dir.mkdir(parents=True, exist_ok=True)

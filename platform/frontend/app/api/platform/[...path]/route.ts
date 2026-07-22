@@ -58,11 +58,42 @@ function proxyApiToken(browserToken: string | null) {
   return browserToken || process.env.API_TOKEN || localEnvValue('API_TOKEN') || 'change-me'
 }
 
+const LOCAL_LILIES_QUERY_SECRET_KEYS = new Set([
+  'access_token',
+  'api_token',
+  'frontend_token',
+  'token',
+])
+
+function isLocalLiliesPath(pathParts: string[]) {
+  return pathParts.length >= 3
+    && pathParts[0] === 'api'
+    && pathParts[1] === 'v1'
+    && pathParts[2] === 'local-lilies'
+}
+
+function containsQuerySecret(searchParams: URLSearchParams) {
+  return Array.from(searchParams.keys()).some(key => LOCAL_LILIES_QUERY_SECRET_KEYS.has(key.toLowerCase()))
+}
+
 async function proxy(request: NextRequest, context: { params: Promise<{ path: string[] }> }) {
   const { path } = await context.params
   const base = platformBaseUrl()
   const searchParams = new URLSearchParams(request.nextUrl.searchParams)
-  const browserToken = request.headers.get('x-agent-platform-token') || searchParams.get('frontend_token')
+  if (isLocalLiliesPath(path) && containsQuerySecret(searchParams)) {
+    return new Response(JSON.stringify({
+      detail: {
+        code: 'query_secret_rejected',
+        message: 'Local Lilies authentication is accepted only in request headers.',
+      },
+    }), {
+      status: 400,
+      headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
+    })
+  }
+  const browserToken = request.headers.get('x-lilies-platform-api-token')
+    || request.headers.get('x-agent-platform-token')
+    || searchParams.get('frontend_token')
   searchParams.delete('frontend_token')
   const query = searchParams.toString()
   const target = `${base}/${path.join('/')}${query ? `?${query}` : ''}`
@@ -70,12 +101,20 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
   headers.set('Authorization', `Bearer ${proxyApiToken(browserToken)}`)
   const contentType = request.headers.get('content-type')
   if (contentType) headers.set('content-type', contentType)
-  const init: RequestInit = { method: request.method, headers, cache: 'no-store' }
+  const accept = request.headers.get('accept')
+  if (accept) headers.set('accept', accept)
+  const lastEventId = request.headers.get('last-event-id')
+  if (lastEventId) headers.set('last-event-id', lastEventId)
+  const init: RequestInit = { method: request.method, headers, cache: 'no-store', signal: request.signal }
   if (!['GET', 'HEAD'].includes(request.method)) init.body = await request.arrayBuffer()
   const response = await fetch(target, init)
   const responseHeaders = new Headers()
   responseHeaders.set('content-type', response.headers.get('content-type') || 'application/json')
   responseHeaders.set('cache-control', 'no-store')
+  const retryAfter = response.headers.get('retry-after')
+  if (retryAfter) responseHeaders.set('retry-after', retryAfter)
+  const responseLastEventId = response.headers.get('last-event-id')
+  if (responseLastEventId) responseHeaders.set('last-event-id', responseLastEventId)
   return new Response(response.body, { status: response.status, headers: responseHeaders })
 }
 

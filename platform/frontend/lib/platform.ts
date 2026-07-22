@@ -62,6 +62,21 @@ export type WorkflowEdge = {
   branch?: string | null
 }
 
+export type LocalLiliesCapabilityItem = {
+  id?: string
+  title?: string
+  description?: string
+}
+
+export type LocalLiliesCapabilityContext = {
+  target_user?: string
+  business_goal?: string
+  functional_capabilities?: LocalLiliesCapabilityItem[]
+  runtime_guarantees?: LocalLiliesCapabilityItem[]
+  external_contracts?: LocalLiliesCapabilityItem[]
+  unresolved_decisions?: string[]
+}
+
 export type Snapshot = {
   name: string
   description: string
@@ -72,9 +87,7 @@ export type Snapshot = {
   workflow: { nodes: WorkflowNode[]; edges: WorkflowEdge[]; viewport: Record<string, number> }
   agents: Record<string, unknown>
   tests: Array<Record<string, unknown>>
-  capability_build_contract?: {
-    business_goal?: string
-  } | null
+  capability_build_contract?: LocalLiliesCapabilityContext | null
 }
 
 export type Draft = {
@@ -1024,8 +1037,296 @@ export type GovernedMemoryItem = {
   revoked_reason: string
 }
 
+export type LocalLiliesConnection = {
+  connection_id: string
+  status: string
+  base_url: string
+  daemon_fingerprint: string
+  client_id: string | null
+  granted_scopes: string[]
+  expires_at?: string | null
+  last_seen_at?: string | null
+  last_error?: LocalLiliesBridgeError | null
+  created_at: string
+  updated_at: string
+}
+
+export type LocalLiliesStatus = {
+  enabled: boolean
+  default_route: false
+  connections: LocalLiliesConnection[]
+}
+
+export type LocalLiliesAssignment = {
+  assignment_id: string
+  application_id: string
+  build_id: string
+  session_id: string
+  connection_id: string
+  phase: string
+  status: string
+  desired_state: string
+  daemon_status?: string | null
+  relay_cursor: number
+  ack_cursor: number
+  created_at: string
+  updated_at: string
+  last_error?: LocalLiliesBridgeError | null
+}
+
+export type LocalLiliesBridgeError = {
+  code: string
+  message: string
+}
+
+export function localLiliesErrorMessage(value: unknown) {
+  if (!value) return ''
+  if (typeof value === 'string') return value
+  if (typeof value !== 'object' || Array.isArray(value)) return String(value)
+  const record = value as Record<string, unknown>
+  const code = typeof record.code === 'string' ? record.code : ''
+  const message = typeof record.message === 'string' ? record.message : ''
+  if (code && message) return `${code}: ${message}`
+  return message || code || 'Unknown Local Lilies bridge error'
+}
+
+export type LocalLiliesAssignmentEvent = {
+  event_id: string
+  seq: number
+  event_type: string
+  data: Record<string, unknown>
+  replayed?: boolean
+  created_at?: string
+}
+
+export type LocalLiliesPairRequest = {
+  idempotency_key: string
+  base_url: string
+  pairing_code: string
+  expected_daemon_fingerprint: string
+}
+
+export type LocalLiliesBusinessContext = {
+  customer_roles: string[]
+  business_goal: string
+  inputs: string[]
+  outputs: string[]
+  constraints: string[]
+}
+
+export type LocalLiliesDeliverable = {
+  name: string
+  description: string
+  media_type: string
+  required: boolean
+}
+
+export type LocalLiliesAssignmentCreateRequest = {
+  requirement: string
+  idempotency_key: string
+  connection_id: string
+  business_context: LocalLiliesBusinessContext
+  deliverables: LocalLiliesDeliverable[]
+  constraints?: Record<string, unknown>
+  auto_publish?: boolean
+}
+
+type LocalLiliesRequirementSection = 'roles' | 'goal' | 'inputs' | 'outputs' | 'constraints'
+
+function localLiliesSectionKind(label: string): LocalLiliesRequirementSection | null {
+  const normalized = label.toLocaleLowerCase().replace(/[\s_\-/]+/g, '')
+  if (['客户角色', '目标用户', '用户角色', '使用者', 'customerrole', 'targetuser', 'users', 'roles'].includes(normalized)) return 'roles'
+  if (['业务目标', '目标', '目的', 'businessgoal', 'goal', 'objective'].includes(normalized)) return 'goal'
+  if (['启动输入', '业务输入', '输入', '数据源', 'startinput', 'businessinputs', 'inputs', 'input', 'sources'].includes(normalized)) return 'inputs'
+  if (['业务输出', '输出', '交付物', '结果', 'businessoutputs', 'outputs', 'output', 'deliverables', 'results'].includes(normalized)) return 'outputs'
+  if (['权限与边界', '约束', '限制', '边界', '运行保证', 'permissionsandboundaries', 'constraints', 'limitations', 'boundaries', 'runtimeguarantees'].includes(normalized)) return 'constraints'
+  return null
+}
+
+function localLiliesRequirementSections(requirement: string) {
+  const sections: Record<LocalLiliesRequirementSection, string[]> = {
+    roles: [], goal: [], inputs: [], outputs: [], constraints: [],
+  }
+  let current: LocalLiliesRequirementSection | null = null
+  for (const rawLine of requirement.split(/\r?\n/)) {
+    const line = rawLine.trim()
+    if (!line) continue
+    const markdownHeading = line.match(/^#{1,6}\s*(.+)$/)
+    const labelled = line.match(/^([^:：]{1,48})[:：]\s*(.*)$/)
+    const headingText = markdownHeading?.[1] || labelled?.[1] || line
+    const kind = localLiliesSectionKind(headingText)
+    if (kind) {
+      current = kind
+      const inline = labelled?.[2]?.trim()
+      if (inline) sections[kind].push(inline)
+      continue
+    }
+    if (markdownHeading) {
+      current = null
+      continue
+    }
+    if (current) {
+      const value = line.replace(/^[-*+]\s*/, '').replace(/^\d+[.)、]\s*/, '').trim()
+      if (value) sections[current].push(value)
+    }
+  }
+  return sections
+}
+
+function localLiliesUnique(values: Array<string | null | undefined>, limit = 100) {
+  const result: string[] = []
+  const seen = new Set<string>()
+  for (const raw of values) {
+    const value = raw?.replace(/\s+/g, ' ').trim().slice(0, 1_500)
+    if (!value) continue
+    const key = value.toLocaleLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    result.push(value)
+    if (result.length >= limit) break
+  }
+  return result
+}
+
+function localLiliesCapabilityLabel(prefix: string, item: LocalLiliesCapabilityItem) {
+  const identity = [item.id, item.title].filter(Boolean).join(' · ')
+  const detail = item.description?.trim()
+  if (!identity && !detail) return ''
+  return `${prefix}: ${identity || detail}${identity && detail ? ` — ${detail}` : ''}`
+}
+
+export function deriveLocalLiliesBusinessContext(
+  requirement: string,
+  contract?: LocalLiliesCapabilityContext | null,
+  deliverables: LocalLiliesDeliverable[] = [],
+): LocalLiliesBusinessContext {
+  const sections = localLiliesRequirementSections(requirement)
+  const meaningfulLines = requirement.split(/\r?\n/)
+    .map(line => line.replace(/^\s*#{1,6}\s*/, '').replace(/^\s*[-*+]\s*/, '').trim())
+    .filter(line => line && !localLiliesSectionKind(line.replace(/[:：].*$/, '')))
+  const firstRequirementLine = meaningfulLines[0]?.slice(0, 1_000) || requirement.trim().slice(0, 1_000)
+  const businessGoal = contract?.business_goal?.trim()
+    || sections.goal.join(' ').trim()
+    || firstRequirementLine
+    || 'Create an enterprise workflow with explicit inputs, outputs, and acceptance evidence.'
+  const inputSignals = meaningfulLines.filter(line => /(输入|读取|接收|采集|上传|来源|数据|input|source|receive|ingest|read)/i.test(line))
+  const outputSignals = meaningfulLines.filter(line => /(输出|生成|交付|报告|写回|通知|output|produce|deliver|report|write back)/i.test(line))
+  const constraintSignals = meaningfulLines.filter(line => /(必须|不得|禁止|限制|权限|合规|审计|边界|must|shall|without|constraint|permission|compliance|audit)/i.test(line))
+  const externalContracts = (contract?.external_contracts || []).map(item => localLiliesCapabilityLabel('External contract', item))
+  const runtimeGuarantees = (contract?.runtime_guarantees || []).map(item => localLiliesCapabilityLabel('Runtime guarantee', item))
+  const capabilityOutputs = (contract?.functional_capabilities || []).map(item => localLiliesCapabilityLabel('Required capability', item))
+  const unresolved = (contract?.unresolved_decisions || []).map(item => `Unresolved decision: ${item}`)
+  const deliverableOutputs = deliverables.map(item => `${item.name}: ${item.description}`)
+  const customerRoles = localLiliesUnique([
+    contract?.target_user,
+    ...sections.roles,
+    ...meaningfulLines.filter(line => /(团队|部门|人员|用户|客户|operator|manager|analyst|team|department|customer)/i.test(line)).slice(0, 3),
+  ])
+  const inputs = localLiliesUnique([
+    ...sections.inputs,
+    ...inputSignals,
+    ...externalContracts,
+    firstRequirementLine,
+  ])
+  const outputs = localLiliesUnique([
+    ...sections.outputs,
+    ...outputSignals,
+    ...capabilityOutputs,
+    ...deliverableOutputs,
+  ])
+  const constraints = localLiliesUnique([
+    ...sections.constraints,
+    ...constraintSignals,
+    ...runtimeGuarantees,
+    ...externalContracts.map(item => `Must satisfy ${item}`),
+    ...unresolved,
+  ])
+  return {
+    customer_roles: customerRoles.length ? customerRoles : [`Stakeholders for ${businessGoal.slice(0, 300)}`],
+    business_goal: businessGoal,
+    inputs: inputs.length ? inputs : [firstRequirementLine || businessGoal],
+    outputs: outputs.length ? outputs : [`Workflow delivery for ${businessGoal.slice(0, 500)}`],
+    constraints,
+  }
+}
+
 const root = '/api/platform'
 const tokenKey = 'foundry.apiToken'
+
+function apiErrorRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null
+}
+
+function findApiErrorString(value: unknown, key: string, depth = 0): string | undefined {
+  if (depth > 6) return undefined
+  const record = apiErrorRecord(value)
+  if (!record) return undefined
+  const direct = record[key]
+  if (typeof direct === 'string' && direct) return direct
+  const preferredChildren = ['detail', 'error', 'data', 'assignment', 'context']
+  for (const childKey of preferredChildren) {
+    const found = findApiErrorString(record[childKey], key, depth + 1)
+    if (found) return found
+  }
+  for (const [childKey, child] of Object.entries(record)) {
+    if (preferredChildren.includes(childKey)) continue
+    const found = findApiErrorString(child, key, depth + 1)
+    if (found) return found
+  }
+  return undefined
+}
+
+function parseApiErrorBody(text: string): unknown {
+  if (!text) return null
+  try {
+    return JSON.parse(text) as unknown
+  } catch {
+    return text
+  }
+}
+
+export class PlatformApiError extends Error {
+  readonly status: number
+  readonly statusText: string
+  readonly body: unknown
+  readonly detail: unknown
+  readonly code: string
+  readonly application_id?: string
+  readonly assignment_id?: string
+  readonly build_id?: string
+  readonly session_id?: string
+
+  constructor(status: number, statusText: string, body: unknown) {
+    const bodyRecord = apiErrorRecord(body)
+    const detail = bodyRecord && 'detail' in bodyRecord ? bodyRecord.detail : body
+    const code = findApiErrorString(detail, 'code') || findApiErrorString(body, 'code') || 'http_error'
+    const remoteMessage = findApiErrorString(detail, 'message')
+      || (typeof detail === 'string' ? detail : '')
+    const identifiers = {
+      application_id: findApiErrorString(detail, 'application_id') || findApiErrorString(body, 'application_id'),
+      assignment_id: findApiErrorString(detail, 'assignment_id') || findApiErrorString(body, 'assignment_id'),
+      build_id: findApiErrorString(detail, 'build_id') || findApiErrorString(body, 'build_id'),
+      session_id: findApiErrorString(detail, 'session_id') || findApiErrorString(body, 'session_id'),
+    }
+    const identifierText = Object.entries(identifiers)
+      .filter((entry): entry is [string, string] => Boolean(entry[1]))
+      .map(([key, value]) => `${key}=${value}`)
+      .join(' ')
+    super(`${status} ${statusText}${code ? ` [${code}]` : ''}${remoteMessage ? `: ${remoteMessage}` : ''}${identifierText ? ` (${identifierText})` : ''}`)
+    this.name = 'PlatformApiError'
+    this.status = status
+    this.statusText = statusText
+    this.body = body
+    this.detail = detail
+    this.code = code
+    this.application_id = identifiers.application_id
+    this.assignment_id = identifiers.assignment_id
+    this.build_id = identifiers.build_id
+    this.session_id = identifiers.session_id
+  }
+}
 
 export function getClientToken() {
   if (typeof window === 'undefined') return ''
@@ -1045,6 +1346,9 @@ export function clearClientToken() {
 }
 
 export function isAuthError(error: unknown) {
+  if (error instanceof PlatformApiError) {
+    return error.status === 401 || ['invalid_api_token', 'unauthorized'].includes(error.code)
+  }
   return String(error).includes('401') || String(error).toLowerCase().includes('invalid api token')
 }
 
@@ -1068,10 +1372,117 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     headers,
   })
   if (!response.ok) {
-    const body = await response.text()
-    throw new Error(`${response.status} ${response.statusText}${body ? `: ${body}` : ''}`)
+    const body = parseApiErrorBody(await response.text())
+    throw new PlatformApiError(response.status, response.statusText, body)
   }
   return response.json() as Promise<T>
+}
+
+export function localLiliesStatus() {
+  return api<LocalLiliesStatus>('/api/v1/local-lilies/status')
+}
+
+export function pairLocalLilies(request: LocalLiliesPairRequest) {
+  return api<LocalLiliesStatus>('/api/v1/local-lilies/connections', {
+    method: 'POST',
+    body: JSON.stringify(request),
+  })
+}
+
+export function refreshLocalLiliesConnection(connectionId: string) {
+  return api<LocalLiliesConnection>(`/api/v1/local-lilies/connections/${encodeURIComponent(connectionId)}/refresh`, {
+    method: 'POST',
+  })
+}
+
+export function reconnectLocalLilies(
+  connectionId: string,
+  pairingCode: string,
+  idempotencyKey: string,
+) {
+  return api<LocalLiliesStatus>(`/api/v1/local-lilies/connections/${encodeURIComponent(connectionId)}/reconnect`, {
+    method: 'POST',
+    body: JSON.stringify({ idempotency_key: idempotencyKey, pairing_code: pairingCode }),
+  })
+}
+
+export function createLocalLiliesAssignment(
+  applicationId: string,
+  request: LocalLiliesAssignmentCreateRequest,
+) {
+  return api<LocalLiliesAssignment>(
+    `/api/v1/local-lilies/applications/${encodeURIComponent(applicationId)}/builds`,
+    { method: 'POST', body: JSON.stringify(request) },
+  )
+}
+
+export function localLiliesApplicationAssignments(applicationId: string) {
+  return api<LocalLiliesAssignment[]>(
+    `/api/v1/local-lilies/applications/${encodeURIComponent(applicationId)}/assignments`,
+  )
+}
+
+export function localLiliesAssignment(assignmentId: string) {
+  return api<LocalLiliesAssignment>(
+    `/api/v1/local-lilies/assignments/${encodeURIComponent(assignmentId)}`,
+  )
+}
+
+export function localLiliesBuild(buildId: string) {
+  return api<LocalLiliesAssignment>(
+    `/api/v1/local-lilies/builds/${encodeURIComponent(buildId)}`,
+  )
+}
+
+export function localLiliesSession(sessionId: string) {
+  return api<LocalLiliesAssignment>(
+    `/api/v1/local-lilies/sessions/${encodeURIComponent(sessionId)}`,
+  )
+}
+
+export function cancelLocalLiliesAssignment(assignmentId: string) {
+  return api<LocalLiliesAssignment>(
+    `/api/v1/local-lilies/assignments/${encodeURIComponent(assignmentId)}/cancel`,
+    { method: 'POST' },
+  )
+}
+
+export function resumeLocalLiliesAssignment(assignmentId: string) {
+  return api<LocalLiliesAssignment>(
+    `/api/v1/local-lilies/assignments/${encodeURIComponent(assignmentId)}/resume`,
+    { method: 'POST' },
+  )
+}
+
+export function localLiliesAssignmentEventsUrl(assignmentId: string, after: number) {
+  return `/api/platform/api/v1/local-lilies/assignments/${encodeURIComponent(assignmentId)}/events?after=${Math.max(0, after)}`
+}
+
+export async function openLocalLiliesAssignmentEventStream(
+  assignmentId: string,
+  after: number,
+  signal: AbortSignal,
+) {
+  const token = getClientToken()
+  const headers = new Headers({
+    Accept: 'text/event-stream',
+    'Last-Event-ID': String(Math.max(0, after)),
+  })
+  if (token) headers.set('X-Lilies-Platform-API-Token', token)
+  const response = await fetch(localLiliesAssignmentEventsUrl(assignmentId, after), {
+    method: 'GET',
+    headers,
+    cache: 'no-store',
+    signal,
+  })
+  if (!response.ok) {
+    throw new PlatformApiError(
+      response.status,
+      response.statusText,
+      parseApiErrorBody(await response.text()),
+    )
+  }
+  return response
 }
 
 export function idempotency() {

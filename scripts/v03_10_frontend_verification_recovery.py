@@ -188,13 +188,25 @@ def hydrated_guard_state_machine_fallback() -> dict[str, object]:
     home = (FRONTEND_ROOT / "app" / "page.tsx").read_text(encoding="utf-8")
     detail = (FRONTEND_ROOT / "app" / "applications" / "[id]" / "page.tsx").read_text(encoding="utf-8")
     home_create = extract_function(home, "async function create")
+    home_legacy_launch = extract_function(home, "async function launchLegacyBuilder")
     detail_start = extract_function(detail, "async function startBuild")
+    home_build_guarded = (
+        index_before(home_create, "if (!buildIntentConfirmed)", "/builds")
+        or (
+            index_before(
+                home_create,
+                "if (!buildIntentConfirmed)",
+                "launchLegacyBuilder",
+            )
+            and "/builds" in home_legacy_launch
+        )
+    )
     checks = [
         {
             "id": "home_first_click_arms_before_build_call",
-            "passed": index_before(home_create, "if (!buildIntentConfirmed)", "/builds")
+            "passed": home_build_guarded
             and "setBuildIntentConfirmed(true)" in home_create
-            and "return" in home_create.split("/builds", 1)[0],
+            and "return" in home_create.split("launchLegacyBuilder", 1)[0],
         },
         {
             "id": "home_intent_resets_on_requirement_or_scenario_change",

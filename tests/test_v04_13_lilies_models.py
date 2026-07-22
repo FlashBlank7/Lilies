@@ -351,6 +351,57 @@ def test_pairing_default_scopes_include_control_and_private_credentials() -> Non
         )
 
 
+def test_pairing_prepared_bearer_is_strictly_bound_to_requested_client() -> None:
+    requested_client_id = uuid4()
+    prepared_token = f"{requested_client_id}." + "p" * 48
+    previous_client_id = uuid4()
+    previous_token = f"{previous_client_id}." + "x" * 48
+    request = PairingExchangeRequest(
+        pairing_code="ABCD-EFGH",
+        client_name="platform",
+        requested_scopes=[LocalScope.session_read],
+        client_nonce="D" * 22,
+        requested_client_id=requested_client_id,
+        prepared_access_token=prepared_token,
+    )
+    assert request.requested_client_id == requested_client_id
+    assert request.prepared_access_token is not None
+    assert request.prepared_access_token.get_secret_value() == prepared_token
+    assert prepared_token not in str(request.model_dump(mode="json"))
+
+    with pytest.raises(ValidationError, match="must be provided together"):
+        PairingExchangeRequest(
+            pairing_code="ABCD-EFGH",
+            client_name="platform",
+            requested_scopes=[LocalScope.session_read],
+            client_nonce="E" * 22,
+            requested_client_id=requested_client_id,
+        )
+
+    different_client_id = uuid4()
+    with pytest.raises(ValidationError, match="must be bound"):
+        PairingExchangeRequest(
+            pairing_code="ABCD-EFGH",
+            client_name="platform",
+            requested_scopes=[LocalScope.session_read],
+            client_nonce="F" * 22,
+            requested_client_id=requested_client_id,
+            prepared_access_token=f"{different_client_id}." + "q" * 48,
+        )
+
+    with pytest.raises(ValidationError, match="must equal previous_client_id"):
+        PairingExchangeRequest(
+            pairing_code="ABCD-EFGH",
+            client_name="platform",
+            requested_scopes=[LocalScope.session_read],
+            client_nonce="G" * 22,
+            previous_client_id=previous_client_id,
+            previous_access_token=previous_token,
+            requested_client_id=requested_client_id,
+            prepared_access_token=prepared_token,
+        )
+
+
 def test_permission_decision_is_bound_to_the_exact_input_digest() -> None:
     decision = PermissionDecisionRequest(
         idempotency_key=IDEMPOTENCY_KEY,

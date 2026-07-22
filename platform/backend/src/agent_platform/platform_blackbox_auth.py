@@ -26,8 +26,9 @@ from pydantic import (
 )
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 _TOKEN_PATTERN = re.compile(r"^lpt_([0-9a-f]{32})_([A-Za-z0-9_-]{43,128})$")
+_ISSUE_KEY_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
 _TOKEN_HASH_ITERATIONS = 120_000
 _DUMMY_SALT = bytes.fromhex("9b5f0f0f0ce437f097477c191e280317")
 
@@ -474,6 +475,9 @@ class PlatformBlackboxAuthStore:
                 )
             if current < 1:
                 self._migrate_v1(conn)
+                current = 1
+            if current < 2:
+                self._migrate_v2(conn)
         self._secure_database_files()
         return {"schema_version": SCHEMA_VERSION}
 
@@ -596,6 +600,33 @@ class PlatformBlackboxAuthStore:
             (1, self._now().isoformat()),
         )
 
+    def _migrate_v2(self, conn: sqlite3.Connection) -> None:
+        """Make one-time task credential issuance crash-resumable.
+
+        The bridge encrypts a caller-prepared token before asking this store to
+        persist its verifier.  A durable issuance key then lets a restarted
+        platform replay the exact same grant instead of minting an orphaned
+        credential in the return/save-secret crash window.
+        """
+
+        conn.execute(
+            "ALTER TABLE platform_task_credentials ADD COLUMN issue_idempotency_key TEXT"
+        )
+        conn.execute(
+            "ALTER TABLE platform_task_credentials ADD COLUMN issue_payload_digest TEXT"
+        )
+        conn.execute(
+            """
+            CREATE UNIQUE INDEX idx_platform_task_credentials_issue_key
+              ON platform_task_credentials(issue_idempotency_key)
+              WHERE issue_idempotency_key IS NOT NULL
+            """
+        )
+        conn.execute(
+            "INSERT INTO platform_blackbox_auth_schema(version,applied_at) VALUES (?,?)",
+            (2, self._now().isoformat()),
+        )
+
     def _secure_database_files(self) -> None:
         for path in (
             self.db_path,
@@ -605,63 +636,152 @@ class PlatformBlackboxAuthStore:
             if path.exists():
                 os.chmod(path, 0o600)
 
-    async def issue_credential(self, grant: TaskCredentialGrant) -> IssuedTaskCredential:
+    async def issue_credential(
+        self,
+        grant: TaskCredentialGrant,
+        *,
+        idempotency_key: str | None = None,
+        prepared_access_token: SecretStr | None = None,
+        credential_id: UUID | None = None,
+    ) -> IssuedTaskCredential:
+        prepared = (
+            prepared_access_token.get_secret_value()
+            if prepared_access_token is not None
+            else None
+        )
         async with self._lock:
-            return await asyncio.to_thread(self._issue_credential_sync, grant)
+            return await asyncio.to_thread(
+                self._issue_credential_sync,
+                grant,
+                idempotency_key,
+                prepared,
+                credential_id,
+            )
 
-    def _issue_credential_sync(self, grant: TaskCredentialGrant) -> IssuedTaskCredential:
+    def _issue_credential_sync(
+        self,
+        grant: TaskCredentialGrant,
+        idempotency_key: str | None,
+        prepared_access_token: str | None,
+        credential_id: UUID | None,
+    ) -> IssuedTaskCredential:
         now = self._now()
         if grant.expires_at <= now:
             raise ValueError("credential expires_at must be in the future")
-        credential_id = uuid4()
+        prepared_values = (
+            idempotency_key is not None,
+            prepared_access_token is not None,
+            credential_id is not None,
+        )
+        if any(prepared_values) and not all(prepared_values):
+            raise ValueError(
+                "idempotent credential issuance requires key, token, and credential_id"
+            )
+        if idempotency_key is not None and (
+            not 16 <= len(idempotency_key) <= 128
+            or _ISSUE_KEY_PATTERN.fullmatch(idempotency_key) is None
+        ):
+            raise ValueError("invalid credential issuance idempotency key")
+
+        credential_id = credential_id or uuid4()
         credential_ref = f"platform-task-credential:{credential_id}"
-        access_token = f"lpt_{credential_id.hex}_{secrets.token_urlsafe(32)}"
+        access_token = prepared_access_token or (
+            f"lpt_{credential_id.hex}_{secrets.token_urlsafe(32)}"
+        )
+        token_match = _TOKEN_PATTERN.fullmatch(access_token)
+        if token_match is None or token_match.group(1) != credential_id.hex:
+            raise ValueError("prepared task token is not bound to credential_id")
         salt = secrets.token_bytes(16)
         token_digest = _derive_token_digest(access_token, salt)
         scopes = sorted(scope.value for scope in grant.scopes)
         applications = sorted({str(application_id) for application_id in grant.application_ids})
+        issue_payload_digest = _json_digest(
+            {
+                "credential_id": str(credential_id),
+                "assignment_id": str(grant.assignment_id),
+                "session_id": str(grant.session_id),
+                "scopes": scopes,
+                "application_ids": applications,
+                "expires_at": grant.expires_at.isoformat(),
+            }
+        )
         with self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
-            conn.execute(
-                """
-                INSERT INTO platform_task_credentials(
-                  id,credential_ref,assignment_id,session_id,token_salt_hex,token_digest,
-                  scopes_json,expires_at,created_at,updated_at
-                ) VALUES (?,?,?,?,?,?,?,?,?,?)
-                """,
-                (
-                    str(credential_id),
-                    credential_ref,
-                    str(grant.assignment_id),
-                    str(grant.session_id),
-                    salt.hex(),
-                    token_digest,
-                    _canonical_json(scopes),
-                    grant.expires_at.isoformat(),
-                    now.isoformat(),
-                    now.isoformat(),
-                ),
-            )
-            conn.executemany(
-                """
-                INSERT INTO platform_task_credential_applications(
-                  credential_id,application_id,granted_at
-                ) VALUES (?,?,?)
-                """,
-                [
-                    (str(credential_id), application_id, now.isoformat())
-                    for application_id in applications
-                ],
-            )
-            self._append_security_event_conn(
-                conn,
-                event_type="credential.issued",
-                credential_id=str(credential_id),
-                assignment_id=str(grant.assignment_id),
-                session_id=str(grant.session_id),
-                details={"scopes": scopes, "application_ids": applications},
-                created_at=now,
-            )
+            existing = None
+            if idempotency_key is not None:
+                existing = conn.execute(
+                    """
+                    SELECT * FROM platform_task_credentials
+                    WHERE issue_idempotency_key=?
+                    """,
+                    (idempotency_key,),
+                ).fetchone()
+            if existing is not None:
+                supplied_digest = _derive_token_digest(
+                    access_token,
+                    bytes.fromhex(existing["token_salt_hex"]),
+                )
+                if (
+                    existing["id"] != str(credential_id)
+                    or existing["credential_ref"] != credential_ref
+                    or existing["issue_payload_digest"] != issue_payload_digest
+                    or not hmac.compare_digest(
+                        supplied_digest,
+                        str(existing["token_digest"]),
+                    )
+                ):
+                    raise PlatformBlackboxIdempotencyConflict(
+                        "credential issuance key was reused with a different grant"
+                    )
+            else:
+                try:
+                    conn.execute(
+                        """
+                        INSERT INTO platform_task_credentials(
+                          id,credential_ref,assignment_id,session_id,token_salt_hex,
+                          token_digest,scopes_json,expires_at,created_at,updated_at,
+                          issue_idempotency_key,issue_payload_digest
+                        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                        """,
+                        (
+                            str(credential_id),
+                            credential_ref,
+                            str(grant.assignment_id),
+                            str(grant.session_id),
+                            salt.hex(),
+                            token_digest,
+                            _canonical_json(scopes),
+                            grant.expires_at.isoformat(),
+                            now.isoformat(),
+                            now.isoformat(),
+                            idempotency_key,
+                            issue_payload_digest if idempotency_key is not None else None,
+                        ),
+                    )
+                except sqlite3.IntegrityError as error:
+                    raise PlatformBlackboxIdempotencyConflict(
+                        "credential issuance identifiers conflict with an existing grant"
+                    ) from error
+                conn.executemany(
+                    """
+                    INSERT INTO platform_task_credential_applications(
+                      credential_id,application_id,granted_at
+                    ) VALUES (?,?,?)
+                    """,
+                    [
+                        (str(credential_id), application_id, now.isoformat())
+                        for application_id in applications
+                    ],
+                )
+                self._append_security_event_conn(
+                    conn,
+                    event_type="credential.issued",
+                    credential_id=str(credential_id),
+                    assignment_id=str(grant.assignment_id),
+                    session_id=str(grant.session_id),
+                    details={"scopes": scopes, "application_ids": applications},
+                    created_at=now,
+                )
             row = self._require_credential_conn(conn, credential_ref)
             record = self._credential_from_row(conn, row)
         self._secure_database_files()

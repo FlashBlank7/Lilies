@@ -7,7 +7,7 @@ from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
-from pydantic import ValidationError
+from pydantic import SecretStr, ValidationError
 
 from agent_platform.platform_blackbox_auth import (
     BlackboxAuditEventType,
@@ -104,7 +104,7 @@ async def test_credential_persists_only_hash_and_constant_time_verifier_is_alway
 ) -> None:
     clock = MutableClock()
     store = PlatformBlackboxAuthStore(tmp_path / "agent_platform.db", clock=clock)
-    assert await store.initialize() == {"schema_version": 1}
+    assert await store.initialize() == {"schema_version": 2}
     application_id = uuid4()
     credential_grant = grant(clock, application_ids=[application_id])
     issued = await store.issue_credential(credential_grant)
@@ -531,3 +531,56 @@ async def test_audit_rows_are_correlated_and_database_immutable(tmp_path) -> Non
     with sqlite3.connect(store.db_path) as connection:
         with pytest.raises(sqlite3.IntegrityError, match="audit is immutable"):
             connection.execute("DELETE FROM platform_blackbox_audit WHERE seq=?", (audit.seq,))
+
+
+@pytest.mark.asyncio
+async def test_prepared_credential_issue_replays_across_restart_without_plaintext_storage(
+    tmp_path,
+) -> None:
+    clock = MutableClock()
+    db_path = tmp_path / "agent_platform.db"
+    credential_grant = grant(clock, application_ids=[uuid4()])
+    credential_id = uuid4()
+    token = f"lpt_{credential_id.hex}_{'A' * 43}"
+    issue_key = "bridge-credential-issue-0001"
+
+    first_store = PlatformBlackboxAuthStore(db_path, clock=clock)
+    await first_store.initialize()
+    first = await first_store.issue_credential(
+        credential_grant,
+        idempotency_key=issue_key,
+        prepared_access_token=SecretStr(token),
+        credential_id=credential_id,
+    )
+
+    restarted = PlatformBlackboxAuthStore(db_path, clock=clock)
+    assert await restarted.initialize() == {"schema_version": 2}
+    replay = await restarted.issue_credential(
+        credential_grant,
+        idempotency_key=issue_key,
+        prepared_access_token=SecretStr(token),
+        credential_id=credential_id,
+    )
+    assert replay.credential == first.credential
+    assert replay.access_token.get_secret_value() == token
+    assert (await restarted.authenticate_credential(SecretStr(token))).credential_id == credential_id
+
+    changed = credential_grant.model_copy(
+        update={"expires_at": credential_grant.expires_at + timedelta(minutes=1)}
+    )
+    with pytest.raises(PlatformBlackboxIdempotencyConflict):
+        await restarted.issue_credential(
+            changed,
+            idempotency_key=issue_key,
+            prepared_access_token=SecretStr(token),
+            credential_id=credential_id,
+        )
+
+    with sqlite3.connect(db_path) as connection:
+        database_dump = "\n".join(connection.iterdump())
+        count = connection.execute(
+            "SELECT COUNT(*) FROM platform_task_credentials WHERE issue_idempotency_key=?",
+            (issue_key,),
+        ).fetchone()[0]
+    assert count == 1
+    assert token not in database_dump

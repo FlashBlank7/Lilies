@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Annotated, Any, Literal, TypeVar
@@ -255,6 +256,12 @@ class PairingExchangeRequest(StrictModel):
         min_length=32,
         max_length=512,
     )
+    requested_client_id: UUID | None = None
+    prepared_access_token: SecretStr | None = Field(
+        default=None,
+        min_length=32,
+        max_length=512,
+    )
 
     @field_validator("requested_scopes")
     @classmethod
@@ -266,6 +273,36 @@ class PairingExchangeRequest(StrictModel):
         if (self.previous_client_id is None) != (self.previous_access_token is None):
             raise ValueError(
                 "previous_client_id and previous_access_token must be provided together"
+            )
+        if (self.requested_client_id is None) != (self.prepared_access_token is None):
+            raise ValueError(
+                "requested_client_id and prepared_access_token must be provided together"
+            )
+        if self.requested_client_id is None or self.prepared_access_token is None:
+            return self
+        token = self.prepared_access_token.get_secret_value()
+        token_client_id, separator, token_secret = token.partition(".")
+        try:
+            parsed_token_client_id = UUID(token_client_id)
+        except ValueError as error:
+            raise ValueError(
+                "prepared_access_token must be bound to requested_client_id"
+            ) from error
+        if (
+            not separator
+            or not token_secret
+            or token_client_id != str(parsed_token_client_id)
+            or parsed_token_client_id != self.requested_client_id
+        ):
+            raise ValueError(
+                "prepared_access_token must be bound to requested_client_id"
+            )
+        if (
+            self.previous_client_id is not None
+            and self.requested_client_id != self.previous_client_id
+        ):
+            raise ValueError(
+                "requested_client_id must equal previous_client_id during rotation"
             )
         return self
 
@@ -435,6 +472,9 @@ class DaemonStatus(StrictModel):
     address: AnyHttpUrl
     started_at: datetime
     daemon_fingerprint: Digest
+    client_id: UUID
+    client_scopes: list[LocalScope] = Field(min_length=1)
+    client_expires_at: datetime | None = None
     provider: str = Field(min_length=1, max_length=120)
     model: str = Field(min_length=1, max_length=200)
     paired_client_count: int = Field(ge=0)
@@ -447,6 +487,16 @@ class DaemonStatus(StrictModel):
     @classmethod
     def started_at_is_utc(cls, value: datetime) -> datetime:
         return _require_utc(value)
+
+    @field_validator("client_scopes")
+    @classmethod
+    def client_scopes_are_unique(cls, value: list[LocalScope]) -> list[LocalScope]:
+        return _unique(value, label="client_scopes")
+
+    @field_validator("client_expires_at")
+    @classmethod
+    def client_expires_at_is_utc(cls, value: datetime | None) -> datetime | None:
+        return _require_utc(value) if value is not None else None
 
 
 class DaemonStopRequest(StrictModel):
@@ -674,6 +724,34 @@ _FORBIDDEN_ASSIGNMENT_KEYS = {
     "token",
 }
 
+_FORBIDDEN_ASSIGNMENT_VALUE_PATTERNS = (
+    (
+        "platform task bearer",
+        re.compile(r"lpt_[0-9a-f]{32}_[A-Za-z0-9_-]{43,}"),
+    ),
+    (
+        "daemon bearer",
+        re.compile(
+            r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-"
+            r"[0-9a-f]{12}\.[A-Za-z0-9_-]{32,}",
+            re.IGNORECASE,
+        ),
+    ),
+    ("authorization header", re.compile(r"\b(?:authorization|proxy-authorization)\s*:", re.IGNORECASE)),
+    ("private key", re.compile(r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----")),
+    ("provider API key", re.compile(r"\b(?:sk-[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{30,})\b")),
+    ("JWT bearer", re.compile(r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b")),
+    (
+        "pairing code",
+        re.compile(
+            r"\b(?:[A-HJ-NP-Z2-9]{12}-[A-HJ-NP-Z2-9]{24}|"
+            r"[0-9a-f]{16}-[A-Za-z0-9_-]{24,})\b",
+            re.IGNORECASE,
+        ),
+    ),
+    ("protected oracle reference", re.compile(r"\b(?:oracle|protected)://\S+", re.IGNORECASE)),
+)
+
 
 def _find_forbidden_assignment_key(value: Any, path: str = "assignment") -> str | None:
     if isinstance(value, dict):
@@ -690,6 +768,41 @@ def _find_forbidden_assignment_key(value: Any, path: str = "assignment") -> str 
             if found is not None:
                 return found
     return None
+
+
+def _find_forbidden_assignment_value(
+    value: Any, path: str = "assignment"
+) -> tuple[str, str] | None:
+    if isinstance(value, dict):
+        for key, child in value.items():
+            found = _find_forbidden_assignment_value(child, f"{path}.{key}")
+            if found is not None:
+                return found
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            found = _find_forbidden_assignment_value(child, f"{path}[{index}]")
+            if found is not None:
+                return found
+    elif isinstance(value, str):
+        for label, pattern in _FORBIDDEN_ASSIGNMENT_VALUE_PATTERNS:
+            if pattern.search(value):
+                return path, label
+    return None
+
+
+def validate_assignment_payload_safety(value: Any) -> Any:
+    """Reject sensitive keys and recognizable plaintext secret/oracle values."""
+
+    found = _find_forbidden_assignment_key(value)
+    if found is not None:
+        raise ValueError(f"BuildAssignment contains forbidden sensitive field: {found}")
+    forbidden_value = _find_forbidden_assignment_value(value)
+    if forbidden_value is not None:
+        path, label = forbidden_value
+        raise ValueError(
+            f"BuildAssignment contains forbidden plaintext {label} at {path}"
+        )
+    return value
 
 
 class BuildAssignment(StrictModel):
@@ -711,10 +824,7 @@ class BuildAssignment(StrictModel):
     @model_validator(mode="before")
     @classmethod
     def reject_sensitive_fields(cls, value: Any) -> Any:
-        found = _find_forbidden_assignment_key(value)
-        if found is not None:
-            raise ValueError(f"BuildAssignment contains forbidden sensitive field: {found}")
-        return value
+        return validate_assignment_payload_safety(value)
 
     @field_validator("created_at")
     @classmethod
@@ -766,3 +876,22 @@ class BuildAssignment(StrictModel):
         if self.constraints.network_policy == AssignmentNetworkPolicy.full:
             raise ValueError("formal_experiment cannot use full network access")
         return self
+
+
+class AssignmentSubmissionResult(StrictModel):
+    """Durable receipt for the one assignment accepted by a local session."""
+
+    schema_version: Literal["1.0"] = "1.0"
+    assignment_id: UUID
+    session_id: UUID
+    turn_id: UUID
+    start_message_id: UUID
+    status: SessionStatus
+    event_cursor: int = Field(ge=1)
+    accepted_at: datetime
+    replayed: bool = False
+
+    @field_validator("accepted_at")
+    @classmethod
+    def accepted_at_is_utc(cls, value: datetime) -> datetime:
+        return _require_utc(value)

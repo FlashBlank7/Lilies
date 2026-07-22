@@ -1,0 +1,126 @@
+{
+  "schema_version": "1.0",
+  "task_id": "V04-13-T01C",
+  "captured_at_utc": "2026-07-22T18:51:54Z",
+  "baseline_commit": "d0c23d1323c411988ed928ea4dc4f624b049a68f",
+  "source_freshness": {
+    "latest_relevant_source_mtime_local": "2026-07-23T03:38:29+09:00",
+    "platform_restart_local": "2026-07-23T03:46:24+09:00",
+    "daemon_restart_local": "2026-07-23T03:51:35+09:00",
+    "result": "pass"
+  },
+  "environment": {
+    "runtime_root": "/tmp/lilies-t01c-final.c2fTEk",
+    "platform_origin": "http://127.0.0.1:18131",
+    "daemon_origin": "http://127.0.0.1:18831",
+    "processes": [
+      "standalone local Lilies daemon",
+      "standalone platform API",
+      "independent HTTP client"
+    ],
+    "provider_route": "bounded unavailable provider at loopback port 9",
+    "provider_claim": "The bounded provider failure was intentional. No successful model-authored workflow claim is made."
+  },
+  "binding": {
+    "connection_id": "29b23e58-c4cf-5f7c-8deb-1ad20988432e",
+    "client_id": "9ceb8dde-029e-5a8f-ac8d-d4d97df78921",
+    "daemon_fingerprint": "sha256:7a8caab1f614730d351792f4df762601bbfa56149fd5ec0751eb2009a8a39226",
+    "primary": {
+      "application_id": "870e5275-b6f5-42be-9e4b-c0917fa72d4d",
+      "build_id": "f28d4770-d8f3-5772-bcf3-8a028b129eec",
+      "assignment_id": "a4599735-1e3f-5465-b059-4d462cfa824d",
+      "session_id": "15bff9d0-59cd-5237-9a20-55140c17d641"
+    },
+    "offline": {
+      "application_id": "cad858f4-93b7-4638-84cd-696682b6aac7",
+      "build_id": "21022cc4-2d17-5afc-9277-c0845d2deb32",
+      "assignment_id": "c362db89-976c-5447-aa49-e26e05d83155",
+      "session_id": "e4c8b71c-f310-530d-a2d6-a3a3d9b22b79",
+      "connection_id": "29b23e58-c4cf-5f7c-8deb-1ad20988432e"
+    }
+  },
+  "checks": [
+    {
+      "id": "pairing-and-private-credential",
+      "result": "pass",
+      "evidence": "One-time pairing produced one deterministic client with exactly session:read, session:write, and credential:write. The public platform response exposed metadata only, and plaintext scans found no bearer."
+    },
+    {
+      "id": "strict-four-id-binding-and-idempotency",
+      "result": "pass",
+      "evidence": "Application, build, assignment, and session lookups returned one stable binding. A second nonterminal assignment for the same application returned HTTP 409."
+    },
+    {
+      "id": "no-prebuilt-draft",
+      "result": "pass",
+      "evidence": "Both applications remained revision 0 with an unchanged empty draft content hash before and after platform/daemon restarts and unavailability."
+    },
+    {
+      "id": "terminal-relay-ack",
+      "result": "pass",
+      "evidence": "Cancellation persisted 11 contiguous daemon events and strictly acknowledged cursor 11. The terminal tail included session.status_changed, a bound assignment.cancelled event, and turn.finished; bridge relay and ack remained 11/11 after both restarts."
+    },
+    {
+      "id": "sse-last-event-id-replay",
+      "result": "pass",
+      "evidence": "Last-Event-ID 8 replayed exactly sequences 9, 10, and 11, each marked replayed."
+    },
+    {
+      "id": "platform-restart",
+      "result": "pass",
+      "evidence": "A fresh platform process using the same private data directory preserved connection/client identity, all four IDs, relay/ack cursor, and the empty draft hash."
+    },
+    {
+      "id": "daemon-unavailable",
+      "result": "pass",
+      "evidence": "One stop/refresh path returned explicit HTTP 503 and persisted unavailable. In a second path the connected daemon was stopped immediately before Build: HTTP 503 carried application/build/assignment/session/connection IDs with phase=recorded, storage projected unavailable, and the draft stayed empty revision 0. After daemon restart, resume retained every ID; cancellation then drained and acknowledged cursor 11/11."
+    },
+    {
+      "id": "daemon-restart-and-explicit-reconnect",
+      "result": "pass",
+      "evidence": "Daemon restart restored the same fingerprint; refresh reconnected, and explicit rotation retained the same connection_id and client_id."
+    },
+    {
+      "id": "query-secret-rejection",
+      "result": "pass",
+      "evidence": "token, ToKeN, api_token, access_token, and frontend_token query variants all returned HTTP 400."
+    },
+    {
+      "id": "cancellation-and-revocation",
+      "result": "pass",
+      "evidence": "Both assignments and workflow builds remained cancelled, and the platform and daemon credentials for both assignments were durably revoked."
+    },
+    {
+      "id": "secret-and-file-mode-scan",
+      "result": "pass",
+      "evidence": "A 32-file scan found no platform API token, pairing code, bearer, envelope key, assignment task token, or generated pairing-code shape. Platform and daemon databases were mode 0600."
+    }
+  ],
+  "persisted_counts": {
+    "platform_connections": 1,
+    "platform_assignments": 2,
+    "platform_events": 22,
+    "daemon_assignments": 2,
+    "daemon_events": 22,
+    "daemon_assignment_credentials": 2,
+    "daemon_revoked_credentials": 2
+  },
+  "private_db_modes": {
+    "daemon/lilies.db": "0600",
+    "platform/agent_platform.db": "0600",
+    "platform/local-lilies-bridge.db": "0600"
+  },
+  "sanitized_runtime_capture": {
+    "path": "/tmp/lilies-t01c-final.c2fTEk/sanitized-state.json",
+    "sha256": "53668f3ce38da91a3881e77a9ae1fa9df2ac6fa3ae8551ec92aef5b4e4823278"
+  },
+  "redactions": [
+    "platform API token",
+    "pairing codes",
+    "daemon bearer",
+    "assignment task bearer",
+    "Harness envelope key"
+  ],
+  "browser_evidence_status": "blocked_by_environment",
+  "claim_ceiling": "This proves the current real independent platform-to-daemon HTTP transport, private exact-scope pairing, durable four-ID binding, terminal relay/ack, replay, either-process restart, explicit unavailability, reconnect, cancellation/revocation, and no-prebuild behavior. It does not prove a successful model-authored workflow or user-operated browser path."
+}

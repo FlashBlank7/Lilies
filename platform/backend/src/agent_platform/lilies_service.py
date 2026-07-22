@@ -33,7 +33,13 @@ from .lilies_models import (
 from .lilies_platform_client import LiliesPlatformClient
 from .lilies_platform_contract import operation_by_name
 from .lilies_platform_tools import build_lilies_platform_registry
-from .lilies_storage import LiliesConflictError, LiliesNotFoundError, LiliesStorage
+from .lilies_storage import (
+    LiliesAccessDeniedError,
+    LiliesAuthenticationError,
+    LiliesConflictError,
+    LiliesNotFoundError,
+    LiliesStorage,
+)
 from .lilies_tools import (
     LiliesTool,
     LiliesToolContext,
@@ -177,36 +183,16 @@ class LocalLiliesService:
         ) is None:
             raise LiliesServiceError("session platform contract digest is invalid")
 
-        policy = assignment.constraints.network_policy
-        platform_host = (assignment.platform.base_url.host or "").casefold()
-        if policy is AssignmentNetworkPolicy.none:
-            raise LiliesServiceError("assignment network policy denies the platform connection")
-        if policy is AssignmentNetworkPolicy.allowlist and platform_host not in {
-            host.casefold() for host in assignment.constraints.allowed_hosts
-        }:
-            raise LiliesServiceError("platform host is absent from the assignment allowlist")
-
-        credential = await self.storage.get_credential(
-            assignment.platform.credential_ref,
-            assignment_id=assignment_id,
-        )
-        if credential.get("kind") != CredentialKind.platform_assignment.value:
-            raise LiliesServiceError("assignment credential has the wrong kind")
-        assignment_scopes = {scope.value for scope in assignment.platform.scopes}
-        credential_scopes = {str(scope) for scope in credential.get("scopes", [])}
-        if credential_scopes != assignment_scopes:
-            raise LiliesServiceError("assignment credential scopes do not match the assignment")
-
+        try:
+            credential = await self._validate_assignment_access(assignment)
+        except LiliesAccessDeniedError as error:
+            # Session tool resolution is a service boundary.  Keep daemon
+            # storage/auth implementation details out of the agent loop while
+            # preserving the actionable, already-redacted reason.
+            raise LiliesServiceError(str(error)) from error
         allowed_operations = {
             action.value for action in assignment.constraints.allowed_actions
         }
-        if "platform_contract_get" not in allowed_operations:
-            raise LiliesServiceError("assignment must allow platform_contract_get")
-        for operation in allowed_operations:
-            if str(operation_by_name(operation)["scope"]) not in assignment_scopes:
-                raise LiliesServiceError(
-                    f"assignment action {operation} is not covered by its credential scopes"
-                )
 
         fingerprint = self._digest_json(
             {
@@ -241,6 +227,70 @@ class LocalLiliesService:
                 platform_contract_digest=assignment.platform.contract_digest,
             )
         return registry
+
+    async def _validate_assignment_access(
+        self,
+        assignment: BuildAssignment,
+        *,
+        client_id: str | None = None,
+    ) -> dict[str, Any]:
+        policy = assignment.constraints.network_policy
+        platform_host = (assignment.platform.base_url.host or "").casefold()
+        if policy is AssignmentNetworkPolicy.none:
+            raise LiliesAccessDeniedError(
+                "assignment network policy denies the platform connection"
+            )
+        if policy is AssignmentNetworkPolicy.allowlist and platform_host not in {
+            host.casefold() for host in assignment.constraints.allowed_hosts
+        }:
+            raise LiliesAccessDeniedError(
+                "platform host is absent from the assignment allowlist"
+            )
+
+        credential = await self.storage.get_credential(
+            assignment.platform.credential_ref,
+            assignment_id=str(assignment.assignment_id),
+        )
+        if client_id is not None and credential.get("client_id") != client_id:
+            raise LiliesAccessDeniedError(
+                "assignment credential belongs to another local client"
+            )
+        if credential.get("kind") != CredentialKind.platform_assignment.value:
+            raise LiliesAccessDeniedError("assignment credential has the wrong kind")
+        assignment_scopes = sorted(scope.value for scope in assignment.platform.scopes)
+        credential_scopes = sorted(str(scope) for scope in credential.get("scopes", []))
+        if credential_scopes != assignment_scopes:
+            raise LiliesAccessDeniedError(
+                "assignment credential scopes do not match; they must exactly match "
+                "the assignment"
+            )
+        expires_at = credential.get("expires_at")
+        if expires_at is None:
+            raise LiliesAuthenticationError(
+                "assignment credential must have a bounded expiry"
+            )
+        expiry = datetime.fromisoformat(str(expires_at).replace("Z", "+00:00"))
+        if expiry.tzinfo is None:
+            expiry = expiry.replace(tzinfo=timezone.utc)
+        if expiry.astimezone(timezone.utc) < assignment.constraints.deadline_at:
+            raise LiliesAuthenticationError(
+                "assignment credential expires before the assignment deadline"
+            )
+
+        allowed_operations = {
+            action.value for action in assignment.constraints.allowed_actions
+        }
+        if "platform_contract_get" not in allowed_operations:
+            raise LiliesAccessDeniedError(
+                "assignment must allow platform_contract_get"
+            )
+        scope_set = set(assignment_scopes)
+        for operation in allowed_operations:
+            if str(operation_by_name(operation)["scope"]) not in scope_set:
+                raise LiliesAccessDeniedError(
+                    f"assignment action {operation} is not covered by its credential scopes"
+                )
+        return credential
 
     async def shutdown(self, *, reason: str = "daemon_shutdown") -> None:
         self.stopping = True
@@ -296,6 +346,115 @@ class LocalLiliesService:
                 ) from None
         self._workspace_for(session_id).mkdir(parents=True, exist_ok=True, mode=0o700)
         return session
+
+    async def submit_assignment(
+        self,
+        session_id: str,
+        assignment: BuildAssignment,
+        *,
+        client_id: str,
+    ) -> dict[str, Any]:
+        """Validate, persist, and start a BuildAssignment exactly once."""
+
+        projection = assignment.model_dump(mode="json", exclude_none=True)
+        replay = await self.storage.find_assignment_receipt(
+            session_id,
+            projection,
+            client_id=client_id,
+        )
+        if replay is not None:
+            return replay
+        if self.stopping:
+            raise LiliesConflictError("daemon is stopping")
+
+        async with self._session_lock(session_id):
+            replay = await self.storage.find_assignment_receipt(
+                session_id,
+                projection,
+                client_id=client_id,
+            )
+            if replay is not None:
+                return replay
+            session = await self.storage.get_session(session_id, client_id=client_id)
+            config = dict(session.get("config") or {})
+            if config.get("kind") != "platform":
+                raise LiliesConflictError(
+                    "BuildAssignment requires a platform session"
+                )
+            if session["status"] != "ready":
+                raise LiliesConflictError(
+                    f"session {session_id} cannot accept an assignment from {session['status']}"
+                )
+            if session.get("assignment_id") is not None:
+                raise LiliesConflictError(
+                    f"session {session_id} already has a BuildAssignment"
+                )
+            if assignment.constraints.deadline_at <= datetime.now(timezone.utc):
+                raise LiliesConflictError("assignment deadline has already passed")
+            await self._validate_assignment_access(
+                assignment,
+                client_id=client_id,
+            )
+
+            constraints = assignment.constraints
+            config.update(
+                {
+                    "max_turns": constraints.max_turns,
+                    "max_model_calls": constraints.max_turns,
+                    "max_tool_calls": constraints.max_tool_calls,
+                    "deadline_at": constraints.deadline_at.isoformat(),
+                    "network_policy": constraints.network_policy.value,
+                    "allowed_hosts": list(constraints.allowed_hosts),
+                    "allowed_actions": [
+                        action.value for action in constraints.allowed_actions
+                    ],
+                }
+            )
+            if constraints.max_budget_usd is not None:
+                config["max_budget_usd"] = constraints.max_budget_usd
+
+            assignment_id = str(assignment.assignment_id)
+            start_message_id = str(
+                uuid5(
+                    NAMESPACE_URL,
+                    f"lilies:assignment-message:{assignment_id}:{assignment.idempotency_key}",
+                )
+            )
+            start_turn_id = str(
+                uuid5(
+                    NAMESPACE_URL,
+                    f"lilies:assignment-turn:{assignment_id}:{assignment.idempotency_key}",
+                )
+            )
+            assignment_json = json.dumps(
+                projection,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            )
+            start_content = [
+                {
+                    "type": "text",
+                    "text": (
+                        "Accept this BuildAssignment 1.0 as the authoritative customer task. "
+                        "Use only its scoped platform contract and preserve its acceptance "
+                        f"constraints.\n{assignment_json}"
+                    ),
+                }
+            ]
+            receipt = await self.storage.accept_assignment(
+                session_id,
+                projection,
+                session_config=config,
+                start_message_id=start_message_id,
+                start_message_content=start_content,
+                start_turn_id=start_turn_id,
+                turn_checkpoint={"metrics": TurnMetrics(Usage()).checkpoint()},
+                client_id=client_id,
+            )
+            if not receipt["replayed"]:
+                self._start_turn_task(session_id, receipt["turn_id"])
+            return receipt
 
     async def submit_message(
         self,

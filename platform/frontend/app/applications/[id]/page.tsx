@@ -48,6 +48,7 @@ import surfaceStyles from '@/app/surface-boundaries.module.css'
 import { EvaluationHarnessPanel } from './evaluation-harness-panel'
 import { ScheduleOperationsPanel } from '@/app/schedule-operations-panel'
 import { ConnectorOperationsPanel } from '@/app/connector-operations-panel'
+import { LocalLiliesBuildPanel } from './local-lilies-build-panel'
 
 type CanvasPoint = { x: number; y: number }
 type StudioNode = Node<{ title: string; blockType: string; description: string; status?: string }>
@@ -698,6 +699,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   const [events, setEvents] = useState<Array<{ type: string; data: Record<string, unknown> }>>([])
   const [tab, setTab] = useState<StudioTab>('build')
   const [safeDraftLanding, setSafeDraftLanding] = useState(false)
+  const [requestedAssignmentId, setRequestedAssignmentId] = useState('')
   const [requirement, setRequirement] = useState('')
   const [buildDeadlineSeconds, setBuildDeadlineSeconds] = useState('')
   const [buildIntentConfirmed, setBuildIntentConfirmed] = useState(false)
@@ -772,6 +774,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     }
     if (isStudioTab(requestedTab)) setTab(requestedTab)
     setSafeDraftLanding(query.get('safeDraft') === '1')
+    setRequestedAssignmentId(query.get('assignment') || '')
   }, [id, router])
 
   function dismissSafeDraftLanding() {
@@ -1746,7 +1749,12 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
       <aside className="left-panel">
         <div className={`panel-tabs ${surfaceStyles.threeTabs}`} data-detail-tab-url-state="synced">{VISIBLE_STUDIO_TABS.map(item => <button aria-pressed={tab === item} className={tab === item ? 'active' : ''} data-studio-tab={item} onClick={() => setStudioTab(item)} key={item} type="button">{item === 'build' ? t.buildTab : item === 'edit' ? t.editTab : item === 'test' ? t.testTab : item === 'automation' ? locale === 'zh' ? '自动化' : 'Automation' : locale === 'zh' ? '集成' : 'Integrations'}</button>)}</div>
         {tab === 'build' && <div className="panel-body">
-          <div className="panel-kicker">{t.builderTeam}</div><h2>{t.continueBuild}</h2>
+          <LocalLiliesBuildPanel applicationId={id} requirement={requirement} locale={locale} requestedAssignmentId={requestedAssignmentId} capabilityContext={draft?.snapshot.capability_build_contract} onApplicationChanged={refresh} />
+          <section className="legacy-builder-boundary" data-builder-route="legacy_builder">
+            <strong>{locale === 'zh' ? '旧 Builder（开发兼容路线）' : 'Legacy Builder (developer compatibility route)'}</strong>
+            <span>{locale === 'zh' ? '此路线必须单独启动；Local Lilies 失败时不会进入这里。' : 'This route is started separately and is never used as a Local Lilies fallback.'}</span>
+          </section>
+          <div className="panel-kicker">{locale === 'zh' ? '旧 Builder 团队' : 'Legacy Builder team'}</div><h2>{t.continueBuild}</h2>
           <textarea ref={detailBuildRequirementRef} className="requirement-input" value={requirement} onChange={event => { setRequirement(event.target.value); setBuildIntentConfirmed(false) }} />
           <section className="delivery-mode-picker studio-delivery-mode" data-delivery-mode={currentDeliveryMode}>
             <div className="delivery-mode-heading"><strong>{t.deliveryModeTitle}</strong><small>{t.deliveryModeHelp}</small></div>
@@ -1783,7 +1791,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
             <strong>{t.buildIntentGuardTitle}</strong>
             <span>{buildIntentConfirmed ? t.buildIntentGuardArmed : t.buildIntentGuardSafe}</span>
           </section>
-          <button ref={detailBuildStartButtonRef} className={`wide build-action ${buildIntentConfirmed ? 'armed' : ''}`} data-build-action="detail-start-builder-team" data-build-intent={buildIntentConfirmed ? 'confirmed' : 'needs-confirmation'} onClick={startBuild}>{buildIntentConfirmed ? t.startTeamConfirm : t.startTeam}</button>
+          <button ref={detailBuildStartButtonRef} className={`wide build-action ${buildIntentConfirmed ? 'armed' : ''}`} data-build-action="detail-start-legacy-builder" data-build-route="legacy_builder" data-build-intent={buildIntentConfirmed ? 'confirmed' : 'needs-confirmation'} onClick={startBuild}>{buildIntentConfirmed ? (locale === 'zh' ? `确认启动旧 Builder · ${t.startTeamConfirm}` : `Confirm legacy Builder · ${t.startTeamConfirm}`) : (locale === 'zh' ? `旧 Builder（开发） · ${t.startTeam}` : `Legacy Builder (developer) · ${t.startTeam}`)}</button>
           {build && <div className="build-status"><b>{build.status}</b><span>{Object.keys(build.team_state.teammates).length} teammates · {build.team_state.tasks.length} tasks · {build.team_state.repair_cycles} repairs</span><span>{build.deadline?.enabled && build.deadline.max_elapsed_seconds ? t.buildDeadlineActive(build.deadline.max_elapsed_seconds) : t.buildDeadlineInactive}</span>{build.error && <p>{build.error}</p>}</div>}
           <section className="module-registry" data-module-registry="versioned-evidence">
             <div className="module-registry-head"><div><strong>{t.moduleRegistryTitle}</strong><small>{t.moduleRegistryHelp}</small></div><button type="button" onClick={() => void refreshCapabilityModules()} disabled={capabilityModulesLoading}>{capabilityModulesLoading ? t.moduleRegistryLoading : t.moduleRegistryRefresh}</button></div>

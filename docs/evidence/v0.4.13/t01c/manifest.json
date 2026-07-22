@@ -1,0 +1,34 @@
+{
+  "schema_version": "1.0",
+  "task_id": "V04-13-T01C",
+  "captured_at_utc": "2026-07-22T18:54:00Z",
+  "baseline_commit": "d0c23d1323c411988ed928ea4dc4f624b049a68f",
+  "files": [
+    {
+      "path": "deterministic-tests.txt",
+      "sha256": "1d658bb6f83dfc82d1a78b0225c290daeb901b098e57a374b29b605ced821d02"
+    },
+    {
+      "path": "independent-audit.md",
+      "sha256": "f7b9d5cd6d162014f6fb9f8befeb7d42d952a7879312a4af568c17b1cef50720"
+    },
+    {
+      "path": "platform-daemon-http-evidence.json",
+      "sha256": "2f4171103ea2c97918d9065d2f73e09973c36f5a7a3d4430f2229253aa288a67"
+    },
+    {
+      "path": "security-and-boundary-summary.json",
+      "sha256": "ea28c63dd4ae4a0598a2cdbcfd56d70064ab26aae78375a0aa6b423fb5c98d18"
+    },
+    {
+      "path": "studio-browser-environment.json",
+      "sha256": "037aa349039136a1a32f3893d44fe776858fbbb188aa92f9560a01ec9a1674a0"
+    }
+  ],
+  "external_sanitized_capture": {
+    "path": "/tmp/lilies-t01c-final.c2fTEk/sanitized-state.json",
+    "sha256": "53668f3ce38da91a3881e77a9ae1fa9df2ac6fa3ae8551ec92aef5b4e4823278"
+  },
+  "browser_evidence_status": "blocked_by_environment",
+  "claim_ceiling": "T01C is closed at deterministic, real-ASGI, and independent-process HTTP levels. No Studio browser or successful model-authored workflow pass is claimed."
+}

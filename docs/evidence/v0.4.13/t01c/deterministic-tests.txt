@@ -1,0 +1,54 @@
+V04-13-T01C deterministic verification
+captured_at_utc: 2026-07-22T18:48:06Z
+baseline_commit: d0c23d1323c411988ed928ea4dc4f624b049a68f
+source_state: post-final T01C working tree before archive commit
+
+$ uv run --extra dev --frozen python -m pytest tests/test_v04_13_assignment_bridge.py -q
+51 passed in 29.86s
+
+$ uv run --extra dev --frozen python -m pytest tests/test_v04_13_assignment_bridge.py -q -k 'real_daemon_asgi_cancel_terminal_events or cancel_terminal_drain or cancel_drains_and_acks'
+6 passed, 45 deselected in 6.15s
+
+$ uv run --extra dev --frozen python -m pytest tests/test_v04_13_*.py -q
+294 passed, 1 warning in 107.08s
+warning: known Starlette TestClient/httpx deprecation only
+
+$ uv run --extra dev --frozen python -m pytest -q
+1096 passed, 85 xfailed, 1 warning in 261.52s
+warning: known Starlette TestClient/httpx deprecation only
+
+$ uv run --extra dev --frozen python -m ruff check <all changed T01C Python source, scripts, and tests>
+All checks passed!
+
+$ git diff --check
+pass
+
+$ uv lock --check
+Resolved 33 packages; pass. The user's untracked uv.lock was not modified or staged.
+
+$ cd platform/frontend && npm run lint
+TypeScript pass
+
+$ cd platform/frontend && node --test lib/local-lilies-operation-attempt.test.mjs
+2 passed
+
+$ uv run --extra dev --frozen python -m pytest tests/test_v04_13_assignment_bridge_frontend.py -q
+16 passed
+
+$ cd platform/frontend && npm run build
+Next.js 16.2.9 production build pass
+
+$ uv run --extra dev --frozen python scripts/v03_9_build_action_guard.py
+pass
+$ uv run --extra dev --frozen python scripts/v03_10_frontend_verification_recovery.py
+pass
+$ uv run --extra dev --frozen python scripts/v03_30_detail_build_action.py
+pass
+
+Real-ASGI checked-in coverage:
+- pairing.exchange_accepted response loss recovers from authenticated status without pairing-code reuse
+- reconnect.exchange_accepted response loss completes the durable operation and removes the rotation secret
+- terminal completed-before-cancel wins without corrupting assignment or build
+- cancelled terminal events persist and ack to the exact daemon cursor
+- terminal commit-before-ack restarts at relay>ack and converges to exact relay=ack without resurrecting state
+- drained terminal replay performs no fetch/ack/session calls and later recovery scans zero rows

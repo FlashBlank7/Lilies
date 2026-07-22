@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 5
 SESSION_STATUSES = frozenset(
     {
         "ready",
@@ -256,6 +256,12 @@ class LiliesStorage:
                 current = 2
             if current < 3:
                 self._migrate_v3(conn)
+                current = 3
+            if current < 4:
+                self._migrate_v4(conn)
+                current = 4
+            if current < 5:
+                self._migrate_v5(conn)
             recovery = self._recover_sync(conn)
         self._secure_database_files()
         return {"schema_version": SCHEMA_VERSION, **recovery}
@@ -486,6 +492,53 @@ class LiliesStorage:
             (3, utc_now()),
         )
         conn.execute("PRAGMA user_version=3")
+
+    def _migrate_v4(self, conn: sqlite3.Connection) -> None:
+        """Add durable, one-per-session BuildAssignment intake receipts."""
+
+        if not conn.in_transaction:
+            conn.execute("BEGIN IMMEDIATE")
+        conn.executescript(
+            """
+            CREATE TABLE assignments (
+              id TEXT PRIMARY KEY,
+              session_id TEXT NOT NULL UNIQUE,
+              idempotency_key TEXT NOT NULL,
+              payload_hash TEXT NOT NULL,
+              payload_json TEXT NOT NULL,
+              start_message_id TEXT NOT NULL UNIQUE,
+              start_turn_id TEXT NOT NULL UNIQUE,
+              accepted_event_cursor INTEGER NOT NULL DEFAULT 0
+                CHECK(accepted_event_cursor >= 0),
+              status TEXT NOT NULL CHECK(status IN ('active','cancelled')),
+              accepted_at TEXT NOT NULL,
+              cancelled_at TEXT,
+              cancel_reason TEXT,
+              UNIQUE(session_id, idempotency_key),
+              FOREIGN KEY(session_id) REFERENCES sessions(id) ON DELETE CASCADE
+            );
+            CREATE INDEX idx_assignments_status
+              ON assignments(status, accepted_at, id);
+            """
+        )
+        conn.execute(
+            "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+            (4, utc_now()),
+        )
+        conn.execute("PRAGMA user_version=4")
+
+    def _migrate_v5(self, conn: sqlite3.Connection) -> None:
+        """Persist non-secret exchange receipts for caller-prepared bearer replay."""
+
+        if not conn.in_transaction:
+            conn.execute("BEGIN IMMEDIATE")
+        conn.execute("ALTER TABLE pairing_codes ADD COLUMN exchange_payload_hash TEXT")
+        conn.execute("ALTER TABLE pairing_codes ADD COLUMN exchange_result_json TEXT")
+        conn.execute(
+            "INSERT INTO schema_migrations(version, applied_at) VALUES (?, ?)",
+            (5, utc_now()),
+        )
+        conn.execute("PRAGMA user_version=5")
 
     def _recover_sync(self, conn: sqlite3.Connection) -> dict[str, int]:
         now = utc_now()
@@ -754,6 +807,46 @@ class LiliesStorage:
             {"from_status": from_status, "to_status": to_status, "reason": reason},
             created_at=now,
         )
+        if to_status == "cancelled":
+            self._cancel_assignment_conn(
+                conn,
+                session_id,
+                reason=reason or "session_cancelled",
+                cancelled_at=now,
+            )
+
+    def _cancel_assignment_conn(
+        self,
+        conn: sqlite3.Connection,
+        session_id: str,
+        *,
+        reason: str,
+        cancelled_at: str,
+    ) -> None:
+        row = conn.execute(
+            "SELECT * FROM assignments WHERE session_id=? AND status='active'",
+            (session_id,),
+        ).fetchone()
+        if row is None:
+            return
+        conn.execute(
+            """
+            UPDATE assignments SET status='cancelled',cancelled_at=?,cancel_reason=?
+            WHERE id=? AND status='active'
+            """,
+            (cancelled_at, reason, row["id"]),
+        )
+        self._append_event_conn(
+            conn,
+            session_id,
+            "assignment.cancelled",
+            {
+                "assignment_id": row["id"],
+                "start_turn_id": row["start_turn_id"],
+                "reason": reason,
+            },
+            created_at=cancelled_at,
+        )
 
     async def update_session_context(
         self,
@@ -816,6 +909,264 @@ class LiliesStorage:
                     created_at=now,
                 )
             return self._session_from_row(self._require_session_conn(conn, session_id))
+
+    # Build assignments -------------------------------------------------------
+
+    async def find_assignment_receipt(
+        self,
+        session_id: str,
+        assignment: Mapping[str, Any],
+        *,
+        client_id: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Return an exact durable replay, or reject a colliding request."""
+
+        return await asyncio.to_thread(
+            self._find_assignment_receipt_sync,
+            session_id,
+            dict(assignment),
+            client_id,
+        )
+
+    def _find_assignment_receipt_sync(
+        self,
+        session_id: str,
+        assignment: dict[str, Any],
+        client_id: str | None,
+    ) -> dict[str, Any] | None:
+        with self._connect() as conn:
+            if client_id is not None:
+                self._require_session_access_conn(conn, client_id, session_id)
+            row = self._match_assignment_request_conn(conn, session_id, assignment)
+            if row is None:
+                return None
+            session = self._require_session_conn(conn, session_id)
+            return self._assignment_receipt(row, session, replayed=True)
+
+    async def accept_assignment(
+        self,
+        session_id: str,
+        assignment: Mapping[str, Any],
+        *,
+        session_config: Mapping[str, Any],
+        start_message_id: str,
+        start_message_content: Any,
+        start_turn_id: str,
+        turn_checkpoint: Mapping[str, Any],
+        client_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Atomically bind and start the sole BuildAssignment for a session."""
+
+        async with self._lock:
+            return await asyncio.to_thread(
+                self._accept_assignment_sync,
+                session_id,
+                dict(assignment),
+                dict(session_config),
+                start_message_id,
+                start_message_content,
+                start_turn_id,
+                dict(turn_checkpoint),
+                client_id,
+            )
+
+    def _accept_assignment_sync(
+        self,
+        session_id: str,
+        assignment: dict[str, Any],
+        session_config: dict[str, Any],
+        start_message_id: str,
+        start_message_content: Any,
+        start_turn_id: str,
+        turn_checkpoint: dict[str, Any],
+        client_id: str | None,
+    ) -> dict[str, Any]:
+        assignment_id = str(assignment.get("assignment_id", ""))
+        idempotency_key = str(assignment.get("idempotency_key", ""))
+        contract_digest = str(
+            (assignment.get("platform") or {}).get("contract_digest", "")
+        )
+        payload_hash = _payload_hash(assignment)
+        accepted_at = utc_now()
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            if client_id is not None:
+                self._require_session_access_conn(conn, client_id, session_id)
+            replay = self._match_assignment_request_conn(conn, session_id, assignment)
+            if replay is not None:
+                session = self._require_session_conn(conn, session_id)
+                return self._assignment_receipt(replay, session, replayed=True)
+
+            session = self._require_session_conn(conn, session_id)
+            existing = conn.execute(
+                "SELECT * FROM assignments WHERE session_id=?",
+                (session_id,),
+            ).fetchone()
+            if existing is not None or session["assignment_id"] is not None:
+                raise LiliesConflictError(
+                    f"session {session_id} already has a BuildAssignment"
+                )
+            config = _json_load(session["config_json"], {})
+            if config.get("kind") != "platform":
+                raise LiliesConflictError(
+                    "BuildAssignment requires a platform session"
+                )
+            if session["status"] != "ready":
+                raise LiliesConflictError(
+                    f"session {session_id} cannot accept an assignment from {session['status']}"
+                )
+            active = conn.execute(
+                """
+                SELECT id FROM turns WHERE session_id=?
+                AND status IN ('running','waiting_permission','waiting_collaboration') LIMIT 1
+                """,
+                (session_id,),
+            ).fetchone()
+            if active is not None:
+                raise LiliesConflictError(
+                    f"session already has active turn {active['id']}"
+                )
+
+            try:
+                conn.execute(
+                    """
+                    INSERT INTO assignments(
+                      id,session_id,idempotency_key,payload_hash,payload_json,
+                      start_message_id,start_turn_id,status,accepted_at
+                    ) VALUES (?,?,?,?,?,?,?,'active',?)
+                    """,
+                    (
+                        assignment_id,
+                        session_id,
+                        idempotency_key,
+                        payload_hash,
+                        _json_dump(assignment),
+                        start_message_id,
+                        start_turn_id,
+                        accepted_at,
+                    ),
+                )
+                conn.execute(
+                    """
+                    UPDATE sessions SET config_json=?,assignment_id=?,assignment_json=?,
+                      platform_contract_digest=?,updated_at=? WHERE id=?
+                    """,
+                    (
+                        _json_dump(session_config),
+                        assignment_id,
+                        _json_dump(assignment),
+                        contract_digest,
+                        accepted_at,
+                        session_id,
+                    ),
+                )
+                conn.execute(
+                    """
+                    INSERT INTO messages(id,session_id,role,content_json,created_at)
+                    VALUES (?,?,'user',?,?)
+                    """,
+                    (
+                        start_message_id,
+                        session_id,
+                        _json_dump(start_message_content),
+                        accepted_at,
+                    ),
+                )
+                self._append_event_conn(
+                    conn,
+                    session_id,
+                    "assignment.accepted",
+                    {
+                        "assignment_id": assignment_id,
+                        "session_id": session_id,
+                        "start_message_id": start_message_id,
+                        "start_turn_id": start_turn_id,
+                    },
+                    created_at=accepted_at,
+                )
+                self._append_event_conn(
+                    conn,
+                    session_id,
+                    "message.created",
+                    {
+                        "message_id": start_message_id,
+                        "turn_id": start_turn_id,
+                        "role": "user",
+                        "assignment_id": assignment_id,
+                        "content": start_message_content,
+                    },
+                    created_at=accepted_at,
+                )
+                conn.execute(
+                    """
+                    INSERT INTO turns(
+                      id,session_id,request_id,idempotency_key,input_message_id,status,phase,
+                      checkpoint_json,side_effect_state,created_at,updated_at
+                    ) VALUES (?,?,?,?,?,'running','assignment',?,'none',?,?)
+                    """,
+                    (
+                        start_turn_id,
+                        session_id,
+                        f"assignment:{assignment_id}",
+                        idempotency_key,
+                        start_message_id,
+                        _json_dump(turn_checkpoint),
+                        accepted_at,
+                        accepted_at,
+                    ),
+                )
+            except sqlite3.IntegrityError as exc:
+                raise LiliesConflictError(
+                    "BuildAssignment identifiers conflict with an existing request"
+                ) from exc
+            self._transition_session_conn(
+                conn,
+                session_id,
+                "running",
+                reason="assignment_accepted",
+                expected_status="ready",
+            )
+            self._append_event_conn(
+                conn,
+                session_id,
+                "turn.started",
+                {
+                    "turn_id": start_turn_id,
+                    "request_id": f"assignment:{assignment_id}",
+                    "phase": "assignment",
+                    "assignment_id": assignment_id,
+                },
+                created_at=accepted_at,
+            )
+            cursor = int(
+                conn.execute(
+                    "SELECT COALESCE(MAX(seq),0) AS seq FROM events WHERE session_id=?",
+                    (session_id,),
+                ).fetchone()["seq"]
+            )
+            conn.execute(
+                "UPDATE assignments SET accepted_event_cursor=? WHERE id=?",
+                (cursor, assignment_id),
+            )
+            row = conn.execute(
+                "SELECT * FROM assignments WHERE id=?",
+                (assignment_id,),
+            ).fetchone()
+            session = self._require_session_conn(conn, session_id)
+            return self._assignment_receipt(row, session, replayed=False)
+
+    async def get_assignment(self, assignment_id: str) -> dict[str, Any]:
+        return await asyncio.to_thread(self._get_assignment_sync, assignment_id)
+
+    def _get_assignment_sync(self, assignment_id: str) -> dict[str, Any]:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM assignments WHERE id=?",
+                (assignment_id,),
+            ).fetchone()
+        if row is None:
+            raise LiliesNotFoundError(f"assignment not found: {assignment_id}")
+        return self._assignment_from_row(row)
 
     # Messages and turns -------------------------------------------------------
 
@@ -1837,11 +2188,22 @@ class LiliesStorage:
         token_ttl_seconds: int | None = None,
         previous_client_id: str | None = None,
         previous_access_token: str | None = None,
+        requested_client_id: str | None = None,
+        prepared_access_token: str | None = None,
     ) -> dict[str, Any]:
         if (previous_client_id is None) != (previous_access_token is None):
             raise ValueError(
                 "previous_client_id and previous_access_token must be provided together"
             )
+        if (requested_client_id is None) != (prepared_access_token is None):
+            raise ValueError(
+                "requested_client_id and prepared_access_token must be provided together"
+            )
+        requested_client_id = self._validate_prepared_client_binding(
+            requested_client_id,
+            prepared_access_token,
+            previous_client_id=previous_client_id,
+        )
         async with self._lock:
             return await asyncio.to_thread(
                 self._exchange_pairing_code_sync,
@@ -1853,6 +2215,8 @@ class LiliesStorage:
                 token_ttl_seconds,
                 previous_client_id,
                 previous_access_token,
+                requested_client_id,
+                prepared_access_token,
             )
 
     def _exchange_pairing_code_sync(
@@ -1865,6 +2229,8 @@ class LiliesStorage:
         token_ttl_seconds: int | None,
         previous_client_id: str | None,
         previous_access_token: str | None,
+        requested_client_id: str | None,
+        prepared_access_token: str | None,
     ) -> dict[str, Any]:
         if len(client_nonce.encode("utf-8")) < 16:
             self._record_pairing_rejection("nonce_too_short")
@@ -1879,20 +2245,17 @@ class LiliesStorage:
             self._record_pairing_rejection("malformed_code")
             raise LiliesAuthenticationError("invalid pairing code") from exc
         nonce_digest = hashlib.sha256(client_nonce.encode("utf-8")).hexdigest()
+        effective_token_ttl_seconds = token_ttl_seconds
+        if effective_token_ttl_seconds is None:
+            effective_token_ttl_seconds = (
+                30 * 24 * 3600 if client_name == "platform" else 24 * 3600
+            )
+        if effective_token_ttl_seconds <= 0:
+            raise ValueError("client token ttl must be positive")
         now = datetime.now(timezone.utc)
         now_text = now.isoformat()
         with self._connect() as conn:
-            replay = conn.execute(
-                "SELECT id FROM pairing_codes WHERE client_nonce_digest=?", (nonce_digest,)
-            ).fetchone()
-            if replay is not None:
-                self._security_event_conn(
-                    conn,
-                    "pairing.exchange_rejected",
-                    {"reason": "nonce_replay", "code_id": code_id},
-                )
-                conn.commit()
-                raise LiliesAuthenticationError("client nonce was already used")
+            conn.execute("BEGIN IMMEDIATE")
             row = conn.execute("SELECT * FROM pairing_codes WHERE id=?", (code_id,)).fetchone()
             if row is None:
                 self._security_event_conn(
@@ -1911,14 +2274,89 @@ class LiliesStorage:
                 )
                 conn.commit()
                 raise LiliesAuthenticationError("invalid pairing code")
+            exchange_payload_hash = self._pairing_exchange_payload_hash(
+                code_id=code_id,
+                client_name=client_name,
+                requested_scopes=requested_scopes,
+                nonce_digest=nonce_digest,
+                daemon_fingerprint=daemon_fingerprint,
+                token_ttl_seconds=effective_token_ttl_seconds,
+                code_salt=bytes.fromhex(row["salt_hex"]),
+                previous_client_id=previous_client_id,
+                requested_client_id=requested_client_id,
+                prepared_access_token=prepared_access_token,
+            )
             if row["redeemed_at"] is not None:
+                if (
+                    requested_client_id is not None
+                    and prepared_access_token is not None
+                    and row["exchange_payload_hash"] is not None
+                    and row["exchange_result_json"] is not None
+                    and hmac.compare_digest(
+                        str(row["exchange_payload_hash"]), exchange_payload_hash
+                    )
+                    and row["redeemed_by_client_id"] == requested_client_id
+                ):
+                    client = conn.execute(
+                        "SELECT * FROM clients WHERE id=?", (requested_client_id,)
+                    ).fetchone()
+                    token_matches = False
+                    if client is not None:
+                        supplied_token_digest = _digest(
+                            prepared_access_token,
+                            bytes.fromhex(client["token_salt_hex"]),
+                        )
+                        token_matches = hmac.compare_digest(
+                            supplied_token_digest,
+                            str(client["token_digest"]),
+                        )
+                    client_is_active = bool(
+                        client is not None
+                        and client["revoked_at"] is None
+                        and (
+                            client["expires_at"] is None
+                            or datetime.fromisoformat(client["expires_at"]) > now
+                        )
+                        and client["daemon_fingerprint"] == daemon_fingerprint
+                    )
+                    if client_is_active and token_matches:
+                        result = _json_load(row["exchange_result_json"], {})
+                        if (
+                            isinstance(result, Mapping)
+                            and result.get("client_id") == requested_client_id
+                        ):
+                            self._security_event_conn(
+                                conn,
+                                "pairing.exchange_replayed",
+                                {"code_id": code_id, "client_id": requested_client_id},
+                                client_id=requested_client_id,
+                            )
+                            return {**dict(result), "access_token": prepared_access_token}
                 self._security_event_conn(
                     conn,
                     "pairing.exchange_rejected",
-                    {"reason": "code_redeemed", "code_id": code_id},
+                    {
+                        "reason": (
+                            "exchange_replay_conflict"
+                            if requested_client_id is not None
+                            else "code_redeemed"
+                        ),
+                        "code_id": code_id,
+                    },
                 )
                 conn.commit()
                 raise LiliesAuthenticationError("pairing code was already redeemed")
+            replay = conn.execute(
+                "SELECT id FROM pairing_codes WHERE client_nonce_digest=?", (nonce_digest,)
+            ).fetchone()
+            if replay is not None:
+                self._security_event_conn(
+                    conn,
+                    "pairing.exchange_rejected",
+                    {"reason": "nonce_replay", "code_id": code_id},
+                )
+                conn.commit()
+                raise LiliesAuthenticationError("client nonce was already used")
             if datetime.fromisoformat(row["expires_at"]) <= now:
                 self._security_event_conn(
                     conn,
@@ -1977,16 +2415,27 @@ class LiliesStorage:
                     conn.commit()
                     raise LiliesAuthenticationError("previous client proof is invalid")
                 client_id = previous_client_id
+            elif requested_client_id is not None:
+                if conn.execute(
+                    "SELECT 1 FROM clients WHERE id=?", (requested_client_id,)
+                ).fetchone() is not None:
+                    self._security_event_conn(
+                        conn,
+                        "pairing.exchange_rejected",
+                        {"reason": "requested_client_exists", "code_id": code_id},
+                    )
+                    conn.commit()
+                    raise LiliesAuthenticationError("requested client identity is unavailable")
+                client_id = requested_client_id
             else:
                 client_id = str(uuid.uuid4())
-            token_secret = secrets.token_urlsafe(32)
-            access_token = f"{client_id}.{token_secret}"
+            if prepared_access_token is None:
+                token_secret = secrets.token_urlsafe(32)
+                access_token = f"{client_id}.{token_secret}"
+            else:
+                access_token = prepared_access_token
             token_salt = secrets.token_bytes(16)
-            if token_ttl_seconds is None:
-                token_ttl_seconds = 30 * 24 * 3600 if client_name == "platform" else 24 * 3600
-            if token_ttl_seconds <= 0:
-                raise ValueError("client token ttl must be positive")
-            expires_at = now + timedelta(seconds=token_ttl_seconds)
+            expires_at = now + timedelta(seconds=effective_token_ttl_seconds)
             if rotating_client is None:
                 conn.execute(
                     """
@@ -2025,12 +2474,26 @@ class LiliesStorage:
                         client_id,
                     ),
                 )
+            result = {
+                "client_id": client_id,
+                "granted_scopes": scopes,
+                "expires_at": expires_at.isoformat(),
+                "daemon_fingerprint": daemon_fingerprint,
+            }
             conn.execute(
                 """
                 UPDATE pairing_codes
-                SET redeemed_at=?,redeemed_by_client_id=?,client_nonce_digest=? WHERE id=?
+                SET redeemed_at=?,redeemed_by_client_id=?,client_nonce_digest=?,
+                    exchange_payload_hash=?,exchange_result_json=? WHERE id=?
                 """,
-                (now_text, client_id, nonce_digest, code_id),
+                (
+                    now_text,
+                    client_id,
+                    nonce_digest,
+                    exchange_payload_hash if prepared_access_token is not None else None,
+                    _json_dump(result) if prepared_access_token is not None else None,
+                    code_id,
+                ),
             )
             self._security_event_conn(
                 conn,
@@ -2038,13 +2501,73 @@ class LiliesStorage:
                 {"code_id": code_id, "client_id": client_id, "scopes": scopes},
                 client_id=client_id,
             )
-        return {
-            "client_id": client_id,
-            "access_token": access_token,
-            "granted_scopes": scopes,
-            "expires_at": expires_at.isoformat(),
-            "daemon_fingerprint": daemon_fingerprint,
-        }
+        return {**result, "access_token": access_token}
+
+    @staticmethod
+    def _validate_prepared_client_binding(
+        requested_client_id: str | None,
+        prepared_access_token: str | None,
+        *,
+        previous_client_id: str | None,
+    ) -> str | None:
+        if requested_client_id is None or prepared_access_token is None:
+            return None
+        try:
+            canonical_client_id = str(uuid.UUID(requested_client_id))
+        except ValueError as error:
+            raise ValueError("requested_client_id must be a UUID") from error
+        token_client_id, separator, token_secret = prepared_access_token.partition(".")
+        if (
+            not separator
+            or not token_secret
+            or token_client_id != canonical_client_id
+            or not 32 <= len(prepared_access_token) <= 512
+        ):
+            raise ValueError(
+                "prepared_access_token must be bound to requested_client_id"
+            )
+        if previous_client_id is not None:
+            try:
+                canonical_previous_id = str(uuid.UUID(previous_client_id))
+            except ValueError as error:
+                raise ValueError("previous_client_id must be a UUID") from error
+            if canonical_client_id != canonical_previous_id:
+                raise ValueError(
+                    "requested_client_id must equal previous_client_id during rotation"
+                )
+        return canonical_client_id
+
+    @staticmethod
+    def _pairing_exchange_payload_hash(
+        *,
+        code_id: str,
+        client_name: str,
+        requested_scopes: Sequence[str],
+        nonce_digest: str,
+        daemon_fingerprint: str,
+        token_ttl_seconds: int,
+        code_salt: bytes,
+        previous_client_id: str | None,
+        requested_client_id: str | None,
+        prepared_access_token: str | None,
+    ) -> str:
+        return _payload_hash(
+            {
+                "code_id": code_id,
+                "client_name": client_name,
+                "requested_scopes": sorted(set(requested_scopes)),
+                "client_nonce_digest": nonce_digest,
+                "daemon_fingerprint": daemon_fingerprint,
+                "token_ttl_seconds": token_ttl_seconds,
+                "previous_client_id": previous_client_id,
+                "requested_client_id": requested_client_id,
+                "prepared_access_token_digest": (
+                    _digest(prepared_access_token, code_salt)
+                    if prepared_access_token is not None
+                    else None
+                ),
+            }
+        )
 
     def _record_pairing_rejection(
         self, reason: str, details: Mapping[str, Any] | None = None
@@ -2662,6 +3185,66 @@ class LiliesStorage:
             raise LiliesAccessDeniedError(
                 f"client {client_id} cannot access session {session_id}"
             )
+
+    def _match_assignment_request_conn(
+        self,
+        conn: sqlite3.Connection,
+        session_id: str,
+        assignment: Mapping[str, Any],
+    ) -> sqlite3.Row | None:
+        assignment_id = str(assignment.get("assignment_id", ""))
+        idempotency_key = str(assignment.get("idempotency_key", ""))
+        by_id = conn.execute(
+            "SELECT * FROM assignments WHERE id=?",
+            (assignment_id,),
+        ).fetchone()
+        by_key = conn.execute(
+            "SELECT * FROM assignments WHERE session_id=? AND idempotency_key=?",
+            (session_id, idempotency_key),
+        ).fetchone()
+        if by_id is not None and by_key is not None and by_id["id"] != by_key["id"]:
+            raise LiliesConflictError(
+                "assignment_id and idempotency_key refer to different requests"
+            )
+        row = by_id or by_key
+        if row is None:
+            return None
+        payload_hash = _payload_hash(assignment)
+        if (
+            row["session_id"] != session_id
+            or row["id"] != assignment_id
+            or row["idempotency_key"] != idempotency_key
+            or not hmac.compare_digest(str(row["payload_hash"]), payload_hash)
+        ):
+            raise LiliesConflictError(
+                "assignment idempotency identifiers were reused with a different payload"
+            )
+        return row
+
+    def _assignment_receipt(
+        self,
+        row: sqlite3.Row,
+        session: sqlite3.Row,
+        *,
+        replayed: bool,
+    ) -> dict[str, Any]:
+        return {
+            "schema_version": "1.0",
+            "assignment_id": row["id"],
+            "session_id": row["session_id"],
+            "turn_id": row["start_turn_id"],
+            "start_message_id": row["start_message_id"],
+            "status": session["status"],
+            "event_cursor": row["accepted_event_cursor"],
+            "accepted_at": row["accepted_at"],
+            "replayed": replayed,
+        }
+
+    def _assignment_from_row(self, row: sqlite3.Row) -> dict[str, Any]:
+        result = dict(row)
+        result["assignment_id"] = result.pop("id")
+        result["assignment"] = _json_load(result.pop("payload_json"), {})
+        return result
 
     def _session_from_row(self, row: sqlite3.Row) -> dict[str, Any]:
         result = dict(row)

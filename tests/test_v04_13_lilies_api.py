@@ -169,6 +169,82 @@ def test_pairing_is_one_time_scope_bound_and_auth_is_uniform(local_client: TestC
     assert "collaboration" not in forbidden.text.casefold()
 
 
+def test_pairing_api_replays_prepared_initial_and_rotation_receipts_after_crash(
+    local_client: TestClient,
+) -> None:
+    initial_code = local_client.post(
+        "/local/v1/pairings/code",
+        json={"allowed_scopes": [READ, WRITE], "ttl_seconds": 600},
+    ).json()
+    initial_client_id = uuid4()
+    initial_token = f"{initial_client_id}." + "initial" * 8
+    initial_payload = {
+        "pairing_code": initial_code["pairing_code"],
+        "client_name": "platform",
+        "requested_scopes": [READ, WRITE],
+        "client_nonce": secrets.token_urlsafe(24),
+        "requested_client_id": str(initial_client_id),
+        "prepared_access_token": initial_token,
+    }
+    initial = local_client.post(
+        "/local/v1/pairings/exchange", json=initial_payload
+    )
+    initial_replay = local_client.post(
+        "/local/v1/pairings/exchange", json=initial_payload
+    )
+    assert initial.status_code == 200, initial.text
+    assert initial_replay.status_code == 200, initial_replay.text
+    assert initial_replay.json() == initial.json()
+    assert initial.json()["access_token"] == initial_token
+
+    owner = _pair(local_client, READ, WRITE, name="platform")
+    rotation_code = local_client.post(
+        "/local/v1/pairings/code",
+        json={"allowed_scopes": [READ, WRITE], "ttl_seconds": 600},
+    ).json()
+    rotated_token = f"{owner['client_id']}." + "rotated" * 8
+    rotation_payload = {
+        "pairing_code": rotation_code["pairing_code"],
+        "client_name": "platform",
+        "requested_scopes": [READ, WRITE],
+        "client_nonce": secrets.token_urlsafe(24),
+        "previous_client_id": owner["client_id"],
+        "previous_access_token": owner["access_token"],
+        "requested_client_id": owner["client_id"],
+        "prepared_access_token": rotated_token,
+    }
+    rotated = local_client.post(
+        "/local/v1/pairings/exchange", json=rotation_payload
+    )
+    assert rotated.status_code == 200, rotated.text
+
+    # A platform crash may leave only its already-replaced bearer.  Replaying
+    # the stable operation with that bearer as previous proof is still exact.
+    rotation_replay_payload = {
+        **rotation_payload,
+        "previous_access_token": rotated_token,
+    }
+    rotated_replay = local_client.post(
+        "/local/v1/pairings/exchange", json=rotation_replay_payload
+    )
+    assert rotated_replay.status_code == 200, rotated_replay.text
+    assert rotated_replay.json() == rotated.json()
+
+    mismatch = local_client.post(
+        "/local/v1/pairings/exchange",
+        json={
+            **initial_payload,
+            "prepared_access_token": f"{initial_client_id}." + "different" * 8,
+        },
+    )
+    assert mismatch.status_code == 401
+    assert initial_token not in mismatch.text
+    assert rotated_token not in mismatch.text
+    database_bytes = local_client.app.state.lilies_storage.db_path.read_bytes()
+    assert initial_token.encode() not in database_bytes
+    assert rotated_token.encode() not in database_bytes
+
+
 def test_replacing_daemon_identity_key_rejects_old_bearer_and_records_security_event(
     local_client: TestClient,
 ) -> None:

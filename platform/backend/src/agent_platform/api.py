@@ -115,6 +115,8 @@ from .openapi_connector import (
 )
 from .platform_blackbox_auth import PlatformBlackboxAuthStore
 from .platform_blackbox_artifacts import PlatformBlackboxArtifactStore
+from .local_lilies_bridge import LocalLiliesBridge, LocalLiliesBridgeStore
+from .local_lilies_client import LocalLiliesHttpClient
 from .platform_contract_version import (
     PlatformContractVersionStore,
     platform_contract_schema_digest,
@@ -297,6 +299,7 @@ class Services:
     platform_blackbox_auth: PlatformBlackboxAuthStore
     platform_blackbox_artifacts: PlatformBlackboxArtifactStore
     platform_contract_versions: PlatformContractVersionStore
+    local_lilies_bridge: LocalLiliesBridge
     worker_supervisor: Any | None
     worker_process_manager: Any | None
     background_tasks: set[asyncio.Task[Any]]
@@ -1742,6 +1745,36 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
     platform_blackbox_auth = PlatformBlackboxAuthStore(storage.db_path)
     platform_blackbox_artifacts = PlatformBlackboxArtifactStore(storage.db_path)
     platform_contract_versions = PlatformContractVersionStore(storage.db_path)
+    services: Services
+
+    async def local_lilies_contract_digest(
+        scopes: tuple[Any, ...],
+        application_ids: tuple[Any, ...],
+    ) -> str:
+        from .local_lilies_bridge_api import (  # pylint: disable=import-outside-toplevel
+            published_platform_contract_digest,
+        )
+
+        return await published_platform_contract_digest(
+            services,
+            scopes,
+            application_ids,
+        )
+
+    local_lilies_bridge = LocalLiliesBridge(
+        enabled=settings.lilies_local_agent_enabled,
+        store=LocalLiliesBridgeStore(settings.data_dir / "local-lilies-bridge.db"),
+        workflow_storage=workflow_store,
+        harness=harness,
+        auth_store=platform_blackbox_auth,
+        client=LocalLiliesHttpClient(),
+        platform_base_url=(
+            settings.lilies_platform_base_url.strip()
+            or f"http://127.0.0.1:{settings.port}"
+        ),
+        contract_digest_provider=local_lilies_contract_digest,
+        default_route=settings.lilies_local_builder_default,
+    )
     web_collector = ControlledWebCollector(jobs=durable_jobs, harness=harness)
     connectors = ConnectorService(storage=storage, harness=harness)
     openapi_connectors = OpenAPIConnectorService(
@@ -1860,6 +1893,7 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         platform_blackbox_auth=platform_blackbox_auth,
         platform_blackbox_artifacts=platform_blackbox_artifacts,
         platform_contract_versions=platform_contract_versions,
+        local_lilies_bridge=local_lilies_bridge,
         worker_supervisor=None,
         worker_process_manager=None,
         background_tasks=set(),
@@ -1897,7 +1931,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
     services = build_services(settings, provider)
 
     @asynccontextmanager
-    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    async def lifespan(lifespan_app: FastAPI) -> AsyncIterator[None]:
         await services.storage.initialize()
         await services.workflow_store.initialize()
         await services.platform_blackbox_auth.initialize()
@@ -1907,11 +1941,51 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             contract_version=settings.lilies_platform_contract_version,
             schema_digest=platform_contract_schema_digest(),
         )
+        await services.local_lilies_bridge.initialize()
         await services.durable_jobs.initialize()
         await services.connectors.initialize()
         await services.openapi_connectors.initialize()
         await services.workflow_store.fail_interrupted_runs()
         services.scheduler.start()
+        local_lilies_recovery_task: asyncio.Task[Any] | None = None
+        lifespan_ready = asyncio.Event()
+        if settings.lilies_local_agent_enabled:
+            lifespan_app.state.local_lilies_recovery = {"status": "scheduled"}
+
+            async def recover_local_lilies_after_startup() -> None:
+                try:
+                    # The daemon can immediately call the platform black-box API
+                    # while recovering an assignment.  Do not begin until the
+                    # lifespan has yielded and the ASGI server has had a turn to
+                    # publish readiness.
+                    await lifespan_ready.wait()
+                    await asyncio.sleep(0.05)
+                    recovery = (
+                        await services.local_lilies_bridge.recover_pending_assignments()
+                    )
+                    lifespan_app.state.local_lilies_recovery = {
+                        "status": "completed",
+                        **recovery.model_dump(mode="json"),
+                    }
+                except asyncio.CancelledError:
+                    lifespan_app.state.local_lilies_recovery = {"status": "cancelled"}
+                    raise
+                except Exception:
+                    # Recovery is deliberately total and non-blocking.  Keep the
+                    # public diagnostic free of exception text or local secrets.
+                    lifespan_app.state.local_lilies_recovery = {
+                        "status": "failed",
+                        "error": {
+                            "code": "local_lilies_recovery_failed",
+                            "message": "local Lilies startup recovery failed",
+                        },
+                    }
+
+            local_lilies_recovery_task = asyncio.create_task(
+                recover_local_lilies_after_startup(),
+                name="local-lilies-startup-recovery",
+            )
+            services.background_tasks.add(local_lilies_recovery_task)
         adaptive_refresh_task: asyncio.Task[Any] | None = None
         if settings.adaptive_monitoring_refresh_interval_seconds > 0:
             adaptive_refresh_task = asyncio.create_task(
@@ -1922,6 +1996,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                 name="adaptive-monitoring-refresh-loop",
             )
             services.background_tasks.add(adaptive_refresh_task)
+        lifespan_ready.set()
         yield
         if services.worker_process_manager is not None and services.worker_process_manager.is_running:
             services.worker_process_manager.stop()
@@ -1932,6 +2007,10 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             task.cancel()
         if adaptive_refresh_task is not None:
             services.background_tasks.discard(adaptive_refresh_task)
+        if local_lilies_recovery_task is not None:
+            local_lilies_recovery_task.cancel()
+            await asyncio.gather(local_lilies_recovery_task, return_exceptions=True)
+            services.background_tasks.discard(local_lilies_recovery_task)
         await services.sandboxes.close()
 
     app = FastAPI(title=settings.app_name, version=__version__, lifespan=lifespan)
@@ -1945,6 +2024,26 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         supplied = credentials.credentials if credentials else request.query_params.get("token")
         if supplied != settings.api_token:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid API token")
+
+    async def require_local_lilies_token(
+        request: Request,
+        credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
+    ) -> None:
+        forbidden_query_keys = {"token", "api_token", "access_token", "frontend_token"}
+        if any(name.casefold() in forbidden_query_keys for name in request.query_params):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "code": "query_secret_forbidden",
+                    "message": "local Lilies platform routes accept credentials only in headers",
+                },
+            )
+        supplied = credentials.credentials if credentials else None
+        if supplied != settings.api_token:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail={"code": "invalid_api_token", "message": "invalid API token"},
+            )
 
     @app.get("/health")
     async def health() -> dict[str, Any]:
@@ -4895,6 +4994,16 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
     )
 
     install_lilies_platform_api(app, services)
+
+    from .local_lilies_bridge_api import (  # pylint: disable=import-outside-toplevel
+        install_local_lilies_bridge_api,
+    )
+
+    install_local_lilies_bridge_api(
+        app,
+        services.local_lilies_bridge,
+        require_token=require_local_lilies_token,
+    )
 
     return app
 

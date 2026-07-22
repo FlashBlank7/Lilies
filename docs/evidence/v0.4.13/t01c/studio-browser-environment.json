@@ -1,0 +1,42 @@
+{
+  "schema_version": "1.0",
+  "task_id": "V04-13-T01C",
+  "captured_at_utc": "2026-07-22T18:48:06Z",
+  "baseline_commit": "d0c23d1323c411988ed928ea4dc4f624b049a68f",
+  "source_state": "post-final T01C working tree; evidence is finalized before the T01C archive commit",
+  "requested_surface": "Studio local Lilies connection panel and application Build with Lilies panel",
+  "studio_verification": {
+    "typescript": "pass",
+    "frontend_source_contract_tests": "16 passed",
+    "pairing_operation_attempt_tests": "2 passed",
+    "production_build": "pass",
+    "historical_frontend_guards": "pass",
+    "commands": [
+      "cd platform/frontend && npm run lint",
+      "cd platform/frontend && node --test lib/local-lilies-operation-attempt.test.mjs",
+      "uv run --extra dev --frozen python -m pytest tests/test_v04_13_assignment_bridge_frontend.py -q",
+      "cd platform/frontend && npm run build",
+      "uv run --extra dev --frozen python scripts/v03_9_build_action_guard.py",
+      "uv run --extra dev --frozen python scripts/v03_10_frontend_verification_recovery.py",
+      "uv run --extra dev --frozen python scripts/v03_30_detail_build_action.py"
+    ]
+  },
+  "browser_provider": {
+    "selection": "browser runtime for the isolated local Studio URL",
+    "selection_result": "No browser is available",
+    "available_browsers": [],
+    "status": "blocked_by_environment"
+  },
+  "browser_actions_run": [],
+  "screenshots": [],
+  "not_run": [
+    "user-visible pairing form",
+    "route selection and launch",
+    "live SSE reconnect rendering",
+    "refresh recovery rendering",
+    "keyboard and focus traversal",
+    "cancel and reconnect controls"
+  ],
+  "recheck_trigger": "Re-run the isolated three-process Studio path when the browser runtime exposes an in-app or extension browser.",
+  "claim_ceiling": "No Studio browser pass is claimed. Source contracts, TypeScript, production build, API, deterministic real-ASGI, and independent-process HTTP evidence are valid at their stated levels but are not substitutes for user-operated browser evidence."
+}

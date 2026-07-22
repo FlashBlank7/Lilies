@@ -18,6 +18,8 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from .lilies_config import LiliesSettings
 from .lilies_models import (
+    AssignmentSubmissionResult,
+    BuildAssignment,
     CredentialProvisionRequest,
     CredentialProvisionResult,
     CredentialRevokeRequest,
@@ -365,12 +367,22 @@ def create_lilies_app(
                 if body.previous_access_token is not None
                 else None
             ),
+            requested_client_id=(
+                str(body.requested_client_id)
+                if body.requested_client_id is not None
+                else None
+            ),
+            prepared_access_token=(
+                body.prepared_access_token.get_secret_value()
+                if body.prepared_access_token is not None
+                else None
+            ),
         )
         return result
 
     @app.get("/local/v1/status", response_model=DaemonStatus)
     async def daemon_status(
-        _: ClientRecord = Depends(session_reader),
+        client: ClientRecord = Depends(session_reader),
     ) -> dict[str, Any]:
         service_status = await service.status()
         return {
@@ -379,6 +391,9 @@ def create_lilies_app(
             "address": settings.base_url,
             "started_at": started_at.isoformat(),
             "daemon_fingerprint": settings.daemon_fingerprint(),
+            "client_id": client["client_id"],
+            "client_scopes": client["scopes"],
+            "client_expires_at": client.get("expires_at"),
             "provider": service_status["provider"],
             "model": service_status["model"],
             "paired_client_count": service_status["paired_client_count"],
@@ -424,6 +439,22 @@ def create_lilies_app(
         await storage.get_session(session_id, client_id=client["client_id"])
         result = await service.submit_message(session_id, body, client_id=client["client_id"])
         return _operation_projection(result)
+
+    @app.post(
+        "/local/v1/sessions/{session_id}/assignments",
+        status_code=202,
+        response_model=AssignmentSubmissionResult,
+    )
+    async def submit_assignment(
+        session_id: str,
+        body: BuildAssignment,
+        client: ClientRecord = Depends(session_writer),
+    ) -> dict[str, Any]:
+        return await service.submit_assignment(
+            session_id,
+            body,
+            client_id=client["client_id"],
+        )
 
     @app.post(
         "/local/v1/sessions/{session_id}/resume",

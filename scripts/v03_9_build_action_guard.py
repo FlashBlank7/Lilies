@@ -132,7 +132,7 @@ def source_marker_checks() -> list[dict[str, object]]:
             "platform/frontend/app/applications/[id]/page.tsx",
             (
                 "buildIntentConfirmed",
-                'data-build-action="detail-start-builder-team"',
+                'data-build-action="detail-start-legacy-builder"',
                 "buildIntentGuardTitle",
                 "startTeamConfirm",
             ),
@@ -274,7 +274,7 @@ def live_checks(api_url: str, frontend_url: str, token: str) -> tuple[list[dict[
                     "id": "rendered_detail_build_guard",
                     "url": detail_url,
                     "passed": detail["status_code"] == 200
-                    and 'data-build-action="detail-start-builder-team"' in detail_body
+                    and 'data-build-action="detail-start-legacy-builder"' in detail_body
                     and 'data-build-intent="needs-confirmation"' in detail_body,
                     "status_code": detail["status_code"],
                 }

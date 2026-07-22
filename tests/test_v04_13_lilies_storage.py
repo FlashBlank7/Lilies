@@ -4,6 +4,7 @@ import hashlib
 import json
 import sqlite3
 from datetime import datetime, timedelta, timezone
+from uuid import uuid4
 
 import pytest
 
@@ -48,7 +49,7 @@ async def test_independent_schema_permissions_and_transactional_session_events(t
     storage = LiliesStorage(data_dir)
 
     assert await storage.initialize() == {
-        "schema_version": 3,
+        "schema_version": 5,
         "interrupted_sessions": 0,
         "interrupted_turns": 0,
     }
@@ -62,7 +63,7 @@ async def test_independent_schema_permissions_and_transactional_session_events(t
         }
         version = conn.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0]
         journal_mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
-    assert version == 3
+    assert version == 5
     assert journal_mode == "wal"
     assert {
         "sessions",
@@ -76,6 +77,7 @@ async def test_independent_schema_permissions_and_transactional_session_events(t
         "permission_requests",
         "credentials",
         "security_events",
+        "assignments",
     } <= tables
 
     session = await storage.create_session(
@@ -194,6 +196,73 @@ async def test_pairing_is_scoped_one_use_hashed_replay_safe_and_revocable(tmp_pa
 
 
 @pytest.mark.asyncio
+async def test_prepared_pairing_exchange_is_crash_safe_and_keeps_bearer_hash_only(
+    tmp_path,
+) -> None:
+    storage = LiliesStorage(tmp_path / "data")
+    await storage.initialize()
+    code = await storage.create_pairing_code(
+        allowed_scopes=["lilies.session:read", "lilies.session:write"]
+    )
+    requested_client_id = str(uuid4())
+    prepared_token = f"{requested_client_id}." + "prepared" * 8
+    exchange = {
+        "pairing_code": code["pairing_code"],
+        "client_name": "platform",
+        "requested_scopes": ["lilies.session:read", "lilies.session:write"],
+        "client_nonce": "prepared_initial_nonce_0001",
+        "daemon_fingerprint": "sha256:" + "c" * 64,
+        "requested_client_id": requested_client_id,
+        "prepared_access_token": prepared_token,
+    }
+
+    first = await storage.exchange_pairing_code(**exchange)
+    restarted = LiliesStorage(tmp_path / "data")
+    assert (await restarted.initialize())["schema_version"] == 5
+    replay = await restarted.exchange_pairing_code(**exchange)
+    assert replay == first
+    assert first["client_id"] == requested_client_id
+    assert first["access_token"] == prepared_token
+    await restarted.authenticate_client(
+        prepared_token,
+        required_scope="lilies.session:write",
+    )
+
+    different_nonce = {**exchange, "client_nonce": "prepared_changed_nonce_001"}
+    with pytest.raises(LiliesAuthenticationError, match="already redeemed"):
+        await restarted.exchange_pairing_code(**different_nonce)
+    different_token = {
+        **exchange,
+        "prepared_access_token": f"{requested_client_id}." + "different" * 8,
+    }
+    with pytest.raises(LiliesAuthenticationError, match="already redeemed"):
+        await restarted.exchange_pairing_code(**different_token)
+
+    with sqlite3.connect(storage.db_path) as conn:
+        pairing_row = conn.execute(
+            """
+            SELECT exchange_payload_hash,exchange_result_json
+            FROM pairing_codes WHERE id=?
+            """,
+            (code["code_id"],),
+        ).fetchone()
+    assert pairing_row[0].startswith("sha256:")
+    assert prepared_token not in pairing_row[1]
+    assert prepared_token.encode() not in storage.db_path.read_bytes()
+    events = await restarted.list_security_events()
+    assert any(event["event_type"] == "pairing.exchange_replayed" for event in events)
+
+    expired = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat()
+    with sqlite3.connect(storage.db_path) as conn:
+        conn.execute(
+            "UPDATE clients SET expires_at=? WHERE id=?",
+            (expired, requested_client_id),
+        )
+    with pytest.raises(LiliesAuthenticationError, match="already redeemed"):
+        await restarted.exchange_pairing_code(**exchange)
+
+
+@pytest.mark.asyncio
 async def test_pairing_expiry_is_rejected_and_recorded(tmp_path) -> None:
     storage = LiliesStorage(tmp_path / "data")
     await storage.initialize()
@@ -294,6 +363,68 @@ async def test_expired_client_rotates_in_place_only_with_exact_old_proof(tmp_pat
     assert str(original["access_token"]) not in security_json
     assert str(rotated["access_token"]) not in security_json
     assert wrong_previous_token not in security_json
+
+
+@pytest.mark.asyncio
+async def test_prepared_rotation_replay_accepts_new_token_as_previous_proof_after_crash(
+    tmp_path,
+) -> None:
+    storage = LiliesStorage(tmp_path / "data")
+    await storage.initialize()
+    scopes = ["lilies.session:read", "lilies.session:write"]
+    original = await _paired_client(
+        storage,
+        name="platform",
+        scopes=scopes,
+        nonce="prepared_rotation_original_01",
+    )
+    client_id = str(original["client_id"])
+    prepared_token = f"{client_id}." + "rotated" * 8
+    rotation_code = await storage.create_pairing_code(allowed_scopes=scopes)
+    common = {
+        "pairing_code": rotation_code["pairing_code"],
+        "client_name": "platform",
+        "requested_scopes": scopes,
+        "client_nonce": "prepared_rotation_stable_001",
+        "daemon_fingerprint": "sha256:" + "a" * 64,
+        "previous_client_id": client_id,
+        "requested_client_id": client_id,
+        "prepared_access_token": prepared_token,
+    }
+
+    rotated = await storage.exchange_pairing_code(
+        **common,
+        previous_access_token=str(original["access_token"]),
+    )
+    assert rotated["access_token"] == prepared_token
+    with pytest.raises(LiliesAuthenticationError):
+        await storage.authenticate_client(str(original["access_token"]))
+
+    # The bridge may have durably replaced its old bearer before it saves the
+    # operation receipt.  Its retry therefore presents the new prepared bearer
+    # as both previous proof and desired token; redeemed-code replay must still
+    # return the original receipt instead of requiring the now-invalid old token.
+    restarted = LiliesStorage(tmp_path / "data")
+    assert (await restarted.initialize())["schema_version"] == 5
+    replay = await restarted.exchange_pairing_code(
+        **common,
+        previous_access_token=prepared_token,
+    )
+    assert replay == rotated
+    await restarted.authenticate_client(prepared_token)
+
+    conflicting_token = f"{client_id}." + "conflict" * 8
+    with pytest.raises(LiliesAuthenticationError, match="already redeemed"):
+        await restarted.exchange_pairing_code(
+            **{
+                **common,
+                "prepared_access_token": conflicting_token,
+                "previous_access_token": prepared_token,
+            }
+        )
+    database_bytes = storage.db_path.read_bytes()
+    assert prepared_token.encode() not in database_bytes
+    assert str(original["access_token"]).encode() not in database_bytes
 
 
 @pytest.mark.asyncio
@@ -445,7 +576,7 @@ async def test_running_recovery_interrupts_without_replaying_checkpoint(tmp_path
 
     restarted = LiliesStorage(storage.data_dir)
     assert await restarted.initialize() == {
-        "schema_version": 3,
+        "schema_version": 5,
         "interrupted_sessions": 1,
         "interrupted_turns": 1,
     }
@@ -465,7 +596,7 @@ async def test_running_recovery_interrupts_without_replaying_checkpoint(tmp_path
     assert recovered_session["tool_count"] == 3
     assert recovered_session["model_call_count"] == 2
     assert await restarted.initialize() == {
-        "schema_version": 3,
+        "schema_version": 5,
         "interrupted_sessions": 0,
         "interrupted_turns": 0,
     }
@@ -741,13 +872,16 @@ async def test_v1_credentials_migrate_to_latest_without_losing_private_value(tmp
 
     upgraded = LiliesStorage(data_dir)
     assert await upgraded.initialize() == {
-        "schema_version": 3,
+        "schema_version": 5,
         "interrupted_sessions": 0,
         "interrupted_turns": 0,
     }
     with sqlite3.connect(upgraded.db_path) as conn:
         columns = {
             row[1] for row in conn.execute("PRAGMA table_info(credentials)").fetchall()
+        }
+        pairing_columns = {
+            row[1] for row in conn.execute("PRAGMA table_info(pairing_codes)").fetchall()
         }
         versions = [
             row[0]
@@ -765,8 +899,9 @@ async def test_v1_credentials_migrate_to_latest_without_losing_private_value(tmp
         "revoke_payload_hash",
         "revoke_reason",
     } <= columns
-    assert versions == [1, 2, 3]
-    assert user_version == 3
+    assert {"exchange_payload_hash", "exchange_result_json"} <= pairing_columns
+    assert versions == [1, 2, 3, 4, 5]
+    assert user_version == 5
     metadata = (await upgraded.list_credentials())[0]
     assert metadata["kind"] == "platform_assignment"
     assert metadata["scopes"] == []

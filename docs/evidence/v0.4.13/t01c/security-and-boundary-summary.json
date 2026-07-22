@@ -1,0 +1,71 @@
+{
+  "schema_version": "1.0",
+  "task_id": "V04-13-T01C",
+  "captured_at_utc": "2026-07-22T18:48:06Z",
+  "baseline_commit": "d0c23d1323c411988ed928ea4dc4f624b049a68f",
+  "checks": {
+    "loopback_only_daemon_client": "pass",
+    "redirects_and_environment_proxy_disabled": "pass",
+    "feature_gate_default_off": "pass",
+    "header_only_platform_auth": "pass",
+    "case_insensitive_query_secret_variants_rejected": "pass",
+    "validation_errors_redacted": "pass",
+    "strict_assignment_extra_forbid": "pass",
+    "customer_collaboration_field_absent": "pass",
+    "plaintext_oracle_and_secret_fields_rejected": "pass",
+    "generated_pairing_code_shape_rejected_from_assignment": "pass",
+    "daemon_bearer_encrypted_in_platform_harness": "pass",
+    "pair_and_reconnect_bearer_outboxes_crash_safe": "pass",
+    "authenticated_status_binds_fingerprint_client_exact_scopes_and_expiry": "pass",
+    "task_bearer_crash_safe_outbox": "pass",
+    "task_bearer_absent_from_bridge_database": "pass",
+    "session_and_operation_receipts_bind_assignment_and_session": "pass",
+    "one_nonterminal_assignment_per_application_is_atomic": "pass",
+    "cross_bridge_cancel_start_and_relay_races_use_durable_desired_state": "pass",
+    "completed_before_cancel_is_reconciled_without_state_resurrection": "pass",
+    "cancelled_terminal_events_are_contiguous_persisted_and_strictly_acked": "pass",
+    "terminal_commit_before_ack_recovers_after_platform_restart": "pass",
+    "relay_plaintext_secret_rejection": "pass",
+    "cancel_revokes_platform_auth_before_unavailable_response": "pass",
+    "credential_revoke_response_loss_is_idempotently_recovered": "pass",
+    "waiting_states_not_blindly_resumed": "pass",
+    "start_replay_does_not_resume_terminal_model_error": "pass",
+    "legacy_builder_fallback_absent": "pass",
+    "draft_prebuild_absent": "pass",
+    "pair_and_reconnect_ui_retries_reuse_one_operation_key": "pass"
+  },
+  "crash_windows": {
+    "pairing": [
+      "encrypted prepared bearer saved before exchange",
+      "daemon accepted exchange before platform connection commit",
+      "platform connection committed before HTTP response"
+    ],
+    "reconnect": [
+      "rotation bearer saved before exchange",
+      "daemon accepted rotation before stable bearer commit",
+      "stable bearer committed before connection and operation receipt"
+    ],
+    "assignment_credential": [
+      "encrypted task outbox saved before platform verifier issue",
+      "platform verifier issued before daemon provision",
+      "daemon provision accepted before local checkpoint",
+      "daemon revoke accepted before response"
+    ],
+    "relay": [
+      "events committed before strict acknowledgement",
+      "terminal cancellation tail committed before strict acknowledgement"
+    ]
+  },
+  "safe_public_identifiers": [
+    "connection_id",
+    "application_id",
+    "build_id",
+    "assignment_id",
+    "session_id"
+  ],
+  "deterministic_evidence": "pass",
+  "real_asgi_evidence": "pass",
+  "independent_process_http_evidence": "pass",
+  "browser_evidence_status": "blocked_by_environment",
+  "claim_ceiling": "Security and boundary claims cover deterministic tests, real loopback ASGI, and the separately recorded HTTP process run. No browser-operation or successful model-authored workflow claim is made."
+}
