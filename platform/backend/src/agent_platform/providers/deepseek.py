@@ -28,6 +28,11 @@ class DeepSeekProvider(ModelProvider):
         self.transport = transport
 
     def capabilities(self, model: str) -> ProviderCapabilities:
+        # Pricing per million tokens
+        if "pro" in model:
+            input_price, output_price = 0.435, 0.87
+        else:
+            input_price, output_price = 0.14, 0.28
         return ProviderCapabilities(
             thinking=True,
             tools=True,
@@ -36,6 +41,8 @@ class DeepSeekProvider(ModelProvider):
             images=False,
             max_context_tokens=1_000_000,
             max_output_tokens=384_000,
+            input_price_per_1m=input_price,
+            output_price_per_1m=output_price,
         )
 
     async def stream(

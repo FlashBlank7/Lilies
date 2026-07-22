@@ -1,28 +1,26 @@
-"""Soft Block — a configurable block that can take on different behaviors
-based on its strategy, reducing the cognitive load of choosing among 25 discrete blocks.
+"""Block family definitions — semantic grouping for discoverability.
 
-Design rationale:
-  25 discrete blocks are correct for precision (ADR-001), but the AI Builder and
-  novice users benefit from "block families" that share a common interface.
-  A SoftBlock acts as a meta-block: one config schema, many strategies.
+Design rationale (from ADR-001 and the "Primitive Is The Pair" thesis):
+  The 25 agent-architecture blocks are NOT merged into fewer runtime types.
+  Instead they are grouped into 6 *families* for search, browsing, and the
+  Orchestration Advisor.  A family is a *property of a block*, NOT a block
+  itself.  There is no ``block_family`` runtime type — each family member is
+  a fully discrete, independently testable block.
 
-Block families (6 → replaces 25 discrete blocks when used as SoftBlock):
-  context:   assemble | inject_workspace | memory | compact
-  model:     call | router | stop_continue | classify_error
-  tool:      execute | normalize | permission_gate | sandbox
-  governance: budget | rounds | checkpoint | cancel | record
-  agent:     spawn_subagent | dispatch_tasks | mailbox | dependency_gate
-  skill:     load_skill | mcp_gateway | capability_registry
+Families:
+  context     — assemble, inject workspace, carry memory, compact
+  model       — call, route tool intents, stop/continue, classify errors
+  tool        — execute, normalize results, permission gate, sandbox boundary
+  governance  — budget, rounds, checkpoint, cancel, event recorder
+  agent       — spawn subagent, dispatch tasks, mailbox, dependency gate
+  skill       — load skills, MCP gateway, capability registry
 """
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Literal
 
-from pydantic import BaseModel, Field
-
-
-# ── Strategy types (one per family) ────────────────────────────
+# ── Family definitions ────────────────────────────────────────────
 
 ContextStrategy = Literal[
     "context_assemble",
@@ -66,13 +64,13 @@ SkillStrategy = Literal[
     "skill_capability_registry",
 ]
 
-SoftBlockStrategy = (
+BlockFamilyStrategy = (
     ContextStrategy | ModelStrategy | ToolStrategy
     | GovernanceStrategy | AgentStrategy | SkillStrategy
 )
 
 
-# ── Family → discrete block mapping ─────────────────────────────
+# ── Family → block-type mapping ───────────────────────────────────
 
 FAMILY_MAP: dict[str, dict[str, str]] = {
     "context": {
@@ -113,43 +111,28 @@ FAMILY_MAP: dict[str, dict[str, str]] = {
     },
 }
 
-# ── Config ──────────────────────────────────────────────────────
 
-class SoftBlockConfig(BaseModel):
-    """Design-time macro: one block type, many strategies.
+# ── Reverse mapping: block-type → family ──────────────────────────
 
-    A SoftBlock is a *design-time convenience*, not a runtime abstraction.
-    Its strategy is fixed at design time and maps 1:1 to a discrete block
-    type. When published, the SoftBlock expands into the equivalent discrete
-    block chain — there is no SoftBlock at runtime.
-
-    This eliminates the semantic duplication between "workflow composition"
-    and "block strategy selection": SoftBlocks exist only in the draft editor;
-    published workflows contain only discrete blocks.
-    """
-
-    strategy: str = Field(
-        default="context_assemble",
-        description="Which discrete block behavior to use. Chosen at design time.",
-    )
-    settings: dict[str, Any] = Field(
-        default_factory=dict,
-        description="Strategy-specific configuration.",
-    )
-
-
-# ── Strategy helpers ────────────────────────────────────────────
-
-def get_family(strategy: str) -> str | None:
-    """Return the family name for a strategy, or None."""
+def get_family(block_type: str) -> str | None:
+    """Return the family name for a discrete block type, or None."""
     for family, strategies in FAMILY_MAP.items():
-        if strategy in strategies:
+        if block_type in strategies.values():
             return family
     return None
 
 
+def get_strategy(block_type: str) -> str | None:
+    """Return the strategy name (e.g. 'model_call') for a block type, or None."""
+    for strategies in FAMILY_MAP.values():
+        for strategy, bt in strategies.items():
+            if bt == block_type:
+                return strategy
+    return None
+
+
 def get_discrete_block_type(strategy: str) -> str | None:
-    """Map a soft-block strategy to its discrete block type."""
+    """Map a strategy name to its discrete block type."""
     for strategies in FAMILY_MAP.values():
         if strategy in strategies:
             return strategies[strategy]
@@ -160,10 +143,15 @@ def list_strategies(family: str | None = None) -> list[str]:
     """List available strategies, optionally filtered by family."""
     if family and family in FAMILY_MAP:
         return list(FAMILY_MAP[family].keys())
-    result = []
+    result: list[str] = []
     for strategies in FAMILY_MAP.values():
         result.extend(strategies.keys())
     return result
+
+
+def list_families() -> list[str]:
+    """List all family names."""
+    return list(FAMILY_MAP.keys())
 
 
 def strategy_help(strategy: str) -> str:

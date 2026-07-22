@@ -1,6 +1,15 @@
 """Meta-cognition layer — observe collaboration, extract decision patterns,
 and generate reusable workflow templates automatically.
 
+.. deprecated::
+    The DecisionTracker → extract_workflow() pipeline is superseded by
+    EvolutionEngine + MergeEngine (evolution_engine.py), which operates on
+    real WorkflowSpec from Builder output rather than derived decision trees.
+
+    The DecisionTracker class and related utilities are preserved for backward
+    compatibility with the POST /sessions/{id}/extract-template endpoint.
+    New code should use EvolutionEngine.evolve_or_create() instead.
+
 The core idea: during a development conversation, key decision points form
 a tree. That tree IS a workflow. Extract it → validate it → publish it as
 a template → next time someone asks a similar question, suggest the template.
@@ -16,7 +25,6 @@ Example (from our DingTalk journey):
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Literal
 from uuid import uuid4
 
 from .workflow_models import EdgeSpec, NodeSpec, WorkflowSpec
@@ -278,65 +286,6 @@ class DecisionTracker:
         return "\n".join(lines)
 
 
-# ── Demo: Extract the DingTalk decision tree ──
-
-def demo_dingtalk_workflow() -> WorkflowSpec:
-    """Replay our actual collaboration as a decision tree, then extract it."""
-    tracker = DecisionTracker("App 自动化决策流程")
-
-    # Root: API check
-    tracker._current = tracker.ask(
-        "该 App 是否有公开 API 可以完成此任务？",
-        "自动打卡/签到类任务",
-    )
-    # Branch: NO
-    api_no = tracker.answer(
-        "NO",
-        outcome="检查急速模式",
-        description="个人用户通常无法使用企业级考勤 API。需要企业管理员权限。",
-    )
-    # Sub-decision: Quick mode
-    sub = DecisionPoint(
-        question="该 App 是否有急速/自动模式，打开即触发？",
-        context="API 不可用，寻找替代方案",
-        depth=1,
-    )
-    api_no.sub_decisions.append(sub)
-    tracker._current = sub
-    quick_yes = tracker.answer(
-        "YES",
-        outcome="只需定时启动 App",
-        description="钉钉「急速打卡」: 在考勤时间范围内打开 App，自动完成打卡。最简方案。",
-    )
-    quick_no = tracker.answer(
-        "NO",
-        outcome="尝试模拟点击",
-    )
-    # Sub-sub-decision: Clicks
-    click_sub = DecisionPoint(
-        question="是否可通过模拟点击完成？坐标是否稳定？",
-        context="无急速模式",
-        depth=2,
-    )
-    quick_no.sub_decisions.append(click_sub)
-    tracker._current = click_sub
-    tracker.answer(
-        "FEASIBLE",
-        outcome="input tap + 坐标校准",
-        description="使用 Android input tap 命令模拟屏幕点击。需要开发者选项获取坐标。坐标可能因 App 更新变化。",
-    )
-    tracker.answer(
-        "NOT_FEASIBLE",
-        outcome="设置提醒，人工完成",
-        description="该 App 有反自动化检测，或操作需要生物识别验证。目前无法可靠自动化。",
-    )
-
-    # Branch: YES (add to the root decision point)
-    tracker._current = tracker.roots[0]
-    api_yes = tracker.answer(
-        "YES",
-        outcome="使用 HTTP Request 积木直接调用 API",
-        description="App 提供公开 API。获取凭证 → HTTP Request → schedule_trigger 定时触发。",
-    )
-
-    return tracker.extract_workflow()
+# ── Demo functions removed as dead code (2026-07-14) ──
+# demo_dingtalk_workflow() previously lived here (zero callers).
+# The DingTalk decision-tree is now captured as app_automation_workflow template.

@@ -1,0 +1,331 @@
+{
+  "meta": {
+    "name": "clyins",
+    "title": "Clyins AI 项目经理",
+    "description": "Clyins 是一个 AI 项目经理 BlockFlow。输入会议记录 -> 自动提取行动项 -> 依赖排序 -> 生成日程表与会议纪要 -> 人工核验确认。核心理念: 好的项目管理不是造更聪明的 Agent，而是固化会议到行动到跟踪的工作流。",
+    "category": "task_management",
+    "icon": "user-check",
+    "tags": [
+      "project-management",
+      "meeting",
+      "schedule",
+      "task-decomposition",
+      "clyins"
+    ],
+    "expected_inputs": {
+      "meeting_transcript": "string",
+      "team_context": "string",
+      "meeting_date": "string"
+    },
+    "expected_outputs": {
+      "schedule": "string",
+      "minutes": "string",
+      "tasks": "array",
+      "summary": "string"
+    },
+    "author": "platform",
+    "version": 1,
+    "min_blocks_required": [
+      "llm",
+      "task_dispatcher",
+      "template_transform",
+      "human_input"
+    ],
+    "provenance": [
+      {
+        "source_type": "expert_manual",
+        "identifier": "platform:clyins.json",
+        "created_at": "2026-07-16T00:00:00Z",
+        "user_id": null
+      }
+    ],
+    "confidence": 0.80,
+    "seed_template": true,
+    "usage_count": 0,
+    "rating_sum": 0,
+    "rating_count": 0,
+    "success_rate": 0.0,
+    "total_uses": 0,
+    "total_successes": 0,
+    "consecutive_failures": 0
+  },
+  "workflow": {
+    "nodes": [
+      {
+        "id": "start",
+        "type": "start",
+        "title": "会议输入",
+        "config": {
+          "inputs": [
+            {
+              "name": "meeting_transcript",
+              "label": "会议记录文本",
+              "type": "string"
+            },
+            {
+              "name": "team_context",
+              "label": "团队背景",
+              "type": "string",
+              "required": false,
+              "default": ""
+            },
+            {
+              "name": "meeting_date",
+              "label": "会议日期",
+              "type": "string",
+              "required": false,
+              "default": ""
+            }
+          ]
+        }
+      },
+      {
+        "id": "compose",
+        "type": "template_transform",
+        "title": "组合分析提示",
+        "config": {
+          "template": "## 会议记录\n{{ transcript }}\n\n## 团队背景\n{{ team }}\n\n## 会议日期\n{{ date }}\n\n请从以上会议记录中提取所有行动项。",
+          "variables": {
+            "transcript": {
+              "$ref": {
+                "node_id": "start",
+                "path": ["meeting_transcript"]
+              }
+            },
+            "team": {
+              "$ref": {
+                "node_id": "start",
+                "path": ["team_context"]
+              }
+            },
+            "date": {
+              "$ref": {
+                "node_id": "start",
+                "path": ["meeting_date"]
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "extract",
+        "type": "llm",
+        "title": "Clyins 行动项提取",
+        "config": {
+          "system": "你是 Clyins，一个 AI 项目经理。你的职责是从会议记录中精确提取行动项，生成结构化的任务计划和会议摘要。\n\n核心原则：\n1. 每条行动项必须明确：谁（owner）、做什么（name）、何时完成（deadline）、依赖谁（dependencies）\n2. 区分「决定」和「讨论」——只把明确的行动承诺列为任务\n3. 优先级判断：阻塞其他任务的事项为 high，有明确截止日期的为 medium，其余为 low\n4. 如果会议中某人被多次提及负责某事，将其列为 owner\n5. 依赖关系：如果任务 B 需要等任务 A 完成后才能开始，在 dependencies 中列出任务 A 的 name 值\n6. 概括一段简洁的会议摘要（summary），包含关键决定和后续步骤\n7. 生成一个 markdown 格式的日程表格（schedule_table），包含所有任务列（任务名、负责人、截止日、优先级、依赖、工时）\n\n返回严格的 JSON 格式，不要包含任何其他文本：\n{\n  \"summary\": \"会议摘要（一段话）\",\n  \"schedule_table\": \"markdown格式的完整日程表格\",\n  \"tasks\": [\n    {\n      \"name\": \"任务标题\",\n      \"owner\": \"负责人\",\n      \"deadline\": \"截止日期或时间描述\",\n      \"dependencies\": [\"依赖的其他任务名称\"],\n      \"priority\": \"high|medium|low\",\n      \"estimated_hours\": 数字\n    }\n  ]\n}",
+          "prompt": {
+            "$ref": {
+              "node_id": "compose",
+              "path": ["text"]
+            }
+          },
+          "structured_output": {
+            "type": "object",
+            "properties": {
+              "summary": {
+                "type": "string",
+                "description": "会议摘要"
+              },
+              "schedule_table": {
+                "type": "string",
+                "description": "Markdown 格式的完整日程表格"
+              },
+              "tasks": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {"type": "string"},
+                    "owner": {"type": "string"},
+                    "deadline": {"type": "string"},
+                    "dependencies": {"type": "array", "items": {"type": "string"}},
+                    "priority": {"type": "string", "enum": ["high", "medium", "low"]},
+                    "estimated_hours": {"type": "number"}
+                  },
+                  "required": ["name", "owner", "deadline"]
+                }
+              }
+            },
+            "required": ["summary", "schedule_table", "tasks"]
+          },
+          "temperature": 0.3,
+          "seed": 42
+        }
+      },
+      {
+        "id": "dispatch",
+        "type": "task_dispatcher",
+        "title": "依赖排序",
+        "config": {
+          "input": {
+            "$ref": {
+              "node_id": "extract",
+              "path": ["structured"]
+            }
+          },
+          "settings": {
+            "tasks": {
+              "$ref": {
+                "node_id": "extract",
+                "path": ["structured", "tasks"]
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "format",
+        "type": "template_transform",
+        "title": "生成日程表与纪要",
+        "config": {
+          "template": "# 📋 Clyins 会议成果\n\n## 📅 会议日期\n{{ date }}\n\n## 📝 会议摘要\n{{ summary }}\n\n---\n\n## 📊 本周行动计划\n\n{{ schedule_table }}\n\n---\n\n## 📋 任务明细（供 Lilies 自动分派）\n\n{{ task_detail }}\n\n---\n\n*本日程表由 Clyins AI 项目经理自动生成，已通过人工核验确认。*",
+          "variables": {
+            "date": {
+              "$ref": {
+                "node_id": "start",
+                "path": ["meeting_date"]
+              }
+            },
+            "summary": {
+              "$ref": {
+                "node_id": "extract",
+                "path": ["structured", "summary"]
+              }
+            },
+            "schedule_table": {
+              "$ref": {
+                "node_id": "extract",
+                "path": ["structured", "schedule_table"]
+              }
+            },
+            "task_detail": {
+              "$ref": {
+                "node_id": "dispatch",
+                "path": ["output", "dispatch_plan"]
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "verify",
+        "type": "human_input",
+        "title": "人工核验",
+        "config": {
+          "title": "Clyins 日程表核验",
+          "description": "请审核 AI 生成的会议日程表和行动项。确认无误后批准，或输入修改意见。",
+          "fields": [
+            {
+              "name": "approved",
+              "label": "是否批准？",
+              "type": "boolean",
+              "required": true
+            },
+            {
+              "name": "corrections",
+              "label": "修改意见",
+              "type": "string",
+              "required": false,
+              "options": []
+            },
+            {
+              "name": "assign_to_lilies",
+              "label": "是否将可自动化任务提交给 Lilies 执行？",
+              "type": "boolean",
+              "required": false
+            }
+          ]
+        }
+      },
+      {
+        "id": "end",
+        "type": "end",
+        "title": "输出成果",
+        "config": {
+          "outputs": {
+            "schedule": {
+              "$ref": {
+                "node_id": "format",
+                "path": ["text"]
+              }
+            },
+            "summary": {
+              "$ref": {
+                "node_id": "extract",
+                "path": ["structured", "summary"]
+              }
+            },
+            "tasks": {
+              "$ref": {
+                "node_id": "dispatch",
+                "path": ["output", "dispatch_plan"]
+              }
+            },
+            "verified": {
+              "$ref": {
+                "node_id": "verify",
+                "path": ["approved"]
+              }
+            },
+            "corrections": {
+              "$ref": {
+                "node_id": "verify",
+                "path": ["corrections"]
+              }
+            },
+            "assign_to_lilies": {
+              "$ref": {
+                "node_id": "verify",
+                "path": ["assign_to_lilies"]
+              }
+            }
+          }
+        }
+      }
+    ],
+    "edges": [
+      {
+        "id": "e_start_compose",
+        "source": "start",
+        "target": "compose",
+        "source_port": "output",
+        "target_port": "input"
+      },
+      {
+        "id": "e_compose_extract",
+        "source": "compose",
+        "target": "extract",
+        "source_port": "text",
+        "target_port": "input"
+      },
+      {
+        "id": "e_extract_dispatch",
+        "source": "extract",
+        "target": "dispatch",
+        "source_port": "structured",
+        "target_port": "input"
+      },
+      {
+        "id": "e_dispatch_format",
+        "source": "dispatch",
+        "target": "format",
+        "source_port": "output",
+        "target_port": "input"
+      },
+      {
+        "id": "e_format_verify",
+        "source": "format",
+        "target": "verify",
+        "source_port": "text",
+        "target_port": "input"
+      },
+      {
+        "id": "e_verify_end",
+        "source": "verify",
+        "target": "end",
+        "source_port": "output",
+        "target_port": "input"
+      }
+    ]
+  }
+}

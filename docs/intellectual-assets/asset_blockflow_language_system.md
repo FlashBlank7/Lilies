@@ -11,6 +11,7 @@ Lilies 的团队沟通必须把“用户需求被 Builder Team 搭成的可测�
 - `AgentSpec`：`AgentRuntime` 执行的多轮工具调用 Agent 配置，不等同于 `BlockFlow`。
 - `Template`：经过验证并可复用的 `WorkflowSpec` 知识资产，不只是示例 JSON。
 - `Harness`：确定性执行、约束、观测、恢复和验证机制的总称；必须区分工作流内 soft harness block 与平台外 Platform Harness。
+- `BlockFamily`：Agent 架构积木的语义分组，共六个家族（context / model / tool / governance / agent / skill）。**家族是积木的属性，不是积木本身。** 积木注册表保持正交（每个积木对应唯一的运行时机制），家族通过 `BlockDefinition.editor.family` 作为元数据暴露，供搜索、过滤和相似度计算使用。详见 `docs/stage-reports/V1.2_evolution_flywheel_and_blockflow_self_reference.md`。
 
 最重要的语言规则是：不要再用“智能体”同时指 `AgentSpec`、`BlockFlow` 和泛 AI 系统。讨论代码时使用代码对象名，讨论业务交付时使用 `BlockFlow`。
 
@@ -29,6 +30,10 @@ Lilies 的团队沟通必须把“用户需求被 Builder Team 搭成的可测�
 
 - `platform/backend/src/agent_platform/workflow_models.py`
 - `platform/backend/src/agent_platform/workflow_runtime.py`
+- `platform/backend/src/agent_platform/blocks.py`（`_definition()` 的 `family` 参数）
+- `platform/backend/src/agent_platform/block_families.py`（`FAMILY_MAP` + `get_family()`）
+- `platform/backend/src/agent_platform/merge_engine.py`（family-aware `_compute_similarity()`）
+- `docs/stage-reports/V1.2_evolution_flywheel_and_blockflow_self_reference.md`
 - `platform/backend/src/agent_platform/runtime.py`
 - `platform/backend/src/agent_platform/builder.py`
 - `platform/backend/src/agent_platform/template_store.py`

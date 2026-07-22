@@ -215,6 +215,73 @@ class WebSearchTool(Tool):
             return ToolResult(f"news search failed: {error}", True)
 
 
+class EvolutionGateInput(BaseModel):
+    candidate_json: str = Field(min_length=1, max_length=500_000)
+    requirement: str = Field(default="")
+    build_id: str = Field(default="")
+
+
+class EvolutionGateTool(Tool):
+    """Expose the EvolutionEngine as a callable workflow tool.
+
+    Accepts a serialized WorkflowSpec (candidate_json), runs the full
+    evolution pipeline (complexity gate → dedup gate → similarity match →
+    merge or create), and returns the EvolutionResult as JSON.
+
+    This is the bridge between BlockFlow (workflow blocks) and the
+    EvolutionEngine (Python code) — the same pattern as WebSearch or Bash.
+    """
+
+    name = "evolution_gate"
+    description = (
+        "Run the template evolution pipeline on a candidate workflow. "
+        "Input: candidate_json (serialized WorkflowSpec), requirement, build_id. "
+        "Returns: JSON with evolved, mode, template_name, similarity_score, etc."
+    )
+    input_model = EvolutionGateInput
+    mutating = True
+
+    def __init__(self, template_store: Any = None) -> None:
+        self._template_store = template_store
+
+    async def execute(self, data: dict[str, Any], context: ToolContext) -> ToolResult:
+        args = EvolutionGateInput.model_validate(data)
+        try:
+            from ..evolution_engine import EvolutionEngine
+            from ..workflow_models import WorkflowSpec
+
+            if self._template_store is None:
+                return ToolResult(
+                    json.dumps({"evolved": False, "mode": "rejected", "gate_reason": "no template store"}),
+                    is_error=True,
+                )
+
+            candidate = WorkflowSpec.model_validate_json(args.candidate_json)
+            engine = EvolutionEngine(self._template_store)
+            result = engine.evolve_or_create(candidate, args.requirement, args.build_id)
+
+            return ToolResult(
+                json.dumps({
+                    "evolved": result.evolved,
+                    "mode": result.mode,
+                    "template_name": result.template_name,
+                    "target_template": result.target_template,
+                    "similarity_score": result.similarity_score,
+                    "confidence_after": result.confidence_after,
+                    "nodes_added": result.nodes_added,
+                    "edges_added": result.edges_added,
+                    "rollback_version": result.rollback_version,
+                    "error_message": result.error_message,
+                    "gate_reason": result.gate_reason,
+                }, ensure_ascii=False),
+            )
+        except Exception as exc:
+            return ToolResult(
+                json.dumps({"evolved": False, "mode": "rejected", "error_message": str(exc)}),
+                is_error=True,
+            )
+
+
 class TaskInput(BaseModel):
     action: Literal["create", "list", "update"]
     id: int | None = None
@@ -315,7 +382,7 @@ class MCPTool(Tool):
             return ToolResult(f"MCP call failed: {error}", True)
 
 
-def build_core_registry() -> ToolRegistry:
+def build_core_registry(template_store: Any | None = None) -> ToolRegistry:
     registry = ToolRegistry()
     for tool in (
         ReadTool(),
@@ -331,4 +398,6 @@ def build_core_registry() -> ToolRegistry:
         MCPTool(),
     ):
         registry.register(tool)
+    if template_store is not None:
+        registry.register(EvolutionGateTool(template_store))
     return registry

@@ -16,6 +16,8 @@ class ProviderCapabilities:
     images: bool
     max_context_tokens: int
     max_output_tokens: int
+    input_price_per_1m: float = 0.5
+    output_price_per_1m: float = 1.0
 
 
 class ProviderError(RuntimeError):
