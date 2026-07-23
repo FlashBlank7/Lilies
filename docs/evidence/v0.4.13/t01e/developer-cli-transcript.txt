@@ -1,6 +1,7 @@
 V04-13-T01E developer CLI transcript (sanitized)
-Captured at (UTC): 2026-07-23T16:28:57Z
+Captured at (UTC): 2026-07-23T17:01:12Z
 Baseline commit: 02e003eef611be495bc75058f5b5837286c9bbff
+Final implementation commit: 3ba23eac93a0ea909b8b7d0c0b292bdf07f9b1cb
 
 Credential setup:
   source: /tmp/lilies-t01e-developer-token
@@ -28,7 +29,7 @@ Forbidden help options absent:
 
 Live HTTP inbox command:
   .venv/bin/python -m agent_platform.developer_collaboration_cli \
-    --base-url http://127.0.0.1:8001 \
+    --base-url http://127.0.0.1:8013 \
     --token-file /tmp/lilies-t01e-developer-token \
     inbox --after 0 --limit 100
 

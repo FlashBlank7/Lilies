@@ -1,7 +1,8 @@
 V04-13-T01E deterministic verification
-Captured at (UTC): 2026-07-23T16:28:57Z
+Captured at (UTC): 2026-07-23T17:01:12Z
 Baseline commit: 02e003eef611be495bc75058f5b5837286c9bbff
-Source state: final T01E working tree before evidence/report commit
+Final implementation commit: 3ba23eac93a0ea909b8b7d0c0b292bdf07f9b1cb
+Source state: committed T01E implementation after read-only blocker repair
 
 1. Focused T01E backend and API suite
 
@@ -15,14 +16,17 @@ Command:
     tests/test_v04_13_t01e_browser_fixture.py
 
 Result:
-  34 passed, 1 warning, 0 failed in 2.58s
+  37 passed, 1 warning, 0 failed in 2.83s
 
 This verifies the semantic Studio context projection, server-derived owner/block/
 next-action state, observable event and compaction projection, tool duration,
 permission/capability separation, report and claim detail, Customer Runtime
 redaction, business-output preservation, developer CLI schema and token
 boundaries, one-channel/four-report fixture causality, and idempotent fixture
-seeding.
+seeding. The refreshed suite also covers exact permission-request pairing for
+same-tool concurrent requests, null Assignment context, concurrent Studio
+reader-cursor CAS, generic credential removal, Authorization variants, and
+safe failed-run errors.
 
 2. Broad v0.4.13 collaboration and local-Lilies regression
 
@@ -37,8 +41,8 @@ Command:
     tests/test_v04_13_t01e_browser_fixture.py
 
 Result:
-  430 passed, 2 warnings, 0 failed in 116.28s
-  real 117.22s
+  433 passed, 2 warnings, 0 failed in 110.07s
+  real 110.75s
 
 The final run includes the three real-daemon ASGI pairing/reconnect/cancel
 cases. A prior run exposed a date-sensitive activation test whose fixed
@@ -54,19 +58,22 @@ Warnings:
 
 Commands and results:
   cd platform/frontend && npm test
-    24 passed, 0 failed
+    25 passed, 0 failed
   cd platform/frontend && npm run lint
     TypeScript completed with exit code 0
   cd platform/frontend && npm run build
     exit code 0; Next.js 16.2.9 compiled, type-checked, generated six pages,
     and emitted /developer/collaboration as a static route
 
-The 24 tests include mobile task -> timeline -> detail routing, semantic
+The 25 tests include mobile task -> timeline -> detail routing, semantic
 timeline merging, private-reasoning exclusion, permission outcome coalescing,
 server-derived ownership, stable idempotency and in-flight double-click
 protection, SSE cursor resume, three-pane/mobile/reduced-motion source
 contracts, evidence/DeveloperResponse/verifier-difference presentation, and the
-right-drag/right-click natural-language workflow-edit selection path.
+right-drag/right-click natural-language workflow-edit selection path. The
+refreshed source contracts require exact request-ID permission resolution,
+complete evidence and contract-change rendering, modal focus trapping, a
+980-pixel mobile cutoff, and bounded visible-page context refresh.
 
 4. User-reported natural-language edit and local callback regressions
 
@@ -111,15 +118,45 @@ fixed outside this task.
 6. Running-process and safe-projection checks
 
 Results:
-  GET http://127.0.0.1:8001/health -> 200
-  GET http://127.0.0.1:3000/developer/collaboration?... -> 200
+  A separate final-source Uvicorn process ran on 127.0.0.1:8013.
+  GET /health -> 200
+  GET /api/v1/studio/collaboration/channels/{channel_id} -> 200
+  GET /api/v1/studio/collaboration/channels/{channel_id}/export -> 200
+  GET /api/v1/developer/collaboration/inbox -> 200 through lilies-developer
+  GET /api/v1/customer-runtime/applications/{application_id} -> 200
   Studio detail -> 4 reports, 13 causal messages, 1 failed claim,
     496 observable assignment events, one current 3-node/2-edge application
   Customer Runtime -> 200, 3 nodes, 2 edges, one succeeded business run
   Customer Runtime marker counts -> zero for collaboration, codex,
     developer_response, private_reason, private_reasoning, raw_blocks,
-    signature, and thinking_blocks
+    signature, thinking_blocks, api_key, authorization, password, and
+    access_token
+  Developer CLI -> one approved report, zero claims, next_cursor 4,
+    pending_user_action true
 
 The browser provider itself exposed no controllable browser. The HTTP checks,
 source contracts, and build are not reported as user-operated browser evidence;
 see browser-environment.json.
+
+7. Full repository regression
+
+Command:
+  uv run --extra dev --with python-docx --frozen python -m pytest -q
+
+Initial result:
+  1299 passed, 85 xfailed, 3 failed, 2 warnings
+
+The three failures were stale source-marker assertions: two v0.3.54 checks
+still expected the pre-existing per-operation repair UI marker after the
+already-committed atomic repair-apply endpoint, and one v0.4.07 check required
+Customer Runtime to call generic engineering read endpoints that T01E replaced
+with the bounded customer-runtime projection. The checks were updated to
+require the safer current contracts rather than reintroducing the old paths.
+
+Final result:
+  1302 passed, 85 xfailed, 2 warnings, 0 failed in 259.46s
+  real 260.83s
+
+As in T01D, the default dev extra does not declare python-docx. The existing
+temporary `--with python-docx --frozen` route was reused without modifying the
+user's untracked uv.lock.

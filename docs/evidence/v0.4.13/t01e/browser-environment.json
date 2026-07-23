@@ -3,6 +3,7 @@
   "task_id": "V04-13-T01E",
   "captured_at_utc": "2026-07-23T16:28:57Z",
   "baseline_commit": "02e003eef611be495bc75058f5b5837286c9bbff",
+  "final_implementation_commit": "3ba23eac93a0ea909b8b7d0c0b292bdf07f9b1cb",
   "requested_surface": "http://127.0.0.1:3000/developer/collaboration",
   "browser_skill": "chrome:control-chrome",
   "setup_result": "browser runtime initialized",
@@ -10,6 +11,7 @@
   "troubleshooting_read": "bootstrap-troubleshooting",
   "available_browsers": [],
   "status": "blocked_by_environment",
+  "post_fix_retry": "not repeated because the external browser-provider state was unchanged",
   "browser_actions_run": [],
   "screenshots": [],
   "not_run": [
@@ -32,9 +34,10 @@
     "visual and operational separation of runtime permission and capability approval"
   ],
   "available_evidence": {
-    "frontend_source_contract_tests": "24 passed",
+    "frontend_source_contract_tests": "25 passed",
     "typescript": "pass",
     "production_build": "pass",
+    "full_repository": "1302 passed, 85 xfailed, 0 failed",
     "studio_http": 200,
     "safe_api_projection": "pass",
     "controlled_fixture": "seeded idempotently; four report states; not browser evidence"

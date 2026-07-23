@@ -1,44 +1,100 @@
 # V04-13-T01E Independent Read-Only Audit
 
-- Verdict: `PASS AT SCOPED EVIDENCE FLOOR`
-- Auditor context: fresh, read-only context reconstructed from the Program Charter, locked Stage Contract, relevant T01E design, implementation, tests, and evidence
-- Baseline commit: `02e003eef611be495bc75058f5b5837286c9bbff`
+## Audit 1 — evidence-integrity failure
 
-## Reproduced results
+- Verdict: `FAIL — EVIDENCE INTEGRITY ONLY`
+- Audit context: fresh read-only context, reconstructed from the Program Charter,
+  locked Stage Contract, relevant diff, and verification evidence
+- Implementation commit: `3ba23eac93a0ea909b8b7d0c0b292bdf07f9b1cb`
+- Browser provider: `[]`; retained as `V0413-ED-003`, not retried and not treated
+  as a campaign blocker
 
-- T01E focused tests: `34 passed`
-- v0.4.13 collaboration/local-Lilies regression: `430 passed`
-- frontend tests: `24 passed`
-- TypeScript/lint and production build: passed; `/developer/collaboration` emitted
+The reviewer found no remaining code or contracted-behavior blocker at the
+scoped deterministic/API/CLI/frontend-build evidence floor. It rejected the
+closure because `manifest.json` and the stage report still contained the
+pre-repair `34/430/24` snapshot while refreshed evidence reported
+`37/433/25`, and all changed evidence hashes were stale.
 
-## Contract findings
+### Contract reconstruction and blocker recheck
 
-No mandatory T01E implementation gap, security boundary violation, or product-boundary rewrite was found at the scoped evidence floor.
+- The global Developer Studio exposes task, observable Lilies context,
+  tool/contract/draft/run/trace state, complete report causality, owner, reason,
+  and next action.
+- Capability approval and one-shot runtime permission use distinct controls,
+  APIs, and idempotency signatures.
+- Preapproval developer projection reveals no report identity, body, evidence,
+  digest, or task-local count; only the allowed global `pending_user_action`
+  boolean remains.
+- `lilies-developer` implements `inbox`, `lease`, `renew`, `release`, and
+  `respond` with strict JSON and a 0600/no-follow credential boundary.
+- Customer Runtime uses a bounded projection that excludes
+  developer/collaboration/private/oracle/credential fields and private failure
+  text while preserving business output.
+- Exact permission request IDs, null Assignment context, reader-cursor CAS,
+  credential/private error handling, complete evidence and contract rendering,
+  the 980px responsive boundary, modal focus trapping, and the five-second
+  visible-page context refresh all have implementation and regression coverage.
 
-- Before approval, the developer inbox exposes no report ID, body, evidence, or digest. Only the global `pending_user_action` boolean may be visible.
-- Studio user credentials and developer bearer credentials remain isolated. The browser frontend does not call developer endpoints.
-- Capability approval and runtime permission approval use separate APIs, components, and actions. Approving a capability report does not grant runtime permission.
-- Lilies is not categorically denied general code capability. Code access depends on the workspace and scopes explicitly granted by the task, and a one-time permission action does not enlarge them.
-- Customer Runtime uses a dedicated safe projection. It excludes developer collaboration data, connector-internal configuration, and private reasoning fields while retaining legitimate business explanations.
-- The developer CLI supports `inbox`, `lease`, `renew`, `release`, and `respond`; credentials are absent from argv, URL, request body, and output.
+### Audit 1 claim ceiling
 
-## Browser evidence debt
+Supported: deterministic service/API behavior, developer CLI contract, final
+source HTTP Studio/inbox/Customer Runtime projections, frontend source,
+TypeScript, and production build in a controlled local single-user
+environment.
 
-The browser provider reported `available_browsers: []`. No browser action or screenshot was run. The following locked browser acceptance remains `blocked_by_environment`:
+Not supported: real desktop/mobile browser layout or interaction, keyboard,
+overflow, reduced-motion, console/network, screenshots, Customer Runtime DOM
+isolation, real live lease/respond mutation, production IAM, multi-tenancy, or
+production deployment.
 
-- Ordinary Lilies sessions expose no collaboration entry.
-- Expected/actual results, attempts, and evidence are readable.
-- The pre-approval inbox is empty; approval makes the report visible; a double approval creates one effect.
-- Evidence requests return to the same session; auto-forward applies only to the current task.
-- A daemon disconnect/recovery preserves timeline order without loss or duplication.
-- DeveloperResponse, verification failure, and continuation paths render correctly.
-- Desktop/mobile layout and three-level mobile navigation work.
-- Keyboard focus, Enter/Space/Escape, unreachable controls, overflow, and reduced-motion behavior work.
-- Browser console/network checks and Customer Runtime DOM/network isolation pass.
-- Permission requests and capability approval are visually and operationally separate.
+## Remediation before Audit 2
 
-HTTP reachability, source contracts, deterministic tests, and production build must not be represented as browser acceptance. Recheck when the browser provider exposes at least one controllable browser.
+- Evidence counts refreshed to `37 focused`, `433 broad`, `25 frontend`, and
+  `1302 passed / 85 xfailed / 0 failed` full repository.
+- Final-source HTTP and CLI evidence binds commit `3ba23ea`.
+- Stage-report verification rows and claim ceiling were refreshed without
+  claiming the unavailable browser layer.
+- Manifest hashes and result counters are regenerated after this record.
 
-## Claim ceiling
+## Audit 2 — final fresh-context verdict
 
-The evidence supports only the current source state's code, type, build, deterministic state-machine/API, CLI, safe-projection, and local HTTP reachability behavior in a controlled single-user environment. It does not support claims about user-operated browser flows, desktop/mobile visual behavior, keyboard/overflow/reduced-motion, console/network behavior, browser DOM isolation, production IAM, multi-tenancy, or production deployment.
+- Verdict: `PASS AT THE SCOPED EVIDENCE FLOOR`
+- Audit context: a second fresh read-only context independently reconstructed
+  T01E from the Program Charter, locked Stage Contract, baseline-to-final
+  implementation diff, and refreshed evidence
+- Implementation commit: `3ba23eac93a0ea909b8b7d0c0b292bdf07f9b1cb`
+- Browser provider: unchanged `[]`; retained as `V0413-ED-003` without retry
+
+Audit 2 verified that all six manifest SHA-256 values matched their current
+file bytes and that the counters were internally consistent at `37 focused`,
+`433 broad`, `25 frontend`, and `1302 passed / 85 xfailed / 0 failed` for the
+full repository. It confirmed that baseline `02e003e` is an ancestor of
+implementation commit `3ba23ea` and that the final-source HTTP and CLI
+evidence consistently binds that implementation.
+
+The reviewer reconstructed and accepted the locked behavior for semantic
+Studio context and causality, desktop three-pane and mobile three-level source
+contracts, separate runtime-permission and capability-approval controls,
+preapproval developer non-disclosure, the
+`inbox/lease/renew/release/respond` CLI contract, and the bounded Customer
+Runtime projection. It also rechecked the eight repaired blocker families:
+exact permission-request matching, null Assignment handling, reader-cursor CAS
+races, credential and Authorization-form redaction, bounded private failure
+errors, complete evidence/contract/DeveloperResponse/verifier rendering, the
+980px responsive boundary with modal focus containment, and the visible-page
+five-second context refresh.
+
+No mandatory T01E blocker remains at this evidence floor.
+
+### Final claim ceiling
+
+Supported: deterministic service/API behavior, the strict developer CLI
+contract and deterministic mutation coverage, final-source local HTTP
+Studio/inbox/Customer Runtime projections, frontend source contracts,
+TypeScript, lint, and production build in a controlled local single-user
+environment.
+
+Not supported: real desktop/mobile browser rendering or interaction, keyboard,
+overflow, reduced-motion, console/network, screenshots, Customer Runtime DOM
+isolation, a live successful lease/respond mutation, production IAM,
+multi-tenancy, or production deployment.
