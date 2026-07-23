@@ -1,5 +1,5 @@
 V04-13-T01D deterministic verification
-Captured at (UTC): 2026-07-23T00:40:29Z
+Captured at (UTC): 2026-07-23T00:59:33Z
 Baseline commit: 91d68006de539df050b84c3791894b8dc81aaa63
 
 1. Collaboration focused suite
@@ -8,7 +8,7 @@ Command:
   uv run --extra dev --frozen python -m pytest -q tests/test_v04_13_collaboration_*.py
 
 Result:
-  145 passed, 2 warnings, 0 failed in 29.51s
+  147 passed, 2 warnings, 0 failed in 25.87s
 
 Coverage includes strict schemas and access matrices; formal-only activation;
 credential/header isolation; deterministic report routing; explicit
@@ -25,7 +25,10 @@ acknowledgement; exact-sender verifier-claim isolation before SQL LIMIT;
 schema-max current claim and workflow recall; provenance-bound approval
 replayability; paired-success-only transcript normalization; late workflow-run
 origin rejection; fail-closed conflicting inner/outer contract digests; and
-SQLite migration.
+SQLite migration. Multi-application workflow recall uses a paginated archive
+index plus an exact state digest instead of the transcript tail, and current
+claim ordering follows claim creation rather than a later update to an older
+claim.
 
 The focused suite includes deterministic fault tests with:
   - 100 subscriber overflow/reconnect rounds and contiguous durable recovery;
@@ -35,15 +38,18 @@ The focused suite includes deterministic fault tests with:
   - same-key payload drift rejection without duplicate side effects;
   - missing commit, missing evidence blob, and mismatched evidence digest leave
     the report implementing and preserve the active lease for retry;
-  - 30 compaction/recovery counterexample tests, including 121 reports, 121 claims, 121
-    workflow states, 200 decisions, a 10000-character exact business goal, and
-    100 maximum-evidence attempts under the 30000-character model-summary
-    ceiling;
+  - 32 compaction/recovery counterexample tests, including 121 reports, 121
+    claims, 121 workflow states, 200 decisions, a 10000-character exact
+    business goal, and 100 maximum-evidence attempts under the 30000-character
+    model-summary ceiling;
   - 200 approval-shaped records in both a no-channel session and a formal but
     unprovenanced transcript remain inline with zero decision omission;
   - schema-max 500 test-run plus 500 business-run identifiers are exactly
-    recoverable for the current claim and current workflow without adding a
-    fourth collaboration tool;
+    recoverable for the current claim and an exact selected workflow state
+    without adding a fourth collaboration tool;
+  - a target application with 500 summarized run IDs remains exactly pageable
+    after a later successful inspection of a second application;
+  - claim1 -> claim2 -> claim1 invalidation retains claim2 as the current claim;
   - a strict Git `ls-tree` parser rejects prefix/spoof object identities rather
     than accepting a line that merely contains the expected object ID.
 
@@ -55,9 +61,22 @@ Command:
     tests/test_v04_13_collaboration_storage_security.py
 
 Result:
-  21 passed, 0 failed in 1.78s
+  21 passed, 0 failed in 2.05s
 
-3. Full repository regression
+3. Durable retry logical-clock regression
+
+Command:
+  uv run --extra dev --frozen python -m pytest -q \
+    tests/test_v04_09_durable_daily_collection.py
+
+Result:
+  9 passed, 1 warning, 0 failed in 5.14s
+
+The retry/lease test uses a synthetic logical clock, so wall-clock scheduling
+cannot make an already-advanced test timestamp appear to move backwards while
+the stale-owner and revision-fencing assertions remain intact.
+
+4. Full repository regression
 
 Initial command:
   uv run --extra dev --frozen python -m pytest -q
@@ -72,7 +91,7 @@ Re-run with an ephemeral test-only dependency:
   uv run --extra dev --with python-docx --frozen python -m pytest -q
 
 Result:
-  1241 passed, 85 xfailed, 2 warnings, 0 failed in 262.91s
+  1243 passed, 85 xfailed, 2 warnings, 0 failed in 242.33s
 
 The xfails are the repository's existing expected cases. The two warnings are
 the existing Starlette TestClient deprecation and duplicate fallback OpenAPI
@@ -81,16 +100,14 @@ repository baseline/dependency debt for the later release gate; it is not
 reported as a passing default dev-extra collection.
 
 The final focused and full runs were executed only after the shared working
-tree was stable. The aggregate T01D source/test hash was
-`ecf511e124c942581b883d80d74f14afa1a2d4030d65adb7e9fe557109ba56a1`
-before and after both runs. Earlier runs taken while another process was still
-editing the same files, and the red counterexamples that drove the
-replay/provenance fixes, were excluded from closure evidence. The unrelated
-working-tree edit in `tests/test_v04_09_durable_daily_collection.py` is not part
-of the T01D commit; the exact test from the committed HEAD fixture also passed
-independently (`1 passed`).
+tree was stable. The aggregate SHA-256 over the 17 T01D source/test file hashes
+is `a0dc30ee4b26b8b849c6f220d2e7405c3bc90f9e8da843f92b273e25c1b550cd`;
+the individual hashes were unchanged across the final full run. Earlier runs
+taken while another process was still editing the same files, and the red
+counterexamples that drove replay, provenance, multi-application archive
+selection, and claim-ordering fixes, were excluded from closure evidence.
 
-4. Static and evolution checks
+5. Static and evolution checks
 
 Commands:
   uv run --extra dev --frozen python -m ruff check \

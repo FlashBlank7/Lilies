@@ -3222,7 +3222,7 @@ class LocalLiliesService:
     def _latest_compaction_workflow_state(
         messages: list[dict[str, Any]],
     ) -> dict[str, Any] | None:
-        """Recover the latest exact workflow core from the durable transcript."""
+        """Recover the last normalized workflow state for inline current context."""
         workflow_state = LocalLiliesService._compaction_workflow_states(messages)
         return workflow_state[-1] if workflow_state else None
 
@@ -3231,7 +3231,8 @@ class LocalLiliesService:
         session_id: str,
         *,
         collection: Literal["current_workflow"],
-        field: Literal["test_run_ids", "business_run_ids"],
+        field: Literal["index", "test_run_ids", "business_run_ids"],
+        state_digest_b64: str | None,
         offset: int,
         limit: int,
     ) -> dict[str, Any]:
@@ -3245,37 +3246,94 @@ class LocalLiliesService:
             raise LiliesAccessDeniedError(
                 "compaction archive recall is limited to the current formal task"
             )
-        state = self._latest_compaction_workflow_state(
+        states = self._compaction_workflow_states(
             await self.storage.list_messages_for_compaction(session_id)
         )
-        if state is None:
-            raise LiliesNotFoundError("current workflow state is absent from the archive")
-        raw_values = state.get(field, [])
-        values = list(raw_values) if isinstance(raw_values, list) else []
+        def state_digest(state: dict[str, Any]) -> str:
+            return self._compaction_compact_digest(state).removeprefix(
+                "sha256-b64:"
+            )
+
+        def run_values(state: dict[str, Any], name: str) -> list[Any]:
+            value = state.get(name)
+            return list(value) if isinstance(value, list) else []
+
+        def identity(state: dict[str, Any]) -> dict[str, Any]:
+            return {
+                key: state[key]
+                for key in (
+                    "application_id",
+                    "draft_id",
+                    "draft_revision",
+                    "content_hash",
+                    "run_id",
+                    "contract_digest",
+                    "new_contract_digest",
+                    "commit_sha",
+                    "verdict",
+                    "new_task_revision",
+                    "environment_digest",
+                )
+                if state.get(key) is not None
+            }
+
+        if field == "index":
+            values = [
+                {
+                    "identity": identity(state),
+                    "state": {
+                        key: value
+                        for key, value in state.items()
+                        if key not in {"test_run_ids", "business_run_ids"}
+                    },
+                    "state_digest_b64": state_digest(state),
+                    "test_run_ids": {
+                        "count": len(run_values(state, "test_run_ids")),
+                        "digest": self._compaction_value_digest(
+                            run_values(state, "test_run_ids")
+                        ),
+                    },
+                    "business_run_ids": {
+                        "count": len(run_values(state, "business_run_ids")),
+                        "digest": self._compaction_value_digest(
+                            run_values(state, "business_run_ids")
+                        ),
+                    },
+                }
+                for state in states
+            ]
+            page = values[offset : offset + limit]
+            next_offset = offset + len(page)
+            return {
+                "schema_version": "1.0",
+                "source": "durable_session_transcript",
+                "collection": collection,
+                "field": field,
+                "index_digest": self._compaction_value_digest(values),
+                "offset": offset,
+                "limit": limit,
+                "total": len(values),
+                "values": page,
+                "next_offset": next_offset if next_offset < len(values) else None,
+                "complete": next_offset >= len(values),
+            }
+        if state_digest_b64 is None:
+            raise LiliesNotFoundError("workflow archive state selector is required")
+        matches = [state for state in states if state_digest(state) == state_digest_b64]
+        if not matches:
+            raise LiliesNotFoundError("workflow archive state is absent")
+        if len(matches) != 1:
+            raise LiliesServiceError("workflow archive state selector is ambiguous")
+        state = matches[0]
+        values = run_values(state, field)
         page = values[offset : offset + limit]
         next_offset = offset + len(page)
-        identity = {
-            key: state[key]
-            for key in (
-                "application_id",
-                "draft_id",
-                "draft_revision",
-                "content_hash",
-                "run_id",
-                "contract_digest",
-                "new_contract_digest",
-                "commit_sha",
-                "verdict",
-                "new_task_revision",
-                "environment_digest",
-            )
-            if state.get(key) is not None
-        }
         return {
             "schema_version": "1.0",
             "source": "durable_session_transcript",
             "collection": collection,
-            "identity": identity,
+            "identity": identity(state),
+            "state_digest_b64": state_digest_b64,
             "workflow_state_digest": self._compaction_value_digest(state),
             "field": field,
             "field_digest": self._compaction_value_digest(values),
@@ -3621,7 +3679,11 @@ class LocalLiliesService:
                             current_claim[key] = (
                                 LocalLiliesService._bounded_compaction_value(item)
                             )
-                    claim_seen[claim_key] = seen_counter
+                    # "Current" follows claim creation order, matching the
+                    # collaboration store's latest-claim query.  Later results
+                    # or invalidation controls update that claim in place and
+                    # must not move an older claim behind a newer creation.
+                    claim_seen.setdefault(claim_key, seen_counter)
 
                 if authoritative_collaboration_state and report_id is not None:
                     current_report = reports[str(report_id)]
@@ -4444,22 +4506,41 @@ class LocalLiliesService:
                 }
                 recall["current_workflow_resume"] = {
                     "tool": "collaboration_updates_read",
+                    "selector_source": (
+                        "archive index state_digest_b64; never infer current from "
+                        "transcript tail"
+                    ),
                     "calls": [
                         {
                             "archive_collection": "current_workflow",
+                            "archive_field": "index",
+                            "archive_offset": 0,
+                            "archive_limit": 100,
+                        },
+                        {
+                            "archive_collection": "current_workflow",
                             "archive_field": "test_run_ids",
+                            "archive_state_digest_b64": (
+                                "<state_digest_b64 from the selected index row>"
+                            ),
                             "archive_offset": 0,
                             "archive_limit": 100,
                         },
                         {
                             "archive_collection": "current_workflow",
                             "archive_field": "business_run_ids",
+                            "archive_state_digest_b64": (
+                                "<state_digest_b64 from the selected index row>"
+                            ),
                             "archive_offset": 0,
                             "archive_limit": 100,
                         },
                     ],
                     "paginate_after_next_offset": True,
-                    "when": "workflow_current_inline_complete_is_false",
+                    "when": (
+                        "workflow_inline_complete_is_false or any workflow index "
+                        "run-ref field is summarized"
+                    ),
                 }
             result["compaction_recall"] = recall
             result["inline_core_complete"] = False
@@ -4579,8 +4660,10 @@ class LocalLiliesService:
                 continue
 
             if result["workflow_state"]:
+                ensure_durable_recall_contract()
                 result["workflow_state"].pop(0)
                 result["workflow_detail_omitted"] += 1
+                result["workflow_inline_complete"] = False
                 continue
 
             if not result.get("indexes_minimized_for_global_bound", False):
@@ -4700,6 +4783,8 @@ class LocalLiliesService:
                     else "workflow_run_ref_omitted"
                 )
                 result[omitted_key] += omitted_count
+                if index_key == "workflow_index":
+                    result["workflow_inline_complete"] = False
                 if (
                     index_key == "workflow_index"
                     and row_index == len(result["workflow_index"]) - 1
@@ -4773,6 +4858,7 @@ class LocalLiliesService:
                     )
                     result.setdefault("claim_current_inline_complete", True)
                 if index_key == "workflow_index":
+                    result["workflow_inline_complete"] = False
                     result.setdefault(
                         "workflow_current_ordinal", len(workflow_index) - 1
                     )

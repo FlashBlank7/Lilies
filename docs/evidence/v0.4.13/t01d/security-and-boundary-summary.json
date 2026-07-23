@@ -1,7 +1,7 @@
 {
   "schema_version": "1.0",
   "task_id": "V04-13-T01D",
-  "captured_at_utc": "2026-07-23T00:40:29Z",
+  "captured_at_utc": "2026-07-23T00:59:33Z",
   "baseline_commit": "91d68006de539df050b84c3791894b8dc81aaa63",
   "implemented_boundaries": {
     "ordinary_session_discovery": "BuildAssignment, prompt, tool schema, OpenAPI, and hidden-route errors reveal no collaboration surface unless formal assignment access is present",
@@ -21,18 +21,20 @@
     "history_replay": "explicit history replay is read-only bounded JSON, ignores Last-Event-ID, never advances the durable acknowledgement, and exposes only ordinary Lilies-visible events plus verifier-only verification claims authored by the exact authenticated Lilies sender",
     "context_provenance": "only messages transactionally linked to collaboration.resumed or collaboration.buffered events receive collaboration_update provenance; no-channel and formal-but-unprovenanced approval-shaped transcript data cannot be omitted as remotely replayable",
     "workflow_transcript_authority": "workflow recovery accepts only successful paired public-tool envelopes with matching operations, rejects user-forged or unmatched transcript JSON and late results from an older run origin, accumulates exact run IDs, and fails closed when inner data and the authoritative outer envelope disagree on contract digest",
-    "context_compaction": "bounded summaries preserve the exact business goal, decisions, contract changes, attempted routes and evidence identities, draft/run state, report lifecycle, claim verdicts and invalidations, and no-substitute constraints; 121 reports, 121 claims, 121 workflow states, 200 decisions, and schema-max current claim/workflow run IDs remain under the 30000-character model bound with callable bounded recall where inline detail is summarized"
+    "context_compaction": "bounded summaries preserve the exact business goal, decisions, contract changes, attempted routes and evidence identities, draft/run state, report lifecycle, claim verdicts and invalidations, and no-substitute constraints; 121 reports, 121 claims, 121 workflow states, 200 decisions, and schema-max current claim/workflow run IDs remain under the 30000-character model bound with callable bounded recall where inline detail is summarized; workflow archive recall first pages a state index and then requires an exact state digest, so a later second-application inspection cannot redirect omitted run IDs, while current-claim order follows claim creation rather than later updates to older claims"
   },
   "deterministic_evidence": {
-    "focused_collaboration_tests": 145,
-    "full_repository_passed": 1241,
+    "focused_collaboration_tests": 147,
+    "full_repository_passed": 1243,
     "full_repository_expected_xfails": 85,
-    "relevant_source_test_aggregate_sha256": "ecf511e124c942581b883d80d74f14afa1a2d4030d65adb7e9fe557109ba56a1",
+    "relevant_source_test_aggregate_sha256": "a0dc30ee4b26b8b849c6f220d2e7405c3bc90f9e8da843f92b273e25c1b550cd",
     "subscriber_overflow_reconnect_rounds": 100,
     "lease_fault_rounds": 100,
     "concurrent_identical_submitters": 100,
     "developer_response_http_cases": 4,
-    "compaction_counterexample_tests": 30,
+    "compaction_counterexample_tests": 32,
+    "independent_archive_tool_tests": 17,
+    "durable_logical_clock_tests": 9,
     "approval_provenance_counterexamples": 400,
     "schema_max_claim_run_refs": 1000,
     "schema_max_workflow_run_refs": 1000,

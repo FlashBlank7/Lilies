@@ -356,10 +356,25 @@ async def test_formal_assignment_gets_exactly_three_tools_with_context_recall_mo
             }
         ],
     )
+    archive_index_result = await registry.get("collaboration_updates_read").execute(
+        {
+            "archive_collection": "current_workflow",
+            "archive_field": "index",
+            "archive_offset": 0,
+            "archive_limit": 100,
+        },
+        LiliesToolContext(session_id=session_id, workspace=tmp_path),
+    )
+    archive_index_payload = json.loads(archive_index_result.content)
+    assert archive_index_payload["ok"] is True
+    archive_index = archive_index_payload["data"]["archive_recall"]
+    state_digest_b64 = archive_index["values"][0]["state_digest_b64"]
+
     archive_result = await registry.get("collaboration_updates_read").execute(
         {
             "archive_collection": "current_workflow",
             "archive_field": "test_run_ids",
+            "archive_state_digest_b64": state_digest_b64,
             "archive_offset": 0,
             "archive_limit": 100,
         },

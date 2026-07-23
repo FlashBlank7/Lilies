@@ -1488,22 +1488,40 @@ def test_compaction_exposes_recall_when_combined_core_cannot_fit_inline() -> Non
     }
     assert result["compaction_recall"]["current_workflow_resume"] == {
         "tool": "collaboration_updates_read",
+        "selector_source": (
+            "archive index state_digest_b64; never infer current from transcript tail"
+        ),
         "calls": [
             {
                 "archive_collection": "current_workflow",
+                "archive_field": "index",
+                "archive_offset": 0,
+                "archive_limit": 100,
+            },
+            {
+                "archive_collection": "current_workflow",
                 "archive_field": "test_run_ids",
+                "archive_state_digest_b64": (
+                    "<state_digest_b64 from the selected index row>"
+                ),
                 "archive_offset": 0,
                 "archive_limit": 100,
             },
             {
                 "archive_collection": "current_workflow",
                 "archive_field": "business_run_ids",
+                "archive_state_digest_b64": (
+                    "<state_digest_b64 from the selected index row>"
+                ),
                 "archive_offset": 0,
                 "archive_limit": 100,
             },
         ],
         "paginate_after_next_offset": True,
-        "when": "workflow_current_inline_complete_is_false",
+        "when": (
+            "workflow_inline_complete_is_false or any workflow index run-ref field "
+            "is summarized"
+        ),
     }
     assert result["workflow_index_omitted"] == 0
     assert len(result["workflow_index"]) == result["workflow_state_count"]
@@ -1655,6 +1673,17 @@ async def test_current_schema_max_workflow_run_ids_are_exactly_pageable(
             str(message["role"]),
             message["content"],
         )
+    index_page = await service._read_compaction_archive(
+        session_id,
+        collection="current_workflow",
+        field="index",
+        state_digest_b64=None,
+        offset=0,
+        limit=100,
+    )
+    assert index_page["total"] == 1
+    state_digest_b64 = index_page["values"][0]["state_digest_b64"]
+
     async def read_all(field: str) -> tuple[list[str], dict[str, object]]:
         values: list[str] = []
         offset = 0
@@ -1664,6 +1693,7 @@ async def test_current_schema_max_workflow_run_ids_are_exactly_pageable(
                 session_id,
                 collection="current_workflow",
                 field=field,
+                state_digest_b64=state_digest_b64,
                 offset=offset,
                 limit=100,
             )
@@ -1685,6 +1715,198 @@ async def test_current_schema_max_workflow_run_ids_are_exactly_pageable(
     assert test_page["workflow_state_digest"] == business_page[
         "workflow_state_digest"
     ]
+
+
+@pytest.mark.asyncio
+async def test_workflow_archive_selects_summarized_state_not_transcript_tail(
+    tmp_path: Path,
+) -> None:
+    target_application_id = str(uuid4())
+    later_application_id = str(uuid4())
+    target_run_ids = [
+        f"test-run:target-{index:03d}:" + (f"{index:04x}" * 35)
+        for index in range(500)
+    ]
+    target_hash = "sha256:" + "4" * 64
+    contract_digest = "sha256:" + "5" * 64
+    messages = [
+        *_workflow_messages(
+            {
+                "application_id": target_application_id,
+                "revision": 9,
+                "content_hash": target_hash,
+                "contract_digest": contract_digest,
+            },
+            name="platform_draft_inspect",
+            tool_input={"application_id": target_application_id},
+        ),
+        *_workflow_messages(
+            {
+                "passed": True,
+                "validation": {"revision": 9, "content_hash": target_hash},
+                "tests": [{"run_id": run_id} for run_id in target_run_ids],
+                "contract_digest": contract_digest,
+            },
+            name="platform_tests_run",
+            tool_input={"application_id": target_application_id},
+        ),
+        *_workflow_messages(
+            {
+                "application_id": later_application_id,
+                "revision": 1,
+                "content_hash": "sha256:" + "6" * 64,
+                "contract_digest": contract_digest,
+            },
+            name="platform_draft_inspect",
+            tool_input={"application_id": later_application_id},
+        ),
+    ]
+    result = LocalLiliesService._compaction_invariants(_formal_session(), messages)
+
+    assert len(json.dumps(result, separators=(",", ":"), sort_keys=True)) <= 30_000
+    assert result["workflow_run_ref_omitted"] == 500
+    assert result["workflow_inline_complete"] is False
+    assert target_run_ids[0] not in json.dumps(result, sort_keys=True)
+
+    service = LocalLiliesService(
+        LiliesSettings(data_dir=tmp_path / "multi-workflow-recall"),
+        provider=ScriptedLocalProvider(),
+    )
+    await service.initialize()
+    session_id = str(uuid4())
+    await service.storage.create_session(
+        session_id=session_id,
+        assignment={
+            "target": {
+                "mode": "existing",
+                "application_id": target_application_id,
+            },
+            "collaboration": {"channel_id": str(uuid4())},
+        },
+    )
+    for message in messages:
+        await service.storage.add_message(
+            session_id,
+            str(message["role"]),
+            message["content"],
+        )
+
+    index_page = await service._read_compaction_archive(
+        session_id,
+        collection="current_workflow",
+        field="index",
+        state_digest_b64=None,
+        offset=0,
+        limit=100,
+    )
+    assert index_page["total"] == 2
+    target_entry = next(
+        entry
+        for entry in index_page["values"]
+        if entry["identity"]["application_id"] == target_application_id
+    )
+    later_entry = next(
+        entry
+        for entry in index_page["values"]
+        if entry["identity"]["application_id"] == later_application_id
+    )
+    assert target_entry["test_run_ids"]["count"] == 500
+    assert later_entry["test_run_ids"]["count"] == 0
+
+    recovered: list[str] = []
+    offset = 0
+    while True:
+        page = await service._read_compaction_archive(
+            session_id,
+            collection="current_workflow",
+            field="test_run_ids",
+            state_digest_b64=target_entry["state_digest_b64"],
+            offset=offset,
+            limit=100,
+        )
+        recovered.extend(page["values"])
+        if page["complete"]:
+            break
+        offset = page["next_offset"]
+
+    assert recovered == target_run_ids
+    assert page["identity"]["application_id"] == target_application_id
+
+
+def test_claim_current_order_follows_creation_not_old_claim_invalidation() -> None:
+    first_claim_id = str(uuid4())
+    current_claim_id = str(uuid4())
+    test_run_ids = [
+        f"test-run:current-{index:03d}:" + (f"{index:04x}" * 35)
+        for index in range(500)
+    ]
+    business_run_ids = [
+        f"business-run:current-{index:03d}:" + (f"{index + 500:04x}" * 34)
+        for index in range(500)
+    ]
+    result = LocalLiliesService._compaction_invariants(
+        _formal_session(),
+        [
+            _message(
+                {
+                    "message_type": "verification_claim",
+                    "correlation_id": first_claim_id,
+                    "payload": {
+                        "claim_id": first_claim_id,
+                        "status": "frozen",
+                        "claim_revision": 1,
+                        "application_id": str(uuid4()),
+                        "draft_revision": 1,
+                        "content_hash": "sha256:" + "7" * 64,
+                        "test_run_ids": ["test-run:first"],
+                        "business_run_ids": ["business-run:first"],
+                    },
+                }
+            ),
+            _message(
+                {
+                    "message_type": "verification_claim",
+                    "correlation_id": current_claim_id,
+                    "payload": {
+                        "claim_id": current_claim_id,
+                        "status": "frozen",
+                        "claim_revision": 1,
+                        "application_id": str(uuid4()),
+                        "draft_revision": 2,
+                        "content_hash": "sha256:" + "8" * 64,
+                        "test_run_ids": test_run_ids,
+                        "business_run_ids": business_run_ids,
+                    },
+                }
+            ),
+            _message(
+                {
+                    "message_type": "control",
+                    "correlation_id": first_claim_id,
+                    "payload": {
+                        "kind": "claim_invalidated",
+                        "claim_id": first_claim_id,
+                        "reason": "older draft changed",
+                    },
+                }
+            ),
+        ],
+    )
+
+    assert len(json.dumps(result, separators=(",", ":"), sort_keys=True)) <= 30_000
+    assert result["claim_run_ref_omitted"] == 1_000
+    assert result["claim_current_ref"] == _compact_uuid_ref(current_claim_id)
+    assert result["claim_current_ordinal"] == 1
+    claim_schema = result["claim_index_schema"]
+    current_row = result["claim_index"][1]
+    assert current_row[claim_schema.index("claim_ref")] == _compact_uuid_ref(
+        current_claim_id
+    )
+    assert current_row[claim_schema.index("test_run_refs_or_summary")]["count"] == 500
+    assert (
+        current_row[claim_schema.index("business_run_refs_or_summary")]["count"]
+        == 500
+    )
 
 
 def test_compaction_preserves_mixed_indexes_at_the_global_bound() -> None:

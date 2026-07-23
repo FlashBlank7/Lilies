@@ -547,10 +547,13 @@ async def test_expired_lease_recovery_and_revision_guard(tmp_path: Path) -> None
         "lease-recovery",
         max_attempts=2,
         retry_backoff_seconds=0,
-        lease_seconds=0.01,
+        lease_seconds=30,
     )
-    await asyncio.sleep(0.03)
-    recovered = await jobs.recover_expired(claimed.id)
+    assert claimed.lease_expires_at is not None
+    recovery_time = datetime.fromisoformat(claimed.lease_expires_at) + timedelta(
+        milliseconds=1
+    )
+    recovered = await jobs.recover_expired(claimed.id, now=recovery_time)
     assert recovered.status == "retry_wait"
     assert recovered.lease_version > claimed.lease_version
     with pytest.raises(DurableJobConflict):
@@ -566,6 +569,7 @@ async def test_expired_lease_recovery_and_revision_guard(tmp_path: Path) -> None
     second = await jobs.claim_next(
         worker_id="collector-worker",
         lease_seconds=30,
+        now=recovery_time,
         application_id="daily-app",
     )
     assert second and second.id == queued.id

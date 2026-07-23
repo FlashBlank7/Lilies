@@ -1,29 +1,29 @@
 {
   "schema_version": "1.0",
   "task_id": "V04-13-T01D",
-  "captured_at_utc": "2026-07-23T00:40:29Z",
+  "captured_at_utc": "2026-07-23T01:02:24Z",
   "baseline_commit": "91d68006de539df050b84c3791894b8dc81aaa63",
   "files": [
     {
       "path": "deterministic-tests.txt",
-      "sha256": "7410c3d4da61c8ac0ea43dcddaf2b6b2de0e9d6e48d29c7b522ce2bc37dd87c2"
+      "sha256": "73912f9e66b04375e5d471f54a2e01911a409f978898c3da2bfd546bd04027e3"
     },
     {
       "path": "independent-audit.md",
-      "sha256": "ee39020690cec2f9ad18901510b5ca2dfe18b1bea32b2b7cfe56d680e09aed85"
+      "sha256": "8e0fd5d9d0ca910cd998ed1037925f64d4daedf902ee5bf9f5fdd18302e21d50"
     },
     {
       "path": "security-and-boundary-summary.json",
-      "sha256": "953467380ca0d5c8194b52fe1ee22a3b47627c8e06f063ef05032d0ac1876b20"
+      "sha256": "432fbb1962804c34a0375690e8bdaeed7bf13250d12b99d5eed5eedce2d2c028"
     }
   ],
   "focused_result": {
-    "passed": 145,
+    "passed": 147,
     "warnings": 2,
     "failed": 0
   },
   "full_repository_result": {
-    "passed": 1241,
+    "passed": 1243,
     "expected_xfailed": 85,
     "warnings": 2,
     "failed": 0,

@@ -81,7 +81,13 @@ class CollaborationUpdatesReadInput(StrictToolInput):
     limit: int = Field(default=200, ge=1, le=500)
     history_replay: bool = False
     archive_collection: Literal["current_workflow"] | None = None
-    archive_field: Literal["test_run_ids", "business_run_ids"] | None = None
+    archive_field: Literal["index", "test_run_ids", "business_run_ids"] | None = None
+    archive_state_digest_b64: str | None = Field(
+        default=None,
+        min_length=43,
+        max_length=43,
+        pattern=r"^[A-Za-z0-9_-]{43}$",
+    )
     archive_offset: int = Field(default=0, ge=0)
     archive_limit: int = Field(default=100, ge=1, le=100)
 
@@ -95,11 +101,17 @@ class CollaborationUpdatesReadInput(StrictToolInput):
                 or self.history_replay
             ):
                 raise ValueError(
-                    "archive recall requires only collection, field, offset, and limit"
+                    "archive recall requires only collection, field, optional exact "
+                    "state digest, offset, and limit"
                 )
+            if self.archive_field == "index":
+                if self.archive_state_digest_b64 is not None:
+                    raise ValueError("archive index recall must omit a state digest")
+            elif self.archive_state_digest_b64 is None:
+                raise ValueError("archive run recall requires an exact state digest")
             return self
-        if self.archive_field is not None:
-            raise ValueError("archive_field requires archive_collection")
+        if self.archive_field is not None or self.archive_state_digest_b64 is not None:
+            raise ValueError("archive fields require archive_collection")
         if self.history_replay and self.acknowledge_through is not None:
             raise ValueError("history replay cannot advance the durable acknowledgement")
         if (
@@ -248,6 +260,7 @@ class _CollaborationHttpTool(LiliesTool):
                     context.session_id,
                     collection=archive_collection,
                     field=payload["archive_field"],
+                    state_digest_b64=payload.get("archive_state_digest_b64"),
                     offset=int(payload.get("archive_offset", 0)),
                     limit=int(payload.get("archive_limit", 100)),
                 )
