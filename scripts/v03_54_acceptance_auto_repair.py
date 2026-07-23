@@ -141,7 +141,11 @@ def frontend_acceptance_repair_markers() -> dict[str, Any]:
         "typed_preview_response": "export type AcceptanceRepairPreview" in type_text and "missing_node_types" in type_text,
         "page_calls_repair_preview_endpoint": "/tests/repair-preview" in page_text and "previewAcceptanceRepair" in page_text,
         "failed_test_run_auto_previews_repair": "if (!result.passed) await previewAcceptanceRepair(result)" in page_text,
-        "apply_reuses_draft_mutation": "applyAcceptanceRepair" in page_text and "operation.op" in page_text and "operation.data" in page_text,
+        "apply_uses_atomic_draft_mutation": (
+            "applyAcceptanceRepair" in page_text
+            and "/tests/repair-apply" in page_text
+            and "operations: acceptanceRepairPreview.operations" in page_text
+        ),
         "old_report_is_cleared_after_apply": "setTestReport(null)" in page_text,
         "repair_panel_visible_on_failed_report": "data-acceptance-repair=\"failed-gate-preview\"" in page_text,
         "copy_keys_are_bilingual": all(copy_text.count(key) >= 2 for key in keys),

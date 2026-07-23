@@ -698,7 +698,8 @@
   margin-top: 9px;
 }
 
-.semanticList ul {
+.semanticList ul,
+.semanticList ol {
   margin: 5px 0 0;
   padding-left: 17px;
   color: #b7c2d1;
@@ -998,6 +999,11 @@
   white-space: pre-wrap;
 }
 
+.reportFacts code {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
 .routeList {
   margin-top: 9px;
 }
@@ -1010,7 +1016,15 @@
 }
 
 .routeList article strong {
+  display: block;
   font-size: 10px;
+}
+
+.routeList article > small {
+  display: block;
+  margin-top: 1px;
+  color: var(--muted);
+  font-size: 8px;
 }
 
 .routeList article p {
@@ -1018,6 +1032,41 @@
   overflow-wrap: anywhere;
   color: #aeb9c8;
   font-size: 10px;
+}
+
+.evidenceRefCodes {
+  margin-top: 9px;
+}
+
+.evidenceRefCodes > span {
+  display: block;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 750;
+  letter-spacing: .055em;
+  text-transform: uppercase;
+}
+
+.evidenceRefCodes ul {
+  display: grid;
+  gap: 4px;
+  margin: 5px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.evidenceRefCodes li {
+  min-width: 0;
+  padding: 5px 6px;
+  border-radius: 5px;
+  background: #0e151f;
+}
+
+.evidenceRefCodes code {
+  overflow-wrap: anywhere;
+  color: #b9c9df;
+  font-size: 9px;
+  white-space: normal;
 }
 
 .evidenceLine {
@@ -1216,8 +1265,11 @@
 }
 
 .developerResponse header code {
+  max-width: 100%;
+  overflow-wrap: anywhere;
   color: var(--muted);
   font-size: 9px;
+  white-space: normal;
 }
 
 .developerResponse p {
@@ -1231,6 +1283,37 @@
   display: grid;
   gap: 5px;
   margin-top: 8px;
+}
+
+.contractChange {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+  margin: 7px 0;
+}
+
+.contractChange > div {
+  min-width: 0;
+  padding: 6px;
+  border-radius: 5px;
+  background: #0b131d;
+}
+
+.contractChange dt {
+  color: var(--muted);
+  font-size: 8px;
+}
+
+.contractChange dd {
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+  color: #c4cfde;
+  font-size: 9px;
+}
+
+.contractChange code {
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .testEvidence article {
@@ -1361,21 +1444,25 @@
   overflow-wrap: anywhere;
 }
 
-.verificationCard > dl {
+.verificationDifference {
   margin: 7px 0 0;
   border-top: 1px solid #29364a;
 }
 
-.verificationCard > dl div {
+.verificationDifference > dl {
+  margin: 0;
+}
+
+.verificationDifference > dl div {
   padding-top: 5px;
 }
 
-.verificationCard dt {
+.verificationDifference dt {
   color: var(--muted);
   font-size: 8px;
 }
 
-.verificationCard dd {
+.verificationDifference dd {
   margin: 1px 0 0;
   overflow-wrap: anywhere;
   color: #c4cfde;
@@ -1662,7 +1749,7 @@
   }
 }
 
-@media (max-width: 860px) {
+@media (max-width: 980px) {
   .shell {
     overflow: auto;
   }
@@ -1801,7 +1888,8 @@
 
   .factGrid,
   .semanticList dl,
-  .causality {
+  .causality,
+  .contractChange {
     grid-template-columns: minmax(0, 1fr);
   }
 

@@ -1,28 +1,54 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 from typing import Any
 
 from pydantic import BaseModel
 
+from .collaboration_models import sanitize_collaboration_payload
+
 
 _PRIVATE_KEYS = frozenset(
     {
+        "access_token",
+        "api_key",
+        "authorization",
         "chain_of_thought",
         "codex",
         "collaboration",
         "collaboration_report",
+        "cookie",
+        "cookies",
+        "credential",
+        "credentials",
+        "developer_error",
         "developer_payload",
         "developer_response",
+        "expected_answer",
+        "hidden_oracle",
+        "internal_error",
         "internal_prompt",
+        "oracle",
+        "oracle_path",
+        "password",
+        "private_key",
         "private_reason",
         "private_reasoning",
+        "proxy_authorization",
         "raw_blocks",
+        "refresh_token",
         "reasoning_tokens",
+        "secret",
+        "secrets",
+        "set_cookie",
         "signature",
+        "stack_trace",
         "system_prompt",
         "thinking",
         "thinking_blocks",
+        "token",
+        "traceback",
     }
 )
 _PRIVATE_EVENT_MARKERS = (
@@ -72,6 +98,28 @@ _INTERNAL_CONNECTOR_INPUTS = frozenset(
         "write_mode",
     }
 )
+_AUTHORIZATION_TEXT = re.compile(
+    r"(?i)\b(?:authorization|proxy[_-]?authorization)\b\s*[:=]\s*"
+    r"[^\r\n,;]+"
+)
+_CREDENTIAL_TEXT = re.compile(
+    r"(?i)\b(?:api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|"
+    r"proxy[_-]?authorization|cookie|password|secret|credential|token)\b"
+    r"\s*[:=]\s*(?!\*+|\[redacted\]|<redacted>)[^\s,;]+"
+)
+_PRIVATE_ERROR_MARKERS = (
+    "chain_of_thought",
+    "codex",
+    "collaboration",
+    "developer",
+    "internal_prompt",
+    "private_reason",
+    "raw_blocks",
+    "system_prompt",
+    "thinking",
+    "traceback",
+)
+_HIDDEN_RUNTIME_ERROR = "Runtime failed; private diagnostic details were hidden."
 
 
 def _mapping(value: Any) -> dict[str, Any]:
@@ -105,6 +153,8 @@ def project_public_value(value: Any, *, _depth: int = 0) -> Any:
 
     if _depth >= 20:
         return None
+    if _depth == 0:
+        value = sanitize_collaboration_payload(value)
     if isinstance(value, BaseModel):
         value = value.model_dump(mode="json", exclude_none=True)
     if isinstance(value, Mapping):
@@ -115,7 +165,23 @@ def project_public_value(value: Any, *, _depth: int = 0) -> Any:
         }
     if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
         return [project_public_value(item, _depth=_depth + 1) for item in value]
+    if isinstance(value, str):
+        return _CREDENTIAL_TEXT.sub(
+            "[REDACTED]",
+            _AUTHORIZATION_TEXT.sub("[REDACTED]", value),
+        )
     return value
+
+
+def _public_runtime_error(value: Any) -> str:
+    raw = str(value or "")
+    normalized = raw.casefold().replace("-", "_").replace(" ", "_")
+    if any(marker in normalized for marker in _PRIVATE_ERROR_MARKERS):
+        return _HIDDEN_RUNTIME_ERROR
+    sanitized = project_public_value(raw)
+    if not isinstance(sanitized, str) or sanitized != raw:
+        return _HIDDEN_RUNTIME_ERROR
+    return sanitized[:2_000]
 
 
 def _public_input(value: Any) -> dict[str, Any] | None:
@@ -262,7 +328,7 @@ def project_runtime_run(run: Any) -> dict[str, Any]:
         "updated_at": source.get("updated_at"),
     }
     if source.get("error"):
-        result["error"] = str(source["error"])
+        result["error"] = _public_runtime_error(source["error"])
     return result
 
 

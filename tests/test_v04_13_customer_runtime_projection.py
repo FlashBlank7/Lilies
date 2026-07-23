@@ -139,6 +139,10 @@ def _unsafe_run() -> dict[str, object]:
                 "private_reason": "internal diagnosis",
                 "developer_response": {"patch": "private developer patch"},
                 "collaboration": {"report": "private collaboration report"},
+                "api_key": "runtime-output-api-key",
+                "authorization": "Bearer runtime-output-bearer",
+                "password": "runtime-output-password",
+                "note": "access_token=runtime-output-access-token",
             }
         },
         "state": {
@@ -157,6 +161,10 @@ def _unsafe_run() -> dict[str, object]:
             "skipped": [],
             "waiting_node_id": None,
         },
+        "error": (
+            "developer collaboration failed with "
+            "Authorization: Bearer runtime-error-bearer"
+        ),
         "created_at": "2026-07-24T00:00:00Z",
         "updated_at": "2026-07-24T00:00:01Z",
     }
@@ -233,6 +241,12 @@ def _assert_private_material_absent(payload: object) -> None:
         "private-assignment",
         "private-session",
         "connector_admin",
+        "runtime-output-api-key",
+        "runtime-output-bearer",
+        "runtime-output-password",
+        "runtime-output-access-token",
+        "runtime-error-bearer",
+        "developer collaboration failed",
     ):
         assert marker not in encoded
 
@@ -244,9 +258,37 @@ def test_public_value_drops_private_runtime_fields_but_preserves_business_reason
         "answer": {
             "text": "The account is eligible.",
             "reasoning": "The published policy permits this business outcome.",
+            "note": "[REDACTED]",
         }
     }
     _assert_private_material_absent(projected)
+
+
+def test_public_value_redacts_generic_credentials_without_losing_business_output() -> None:
+    projected = project_public_value(
+        {
+            "result": "customer-visible result",
+            "reasoning": "The published policy permits this outcome.",
+            "api_key": "credential-value-api",
+            "nested": {
+                "authorization": "Bearer credential-value-bearer",
+                "message": "password=credential-value-password",
+                "bearer_note": "authorization=Bearer credential-value-note-bearer",
+                "basic_note": "authorization=Basic credential-value-note-basic",
+                "digest_note": (
+                    "authorization=Digest username=credential-value-user "
+                    "response=credential-value-response"
+                ),
+            },
+        }
+    )
+
+    assert projected["result"] == "customer-visible result"
+    assert projected["reasoning"] == "The published policy permits this outcome."
+    assert projected["nested"]["bearer_note"] == "[REDACTED]"
+    assert projected["nested"]["basic_note"] == "[REDACTED]"
+    encoded = json.dumps(projected, ensure_ascii=False)
+    assert "credential-value" not in encoded
 
 
 def test_runtime_snapshot_keeps_customer_inputs_without_connector_or_agent_config() -> None:
@@ -290,6 +332,7 @@ def test_runtime_run_state_and_events_have_a_bounded_customer_contract() -> None
     assert run["outputs"]["answer"]["reasoning"] == (
         "The published policy permits this business outcome."
     )
+    assert run["error"] == "Runtime failed; private diagnostic details were hidden."
     assert set(run["state"]) == {
         "snapshot",
         "waiting_node_id",

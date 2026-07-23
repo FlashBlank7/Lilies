@@ -80,6 +80,7 @@ type DecisionDraft = {
 
 const TERMINAL_CHANNELS = new Set(['closed', 'archived'])
 const TERMINAL_ASSIGNMENTS = new Set(['cancelled', 'canceled', 'completed', 'succeeded', 'failed', 'closed'])
+const CONTEXT_REFRESH_MS = 5_000
 
 function displayTime(value: string | null | undefined) {
   if (!value) return '未记录'
@@ -167,25 +168,55 @@ function ConfirmDialog({
   onConfirm: () => void
 }) {
   const confirmRef = useRef<HTMLButtonElement>(null)
+  const dialogRef = useRef<HTMLElement>(null)
   const restoreFocusRef = useRef<HTMLElement | null>(null)
+  const busyRef = useRef(busy)
+  const onCloseRef = useRef(onClose)
+  busyRef.current = busy
+  onCloseRef.current = onClose
 
   useEffect(() => {
     restoreFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
     confirmRef.current?.focus()
-    function escape(event: KeyboardEvent) {
-      if (event.key === 'Escape' && !busy) onClose()
+    function containFocus(event: KeyboardEvent) {
+      if (event.key === 'Escape' && !busyRef.current) {
+        event.preventDefault()
+        onCloseRef.current()
+        return
+      }
+      if (event.key !== 'Tab') return
+      const dialog = dialogRef.current
+      if (!dialog) return
+      const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      )).filter(element => element.getAttribute('aria-hidden') !== 'true')
+      if (!focusable.length) {
+        event.preventDefault()
+        dialog.focus()
+        return
+      }
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      const active = document.activeElement
+      if (event.shiftKey && (active === first || !dialog.contains(active))) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && (active === last || !dialog.contains(active))) {
+        event.preventDefault()
+        first.focus()
+      }
     }
-    document.addEventListener('keydown', escape)
+    document.addEventListener('keydown', containFocus)
     return () => {
-      document.removeEventListener('keydown', escape)
+      document.removeEventListener('keydown', containFocus)
       restoreFocusRef.current?.focus()
     }
-  }, [busy, onClose])
+  }, [])
 
   return <div className={styles.dialogBackdrop} role="presentation" onMouseDown={event => {
     if (event.target === event.currentTarget && !busy) onClose()
   }}>
-    <section aria-modal="true" className={styles.dialog} role="dialog" aria-labelledby="collaboration-dialog-title">
+    <section ref={dialogRef} aria-modal="true" className={styles.dialog} role="dialog" aria-labelledby="collaboration-dialog-title" tabIndex={-1}>
       <header><ShieldAlert size={20} /><h2 id="collaboration-dialog-title">{title}</h2></header>
       <div className={styles.dialogBody}>{children}</div>
       <footer>
@@ -367,13 +398,14 @@ export function CollaborationWorkspace() {
   }, [loadDetail, selectedChannelId])
 
   useEffect(() => {
-    if (!selectedChannelId || TERMINAL_CHANNELS.has(detail?.channel.status || '')) {
+    if (!selectedChannelId || authNeeded || TERMINAL_CHANNELS.has(detail?.channel.status || '')) {
       setStreamState('idle')
       return
     }
     const controller = new AbortController()
     let cursor = 0
     let refreshTimer: number | null = null
+    let contextRefreshInFlight = false
 
     const scheduleRefresh = () => {
       if (refreshTimer !== null) return
@@ -382,6 +414,30 @@ export function CollaborationWorkspace() {
         void Promise.all([loadDetail(selectedChannelId, true), loadChannels(selectedChannelId)])
       }, 250)
     }
+
+    const refreshObservableContext = async () => {
+      if (contextRefreshInFlight || controller.signal.aborted) return
+      contextRefreshInFlight = true
+      try {
+        const nextDetail = await studioCollaborationChannel(selectedChannelId)
+        if (controller.signal.aborted) return
+        setDetail(nextDetail)
+        setDetailCache(current => ({ ...current, [selectedChannelId]: nextDetail }))
+        setAuthNeeded(false)
+      } catch (caught) {
+        if (!controller.signal.aborted && isAuthError(caught)) handleError(caught)
+      } finally {
+        contextRefreshInFlight = false
+      }
+    }
+
+    const contextRefreshTimer = window.setInterval(() => {
+      if (document.visibilityState !== 'hidden') void refreshObservableContext()
+    }, CONTEXT_REFRESH_MS)
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') void refreshObservableContext()
+    }
+    document.addEventListener('visibilitychange', refreshWhenVisible)
 
     const consume = async () => {
       let firstAttempt = true
@@ -424,8 +480,10 @@ export function CollaborationWorkspace() {
     return () => {
       controller.abort()
       if (refreshTimer !== null) window.clearTimeout(refreshTimer)
+      window.clearInterval(contextRefreshTimer)
+      document.removeEventListener('visibilitychange', refreshWhenVisible)
     }
-  }, [detail?.channel.status, handleError, loadChannels, loadDetail, selectedChannelId])
+  }, [authNeeded, detail?.channel.status, handleError, loadChannels, loadDetail, selectedChannelId])
 
   const timeline = useMemo(() => detail ? collaborationTimeline(detail) : [], [detail])
   const selectedTimeline = useMemo(
@@ -758,6 +816,7 @@ export function CollaborationWorkspace() {
               <div><dt>证据</dt><dd>{selectedTimeline.evidenceRefs.length ? `${selectedTimeline.evidenceRefs.length} 份引用` : '此事件未附独立证据'}</dd></div>
             </dl>
             {selectedTimeline.redactedInput && selectedTimeline.redactedInput.length > 0 && <div className={styles.semanticList}><span>脱敏调用输入</span><dl>{selectedTimeline.redactedInput.map(item => <div key={item.label}><dt>{item.label}</dt><dd>{item.value}</dd></div>)}</dl></div>}
+            {selectedTimeline.evidenceRefs.length > 0 && <div className={styles.evidenceRefCodes}><span>事件 evidence ref</span><ul>{selectedTimeline.evidenceRefs.map(reference => <li key={reference}><code>{reference}</code></li>)}</ul></div>}
           </section>}
 
           {selectedTimeline?.permissionRequest && assignment && <PermissionCard
@@ -801,8 +860,15 @@ export function CollaborationWorkspace() {
                 <div><dt>阻塞范围</dt><dd>{selectedReport.blocking_scope}</dd></div>
                 <div><dt>绕行损失</dt><dd>{selectedReport.workaround_loss}</dd></div>
                 <div><dt>请求结果</dt><dd>{selectedReport.requested_outcome}</dd></div>
+                <div><dt>需求摘要</dt><dd><code>{selectedReport.requirement_digest}</code></dd></div>
+                {selectedReport.platform_contract_digest && <div><dt>报告时平台合同</dt><dd><code>{selectedReport.platform_contract_digest}</code></dd></div>}
+                <div><dt>来源消息</dt><dd><code>{selectedReport.source_message_id}</code></dd></div>
               </dl>
-              {selectedReport.attempted_routes.length > 0 && <div className={styles.routeList}><span>已经尝试</span>{selectedReport.attempted_routes.map(route => <article key={route.attempt_id}><strong>{route.action || route.route}</strong><p>{route.result}</p></article>)}</div>}
+              {selectedReport.reproduction?.length ? <div className={styles.semanticList}><span>复现步骤</span><ol>{selectedReport.reproduction.map((step, index) => <li key={`${index}:${step}`}>{step}</li>)}</ol></div> : null}
+              {selectedReport.attempted_routes.length > 0 && <div className={styles.routeList}><span>已经尝试</span>{selectedReport.attempted_routes.map(route => <article key={route.attempt_id}><strong>{route.action || route.route}</strong><small>{route.route}</small><p>{route.result}</p>{route.evidence_refs?.length ? <EvidenceList items={route.evidence_refs} title="本次尝试的证据" /> : null}</article>)}</div>}
+              {selectedReport.independent_work.length > 0 && <div className={styles.semanticList}><span>可继续的独立工作</span><ul>{selectedReport.independent_work.map(item => <li key={item}>{item}</li>)}</ul></div>}
+              {selectedReport.workaround_considered.length > 0 && <div className={styles.semanticList}><span>考虑过的绕行方案</span><ul>{selectedReport.workaround_considered.map(item => <li key={item}>{item}</li>)}</ul></div>}
+              {selectedReport.secret_redactions.length > 0 && <div className={styles.semanticList}><span>已执行脱敏</span><ul>{selectedReport.secret_redactions.map(item => <li key={item}>{item}</li>)}</ul></div>}
               <div className={styles.evidenceLine}><FileCheck2 size={14} /><span>{selectedReport.evidence_refs.length} 份证据 · {selectedReport.manuals_checked.length} 份手册引用 · 置信度 {Math.round(selectedReport.confidence * 100)}%</span></div>
               <EvidenceList items={selectedReport.evidence_refs} />
               {selectedReport.manuals_checked.length > 0 && <div className={styles.manualList}><span>核对过的手册</span>{selectedReport.manuals_checked.map(manual => <article key={manual.manual_id}><strong>{manual.title}</strong><small>{[manual.version, manual.section].filter(Boolean).join(' · ') || manual.manual_id}</small>{manual.digest && <code>{shortId(manual.digest, 12)}</code>}</article>)}</div>}
@@ -823,10 +889,14 @@ export function CollaborationWorkspace() {
               </div>}
               {leases.map(lease => <div className={styles.developerEvidence} key={lease.lease_id}><Code2 size={15} /><div><strong>Codex 处理租约 · {lease.status}</strong><span>负责人 {lease.owner_id} · 到期 {displayTime(lease.expires_at)}</span></div></div>)}
               {responses.map(response => <div className={styles.developerResponse} key={response.response_id}>
-                <header><Code2 size={15} /><strong>Codex 结果：{response.outcome}</strong>{response.commit_sha && <code>{shortId(response.commit_sha, 10)}</code>}</header>
+                <header><Code2 size={15} /><strong>Codex 结果：{response.outcome}</strong>{response.commit_sha && <code title={response.commit_sha}>{response.commit_sha}</code>}</header>
                 {response.generic_capability_changes.map(change => <p key={change}>{change}</p>)}
+                {response.new_contract_digest && <dl className={styles.contractChange}>
+                  <div><dt>报告时合同</dt><dd><code>{selectedReport.platform_contract_digest || '未记录'}</code></dd></div>
+                  <div><dt>实现后合同</dt><dd><code>{response.new_contract_digest}</code></dd></div>
+                </dl>}
                 <span>{response.tests_run.length} 项测试 · {response.browser_or_live_evidence.length} 份实时证据 · {response.known_limits.length} 项已知限制</span>
-                <div className={styles.testEvidence}>{response.tests_run.map(test => <article key={test.test_id}><TestTube2 size={13} /><div><strong>{test.command}</strong><p>{test.summary}</p><small className={test.exit_code === 0 ? styles.success : styles.danger}>退出码 {test.exit_code}</small></div></article>)}</div>
+                <div className={styles.testEvidence}>{response.tests_run.map(test => <article key={test.test_id}><TestTube2 size={13} /><div><strong>{test.command}</strong><p>{test.summary}</p><small className={test.exit_code === 0 ? styles.success : styles.danger}>退出码 {test.exit_code}</small><EvidenceList items={[test.evidence_ref]} title="测试证据" /></div></article>)}</div>
                 <EvidenceList items={response.browser_or_live_evidence} title="浏览器或实时证据" />
                 {response.known_limits.length > 0 && <div className={styles.semanticList}><span>已知限制</span><ul>{response.known_limits.map(limit => <li key={limit}>{limit}</li>)}</ul></div>}
                 {response.reprobe_steps.length > 0 && <div className={styles.reprobeSteps}><span>莉莉丝复验步骤</span><ol>{response.reprobe_steps.map(step => <li key={step.order}><b>{step.order}</b><div><strong>{step.action}</strong><p>预期：{step.expected}</p></div></li>)}</ol></div>}
@@ -853,7 +923,7 @@ export function CollaborationWorkspace() {
               {claimVerifications.map(verification => <article className={`${styles.verificationCard} ${statusTone(verification.verdict)}`} key={verification.verification_id}>
                 <header><ShieldCheck size={15} /><div><strong>{verification.verdict === 'independently_verified' ? '独立验证通过' : '独立验证失败'}</strong><span>验证者 {verification.verifier_id} · {displayTime(verification.created_at)}</span></div></header>
                 <code>Oracle {shortId(verification.oracle_digest, 12)}</code>
-                {verification.differences.map(difference => <dl key={difference.check_id}><div><dt>检查</dt><dd>{difference.check_id}</dd></div><div><dt>预期</dt><dd>{difference.expected}</dd></div><div><dt>实际</dt><dd>{difference.actual}</dd></div></dl>)}
+                {verification.differences.map(difference => <section className={styles.verificationDifference} key={difference.check_id}><dl><div><dt>检查</dt><dd>{difference.check_id}</dd></div><div><dt>预期</dt><dd>{difference.expected}</dd></div><div><dt>实际</dt><dd>{difference.actual}</dd></div></dl><EvidenceList items={difference.evidence_refs} title="这项差异的证据" /></section>)}
                 <EvidenceList items={verification.evidence_refs} title="独立验证证据" />
               </article>)}
             </section>

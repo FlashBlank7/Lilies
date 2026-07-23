@@ -252,7 +252,8 @@ def _studio_derived_status(
             "独立验证器检查真实数据、副作用、工件与隐藏验收。",
         )
 
-    assignment = _as_dict((context or {}).get("assignment"))
+    raw_assignment = (context or {}).get("assignment")
+    assignment = _as_dict(raw_assignment) if raw_assignment is not None else {}
     connection_status = str(assignment.get("connection_status") or "unknown")
     daemon_status = str(assignment.get("daemon_status") or "")
     assignment_status = str(assignment.get("status") or "")
@@ -2477,22 +2478,40 @@ class CollaborationService:
         )
         ack_reader = getattr(self.store, "ack_reader", None)
         highest_seq = channel.next_seq - 1
-        if (
-            callable(ack_reader)
-            and reader_cursor is not None
-            and highest_seq > int(reader_cursor.get("ack_seq", 0))
-        ):
-            cursor_revision = int(reader_cursor.get("revision", 0))
-            await ack_reader(
-                channel_id,
-                actor.sender_id,
-                highest_seq,
-                reader_role=SenderRole.user,
-                expected_cursor_revision=cursor_revision,
-                idempotency_key=(
-                    f"studio.read.{channel_id.hex}.{highest_seq}.{cursor_revision}"
-                ),
-            )
+        if callable(ack_reader) and callable(get_reader_cursor):
+            # Reading the detail marks the current durable sequence as seen, but
+            # concurrent browser refreshes must not turn this GET into a 409.
+            # Re-read and retry the monotonic cursor after a compare-and-set race.
+            current_cursor = reader_cursor
+            for _ in range(3):
+                if current_cursor is None:
+                    current_cursor = _as_dict(
+                        await get_reader_cursor(
+                            channel_id,
+                            actor.sender_id,
+                            reader_role=SenderRole.user,
+                        )
+                    )
+                if int(current_cursor.get("ack_seq", 0)) >= highest_seq:
+                    break
+                cursor_revision = int(current_cursor.get("revision", 0))
+                try:
+                    await ack_reader(
+                        channel_id,
+                        actor.sender_id,
+                        highest_seq,
+                        reader_role=SenderRole.user,
+                        expected_cursor_revision=cursor_revision,
+                        idempotency_key=(
+                            f"studio.read.{channel_id.hex}."
+                            f"{highest_seq}.{cursor_revision}"
+                        ),
+                    )
+                    break
+                except Exception as error:
+                    if getattr(error, "status_code", None) != 409:
+                        raise
+                    current_cursor = None
         return result
 
     async def export_causal_chain(

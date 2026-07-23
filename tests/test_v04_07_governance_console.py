@@ -1003,8 +1003,8 @@ def test_frontend_three_surface_contract_is_present() -> None:
     assert "tab === 'run'" not in studio_source
     assert "tab === 'monitor'" not in studio_source
     assert "/api/v1/platform/harness/tasks" not in studio_source
-    assert "/api/v1/applications/${id}/runtime-definition" in runtime_source
-    assert "/api/v1/applications/${id}/runs?limit=1" in runtime_source
+    assert "/api/v1/customer-runtime/applications/${id}" in runtime_source
+    assert "/api/v1/customer-runtime/runs/${runId}" in runtime_source
     assert "run?.state.snapshot || definition?.snapshot" in runtime_source
     assert "normalizeSerializedMarkdown" in markdown_source
     assert "hasEscapedBlockStructure" in markdown_source

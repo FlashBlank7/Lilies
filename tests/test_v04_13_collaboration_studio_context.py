@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import timedelta
 from typing import Any
@@ -12,6 +13,11 @@ from agent_platform.collaboration_models import (
     CollaborationChannel,
     LeaseAcquireRequest,
     ReportSubmitRequest,
+    SenderRole,
+)
+from agent_platform.collaboration_service import (
+    CollaborationPrincipal,
+    CollaborationService,
 )
 from agent_platform.collaboration_studio_context import (
     build_collaboration_studio_context,
@@ -28,6 +34,10 @@ from tests.test_v04_13_collaboration_service import (
     _activated_service,
     _claim,
     _report_payload,
+)
+from tests.test_v04_13_collaboration_sqlite_integration import (
+    _control_message,
+    _store_with_channel,
 )
 
 
@@ -376,6 +386,89 @@ async def test_channel_detail_includes_active_lease_claim_and_derived_next_owner
     }
     assert "有效租约" in detail["derived"]["why_waiting"]
     assert detail["derived"]["next_action"]["code"] == "developer_response"
+
+
+@pytest.mark.asyncio
+async def test_channel_detail_without_assignment_context_degrades_to_safe_status() -> None:
+    service, _, lilies, user, _ = await _activated_service()
+
+    detail = await service.get_channel_detail(
+        principal=user,
+        channel_id=lilies.channel_id,
+    )
+
+    assert "context" not in detail
+    assert detail["derived"]["current_block"]["code"] == "lilies_execution"
+    assert detail["derived"]["owner"]["role"] == "lilies"
+
+    service._studio_context_provider = lambda _: {"assignment": None}
+    detail_with_null_assignment = await service.get_channel_detail(
+        principal=user,
+        channel_id=lilies.channel_id,
+    )
+
+    assert detail_with_null_assignment["context"]["assignment"] is None
+    assert (
+        detail_with_null_assignment["derived"]["current_block"]["code"]
+        == "lilies_execution"
+    )
+
+
+@pytest.mark.asyncio
+async def test_concurrent_detail_reads_keep_reader_cursor_monotonic(
+    tmp_path: Any,
+) -> None:
+    store, _, channel = await _store_with_channel(tmp_path)
+    service = CollaborationService(
+        store=store,
+        enabled=True,
+        studio_context_provider=lambda _: {"assignment": {}},
+    )
+    user = CollaborationPrincipal(
+        role=SenderRole.user,
+        sender_id="local-user",
+        scopes=frozenset(),
+    )
+    channel_id = UUID(str(channel["channel_id"]))
+    original_ack = store.ack_reader
+    first_ack_started = asyncio.Event()
+    second_ack_started = asyncio.Event()
+    release_acks = asyncio.Event()
+    ack_count = 0
+
+    async def delayed_ack(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        nonlocal ack_count
+        ack_count += 1
+        if ack_count == 1:
+            first_ack_started.set()
+        else:
+            second_ack_started.set()
+        await release_acks.wait()
+        return await original_ack(*args, **kwargs)
+
+    store.ack_reader = delayed_ack  # type: ignore[method-assign]
+    first = asyncio.create_task(
+        service.get_channel_detail(principal=user, channel_id=channel_id)
+    )
+    await first_ack_started.wait()
+    await store.append_message(_control_message(channel_id, "studio-reader-race"))
+    second = asyncio.create_task(
+        service.get_channel_detail(principal=user, channel_id=channel_id)
+    )
+    await second_ack_started.wait()
+    release_acks.set()
+
+    first_detail, second_detail = await asyncio.gather(first, second)
+    cursor = await store.get_reader_cursor(
+        channel_id,
+        user.sender_id,
+        reader_role=SenderRole.user,
+    )
+
+    assert first_detail["channel"]["channel_id"] == str(channel_id)
+    assert second_detail["channel"]["channel_id"] == str(channel_id)
+    assert cursor["ack_seq"] == 2
+    assert cursor["revision"] >= 1
 
 
 @pytest.mark.asyncio

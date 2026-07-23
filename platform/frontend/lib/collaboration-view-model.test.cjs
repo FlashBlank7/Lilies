@@ -295,8 +295,19 @@ test('frontend mutations bind revisions, input digests, and stable idempotency k
 
 test('workspace renders evidence, substantive developer results, and verifier differences', () => {
   const workspace = readFileSync(join(__dirname, '..', 'app', 'developer', 'collaboration', 'collaboration-workspace.tsx'), 'utf8')
-  for (const label of ['预期', '实际', '已经尝试', '证据引用', 'Codex 结果', '已知限制', '莉莉丝复验步骤', '独立验证失败']) {
+  for (const label of ['预期', '实际', '已经尝试', '证据引用', '复现步骤', '可继续的独立工作', '考虑过的绕行方案', '报告时平台合同', 'Codex 结果', '实现后合同', '已知限制', '莉莉丝复验步骤', '独立验证失败', '这项差异的证据']) {
     assert.match(workspace, new RegExp(label))
+  }
+  for (const property of [
+    'selectedReport.requirement_digest',
+    'selectedReport.source_message_id',
+    'route.evidence_refs',
+    'selectedTimeline.evidenceRefs',
+    'response.new_contract_digest',
+    'test.evidence_ref',
+    'difference.evidence_refs',
+  ]) {
+    assert.match(workspace, new RegExp(property.replace('.', '\\.')))
   }
   assert.match(workspace, /response\.commit_sha/)
   assert.match(workspace, /response\.tests_run/)
@@ -308,12 +319,16 @@ test('desktop, mobile, dialog, and reduced-motion contracts remain reachable', (
   const workspace = readFileSync(join(__dirname, '..', 'app', 'developer', 'collaboration', 'collaboration-workspace.tsx'), 'utf8')
   const styles = readFileSync(join(__dirname, '..', 'app', 'developer', 'collaboration', 'collaboration.module.css'), 'utf8')
   assert.match(styles, /grid-template-columns:\s*minmax\(270px,\s*310px\)\s+minmax\(390px,\s*1fr\)\s+minmax\(420px,\s*510px\)/)
-  assert.match(styles, /@media \(max-width:\s*860px\)/)
+  assert.match(styles, /@media \(max-width:\s*980px\)/)
   for (const view of ['tasks', 'timeline', 'detail']) {
     assert.match(styles, new RegExp(`data-mobile-view="${view}"`))
   }
   assert.match(styles, /@media \(prefers-reduced-motion:\s*reduce\)/)
   assert.match(workspace, /event\.key === 'Escape'/)
+  assert.match(workspace, /event\.key !== 'Tab'/)
+  assert.match(workspace, /event\.shiftKey/)
+  assert.match(workspace, /dialog\.contains\(active\)/)
+  assert.match(workspace, /restoreFocusRef\.current\?\.focus\(\)/)
   assert.match(workspace, /aria-modal="true"/)
   assert.match(workspace, /confirmLabel="确认开启自动转发"/)
   assert.match(workspace, /confirmLabel="停止并关闭通道"/)
@@ -327,4 +342,9 @@ test('event reconnect and double-click protection preserve one causal operation'
   assert.match(platform, /'Last-Event-ID': String\(Math\.max\(0,\s*after\)\)/)
   assert.match(workspace, /if \(inFlightRef\.current\.has\(signature\)\) return false/)
   assert.match(workspace, /inFlightRef\.current\.add\(signature\)/)
+  assert.match(workspace, /CONTEXT_REFRESH_MS = 5_000/)
+  assert.match(workspace, /window\.setInterval\(\(\) =>/)
+  assert.match(workspace, /document\.visibilityState !== 'hidden'/)
+  assert.match(workspace, /studioCollaborationChannel\(selectedChannelId\)/)
+  assert.match(workspace, /window\.clearInterval\(contextRefreshTimer\)/)
 })
