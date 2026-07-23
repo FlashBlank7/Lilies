@@ -22,7 +22,18 @@ from agent_platform.lilies_models import (
 )
 from agent_platform.lilies_service import LiliesBudgetExceeded, LocalLiliesService
 from agent_platform.lilies_storage import LiliesConflictError
-from agent_platform.models import ChatMessage, StreamEvent, ToolDefinition
+from agent_platform.lilies_platform_client import (
+    ZERO_CONTRACT_DIGEST,
+    PlatformToolEnvelope,
+)
+from agent_platform.lilies_platform_tools import PlatformHttpTool
+from agent_platform.lilies_tools import (
+    LiliesTool,
+    LiliesToolContext,
+    LiliesToolResult,
+    StrictToolInput,
+)
+from agent_platform.models import ChatMessage, ContentBlock, StreamEvent, ToolDefinition
 from agent_platform.providers.base import ModelProvider, ProviderCapabilities
 
 
@@ -108,6 +119,240 @@ class ScriptedLocalProvider(ModelProvider):
             type="message_delta",
             data={"delta": {"stop_reason": stop_reason}, "usage": {"output_tokens": 5}},
         )
+
+
+class ParallelToolProvider(ModelProvider):
+    name = "parallel-tool"
+
+    def __init__(self) -> None:
+        self.calls = 0
+        self.seen_messages: list[list[ChatMessage]] = []
+
+    def capabilities(self, model: str) -> ProviderCapabilities:
+        return ProviderCapabilities(True, True, True, False, False, 100_000, 10_000)
+
+    async def stream(self, **kwargs: Any) -> AsyncIterator[StreamEvent]:
+        self.calls += 1
+        self.seen_messages.append(kwargs["messages"])
+        yield StreamEvent(
+            type="message_start",
+            data={"message": {"usage": {"input_tokens": 10}}},
+        )
+        if self.calls == 1:
+            for index, (tool_use_id, tool_name) in enumerate(
+                (
+                    ("parallel-success-1", "local_time"),
+                    ("parallel-failure", "missing_local_tool"),
+                    ("parallel-success-2", "local_time"),
+                )
+            ):
+                yield StreamEvent(
+                    type="content_block_start",
+                    data={
+                        "index": index,
+                        "content_block": {
+                            "type": "tool_use",
+                            "id": tool_use_id,
+                            "name": tool_name,
+                            "input": {},
+                        },
+                    },
+                )
+                yield StreamEvent(type="content_block_stop", data={"index": index})
+            stop_reason = "tool_use"
+        else:
+            yield StreamEvent(
+                type="content_block_start",
+                data={
+                    "index": 0,
+                    "content_block": {"type": "text", "text": "parallel complete"},
+                },
+            )
+            stop_reason = "end_turn"
+        yield StreamEvent(
+            type="message_delta",
+            data={"delta": {"stop_reason": stop_reason}, "usage": {"output_tokens": 5}},
+        )
+
+
+class TranscriptCaptureProvider(ModelProvider):
+    name = "transcript-capture"
+
+    def __init__(self) -> None:
+        self.calls = 0
+        self.seen_messages: list[list[ChatMessage]] = []
+
+    def capabilities(self, model: str) -> ProviderCapabilities:
+        return ProviderCapabilities(False, True, True, False, False, 100_000, 10_000)
+
+    async def stream(self, **kwargs: Any) -> AsyncIterator[StreamEvent]:
+        self.calls += 1
+        self.seen_messages.append(kwargs["messages"])
+        yield StreamEvent(
+            type="message_start",
+            data={"message": {"usage": {"input_tokens": 5}}},
+        )
+        yield StreamEvent(
+            type="content_block_start",
+            data={
+                "index": 0,
+                "content_block": {"type": "text", "text": "resumed safely"},
+            },
+        )
+        yield StreamEvent(
+            type="message_delta",
+            data={"delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 2}},
+        )
+
+
+class DraftApplyBatchProvider(ModelProvider):
+    name = "draft-apply-batch"
+
+    def __init__(
+        self,
+        inputs: list[dict[str, Any]],
+        *,
+        tool_names: list[str] | None = None,
+    ) -> None:
+        self.inputs = inputs
+        self.tool_names = tool_names or [
+            "platform_draft_apply"
+            for _ in inputs
+        ]
+        if len(self.tool_names) != len(inputs):
+            raise ValueError("tool_names must match inputs")
+        self.calls = 0
+        self.seen_messages: list[list[ChatMessage]] = []
+
+    def capabilities(self, model: str) -> ProviderCapabilities:
+        return ProviderCapabilities(True, True, True, False, False, 100_000, 10_000)
+
+    async def stream(self, **kwargs: Any) -> AsyncIterator[StreamEvent]:
+        self.calls += 1
+        self.seen_messages.append(kwargs["messages"])
+        yield StreamEvent(
+            type="message_start",
+            data={"message": {"usage": {"input_tokens": 10}}},
+        )
+        if self.calls == 1:
+            for index, tool_input in enumerate(self.inputs):
+                yield StreamEvent(
+                    type="content_block_start",
+                    data={
+                        "index": index,
+                        "content_block": {
+                            "type": "tool_use",
+                            "id": f"draft-apply-{index + 1}",
+                            "name": self.tool_names[index],
+                            "input": tool_input,
+                        },
+                    },
+                )
+                yield StreamEvent(type="content_block_stop", data={"index": index})
+            stop_reason = "tool_use"
+        else:
+            yield StreamEvent(
+                type="content_block_start",
+                data={
+                    "index": 0,
+                    "content_block": {"type": "text", "text": "draft batch complete"},
+                },
+            )
+            stop_reason = "end_turn"
+        yield StreamEvent(
+            type="message_delta",
+            data={"delta": {"stop_reason": stop_reason}, "usage": {"output_tokens": 5}},
+        )
+
+
+class FakeDraftApplyInput(StrictToolInput):
+    application_id: str
+    expected_revision: int
+    idempotency_key: str
+    op: str
+    data: dict[str, Any]
+
+
+class FakeDraftApplyTool(LiliesTool):
+    name = "platform_draft_apply"
+    description = "Apply one revision-guarded fake draft mutation."
+    input_model = FakeDraftApplyInput
+    mutating = True
+    side_effecting = True
+    requires_permission = False
+    preserve_result_integrity = True
+
+    def __init__(
+        self,
+        revisions: dict[str, int],
+        *,
+        force_failure_calls: set[int] | None = None,
+        external_bump_after_success_calls: set[int] | None = None,
+    ) -> None:
+        self.revisions = dict(revisions)
+        self.force_failure_calls = force_failure_calls or set()
+        self.external_bump_after_success_calls = (
+            external_bump_after_success_calls or set()
+        )
+        self.calls: list[dict[str, Any]] = []
+
+    async def execute(
+        self,
+        data: dict[str, Any],
+        context: LiliesToolContext,
+    ) -> LiliesToolResult:
+        self.calls.append(dict(data))
+        call_number = len(self.calls)
+        application_id = str(data["application_id"])
+        expected_revision = int(data["expected_revision"])
+        current_revision = self.revisions[application_id]
+        if (
+            call_number in self.force_failure_calls
+            or expected_revision != current_revision
+        ):
+            return LiliesToolResult(
+                json.dumps(
+                    {
+                        "ok": False,
+                        "operation": self.name,
+                        "status_code": 409,
+                        "data": {},
+                        "error": {
+                            "code": "revision_conflict",
+                            "message": (
+                                f"expected {expected_revision}, "
+                                f"current {current_revision}"
+                            ),
+                            "retryable": False,
+                        },
+                    },
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ),
+                is_error=True,
+            )
+        revision = current_revision + 1
+        self.revisions[application_id] = revision
+        result = LiliesToolResult(
+            json.dumps(
+                {
+                    "ok": True,
+                    "operation": self.name,
+                    "status_code": 200,
+                    "data": {
+                        "application_id": application_id,
+                        "revision": revision,
+                        "content_hash": f"sha256:{revision:064x}",
+                    },
+                    "error": None,
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+        )
+        if call_number in self.external_bump_after_success_calls:
+            self.revisions[application_id] = revision + 1
+        return result
 
 
 class SlowProvider(ModelProvider):
@@ -276,6 +521,266 @@ async def wait_for_status(
             await asyncio.sleep(0.01)
 
 
+async def seed_platform_assignment_completion_transcript(
+    service: LocalLiliesService,
+    *,
+    tests_passed: bool = True,
+    apply_after_tests: bool = False,
+    repeat_failed_tests: bool = False,
+) -> tuple[str, str]:
+    session_id = str(uuid4())
+    assignment_id = str(uuid4())
+    application_id = str(uuid4())
+    await service.storage.create_session(
+        session_id=session_id,
+        config={"kind": "platform"},
+    )
+    assignment = {
+        "assignment_id": assignment_id,
+        "idempotency_key": f"assignment:{assignment_id}",
+        "target": {
+            "mode": "existing",
+            "application_id": application_id,
+        },
+        "platform": {
+            "contract_digest": ZERO_CONTRACT_DIGEST,
+        },
+    }
+    receipt = await service.storage.accept_assignment(
+        session_id,
+        assignment,
+        session_config={"kind": "platform"},
+        start_message_id=str(uuid4()),
+        start_message_content=[
+            {
+                "type": "text",
+                "text": "Build and test the assigned workflow.",
+            },
+        ],
+        start_turn_id=str(uuid4()),
+        turn_checkpoint={
+            "metrics": {
+                "usage": {},
+                "model_calls": 0,
+                "tool_calls": 0,
+            }
+        },
+    )
+    turn_id = str(receipt["turn_id"])
+    first_hash = "a" * 64
+
+    async def tool_exchange(
+        tool_use_id: str,
+        name: str,
+        data: dict[str, Any],
+    ) -> None:
+        assistant_message = await service.storage.add_message(
+            session_id,
+            "assistant",
+            [
+                {
+                    "type": "tool_use",
+                    "id": tool_use_id,
+                    "name": name,
+                    "input": {"application_id": application_id},
+                }
+            ],
+            turn_id=turn_id,
+        )
+        await service.storage.add_message(
+            session_id,
+            "tool",
+            [
+                {
+                    "type": "tool_result",
+                    "tool_use_id": tool_use_id,
+                    "content": json.dumps(
+                        {
+                            "ok": True,
+                            "operation": name,
+                            "data": data,
+                        },
+                        separators=(",", ":"),
+                    ),
+                    "is_error": False,
+                }
+            ],
+            turn_id=turn_id,
+            message_id=service._tool_result_message_id(
+                turn_id,
+                str(assistant_message["id"]),
+                0,
+                tool_use_id,
+            ),
+        )
+
+    await tool_exchange(
+        "apply-final-draft",
+        "platform_draft_apply",
+        {
+            "application_id": application_id,
+            "revision": 7,
+            "content_hash": first_hash,
+        },
+    )
+    passing_count = 2 if tests_passed else 1
+    failed_count = 0 if tests_passed else 1
+    await tool_exchange(
+        "test-final-draft",
+        "platform_tests_run",
+        {
+            "application_id": application_id,
+            "passed": tests_passed,
+            "validation": {
+                "valid": True,
+                "revision": 7,
+                "content_hash": first_hash,
+                "test_count": 2,
+            },
+            "summary": {
+                "total": 2,
+                "passed": passing_count,
+                "failed": failed_count,
+                "mandatory_failed": failed_count,
+            },
+            "tests": [
+                {"test_id": "one", "passed": True},
+                {"test_id": "two", "passed": tests_passed},
+            ],
+        },
+    )
+    if repeat_failed_tests:
+        # Reuse the provider's tool call id in another assistant round. The
+        # deterministic result message identity must keep the rounds distinct,
+        # and the later failed attempt must supersede the earlier pass.
+        await tool_exchange(
+            "test-final-draft",
+            "platform_tests_run",
+            {
+                "application_id": application_id,
+                "passed": False,
+                "validation": {
+                    "valid": True,
+                    "revision": 7,
+                    "content_hash": first_hash,
+                    "test_count": 2,
+                },
+                "summary": {
+                    "total": 2,
+                    "passed": 1,
+                    "failed": 1,
+                    "mandatory_failed": 1,
+                },
+                "tests": [
+                    {"test_id": "one", "passed": True},
+                    {"test_id": "two", "passed": False},
+                ],
+            },
+        )
+    if apply_after_tests:
+        await tool_exchange(
+            "edit-after-tests",
+            "platform_draft_apply",
+            {
+                "application_id": application_id,
+                "revision": 8,
+                "content_hash": "b" * 64,
+            },
+        )
+    await service.storage.add_message(
+        session_id,
+        "assistant",
+        [{"type": "text", "text": "The tested workflow is complete and ready."}],
+        turn_id=turn_id,
+    )
+    return session_id, turn_id
+
+
+@pytest.mark.asyncio
+async def test_platform_assignment_turn_becomes_completed_only_with_current_test_claim(
+    tmp_path: Path,
+) -> None:
+    service = LocalLiliesService(
+        LiliesSettings(data_dir=tmp_path / "lilies", model="test-model"),
+        provider=ScriptedLocalProvider(),
+    )
+    await service.initialize()
+    completed_session_id, completed_turn_id = (
+        await seed_platform_assignment_completion_transcript(service)
+    )
+    stale_session_id, stale_turn_id = (
+        await seed_platform_assignment_completion_transcript(
+            service,
+            apply_after_tests=True,
+        )
+    )
+    retested_session_id, retested_turn_id = (
+        await seed_platform_assignment_completion_transcript(
+            service,
+            repeat_failed_tests=True,
+        )
+    )
+
+    async def no_model_loop(
+        session_id: str,
+        turn_id: str,
+        metrics: Any,
+    ) -> None:
+        del session_id, turn_id, metrics
+
+    service._run_model_loop = no_model_loop  # type: ignore[method-assign]
+    await service._run_turn(completed_session_id, completed_turn_id)
+    await service._run_turn(stale_session_id, stale_turn_id)
+    await service._run_turn(retested_session_id, retested_turn_id)
+
+    assert (
+        await service.storage.get_session(completed_session_id)
+    )["status"] == "completed"
+    assert (await service.storage.get_turn(completed_turn_id))["status"] == "completed"
+    assert (await service.storage.get_session(stale_session_id))["status"] == "ready"
+    assert (await service.storage.get_turn(stale_turn_id))["status"] == "completed"
+    assert (
+        await service.storage.get_session(retested_session_id)
+    )["status"] == "ready"
+    assert (await service.storage.get_turn(retested_turn_id))["status"] == "completed"
+
+
+@pytest.mark.asyncio
+async def test_restart_reconciles_only_current_passing_platform_assignment_claim(
+    tmp_path: Path,
+) -> None:
+    settings = LiliesSettings(data_dir=tmp_path / "lilies", model="test-model")
+    service = LocalLiliesService(settings, provider=ScriptedLocalProvider())
+    await service.initialize()
+    completed_session_id, completed_turn_id = (
+        await seed_platform_assignment_completion_transcript(service)
+    )
+    failed_session_id, failed_turn_id = (
+        await seed_platform_assignment_completion_transcript(
+            service,
+            tests_passed=False,
+        )
+    )
+    await service.storage.finish_turn(completed_turn_id, "completed")
+    await service.storage.finish_turn(failed_turn_id, "completed")
+    assert (
+        await service.storage.get_session(completed_session_id)
+    )["status"] == "ready"
+
+    restarted = LocalLiliesService(settings, provider=ScriptedLocalProvider())
+    recovery = await restarted.initialize()
+
+    assert recovery["completed_assignment_sessions"] == 1
+    assert (
+        await restarted.storage.get_session(completed_session_id)
+    )["status"] == "completed"
+    assert (await restarted.storage.get_session(failed_session_id))["status"] == "ready"
+
+    replayed_restart = LocalLiliesService(settings, provider=ScriptedLocalProvider())
+    replayed_recovery = await replayed_restart.initialize()
+    assert replayed_recovery["completed_assignment_sessions"] == 0
+
+
 @pytest.mark.asyncio
 async def test_local_service_persists_three_turns_without_private_thinking(tmp_path: Path) -> None:
     provider = ScriptedLocalProvider()
@@ -326,6 +831,671 @@ async def test_local_service_runs_safe_tool_loop_sequentially(tmp_path: Path) ->
         for item in messages
         for block in item["content"]
     )
+
+
+@pytest.mark.asyncio
+async def test_local_service_batches_parallel_tool_results_for_provider(
+    tmp_path: Path,
+) -> None:
+    provider = ParallelToolProvider()
+    service, client_id = await paired_service(tmp_path, provider)
+    session_id = await create_session(service, client_id)
+
+    await send(service, client_id, session_id, "Run three independent checks.")
+    session = await wait_for_status(service, session_id, "ready")
+
+    assert provider.calls == 2
+    assert session["tool_count"] == 3
+    durable_messages = await service.storage.list_messages(session_id)
+    tool_messages = [item for item in durable_messages if item["role"] == "tool"]
+    assert len(tool_messages) == 3
+    durable_results = [
+        ContentBlock.model_validate(block)
+        for message in tool_messages
+        for block in message["content"]
+    ]
+    assert [block.tool_use_id for block in durable_results] == [
+        "parallel-success-1",
+        "parallel-failure",
+        "parallel-success-2",
+    ]
+    assert [
+        block.get("is_error", False)
+        for message in tool_messages
+        for block in message["content"]
+    ] == [
+        False,
+        True,
+        False,
+    ]
+
+    provider_messages = provider.seen_messages[1]
+    assert [message.role for message in provider_messages[-2:]] == [
+        "assistant",
+        "user",
+    ]
+    assert [
+        block.tool_use_id for block in provider_messages[-1].content
+    ] == [
+        "parallel-success-1",
+        "parallel-failure",
+        "parallel-success-2",
+    ]
+    events = await service.storage.list_events(session_id)
+    event_types = [event["event_type"] for event in events]
+    assert event_types.count("tool.requested") == 3
+    assert event_types.count("tool.completed") == 2
+    assert event_types.count("tool.failed") == 1
+    turn_id = (await service.storage.list_turns(session_id))[-1]["id"]
+    assistant_message = next(
+        item
+        for item in durable_messages
+        if item["role"] == "assistant"
+        and any(block.get("type") == "tool_use" for block in item["content"])
+    )
+    assert [item["id"] for item in tool_messages] == [
+        service._tool_result_message_id(
+            turn_id,
+            assistant_message["id"],
+            index,
+            result.tool_use_id,
+        )
+        for index, result in enumerate(durable_results)
+    ]
+    message_event_count = event_types.count("message.created")
+    for message, result in zip(tool_messages, durable_results, strict=True):
+        await service._add_tool_result_message(
+            session_id,
+            turn_id,
+            result,
+            message_id=message["id"],
+        )
+    assert len(
+        [
+            item
+            for item in await service.storage.list_messages(session_id)
+            if item["role"] == "tool"
+        ]
+    ) == 3
+    assert [
+        event["event_type"]
+        for event in await service.storage.list_events(session_id)
+    ].count("message.created") == message_event_count
+
+
+@pytest.mark.asyncio
+async def test_tool_budget_failure_preserves_completed_sibling_and_seals_batch(
+    tmp_path: Path,
+) -> None:
+    provider = DraftApplyBatchProvider(
+        [{}, {}],
+        tool_names=["local_time", "local_time"],
+    )
+    service, client_id = await paired_service(tmp_path, provider)
+    session_id = await create_session(service, client_id)
+    session = await service.storage.get_session(session_id)
+    await service.storage.update_session_context(
+        session_id,
+        config={
+            **session["config"],
+            "max_tool_calls": 1,
+            "max_model_calls": 10,
+        },
+    )
+
+    await send(service, client_id, session_id, "Run both checks.")
+    await wait_for_status(service, session_id, "error")
+
+    messages = await service.storage.list_messages(session_id)
+    completed = [item for item in messages if item["role"] == "tool"]
+    assert len(completed) == 1
+    exact_first_result = completed[0]["content"][0]
+    assert exact_first_result["tool_use_id"] == "draft-apply-1"
+    assert exact_first_result.get("is_error", False) is False
+    events = await service.storage.list_events(session_id)
+    assert [event["event_type"] for event in events].count("tool.started") == 1
+
+    restarted = LocalLiliesService(
+        service.settings,
+        provider=TranscriptCaptureProvider(),
+    )
+    await restarted.initialize()
+    await restarted._close_uncertain_tool_calls(session_id)
+    closed_messages = await restarted.storage.list_messages(session_id)
+    durable_results = [
+        block
+        for message in closed_messages
+        if message["role"] == "tool"
+        for block in message["content"]
+    ]
+    assert durable_results[0] == exact_first_result
+    assert [block["tool_use_id"] for block in durable_results] == [
+        "draft-apply-1",
+        "draft-apply-2",
+    ]
+    assert durable_results[1]["is_error"] is True
+
+    transcript = await restarted._model_messages(session_id)
+    assert [message.role for message in transcript[-2:]] == [
+        "assistant",
+        "user",
+    ]
+    assert [
+        block.tool_use_id for block in transcript[-1].content
+    ] == ["draft-apply-1", "draft-apply-2"]
+
+
+@pytest.mark.asyncio
+async def test_uncertain_closure_scopes_reused_tool_call_id_to_assistant_message(
+    tmp_path: Path,
+) -> None:
+    service, client_id = await paired_service(
+        tmp_path,
+        TranscriptCaptureProvider(),
+    )
+    session_id = await create_session(service, client_id)
+    await service.storage.add_message(
+        session_id,
+        "user",
+        [{"type": "text", "text": "run the repeated tool twice"}],
+    )
+    first_assistant = await service.storage.add_message(
+        session_id,
+        "assistant",
+        [
+            {
+                "type": "tool_use",
+                "id": "provider-reused-id",
+                "name": "local_time",
+                "input": {},
+            }
+        ],
+    )
+    await service._add_tool_result_message(
+        session_id,
+        None,
+        ContentBlock(
+            type="tool_result",
+            tool_use_id="provider-reused-id",
+            content="first exact result",
+        ),
+        message_id=service._tool_result_message_id(
+            f"session:{session_id}",
+            first_assistant["id"],
+            0,
+            "provider-reused-id",
+        ),
+    )
+    second_assistant = await service.storage.add_message(
+        session_id,
+        "assistant",
+        [
+            {
+                "type": "tool_use",
+                "id": "provider-reused-id",
+                "name": "local_time",
+                "input": {},
+            }
+        ],
+    )
+
+    await service._close_uncertain_tool_calls(session_id)
+
+    tool_messages = [
+        item
+        for item in await service.storage.list_messages(session_id)
+        if item["role"] == "tool"
+    ]
+    assert len(tool_messages) == 2
+    assert tool_messages[0]["content"][0]["content"] == "first exact result"
+    assert tool_messages[1]["content"][0]["is_error"] is True
+    assert tool_messages[0]["id"] != tool_messages[1]["id"]
+    assert tool_messages[1]["id"] == service._tool_result_message_id(
+        f"session:{session_id}",
+        second_assistant["id"],
+        0,
+        "provider-reused-id",
+    )
+
+
+def draft_apply_input(
+    application_id: str,
+    expected_revision: int,
+    index: int,
+) -> dict[str, Any]:
+    return {
+        "application_id": application_id,
+        "expected_revision": expected_revision,
+        "idempotency_key": f"draft-batch:{application_id}:{index}",
+        "op": "set_metadata",
+        "data": {"description": f"mutation-{index}"},
+    }
+
+
+def test_draft_apply_success_parses_real_platform_envelope_wire_shape() -> None:
+    application_id = str(uuid4())
+    content_hash = "sha256:" + "a" * 64
+    envelope = PlatformToolEnvelope(
+        ok=True,
+        operation="platform_draft_apply",
+        request_id=uuid4(),
+        status_code=200,
+        contract_digest=ZERO_CONTRACT_DIGEST,
+        data={
+            "application_id": application_id,
+            "revision": 4,
+            "content_hash": content_hash,
+            "evidence_state": "missing",
+            "operation": "set_metadata",
+        },
+        error=None,
+        evidence_refs=[],
+    )
+    wire_result = ContentBlock(
+        type="tool_result",
+        tool_use_id="real-envelope-result",
+        content=PlatformHttpTool._serialize(envelope),
+        is_error=False,
+    )
+
+    parsed = LocalLiliesService._draft_apply_success(wire_result)
+
+    assert parsed is not None
+    assert parsed.application_id == application_id
+    assert parsed.revision == 4
+    assert parsed.content_hash == content_hash
+
+
+@pytest.mark.asyncio
+async def test_same_turn_draft_apply_batch_chains_successful_revisions(
+    tmp_path: Path,
+) -> None:
+    application_id = str(uuid4())
+    provider = DraftApplyBatchProvider(
+        [draft_apply_input(application_id, 0, index) for index in range(3)]
+    )
+    tool = FakeDraftApplyTool({application_id: 0})
+    service, client_id = await paired_service(tmp_path, provider)
+    service.tools.register(tool)
+    session_id = await create_session(service, client_id)
+
+    await send(service, client_id, session_id, "Apply all three draft mutations.")
+    await wait_for_status(service, session_id, "ready")
+
+    assert [call["expected_revision"] for call in tool.calls] == [0, 1, 2]
+    assert tool.revisions[application_id] == 3
+    messages = await service.storage.list_messages(session_id)
+    original_tool_uses = next(
+        item["content"]
+        for item in messages
+        if item["role"] == "assistant"
+        and any(block.get("type") == "tool_use" for block in item["content"])
+    )
+    assert [
+        block["input"]["expected_revision"]
+        for block in original_tool_uses
+    ] == [0, 0, 0]
+    result_blocks = provider.seen_messages[1][-1].content
+    assert [block.is_error for block in result_blocks] == [False, False, False]
+    rebase_events = [
+        event
+        for event in await service.storage.list_events(session_id)
+        if event["event_type"] == "tool.input_rebased"
+    ]
+    assert [
+        (
+            event["data"]["original_expected_revision"],
+            event["data"]["effective_expected_revision"],
+        )
+        for event in rebase_events
+    ] == [(0, 1), (0, 2)]
+    assert all(
+        event["data"]["reason"]
+        == "prior_same_turn_same_application_draft_apply_succeeded"
+        for event in rebase_events
+    )
+
+
+@pytest.mark.asyncio
+async def test_failed_draft_apply_does_not_rebase_its_successor(
+    tmp_path: Path,
+) -> None:
+    application_id = str(uuid4())
+    provider = DraftApplyBatchProvider(
+        [draft_apply_input(application_id, 0, index) for index in range(2)]
+    )
+    tool = FakeDraftApplyTool({application_id: 0}, force_failure_calls={1})
+    service, client_id = await paired_service(tmp_path, provider)
+    service.tools.register(tool)
+    session_id = await create_session(service, client_id)
+
+    await send(service, client_id, session_id, "Apply the draft batch.")
+    await wait_for_status(service, session_id, "ready")
+
+    assert [call["expected_revision"] for call in tool.calls] == [0, 0]
+    assert [
+        block.is_error for block in provider.seen_messages[1][-1].content
+    ] == [True, False]
+    assert not [
+        event
+        for event in await service.storage.list_events(session_id)
+        if event["event_type"] == "tool.input_rebased"
+    ]
+
+
+@pytest.mark.asyncio
+async def test_draft_apply_batch_preserves_explicitly_different_revision(
+    tmp_path: Path,
+) -> None:
+    application_id = str(uuid4())
+    provider = DraftApplyBatchProvider(
+        [
+            draft_apply_input(application_id, 0, 0),
+            draft_apply_input(application_id, 3, 1),
+        ]
+    )
+    tool = FakeDraftApplyTool({application_id: 0})
+    service, client_id = await paired_service(tmp_path, provider)
+    service.tools.register(tool)
+    session_id = await create_session(service, client_id)
+
+    await send(service, client_id, session_id, "Apply the explicitly versioned batch.")
+    await wait_for_status(service, session_id, "ready")
+
+    assert [call["expected_revision"] for call in tool.calls] == [0, 3]
+    assert [
+        block.is_error for block in provider.seen_messages[1][-1].content
+    ] == [False, True]
+    assert not [
+        event
+        for event in await service.storage.list_events(session_id)
+        if event["event_type"] == "tool.input_rebased"
+    ]
+
+
+@pytest.mark.asyncio
+async def test_non_draft_tool_between_mutations_breaks_revision_chain(
+    tmp_path: Path,
+) -> None:
+    application_id = str(uuid4())
+    provider = DraftApplyBatchProvider(
+        [
+            draft_apply_input(application_id, 0, 0),
+            {},
+            draft_apply_input(application_id, 0, 2),
+        ],
+        tool_names=[
+            "platform_draft_apply",
+            "local_time",
+            "platform_draft_apply",
+        ],
+    )
+    tool = FakeDraftApplyTool({application_id: 0})
+    service, client_id = await paired_service(tmp_path, provider)
+    service.tools.register(tool)
+    session_id = await create_session(service, client_id)
+
+    await send(service, client_id, session_id, "Apply, inspect time, then apply again.")
+    await wait_for_status(service, session_id, "ready")
+
+    assert [call["expected_revision"] for call in tool.calls] == [0, 0]
+    results = provider.seen_messages[1][-1].content
+    assert [block.is_error for block in results] == [False, False, True]
+    assert not [
+        event
+        for event in await service.storage.list_events(session_id)
+        if event["event_type"] == "tool.input_rebased"
+    ]
+
+
+@pytest.mark.asyncio
+async def test_draft_apply_batch_never_chains_across_applications(
+    tmp_path: Path,
+) -> None:
+    first_application_id = str(uuid4())
+    second_application_id = str(uuid4())
+    provider = DraftApplyBatchProvider(
+        [
+            draft_apply_input(first_application_id, 0, 0),
+            draft_apply_input(second_application_id, 0, 1),
+        ]
+    )
+    tool = FakeDraftApplyTool(
+        {
+            first_application_id: 0,
+            second_application_id: 7,
+        }
+    )
+    service, client_id = await paired_service(tmp_path, provider)
+    service.tools.register(tool)
+    session_id = await create_session(service, client_id)
+
+    await send(service, client_id, session_id, "Apply mutations to both drafts.")
+    await wait_for_status(service, session_id, "ready")
+
+    assert [
+        (call["application_id"], call["expected_revision"])
+        for call in tool.calls
+    ] == [
+        (first_application_id, 0),
+        (second_application_id, 0),
+    ]
+    assert [
+        block.is_error for block in provider.seen_messages[1][-1].content
+    ] == [False, True]
+    assert not [
+        event
+        for event in await service.storage.list_events(session_id)
+        if event["event_type"] == "tool.input_rebased"
+    ]
+
+
+@pytest.mark.asyncio
+async def test_draft_apply_batch_preserves_external_revision_conflict(
+    tmp_path: Path,
+) -> None:
+    application_id = str(uuid4())
+    provider = DraftApplyBatchProvider(
+        [draft_apply_input(application_id, 0, index) for index in range(2)]
+    )
+    tool = FakeDraftApplyTool(
+        {application_id: 0},
+        external_bump_after_success_calls={1},
+    )
+    service, client_id = await paired_service(tmp_path, provider)
+    service.tools.register(tool)
+    session_id = await create_session(service, client_id)
+
+    await send(service, client_id, session_id, "Apply the draft batch.")
+    await wait_for_status(service, session_id, "ready")
+
+    assert [call["expected_revision"] for call in tool.calls] == [0, 1]
+    results = provider.seen_messages[1][-1].content
+    assert [block.is_error for block in results] == [False, True]
+    conflict = json.loads(str(results[1].content))
+    assert conflict["status_code"] == 409
+    assert conflict["error"]["code"] == "revision_conflict"
+    rebase_events = [
+        event
+        for event in await service.storage.list_events(session_id)
+        if event["event_type"] == "tool.input_rebased"
+    ]
+    assert len(rebase_events) == 1
+    assert rebase_events[0]["data"]["effective_expected_revision"] == 1
+
+
+@pytest.mark.asyncio
+async def test_resume_coalesces_legacy_split_tool_results_without_rewriting_history(
+    tmp_path: Path,
+) -> None:
+    provider = TranscriptCaptureProvider()
+    service, client_id = await paired_service(tmp_path, provider)
+    session_id = await create_session(service, client_id)
+    await service.storage.add_message(
+        session_id,
+        "user",
+        [{"type": "text", "text": "legacy parallel request"}],
+    )
+    await service.storage.add_message(
+        session_id,
+        "assistant",
+        [
+            {
+                "type": "tool_use",
+                "id": tool_use_id,
+                "name": "local_time",
+                "input": {},
+            }
+            for tool_use_id in ("legacy-1", "legacy-2", "legacy-3")
+        ],
+    )
+    for tool_use_id in ("legacy-1", "legacy-2", "legacy-3"):
+        await service.storage.add_message(
+            session_id,
+            "tool",
+            [
+                {
+                    "type": "tool_result",
+                    "tool_use_id": tool_use_id,
+                    "content": f"result:{tool_use_id}",
+                    "is_error": tool_use_id == "legacy-2",
+                }
+            ],
+        )
+    await service.storage.transition_session(session_id, "error")
+    legacy_event_cursor = (
+        await service.storage.list_events(session_id, client_id=client_id)
+    )[-1]["seq"]
+
+    await service.resume_session(
+        session_id,
+        SessionResumeRequest(
+            idempotency_key=f"resume:{uuid4().hex}",
+            expected_status=SessionStatus.error,
+            reason="recover the provider transcript",
+        ),
+        client_id=client_id,
+    )
+    await wait_for_status(service, session_id, "ready")
+
+    assert provider.calls == 1
+    transcript = provider.seen_messages[0]
+    assert [message.role for message in transcript] == ["user", "assistant", "user"]
+    assert [
+        block.tool_use_id
+        for block in transcript[-1].content
+        if block.type == "tool_result"
+    ] == ["legacy-1", "legacy-2", "legacy-3"]
+    assert transcript[-1].content[-1].type == "text"
+    assert "Resume this session" in (transcript[-1].content[-1].text or "")
+
+    durable_messages = await service.storage.list_messages(
+        session_id,
+        client_id=client_id,
+    )
+    assert len([item for item in durable_messages if item["role"] == "tool"]) == 3
+    post_events = await service.storage.list_events(
+        session_id,
+        after=legacy_event_cursor,
+        client_id=client_id,
+    )
+    assert post_events
+    assert all(event["seq"] > legacy_event_cursor for event in post_events)
+
+
+@pytest.mark.asyncio
+async def test_model_message_compatibility_does_not_merge_ordinary_user_prompts(
+    tmp_path: Path,
+) -> None:
+    service, client_id = await paired_service(tmp_path, TranscriptCaptureProvider())
+    session_id = await create_session(service, client_id)
+    await service.storage.add_message(
+        session_id,
+        "user",
+        [{"type": "text", "text": "first logical prompt"}],
+    )
+    await service.storage.add_message(
+        session_id,
+        "user",
+        [{"type": "text", "text": "second logical prompt"}],
+    )
+
+    transcript = await service._model_messages(session_id)
+
+    assert [message.role for message in transcript] == ["user", "user"]
+    assert [message.content[0].text for message in transcript] == [
+        "first logical prompt",
+        "second logical prompt",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_compacted_model_tail_keeps_tool_use_and_results_together(
+    tmp_path: Path,
+) -> None:
+    service, client_id = await paired_service(
+        tmp_path,
+        TranscriptCaptureProvider(),
+    )
+    session_id = await create_session(service, client_id)
+    await service.storage.add_message(
+        session_id,
+        "user",
+        [{"type": "text", "text": "start the compacted task"}],
+    )
+    for index in range(4):
+        tool_use_id = f"compacted-tool-{index}"
+        await service.storage.add_message(
+            session_id,
+            "assistant",
+            [{
+                "type": "tool_use",
+                "id": tool_use_id,
+                "name": "local_time",
+                "input": {},
+            }],
+        )
+        await service.storage.add_message(
+            session_id,
+            "tool",
+            [{
+                "type": "tool_result",
+                "tool_use_id": tool_use_id,
+                "content": f"result-{index}",
+            }],
+        )
+    await service.storage.add_message(
+        session_id,
+        "user",
+        [{"type": "text", "text": "resume after compaction"}],
+    )
+    await service.storage.update_session_context(
+        session_id,
+        context_summary="durable compacted evidence",
+        summary_through_event_seq=1,
+    )
+
+    transcript = await service._model_messages(session_id)
+
+    assert transcript[0].role == "user"
+    assert transcript[0].content[0].text == "start the compacted task"
+    for index, message in enumerate(transcript):
+        result_ids = {
+            block.tool_use_id
+            for block in message.content
+            if block.type == "tool_result"
+        }
+        if not result_ids:
+            continue
+        assert index > 0
+        previous = transcript[index - 1]
+        assert previous.role == "assistant"
+        request_ids = {
+            block.id
+            for block in previous.content
+            if block.type == "tool_use"
+        }
+        assert result_ids == request_ids
 
 
 @pytest.mark.asyncio

@@ -58,6 +58,11 @@ DEEPSEEK_API_KEY ok
 API_TOKEN ok
 ```
 
+启用 `LILIES_LOCAL_AGENT_ENABLED=true` 时，脚本还会显示 Local Lilies
+assignment 的实际回调地址。未显式配置 `LILIES_PLATFORM_BASE_URL` 时，
+它必须与本次 API host/port 一致，默认是 `http://127.0.0.1:8001`，不能
+回落到应用配置中的 `8000`。
+
 本地开发端口：
 
 - API：`http://127.0.0.1:8001`
@@ -185,6 +190,8 @@ cd platform/frontend && npm run lint && npm run build
 ```bash
 ./scripts/dev_platform.sh --check-env
 ```
+
+启用 Local Lilies 时还要确认上述输出中的 callback 与实际 API 端口一致。
 
 如果改了 Docker：
 

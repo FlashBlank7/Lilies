@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { ShieldCheck } from 'lucide-react'
+import { MessagesSquare, ShieldCheck } from 'lucide-react'
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react'
 import {
   api,
@@ -935,7 +935,7 @@ export default function Home() {
 
   return (
     <main className="home-shell">
-      <nav className="topbar"><div className="brand"><span>F</span> Foundry</div><div className="topbar-actions"><Link className={surfaceStyles.governanceLink} href="/governance"><ShieldCheck size={15} />Governance</Link><button className="lang-toggle" onClick={toggleLocale}>{t.switchLabel}</button><div className={`status-dot runtime-status ${runtimeStatus}`} data-runtime-status={runtimeStatus}><span>{runtimeStatusText}</span><small>{runtimeStatusDetail}</small></div></div></nav>
+      <nav className="topbar"><div className="brand"><span>F</span> Foundry</div><div className="topbar-actions"><Link className={surfaceStyles.governanceLink} data-global-developer-collaboration="true" href="/developer/collaboration"><MessagesSquare size={15} />Collaboration</Link><Link className={surfaceStyles.governanceLink} href="/governance"><ShieldCheck size={15} />Governance</Link><button className="lang-toggle" onClick={toggleLocale}>{t.switchLabel}</button><div className={`status-dot runtime-status ${runtimeStatus}`} data-runtime-status={runtimeStatus}><span>{runtimeStatusText}</span><small>{runtimeStatusDetail}</small></div></div></nav>
       <section className="hero">
         <div className="eyebrow">{t.eyebrow}</div>
         <h1>{t.heroTitleA}<br/><em>{t.heroTitleB}</em></h1>

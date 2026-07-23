@@ -71,6 +71,7 @@ class FakeDaemonClient:
         self.client_scopes = [
             "lilies.session:read",
             "lilies.session:write",
+            "lilies.permission:resolve",
             "lilies.credential:write",
         ]
         self.client_expires_at = "2035-01-01T00:00:00+00:00"
@@ -1989,6 +1990,7 @@ async def test_real_daemon_asgi_recovers_pair_and_reconnect_response_loss(
         required_scopes = [
             "lilies.session:read",
             "lilies.session:write",
+            "lilies.permission:resolve",
             "lilies.credential:write",
         ]
         client = LocalLiliesHttpClient(
@@ -2188,6 +2190,7 @@ async def test_real_daemon_asgi_cancel_terminal_events_drain_and_restart_recover
             allowed_scopes=[
                 "lilies.session:read",
                 "lilies.session:write",
+                "lilies.permission:resolve",
                 "lilies.credential:write",
             ]
         )
@@ -2318,6 +2321,7 @@ async def test_real_daemon_asgi_pair_assignment_idempotency_and_no_prebuilt_draf
             allowed_scopes=[
                 "lilies.session:read",
                 "lilies.session:write",
+                "lilies.permission:resolve",
                 "lilies.credential:write",
             ]
         )
@@ -2386,6 +2390,8 @@ async def test_real_daemon_asgi_pair_assignment_idempotency_and_no_prebuilt_draf
             "application_id": str(application_id),
         }
         assert "platform_application_create" not in wire["constraints"]["allowed_actions"]
+        assert wire["constraints"]["max_turns"] == 80
+        assert wire["constraints"]["max_tool_calls"] == 400
         assert wire["constraints"]["network_policy"] == "allowlist"
         assert wire["constraints"]["allowed_hosts"] == ["127.0.0.1"]
         assert "collaboration" not in wire

@@ -168,7 +168,12 @@ class FakeCollaborationService:
 
     async def developer_inbox(self, **kwargs: Any) -> dict[str, Any]:
         self.calls.append(("developer_inbox", kwargs))
-        return {"items": [], "pending_user_action": True}
+        return {
+            "reports": [],
+            "claims": [],
+            "pending_user_action": True,
+            "next_cursor": 0,
+        }
 
 
 def build_app(service: FakeCollaborationService) -> FastAPI:
@@ -368,7 +373,12 @@ def test_studio_and_developer_use_distinct_header_credentials() -> None:
     assert studio.json()[0]["channel_id"] == str(CHANNEL_ID)
     assert developer_with_user.status_code == 404
     assert developer.status_code == 200
-    assert developer.json() == {"items": [], "pending_user_action": True}
+    assert developer.json() == {
+        "reports": [],
+        "claims": [],
+        "pending_user_action": True,
+        "next_cursor": 0,
+    }
 
 
 def test_route_surface_contains_all_role_and_causal_export_endpoints() -> None:

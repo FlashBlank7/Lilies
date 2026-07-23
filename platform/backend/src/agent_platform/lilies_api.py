@@ -98,6 +98,10 @@ def _session_projection(record: Mapping[str, Any]) -> dict[str, Any]:
         "kind": config.get("kind", "interactive"),
         "title": config.get("title"),
         "assignment_id": record.get("assignment_id"),
+        "context_summary": record.get("context_summary") or None,
+        "summary_through_event_seq": int(
+            record.get("summary_through_event_seq", 0)
+        ),
         "created_at": record.get("created_at"),
         "updated_at": record.get("updated_at"),
         "usage": {

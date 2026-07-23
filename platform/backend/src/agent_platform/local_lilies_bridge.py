@@ -42,6 +42,8 @@ from .lilies_models import (
     DeliverableSpec,
     LocalScope,
     PairingExchangeResult,
+    PermissionDecisionRequest,
+    PermissionDecisionResult,
     PlatformAccess,
     PlatformScope,
     ProhibitedAction,
@@ -70,6 +72,7 @@ BRIDGE_SCHEMA_VERSION = 3
 REQUIRED_DAEMON_SCOPES = (
     LocalScope.session_read,
     LocalScope.session_write,
+    LocalScope.permission_resolve,
     LocalScope.credential_write,
 )
 DAEMON_CREDENTIAL_REVOCATION_REASON = "platform assignment cancellation"
@@ -178,9 +181,14 @@ class ReconnectLocalLiliesRequest(StrictBridgeModel):
 
 class LocalLiliesBuildConstraints(StrictBridgeModel):
     deadline_at: datetime | None = None
-    max_turns: int = Field(default=36, ge=5, le=200)
+    # A Local Lilies build edits the draft incrementally and validates the
+    # result through public platform tools.  The former 36-turn default could
+    # terminate a healthy build after substantial draft progress, while the
+    # Studio offered no budget control.  Keep the route bounded, but leave
+    # enough headroom for graph construction and acceptance repair.
+    max_turns: int = Field(default=80, ge=5, le=200)
     max_budget_usd: float | None = Field(default=None, gt=0)
-    max_tool_calls: int = Field(default=200, ge=1, le=1_000)
+    max_tool_calls: int = Field(default=400, ge=1, le=1_000)
     network_policy: AssignmentNetworkPolicy = AssignmentNetworkPolicy.allowlist
     allowed_hosts: list[str] = Field(default_factory=list, max_length=100)
 
@@ -2110,6 +2118,59 @@ class LocalLiliesBridge:
                 reason=reason,
             )
 
+    async def resolve_assignment_permission(
+        self,
+        assignment_id: UUID | str,
+        request_id: UUID | str,
+        request: PermissionDecisionRequest,
+    ) -> dict[str, Any]:
+        """Resolve one daemon permission without mixing it with capability approval."""
+
+        async with self._assignment_lock(assignment_id):
+            self.require_enabled()
+            row = await self.store.get_assignment(assignment_id)
+            row = await self._recheck_assignment_active(
+                row,
+                checkpoint="permission decision",
+            )
+            connection = await self.store.get_connection(row["connection_id"])
+            token = await self._connection_token(connection, assignment=row)
+            try:
+                raw = await self.client.resolve_permission(
+                    str(connection["base_url"]),
+                    token,
+                    row["session_id"],
+                    str(request_id),
+                    request.model_dump(mode="json", exclude_none=True),
+                )
+                decision = PermissionDecisionResult.model_validate(raw)
+            except LocalLiliesClientError as error:
+                await self._raise_assignment_unavailable(row, error)
+                raise AssertionError("unreachable permission error projection")
+            except ValueError as error:
+                raise LocalLiliesBridgeSecurityError(
+                    "daemon returned an invalid permission decision receipt",
+                    details=self._safe_assignment_ids(row),
+                ) from error
+            if decision.request_id != UUID(str(request_id)):
+                raise LocalLiliesBridgeSecurityError(
+                    "daemon permission receipt belongs to another request",
+                    details=self._safe_assignment_ids(row),
+                )
+            await self.store.set_connection_state(
+                row["connection_id"],
+                status=BridgeConnectionStatus.connected,
+                seen=True,
+            )
+            relay = await self._relay_events_locked(assignment_id, max_events=100)
+            return {
+                "permission": decision.model_dump(mode="json", exclude_none=True),
+                "assignment": relay.assignment.model_dump(
+                    mode="json",
+                    exclude_none=True,
+                ),
+            }
+
     async def _cancel_assignment_locked(
         self,
         assignment_id: UUID | str,
@@ -2794,6 +2855,37 @@ class LocalLiliesBridge:
     ) -> LocalLiliesAssignment:
         self.require_enabled()
         return self._assignment_projection(await self.store.get_assignment(assignment_id))
+
+    async def get_assignment_session(
+        self,
+        assignment_id: UUID | str,
+    ) -> SessionResult:
+        """Read the assignment-bound daemon session through its paired capability."""
+
+        self.require_enabled()
+        row = await self.store.get_assignment(assignment_id)
+        connection = await self.store.get_connection(row["connection_id"])
+        token = await self._connection_token(connection, assignment=row)
+        try:
+            raw = await self.client.get_session(
+                str(connection["base_url"]),
+                token,
+                row["session_id"],
+            )
+        except LocalLiliesClientError as error:
+            await self._raise_assignment_unavailable(row, error)
+            raise AssertionError("unreachable daemon session projection")
+        session = self._validate_session_receipt(
+            raw,
+            row=row,
+            require_assignment_binding=True,
+        )
+        await self.store.set_connection_state(
+            row["connection_id"],
+            status=BridgeConnectionStatus.connected,
+            seen=True,
+        )
+        return session
 
     async def get_assignment_by_build(
         self, build_id: UUID | str

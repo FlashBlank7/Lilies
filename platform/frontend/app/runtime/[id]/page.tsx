@@ -63,6 +63,18 @@ type StoredEvent = {
   created_at: string
 }
 
+type CustomerRuntimeApplication = {
+  application: ApplicationRecord
+  definition: RuntimeDefinition
+  latest_run: RunRecord | null
+  latest_events: StoredEvent[]
+}
+
+type CustomerRuntimeRun = {
+  run: RunRecord
+  events: StoredEvent[]
+}
+
 type RuntimeField = {
   name: string
   label: string
@@ -552,19 +564,15 @@ export default function CustomerRuntimePage() {
     setError('')
     setInvalidFieldName('')
     try {
-      const [nextApplication, nextDefinition, recentRuns] = await Promise.all([
-        api<ApplicationRecord>(`/api/v1/applications/${id}`),
-        api<RuntimeDefinition>(`/api/v1/applications/${id}/runtime-definition`),
-        api<RunRecord[]>(`/api/v1/applications/${id}/runs?limit=1`),
-      ])
-      const latestRun = recentRuns[0] || null
-      const nextEvents = latestRun ? await api<StoredEvent[]>(`/v1/streams/${latestRun.id}`) : []
+      const response = await api<CustomerRuntimeApplication>(
+        `/api/v1/customer-runtime/applications/${id}`,
+      )
       if (generation !== loadGenerationRef.current) return
-      setApplication(nextApplication)
-      setDefinition(nextDefinition)
-      setFields(runtimeFields(nextDefinition.snapshot))
-      setRun(latestRun)
-      setEvents(nextEvents)
+      setApplication(response.application)
+      setDefinition(response.definition)
+      setFields(runtimeFields(response.definition.snapshot))
+      setRun(response.latest_run)
+      setEvents(response.latest_events)
       setAuthNeeded(false)
     } catch (caught) {
       if (generation !== loadGenerationRef.current) return
@@ -576,13 +584,10 @@ export default function CustomerRuntimePage() {
   }, [id])
 
   const refreshRun = useCallback(async (runId: string) => {
-    const [nextRun, nextEvents] = await Promise.all([
-      api<RunRecord>(`/api/v1/runs/${runId}`),
-      api<StoredEvent[]>(`/v1/streams/${runId}`),
-    ])
-    setRun(nextRun)
-    setEvents(nextEvents)
-    if (TERMINAL_STATUSES.has(nextRun.status) && pollRef.current) {
+    const response = await api<CustomerRuntimeRun>(`/api/v1/customer-runtime/runs/${runId}`)
+    setRun(response.run)
+    setEvents(response.events)
+    if (TERMINAL_STATUSES.has(response.run.status) && pollRef.current) {
       window.clearInterval(pollRef.current)
       pollRef.current = null
     }

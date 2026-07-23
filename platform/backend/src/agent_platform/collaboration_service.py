@@ -12,7 +12,7 @@ from functools import wraps
 from typing import Any, Awaitable, Callable, Mapping, Sequence
 from uuid import UUID, uuid4, uuid5, NAMESPACE_URL
 
-from pydantic import SecretStr, ValidationError
+from pydantic import BaseModel, SecretStr, ValidationError
 
 from .collaboration_models import (
     ApprovalDecision,
@@ -88,6 +88,218 @@ _DEVELOPER_VISIBLE_REPORT_STATUSES = frozenset(
         ReportStatus.unresolved,
     }
 )
+
+
+def _studio_derived_status(
+    *,
+    channel: CollaborationChannel,
+    reports: Sequence[CollaborationReport],
+    active_leases: Sequence[Mapping[str, Any]],
+    claims: Sequence[Mapping[str, Any]],
+    context: Mapping[str, Any] | None,
+    unread_count: int,
+) -> dict[str, Any]:
+    lease_by_report = {
+        str(item.get("report_id")): item
+        for item in active_leases
+        if item.get("report_id")
+    }
+    open_reports = [
+        report
+        for report in reports
+        if report.status
+        not in {
+            ReportStatus.rejected,
+            ReportStatus.withdrawn,
+            ReportStatus.independently_verified,
+            ReportStatus.task_package_amended,
+            ReportStatus.rejected_with_evidence,
+            ReportStatus.environment_restored,
+        }
+    ]
+    report = max(open_reports, key=lambda item: item.updated_at) if open_reports else None
+
+    def result(
+        block_code: str,
+        block_label: str,
+        owner_role: str,
+        owner_id: str,
+        owner_label: str,
+        why_waiting: str,
+        next_code: str,
+        next_label: str,
+    ) -> dict[str, Any]:
+        return {
+            "current_block": {"code": block_code, "label": block_label},
+            "owner": {
+                "role": owner_role,
+                "id": owner_id,
+                "label": owner_label,
+            },
+            "why_waiting": why_waiting,
+            "next_action": {"code": next_code, "label": next_label},
+            "unread_count": unread_count,
+        }
+
+    if report is not None:
+        status = report.status
+        if status is ReportStatus.awaiting_user_review:
+            return result(
+                "capability_approval",
+                "平台能力报告等待你的审查",
+                "user",
+                "studio-user",
+                "你",
+                "报告在批准前不会向 Codex 暴露正文或证据。",
+                "review_report",
+                "阅读 expected、actual、尝试和证据后批准、补证据或拒绝。",
+            )
+        if status in {
+            ReportStatus.observed,
+            ReportStatus.evidence_collecting,
+            ReportStatus.needs_more_evidence,
+            ReportStatus.verification_failed,
+        }:
+            return result(
+                "lilies_evidence",
+                "莉莉丝正在补齐或复验报告证据",
+                "lilies",
+                "lilies-local",
+                "莉莉丝",
+                "当前证据尚不足以继续路由，或原修复复验未通过。",
+                "await_lilies_evidence",
+                "等待同一莉莉丝会话提交新证据或新的复验结果。",
+            )
+        if status in {ReportStatus.approved_for_codex, ReportStatus.implementing}:
+            lease = lease_by_report.get(str(report.report_id))
+            owner_id = str(lease.get("owner_id")) if lease else "codex-developer"
+            return result(
+                "developer_implementation",
+                "Codex 正在处理已批准的平台报告"
+                if lease
+                else "已批准报告等待 Codex 领取",
+                "codex",
+                owner_id,
+                owner_id,
+                "报告已获用户批准；开发端必须持有有效租约才能回传结果。",
+                "developer_response" if lease else "acquire_developer_lease",
+                "提交包含 commit、测试、已知限制和复验步骤的 DeveloperResponse。"
+                if lease
+                else "由 Codex 开发端领取报告租约。",
+            )
+        if status is ReportStatus.ready_for_lilies_verification:
+            return result(
+                "lilies_reprobe",
+                "实现已返回，等待莉莉丝用原失败输入复验",
+                "lilies",
+                "lilies-local",
+                "莉莉丝",
+                "DeveloperResponse 不能自行关闭报告，必须由莉莉丝黑箱复验。",
+                "run_reprobe",
+                "按返回的复验步骤重跑并提交通过或失败证据。",
+            )
+        if status is ReportStatus.lilies_verified:
+            return result(
+                "independent_verification",
+                "莉莉丝复验通过，等待独立验证",
+                "verifier",
+                "independent-verifier",
+                "独立验证器",
+                "正式完成需要独立检查冻结 claim 和真实宿主证据。",
+                "verify_claim",
+                "独立验证器提交 expected/actual 和证据结论。",
+            )
+        if status in {
+            ReportStatus.reported,
+            ReportStatus.routed_to_task_author,
+            ReportStatus.environment_failed,
+            ReportStatus.unresolved,
+        }:
+            return result(
+                "task_or_environment_owner",
+                "题包或环境问题等待负责人处理",
+                "task_author",
+                "codex-task-author",
+                "题包/环境负责人",
+                "该类问题不能作为平台能力缺口绕过，也不能用 mock 替代。",
+                "amend_or_restore",
+                "修订题包或恢复真实环境，并附可复查证据。",
+            )
+        if status in {ReportStatus.lilies_rechecks, ReportStatus.lilies_health_checks}:
+            return result(
+                "lilies_recheck",
+                "题包或环境已更新，等待莉莉丝重新检查",
+                "lilies",
+                "lilies-local",
+                "莉莉丝",
+                "负责人已返回处理结果，但仍需原会话自行确认。",
+                "lilies_recheck",
+                "莉莉丝重跑同一检查并继续任务或提交差异。",
+            )
+
+    frozen_claims = [
+        item for item in claims if str(item.get("status")) == ClaimStatus.frozen.value
+    ]
+    if frozen_claims:
+        return result(
+            "independent_verification",
+            "完成 claim 等待独立验证",
+            "verifier",
+            "independent-verifier",
+            "独立验证器",
+            "莉莉丝的完成声明已冻结，但尚未成为正式成功。",
+            "verify_claim",
+            "独立验证器检查真实数据、副作用、工件与隐藏验收。",
+        )
+
+    assignment = _as_dict((context or {}).get("assignment"))
+    connection_status = str(assignment.get("connection_status") or "unknown")
+    daemon_status = str(assignment.get("daemon_status") or "")
+    assignment_status = str(assignment.get("status") or "")
+    if connection_status not in {"connected", "unknown"}:
+        return result(
+            "daemon_connection",
+            "本地莉莉丝连接不可用",
+            "user",
+            "studio-user",
+            "你",
+            "平台保留了完整时间线，但当前无法联系已配对 daemon。",
+            "reconnect_daemon",
+            "恢复或重新配对同一 daemon 后继续，不会改用旧 Builder。",
+        )
+    if daemon_status == "waiting_permission":
+        return result(
+            "runtime_permission",
+            "运行权限等待你的决定",
+            "user",
+            "studio-user",
+            "你",
+            "高风险工具调用必须单独批准，不会被能力报告批准替代。",
+            "resolve_permission",
+            "查看脱敏输入后选择“允许一次”或“拒绝”。",
+        )
+    if assignment_status in {"completed", "cancelled"}:
+        return result(
+            "none",
+            "当前没有阻塞",
+            "platform",
+            "platform",
+            "平台",
+            "任务已结束，历史和因果链仍可读取与导出。",
+            "inspect_history",
+            "查看结果、证据或导出完整因果链。",
+        )
+    return result(
+        "lilies_execution",
+        "莉莉丝正在执行当前任务",
+        "lilies",
+        "lilies-local",
+        "莉莉丝",
+        "当前没有需要用户或 Codex 处理的阻塞。",
+        "await_progress",
+        "等待新的可观测消息、工具结果、报告或完成 claim。",
+    )
+
 
 
 class CollaborationError(RuntimeError):
@@ -339,6 +551,16 @@ class CollaborationService:
             [str, EvidenceRef], Awaitable[bool] | bool
         ]
         | None = None,
+        studio_context_provider: Callable[
+            [CollaborationChannel],
+            Awaitable[Mapping[str, Any] | BaseModel] | Mapping[str, Any] | BaseModel,
+        ]
+        | None = None,
+        assignment_cancel_handler: Callable[
+            [UUID, str, str],
+            Awaitable[Any] | Any,
+        ]
+        | None = None,
     ) -> None:
         self.store = store
         self.enabled = enabled
@@ -355,6 +577,8 @@ class CollaborationService:
         self._draft_state_provider = draft_state_provider
         self._developer_commit_resolver = developer_commit_resolver
         self._developer_evidence_resolver = developer_evidence_resolver
+        self._studio_context_provider = studio_context_provider
+        self._assignment_cancel_handler = assignment_cancel_handler
         self._event_subscribers: dict[UUID, set[CollaborationEventSubscription]] = {}
 
     async def initialize(self) -> None:
@@ -2089,6 +2313,14 @@ class CollaborationService:
             payload=control,
             client_request_digest=client_request_digest,
         )
+        if self._assignment_cancel_handler is not None:
+            cancellation = self._assignment_cancel_handler(
+                channel.assignment_id,
+                f"collaboration.close.{request.idempotency_key}",
+                request.reason,
+            )
+            if inspect.isawaitable(cancellation):
+                await cancellation
         stored = await self.store.close_channel(
             channel_id,
             expected_revision=channel.revision,
@@ -2125,12 +2357,24 @@ class CollaborationService:
             status=parsed_status.value if parsed_status is not None else None,
             limit=limit,
         )
-        channels = [
-            CollaborationChannel.model_validate(item).model_dump(
-                mode="json", exclude_none=True
-            )
-            for item in _as_list(records)
-        ]
+        channels: list[dict[str, Any]] = []
+        get_reader_cursor = getattr(self.store, "get_reader_cursor", None)
+        for item in _as_list(records):
+            channel = CollaborationChannel.model_validate(item)
+            projected = channel.model_dump(mode="json", exclude_none=True)
+            if callable(get_reader_cursor):
+                cursor = _as_dict(
+                    await get_reader_cursor(
+                        channel.channel_id,
+                        actor.sender_id,
+                        reader_role=SenderRole.user,
+                    )
+                )
+                projected["unread_count"] = max(
+                    0,
+                    channel.next_seq - 1 - int(cursor.get("ack_seq", 0)),
+                )
+            channels.append(projected)
         return {"channels": channels, "count": len(channels)}
 
     async def get_channel_detail(
@@ -2143,11 +2387,12 @@ class CollaborationService:
         if actor.role is not SenderRole.user:
             raise CollaborationNotFound()
         channel = await self._channel(channel_id)
-        reports = [
-            CollaborationReport.model_validate(item).model_dump(
-                mode="json", exclude_none=True
-            )
+        typed_reports = [
+            CollaborationReport.model_validate(item)
             for item in _as_list(await self.store.list_reports(channel_id=channel_id))
+        ]
+        reports = [
+            item.model_dump(mode="json", exclude_none=True) for item in typed_reports
         ]
         messages: list[dict[str, Any]] = []
         after = 0
@@ -2162,11 +2407,93 @@ class CollaborationService:
             if len(page) < 5_000:
                 break
             after = int(page[-1]["seq"])
-        return {
+        context_projection: dict[str, Any] | None = None
+        result: dict[str, Any] = {
             "channel": channel.model_dump(mode="json", exclude_none=True),
             "reports": reports,
             "timeline": messages,
         }
+        if self._studio_context_provider is not None:
+            context = self._studio_context_provider(channel)
+            if inspect.isawaitable(context):
+                context = await context
+            if isinstance(context, BaseModel):
+                context = context.model_dump(mode="json", exclude_none=True)
+            if not isinstance(context, Mapping):
+                raise CollaborationConflict(
+                    "studio_context_invalid",
+                    "Studio collaboration context projection is unavailable",
+                )
+            context_projection = dict(context)
+            result["context"] = context_projection
+        active_leases: list[dict[str, Any]] = []
+        get_active_lease = getattr(self.store, "get_active_lease", None)
+        if callable(get_active_lease):
+            for report in typed_reports:
+                lease = await get_active_lease(report.report_id, now=self._now())
+                if lease is not None:
+                    active_leases.append(
+                        DeveloperLease.model_validate(lease).model_dump(
+                            mode="json",
+                            exclude_none=True,
+                        )
+                    )
+        claims: list[dict[str, Any]] = []
+        list_claims = getattr(self.store, "list_claims", None)
+        if callable(list_claims):
+            claims = [
+                VerificationClaim.model_validate(item).model_dump(
+                    mode="json",
+                    exclude_none=True,
+                )
+                for item in _as_list(
+                    await list_claims(channel_id=channel_id, after=0, limit=5_000)
+                )
+            ]
+        unread_count = max(0, channel.next_seq - 1)
+        reader_cursor: dict[str, Any] | None = None
+        get_reader_cursor = getattr(self.store, "get_reader_cursor", None)
+        if callable(get_reader_cursor):
+            reader_cursor = _as_dict(
+                await get_reader_cursor(
+                    channel_id,
+                    actor.sender_id,
+                    reader_role=SenderRole.user,
+                )
+            )
+            unread_count = max(
+                0,
+                channel.next_seq - 1 - int(reader_cursor.get("ack_seq", 0)),
+            )
+        result["active_leases"] = active_leases
+        result["claims"] = claims
+        result["derived"] = _studio_derived_status(
+            channel=channel,
+            reports=typed_reports,
+            active_leases=active_leases,
+            claims=claims,
+            context=context_projection,
+            unread_count=unread_count,
+        )
+        ack_reader = getattr(self.store, "ack_reader", None)
+        highest_seq = channel.next_seq - 1
+        if (
+            callable(ack_reader)
+            and reader_cursor is not None
+            and highest_seq > int(reader_cursor.get("ack_seq", 0))
+        ):
+            cursor_revision = int(reader_cursor.get("revision", 0))
+            await ack_reader(
+                channel_id,
+                actor.sender_id,
+                highest_seq,
+                reader_role=SenderRole.user,
+                expected_cursor_revision=cursor_revision,
+                idempotency_key=(
+                    f"studio.read.{channel_id.hex}.{highest_seq}.{cursor_revision}"
+                ),
+            )
+        return result
 
     async def export_causal_chain(
         self,

@@ -151,6 +151,42 @@ class _CollaborationWaitTarget:
         return f"{self.kind}:{self.identifier}"
 
 
+@dataclass(frozen=True, slots=True)
+class _DraftApplyRequest:
+    application_id: str
+    expected_revision: int
+    guards_content_hash: bool
+    expected_content_hash: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class _DraftApplySuccess:
+    application_id: str
+    revision: int
+    content_hash: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class _DraftApplyBatchChain:
+    application_id: str
+    declared_revision: int
+    returned_revision: int
+    prior_tool_call_id: str
+    guards_content_hash: bool
+    declared_content_hash: str | None
+    returned_content_hash: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class _PlatformAssignmentCompletionEvidence:
+    application_id: str
+    revision: int
+    content_hash: str
+    test_count: int
+    tool_use_id: str
+    turn_id: str
+
+
 class LocalLiliesService:
     """Standalone durable Lilies loop, independent from all workflow platform services."""
 
@@ -182,6 +218,13 @@ class LocalLiliesService:
     async def initialize(self) -> dict[str, int]:
         self.settings.prepare()
         self.recovery_summary = await self.storage.initialize()
+        completed_assignment_sessions = (
+            await self._reconcile_completed_platform_assignments()
+        )
+        self.recovery_summary = {
+            **self.recovery_summary,
+            "completed_assignment_sessions": completed_assignment_sessions,
+        }
         for session in await self.storage.list_sessions():
             assignment = session.get("assignment")
             if (
@@ -211,6 +254,317 @@ class LocalLiliesService:
             if waiting_turn is not None:
                 self._start_turn_task(session["id"], waiting_turn["id"])
         return self.recovery_summary
+
+    async def _reconcile_completed_platform_assignments(self) -> int:
+        """Promote legacy ready sessions whose durable assignment claim is complete.
+
+        Older daemons settled every successful model turn back to ``ready``.  The
+        platform therefore kept a BuildAssignment running even after Lilies had
+        tested the exact final draft and emitted its final delivery message.  This
+        startup-only reconciliation is deliberately conservative: it requires a
+        completed latest turn and reconstructs the same acceptance evidence used
+        by the live turn path before performing a ready -> completed CAS.
+        """
+
+        completed = 0
+        for session in await self.storage.list_sessions():
+            if (
+                session.get("status") != "ready"
+                or (session.get("config") or {}).get("kind") != "platform"
+                or not session.get("assignment_id")
+            ):
+                continue
+            turns = await self.storage.list_turns(str(session["id"]))
+            if not turns or turns[-1].get("status") != "completed":
+                continue
+            latest_turn_id = str(turns[-1]["id"])
+            evidence = await self._platform_assignment_completion_evidence(
+                str(session["id"]),
+                latest_turn_id,
+                session=session,
+            )
+            if evidence is None:
+                continue
+            try:
+                await self.storage.complete_ready_assignment_session(
+                    str(session["id"]),
+                    latest_turn_id,
+                    reason=(
+                        "reconciled durable platform acceptance evidence "
+                        f"for revision {evidence.revision}"
+                    ),
+                )
+            except LiliesConflictError:
+                # The storage transaction rechecks the ready session, active
+                # assignment receipt, latest completed turn, and no-active-turn
+                # invariants under BEGIN IMMEDIATE.
+                continue
+            completed += 1
+        return completed
+
+    async def _platform_assignment_completion_evidence(
+        self,
+        session_id: str,
+        turn_id: str,
+        *,
+        session: dict[str, Any] | None = None,
+    ) -> _PlatformAssignmentCompletionEvidence | None:
+        current = session or await self.storage.get_session(session_id)
+        messages = await self.storage.list_messages_for_compaction(session_id)
+        return self._platform_assignment_completion_from_messages(
+            current,
+            messages,
+            turn_id=turn_id,
+        )
+
+    @staticmethod
+    def _platform_assignment_completion_from_messages(
+        session: dict[str, Any],
+        messages: list[dict[str, Any]],
+        *,
+        turn_id: str,
+    ) -> _PlatformAssignmentCompletionEvidence | None:
+        """Reconstruct an exact, current test claim from the durable transcript."""
+
+        config = session.get("config")
+        assignment = session.get("assignment")
+        if (
+            not isinstance(config, dict)
+            or config.get("kind") != "platform"
+            or not isinstance(assignment, dict)
+            or str(assignment.get("assignment_id", ""))
+            != str(session.get("assignment_id", ""))
+        ):
+            return None
+        target = assignment.get("target")
+        if not isinstance(target, dict) or target.get("application_id") is None:
+            return None
+        application_id = str(target["application_id"])
+
+        def json_object(value: Any) -> dict[str, Any] | None:
+            if isinstance(value, dict):
+                return value
+            if not isinstance(value, str):
+                return None
+            try:
+                parsed = json.loads(value)
+            except (TypeError, ValueError):
+                return None
+            return parsed if isinstance(parsed, dict) else None
+
+        def mapping(value: Any) -> dict[str, Any]:
+            return value if isinstance(value, dict) else {}
+
+        def exact_integer(value: Any) -> int | None:
+            if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+                return value
+            return None
+
+        def first_revision(*values: Any) -> int | None:
+            for value in values:
+                revision = exact_integer(value)
+                if revision is not None:
+                    return revision
+            return None
+
+        def first_hash(*values: Any) -> str | None:
+            return next(
+                (
+                    value
+                    for value in values
+                    if isinstance(value, str) and bool(value.strip())
+                ),
+                None,
+            )
+
+        result_bindings: dict[
+            str,
+            tuple[str, dict[str, Any], str],
+        ] = {}
+        latest_state: tuple[int, str] | None = None
+        latest_test: _PlatformAssignmentCompletionEvidence | None = None
+        latest_test_message_index = -1
+        last_tool_activity_index = -1
+        final_claim_index = -1
+
+        for message_index, item in enumerate(messages):
+            if str(item.get("turn_id") or "") != turn_id:
+                continue
+            role = item.get("role")
+            content = item.get("content")
+            if not isinstance(content, list):
+                continue
+            if role == "assistant":
+                has_tool_use = False
+                has_delivery_text = False
+                tool_index = 0
+                for block in content:
+                    if not isinstance(block, dict):
+                        continue
+                    if block.get("type") == "tool_use":
+                        has_tool_use = True
+                        last_tool_activity_index = message_index
+                        tool_use_id = block.get("id")
+                        name = block.get("name")
+                        tool_input = block.get("input")
+                        if (
+                            tool_use_id is not None
+                            and isinstance(name, str)
+                            and isinstance(tool_input, dict)
+                        ):
+                            expected_result_id = (
+                                LocalLiliesService._tool_result_message_id(
+                                    turn_id,
+                                    str(item.get("id") or ""),
+                                    tool_index,
+                                    str(tool_use_id),
+                                )
+                            )
+                            result_bindings[expected_result_id] = (
+                                name,
+                                tool_input,
+                                str(tool_use_id),
+                            )
+                            if (
+                                str(tool_input.get("application_id") or "")
+                                == application_id
+                                and name
+                                in {
+                                    "platform_draft_apply",
+                                    "platform_tests_run",
+                                }
+                            ):
+                                latest_test = None
+                                latest_test_message_index = -1
+                        tool_index += 1
+                    elif (
+                        block.get("type") == "text"
+                        and isinstance(block.get("text"), str)
+                        and bool(str(block["text"]).strip())
+                    ):
+                        has_delivery_text = True
+                if has_delivery_text and not has_tool_use:
+                    final_claim_index = message_index
+                continue
+            if role != "tool":
+                continue
+
+            binding = result_bindings.get(str(item.get("id") or ""))
+            if binding is None or len(content) != 1:
+                last_tool_activity_index = message_index
+                continue
+            for block in content:
+                if not isinstance(block, dict) or block.get("type") != "tool_result":
+                    continue
+                last_tool_activity_index = message_index
+                tool_use_id = str(block.get("tool_use_id") or "")
+                name, tool_input, expected_tool_use_id = binding
+                if tool_use_id != expected_tool_use_id:
+                    continue
+                if str(tool_input.get("application_id") or "") != application_id:
+                    continue
+                if name not in {
+                    "platform_application_get",
+                    "platform_draft_inspect",
+                    "platform_draft_apply",
+                    "platform_tests_run",
+                }:
+                    continue
+
+                # Any later edit or test attempt supersedes the earlier passing
+                # claim. A failed edit is also conservative evidence debt until
+                # Lilies inspects and tests again.
+                if name in {"platform_draft_apply", "platform_tests_run"}:
+                    latest_test = None
+                    latest_test_message_index = -1
+                if block.get("is_error") is True:
+                    continue
+                envelope = json_object(block.get("content"))
+                if (
+                    envelope is None
+                    or envelope.get("ok") is not True
+                    or envelope.get("operation") != name
+                ):
+                    continue
+                data = envelope.get("data")
+                if not isinstance(data, dict):
+                    continue
+                response_application_id = data.get("application_id")
+                if (
+                    response_application_id is not None
+                    and str(response_application_id) != application_id
+                ):
+                    continue
+                draft = mapping(data.get("draft"))
+                validation = mapping(data.get("validation"))
+                revision = first_revision(
+                    data.get("draft_revision"),
+                    data.get("revision"),
+                    validation.get("revision"),
+                    draft.get("revision"),
+                )
+                content_hash = first_hash(
+                    data.get("content_hash"),
+                    validation.get("content_hash"),
+                    draft.get("content_hash"),
+                )
+                incoming_state = (
+                    (revision, content_hash)
+                    if revision is not None and content_hash is not None
+                    else None
+                )
+                if incoming_state is not None:
+                    if (
+                        latest_state is None
+                        or incoming_state[0] > latest_state[0]
+                        or incoming_state[0] == latest_state[0]
+                    ):
+                        latest_state = incoming_state
+
+                if name != "platform_tests_run" or incoming_state is None:
+                    continue
+                summary = mapping(data.get("summary"))
+                test_count = exact_integer(validation.get("test_count"))
+                tests = data.get("tests")
+                passing = (
+                    data.get("passed") is True
+                    and validation.get("valid") is True
+                    and test_count is not None
+                    and test_count > 0
+                    and exact_integer(summary.get("total")) == test_count
+                    and exact_integer(summary.get("passed")) == test_count
+                    and exact_integer(summary.get("failed")) == 0
+                    and exact_integer(summary.get("mandatory_failed")) == 0
+                    and isinstance(tests, list)
+                    and len(tests) == test_count
+                    and all(
+                        isinstance(test, dict) and test.get("passed") is True
+                        for test in tests
+                    )
+                )
+                if not passing:
+                    continue
+                if latest_state != incoming_state:
+                    continue
+                latest_test = _PlatformAssignmentCompletionEvidence(
+                    application_id=application_id,
+                    revision=incoming_state[0],
+                    content_hash=incoming_state[1],
+                    test_count=test_count,
+                    tool_use_id=tool_use_id,
+                    turn_id=turn_id,
+                )
+                latest_test_message_index = message_index
+
+        if (
+            latest_test is None
+            or latest_state
+            != (latest_test.revision, latest_test.content_hash)
+            or final_claim_index <= latest_test_message_index
+            or final_claim_index <= last_tool_activity_index
+        ):
+            return None
+        return latest_test
 
     async def tool_registry_for_session(
         self,
@@ -1040,17 +1394,50 @@ class LocalLiliesService:
                     self._cumulative_metrics(session),
                     metrics,
                 )
+                permission_pending = turn.get("checkpoint", {}).get(
+                    "pending", {}
+                )
+                permission_result_message_id = (
+                    permission_pending.get("tool_result_message_id")
+                    if isinstance(permission_pending, dict)
+                    else None
+                )
                 result = await self._complete_resolved_permission(
                     session_id,
                     turn,
                     resume_permission,
                     metrics,
                 )
-                await self._add_tool_result_message(session_id, turn_id, result)
+                await self._add_tool_result_message(
+                    session_id,
+                    turn_id,
+                    result,
+                    message_id=(
+                        str(permission_result_message_id)
+                        if isinstance(permission_result_message_id, str)
+                        else None
+                    ),
+                )
+                # A daemon restart can resume one permission-gated call from an
+                # assistant turn that requested several tools.  Never send the
+                # provider a partial tool-result set: seal every sibling call
+                # that was not durably executed before continuing the model
+                # loop.  _model_messages() coalesces these adjacent durable
+                # records into the single Anthropic-compatible user message.
+                await self._close_uncertain_tool_calls(session_id)
             await self._run_model_loop(session_id, turn_id, metrics)
+            completion_evidence = (
+                await self._platform_assignment_completion_evidence(
+                    session_id,
+                    turn_id,
+                )
+            )
             await self.storage.finish_turn(
                 turn_id,
                 "completed",
+                session_status=(
+                    "completed" if completion_evidence is not None else None
+                ),
                 token_count=self._token_total(metrics.usage),
                 cost_usd=metrics.usage.cost_usd,
                 tool_count=metrics.tool_calls,
@@ -1172,12 +1559,13 @@ class LocalLiliesService:
                         block.input or {},
                     )
                 durable_visible_blocks.append(projection)
-            await self.storage.add_message(
+            assistant_message = await self.storage.add_message(
                 session_id,
                 "assistant",
                 durable_visible_blocks,
                 turn_id=turn_id,
             )
+            assistant_message_id = str(assistant_message["id"])
             add_usage(metrics.usage, response.usage)
             tool_calls = [block for block in visible_blocks if block.type == "tool_use"]
             await self._checkpoint(
@@ -1190,41 +1578,159 @@ class LocalLiliesService:
             if not tool_calls:
                 return
             wait_target: _CollaborationWaitTarget | None = None
+            draft_apply_chain: _DraftApplyBatchChain | None = None
             for index, block in enumerate(tool_calls):
+                tool_result_message_id = self._tool_result_message_id(
+                    turn_id,
+                    assistant_message_id,
+                    index,
+                    block.id,
+                )
+                execution_block = block
+                draft_apply_request = self._draft_apply_request(block)
+                if block.name == "platform_draft_apply":
+                    if (
+                        draft_apply_request is not None
+                        and draft_apply_chain is not None
+                        and self._can_chain_draft_apply(
+                            draft_apply_chain,
+                            draft_apply_request,
+                        )
+                    ):
+                        effective_input = dict(block.input or {})
+                        effective_input["expected_revision"] = (
+                            draft_apply_chain.returned_revision
+                        )
+                        if draft_apply_chain.guards_content_hash:
+                            effective_input["expected_content_hash"] = (
+                                draft_apply_chain.returned_content_hash
+                            )
+                        execution_block = block.model_copy(
+                            update={"input": effective_input}
+                        )
+                        rebase_event: dict[str, Any] = {
+                            "turn_id": turn_id,
+                            "tool_call_id": block.id,
+                            "tool": "platform_draft_apply",
+                            "application_id": draft_apply_request.application_id,
+                            "original_expected_revision": (
+                                draft_apply_request.expected_revision
+                            ),
+                            "effective_expected_revision": (
+                                draft_apply_chain.returned_revision
+                            ),
+                            "reason": (
+                                "prior_same_turn_same_application_"
+                                "draft_apply_succeeded"
+                            ),
+                            "prior_tool_call_id": (
+                                draft_apply_chain.prior_tool_call_id
+                            ),
+                        }
+                        if draft_apply_chain.guards_content_hash:
+                            rebase_event.update(
+                                {
+                                    "original_expected_content_hash": (
+                                        draft_apply_request.expected_content_hash
+                                    ),
+                                    "effective_expected_content_hash": (
+                                        draft_apply_chain.returned_content_hash
+                                    ),
+                                }
+                            )
+                        await self._emit(
+                            session_id,
+                            "tool.input_rebased",
+                            rebase_event,
+                        )
+                    else:
+                        # A failed/malformed predecessor, another application,
+                        # or an explicitly different precondition starts a new
+                        # independent chain.  It must execute exactly as the
+                        # model requested so a real 409 remains visible.
+                        draft_apply_chain = None
+                else:
+                    # Chaining is deliberately limited to consecutive draft
+                    # mutations in one assistant tool-use turn.
+                    draft_apply_chain = None
                 result = await self._execute_tool(
                     session_id,
                     turn_id,
-                    block,
+                    execution_block,
                     metrics,
                     config,
                     deadline,
                     baseline,
                     tools,
+                    tool_result_message_id=tool_result_message_id,
                 )
+                try:
+                    await self._add_tool_result_message(
+                        session_id,
+                        turn_id,
+                        result,
+                        message_id=tool_result_message_id,
+                    )
+                except Exception as error:
+                    if (
+                        self._is_collaboration_mutation(block.name or "")
+                        or self._collaboration_wait_target(
+                            block.name or "",
+                            block.input or {},
+                            result,
+                        )
+                        is not None
+                    ):
+                        raise LiliesCollaborationDurabilityError(
+                            "remote collaboration result awaits durable recovery"
+                        ) from error
+                    raise
+                effective_draft_request = self._draft_apply_request(
+                    execution_block
+                )
+                draft_apply_success = self._draft_apply_success(result)
+                if (
+                    draft_apply_request is not None
+                    and effective_draft_request is not None
+                    and draft_apply_success is not None
+                    and draft_apply_success.application_id
+                    == draft_apply_request.application_id
+                    and draft_apply_success.revision
+                    > effective_draft_request.expected_revision
+                    and (
+                        not draft_apply_request.guards_content_hash
+                        or draft_apply_success.content_hash is not None
+                    )
+                ):
+                    draft_apply_chain = _DraftApplyBatchChain(
+                        application_id=draft_apply_request.application_id,
+                        declared_revision=draft_apply_request.expected_revision,
+                        returned_revision=draft_apply_success.revision,
+                        prior_tool_call_id=str(block.id or ""),
+                        guards_content_hash=(
+                            draft_apply_request.guards_content_hash
+                        ),
+                        declared_content_hash=(
+                            draft_apply_request.expected_content_hash
+                        ),
+                        returned_content_hash=draft_apply_success.content_hash,
+                    )
+                elif block.name == "platform_draft_apply":
+                    draft_apply_chain = None
                 candidate = self._collaboration_wait_target(
                     block.name or "",
                     block.input or {},
                     result,
                 )
                 if candidate is None:
-                    await self._add_tool_result_message(
-                        session_id,
-                        turn_id,
-                        result,
-                        message_id=(
-                            self._collaboration_result_message_id(
-                                turn_id, block.id
-                            )
-                            if self._is_collaboration_mutation(block.name or "")
-                            else None
-                        ),
-                    )
                     continue
 
                 wait_target = candidate
-                result_blocks = [result.model_dump(mode="json", exclude_none=True)]
-                for skipped in tool_calls[index + 1 :]:
-                    result_blocks.append(
+                for skipped_index, skipped in enumerate(
+                    tool_calls[index + 1 :],
+                    start=index + 1,
+                ):
+                    skipped_result = ContentBlock.model_validate(
                         {
                             "type": "tool_result",
                             "tool_use_id": skipped.id,
@@ -1234,6 +1740,17 @@ class LocalLiliesService:
                             ),
                             "is_error": True,
                         }
+                    )
+                    await self._add_tool_result_message(
+                        session_id,
+                        turn_id,
+                        skipped_result,
+                        message_id=self._tool_result_message_id(
+                            turn_id,
+                            assistant_message_id,
+                            skipped_index,
+                            skipped.id,
+                        )
                     )
                 current = await self.storage.get_session(session_id)
                 cursor = int(current.get("last_pipeline_cursor", 0))
@@ -1249,18 +1766,94 @@ class LocalLiliesService:
                             "pipeline_cursor": cursor,
                         },
                     },
-                    tool_result_content=result_blocks,
-                    tool_result_message_id=str(
-                        uuid5(
-                            NAMESPACE_URL,
-                            f"lilies:collaboration-wait-result:{turn_id}:{block.id}",
-                        )
-                    ),
                 )
                 break
             if wait_target is not None:
                 await self._await_collaboration_updates(session_id, turn_id)
             session = await self.storage.get_session(session_id)
+
+    @staticmethod
+    def _draft_apply_request(
+        block: ContentBlock,
+    ) -> _DraftApplyRequest | None:
+        if block.name != "platform_draft_apply" or not isinstance(block.input, dict):
+            return None
+        raw_application_id = block.input.get("application_id")
+        raw_revision = block.input.get("expected_revision")
+        if isinstance(raw_revision, bool) or not isinstance(raw_revision, int):
+            return None
+        try:
+            application_id = str(UUID(str(raw_application_id)))
+        except (TypeError, ValueError):
+            return None
+        guards_content_hash = "expected_content_hash" in block.input
+        raw_content_hash = block.input.get("expected_content_hash")
+        if guards_content_hash and (
+            not isinstance(raw_content_hash, str) or not raw_content_hash
+        ):
+            return None
+        return _DraftApplyRequest(
+            application_id=application_id,
+            expected_revision=raw_revision,
+            guards_content_hash=guards_content_hash,
+            expected_content_hash=(
+                raw_content_hash if isinstance(raw_content_hash, str) else None
+            ),
+        )
+
+    @staticmethod
+    def _draft_apply_success(
+        result: ContentBlock,
+    ) -> _DraftApplySuccess | None:
+        if result.is_error or not isinstance(result.content, str):
+            return None
+        try:
+            envelope = json.loads(result.content)
+            data = envelope["data"]
+        except (KeyError, TypeError, ValueError):
+            return None
+        if (
+            not isinstance(envelope, dict)
+            or envelope.get("ok") is not True
+            or envelope.get("operation") != "platform_draft_apply"
+            or not isinstance(data, dict)
+        ):
+            return None
+        raw_revision = data.get("revision")
+        if isinstance(raw_revision, bool) or not isinstance(raw_revision, int):
+            return None
+        try:
+            application_id = str(UUID(str(data.get("application_id"))))
+        except (TypeError, ValueError):
+            return None
+        raw_content_hash = data.get("content_hash")
+        return _DraftApplySuccess(
+            application_id=application_id,
+            revision=raw_revision,
+            content_hash=(
+                raw_content_hash
+                if isinstance(raw_content_hash, str) and raw_content_hash
+                else None
+            ),
+        )
+
+    @staticmethod
+    def _can_chain_draft_apply(
+        chain: _DraftApplyBatchChain,
+        request: _DraftApplyRequest,
+    ) -> bool:
+        return (
+            request.application_id == chain.application_id
+            and request.expected_revision == chain.declared_revision
+            and request.guards_content_hash == chain.guards_content_hash
+            and (
+                not request.guards_content_hash
+                or (
+                    request.expected_content_hash == chain.declared_content_hash
+                    and chain.returned_content_hash is not None
+                )
+            )
+        )
 
     @staticmethod
     def _collaboration_wait_target(
@@ -1674,6 +2267,8 @@ class LocalLiliesService:
         deadline: datetime,
         baseline: CumulativeMetrics,
         tools: LiliesToolRegistry,
+        *,
+        tool_result_message_id: str | None = None,
     ) -> ContentBlock:
         metrics.tool_calls += 1
         self._enforce_limits(config, deadline, baseline, metrics)
@@ -1752,6 +2347,7 @@ class LocalLiliesService:
                     tool,
                     validated,
                     metrics,
+                    tool_result_message_id=tool_result_message_id,
                 )
                 self._enforce_limits(config, deadline, baseline, metrics)
             await self._require_refreshed_contract_for_reprobe(
@@ -1764,6 +2360,10 @@ class LocalLiliesService:
                 "tool_name": tool_name,
                 "tool_input_digest": self._digest_json(validated),
             }
+            if tool_result_message_id is not None:
+                execution_pending["tool_result_message_id"] = (
+                    tool_result_message_id
+                )
             if collaboration_tool and tool.side_effecting:
                 execution_pending.update(
                     {
@@ -1821,6 +2421,7 @@ class LocalLiliesService:
                     tool_input=validated,
                     result=result,
                     metrics=metrics,
+                    tool_result_message_id=tool_result_message_id,
                 )
             except Exception as error:
                 if collaboration_tool and tool.side_effecting:
@@ -1874,6 +2475,7 @@ class LocalLiliesService:
         tool_input: dict[str, Any],
         result: ContentBlock,
         metrics: TurnMetrics,
+        tool_result_message_id: str | None = None,
     ) -> None:
         target = self._collaboration_wait_target(tool_name, tool_input, result)
         if target is None and not self._is_collaboration_mutation(tool_name):
@@ -1887,8 +2489,11 @@ class LocalLiliesService:
             return
         session = await self.storage.get_session(session_id)
         cursor = int(session.get("last_pipeline_cursor", 0))
-        message_id = self._collaboration_result_message_id(
-            turn_id, result.tool_use_id
+        message_id = (
+            tool_result_message_id
+            or self._collaboration_result_message_id(
+                turn_id, result.tool_use_id
+            )
         )
         await self._checkpoint(
             turn_id,
@@ -1950,6 +2555,15 @@ class LocalLiliesService:
             content=self._model_tool_result_content(tool, outcome),
             is_error=outcome.is_error,
         )
+        pending_result_message_id = pending.get("tool_result_message_id")
+        result_message_id = (
+            str(pending_result_message_id)
+            if isinstance(pending_result_message_id, str)
+            else self._collaboration_result_message_id(
+                turn_id,
+                tool_call_id,
+            )
+        )
         try:
             await self._checkpoint_completed_tool_result(
                 session_id=session_id,
@@ -1958,6 +2572,7 @@ class LocalLiliesService:
                 tool_input=validated,
                 result=result,
                 metrics=metrics,
+                tool_result_message_id=result_message_id,
             )
         except Exception as error:
             raise LiliesCollaborationDurabilityError(
@@ -1982,9 +2597,7 @@ class LocalLiliesService:
                 tool_result_content=[
                     result.model_dump(mode="json", exclude_none=True)
                 ],
-                tool_result_message_id=self._collaboration_result_message_id(
-                    turn_id, tool_call_id
-                ),
+                tool_result_message_id=result_message_id,
             )
             await self._await_collaboration_updates(session_id, turn_id)
         else:
@@ -1992,9 +2605,7 @@ class LocalLiliesService:
                 session_id,
                 turn_id,
                 result,
-                message_id=self._collaboration_result_message_id(
-                    turn_id, tool_call_id
-                ),
+                message_id=result_message_id,
             )
         await self._close_uncertain_tool_calls(session_id)
 
@@ -2103,6 +2714,8 @@ class LocalLiliesService:
         tool: LiliesTool,
         tool_input: dict[str, Any],
         metrics: TurnMetrics,
+        *,
+        tool_result_message_id: str | None = None,
     ) -> dict[str, Any]:
         durable_tool_input = tool_input
         if self._is_collaboration_tool(tool.name):
@@ -2119,16 +2732,19 @@ class LocalLiliesService:
                 raise LiliesServiceError("collaboration tool input projection is invalid")
             durable_tool_input = projected
         input_digest = self._digest_json(durable_tool_input)
+        pending: dict[str, Any] = {
+            "tool_call_id": block.id,
+            "tool_name": tool.name,
+            "tool_input": durable_tool_input,
+            "tool_input_digest": input_digest,
+        }
+        if tool_result_message_id is not None:
+            pending["tool_result_message_id"] = tool_result_message_id
         await self._checkpoint(
             turn_id,
             "waiting_permission",
             metrics,
-            {
-                "tool_call_id": block.id,
-                "tool_name": tool.name,
-                "tool_input": durable_tool_input,
-                "tool_input_digest": input_digest,
-            },
+            pending,
             side_effect_state="awaiting_permission",
         )
         permission = await self.storage.create_permission_request(
@@ -2218,6 +2834,11 @@ class LocalLiliesService:
         checkpoint = turn["checkpoint"]
         pending = checkpoint.get("pending", checkpoint)
         tool_call_id = permission.get("tool_call_id") or pending.get("tool_call_id")
+        tool_result_message_id = (
+            pending.get("tool_result_message_id")
+            if isinstance(pending, dict)
+            else None
+        )
         tool_name = permission["tool_name"]
         if permission["status"] != "allowed":
             return ContentBlock(
@@ -2238,15 +2859,20 @@ class LocalLiliesService:
             tool_name=tool_name,
             tool_input=validated,
         )
+        execution_pending: dict[str, Any] = {
+            "tool_call_id": tool_call_id,
+            "tool_name": tool_name,
+            "tool_input_digest": self._digest_json(validated),
+        }
+        if isinstance(tool_result_message_id, str):
+            execution_pending["tool_result_message_id"] = (
+                tool_result_message_id
+            )
         await self._checkpoint(
             turn["id"],
             "tool_executing",
             metrics,
-            {
-                "tool_call_id": tool_call_id,
-                "tool_name": tool_name,
-                "tool_input_digest": self._digest_json(validated),
-            },
+            execution_pending,
             side_effect_state="executing" if tool.side_effecting else "read_only",
         )
         await self._emit(
@@ -2339,34 +2965,183 @@ class LocalLiliesService:
     async def _add_tool_result_message(
         self,
         session_id: str,
-        turn_id: str,
+        turn_id: str | None,
         result: ContentBlock,
         *,
         message_id: str | None = None,
     ) -> None:
-        await self.storage.add_message(
+        await self._add_tool_result_messages(
             session_id,
-            "tool",
-            [result.model_dump(mode="json", exclude_none=True)],
-            turn_id=turn_id,
+            turn_id,
+            [result],
             message_id=message_id,
+        )
+
+    async def _add_tool_result_messages(
+        self,
+        session_id: str,
+        turn_id: str | None,
+        results: list[ContentBlock],
+        *,
+        message_id: str | None = None,
+    ) -> None:
+        if not results:
+            return
+        content = [
+            result.model_dump(mode="json", exclude_none=True)
+            for result in results
+        ]
+        durable_message_id = message_id or self._tool_result_batch_message_id(
+            turn_id,
+            results,
+        )
+        try:
+            await self.storage.add_message(
+                session_id,
+                "tool",
+                content,
+                turn_id=turn_id,
+                message_id=durable_message_id,
+            )
+        except LiliesConflictError:
+            existing = next(
+                (
+                    item
+                    for item in await self.storage.list_messages_for_compaction(
+                        session_id
+                    )
+                    if item["id"] == durable_message_id
+                ),
+                None,
+            )
+            if (
+                existing is None
+                or existing["role"] != "tool"
+                or existing.get("turn_id") != turn_id
+                or existing["content"] != content
+            ):
+                raise
+
+    @staticmethod
+    def _tool_result_batch_message_id(
+        turn_id: str | None,
+        results: list[ContentBlock],
+    ) -> str:
+        ordered_tool_use_ids = "\x1f".join(
+            str(result.tool_use_id or "")
+            for result in results
+        )
+        return str(
+            uuid5(
+                NAMESPACE_URL,
+                f"lilies:tool-result-batch:{turn_id}:{ordered_tool_use_ids}",
+            )
+        )
+
+    @staticmethod
+    def _tool_result_message_id(
+        turn_id: str,
+        assistant_message_id: str,
+        tool_index: int,
+        tool_call_id: str | None,
+    ) -> str:
+        """Bind one durable result to one concrete assistant tool-use slot.
+
+        Provider-generated tool call identifiers are not guaranteed to remain
+        unique across model rounds.  The assistant message identity and slot
+        keep idempotent recovery local to the exact request that was executed.
+        """
+
+        return str(
+            uuid5(
+                NAMESPACE_URL,
+                (
+                    "lilies:tool-result:"
+                    f"{turn_id}:{assistant_message_id}:{tool_index}:{tool_call_id}"
+                ),
+            )
         )
 
     async def _model_messages(self, session_id: str) -> list[ChatMessage]:
         result: list[ChatMessage] = []
         session = await self.storage.get_session(session_id)
         messages = await self.storage.list_recent_messages(session_id, limit=5000)
-        if session.get("context_summary"):
-            messages = messages[-8:]
         for item in messages:
             if item["role"] == "system":
                 continue
             role = "assistant" if item["role"] == "assistant" else "user"
             blocks = [ContentBlock.model_validate(block) for block in item["content"]]
             blocks = [block for block in blocks if block.type != "thinking"]
-            if blocks:
+            if not blocks:
+                continue
+            # Persist each result independently so a later sibling failure
+            # cannot erase an already-executed result, then reconstruct the
+            # provider-required single user message without rewriting durable
+            # history (and therefore without disturbing event/ack cursors).
+            # This also folds explicit resume text into that user turn after
+            # recovered results, as required by Anthropic-compatible rules.
+            prior_has_tool_result = bool(
+                result
+                and result[-1].role == "user"
+                and any(
+                    block.type == "tool_result"
+                    for block in result[-1].content
+                )
+            )
+            if (
+                role == "user"
+                and result
+                and result[-1].role == "user"
+                and (item["role"] == "tool" or prior_has_tool_result)
+            ):
+                result[-1] = ChatMessage(
+                    role=role,
+                    content=[*result[-1].content, *blocks],
+                )
+            else:
                 result.append(ChatMessage(role=role, content=blocks))
+        if session.get("context_summary"):
+            result = self._provider_safe_message_tail(result, limit=8)
         return result
+
+    @staticmethod
+    def _provider_safe_message_tail(
+        messages: list[ChatMessage],
+        *,
+        limit: int,
+    ) -> list[ChatMessage]:
+        """Trim compacted history only at a complete provider turn boundary."""
+
+        if len(messages) <= limit:
+            return messages
+        start = len(messages) - limit
+        # A tool-result user message belongs to the immediately preceding
+        # assistant tool-use message. An assistant message in turn belongs to
+        # its preceding ordinary user request. Walk back to that request
+        # instead of cutting a protocol pair at an arbitrary database row.
+        while start > 0:
+            candidate = messages[start]
+            has_tool_result = (
+                candidate.role == "user"
+                and any(
+                    block.type == "tool_result"
+                    for block in candidate.content
+                )
+            )
+            if candidate.role == "assistant" or has_tool_result:
+                start -= 1
+                continue
+            break
+        tail = messages[start:]
+        # Fail closed on already-corrupt legacy history where no preceding
+        # request exists at all. The deterministic context summary preserves
+        # the older evidence; orphan protocol blocks must not reach providers.
+        while tail and (
+            tail[0].role == "assistant"
+            or any(block.type == "tool_result" for block in tail[0].content)
+        ):
+            tail = tail[1:]
+        return tail
 
     async def _compact_if_needed(
         self,
@@ -4884,31 +5659,66 @@ class LocalLiliesService:
 
     async def _close_uncertain_tool_calls(self, session_id: str) -> None:
         messages = await self.storage.list_messages_for_compaction(session_id)
-        requested: list[str] = []
-        resolved: set[str] = set()
-        for item in messages:
-            for block in item["content"]:
-                if block.get("type") == "tool_use" and block.get("id"):
-                    requested.append(str(block["id"]))
-                elif block.get("type") == "tool_result" and block.get("tool_use_id"):
-                    resolved.add(str(block["tool_use_id"]))
-        missing = [tool_call_id for tool_call_id in requested if tool_call_id not in resolved]
-        for tool_call_id in missing:
-            await self.storage.add_message(
-                session_id,
-                "tool",
-                [
-                    {
-                        "type": "tool_result",
-                        "tool_use_id": tool_call_id,
-                        "content": (
-                            "The daemon was interrupted before a durable result was recorded. "
-                            "The side effect is uncertain and was not replayed automatically."
+        for message_index, item in enumerate(messages):
+            if item["role"] != "assistant":
+                continue
+            requested = [
+                (tool_index, str(block["id"]))
+                for tool_index, block in enumerate(
+                    [
+                        block
+                        for block in item["content"]
+                        if block.get("type") == "tool_use" and block.get("id")
+                    ]
+                )
+            ]
+            if not requested:
+                continue
+            resolved: list[str] = []
+            for following in messages[message_index + 1 :]:
+                if following["role"] == "assistant":
+                    break
+                resolved.extend(
+                    str(block["tool_use_id"])
+                    for block in following["content"]
+                    if (
+                        block.get("type") == "tool_result"
+                        and block.get("tool_use_id")
+                    )
+                )
+            unresolved = list(resolved)
+            for tool_index, tool_call_id in requested:
+                try:
+                    unresolved.remove(tool_call_id)
+                except ValueError:
+                    durable_turn_id = item.get("turn_id")
+                    turn_identity = str(
+                        durable_turn_id or f"session:{session_id}"
+                    )
+                    await self._add_tool_result_message(
+                        session_id,
+                        (
+                            str(durable_turn_id)
+                            if isinstance(durable_turn_id, str)
+                            else None
                         ),
-                        "is_error": True,
-                    }
-                ],
-            )
+                        ContentBlock(
+                            type="tool_result",
+                            tool_use_id=tool_call_id,
+                            content=(
+                                "The daemon was interrupted before a durable result "
+                                "was recorded. The side effect is uncertain and was "
+                                "not replayed automatically."
+                            ),
+                            is_error=True,
+                        ),
+                        message_id=self._tool_result_message_id(
+                            turn_identity,
+                            str(item["id"]),
+                            tool_index,
+                            tool_call_id,
+                        ),
+                    )
 
     @staticmethod
     def _cumulative_metrics(session: dict[str, Any]) -> CumulativeMetrics:

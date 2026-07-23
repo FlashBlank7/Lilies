@@ -60,6 +60,12 @@ from .complexity_router import (
 )
 from .collaboration_service import CollaborationService
 from .collaboration_storage import CollaborationStore
+from .customer_runtime_projection import (
+    project_runtime_application,
+    project_runtime_definition,
+    project_runtime_events,
+    project_runtime_run,
+)
 from .connector_sdk import (
     ConnectorAdapterError,
     ConnectorCallback,
@@ -83,6 +89,9 @@ from .draft_patch_preview import (
     DraftPatchPreviewer,
     DraftPatchPreviewRequest,
     DraftPatchPreviewResponse,
+    NaturalLanguageDraftEditRequest,
+    NaturalLanguageDraftEditResponse,
+    validate_selection_operations,
 )
 from .durable_jobs import DurableJobConflict, DurableJobStore
 from .acceptance_repair import (
@@ -119,7 +128,11 @@ from .openapi_connector import (
 )
 from .platform_blackbox_auth import PlatformBlackboxAuthStore
 from .platform_blackbox_artifacts import PlatformBlackboxArtifactStore
-from .local_lilies_bridge import LocalLiliesBridge, LocalLiliesBridgeStore
+from .local_lilies_bridge import (
+    LocalLiliesBridge,
+    LocalLiliesBridgeConflict,
+    LocalLiliesBridgeStore,
+)
 from .local_lilies_client import LocalLiliesHttpClient
 from .platform_contract_version import (
     PlatformContractVersionStore,
@@ -1696,27 +1709,45 @@ async def _model_workflow_edit_preview(
     task_id: str,
     snapshot: ApplicationSnapshot,
     revision: int,
-    body: DraftPatchPreviewRequest,
+    body: DraftPatchPreviewRequest | NaturalLanguageDraftEditRequest,
 ) -> DraftPatchPreviewResponse:
     model = services.settings.deepseek_runtime_model
     block_catalog = [
         {
             "type": block.type,
+            "version": block.version,
             "title": block.title,
             "description": block.description,
+            "config_schema": block.config_schema,
+            "input_ports": [
+                port.model_dump(mode="json")
+                for port in block.input_ports
+            ],
+            "output_ports": [
+                port.model_dump(mode="json")
+                for port in block.output_ports
+            ],
         }
         for block in services.blocks.list()
     ]
     system = (
         "You are Lilies' whole-workflow editing planner. Translate one natural-language "
         "instruction into precise, reviewable draft operations over the supplied workflow. "
-        "Referenced nodes are context, not an edit-scope restriction. Preserve everything the "
-        "user did not ask to change. Never store the instruction itself as the workflow requirement "
+        "reference_node_ids are context only. node_ids and edge_ids are the user's boxed selection "
+        "and therefore the primary edit target. Preserve everything the user did not ask to change. "
+        "When a selection exists, modify unselected structure only when required to keep graph "
+        "connections valid; explain every such boundary change in warnings. Never store the "
+        "instruction itself as the workflow requirement "
         "or description as a substitute for a structural edit. Resolve human node titles to the "
         "existing node ids. Use only the listed block types and only these operations: add_node, "
         "update_node, remove_node, add_edge, remove_edge, set_metadata, upsert_agent, add_test, "
         "remove_test, set_capability_build_contract. For update_node, use data.node_id, "
-        "data.changes, and data.merge_config. For set_metadata, include only fields explicitly "
+        "data.changes, and data.merge_config. data.changes may contain only NodeSpec fields: "
+        "type, block_version, title, description, config, position, retry, error_strategy, "
+        "contract, degraded_value, or fallback_value. Put block-specific settings such as "
+        "system, prompt, model, and structured_output inside data.changes.config; with "
+        "merge_config=true that config object is deep-merged into the existing node config. "
+        "For set_metadata, include only fields explicitly "
         "requested. If the instruction is ambiguous, return supported=false with one concise "
         "clarification question and no operations. Return JSON only with keys supported, intent, "
         "message, operations, warnings."
@@ -1724,7 +1755,9 @@ async def _model_workflow_edit_preview(
     prompt = json.dumps(
         {
             "instruction": body.instruction,
-            "reference_node_ids": body.reference_node_ids,
+            "reference_node_ids": getattr(body, "reference_node_ids", []),
+            "node_ids": body.node_ids,
+            "edge_ids": body.edge_ids,
             "expected_revision": revision,
             "snapshot": snapshot.model_dump(mode="json"),
             "available_blocks": block_catalog,
@@ -1787,7 +1820,9 @@ async def _model_workflow_edit_preview(
             message=str(payload.get("message") or "The workflow edit needs clarification."),
             operations=[],
             warnings=[str(item) for item in payload.get("warnings", []) if str(item).strip()],
-            reference_node_ids=body.reference_node_ids,
+            reference_node_ids=getattr(body, "reference_node_ids", []),
+            node_ids=body.node_ids,
+            edge_ids=body.edge_ids,
         )
     raw_operations = payload.get("operations")
     if not isinstance(raw_operations, list) or not raw_operations:
@@ -1815,6 +1850,15 @@ async def _model_workflow_edit_preview(
             raise ValueError("AI workflow edit attempted to overwrite the requirement without a requirement-change request")
         parsed_operations.append(operation)
     services.applications.validate_preview_operations(snapshot, parsed_operations)
+    selection_warnings = validate_selection_operations(
+        snapshot,
+        [
+            operation.model_dump(mode="json", exclude={"idempotency_key"})
+            for operation in parsed_operations
+        ],
+        node_ids=body.node_ids,
+        edge_ids=body.edge_ids,
+    )
     intent = str(payload.get("intent") or "multi_operation_edit")
     if intent not in {
         "multi_operation_edit",
@@ -1828,6 +1872,7 @@ async def _model_workflow_edit_preview(
     }:
         intent = "multi_operation_edit"
     warnings = [str(item) for item in payload.get("warnings", []) if str(item).strip()]
+    warnings.extend(selection_warnings)
     warnings.append("AI-generated whole-workflow preview; inspect every operation before applying.")
     return DraftPatchPreviewResponse(
         supported=True,
@@ -1838,8 +1883,242 @@ async def _model_workflow_edit_preview(
             for operation in parsed_operations
         ],
         warnings=warnings,
-        reference_node_ids=body.reference_node_ids,
+        reference_node_ids=getattr(body, "reference_node_ids", []),
+        node_ids=body.node_ids,
+        edge_ids=body.edge_ids,
     )
+
+
+def _workflow_edit_instruction_digest(instruction: str) -> str:
+    return "sha256:" + hashlib.sha256(instruction.strip().encode()).hexdigest()
+
+
+def _workflow_edit_plan_digest(
+    *,
+    application_id: str,
+    instruction: str,
+    revision: int,
+    content_hash: str,
+    node_ids: list[str],
+    edge_ids: list[str],
+    operations: list[dict[str, Any]],
+) -> str:
+    encoded = json.dumps(
+        {
+            "application_id": application_id,
+            "instruction_digest": _workflow_edit_instruction_digest(instruction),
+            "revision": revision,
+            "content_hash": content_hash,
+            "node_ids": node_ids,
+            "edge_ids": edge_ids,
+            "operations": operations,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode()
+    return "sha256:" + hashlib.sha256(encoded).hexdigest()
+
+
+def _workflow_edit_draft_payload(draft: dict[str, Any]) -> dict[str, Any]:
+    return {
+        **{
+            key: value
+            for key, value in draft.items()
+            if key not in {"snapshot"}
+        },
+        "snapshot": draft["snapshot"].model_dump(mode="json"),
+    }
+
+
+def _validate_workflow_edit_response(
+    services: Services,
+    *,
+    snapshot: ApplicationSnapshot,
+    revision: int,
+    response: DraftPatchPreviewResponse,
+) -> DraftPatchPreviewResponse:
+    if not response.supported:
+        return response
+    parsed: list[DraftOperation] = []
+    for raw in response.operations:
+        normalized = dict(raw)
+        normalized["expected_revision"] = revision
+        normalized["idempotency_key"] = str(uuid4())
+        parsed.append(DraftOperation.model_validate(normalized))
+    if not parsed:
+        raise ValueError("workflow edit preview returned no draft operations")
+    services.applications.validate_preview_operations(snapshot, parsed)
+    selection_warnings = validate_selection_operations(
+        snapshot,
+        [
+            operation.model_dump(mode="json", exclude={"idempotency_key"})
+            for operation in parsed
+        ],
+        node_ids=response.node_ids,
+        edge_ids=response.edge_ids,
+    )
+    response.operations = [
+        operation.model_dump(mode="json", exclude={"idempotency_key"})
+        for operation in parsed
+    ]
+    response.warnings = list(dict.fromkeys([*response.warnings, *selection_warnings]))
+    return response
+
+
+async def _plan_workflow_edit(
+    services: Services,
+    *,
+    task_id: str,
+    draft: dict[str, Any],
+    body: DraftPatchPreviewRequest | NaturalLanguageDraftEditRequest,
+) -> tuple[DraftPatchPreviewResponse, Literal["deterministic", "model"]]:
+    snapshot = draft["snapshot"]
+    revision = int(draft["revision"])
+    response = services.draft_patcher.preview(
+        snapshot,
+        revision,
+        body.instruction,
+        getattr(body, "reference_node_ids", []),
+        body.node_ids,
+        body.edge_ids,
+    )
+    preview_source: Literal["deterministic", "model"] = "deterministic"
+    deterministic_error: Exception | None = None
+    if not _workflow_edit_needs_model(response):
+        try:
+            return (
+                _validate_workflow_edit_response(
+                    services,
+                    snapshot=snapshot,
+                    revision=revision,
+                    response=response,
+                ),
+                preview_source,
+            )
+        except Exception as error:
+            deterministic_error = error
+
+    preview_source = "model"
+    try:
+        response = await _model_workflow_edit_preview(
+            services,
+            task_id=task_id,
+            snapshot=snapshot,
+            revision=revision,
+            body=body,
+        )
+        response = _validate_workflow_edit_response(
+            services,
+            snapshot=snapshot,
+            revision=revision,
+            response=response,
+        )
+    except Exception as error:
+        warnings = [str(error)]
+        if deterministic_error is not None:
+            warnings.insert(0, f"Deterministic preview was outside the selected edit boundary: {deterministic_error}")
+        response = DraftPatchPreviewResponse(
+            supported=False,
+            intent="unsupported",
+            message=(
+                "The workflow edit could not produce a safe, reviewable change. "
+                "Refine the instruction or selection and try again."
+            ),
+            warnings=warnings,
+            reference_node_ids=getattr(body, "reference_node_ids", []),
+            node_ids=body.node_ids,
+            edge_ids=body.edge_ids,
+        )
+    return response, preview_source
+
+
+def _workflow_edit_stored_plan(
+    *,
+    application_id: str,
+    body: NaturalLanguageDraftEditRequest,
+    response: DraftPatchPreviewResponse,
+    preview_source: Literal["deterministic", "model"],
+    preview_digest: str,
+) -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "application_id": application_id,
+        "instruction_digest": _workflow_edit_instruction_digest(body.instruction),
+        "expected_revision": body.expected_revision,
+        "expected_content_hash": body.expected_content_hash,
+        "node_ids": response.node_ids,
+        "edge_ids": response.edge_ids,
+        "supported": response.supported,
+        "intent": response.intent,
+        "message": response.message,
+        "operations": response.operations,
+        "warnings": response.warnings,
+        "preview_source": preview_source,
+        "preview_digest": preview_digest,
+    }
+
+
+async def _load_workflow_edit_stored_plan(
+    services: Services,
+    *,
+    application_id: str,
+    body: NaturalLanguageDraftEditRequest,
+) -> tuple[
+    DraftPatchPreviewResponse,
+    str,
+    Literal["deterministic", "model"],
+]:
+    if not body.preview_task_id:
+        raise ValueError("preview_task_id is required to apply a reviewed preview")
+    record = await services.harness.get_task(body.preview_task_id)
+    plan = record.metadata.get("natural_language_edit_plan")
+    if (
+        record.kind != "draft_patch_preview"
+        or record.owner_id != application_id
+        or record.resource_id != application_id
+        or not isinstance(plan, dict)
+        or plan.get("schema_version") != 1
+        or plan.get("application_id") != application_id
+    ):
+        raise ValueError("preview task is not a natural-language edit plan for this application")
+    expected = {
+        "instruction_digest": _workflow_edit_instruction_digest(body.instruction),
+        "expected_revision": body.expected_revision,
+        "expected_content_hash": body.expected_content_hash,
+        "node_ids": body.node_ids,
+        "edge_ids": body.edge_ids,
+    }
+    for field, value in expected.items():
+        if plan.get(field) != value:
+            raise RevisionConflict(f"reviewed workflow edit {field} no longer matches")
+    preview_digest = str(plan.get("preview_digest") or "")
+    if body.expected_preview_digest and body.expected_preview_digest != preview_digest:
+        raise RevisionConflict("reviewed workflow edit preview digest no longer matches")
+    response = DraftPatchPreviewResponse(
+        supported=bool(plan.get("supported")),
+        intent=str(plan.get("intent") or "unsupported"),
+        message=str(plan.get("message") or ""),
+        operations=list(plan.get("operations") or []),
+        warnings=[str(item) for item in plan.get("warnings") or []],
+        node_ids=[str(item) for item in plan.get("node_ids") or []],
+        edge_ids=[str(item) for item in plan.get("edge_ids") or []],
+    )
+    recomputed = _workflow_edit_plan_digest(
+        application_id=application_id,
+        instruction=body.instruction,
+        revision=body.expected_revision,
+        content_hash=body.expected_content_hash,
+        node_ids=response.node_ids,
+        edge_ids=response.edge_ids,
+        operations=response.operations,
+    )
+    if preview_digest != recomputed:
+        raise RevisionConflict("stored workflow edit preview digest is invalid")
+    stored_source = str(plan.get("preview_source") or "")
+    if stored_source not in {"deterministic", "model"}:
+        raise RevisionConflict("stored workflow edit preview source is invalid")
+    return response, preview_digest, stored_source
 
 
 def deadline_summary(max_elapsed_seconds: float | None) -> dict[str, Any]:
@@ -2017,6 +2296,37 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
             evidence,
         )
 
+    async def collaboration_studio_context(channel: Any) -> Any:
+        from .collaboration_studio_context import (
+            build_collaboration_studio_context,
+        )
+
+        return await build_collaboration_studio_context(
+            channel=channel,
+            bridge=local_lilies_bridge,
+            workflow_storage=workflow_store,
+        )
+
+    async def cancel_collaboration_assignment(
+        assignment_id: Any,
+        idempotency_key: str,
+        reason: str,
+    ) -> Any:
+        row = await local_lilies_bridge.store.get_assignment(assignment_id)
+        if str(row.get("phase")) in {"completed", "cancelled"}:
+            return row
+        try:
+            return await local_lilies_bridge.cancel_assignment(
+                assignment_id,
+                idempotency_key=idempotency_key,
+                reason=reason,
+            )
+        except LocalLiliesBridgeConflict:
+            current = await local_lilies_bridge.store.get_assignment(assignment_id)
+            if str(current.get("phase")) in {"completed", "cancelled"}:
+                return current
+            raise
+
     collaboration = CollaborationService(
         store=CollaborationStore(
             storage.db_path,
@@ -2030,6 +2340,8 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         draft_state_provider=workflow_store.get_draft,
         developer_commit_resolver=resolve_developer_commit,
         developer_evidence_resolver=resolve_developer_evidence,
+        studio_context_provider=collaboration_studio_context,
+        assignment_cancel_handler=cancel_collaboration_assignment,
     )
 
     def invalidate_collaboration_claims_with_draft_write(
@@ -4418,31 +4730,12 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         )
         try:
             draft = await services.workflow_store.get_draft(application_id)
-            response = services.draft_patcher.preview(
-                draft["snapshot"],
-                int(draft["revision"]),
-                body.instruction,
-                body.reference_node_ids,
+            response, preview_source = await _plan_workflow_edit(
+                services,
+                task_id=task_id,
+                draft=draft,
+                body=body,
             )
-            preview_source = "deterministic"
-            if _workflow_edit_needs_model(response):
-                preview_source = "model"
-                try:
-                    response = await _model_workflow_edit_preview(
-                        services,
-                        task_id=task_id,
-                        snapshot=draft["snapshot"],
-                        revision=int(draft["revision"]),
-                        body=body,
-                    )
-                except Exception as error:
-                    response = DraftPatchPreviewResponse(
-                        supported=False,
-                        intent="unsupported",
-                        message="AI workflow edit preview could not produce a valid, reviewable change.",
-                        warnings=[str(error)],
-                        reference_node_ids=body.reference_node_ids,
-                    )
             await services.harness.finish_task(
                 task_id,
                 status="succeeded" if response.supported else "failed",
@@ -4457,6 +4750,151 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         except KeyError as error:
             await services.harness.finish_task(task_id, status="failed", error=str(error))
             raise HTTPException(404, str(error)) from error
+        except ValueError as error:
+            await services.harness.finish_task(task_id, status="failed", error=str(error))
+            raise HTTPException(422, str(error)) from error
+
+    @app.post(
+        "/api/v1/applications/{application_id}/draft/natural-language-edit",
+        dependencies=[Depends(require_token)],
+        response_model=NaturalLanguageDraftEditResponse,
+    )
+    async def natural_language_application_draft_edit(
+        application_id: str,
+        body: NaturalLanguageDraftEditRequest,
+    ) -> dict[str, Any]:
+        task_id = str(uuid4())
+        await services.harness.start_task(
+            task_id,
+            kind="draft_patch_preview",
+            owner_id=application_id,
+            resource_id=application_id,
+            metadata={
+                "origin": "natural_language_edit",
+                "preview_only": body.preview_only,
+                "instruction_digest": _workflow_edit_instruction_digest(body.instruction),
+                "node_count": len(body.node_ids),
+                "edge_count": len(body.edge_ids),
+            },
+        )
+        try:
+            if body.preview_only and (
+                body.preview_task_id or body.expected_preview_digest
+            ):
+                raise ValueError(
+                    "preview_task_id and expected_preview_digest are apply-only fields"
+                )
+            if not body.preview_only and (
+                not body.preview_task_id or not body.expected_preview_digest
+            ):
+                raise ValueError(
+                    "applying a natural-language edit requires both preview_task_id "
+                    "and expected_preview_digest from a reviewed preview"
+                )
+            draft = await services.workflow_store.get_draft(application_id)
+            if not body.preview_only:
+                response, preview_digest, stored_preview_source = (
+                    await _load_workflow_edit_stored_plan(
+                    services,
+                    application_id=application_id,
+                    body=body,
+                    )
+                )
+                preview_source: Literal[
+                    "deterministic", "model", "stored_preview"
+                ] = "stored_preview"
+            else:
+                if int(draft["revision"]) != body.expected_revision:
+                    raise RevisionConflict(
+                        "workflow edit revision conflict: "
+                        f"expected {body.expected_revision}, current {draft['revision']}"
+                    )
+                if draft["content_hash"] != body.expected_content_hash:
+                    raise RevisionConflict(
+                        "workflow edit content hash no longer matches the current draft"
+                    )
+                response, planned_source = await _plan_workflow_edit(
+                    services,
+                    task_id=task_id,
+                    draft=draft,
+                    body=body,
+                )
+                preview_source = planned_source
+                preview_digest = _workflow_edit_plan_digest(
+                    application_id=application_id,
+                    instruction=body.instruction,
+                    revision=body.expected_revision,
+                    content_hash=body.expected_content_hash,
+                    node_ids=response.node_ids,
+                    edge_ids=response.edge_ids,
+                    operations=response.operations,
+                )
+
+            if (
+                body.expected_preview_digest
+                and body.expected_preview_digest != preview_digest
+            ):
+                raise RevisionConflict(
+                    "workflow edit preview digest no longer matches the reviewed plan"
+                )
+
+            applied = False
+            if response.supported and not body.preview_only:
+                await services.applications.apply_operations_atomically(
+                    application_id,
+                    expected_revision=body.expected_revision,
+                    expected_content_hash=body.expected_content_hash,
+                    operations=response.operations,
+                    idempotency_key=body.idempotency_key,
+                    change_context_operation="natural_language_edit",
+                )
+                applied = True
+
+            current = await services.workflow_store.get_draft(application_id)
+            plan_metadata = _workflow_edit_stored_plan(
+                application_id=application_id,
+                body=body,
+                response=response,
+                preview_source=(
+                    planned_source
+                    if preview_source != "stored_preview"
+                    else stored_preview_source
+                ),
+                preview_digest=preview_digest,
+            )
+            await services.harness.finish_task(
+                task_id,
+                status="succeeded" if response.supported else "failed",
+                metadata={
+                    "intent": response.intent,
+                    "preview_source": preview_source,
+                    "operation_count": len(response.operations),
+                    "applied": applied,
+                    "natural_language_edit_plan": plan_metadata,
+                },
+                error="" if response.supported else response.message,
+            )
+            draft_payload = _workflow_edit_draft_payload(current)
+            return {
+                "task_id": task_id,
+                **response.model_dump(mode="json"),
+                "applied": applied,
+                "expected_revision": body.expected_revision,
+                "expected_content_hash": body.expected_content_hash,
+                "preview_source": preview_source,
+                "preview_digest": preview_digest,
+                "draft": draft_payload,
+                "evidence": draft_payload["evidence"],
+            }
+        except RevisionConflict as error:
+            await services.harness.finish_task(task_id, status="failed", error=str(error))
+            raise HTTPException(409, str(error)) from error
+        except KeyError as error:
+            await services.harness.finish_task(task_id, status="failed", error=str(error))
+            raise HTTPException(404, str(error)) from error
+        except ValueError as error:
+            await services.harness.finish_task(task_id, status="failed", error=str(error))
+            raise HTTPException(422, str(error)) from error
 
     @app.post(
         "/api/v1/applications/{application_id}/draft/validate",
@@ -4862,6 +5300,79 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                 "draft_revision": int(draft["revision"]),
                 "content_hash": draft["content_hash"],
                 "snapshot": draft["snapshot"].model_dump(mode="json"),
+            }
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+
+    async def customer_runtime_definition(application_id: str) -> dict[str, Any]:
+        application = await services.workflow_store.get_application(application_id)
+        active_version = application.get("active_version")
+        if active_version is not None:
+            published = await services.workflow_store.get_version(
+                application_id,
+                int(active_version),
+            )
+            definition = {
+                "application_id": application_id,
+                "source": "published",
+                "version": int(published["version"]),
+                "draft_revision": None,
+                "content_hash": published["content_hash"],
+                "snapshot": published["snapshot"],
+            }
+        else:
+            draft = await services.workflow_store.get_draft(application_id)
+            definition = {
+                "application_id": application_id,
+                "source": "draft",
+                "version": None,
+                "draft_revision": int(draft["revision"]),
+                "content_hash": draft["content_hash"],
+                "snapshot": draft["snapshot"],
+            }
+        return project_runtime_definition(definition)
+
+    @app.get(
+        "/api/v1/customer-runtime/applications/{application_id}",
+        dependencies=[Depends(require_token)],
+    )
+    async def get_customer_runtime_application(application_id: str) -> dict[str, Any]:
+        """Return the complete Customer Runtime read model without engineering data."""
+
+        try:
+            application = await services.workflow_store.get_application(application_id)
+            definition = await customer_runtime_definition(application_id)
+            runs = await services.workflow_store.list_runs(application_id, limit=1)
+            latest_run = runs[0] if runs else None
+            events = (
+                await services.storage.list_events(str(latest_run["id"]))
+                if latest_run is not None
+                else []
+            )
+            return {
+                "application": project_runtime_application(application),
+                "definition": definition,
+                "latest_run": (
+                    project_runtime_run(latest_run) if latest_run is not None else None
+                ),
+                "latest_events": project_runtime_events(events),
+            }
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+
+    @app.get(
+        "/api/v1/customer-runtime/runs/{run_id}",
+        dependencies=[Depends(require_token)],
+    )
+    async def get_customer_runtime_run(run_id: str) -> dict[str, Any]:
+        """Return a run projection that cannot expose raw model or developer events."""
+
+        try:
+            run = await services.workflow_store.get_run(run_id)
+            events = await services.storage.list_events(run_id)
+            return {
+                "run": project_runtime_run(run),
+                "events": project_runtime_events(events),
             }
         except KeyError as error:
             raise HTTPException(404, str(error)) from error

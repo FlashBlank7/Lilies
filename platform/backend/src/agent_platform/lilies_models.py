@@ -181,6 +181,8 @@ class SessionResult(StrictModel):
     kind: SessionKind
     title: str | None = None
     assignment_id: UUID | None = None
+    context_summary: str | None = Field(default=None, max_length=100_000)
+    summary_through_event_seq: int = Field(default=0, ge=0)
     created_at: datetime
     updated_at: datetime
     usage: SessionUsage = Field(default_factory=SessionUsage)

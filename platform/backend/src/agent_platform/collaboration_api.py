@@ -24,6 +24,7 @@ from .collaboration_models import (
     ChannelStatus,
     ChannelSettingsRequest as CollaborationChannelSettingsRequest,
     DeveloperResponseRequest as CollaborationDeveloperResponseRequest,
+    DeveloperInboxResponse,
     EnvironmentResponseRequest as CollaborationEnvironmentResponseRequest,
     LeaseAcquireRequest as CollaborationLeaseAcquireRequest,
     LeaseReleaseRequest as CollaborationLeaseReleaseRequest,
@@ -884,7 +885,10 @@ def install_collaboration_api(
             )
         )
 
-    @app.get("/api/v1/developer/collaboration/inbox")
+    @app.get(
+        "/api/v1/developer/collaboration/inbox",
+        response_model=DeveloperInboxResponse,
+    )
     async def list_developer_collaboration_inbox(
         after: int = Query(default=0, ge=0, le=_MAX_EVENT_CURSOR),
         limit: int = Query(default=100, ge=1, le=500),

@@ -917,6 +917,24 @@ export type DraftPatchPreview = {
   reference_node_ids?: string[]
 }
 
+export type NaturalLanguageWorkflowEditResult = {
+  task_id: string
+  supported: boolean
+  applied: boolean
+  intent: string
+  message: string
+  operations: DraftPatchOperation[]
+  warnings: string[]
+  node_ids: string[]
+  edge_ids: string[]
+  expected_revision: number
+  expected_content_hash: string
+  preview_source: string
+  preview_digest: string
+  draft: Draft
+  evidence: DraftEvidence
+}
+
 export type AcceptanceRepairPreview = {
   task_id: string
   supported: boolean
@@ -1129,6 +1147,395 @@ export type LocalLiliesAssignmentCreateRequest = {
   deliverables: LocalLiliesDeliverable[]
   constraints?: Record<string, unknown>
   auto_publish?: boolean
+}
+
+export type CollaborationApprovalMode = 'manual' | 'auto_forward'
+export type CollaborationChannelStatus = 'created' | 'active' | 'disconnected' | 'closing' | 'closed' | 'archived'
+export type CollaborationReportCategory = 'task_spec_gap' | 'environment_gap' | 'platform_capability_gap' | 'platform_defect_suspected'
+export type CollaborationReportPhase = 'preflight' | 'planning' | 'draft_mutation' | 'run' | 'acceptance' | 'resume'
+export type CollaborationReportSeverity = 'blocking' | 'major' | 'minor'
+export type CollaborationReportRoute = 'task_author' | 'environment' | 'capability_approval' | 'developer' | 'verifier'
+export type CollaborationReportStatus =
+  | 'observed'
+  | 'evidence_collecting'
+  | 'needs_more_evidence'
+  | 'awaiting_user_review'
+  | 'rejected'
+  | 'approved_for_codex'
+  | 'implementing'
+  | 'ready_for_lilies_verification'
+  | 'lilies_verified'
+  | 'verification_failed'
+  | 'independently_verified'
+  | 'withdrawn'
+  | 'reported'
+  | 'routed_to_task_author'
+  | 'task_package_amended'
+  | 'rejected_with_evidence'
+  | 'lilies_rechecks'
+  | 'environment_failed'
+  | 'environment_restored'
+  | 'unresolved'
+  | 'lilies_health_checks'
+
+export type CollaborationEvidenceRef = {
+  evidence_id: string
+  kind: string
+  digest: string
+  media_type: string
+  label: string
+  captured_at: string
+}
+
+export type CollaborationManualReference = {
+  manual_id: string
+  title: string
+  version?: string | null
+  section?: string | null
+  digest?: string | null
+}
+
+export type CollaborationAttemptedRoute = {
+  attempt_id: string
+  route: string
+  action: string
+  result: string
+  evidence_refs?: CollaborationEvidenceRef[]
+}
+
+export type CollaborationChannel = {
+  schema_version: '1.0'
+  channel_id: string
+  task_id: string
+  task_revision: number
+  assignment_id: string
+  lilies_session_id: string
+  application_ids: string[]
+  approval_mode: CollaborationApprovalMode
+  status: CollaborationChannelStatus
+  revision: number
+  next_seq: number
+  created_at: string
+  closed_at?: string | null
+  retention_until?: string | null
+  unread_count?: number
+}
+
+export type CollaborationReport = {
+  schema_version: '1.0'
+  report_id: string
+  channel_id: string
+  category: CollaborationReportCategory
+  phase: CollaborationReportPhase
+  severity: CollaborationReportSeverity
+  summary: string
+  original_goal: string
+  requirement_digest: string
+  platform_contract_digest?: string | null
+  manuals_checked: CollaborationManualReference[]
+  attempted_routes: CollaborationAttemptedRoute[]
+  expected?: string | null
+  actual?: string | null
+  reproduction?: string[] | null
+  missing_contract?: string | null
+  blocking_scope: string
+  independent_work: string[]
+  workaround_considered: string[]
+  workaround_loss: string
+  requested_outcome: string
+  confidence: number
+  secret_redactions: string[]
+  evidence_refs: CollaborationEvidenceRef[]
+  source_message_id: string
+  route: CollaborationReportRoute
+  status: CollaborationReportStatus
+  revision: number
+  created_at: string
+  updated_at: string
+}
+
+export type CollaborationMessageEnvelope = {
+  schema_version: '1.0'
+  message_id: string
+  channel_id: string
+  seq: number
+  message_type: 'report' | 'approval' | 'task_amendment' | 'environment_response' | 'developer_response' | 'verification_claim' | 'verification_result' | 'control'
+  sender_role: 'lilies' | 'user' | 'task_author' | 'codex' | 'verifier' | 'platform'
+  sender_id: string
+  correlation_id: string
+  causal_parent_id?: string | null
+  idempotency_key: string
+  visibility: 'user_only' | 'user_and_lilies' | 'approved_developer' | 'verifier'
+  payload_schema: string
+  payload: Record<string, unknown>
+  evidence_refs: CollaborationEvidenceRef[]
+  created_at: string
+}
+
+export type CollaborationPermissionRequest = {
+  request_id: string
+  tool_name: string
+  input_digest: string
+  redacted_input: Record<string, unknown>
+  status: 'pending'
+}
+
+export type CollaborationObservableEvent = {
+  seq: number
+  event_type: string
+  kind: 'message' | 'tool' | 'permission' | 'context' | 'assignment' | 'session'
+  title: string
+  summary: string
+  status: string
+  actor: string
+  tool_name?: string | null
+  tool_call_id?: string | null
+  duration_ms?: number | null
+  redacted_input: Record<string, unknown>
+  permission_request?: CollaborationPermissionRequest | null
+  permission_request_id?: string | null
+  evidence_refs: string[]
+  created_at: string
+}
+
+export type CollaborationTraceEvent = {
+  seq: number
+  event_type: string
+  node_id: string
+  title: string
+  status: string
+  created_at: string
+}
+
+export type CollaborationRunContext = {
+  run_id: string
+  status: string
+  draft_revision?: number | null
+  error: string
+  created_at: string
+  updated_at: string
+  trace: CollaborationTraceEvent[]
+}
+
+export type CollaborationDraftContext = {
+  revision: number
+  content_hash: string
+  tested_hash?: string | null
+  evidence_state: string
+  node_count: number
+  edge_count: number
+  test_count: number
+  tests_passed: number
+  tests_failed: number
+}
+
+export type CollaborationApplicationContext = {
+  application_id: string
+  name: string
+  description: string
+  draft: CollaborationDraftContext
+  runs: CollaborationRunContext[]
+}
+
+export type CollaborationAssignmentContext = {
+  task_id: string
+  task_revision: number
+  assignment_id: string
+  application_id: string
+  build_id: string
+  session_id: string
+  connection_id: string
+  phase: string
+  status: string
+  desired_state: string
+  daemon_status?: string | null
+  connection_status: string
+  requirement: string
+  business_context: Record<string, unknown>
+  task_package?: {
+    task_id: string
+    revision: number
+    public_summary_digest: string
+  } | null
+  deliverables: Array<{
+    name: string
+    description: string
+    media_type: string
+    required: boolean
+  }>
+  compaction?: {
+    summary: string
+    summary_through_event_seq: number
+  } | null
+  contract_digest?: string | null
+  allowed_actions: string[]
+  deadline_at?: string | null
+  max_turns?: number | null
+  max_tool_calls?: number | null
+  max_budget_usd?: number | null
+  created_at: string
+  updated_at: string
+}
+
+export type CollaborationStudioContext = {
+  schema_version: '1.0'
+  assignment?: CollaborationAssignmentContext | null
+  observable_events: CollaborationObservableEvent[]
+  applications: CollaborationApplicationContext[]
+}
+
+export type CollaborationChannelListResponse = {
+  channels: CollaborationChannel[]
+  count: number
+}
+
+export type CollaborationChannelDetail = {
+  channel: CollaborationChannel
+  reports: CollaborationReport[]
+  timeline: CollaborationMessageEnvelope[]
+  context?: CollaborationStudioContext
+  active_leases?: CollaborationDeveloperLease[]
+  claims?: CollaborationVerificationClaim[]
+  derived?: CollaborationDerivedStatus
+}
+
+export type CollaborationDerivedStatus = {
+  current_block: { code: string; label: string }
+  owner: { role: string; id: string; label: string }
+  why_waiting: string
+  next_action: { code: string; label: string }
+  unread_count: number
+}
+
+export type CollaborationDeveloperLease = {
+  lease_id: string
+  report_id: string
+  report_revision: number
+  owner_id: string
+  status: 'active' | 'released' | 'expired'
+  revision: number
+  acquired_at: string
+  heartbeat_at: string
+  expires_at: string
+  released_at?: string | null
+}
+
+export type CollaborationDeveloperResponse = {
+  response_id: string
+  outcome: 'implemented' | 'not_reproduced' | 'rejected_as_specific' | 'needs_task_change'
+  commit_sha?: string | null
+  generic_capability_changes: string[]
+  new_contract_digest?: string | null
+  tests_run: Array<{
+    test_id: string
+    command: string
+    exit_code: number
+    summary: string
+    evidence_ref: CollaborationEvidenceRef
+  }>
+  browser_or_live_evidence: CollaborationEvidenceRef[]
+  known_limits: string[]
+  reprobe_steps: Array<{ order: number; action: string; expected: string }>
+  channel_id: string
+  report_id: string
+  report_revision: number
+  created_at: string
+}
+
+export type CollaborationVerificationClaim = {
+  claim_id: string
+  application_id: string
+  draft_revision: number
+  content_hash: string
+  published_version?: number | null
+  test_run_ids: string[]
+  business_run_ids: string[]
+  artifact_refs: CollaborationEvidenceRef[]
+  host_receipt_refs: CollaborationEvidenceRef[]
+  resolved_report_ids: string[]
+  remaining_limits: string[]
+  claim: string
+  status: 'frozen' | 'invalidated' | 'independently_verified' | 'verification_failed'
+  assignment_id: string
+  claim_revision: number
+  created_at: string
+  invalidated_at?: string | null
+  invalidation_reason?: string | null
+}
+
+export type CollaborationIndependentVerification = {
+  verification_id: string
+  verdict: 'independently_verified' | 'verification_failed'
+  oracle_digest: string
+  differences: Array<{
+    check_id: string
+    expected: string
+    actual: string
+    evidence_refs: CollaborationEvidenceRef[]
+  }>
+  evidence_refs: CollaborationEvidenceRef[]
+  channel_id: string
+  claim_id: string
+  claim_revision: number
+  verifier_id: string
+  created_at: string
+}
+
+export type CollaborationChannelExport = {
+  schema_version: '1.0'
+  channel: CollaborationChannel
+  messages: CollaborationMessageEnvelope[]
+  reports: CollaborationReport[]
+  developer_leases: CollaborationDeveloperLease[]
+  developer_responses: CollaborationDeveloperResponse[]
+  claims: CollaborationVerificationClaim[]
+  verifications: CollaborationIndependentVerification[]
+  [key: string]: unknown
+}
+
+export type CollaborationExportResponse = {
+  schema_version: '1.0'
+  channel_id: string
+  export: CollaborationChannelExport
+  counters: {
+    messages: number
+    correlations: number
+    reports: number
+    claims: number
+  }
+  digest: string
+}
+
+export type CollaborationReportDecisionRequest = {
+  idempotency_key: string
+  expected_report_revision: number
+  decision: 'approve' | 'reject' | 'needs_more_evidence'
+  reason?: string
+}
+
+export type CollaborationChannelSettingsRequest = {
+  idempotency_key: string
+  expected_channel_revision: number
+  approval_mode: CollaborationApprovalMode
+  confirmed: boolean
+}
+
+export type CollaborationChannelCloseRequest = {
+  idempotency_key: string
+  expected_channel_revision: number
+  reason: string
+}
+
+export type LocalLiliesCancelRequest = {
+  idempotency_key: string
+  reason: string
+}
+
+export type LocalLiliesPermissionDecisionRequest = {
+  idempotency_key: string
+  behavior: 'allow' | 'deny'
+  expected_input_digest: string
+  message?: string
 }
 
 type LocalLiliesRequirementSection = 'roles' | 'goal' | 'inputs' | 'outputs' | 'constraints'
@@ -1440,10 +1847,16 @@ export function localLiliesSession(sessionId: string) {
   )
 }
 
-export function cancelLocalLiliesAssignment(assignmentId: string) {
+export function cancelLocalLiliesAssignment(
+  assignmentId: string,
+  request?: LocalLiliesCancelRequest,
+) {
   return api<LocalLiliesAssignment>(
     `/api/v1/local-lilies/assignments/${encodeURIComponent(assignmentId)}/cancel`,
-    { method: 'POST' },
+    {
+      method: 'POST',
+      ...(request ? { body: JSON.stringify(request) } : {}),
+    },
   )
 }
 
@@ -1470,6 +1883,95 @@ export async function openLocalLiliesAssignmentEventStream(
   })
   if (token) headers.set('X-Lilies-Platform-API-Token', token)
   const response = await fetch(localLiliesAssignmentEventsUrl(assignmentId, after), {
+    method: 'GET',
+    headers,
+    cache: 'no-store',
+    signal,
+  })
+  if (!response.ok) {
+    throw new PlatformApiError(
+      response.status,
+      response.statusText,
+      parseApiErrorBody(await response.text()),
+    )
+  }
+  return response
+}
+
+export function listStudioCollaborationChannels(status?: CollaborationChannelStatus) {
+  const query = status ? `?status=${encodeURIComponent(status)}` : ''
+  return api<CollaborationChannelListResponse>(`/api/v1/studio/collaboration/channels${query}`)
+}
+
+export function studioCollaborationChannel(channelId: string) {
+  return api<CollaborationChannelDetail>(
+    `/api/v1/studio/collaboration/channels/${encodeURIComponent(channelId)}`,
+  )
+}
+
+export function studioCollaborationExport(channelId: string) {
+  return api<CollaborationExportResponse>(
+    `/api/v1/studio/collaboration/channels/${encodeURIComponent(channelId)}/export`,
+  )
+}
+
+export function decideStudioCollaborationReport(
+  reportId: string,
+  request: CollaborationReportDecisionRequest,
+) {
+  return api<CollaborationReport>(
+    `/api/v1/studio/collaboration/reports/${encodeURIComponent(reportId)}/decision`,
+    { method: 'POST', body: JSON.stringify(request) },
+  )
+}
+
+export function updateStudioCollaborationSettings(
+  channelId: string,
+  request: CollaborationChannelSettingsRequest,
+) {
+  return api<CollaborationChannel>(
+    `/api/v1/studio/collaboration/channels/${encodeURIComponent(channelId)}/settings`,
+    { method: 'PATCH', body: JSON.stringify(request) },
+  )
+}
+
+export function closeStudioCollaborationChannel(
+  channelId: string,
+  request: CollaborationChannelCloseRequest,
+) {
+  return api<CollaborationChannel>(
+    `/api/v1/studio/collaboration/channels/${encodeURIComponent(channelId)}/close`,
+    { method: 'POST', body: JSON.stringify(request) },
+  )
+}
+
+export function resolveLocalLiliesAssignmentPermission(
+  assignmentId: string,
+  requestId: string,
+  request: LocalLiliesPermissionDecisionRequest,
+) {
+  return api<LocalLiliesAssignment>(
+    `/api/v1/local-lilies/assignments/${encodeURIComponent(assignmentId)}/permissions/${encodeURIComponent(requestId)}`,
+    { method: 'POST', body: JSON.stringify(request) },
+  )
+}
+
+export function studioCollaborationEventsUrl(channelId: string, after: number) {
+  return `/api/platform/api/v1/studio/collaboration/channels/${encodeURIComponent(channelId)}/events?after=${Math.max(0, after)}`
+}
+
+export async function openStudioCollaborationEventStream(
+  channelId: string,
+  after: number,
+  signal: AbortSignal,
+) {
+  const token = getClientToken()
+  const headers = new Headers({
+    Accept: 'text/event-stream',
+    'Last-Event-ID': String(Math.max(0, after)),
+  })
+  if (token) headers.set('X-Lilies-Platform-API-Token', token)
+  const response = await fetch(studioCollaborationEventsUrl(channelId, after), {
     method: 'GET',
     headers,
     cache: 'no-store',

@@ -171,6 +171,22 @@ class LocalLiliesHttpClient:
             json_payload=payload,
         )
 
+    async def resolve_permission(
+        self,
+        base_url: str,
+        access_token: str,
+        session_id: str,
+        request_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        return await self._json(
+            "POST",
+            base_url,
+            f"/local/v1/sessions/{session_id}/permissions/{request_id}",
+            access_token=access_token,
+            json_payload=payload,
+        )
+
     async def acknowledge_events(
         self,
         base_url: str,

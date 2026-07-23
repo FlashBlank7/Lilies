@@ -1012,6 +1012,15 @@ class VerificationClaim(VerificationClaimPayload):
         return self
 
 
+class DeveloperInboxResponse(StrictModel):
+    """The complete and deliberately minimal developer inbox projection."""
+
+    reports: list[CollaborationReport] = Field(default_factory=list, max_length=500)
+    claims: list[VerificationClaim] = Field(default_factory=list, max_length=500)
+    pending_user_action: bool
+    next_cursor: int = Field(ge=0)
+
+
 class VerificationDifference(StrictModel):
     check_id: OpaqueReference
     expected: str = Field(min_length=1, max_length=20_000)

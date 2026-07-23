@@ -21,6 +21,7 @@ import {
   KeyRound,
   ListTree,
   LoaderCircle,
+  MessagesSquare,
   PlugZap,
   RefreshCw,
   Search,
@@ -336,7 +337,7 @@ function GovernanceConsolePageContent() {
         const count = item === 'Alerts & Incidents' ? alerts?.total : item === 'Trace Explorer' ? trace?.spans.length : undefined
         return <button aria-current={tab === item ? 'page' : undefined} className={tab === item ? styles.activeTab : ''} data-governance-tab={item} key={item} onClick={() => setTab(item)}><Icon size={16} /><span>{item}</span>{count !== undefined && <b>{count}</b>}</button>
       })}</nav>
-      <div className={styles.sidebarFooter}><Link href="/"><ArrowLeft size={15} />Applications</Link>{filters.applicationId && <Link href={`/applications/${filters.applicationId}`}><Boxes size={15} />Engineer Studio</Link>}</div>
+      <div className={styles.sidebarFooter}><Link href="/"><ArrowLeft size={15} />Applications</Link><Link data-global-developer-collaboration="true" href="/developer/collaboration"><MessagesSquare size={15} />Collaboration</Link>{filters.applicationId && <Link href={`/applications/${filters.applicationId}`}><Boxes size={15} />Engineer Studio</Link>}</div>
     </aside>
 
     <section className={styles.workspace}>

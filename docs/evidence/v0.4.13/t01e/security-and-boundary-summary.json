@@ -1,0 +1,85 @@
+{
+  "schema_version": "1.0",
+  "task_id": "V04-13-T01E",
+  "captured_at_utc": "2026-07-23T16:28:57Z",
+  "baseline_commit": "02e003eef611be495bc75058f5b5837286c9bbff",
+  "developer_isolation": {
+    "preapproval_body_visible": false,
+    "preapproval_report_id_visible": false,
+    "preapproval_evidence_digest_visible": false,
+    "allowed_global_signal": "pending_user_action boolean",
+    "developer_browser_credentials_present": false,
+    "developer_owner_id": "codex-developer",
+    "lease_required_for_response": true
+  },
+  "studio_observability": {
+    "allowed": [
+      "public task requirement and revision",
+      "user and assistant text",
+      "context compaction summary and covered event sequence",
+      "tool name, redacted input, result summary, duration, and evidence refs",
+      "permission request and separate resolution event",
+      "draft revision, tests, runs, and safe traces",
+      "report, approval, DeveloperResponse, reprobe, claim, and verification causality"
+    ],
+    "excluded": [
+      "chain_of_thought",
+      "private_reason",
+      "private_reasoning",
+      "reasoning_tokens",
+      "raw_blocks",
+      "thinking_blocks",
+      "provider signatures"
+    ],
+    "recursive_private_field_filter": true,
+    "large_redacted_input_digest_only": true
+  },
+  "approval_separation": {
+    "capability_component_marker": "data-approval-channel=capability",
+    "runtime_permission_component_marker": "data-permission-channel=runtime",
+    "capability_actions": [
+      "approve",
+      "reject",
+      "needs_more_evidence"
+    ],
+    "runtime_permission_actions": [
+      "allow once",
+      "deny"
+    ],
+    "capability_approval_grants_runtime_permission": false,
+    "runtime_permission_expands_workspace_or_scope": false,
+    "code_access_rule": "Lilies is a general agent; code modification is possible only when the specific task explicitly grants the required workspace and scope."
+  },
+  "customer_runtime": {
+    "dedicated_safe_read_model": true,
+    "developer_or_collaboration_controls_visible": false,
+    "private_marker_scan_total": 0,
+    "legitimate_business_reasoning_preserved": true,
+    "internal_connector_configuration_omitted": true
+  },
+  "developer_cli": {
+    "token_in_argv": false,
+    "token_in_url": false,
+    "token_in_json_body": false,
+    "token_in_stdout_or_stderr": false,
+    "token_file_mode": "0600",
+    "token_file_symlink_allowed": false,
+    "token_file_regular_file_required": true,
+    "token_file_no_follow_open": true,
+    "single_json_stdout": true,
+    "redacted_nonzero_error": true
+  },
+  "channel_close": {
+    "assignment_cancel_before_channel_close": true,
+    "cancel_failure_leaves_channel_open": true,
+    "replay_does_not_repeat_completed_cancel": true,
+    "history_deleted": false
+  },
+  "fixture_secret_scan": {
+    "bearer_in_stdout": false,
+    "access_token_in_stdout": false,
+    "credential_ref_in_stdout": false,
+    "direct_state_table_update": false
+  },
+  "claim_ceiling": "Security assertions are deterministic and live-HTTP projection evidence in a local single-user development environment; no production IAM, hostile multi-tenant, or browser-DOM security claim is made."
+}

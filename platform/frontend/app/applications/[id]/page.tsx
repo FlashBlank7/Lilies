@@ -3,7 +3,7 @@
 import '@xyflow/react/dist/style.css'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Play, ShieldCheck } from 'lucide-react'
+import { MessagesSquare, Play, ShieldCheck } from 'lucide-react'
 import {
   Background,
   Controls,
@@ -35,8 +35,8 @@ import {
   type CapabilityModule,
   type CapabilityModuleInsertResult,
   type Draft,
-  type DraftPatchPreview,
   type DeliveryMode,
+  type NaturalLanguageWorkflowEditResult,
   type PublicationDecision,
   type WorkflowNode,
   withFrontendToken,
@@ -44,6 +44,17 @@ import {
 import { defaultLocale, isLocale, messages, nextLocale, type Locale } from '@/lib/i18n'
 import { MarkdownDocument, MarkdownResultCard } from '@/lib/markdown'
 import { classifyRuntimeStatus, runtimeCommit, runtimeVersion, type RuntimeHealth } from '@/lib/runtime-status'
+import {
+  boundedCanvasMenuPosition,
+  buildNaturalLanguageEditRequest,
+  draftIdentityChanged,
+  naturalLanguageEditContextMatches,
+  normalizeWorkflowEditSelection,
+  selectionForEdgeContextMenu,
+  selectionForNodeContextMenu,
+  selectionForRightDrag,
+  type WorkflowEditSelection,
+} from '@/lib/workflow-edit-selection'
 import surfaceStyles from '@/app/surface-boundaries.module.css'
 import { EvaluationHarnessPanel } from './evaluation-harness-panel'
 import { ScheduleOperationsPanel } from '@/app/schedule-operations-panel'
@@ -52,6 +63,8 @@ import { LocalLiliesBuildPanel } from './local-lilies-build-panel'
 
 type CanvasPoint = { x: number; y: number }
 type StudioNode = Node<{ title: string; blockType: string; description: string; status?: string }>
+type CanvasSelectionBox = { left: number; top: number; width: number; height: number }
+type WorkflowEditContextMenu = WorkflowEditSelection & { x: number; y: number }
 type Copy = (typeof messages)[Locale]
 const CORE_STUDIO_TABS = ['build', 'edit', 'test', 'automation'] as const
 const VISIBLE_STUDIO_TABS = [...CORE_STUDIO_TABS, 'integrations'] as const
@@ -713,7 +726,10 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   const [insertingModuleRef, setInsertingModuleRef] = useState('')
   const [patchInstruction, setPatchInstruction] = useState('')
   const [workflowEditReferenceIds, setWorkflowEditReferenceIds] = useState<string[]>([])
-  const [patchPreview, setPatchPreview] = useState<DraftPatchPreview | null>(null)
+  const [workflowEditReferenceEdgeIds, setWorkflowEditReferenceEdgeIds] = useState<string[]>([])
+  const [workflowEditContextMenu, setWorkflowEditContextMenu] = useState<WorkflowEditContextMenu | null>(null)
+  const [canvasSelectionBox, setCanvasSelectionBox] = useState<CanvasSelectionBox | null>(null)
+  const [patchPreview, setPatchPreview] = useState<NaturalLanguageWorkflowEditResult | null>(null)
   const [patchPreviewLoading, setPatchPreviewLoading] = useState(false)
   const [patchApplyLoading, setPatchApplyLoading] = useState(false)
   const [acceptanceRepairPreview, setAcceptanceRepairPreview] = useState<AcceptanceRepairPreview | null>(null)
@@ -734,6 +750,14 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   const selectedEdgeId = useRef<string | null>(null)
   const flowRef = useRef<ReactFlowInstance<StudioNode, Edge> | null>(null)
   const canvasWrapRef = useRef<HTMLElement>(null)
+  const workflowEditInputRef = useRef<HTMLTextAreaElement>(null)
+  const patchInstructionRef = useRef('')
+  const workflowEditMenuPrimaryRef = useRef<HTMLButtonElement>(null)
+  const workflowEditSelectionRef = useRef<WorkflowEditSelection>({ nodeIds: [], edgeIds: [] })
+  const workflowEditPreviewGenerationRef = useRef(0)
+  const rightDragSelectionRef = useRef<{ clientX: number; clientY: number; moved: boolean } | null>(null)
+  const rightDragCleanupRef = useRef<(() => void) | null>(null)
+  const suppressPaneContextMenuRef = useRef(false)
   const detailBuildRequirementRef = useRef<HTMLTextAreaElement>(null)
   const detailBuildStartButtonRef = useRef<HTMLButtonElement>(null)
   const acceptanceRepairRef = useRef<HTMLElement>(null)
@@ -822,21 +846,37 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
 
   const syncCanvas = useCallback((next: Draft) => {
     if (next.revision < latestRevision.current) return
+    const previousDraft = draftRef.current
+    if (draftIdentityChanged(previousDraft, next)) {
+      workflowEditPreviewGenerationRef.current += 1
+      setPatchPreview(null)
+    }
     latestRevision.current = next.revision
     draftRef.current = next
     setDraft(next)
     setRequirement(next.snapshot.requirement)
     const workflowEdges = validWorkflowEdges(next.snapshot.workflow.nodes, next.snapshot.workflow.edges)
+    const workflowEditSelection = normalizeWorkflowEditSelection(
+      workflowEditSelectionRef.current,
+      next.snapshot.workflow.nodes.map(node => node.id),
+      workflowEdges,
+    )
+    workflowEditSelectionRef.current = workflowEditSelection
+    setWorkflowEditReferenceIds(workflowEditSelection.nodeIds)
+    setWorkflowEditReferenceEdgeIds(workflowEditSelection.edgeIds)
+    const workflowEditNodeIds = new Set(workflowEditSelection.nodeIds)
+    const workflowEditEdgeIds = new Set(workflowEditSelection.edgeIds)
     const positions = visiblePositions(next.snapshot.workflow.nodes, workflowEdges)
     const renderNodes: StudioNode[] = next.snapshot.workflow.nodes.map(item => ({
       id: item.id,
       type: 'brick',
       position: positions.get(item.id) || safeCanvasPosition(item.position),
       data: safeStudioNodeData(item, t.configuredBrick),
+      selected: workflowEditNodeIds.has(item.id),
     }))
     setNodes(renderNodes)
     setEdges(workflowEdges.map(item => {
-      const selected = item.id === selectedEdgeId.current
+      const selected = item.id === selectedEdgeId.current || workflowEditEdgeIds.has(item.id)
       return {
         id: item.id, source: item.source, target: item.target, label: item.branch || undefined,
         selected,
@@ -934,6 +974,9 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     window.addEventListener('popstate', syncStudioTabFromLocation)
     return () => window.removeEventListener('popstate', syncStudioTabFromLocation)
   }, [syncStudioTabFromLocation])
+  useEffect(() => () => {
+    rightDragCleanupRef.current?.()
+  }, [])
   useEffect(() => {
     if (!acceptanceRepairPreview) return
     const frame = window.requestAnimationFrame(() => {
@@ -1114,6 +1157,12 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   }
 
   function handleCanvasKeyDown(event: KeyboardEvent<HTMLElement>) {
+    if (event.key === 'Escape' && workflowEditContextMenu) {
+      event.preventDefault()
+      setWorkflowEditContextMenu(null)
+      canvasWrapRef.current?.focus({ preventScroll: true })
+      return
+    }
     if (event.defaultPrevented || event.metaKey || event.ctrlKey || shouldIgnoreCanvasKeyboardTarget(event.target)) return
     const delta = canvasKeyboardPanDelta(event.key, { shiftKey: event.shiftKey, altKey: event.altKey })
     if (!delta) return
@@ -1138,21 +1187,220 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     setSelectedWorkflowEdge(edge)
   }
 
-  function addWorkflowEditReference(nodeId: string) {
-    setWorkflowEditReferenceIds(current => current.includes(nodeId) ? current : [...current, nodeId])
-  }
-
-  function removeWorkflowEditReference(nodeId: string) {
-    setWorkflowEditReferenceIds(current => current.filter(item => item !== nodeId))
-  }
-
-  function setWorkflowEditReferencesFromSelection(selectedNodes: StudioNode[]) {
-    const ids = selectedNodes.map(node => node.id)
-    if (!ids.length) return
+  function updateWorkflowEditSelection(
+    selection: WorkflowEditSelection,
+    options: { selectCanvas?: boolean; invalidatePreview?: boolean } = {},
+  ) {
+    const workflow = draftRef.current?.snapshot.workflow
+    const availableNodes = workflow?.nodes.map(node => node.id) || flowRef.current?.getNodes().map(node => node.id) || []
+    const availableEdges = workflow?.edges || flowRef.current?.getEdges().map(edge => ({
+      id: edge.id,
+      source: edge.source,
+      target: edge.target,
+    })) || []
+    const normalized = normalizeWorkflowEditSelection(selection, availableNodes, availableEdges)
+    const previous = workflowEditSelectionRef.current
+    const changed = previous.nodeIds.join('\u0000') !== normalized.nodeIds.join('\u0000')
+      || previous.edgeIds.join('\u0000') !== normalized.edgeIds.join('\u0000')
+    workflowEditSelectionRef.current = normalized
     setWorkflowEditReferenceIds(current => {
+      const ids = normalized.nodeIds
       if (current.length === ids.length && current.every((id, index) => id === ids[index])) return current
       return ids
     })
+    setWorkflowEditReferenceEdgeIds(current => current.join('\u0000') === normalized.edgeIds.join('\u0000') ? current : normalized.edgeIds)
+    if (changed && options.invalidatePreview !== false) {
+      workflowEditPreviewGenerationRef.current += 1
+      setPatchPreview(null)
+    }
+    if (changed) setWorkflowEditContextMenu(null)
+    if (options.selectCanvas) {
+      const selectedNodeIds = new Set(normalized.nodeIds)
+      const selectedEdgeIds = new Set(normalized.edgeIds)
+      setNodes(current => current.map(node => ({ ...node, selected: selectedNodeIds.has(node.id) })))
+      setEdges(current => current.map(edge => {
+        const selected = selectedEdgeIds.has(edge.id)
+        const highlighted = selected || selectedEdgeId.current === edge.id
+        return {
+          ...edge,
+          selected,
+          style: {
+            ...(edge.style || {}),
+            stroke: highlighted ? '#ff8a50' : (edge.label ? '#eab308' : '#465166'),
+            strokeWidth: highlighted ? 3 : 1,
+          },
+        }
+      }))
+    }
+    return normalized
+  }
+
+  function addWorkflowEditReference(nodeId: string) {
+    const current = workflowEditSelectionRef.current
+    updateWorkflowEditSelection({
+      nodeIds: current.nodeIds.includes(nodeId) ? current.nodeIds : [...current.nodeIds, nodeId],
+      edgeIds: current.edgeIds,
+    })
+  }
+
+  function removeWorkflowEditReference(nodeId: string) {
+    const current = workflowEditSelectionRef.current
+    const nextNodeIds = current.nodeIds.filter(item => item !== nodeId)
+    const workflowEdges = draftRef.current?.snapshot.workflow.edges || []
+    const next = selectionForRightDrag(nextNodeIds, workflowEdges)
+    updateWorkflowEditSelection(next, { selectCanvas: true })
+  }
+
+  function clearWorkflowEditReferences() {
+    updateWorkflowEditSelection({ nodeIds: [], edgeIds: [] }, { selectCanvas: true })
+    setWorkflowEditContextMenu(null)
+  }
+
+  function setWorkflowEditReferencesFromSelection(selectedNodes: StudioNode[], selectedEdges: Edge[]) {
+    const nodeSelection = selectionForRightDrag(
+      selectedNodes.map(node => node.id),
+      draftRef.current?.snapshot.workflow.edges || [],
+    )
+    updateWorkflowEditSelection({
+      nodeIds: nodeSelection.nodeIds,
+      edgeIds: nodeSelection.nodeIds.length ? nodeSelection.edgeIds : selectedEdges.map(edge => edge.id),
+    })
+  }
+
+  function openWorkflowEditContextMenu(clientX: number, clientY: number, selection: WorkflowEditSelection) {
+    const normalized = updateWorkflowEditSelection(selection, { selectCanvas: true })
+    const selectedWorkflowNode = normalized.nodeIds.length === 1
+      ? draftRef.current?.snapshot.workflow.nodes.find(node => node.id === normalized.nodeIds[0]) || null
+      : null
+    setSelectedNode(selectedWorkflowNode)
+    const bounds = canvasWrapRef.current?.getBoundingClientRect()
+    if (!bounds) return
+    const position = boundedCanvasMenuPosition(
+      { x: clientX - bounds.left, y: clientY - bounds.top },
+      { width: bounds.width, height: bounds.height },
+      { width: 280, height: 172 },
+    )
+    setWorkflowEditContextMenu({ ...normalized, ...position })
+    window.requestAnimationFrame(() => workflowEditMenuPrimaryRef.current?.focus({ preventScroll: true }))
+  }
+
+  function openWorkflowEditPanel() {
+    setWorkflowEditContextMenu(null)
+    setStudioTab('edit')
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        workflowEditInputRef.current?.focus({ preventScroll: true })
+        workflowEditInputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      })
+    })
+  }
+
+  function handleNodeContextMenu(event: MouseEvent<Element>, node: StudioNode) {
+    event.preventDefault()
+    event.stopPropagation()
+    const workflowEdges = draftRef.current?.snapshot.workflow.edges || []
+    const selection = selectionForNodeContextMenu(node.id, workflowEditSelectionRef.current, workflowEdges)
+    setNotice(t.workflowEditReferenceAdded(safeText(node.data?.title, node.id)))
+    openWorkflowEditContextMenu(event.clientX, event.clientY, selection)
+  }
+
+  function handleEdgeContextMenu(event: MouseEvent<Element>, edge: Edge) {
+    event.preventDefault()
+    event.stopPropagation()
+    const selection = selectionForEdgeContextMenu(
+      { id: edge.id, source: edge.source, target: edge.target },
+      workflowEditSelectionRef.current,
+    )
+    openWorkflowEditContextMenu(event.clientX, event.clientY, selection)
+  }
+
+  function handleSelectionContextMenu(event: MouseEvent<Element>, selectedNodes: StudioNode[]) {
+    event.preventDefault()
+    event.stopPropagation()
+    const workflowEdges = draftRef.current?.snapshot.workflow.edges || []
+    const nodeIds = selectedNodes.map(node => node.id)
+    const selection = selectionForRightDrag(nodeIds, workflowEdges)
+    openWorkflowEditContextMenu(event.clientX, event.clientY, selection)
+  }
+
+  function handlePaneContextMenu(event: MouseEvent<Element> | globalThis.MouseEvent) {
+    event.preventDefault()
+    if (suppressPaneContextMenuRef.current) {
+      suppressPaneContextMenuRef.current = false
+      return
+    }
+    openWorkflowEditContextMenu(
+      event.clientX,
+      event.clientY,
+      workflowEditSelectionRef.current,
+    )
+  }
+
+  function handleCanvasMouseDownCapture(event: MouseEvent<HTMLElement>) {
+    if (event.button !== 2) return
+    const target = event.target instanceof Element ? event.target : null
+    if (!target?.closest('.react-flow__pane')) return
+    event.preventDefault()
+    event.stopPropagation()
+    setWorkflowEditContextMenu(null)
+    const origin = { clientX: event.clientX, clientY: event.clientY, moved: false }
+    rightDragSelectionRef.current = origin
+
+    const cleanup = () => {
+      window.removeEventListener('mousemove', handleMove)
+      window.removeEventListener('mouseup', handleUp)
+      rightDragCleanupRef.current = null
+    }
+    const handleMove = (moveEvent: globalThis.MouseEvent) => {
+      const current = rightDragSelectionRef.current
+      const bounds = canvasWrapRef.current?.getBoundingClientRect()
+      if (!current || !bounds) return
+      const moved = current.moved
+        || Math.abs(moveEvent.clientX - current.clientX) >= 4
+        || Math.abs(moveEvent.clientY - current.clientY) >= 4
+      rightDragSelectionRef.current = { ...current, moved }
+      if (!moved) return
+      setCanvasSelectionBox({
+        left: Math.min(current.clientX, moveEvent.clientX) - bounds.left,
+        top: Math.min(current.clientY, moveEvent.clientY) - bounds.top,
+        width: Math.abs(moveEvent.clientX - current.clientX),
+        height: Math.abs(moveEvent.clientY - current.clientY),
+      })
+    }
+    const handleUp = (upEvent: globalThis.MouseEvent) => {
+      const current = rightDragSelectionRef.current
+      rightDragSelectionRef.current = null
+      setCanvasSelectionBox(null)
+      cleanup()
+      if (!current?.moved) return
+      upEvent.preventDefault()
+      suppressPaneContextMenuRef.current = true
+      window.setTimeout(() => { suppressPaneContextMenuRef.current = false }, 0)
+      const instance = flowRef.current
+      if (!instance) return
+      const start = instance.screenToFlowPosition({ x: current.clientX, y: current.clientY })
+      const end = instance.screenToFlowPosition({ x: upEvent.clientX, y: upEvent.clientY })
+      const selectedNodes = instance.getIntersectingNodes({
+        x: Math.min(start.x, end.x),
+        y: Math.min(start.y, end.y),
+        width: Math.abs(end.x - start.x),
+        height: Math.abs(end.y - start.y),
+      }, true)
+      const selection = selectionForRightDrag(
+        selectedNodes.map(node => node.id),
+        draftRef.current?.snapshot.workflow.edges || [],
+      )
+      if (!selection.nodeIds.length) {
+        clearWorkflowEditReferences()
+        setNotice(t.workflowEditSelectionEmpty)
+        return
+      }
+      openWorkflowEditContextMenu(upEvent.clientX, upEvent.clientY, selection)
+    }
+    rightDragCleanupRef.current?.()
+    rightDragCleanupRef.current = cleanup
+    window.addEventListener('mousemove', handleMove)
+    window.addEventListener('mouseup', handleUp)
   }
 
   function switchConfigEditorMode(nextMode: ConfigEditorMode) {
@@ -1192,21 +1440,55 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
 
   async function previewDraftPatch() {
     const instruction = patchInstruction.trim()
+    const current = draftRef.current
     if (!instruction) {
       setNotice(t.patchPreviewEmpty)
       return
     }
+    if (!current) return
+    const selection = {
+      nodeIds: [...workflowEditSelectionRef.current.nodeIds],
+      edgeIds: [...workflowEditSelectionRef.current.edgeIds],
+    }
+    const previewContext = {
+      instruction,
+      selection,
+      revision: current.revision,
+      contentHash: current.content_hash,
+    }
+    const requestGeneration = workflowEditPreviewGenerationRef.current + 1
+    workflowEditPreviewGenerationRef.current = requestGeneration
     setPatchPreviewLoading(true)
     setPatchPreview(null)
     try {
-      const result = await api<DraftPatchPreview>(`/api/v1/applications/${id}/draft/preview-patch`, {
+      const result = await api<NaturalLanguageWorkflowEditResult>(`/api/v1/applications/${id}/draft/natural-language-edit`, {
         method: 'POST',
-        body: JSON.stringify({ instruction, reference_node_ids: workflowEditReferenceIds }),
+        body: JSON.stringify(buildNaturalLanguageEditRequest(
+          instruction,
+          selection,
+          current,
+          idempotency(),
+          true,
+        )),
       })
+      const latestDraft = draftRef.current
+      const latestContext = latestDraft ? {
+        instruction: patchInstructionRef.current.trim(),
+        selection: workflowEditSelectionRef.current,
+        revision: latestDraft.revision,
+        contentHash: latestDraft.content_hash,
+      } : null
+      if (
+        requestGeneration !== workflowEditPreviewGenerationRef.current
+        || !latestContext
+        || !naturalLanguageEditContextMatches(previewContext, latestContext)
+      ) return
       setPatchPreview(result)
       setNotice(result.supported ? t.patchPreviewReady : t.patchPreviewUnsupported)
     } catch (error) {
-      setNotice(String(error))
+      if (requestGeneration === workflowEditPreviewGenerationRef.current) {
+        setNotice(String(error))
+      }
     } finally {
       setPatchPreviewLoading(false)
     }
@@ -1216,20 +1498,26 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     if (!patchPreview?.supported || !patchPreview.operations.length) return
     setPatchApplyLoading(true)
     try {
-      let current = draftRef.current
-      for (const operation of patchPreview.operations) {
-        await api(`/api/v1/applications/${id}/draft`, {
-          method: 'POST',
-          body: JSON.stringify({
-            expected_revision: current?.revision ?? operation.expected_revision,
-            idempotency_key: idempotency(),
-            op: operation.op,
-            data: operation.data,
-          }),
-        })
-        current = await refresh()
-      }
+      const result = await api<NaturalLanguageWorkflowEditResult>(`/api/v1/applications/${id}/draft/natural-language-edit`, {
+        method: 'POST',
+        body: JSON.stringify(buildNaturalLanguageEditRequest(
+          patchInstruction,
+          { nodeIds: patchPreview.node_ids, edgeIds: patchPreview.edge_ids },
+          {
+            revision: patchPreview.expected_revision,
+            content_hash: patchPreview.expected_content_hash,
+          },
+          idempotency(),
+          false,
+          { taskId: patchPreview.task_id, digest: patchPreview.preview_digest },
+        )),
+      })
+      if (!result.applied) throw new Error(result.message || t.patchPreviewUnsupported)
+      syncCanvas(result.draft)
+      await refresh()
+      workflowEditPreviewGenerationRef.current += 1
       setPatchPreview(null)
+      patchInstructionRef.current = ''
       setPatchInstruction('')
       setNotice(t.patchApplied)
     } catch (error) {
@@ -1733,7 +2021,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
       <Link href="/" className="back">←</Link>
       <div className="studio-title"><b className={surfaceStyles.studioLabel}>Engineer Studio</b><strong>{draft?.snapshot.name || t.loading}</strong><span>{draft?.snapshot.mode === 'chat' ? t.modeChat : t.modeWorkflow} · {currentDeliveryModeOption.label} · {t.draft} r{draft?.revision ?? 0}</span></div>
       <div className="header-center"><span className={`evidence-state ${evidenceState}`} data-evidence-state={evidenceState}>{evidenceStateLabel}</span>{activeVersion && <span>{t.activeVersion(activeVersion)}</span>}<span className={`runtime-chip ${runtimeStatus}`} data-runtime-status={runtimeStatus} title={runtimeStatusDetail}>{runtimeStatusText}</span></div>
-      <div className={`header-actions ${surfaceStyles.studioActions}`}><button className="lang-toggle" onClick={toggleLocale}>{t.switchLabel}</button><Link className={surfaceStyles.surfaceLink} href={`/runtime/${id}`}><Play size={14} /><span>{t.debugDraft}</span></Link><Link className={`${surfaceStyles.surfaceLink} ${surfaceStyles.studioGovernance}`} href={`/governance?application_id=${id}`}><ShieldCheck size={14} /><span>Governance</span></Link><button data-publication-action="open" onClick={() => void publish()} disabled={publicationBusy}>{publicationBusy ? t.publicationChecking : t.publishVersion}</button></div>
+      <div className={`header-actions ${surfaceStyles.studioActions}`}><button className="lang-toggle" onClick={toggleLocale}>{t.switchLabel}</button><Link className={surfaceStyles.surfaceLink} href={`/runtime/${id}`}><Play size={14} /><span>{t.debugDraft}</span></Link><Link className={surfaceStyles.surfaceLink} data-global-developer-collaboration="true" href="/developer/collaboration"><MessagesSquare size={14} /><span>Collaboration</span></Link><Link className={`${surfaceStyles.surfaceLink} ${surfaceStyles.studioGovernance}`} href={`/governance?application_id=${id}`}><ShieldCheck size={14} /><span>Governance</span></Link><button data-publication-action="open" onClick={() => void publish()} disabled={publicationBusy}>{publicationBusy ? t.publicationChecking : t.publishVersion}</button></div>
     </header>
     {publicationDecision && (publicationDecision.requires_confirmation || publicationDecision.blocked) && <section className={`publication-decision-banner ${publicationDecision.blocked ? 'blocked' : 'warning'}`} data-publication-decision={publicationDecision.blocked ? 'blocked' : 'confirmation'}>
       <div><strong>{publicationDecision.blocked ? t.publicationBlockedTitle : t.publicationConfirmationTitle}</strong><span>{publicationDecision.evidence_state === 'stale' ? t.publicationStaleDetail : t.publicationMissingDetail}</span></div>
@@ -1831,14 +2119,35 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
             <p data-workflow-readable-purpose="true"><b>{t.workflowReadablePurpose}</b>{workflowPurposeSummary}</p>
             <div className="workflow-readable-steps">{workflowStepSummaryItems.length ? workflowStepSummaryItems.map(item => <article key={item.id}><strong>{item.title}</strong><small>{item.detail}</small></article>) : <p className="muted">{t.nodeInspectorNoConfig}</p>}</div>
           </section>
-          <section className="workflow-edit-dialog" data-workflow-edit-dialog="whole-workflow" data-workflow-edit-reference-count={workflowEditReferenceIds.length}>
+          <section
+            className="workflow-edit-dialog"
+            data-application-id={id}
+            data-workflow-edit-dialog="selection-aware"
+            data-workflow-edit-endpoint="natural-language-edit"
+            data-workflow-edit-reference-count={workflowEditReferenceIds.length}
+            data-workflow-edit-reference-edge-count={workflowEditReferenceEdgeIds.length}
+          >
             <div className="patch-panel-head"><strong>{t.patchPreviewTitle}</strong><small>{t.patchPreviewHelp}</small></div>
             <div className="workflow-edit-references" data-workflow-edit-references={workflowEditReferenceIds.length ? 'present' : 'empty'}>
               <div><strong>{t.workflowEditReferenceTitle}</strong><small>{t.workflowEditReferenceHelp}</small></div>
               {workflowEditReferenceNodes.length ? <div className="workflow-edit-reference-list">{workflowEditReferenceNodes.map(node => <button type="button" key={node.id} data-workflow-edit-reference-node={node.id} onClick={() => removeWorkflowEditReference(node.id)}>{safeText(node.title, node.id)}<span>{safeWorkflowNodeType(node)}</span></button>)}</div> : <p className="muted">{t.workflowEditReferenceEmpty}</p>}
-              {workflowEditReferenceIds.length > 0 && <button type="button" className="ghost" data-workflow-edit-reference-action="clear" onClick={() => setWorkflowEditReferenceIds([])}>{t.workflowEditReferenceClear}</button>}
+              {workflowEditReferenceEdgeIds.length > 0 && <p className="workflow-edit-edge-count">{t.workflowEditSelectedEdges(workflowEditReferenceEdgeIds.length)}</p>}
+              {(workflowEditReferenceIds.length > 0 || workflowEditReferenceEdgeIds.length > 0) && <button type="button" className="ghost" data-workflow-edit-reference-action="clear" onClick={clearWorkflowEditReferences}>{t.workflowEditReferenceClear}</button>}
             </div>
-            <textarea className="patch-input" data-workflow-edit-input="instruction" value={patchInstruction} placeholder={t.patchPreviewPlaceholder} onChange={event => setPatchInstruction(event.target.value)} />
+            <textarea
+              aria-label={t.patchPreviewTitle}
+              className="patch-input"
+              data-workflow-edit-input="instruction"
+              placeholder={t.patchPreviewPlaceholder}
+              ref={workflowEditInputRef}
+              value={patchInstruction}
+              onChange={event => {
+                patchInstructionRef.current = event.target.value
+                setPatchInstruction(event.target.value)
+                workflowEditPreviewGenerationRef.current += 1
+                setPatchPreview(null)
+              }}
+            />
             <div className="run-actions"><button className="wide" onClick={previewDraftPatch} disabled={patchPreviewLoading}>{patchPreviewLoading ? t.patchPreviewing : t.patchPreviewButton}</button><button className="wide secondary" onClick={applyDraftPatch} disabled={!patchPreview?.supported || patchPreview.operations.length === 0 || patchApplyLoading}>{patchApplyLoading ? t.patchApplying : t.patchApplyButton}</button></div>
             {patchPreview && <div className={`patch-result ${patchPreview.supported ? 'supported' : 'unsupported'}`}>
               <div><b>{patchPreview.intent.replaceAll('_', ' ')}</b><span>{patchPreview.supported ? t.patchSupported : t.patchUnsupported}</span></div>
@@ -2040,6 +2349,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
         data-canvas-keyboard="wasd-pan"
         onKeyDownCapture={handleCanvasKeyDown}
         onMouseDown={focusCanvasForKeyboard}
+        onMouseDownCapture={handleCanvasMouseDownCapture}
         ref={canvasWrapRef}
         tabIndex={0}
       >
@@ -2049,7 +2359,15 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
           <div className="auth-actions"><button>{t.authSave}</button><button type="button" className="ghost" onClick={() => { clearClientToken(); setTokenInput('') }}>{t.authClear}</button></div>
         </form>}
         <div className="canvas-toolbar" data-canvas-toolbar="layout-navigation">
+          <button
+            data-canvas-action="natural-language-edit"
+            onClick={openWorkflowEditPanel}
+            type="button"
+          >
+            {workflowEditReferenceIds.length || workflowEditReferenceEdgeIds.length ? t.canvasWorkflowEditButton : t.canvasWorkflowEditWholeButton}
+          </button>
           <button data-canvas-action="arrange" disabled={!nodes.length || canvasArranging} onClick={arrangeCanvasNodes} type="button">{canvasArranging ? t.canvasArrangeBusy : t.canvasArrangeButton}</button>
+          <span className="canvas-keyboard-hint" data-canvas-selection-hint="right-drag">{t.canvasRightDragHint}</span>
           <span className="canvas-keyboard-hint" data-canvas-keyboard-hint="wasd-pan" title={t.canvasKeyboardHintDetail}>{t.canvasKeyboardHint}</span>
         </div>
         <div className="canvas-guidance">
@@ -2100,9 +2418,65 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
             </button>)}</div>
           </section>
         </div>
-        <ReactFlow nodes={nodes} edges={edges} nodeTypes={nodeTypes} deleteKeyCode={['Backspace', 'Delete']} onInit={instance => { flowRef.current = instance; scheduleFitView(nodes) }} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onNodesDelete={deleted => { void persistDeletedNodes(deleted as StudioNode[]) }} onEdgesDelete={deleted => { void persistDeletedEdges(deleted) }} onNodeClick={(_, node) => chooseNode(node)} onNodeContextMenu={(event, node) => { event.preventDefault(); addWorkflowEditReference(node.id); chooseNode(node); setNotice(t.workflowEditReferenceAdded(safeText(node.data?.title, node.id))) }} onSelectionChange={({ nodes: selectedNodes }) => setWorkflowEditReferencesFromSelection(selectedNodes as StudioNode[])} onEdgeClick={(_, edge) => chooseEdge(edge)} onPaneClick={() => setSelectedNode(null)} onNodeDragStop={(_, node) => mutation('update_node', { node_id: node.id, changes: { position: safeCanvasPosition(node.position) } })} selectionOnDrag selectionMode={SelectionMode.Partial} fitView fitViewOptions={{ padding: 0.22 }} colorMode="dark">
+        <ReactFlow
+          colorMode="dark"
+          deleteKeyCode={['Backspace', 'Delete']}
+          edges={edges}
+          fitView
+          fitViewOptions={{ padding: 0.22 }}
+          nodeTypes={nodeTypes}
+          nodes={nodes}
+          onConnect={onConnect}
+          onEdgeClick={(_, edge) => chooseEdge(edge)}
+          onEdgeContextMenu={handleEdgeContextMenu}
+          onEdgesChange={onEdgesChange}
+          onEdgesDelete={deleted => { void persistDeletedEdges(deleted) }}
+          onInit={instance => { flowRef.current = instance; scheduleFitView(nodes) }}
+          onNodeClick={(_, node) => chooseNode(node)}
+          onNodeContextMenu={handleNodeContextMenu}
+          onNodeDragStop={(_, node) => mutation('update_node', { node_id: node.id, changes: { position: safeCanvasPosition(node.position) } })}
+          onNodesChange={onNodesChange}
+          onNodesDelete={deleted => { void persistDeletedNodes(deleted as StudioNode[]) }}
+          onPaneClick={() => {
+            setWorkflowEditContextMenu(null)
+            setSelectedNode(null)
+          }}
+          onPaneContextMenu={handlePaneContextMenu}
+          onSelectionChange={({ nodes: selectedNodes, edges: selectedEdges }) => setWorkflowEditReferencesFromSelection(selectedNodes as StudioNode[], selectedEdges)}
+          onSelectionContextMenu={handleSelectionContextMenu}
+          panOnDrag={[0, 1]}
+          selectionMode={SelectionMode.Partial}
+          selectionOnDrag
+        >
           <Background color="#283142" gap={24} size={1}/><MiniMap pannable zoomable nodeColor={node => accents[(node.data as { blockType?: string } | undefined)?.blockType || ''] || '#64748b'}/><Controls/>
         </ReactFlow>
+        {canvasSelectionBox && <div
+          aria-hidden="true"
+          className="workflow-edit-selection-box"
+          data-workflow-edit-selection-box="right-drag"
+          style={{
+            height: canvasSelectionBox.height,
+            left: canvasSelectionBox.left,
+            top: canvasSelectionBox.top,
+            width: canvasSelectionBox.width,
+          }}
+        />}
+        {workflowEditContextMenu && <div
+          aria-label={t.workflowEditContextMenuLabel}
+          className="workflow-edit-context-menu"
+          data-workflow-edit-context-menu="open"
+          role="menu"
+          style={{ left: workflowEditContextMenu.x, top: workflowEditContextMenu.y }}
+        >
+          <strong>{t.workflowEditContextTitle}</strong>
+          <span>{t.workflowEditSelectionSummary(workflowEditContextMenu.nodeIds.length, workflowEditContextMenu.edgeIds.length)}</span>
+          <p>{workflowEditContextMenu.nodeIds.length || workflowEditContextMenu.edgeIds.length ? t.workflowEditContextHelp : t.workflowEditContextWholeWorkflow}</p>
+          <button ref={workflowEditMenuPrimaryRef} role="menuitem" type="button" onClick={openWorkflowEditPanel}>{t.workflowEditContextOpen}</button>
+          <button className="secondary" role="menuitem" type="button" onClick={() => {
+            setWorkflowEditContextMenu(null)
+            canvasWrapRef.current?.focus({ preventScroll: true })
+          }}>{t.workflowEditContextCancel}</button>
+        </div>}
         {notice && <button className="toast" onClick={() => setNotice('')}>{notice}</button>}
       </section>
       <aside className="block-panel"><div className="block-heading"><span>{t.bricks}</span><small>{t.available(blocks.length)}</small></div>{Object.entries(grouped).map(([category, items]) => <div className="block-group" key={category}><h4>{items?.[0] ? blockCategory(items[0]) : category}</h4>{items?.map(block => <button onClick={() => addBlock(block)} key={block.type}><i style={{ background: accents[block.type] || '#64748b' }}/><span><b>{blockTitle(block)}</b><small>{blockDescription(block)}</small></span><em>+</em></button>)}</div>)}</aside>

@@ -405,6 +405,7 @@ class WorkflowStorage:
         expected_revision: int,
         idempotency_key: str,
         change_context: dict[str, Any] | None = None,
+        idempotency_digest: str | None = None,
     ) -> dict[str, Any]:
         async with self._lock:
             result = await asyncio.to_thread(
@@ -414,8 +415,10 @@ class WorkflowStorage:
                 expected_revision,
                 idempotency_key,
                 change_context,
+                idempotency_digest,
             )
-        if self.on_draft_changed is not None:
+        idempotent_replay = bool(result.pop("_idempotent_replay", False))
+        if self.on_draft_changed is not None and not idempotent_replay:
             await self.on_draft_changed(application_id, result)
         return result
 
@@ -426,6 +429,7 @@ class WorkflowStorage:
         expected_revision: int,
         idempotency_key: str,
         change_context: dict[str, Any] | None,
+        idempotency_digest: str | None,
     ) -> dict[str, Any]:
         now = utc_now()
         with self.storage._connect() as conn:
@@ -435,7 +439,26 @@ class WorkflowStorage:
                 (application_id, idempotency_key),
             ).fetchone()
             if previous:
-                return json.loads(previous["response_json"])
+                replay = json.loads(previous["response_json"])
+                stored_digest = replay.pop("_idempotency_digest", None)
+                if stored_digest and not idempotency_digest:
+                    raise RevisionConflict(
+                        "idempotency key belongs to a different verified draft mutation"
+                    )
+                if idempotency_digest and not stored_digest:
+                    raise RevisionConflict(
+                        "idempotency key belongs to an older unverifiable draft mutation"
+                    )
+                if (
+                    idempotency_digest
+                    and stored_digest
+                    and stored_digest != idempotency_digest
+                ):
+                    raise RevisionConflict(
+                        "idempotency key was already used for a different draft mutation"
+                    )
+                replay["_idempotent_replay"] = True
+                return replay
             row = conn.execute(
                 """SELECT revision,content_hash,tested_hash,validation_report_json,
                           evidence_invalidated_at,evidence_invalidated_revision,
@@ -505,11 +528,39 @@ class WorkflowStorage:
             }
             if self.on_draft_changed_in_transaction is not None:
                 self.on_draft_changed_in_transaction(conn, application_id, response)
+            stored_response = dict(response)
+            if idempotency_digest:
+                stored_response["_idempotency_digest"] = idempotency_digest
             conn.execute(
                 "INSERT INTO draft_idempotency VALUES(?,?,?,?)",
-                (application_id, idempotency_key, json.dumps(response), now),
+                (application_id, idempotency_key, json.dumps(stored_response), now),
             )
             return response
+
+    async def get_draft_idempotency(
+        self,
+        application_id: str,
+        idempotency_key: str,
+    ) -> dict[str, Any] | None:
+        return await asyncio.to_thread(
+            self._get_draft_idempotency_sync,
+            application_id,
+            idempotency_key,
+        )
+
+    def _get_draft_idempotency_sync(
+        self,
+        application_id: str,
+        idempotency_key: str,
+    ) -> dict[str, Any] | None:
+        with self.storage._connect() as conn:
+            row = conn.execute(
+                "SELECT response_json FROM draft_idempotency WHERE application_id=? AND idempotency_key=?",
+                (application_id, idempotency_key),
+            ).fetchone()
+        if not row:
+            return None
+        return json.loads(row["response_json"])
 
     @staticmethod
     def _application_result(result: dict[str, Any]) -> dict[str, Any]:

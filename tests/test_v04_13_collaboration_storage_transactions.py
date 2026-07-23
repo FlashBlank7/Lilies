@@ -177,12 +177,13 @@ async def test_activation_replay_requires_the_original_prepared_bearer(
     database = tmp_path / "activation-replay.db"
     store = CollaborationStore(database)
     await store.initialize()
+    base = datetime.now(timezone.utc) + timedelta(minutes=1)
     ticks = iter(
         (
-            datetime(2026, 7, 23, 3, 0, tzinfo=timezone.utc),
-            datetime(2026, 7, 23, 3, 0, 1, tzinfo=timezone.utc),
-            datetime(2026, 7, 23, 3, 1, tzinfo=timezone.utc),
-            datetime(2026, 7, 23, 3, 1, 1, tzinfo=timezone.utc),
+            base,
+            base + timedelta(seconds=1),
+            base + timedelta(minutes=1),
+            base + timedelta(minutes=1, seconds=1),
         )
     )
     service = CollaborationService(store=store, enabled=True, now=lambda: next(ticks))
@@ -198,8 +199,8 @@ async def test_activation_replay_requires_the_original_prepared_bearer(
         "application_ids": [uuid4()],
         "collaboration_enabled": True,
         "user_notified": True,
-        "expires_at": datetime(2026, 7, 23, 5, 0, tzinfo=timezone.utc),
-        "retention_until": datetime(2026, 8, 23, 3, 0, tzinfo=timezone.utc),
+        "expires_at": base + timedelta(hours=2),
+        "retention_until": base + timedelta(days=30),
         "idempotency_key": "activation-prepared-replay-0001",
         "prepared_access_token": prepared,
     }
@@ -221,7 +222,7 @@ async def test_activation_replay_requires_the_original_prepared_bearer(
 
     second_store = CollaborationStore(tmp_path / "activation-unrecoverable.db")
     await second_store.initialize()
-    fixed_now = datetime(2026, 7, 23, 4, 0, tzinfo=timezone.utc)
+    fixed_now = base + timedelta(hours=1)
     second_service = CollaborationService(
         store=second_store, enabled=True, now=lambda: fixed_now
     )

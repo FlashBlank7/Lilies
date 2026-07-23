@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import Any
 
 from .blocks import BlockRegistry
@@ -38,6 +40,10 @@ class ApplicationService:
             expected_revision=operation.expected_revision,
             idempotency_key=operation.idempotency_key,
             change_context=self._change_context(operation.op, data),
+            idempotency_digest=self._operation_idempotency_digest(
+                application_id,
+                operation,
+            ),
         )
         result["operation"] = operation.op
         return result
@@ -54,6 +60,32 @@ class ApplicationService:
     ) -> dict[str, Any]:
         if not operations:
             raise ValueError("atomic draft update has no operations")
+        idempotency_digest = self._atomic_idempotency_digest(
+            application_id=application_id,
+            expected_revision=expected_revision,
+            expected_content_hash=expected_content_hash,
+            operations=operations,
+            change_context_operation=change_context_operation,
+        )
+        replay = await self.store.get_draft_idempotency(
+            application_id,
+            idempotency_key,
+        )
+        if replay is not None:
+            replay_digest = replay.pop("_idempotency_digest", None)
+            if replay_digest is None:
+                raise RevisionConflict(
+                    "idempotency key belongs to an older unverifiable draft mutation"
+                )
+            if replay_digest != idempotency_digest:
+                raise RevisionConflict(
+                    "idempotency key was already used for a different atomic draft edit"
+                )
+            replay.update({
+                "operations_applied": len(operations),
+                "previous_content_hash": expected_content_hash,
+            })
+            return replay
         draft = await self.store.get_draft(application_id)
         if int(draft["revision"]) != expected_revision:
             raise RevisionConflict(
@@ -62,6 +94,7 @@ class ApplicationService:
         if draft["content_hash"] != expected_content_hash:
             raise RevisionConflict("repair content hash no longer matches the current draft")
         snapshot: ApplicationSnapshot = draft["snapshot"].model_copy(deep=True)
+        original_snapshot = snapshot.model_dump(mode="json")
         operation_names: list[str] = []
         for raw in operations:
             operation_revision = int(raw.get("expected_revision", expected_revision))
@@ -76,6 +109,8 @@ class ApplicationService:
             self._apply_to_snapshot(snapshot, operation_name, data)
             operation_names.append(operation_name)
         snapshot = ApplicationSnapshot.model_validate(snapshot.model_dump(mode="json"))
+        if snapshot.model_dump(mode="json") == original_snapshot:
+            raise ValueError("atomic draft update would not change the workflow")
         result = await self.store.save_draft(
             application_id,
             snapshot,
@@ -86,6 +121,7 @@ class ApplicationService:
                 "operation_count": len(operation_names),
                 "operation_types": operation_names[:20],
             },
+            idempotency_digest=idempotency_digest,
         )
         result.update({
             "operations_applied": len(operation_names),
@@ -93,15 +129,63 @@ class ApplicationService:
         })
         return result
 
+    @staticmethod
+    def _operation_idempotency_digest(
+        application_id: str,
+        operation: DraftOperation,
+    ) -> str:
+        encoded = json.dumps(
+            {
+                "application_id": application_id,
+                "expected_revision": operation.expected_revision,
+                "op": operation.op,
+                "data": operation.data,
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+        return "sha256:" + hashlib.sha256(encoded).hexdigest()
+
+    @staticmethod
+    def _atomic_idempotency_digest(
+        *,
+        application_id: str,
+        expected_revision: int,
+        expected_content_hash: str,
+        operations: list[dict[str, Any]],
+        change_context_operation: str,
+    ) -> str:
+        payload = {
+            "application_id": application_id,
+            "expected_revision": expected_revision,
+            "expected_content_hash": expected_content_hash,
+            "operations": operations,
+            "change_context_operation": change_context_operation,
+        }
+        encoded = json.dumps(
+            payload,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+        return "sha256:" + hashlib.sha256(encoded).hexdigest()
+
     def validate_preview_operations(
         self,
         snapshot: ApplicationSnapshot,
         operations: list[DraftOperation],
     ) -> ApplicationSnapshot:
+        original_snapshot = snapshot.model_dump(mode="json")
         preview = snapshot.model_copy(deep=True)
         for operation in operations:
             self._apply_to_snapshot(preview, operation.op, operation.data)
-        return ApplicationSnapshot.model_validate(preview.model_dump(mode="json"))
+        validated = ApplicationSnapshot.model_validate(
+            preview.model_dump(mode="json")
+        )
+        if validated.model_dump(mode="json") == original_snapshot:
+            raise ValueError("workflow edit preview would not change the workflow")
+        return validated
 
     def _apply_to_snapshot(
         self,
@@ -121,7 +205,12 @@ class ApplicationService:
             changes = dict(data.get("changes") or {})
             if "config" in changes and data.get("merge_config", True):
                 changes["config"] = self._deep_merge(node.config, changes["config"])
-            updated = node.model_copy(update=changes)
+            updated = NodeSpec.model_validate(
+                {
+                    **node.model_dump(mode="json"),
+                    **changes,
+                }
+            )
             self.blocks.validate_node(updated)
             index = snapshot.workflow.nodes.index(node)
             snapshot.workflow.nodes[index] = updated

@@ -155,7 +155,7 @@ def source_marker_checks() -> list[dict[str, Any]]:
             "workflow_edit_frontend_surface_markers",
             "platform/frontend/app/applications/[id]/page.tsx",
             (
-                "data-workflow-edit-dialog=\"whole-workflow\"",
+                "data-workflow-edit-dialog=\"selection-aware\"",
                 "data-workflow-readable-summary=\"natural-language\"",
                 "workflowStepSummaryItems",
                 "workflowEditReferenceIds",
@@ -173,9 +173,9 @@ def source_marker_checks() -> list[dict[str, Any]]:
             (
                 "自然语言工作流编辑",
                 "Natural-language workflow edit",
-                "参考积木",
-                "references are context, not an edit boundary",
-                "只是上下文，不限制修改范围",
+                "本次修改范围",
+                "Right-drag selects a group",
+                "所选内容是本次修改的主要范围",
             ),
         ),
         (

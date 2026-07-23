@@ -1,0 +1,73 @@
+V04-13-T01E developer CLI transcript (sanitized)
+Captured at (UTC): 2026-07-23T16:28:57Z
+Baseline commit: 02e003eef611be495bc75058f5b5837286c9bbff
+
+Credential setup:
+  source: /tmp/lilies-t01e-developer-token
+  observed mode: 0600
+  token value: [not captured]
+  argv token argument: absent by design
+
+Help command:
+  .venv/bin/python -m agent_platform.developer_collaboration_cli --help
+
+Observed command surface:
+  inbox
+  lease
+  renew
+  release
+  respond
+
+Observed credential surface:
+  --token-file
+  LILIES_COLLABORATION_DEVELOPER_TOKEN
+
+Forbidden help options absent:
+  --token
+  --access-token
+
+Live HTTP inbox command:
+  .venv/bin/python -m agent_platform.developer_collaboration_cli \
+    --base-url http://127.0.0.1:8001 \
+    --token-file /tmp/lilies-t01e-developer-token \
+    inbox --after 0 --limit 100
+
+Sanitized single-JSON result:
+  {
+    "claim_count": 0,
+    "hidden_report_ids_absent": true,
+    "next_cursor": 4,
+    "pending_user_action": true,
+    "report_count": 1,
+    "visible_report_ids": [
+      "5e9ef233-d682-58bf-ae51-557099bd3d9d"
+    ]
+  }
+
+Interpretation:
+  - The visible report is already in ready_for_lilies_verification after a
+    substantive controlled DeveloperResponse.
+  - The awaiting-user-review, needs-more-evidence, and verifier-routed report
+    IDs, summaries, evidence IDs, and digests are absent from the developer
+    projection.
+  - pending_user_action is a global boolean only; it reveals no hidden report
+    identity or content.
+
+Deterministic CLI mutation verification:
+  .venv/bin/python -m pytest -q \
+    tests/test_v04_13_developer_collaboration_cli.py
+  5 passed, 0 failed
+
+The tests execute inbox, lease, renew, release, and respond through the strict
+HTTP client contract and verify one JSON object per successful command.
+DeveloperResponse must include a substantive change, commit, passing tests,
+known limits, and ordered reprobe steps. Error responses are non-zero and
+redacted. The token is absent from URLs, JSON bodies, stdout, stderr, and error
+messages. Token files must be regular, non-symlink files with exact mode 0600
+and are opened with no-follow semantics.
+
+The live persistent fixture was intentionally not mutated through lease/respond
+after capture because doing so would destroy the awaiting-review presentation
+state left for user inspection. Therefore this transcript claims a live HTTP
+inbox plus deterministic HTTP mutation-client coverage, not a live successful
+lease/respond mutation against the retained fixture.

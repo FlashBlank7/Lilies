@@ -1,0 +1,58 @@
+{
+  "schema_version": "1.0",
+  "task_id": "V04-13-T01E",
+  "captured_at_utc": "2026-07-23T16:40:55Z",
+  "baseline_commit": "02e003eef611be495bc75058f5b5837286c9bbff",
+  "source_state": "T01E implementation and the adjacent user-reported natural-language workflow editing repair, before the intentional T01E commit",
+  "files": [
+    {
+      "path": "browser-environment.json",
+      "sha256": "2dd529b32b200b53d2f146da46cedbd48ca6adfed6d5e44a869d67f1ce85eee9"
+    },
+    {
+      "path": "deterministic-tests.txt",
+      "sha256": "450039da8a2fcd958cf648dc9273c38b58151757d716b4992dfa7c5cde0733c1"
+    },
+    {
+      "path": "developer-cli-transcript.txt",
+      "sha256": "cebe05c710118b34f4b7efc6269f883b9931ff87bc8293dddec87346b58c8a98"
+    },
+    {
+      "path": "developer-isolation-and-api.json",
+      "sha256": "7259424698599f01bc2097e390bd7fbb29784a8b9126197f3b93a58b1d323094"
+    },
+    {
+      "path": "independent-audit.md",
+      "sha256": "02bde35166cee4a5b513ba1e86d356d63a0372ecfb0ef65e432a5ee9a805bb30"
+    },
+    {
+      "path": "security-and-boundary-summary.json",
+      "sha256": "5cc1d0212579bc4c510554187305abc39842045b630aa5a91f98487578d7e1dc"
+    }
+  ],
+  "focused_result": {
+    "passed": 34,
+    "warnings": 1,
+    "failed": 0
+  },
+  "v04_13_regression_result": {
+    "passed": 430,
+    "warnings": 2,
+    "failed": 0
+  },
+  "natural_language_edit_regression_result": {
+    "passed": 34,
+    "warnings": 1,
+    "failed": 0
+  },
+  "frontend_result": {
+    "tests_passed": 24,
+    "lint": "passed",
+    "production_build": "passed"
+  },
+  "evidence_level": "deterministic_api_cli_frontend_build",
+  "browser_evidence_status": "blocked_by_environment",
+  "browser_evidence_debt_id": "V0413-ED-003",
+  "independent_audit": "PASS AT SCOPED EVIDENCE FLOOR",
+  "claim_ceiling": "In a controlled local single-user environment, the current source state supports T01E code, type, production-build, deterministic state-machine/API, developer CLI, safe Customer Runtime projection, and local HTTP reachability claims. It does not support user-operated browser, desktop/mobile visual, keyboard, overflow, reduced-motion, console/network, browser DOM isolation, production IAM, multi-tenant, or production deployment claims."
+}

@@ -1,0 +1,115 @@
+{
+  "schema_version": "1.0",
+  "task_id": "V04-13-T01E",
+  "captured_at_utc": "2026-07-23T16:28:57Z",
+  "baseline_commit": "02e003eef611be495bc75058f5b5837286c9bbff",
+  "running_processes": {
+    "backend_health": {
+      "url": "http://127.0.0.1:8001/health",
+      "status_code": 200
+    },
+    "studio": {
+      "url": "http://127.0.0.1:3000/developer/collaboration?channel=14987052-9849-5551-86f0-032f03d6708b",
+      "status_code": 200
+    }
+  },
+  "controlled_fixture": {
+    "claim_scope": "local UI fixture only; not production or browser acceptance evidence",
+    "seed_runs": 2,
+    "idempotent_replay": true,
+    "direct_sql_state_mutation": false,
+    "channel_id": "14987052-9849-5551-86f0-032f03d6708b",
+    "task_id": "EXP-LILIES-T01E-BROWSER-FIXTURE",
+    "task_revision": 1,
+    "application_id": "93a0b339-29ab-4e1e-a091-347ce88a0c24",
+    "assignment_id": "079a3b03-080f-5b8d-8891-153a919d8f5e",
+    "lilies_session_id": "cb283cf7-4c1f-5bd9-a943-71973ad61edd",
+    "channel_count_for_binding": 1,
+    "report_states": [
+      "verification_failed",
+      "awaiting_user_review",
+      "needs_more_evidence",
+      "ready_for_lilies_verification"
+    ],
+    "causal_message_count": 13,
+    "claim_count": 1,
+    "stable_export_digest": "sha256:7ada7ac09bea969308c98d067b351c98c6eaa676292a7384bbcd997cffb3d29f"
+  },
+  "studio_projection": {
+    "status_code": 200,
+    "approval_mode": "manual",
+    "report_count": 4,
+    "observable_event_count": 496,
+    "application_count": 1,
+    "application_projection": {
+      "draft_revision": 15,
+      "node_count": 3,
+      "edge_count": 2,
+      "test_count": 2,
+      "tests_passed": 2,
+      "tests_failed": 0,
+      "recent_run_count": 13
+    },
+    "server_derived_state": {
+      "current_block": "lilies_reprobe",
+      "owner_role": "lilies",
+      "why_waiting": "DeveloperResponse cannot close its own report; Lilies must black-box reprobe.",
+      "next_action": "run_reprobe"
+    },
+    "developer_responses": 2,
+    "verification_failure": {
+      "expected": "The capability approval card remains visible after refresh.",
+      "actual": "The controlled fixture oracle reports that the approval card is missing after refresh."
+    }
+  },
+  "developer_inbox_live_http": {
+    "report_count": 1,
+    "claim_count": 0,
+    "pending_user_action": true,
+    "next_cursor": 4,
+    "visible_report_ids": [
+      "5e9ef233-d682-58bf-ae51-557099bd3d9d"
+    ],
+    "hidden_report_ids_absent": true,
+    "hidden_content_or_evidence_inference": false
+  },
+  "approval_and_routing": {
+    "api_idempotency": {
+      "status": "passed_deterministically",
+      "coverage": "same-key replay, one approval/message/outbox side effect, revision CAS, and 100-way reconnect/replay loops"
+    },
+    "browser_double_click": {
+      "status": "not_run",
+      "reason": "no controllable browser provider"
+    },
+    "needs_more_evidence_same_session_binding": {
+      "status": "passed_deterministically",
+      "lilies_session_id": "cb283cf7-4c1f-5bd9-a943-71973ad61edd"
+    },
+    "task_local_auto_forward": {
+      "status": "passed_deterministically",
+      "next_task_default": "manual",
+      "browser_status": "not_run"
+    }
+  },
+  "customer_runtime_projection": {
+    "endpoint": "/api/v1/customer-runtime/applications/93a0b339-29ab-4e1e-a091-347ce88a0c24",
+    "status_code": 200,
+    "business_output_preserved": {
+      "classification": "售后",
+      "reason": "客户要求安排维修师傅上门维修"
+    },
+    "marker_counts": {
+      "codex": 0,
+      "collaboration": 0,
+      "developer_response": 0,
+      "private_reason": 0,
+      "private_reasoning": 0,
+      "raw_blocks": 0,
+      "signature": 0,
+      "thinking_blocks": 0
+    },
+    "raw_generic_application_or_stream_endpoint_used_by_runtime_page": false
+  },
+  "claim_ceiling": "The controlled fixture and live API checks prove safe projections and state-machine reachability. They do not prove desktop/mobile rendering, browser interaction, layout, keyboard, reduced-motion, or console/network behavior."
+}

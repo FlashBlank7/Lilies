@@ -922,6 +922,91 @@ class LiliesStorage:
             )
             return self._session_from_row(self._require_session_conn(conn, session_id))
 
+    async def complete_ready_assignment_session(
+        self,
+        session_id: str,
+        turn_id: str,
+        *,
+        reason: str,
+    ) -> dict[str, Any]:
+        """Atomically reconcile one idle, durably finished assignment session."""
+
+        async with self._lock:
+            return await asyncio.to_thread(
+                self._complete_ready_assignment_session_sync,
+                session_id,
+                turn_id,
+                reason,
+            )
+
+    def _complete_ready_assignment_session_sync(
+        self,
+        session_id: str,
+        turn_id: str,
+        reason: str,
+    ) -> dict[str, Any]:
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            session = self._require_session_conn(conn, session_id)
+            config = _json_load(session["config_json"], {})
+            assignment_id = session["assignment_id"]
+            if (
+                session["status"] != "ready"
+                or config.get("kind") != "platform"
+                or assignment_id is None
+            ):
+                raise LiliesConflictError(
+                    f"session {session_id} is not an idle platform assignment"
+                )
+            assignment = conn.execute(
+                """
+                SELECT * FROM assignments
+                WHERE id=? AND session_id=? AND status='active'
+                """,
+                (assignment_id, session_id),
+            ).fetchone()
+            if assignment is None:
+                raise LiliesConflictError(
+                    f"session {session_id} has no active assignment receipt"
+                )
+            latest_turn = conn.execute(
+                """
+                SELECT * FROM turns WHERE session_id=?
+                ORDER BY created_at DESC,id DESC LIMIT 1
+                """,
+                (session_id,),
+            ).fetchone()
+            if (
+                latest_turn is None
+                or latest_turn["id"] != turn_id
+                or latest_turn["status"] != "completed"
+            ):
+                raise LiliesConflictError(
+                    f"turn {turn_id} is not the latest completed assignment turn"
+                )
+            active_turn = conn.execute(
+                """
+                SELECT id FROM turns WHERE session_id=?
+                AND status IN ('running','waiting_permission','waiting_collaboration')
+                LIMIT 1
+                """,
+                (session_id,),
+            ).fetchone()
+            if active_turn is not None:
+                raise LiliesConflictError(
+                    f"session {session_id} still has active turn {active_turn['id']}"
+                )
+            self._transition_session_conn(
+                conn,
+                session_id,
+                "completed",
+                reason=reason,
+                expected_status="ready",
+            )
+            return self._session_from_row(
+                self._require_session_conn(conn, session_id)
+            )
+
     def _transition_session_conn(
         self,
         conn: sqlite3.Connection,

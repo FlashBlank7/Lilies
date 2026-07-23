@@ -22,6 +22,7 @@ from .local_lilies_bridge import (
     ReconnectLocalLiliesRequest,
     StartLocalLiliesBuildRequest,
 )
+from .lilies_models import PermissionDecisionRequest
 from .platform_blackbox_auth import PlatformBlackboxScope
 
 
@@ -348,6 +349,23 @@ def install_local_lilies_bridge_api(
                 assignment_id,
                 idempotency_key=idempotency_key,
                 reason=request_body.reason,
+            )
+        )
+
+    @app.post(
+        "/api/v1/local-lilies/assignments/{assignment_id}/permissions/{request_id}",
+        dependencies=dependencies,
+    )
+    async def resolve_local_lilies_assignment_permission(
+        assignment_id: UUID,
+        request_id: UUID,
+        body: PermissionDecisionRequest,
+    ) -> Any:
+        return await _bridge_call(
+            bridge.resolve_assignment_permission(
+                assignment_id,
+                request_id,
+                body,
             )
         )
 

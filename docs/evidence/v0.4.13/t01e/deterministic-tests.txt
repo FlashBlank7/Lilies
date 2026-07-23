@@ -1,0 +1,125 @@
+V04-13-T01E deterministic verification
+Captured at (UTC): 2026-07-23T16:28:57Z
+Baseline commit: 02e003eef611be495bc75058f5b5837286c9bbff
+Source state: final T01E working tree before evidence/report commit
+
+1. Focused T01E backend and API suite
+
+Command:
+  .venv/bin/python -m pytest -q \
+    tests/test_v04_13_collaboration_service.py \
+    tests/test_v04_13_collaboration_api_adapter.py \
+    tests/test_v04_13_collaboration_studio_context.py \
+    tests/test_v04_13_customer_runtime_projection.py \
+    tests/test_v04_13_developer_collaboration_cli.py \
+    tests/test_v04_13_t01e_browser_fixture.py
+
+Result:
+  34 passed, 1 warning, 0 failed in 2.58s
+
+This verifies the semantic Studio context projection, server-derived owner/block/
+next-action state, observable event and compaction projection, tool duration,
+permission/capability separation, report and claim detail, Customer Runtime
+redaction, business-output preservation, developer CLI schema and token
+boundaries, one-channel/four-report fixture causality, and idempotent fixture
+seeding.
+
+2. Broad v0.4.13 collaboration and local-Lilies regression
+
+Command:
+  .venv/bin/python -m pytest -q \
+    tests/test_v04_13_assignment_bridge.py \
+    tests/test_v04_13_collaboration_*.py \
+    tests/test_v04_13_customer_runtime_projection.py \
+    tests/test_v04_13_developer_collaboration_cli.py \
+    tests/test_v04_13_lilies_*.py \
+    tests/test_v04_13_local_lilies_bridge_api.py \
+    tests/test_v04_13_t01e_browser_fixture.py
+
+Result:
+  430 passed, 2 warnings, 0 failed in 116.28s
+  real 117.22s
+
+The final run includes the three real-daemon ASGI pairing/reconnect/cancel
+cases. A prior run exposed a date-sensitive activation test whose fixed
+2026-07-23 expiry had become historical on 2026-07-24. The test now derives its
+logical clock and expiry from the current UTC time; the exact regression and
+the final broad run pass.
+
+Warnings:
+  - existing Starlette TestClient/httpx deprecation;
+  - existing duplicate fallback OpenAPI operation ID warning.
+
+3. Frontend model, interaction contracts, TypeScript, and production build
+
+Commands and results:
+  cd platform/frontend && npm test
+    24 passed, 0 failed
+  cd platform/frontend && npm run lint
+    TypeScript completed with exit code 0
+  cd platform/frontend && npm run build
+    exit code 0; Next.js 16.2.9 compiled, type-checked, generated six pages,
+    and emitted /developer/collaboration as a static route
+
+The 24 tests include mobile task -> timeline -> detail routing, semantic
+timeline merging, private-reasoning exclusion, permission outcome coalescing,
+server-derived ownership, stable idempotency and in-flight double-click
+protection, SSE cursor resume, three-pane/mobile/reduced-motion source
+contracts, evidence/DeveloperResponse/verifier-difference presentation, and the
+right-drag/right-click natural-language workflow-edit selection path.
+
+4. User-reported natural-language edit and local callback regressions
+
+Command:
+  .venv/bin/python -m pytest -q \
+    tests/test_natural_language_workflow_edit.py \
+    tests/test_v03_47_natural_language_workflow_edit.py \
+    tests/test_dev_platform_local_lilies_callback.py
+
+Result:
+  34 passed, 1 warning, 0 failed in 16.30s
+
+This is adjacent user-path repair evidence, not a substitute for T01E browser
+evidence. It verifies boxed node/edge selection, reviewed preview/apply
+identity, atomic edits, model fallback, and the actual local-Lilies callback
+port used by the running development platform.
+
+5. Static checks
+
+Commands and results:
+  git status --porcelain=v1 | cut -c4- | rg '\.py$' |
+    xargs .venv/bin/python -m ruff check
+    All checks passed.
+  .venv/bin/python -m compileall -q \
+    platform/backend/src/agent_platform \
+    scripts/seed_v04_13_t01e_browser.py \
+    tests/test_v04_13_t01e_browser_fixture.py
+    passed.
+  git diff --check
+    passed.
+
+The expanded full-directory Ruff probe was also run:
+  .venv/bin/python -m ruff check platform/backend/src/agent_platform tests scripts
+
+It reports 27 existing baseline findings only in untouched legacy files
+(governed_memory.py, merge_engine.py, meta_cognition.py, observability.py,
+orchestration_advisor.py, seven v0.2.x scripts, test_contract_and_errors.py,
+test_meta_cognition.py, and a v0.2.114 test). No T01E or other current-change
+file appears in that output. The baseline is recorded rather than silently
+fixed outside this task.
+
+6. Running-process and safe-projection checks
+
+Results:
+  GET http://127.0.0.1:8001/health -> 200
+  GET http://127.0.0.1:3000/developer/collaboration?... -> 200
+  Studio detail -> 4 reports, 13 causal messages, 1 failed claim,
+    496 observable assignment events, one current 3-node/2-edge application
+  Customer Runtime -> 200, 3 nodes, 2 edges, one succeeded business run
+  Customer Runtime marker counts -> zero for collaboration, codex,
+    developer_response, private_reason, private_reasoning, raw_blocks,
+    signature, and thinking_blocks
+
+The browser provider itself exposed no controllable browser. The HTTP checks,
+source contracts, and build are not reported as user-operated browser evidence;
+see browser-environment.json.

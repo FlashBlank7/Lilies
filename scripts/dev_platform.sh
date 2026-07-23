@@ -35,9 +35,33 @@ if [[ -f .env ]]; then
   load_env_file .env
 fi
 
+API_CONNECT_HOST="$API_HOST"
+if [[ "$API_CONNECT_HOST" == "0.0.0.0" || "$API_CONNECT_HOST" == "::" ]]; then
+  API_CONNECT_HOST="127.0.0.1"
+fi
+API_CONNECT_AUTHORITY="$API_CONNECT_HOST"
+if [[ "$API_CONNECT_AUTHORITY" == *:* && "$API_CONNECT_AUTHORITY" != \[*\] ]]; then
+  API_CONNECT_AUTHORITY="[$API_CONNECT_AUTHORITY]"
+fi
+API_CONNECT_URL="http://$API_CONNECT_AUTHORITY:$API_PORT"
+export LILIES_PLATFORM_BASE_URL="${LILIES_PLATFORM_BASE_URL:-$API_CONNECT_URL}"
+
 if [[ "${1:-}" == "--check-env" ]]; then
   [[ -n "${DEEPSEEK_API_KEY:-}" ]] && echo "DEEPSEEK_API_KEY ok" || echo "DEEPSEEK_API_KEY missing"
   [[ -n "${API_TOKEN:-}" ]] && echo "API_TOKEN ok" || echo "API_TOKEN missing"
+  if [[ "${LILIES_LOCAL_AGENT_ENABLED:-false}" == "true" ]]; then
+    echo "Local Lilies callback $LILIES_PLATFORM_BASE_URL"
+  fi
+  if [[ "${LILIES_COLLABORATION_ENABLED:-false}" == "true" ]]; then
+    collaboration_developer_token="${LILIES_COLLABORATION_DEVELOPER_TOKEN:-}"
+    collaboration_verifier_token="${LILIES_COLLABORATION_VERIFIER_TOKEN:-}"
+    [[ ${#collaboration_developer_token} -ge 32 ]] \
+      && echo "LILIES_COLLABORATION_DEVELOPER_TOKEN ok" \
+      || echo "LILIES_COLLABORATION_DEVELOPER_TOKEN missing/short"
+    [[ ${#collaboration_verifier_token} -ge 32 ]] \
+      && echo "LILIES_COLLABORATION_VERIFIER_TOKEN ok" \
+      || echo "LILIES_COLLABORATION_VERIFIER_TOKEN missing/short"
+  fi
   exit 0
 fi
 
@@ -51,6 +75,25 @@ if [[ -z "${API_TOKEN:-}" ]]; then
   echo "API_TOKEN is missing. Edit $ROOT/.env before starting." >&2
   echo "Run ./scripts/dev_platform.sh --check-env to verify dotenv loading." >&2
   exit 1
+fi
+
+if [[ "${LILIES_COLLABORATION_ENABLED:-false}" == "true" ]]; then
+  collaboration_developer_token="${LILIES_COLLABORATION_DEVELOPER_TOKEN:-}"
+  collaboration_verifier_token="${LILIES_COLLABORATION_VERIFIER_TOKEN:-}"
+  if [[ ${#collaboration_developer_token} -lt 32 ]]; then
+    echo "LILIES_COLLABORATION_DEVELOPER_TOKEN must be at least 32 characters." >&2
+    exit 1
+  fi
+  if [[ ${#collaboration_verifier_token} -lt 32 ]]; then
+    echo "LILIES_COLLABORATION_VERIFIER_TOKEN must be at least 32 characters." >&2
+    exit 1
+  fi
+  if [[ "$collaboration_developer_token" == "$API_TOKEN" \
+     || "$collaboration_verifier_token" == "$API_TOKEN" \
+     || "$collaboration_developer_token" == "$collaboration_verifier_token" ]]; then
+    echo "Collaboration user, developer, and verifier credentials must be distinct." >&2
+    exit 1
+  fi
 fi
 
 ensure_node_tools() {
@@ -170,13 +213,16 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 echo "Starting API on http://$API_HOST:$API_PORT"
+if [[ "${LILIES_LOCAL_AGENT_ENABLED:-false}" == "true" ]]; then
+  echo "Local Lilies callback: $LILIES_PLATFORM_BASE_URL"
+fi
 .venv/bin/uvicorn agent_platform.api:app --host "$API_HOST" --port "$API_PORT" &
 
 echo "Starting Studio on http://$WEB_HOST:$WEB_PORT"
-echo "Studio proxy target: http://$API_HOST:$API_PORT"
+echo "Studio proxy target: $API_CONNECT_URL"
 (
   cd platform/frontend
-  AGENT_PLATFORM_URL="http://$API_HOST:$API_PORT" API_TOKEN="$API_TOKEN" npm run dev -- --hostname "$WEB_HOST" --port "$WEB_PORT"
+  AGENT_PLATFORM_URL="$API_CONNECT_URL" API_TOKEN="$API_TOKEN" npm run dev -- --hostname "$WEB_HOST" --port "$WEB_PORT"
 ) &
 
 wait
