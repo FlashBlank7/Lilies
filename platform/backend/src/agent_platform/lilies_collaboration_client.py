@@ -102,10 +102,13 @@ class LiliesCollaborationClient:
         *,
         after: int | None = None,
         limit: int = 200,
+        history_replay: bool = False,
     ) -> CollaborationHttpResult:
         query: dict[str, str | int] = {"limit": limit, "format": "json"}
         if after is not None:
             query["after"] = after
+        if history_replay:
+            query["history_replay"] = "true"
         return await self._request("GET", "events", query=query)
 
     async def submit_verification_claim(

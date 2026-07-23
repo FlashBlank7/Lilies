@@ -209,6 +209,32 @@ async def test_first_durable_cursor_uses_the_authenticated_reader_role(
         )
         == 0
     )
+    await store.ack_reader(
+        channel_id,
+        user.sender_id,
+        1,
+        idempotency_key="cursor-history-replay-ack-0001",
+        reader_role=user.role,
+        expected_cursor_revision=0,
+    )
+    assert (
+        await service.resolve_event_cursor(
+            principal=user,
+            channel_id=channel_id,
+            requested_after=0,
+            durable=True,
+        )
+        == 1
+    )
+    assert (
+        await service.resolve_event_cursor(
+            principal=user,
+            channel_id=channel_id,
+            requested_after=0,
+            durable=False,
+        )
+        == 0
+    )
 
 
 @pytest.mark.asyncio

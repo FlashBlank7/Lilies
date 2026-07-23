@@ -1,21 +1,34 @@
 {
   "schema_version": "1.0",
   "task_id": "V04-13-T01D",
-  "captured_at_utc": "2026-07-22T23:09:30Z",
+  "captured_at_utc": "2026-07-23T00:40:29Z",
   "baseline_commit": "91d68006de539df050b84c3791894b8dc81aaa63",
   "files": [
     {
       "path": "deterministic-tests.txt",
-      "sha256": "2dbbb598603190dcb3a5a08868c63da717a1ca719acf3732d1774cff7424b6d7"
+      "sha256": "7410c3d4da61c8ac0ea43dcddaf2b6b2de0e9d6e48d29c7b522ce2bc37dd87c2"
     },
     {
       "path": "independent-audit.md",
-      "sha256": "b6db65d9679871453b67a48b5a5e84613e77699912124906217a68960e9502b9"
+      "sha256": "ee39020690cec2f9ad18901510b5ca2dfe18b1bea32b2b7cfe56d680e09aed85"
     },
     {
       "path": "security-and-boundary-summary.json",
-      "sha256": "d22a992f27cf8fec25d32157f9e9e3fb71e86f7e78f6fcc418c610bf2cb0ea88"
+      "sha256": "953467380ca0d5c8194b52fe1ee22a3b47627c8e06f063ef05032d0ac1876b20"
     }
   ],
-  "claim_ceiling": "T01D is closed at deterministic in-process, real-ASGI HTTP, SQLite, and Git-object evidence levels. No T01E UI, T01F task-package/oracle, T01G qualification bundle, or T01H enterprise experiment pass is claimed."
+  "focused_result": {
+    "passed": 145,
+    "warnings": 2,
+    "failed": 0
+  },
+  "full_repository_result": {
+    "passed": 1241,
+    "expected_xfailed": 85,
+    "warnings": 2,
+    "failed": 0,
+    "dependency_note": "Run with ephemeral python-docx because the existing report test dependency is absent from the declared dev extra; the user uv.lock was not modified."
+  },
+  "independent_audit": "PASS",
+  "claim_ceiling": "T01D is closed at deterministic in-process, real create_app HTTP, SQLite, and Git-object evidence levels. T01E UI, T01F task-package/verifier process, T01G qualification bundle, and T01H enterprise experiment are not claimed."
 }

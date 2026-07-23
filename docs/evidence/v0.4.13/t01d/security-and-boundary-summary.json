@@ -1,16 +1,16 @@
 {
   "schema_version": "1.0",
   "task_id": "V04-13-T01D",
-  "captured_at_utc": "2026-07-22T23:04:25Z",
+  "captured_at_utc": "2026-07-23T00:40:29Z",
   "baseline_commit": "91d68006de539df050b84c3791894b8dc81aaa63",
   "implemented_boundaries": {
     "ordinary_session_discovery": "BuildAssignment, prompt, tool schema, OpenAPI, and hidden-route errors reveal no collaboration surface unless formal assignment access is present",
-    "lilies_access": "a separate channel bearer is header-only, exact-channel and exact-assignment bound, expiry checked, and limited to report-write/response-read",
+    "lilies_access": "a separate channel bearer is header-only, exact-channel and exact-assignment bound, expiry checked, and limited to report-write/response-read; verifier-only claim replay is restricted to the exact authenticated Lilies sender ID",
     "developer_access": "preapproval content is absent from the developer inbox; only approved capability reports and direct task/environment routes are visible",
     "verifier_access": "verification has a distinct principal and credential, reads only a frozen exact claim, and is the sole domain write allowed after close",
     "daemon_persistence": "collaboration tool inputs and results are sanitized before message, checkpoint, event, permission, summary, archive, or UI-visible persistence; protected oracle input fails closed",
     "payload_safety": "credential fields and values, Authorization, Cookie, private keys, provider tokens, registered daemon secrets, and credential query parameters are redacted; protected oracle references are rejected",
-    "storage": "dedicated normalized SQLite tables replace log scanning; seq, messages, revisions, receipts, cursors, leases, approvals, outbox, claims, verification, and audit updates are transactional",
+    "storage": "dedicated normalized SQLite tables replace log scanning; seq, messages, revisions, receipts, cursors, leases, approvals, outbox, claims, verification, and audit updates are transactional; visibility and exact claim sender filters execute before bounded SQL pagination",
     "draft_claim_atomicity": "WorkflowStorage draft CAS and claim invalidation share one BEGIN IMMEDIATE transaction and one SQLite connection; stale frozen or independently verified claims cannot survive a committed draft mutation",
     "application_binding": "formal channels bind an explicit application allowlist and claim creation/result transactions recheck the exact current application draft revision and hash",
     "idempotency": "operation receipts bind operation, scope, actor, idempotency key, and the full canonical client request; exact concurrent retries return the first result and drift returns 409",
@@ -18,17 +18,24 @@
     "developer_response_existence": "an implemented response requires a full commit reachable from current Git history plus every raw evidence blob in that exact commit tree with a matching SHA-256; real create_app HTTP tests prove valid transition and fail-closed missing commit, missing blob, and digest mismatch without consuming the active lease",
     "developer_inbox_snapshot": "developer report and claim projections, pending-user-action health, and cursor are read from one SQLite snapshot; concurrent approval cannot create a torn inbox",
     "side_effect_recovery": "daemon restart recovery distinguishes durable remote side-effect intent from observed result, queries receipt/idempotency status before retry, and requires contract refetch before a reported repair is re-probed",
-    "context_compaction": "bounded summaries preserve the original goal, decisions, contract changes, attempted routes and evidence identities, draft/run state, report lifecycle, claim verdicts and invalidations, and no-substitute constraints; a 121-report independent counterexample remains below the 30000-character model bound"
+    "history_replay": "explicit history replay is read-only bounded JSON, ignores Last-Event-ID, never advances the durable acknowledgement, and exposes only ordinary Lilies-visible events plus verifier-only verification claims authored by the exact authenticated Lilies sender",
+    "context_provenance": "only messages transactionally linked to collaboration.resumed or collaboration.buffered events receive collaboration_update provenance; no-channel and formal-but-unprovenanced approval-shaped transcript data cannot be omitted as remotely replayable",
+    "workflow_transcript_authority": "workflow recovery accepts only successful paired public-tool envelopes with matching operations, rejects user-forged or unmatched transcript JSON and late results from an older run origin, accumulates exact run IDs, and fails closed when inner data and the authoritative outer envelope disagree on contract digest",
+    "context_compaction": "bounded summaries preserve the exact business goal, decisions, contract changes, attempted routes and evidence identities, draft/run state, report lifecycle, claim verdicts and invalidations, and no-substitute constraints; 121 reports, 121 claims, 121 workflow states, 200 decisions, and schema-max current claim/workflow run IDs remain under the 30000-character model bound with callable bounded recall where inline detail is summarized"
   },
   "deterministic_evidence": {
-    "focused_collaboration_tests": 123,
-    "full_repository_passed": 1219,
+    "focused_collaboration_tests": 145,
+    "full_repository_passed": 1241,
     "full_repository_expected_xfails": 85,
+    "relevant_source_test_aggregate_sha256": "ecf511e124c942581b883d80d74f14afa1a2d4030d65adb7e9fe557109ba56a1",
     "subscriber_overflow_reconnect_rounds": 100,
     "lease_fault_rounds": 100,
     "concurrent_identical_submitters": 100,
     "developer_response_http_cases": 4,
-    "compaction_counterexample_tests": 13,
+    "compaction_counterexample_tests": 30,
+    "approval_provenance_counterexamples": 400,
+    "schema_max_claim_run_refs": 1000,
+    "schema_max_workflow_run_refs": 1000,
     "current_failures": 0
   },
   "known_debt": [

@@ -248,13 +248,24 @@ class FakeCollaborationStore:
         after_seq: int,
         limit: int,
         visibilities: list[str] | None,
+        lilies_claim_sender_id: str | None = None,
     ) -> list[dict[str, Any]]:
         return [
             deepcopy(message)
             for message in self.messages
             if UUID(str(message["channel_id"])) == channel_id
             and message["seq"] > after_seq
-            and (visibilities is None or message["visibility"] in visibilities)
+            and (
+                visibilities is None
+                or message["visibility"] in visibilities
+                or (
+                    lilies_claim_sender_id is not None
+                    and message["visibility"] == "verifier"
+                    and message["sender_role"] == "lilies"
+                    and message["sender_id"] == lilies_claim_sender_id
+                    and message["message_type"] == "verification_claim"
+                )
+            )
         ][:limit]
 
     async def get_message_by_idempotency(
@@ -402,6 +413,11 @@ class FakeCollaborationStore:
 
     async def get_claim(self, claim_id: UUID) -> dict[str, Any]:
         return deepcopy(self.claims[claim_id])
+
+    async def get_latest_claim(self, **_: Any) -> dict[str, Any] | None:
+        if not self.claims:
+            return None
+        return deepcopy(list(self.claims.values())[-1])
 
     async def list_claims(self, **_: Any) -> list[dict[str, Any]]:
         return [deepcopy(claim) for claim in self.claims.values()]
@@ -698,6 +714,53 @@ async def test_lease_owner_body_must_match_authenticated_developer() -> None:
             ),
         )
     assert store.active_leases == {}
+
+
+@pytest.mark.asyncio
+async def test_lilies_channel_state_exposes_exact_latest_claim_resume_core() -> None:
+    service, store, lilies, _, _ = await _activated_service()
+    channel = await store.get_channel(lilies.channel_id)
+    test_run_ids = [f"test-run:{index:03d}:" + ("t" * 140) for index in range(500)]
+    business_run_ids = [
+        f"business-run:{index:03d}:" + ("b" * 136) for index in range(500)
+    ]
+    claim = _claim(
+        channel_id=lilies.channel_id,
+        assignment_id=lilies.assignment_id,
+        application_id=UUID(str(channel["application_ids"][0])),
+    )
+    claim_input = _claim_input(claim)
+    claim_input["test_run_ids"] = test_run_ids
+    claim_input["business_run_ids"] = business_run_ids
+    submitted = await service.submit_verification_claim(
+        principal=lilies,
+        channel_id=lilies.channel_id,
+        request=VerificationClaimRequest.model_validate(
+            {
+                "idempotency_key": "freeze-max-resume-claim-0001",
+                "expected_channel_revision": channel["revision"],
+                "claim": claim_input,
+            }
+        ),
+    )
+
+    state = await service.get_lilies_channel_state(
+        principal=lilies,
+        channel_id=lilies.channel_id,
+    )
+    resume = state["latest_claim_resume"]
+
+    assert resume["claim_id"] == submitted["claim_id"]
+    assert resume["application_id"] == submitted["application_id"]
+    assert resume["draft_revision"] == submitted["draft_revision"]
+    assert resume["content_hash"] == submitted["content_hash"]
+    assert resume["test_run_ids"] == test_run_ids
+    assert resume["business_run_ids"] == business_run_ids
+    assert resume["artifact_refs"]["count"] == 1
+    assert resume["host_receipt_refs"]["count"] == 1
+    assert resume["claim_digest"].startswith("sha256:")
+    assert "oracle_digest" not in resume
+    assert "differences" not in resume
 
 
 @pytest.mark.asyncio

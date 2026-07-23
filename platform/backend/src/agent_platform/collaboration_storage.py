@@ -2426,6 +2426,7 @@ class CollaborationStore:
         after_seq: int = 0,
         limit: int = 500,
         visibilities: Sequence[str | Enum] | None = None,
+        lilies_claim_sender_id: str | None = None,
     ) -> list[dict[str, Any]]:
         if after_seq < 0:
             raise ValueError("after_seq cannot be negative")
@@ -2444,6 +2445,7 @@ class CollaborationStore:
                 if visibilities is not None
                 else None
             ),
+            lilies_claim_sender_id,
         )
 
     def _list_messages_sync(
@@ -2452,14 +2454,23 @@ class CollaborationStore:
         after_seq: int,
         limit: int,
         visibilities: tuple[str, ...] | None,
+        lilies_claim_sender_id: str | None,
     ) -> list[dict[str, Any]]:
         visibility_sql = ""
         parameters: list[Any] = [channel_id, after_seq]
         if visibilities is not None:
             if not visibilities:
                 return []
-            visibility_sql = f" AND visibility IN ({','.join('?' for _ in visibilities)})"
+            visible_placeholders = ",".join("?" for _ in visibilities)
+            visibility_sql = f" AND (visibility IN ({visible_placeholders})"
             parameters.extend(visibilities)
+            if lilies_claim_sender_id is not None:
+                visibility_sql += (
+                    " OR (visibility='verifier' AND sender_role='lilies' "
+                    "AND sender_id=? AND message_type='verification_claim')"
+                )
+                parameters.append(lilies_claim_sender_id)
+            visibility_sql += ")"
         parameters.append(limit)
         with self._connect() as connection:
             self._channel_row(connection, channel_id)
@@ -5499,6 +5510,37 @@ class CollaborationStore:
     def _get_claim_sync(self, claim_id: str) -> dict[str, Any]:
         with self._connect() as connection:
             return self._decode_claim(self._claim_row(connection, claim_id))
+
+    async def get_latest_claim(
+        self,
+        *,
+        channel_id: str | UUID,
+        assignment_id: str | UUID,
+    ) -> dict[str, Any] | None:
+        return await asyncio.to_thread(
+            self._get_latest_claim_sync,
+            str(channel_id),
+            str(assignment_id),
+        )
+
+    def _get_latest_claim_sync(
+        self,
+        channel_id: str,
+        assignment_id: str,
+    ) -> dict[str, Any] | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT claim.*
+                FROM collaboration_verification_claims AS claim
+                JOIN collaboration_messages AS message
+                  ON message.message_id=claim.message_id
+                WHERE claim.channel_id=? AND claim.assignment_id=?
+                ORDER BY message.seq DESC LIMIT 1
+                """,
+                (channel_id, assignment_id),
+            ).fetchone()
+        return self._decode_claim(row) if row is not None else None
 
     async def list_claims(
         self,

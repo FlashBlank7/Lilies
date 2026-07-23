@@ -9,7 +9,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from pydantic import ValidationError
@@ -320,7 +320,11 @@ class LocalLiliesService:
                 access_token=str(collaboration_credential["value"]),
                 channel_id=assignment.collaboration.channel_id,
             )
-            register_lilies_collaboration_tools(registry, collaboration_client)
+            register_lilies_collaboration_tools(
+                registry,
+                collaboration_client,
+                context_archive_reader=self._read_compaction_archive,
+            )
         self.assignment_tool_bindings[session_id] = _AssignmentToolBinding(
             fingerprint=fingerprint,
             registry=registry,
@@ -2434,7 +2438,7 @@ class LocalLiliesService:
                 sort_keys=True,
             )
             middle_budget = max(0, 50_000 - len(prefix) - len(invariant_tail) - 2)
-            middle = "\n".join(
+            middle_source = "\n".join(
                 [
                     *(
                         [f"prior_summary: {previous_summary[-15_000:]}"]
@@ -2443,8 +2447,16 @@ class LocalLiliesService:
                     ),
                     *fragments[-80:],
                 ]
-            )[-middle_budget:]
+            )
+            # ``source[-0:]`` is the complete source, not an empty suffix.
+            # Keep the lossy middle empty when the locked prefix and invariant
+            # tail consume the complete budget.
+            middle = middle_source[-middle_budget:] if middle_budget else ""
             summary = "\n".join([prefix, middle, invariant_tail])
+            if len(summary) > 50_000:  # pragma: no cover - schema-bound guard
+                raise LiliesServiceError(
+                    "compaction invariants exceeded the bounded summary envelope"
+                )
         if isinstance(assignment, dict) and assignment.get("collaboration") is not None:
             projected_summary = self._observable_collaboration_projection(
                 session_id,
@@ -2505,22 +2517,61 @@ class LocalLiliesService:
     def _compaction_assignment_projection(assignment: Any) -> str:
         if not isinstance(assignment, dict):
             return ""
-        projected = LocalLiliesService._bounded_compaction_value(assignment)
-        if not isinstance(projected, dict):  # pragma: no cover - invariant guard
-            return ""
+
+        def compact_list(value: Any) -> dict[str, Any] | None:
+            if not isinstance(value, list):
+                return None
+            sample: list[Any] = []
+            for item in value[-2:]:
+                bounded = LocalLiliesService._bounded_compaction_value(item)
+                serialized = json.dumps(
+                    bounded,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                )
+                sample.append(
+                    bounded
+                    if len(serialized) <= 320
+                    else {
+                        "digest": LocalLiliesService._compaction_value_digest(
+                            item
+                        ),
+                        "excerpt": serialized[:240],
+                    }
+                )
+            return {
+                "count": len(value),
+                "digest": LocalLiliesService._compaction_value_digest(value),
+                "sample": sample,
+            }
+
+        # Use an explicit, schema-bounded projection.  Starting from the
+        # generic assignment projection could retain dozens of 750-character
+        # list entries and crowd the locked invariants out of the 50k model
+        # envelope.  The exact business goal and task-package digest remain
+        # available, while large supporting collections carry a stable digest
+        # plus a small model-usable sample.
+        projected: dict[str, Any] = {
+            key: assignment[key]
+            for key in ("schema_version", "assignment_id", "mode", "created_at")
+            if assignment.get(key) is not None
+        }
         requirement = assignment.get("requirement")
         if isinstance(requirement, str):
+            projected["requirement"] = (
+                requirement
+                if len(requirement) <= 1_500
+                else requirement[:1_000] + "…" + requirement[-400:]
+            )
             projected["requirement_sha256"] = hashlib.sha256(
                 requirement.encode("utf-8")
             ).hexdigest()
         business_context = assignment.get("business_context")
         if isinstance(business_context, dict):
+            projected_business_context: dict[str, Any] = {}
             business_goal = business_context.get("business_goal")
             if isinstance(business_goal, str):
-                projected_business_context = projected.get("business_context")
-                if not isinstance(projected_business_context, dict):
-                    projected_business_context = {}
-                    projected["business_context"] = projected_business_context
                 # This field is a locked compaction invariant (max 10k), not
                 # ordinary conversational detail.  Preserve the decisive
                 # middle as well as a full-value integrity digest.
@@ -2528,6 +2579,39 @@ class LocalLiliesService:
                 projected_business_context["business_goal_sha256"] = (
                     hashlib.sha256(business_goal.encode("utf-8")).hexdigest()
                 )
+            for key in ("customer_roles", "inputs", "outputs", "constraints"):
+                compact = compact_list(business_context.get(key))
+                if compact is not None:
+                    projected_business_context[key] = compact
+            projected["business_context"] = projected_business_context
+        for key in ("task_package", "target"):
+            value = assignment.get(key)
+            if isinstance(value, dict):
+                projected[key] = LocalLiliesService._bounded_compaction_value(value)
+        platform = assignment.get("platform")
+        if isinstance(platform, dict):
+            projected["platform"] = {
+                key: platform[key]
+                for key in ("base_url", "contract_url", "contract_digest")
+                if platform.get(key) is not None
+            }
+        constraints = assignment.get("constraints")
+        if isinstance(constraints, dict):
+            projected["constraints"] = {
+                key: constraints[key]
+                for key in (
+                    "deadline_at",
+                    "no_substitute_validation",
+                    "network_policy",
+                    "max_budget_usd",
+                    "max_total_tokens",
+                )
+                if constraints.get(key) is not None
+            }
+        for key in ("fixture_refs", "deliverables"):
+            compact = compact_list(assignment.get(key))
+            if compact is not None:
+                projected[key] = compact
         projected["assignment_sha256"] = hashlib.sha256(
             json.dumps(
                 assignment,
@@ -2814,7 +2898,16 @@ class LocalLiliesService:
         projected: dict[str, Any] = {
             key: claim[key] for key in scalar_fields if key in claim
         }
-        for key in ("test_run_ids", "business_run_ids", "differences", "evidence_refs"):
+        for key in (
+            "test_run_ids",
+            "business_run_ids",
+            "artifact_refs",
+            "host_receipt_refs",
+            "resolved_report_ids",
+            "remaining_limits",
+            "differences",
+            "evidence_refs",
+        ):
             summary = claim.get(key)
             if isinstance(summary, dict):
                 projected[key] = {
@@ -2822,6 +2915,17 @@ class LocalLiliesService:
                     for name in ("count", "digest")
                     if name in summary
                 }
+            elif isinstance(summary, list):
+                projected[key] = (
+                    list(summary)
+                    if len(summary) <= 12
+                    else {
+                        "count": len(summary),
+                        "digest": LocalLiliesService._compaction_value_digest(
+                            summary
+                        ),
+                    }
+                )
         projected["claim_state_digest"] = (
             LocalLiliesService._compaction_value_digest(claim)
         )
@@ -2829,16 +2933,383 @@ class LocalLiliesService:
         return projected
 
     @staticmethod
+    def _compaction_workflow_states(
+        messages: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Normalize only executed public platform tool results into workflow state."""
+
+        workflow_tools = {
+            "platform_application_create",
+            "platform_application_get",
+            "platform_draft_inspect",
+            "platform_draft_apply",
+            "platform_tests_run",
+            "platform_run_start",
+            "platform_run_get",
+            "platform_run_resume",
+            "platform_run_cancel",
+            "platform_publish",
+        }
+        tool_uses: dict[str, tuple[str, dict[str, Any]]] = {}
+        states: list[dict[str, Any]] = []
+        current_by_application: dict[str, dict[str, Any]] = {}
+        run_origins: dict[str, dict[str, Any]] = {}
+
+        def json_object(value: Any) -> dict[str, Any] | None:
+            if isinstance(value, dict):
+                return value
+            if not isinstance(value, str):
+                return None
+            try:
+                parsed = json.loads(value)
+            except (TypeError, ValueError):
+                return None
+            return parsed if isinstance(parsed, dict) else None
+
+        def nested(mapping: dict[str, Any], key: str) -> dict[str, Any]:
+            value = mapping.get(key)
+            return value if isinstance(value, dict) else {}
+
+        def first_value(*values: Any) -> Any | None:
+            return next((value for value in values if value is not None), None)
+
+        def bounded(value: Any) -> Any:
+            return LocalLiliesService._bounded_compaction_value(value)
+
+        def normalize(
+            name: str,
+            tool_input: dict[str, Any],
+            envelope: dict[str, Any],
+        ) -> dict[str, Any] | None:
+            if envelope.get("ok") is not True:
+                return None
+            if envelope.get("operation") != name:
+                return None
+            data = envelope.get("data")
+            if not isinstance(data, dict):
+                return None
+            validation = nested(data, "validation")
+            draft = nested(data, "draft")
+            application_id = first_value(
+                data.get("application_id"),
+                tool_input.get("application_id"),
+                (
+                    data.get("id")
+                    if name
+                    in {"platform_application_create", "platform_application_get"}
+                    else None
+                ),
+            )
+            response_run_id = first_value(
+                data.get("run_id"),
+                data.get("id") if name == "platform_run_get" else None,
+                (
+                    tool_input.get("run_id")
+                    if name
+                    in {
+                        "platform_run_get",
+                        "platform_run_resume",
+                        "platform_run_cancel",
+                    }
+                    else None
+                ),
+            )
+            run_origin = (
+                run_origins.get(str(response_run_id))
+                if response_run_id is not None
+                else None
+            )
+            followup_run_operation = name in {
+                "platform_run_get",
+                "platform_run_resume",
+                "platform_run_cancel",
+            }
+            if run_origin is not None and followup_run_operation:
+                application_id = run_origin.get("application_id")
+            elif application_id is None and run_origin is not None:
+                application_id = run_origin.get("application_id")
+            if application_id is None:
+                return None
+
+            projection: dict[str, Any] = {
+                "application_id": bounded(application_id),
+            }
+            draft_revision = first_value(
+                data.get("draft_revision"),
+                data.get("revision"),
+                validation.get("revision"),
+                draft.get("revision"),
+            )
+            content_hash = first_value(
+                data.get("content_hash"),
+                validation.get("content_hash"),
+                draft.get("content_hash"),
+            )
+            if run_origin is not None and followup_run_operation:
+                draft_revision = first_value(
+                    run_origin.get("draft_revision"), draft_revision
+                )
+                content_hash = first_value(run_origin.get("content_hash"), content_hash)
+            elif name == "platform_run_start":
+                current = current_by_application.get(str(application_id))
+                if current is not None:
+                    current_revision = current.get("draft_revision")
+                    if draft_revision is None:
+                        draft_revision = current_revision
+                    if (
+                        content_hash is None
+                        and draft_revision == current_revision
+                    ):
+                        content_hash = current.get("content_hash")
+            draft_id = first_value(data.get("draft_id"), draft.get("id"))
+            if draft_revision is not None:
+                projection["draft_revision"] = bounded(draft_revision)
+            if content_hash is not None:
+                projection["content_hash"] = bounded(content_hash)
+            if draft_id is not None:
+                projection["draft_id"] = bounded(draft_id)
+
+            explicit_tests = data.get("test_run_ids")
+            test_rows = data.get("tests")
+            if isinstance(explicit_tests, list):
+                projection["test_run_ids"] = [bounded(item) for item in explicit_tests]
+            elif isinstance(test_rows, list):
+                projection["test_run_ids"] = [
+                    bounded(run_id)
+                    for row in test_rows
+                    if isinstance(row, dict)
+                    and (run_id := first_value(row.get("run_id"), row.get("id")))
+                    is not None
+                ]
+
+            explicit_business = data.get("business_run_ids")
+            if isinstance(explicit_business, list):
+                projection["business_run_ids"] = [
+                    bounded(item) for item in explicit_business
+                ]
+            elif name in {
+                "platform_run_start",
+                "platform_run_get",
+                "platform_run_resume",
+                "platform_run_cancel",
+            } and response_run_id is not None:
+                projection["business_run_ids"] = [bounded(response_run_id)]
+            if response_run_id is not None and name != "platform_tests_run":
+                projection["run_id"] = bounded(response_run_id)
+
+            envelope_contract_digest = envelope.get("contract_digest")
+            data_contract_digest = data.get("contract_digest")
+            if (
+                envelope_contract_digest is not None
+                and data_contract_digest is not None
+                and data_contract_digest != envelope_contract_digest
+            ):
+                return None
+            contract_digest = first_value(
+                envelope_contract_digest,
+                data_contract_digest,
+            )
+            if contract_digest is not None:
+                projection["contract_digest"] = bounded(contract_digest)
+            if data.get("version") is not None and name == "platform_publish":
+                projection["published_version"] = bounded(data["version"])
+            return projection
+
+        def accept(projection: dict[str, Any]) -> dict[str, Any] | None:
+            application_id = str(projection["application_id"])
+            current = current_by_application.get(application_id)
+            if current is None:
+                states.append(projection)
+                current_by_application[application_id] = projection
+                return projection
+            incoming_revision = projection.get("draft_revision")
+            current_revision = current.get("draft_revision")
+            if (
+                isinstance(incoming_revision, int)
+                and not isinstance(incoming_revision, bool)
+                and isinstance(current_revision, int)
+                and not isinstance(current_revision, bool)
+            ):
+                if incoming_revision < current_revision:
+                    return None
+                if incoming_revision > current_revision:
+                    states.append(projection)
+                    current_by_application[application_id] = projection
+                    return projection
+            if (
+                projection.get("content_hash") is not None
+                and current.get("content_hash") is not None
+                and projection["content_hash"] != current["content_hash"]
+                and incoming_revision == current_revision
+            ):
+                return None
+            merged = {**current, **projection}
+            for field in ("test_run_ids", "business_run_ids"):
+                combined: list[Any] = []
+                for source in (current.get(field), projection.get(field)):
+                    if not isinstance(source, list):
+                        continue
+                    for value in source:
+                        if value not in combined:
+                            combined.append(value)
+                if combined:
+                    merged[field] = combined
+            current_index = next(
+                index for index, state in enumerate(states) if state is current
+            )
+            states.pop(current_index)
+            states.append(merged)
+            current_by_application[application_id] = merged
+            return merged
+
+        for item in messages:
+            role = item.get("role")
+            if role == "assistant":
+                for block in item.get("content", []):
+                    if block.get("type") != "tool_use":
+                        continue
+                    tool_use_id = block.get("id")
+                    name = block.get("name")
+                    tool_input = block.get("input")
+                    if (
+                        tool_use_id is not None
+                        and name in workflow_tools
+                        and isinstance(tool_input, dict)
+                    ):
+                        tool_uses[str(tool_use_id)] = (str(name), tool_input)
+                continue
+            if role != "tool":
+                continue
+            for block in item.get("content", []):
+                if block.get("type") != "tool_result" or block.get("is_error") is True:
+                    continue
+                tool_use_id = block.get("tool_use_id")
+                binding = tool_uses.get(str(tool_use_id))
+                envelope = json_object(block.get("content"))
+                if binding is None or envelope is None:
+                    continue
+                projection = normalize(binding[0], binding[1], envelope)
+                if projection is not None:
+                    accepted = accept(projection)
+                    run_id = projection.get("run_id")
+                    if run_id is not None:
+                        run_key = str(run_id)
+                        if run_key not in run_origins:
+                            origin_source = accepted or projection
+                            run_origins[run_key] = {
+                                key: origin_source[key]
+                                for key in (
+                                    "application_id",
+                                    "draft_revision",
+                                    "content_hash",
+                                )
+                                if origin_source.get(key) is not None
+                            }
+                    if accepted is not None:
+                        for origin in run_origins.values():
+                            if (
+                                origin.get("application_id")
+                                == accepted.get("application_id")
+                                and origin.get("draft_revision")
+                                == accepted.get("draft_revision")
+                                and origin.get("content_hash") is None
+                                and accepted.get("content_hash") is not None
+                            ):
+                                origin["content_hash"] = accepted["content_hash"]
+        return states
+
+    @staticmethod
+    def _latest_compaction_workflow_state(
+        messages: list[dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        """Recover the latest exact workflow core from the durable transcript."""
+        workflow_state = LocalLiliesService._compaction_workflow_states(messages)
+        return workflow_state[-1] if workflow_state else None
+
+    async def _read_compaction_archive(
+        self,
+        session_id: str,
+        *,
+        collection: Literal["current_workflow"],
+        field: Literal["test_run_ids", "business_run_ids"],
+        offset: int,
+        limit: int,
+    ) -> dict[str, Any]:
+        session = await self.storage.get_session(session_id)
+        assignment = session.get("assignment")
+        if (
+            collection != "current_workflow"
+            or not isinstance(assignment, dict)
+            or not isinstance(assignment.get("collaboration"), dict)
+        ):
+            raise LiliesAccessDeniedError(
+                "compaction archive recall is limited to the current formal task"
+            )
+        state = self._latest_compaction_workflow_state(
+            await self.storage.list_messages_for_compaction(session_id)
+        )
+        if state is None:
+            raise LiliesNotFoundError("current workflow state is absent from the archive")
+        raw_values = state.get(field, [])
+        values = list(raw_values) if isinstance(raw_values, list) else []
+        page = values[offset : offset + limit]
+        next_offset = offset + len(page)
+        identity = {
+            key: state[key]
+            for key in (
+                "application_id",
+                "draft_id",
+                "draft_revision",
+                "content_hash",
+                "run_id",
+                "contract_digest",
+                "new_contract_digest",
+                "commit_sha",
+                "verdict",
+                "new_task_revision",
+                "environment_digest",
+            )
+            if state.get(key) is not None
+        }
+        return {
+            "schema_version": "1.0",
+            "source": "durable_session_transcript",
+            "collection": collection,
+            "identity": identity,
+            "workflow_state_digest": self._compaction_value_digest(state),
+            "field": field,
+            "field_digest": self._compaction_value_digest(values),
+            "offset": offset,
+            "limit": limit,
+            "total": len(values),
+            "values": page,
+            "next_offset": next_offset if next_offset < len(values) else None,
+            "complete": next_offset >= len(values),
+        }
+
+    @staticmethod
     def _compaction_invariants(
         session: dict[str, Any],
         messages: list[dict[str, Any]],
     ) -> dict[str, Any]:
+        assignment = session.get("assignment")
+        collaboration = (
+            assignment.get("collaboration")
+            if isinstance(assignment, dict)
+            else None
+        )
+        collaboration_replay_available = (
+            isinstance(collaboration, dict)
+            and bool(collaboration.get("channel_id"))
+        )
         reports: dict[str, dict[str, Any]] = {}
         claims: dict[str, dict[str, Any]] = {}
         report_seen: dict[str, int] = {}
         claim_seen: dict[str, int] = {}
-        workflow_state: list[dict[str, Any]] = []
+        workflow_state = LocalLiliesService._compaction_workflow_states(messages)
         decisions: list[str] = []
+        decision_records: list[dict[str, Any]] = []
+        decision_keys: set[tuple[Any, ...]] = set()
         seen_counter = 0
         report_fields = {
             "report_id",
@@ -2925,55 +3396,6 @@ class LocalLiliesService:
             "differences",
             "evidence_refs",
         }
-        workflow_fields = {
-            "application_id",
-            "draft_id",
-            "draft_revision",
-            "content_hash",
-            "run_id",
-            "test_run_ids",
-            "business_run_ids",
-            "evidence_refs",
-            "remaining_limits",
-            "contract_digest",
-            "new_contract_digest",
-            "generic_capability_changes",
-            "tests_run",
-            "commit_sha",
-            "browser_or_live_evidence",
-            "reprobe_steps",
-            "known_limits",
-            "changes",
-            "reason",
-            "prior_task_revision",
-            "previous_task_revision",
-            "new_task_revision",
-            "previous_requirement_digest",
-            "new_requirement_digest",
-            "environment_digest",
-            "health_checks",
-            "verdict",
-            "findings",
-            "remaining_gaps",
-            "differences",
-        }
-        workflow_anchor_fields = {
-            "application_id",
-            "draft_id",
-            "draft_revision",
-            "content_hash",
-            "run_id",
-            "test_run_ids",
-            "business_run_ids",
-            "contract_digest",
-            "new_contract_digest",
-            "commit_sha",
-            "verdict",
-            "findings",
-            "remaining_gaps",
-            "new_task_revision",
-            "environment_digest",
-        }
         report_message_types = {
             "report",
             "evidence",
@@ -2999,7 +3421,90 @@ class LocalLiliesService:
                     continue
             return None
 
-        def inspect_value(value: Any, inherited_report_id: str | None = None) -> None:
+        def classify_decision_text(value: str) -> str:
+            folded = value.casefold()
+            permission_context = any(
+                marker in folded for marker in ("permission", "授权", "许可")
+            )
+            if permission_context:
+                if any(
+                    marker in folded
+                    for marker in ("denied", "deny", "reject", "拒绝")
+                ):
+                    return "permission_denied"
+                if any(
+                    marker in folded
+                    for marker in (
+                        "granted",
+                        "grant",
+                        "approved",
+                        "approve",
+                        "allowed",
+                        "allow",
+                        "已授权",
+                        "允许",
+                    )
+                ):
+                    return "permission_granted"
+                return "permission_requested"
+            if "needs_more_evidence" in folded:
+                return "needs_more_evidence"
+            if any(marker in folded for marker in ("reject", "denied", "拒绝")):
+                return "reject"
+            if any(marker in folded for marker in ("approve", "approved", "批准")):
+                return "approve"
+            if "授权" in folded:
+                return "permission"
+            return "other"
+
+        def record_decision(
+            *,
+            outcome: str,
+            source_ref: Any,
+            report_ref: Any,
+            causal_parent_ref: Any,
+            resulting_report_revision: Any,
+            reason: Any,
+            display: str,
+            replayable_from_collaboration: bool,
+        ) -> None:
+            record = {
+                "outcome": outcome,
+                "source_ref": source_ref,
+                "report_ref": report_ref,
+                "causal_parent_ref": causal_parent_ref,
+                "resulting_report_revision": resulting_report_revision,
+                "reason_digest": (
+                    LocalLiliesService._compaction_compact_digest(reason)
+                    if reason is not None
+                    else None
+                ),
+                "replayable_from_collaboration": replayable_from_collaboration,
+            }
+            key = (
+                source_ref,
+                report_ref,
+                causal_parent_ref,
+                outcome,
+                resulting_report_revision,
+                record["reason_digest"],
+                replayable_from_collaboration,
+            )
+            if key in decision_keys:
+                return
+            decision_keys.add(key)
+            decision_records.append(record)
+            decisions.append(display)
+
+        def inspect_value(
+            value: Any,
+            inherited_report_id: str | None = None,
+            inherited_message_id: str | int | None = None,
+            inherited_causal_parent_id: str | None = None,
+            collaboration_replayable_source: bool = False,
+            authoritative_collaboration_state: bool = False,
+            allow_decisions: bool = False,
+        ) -> None:
             nonlocal seen_counter
             if isinstance(value, dict):
                 seen_counter += 1
@@ -3017,7 +3522,11 @@ class LocalLiliesService:
                     report_id = value.get("correlation_id")
                 if report_id is None:
                     report_id = inherited_report_id
-                if report_id is not None:
+                message_id = value.get("message_id", inherited_message_id)
+                causal_parent_id = value.get(
+                    "causal_parent_id", inherited_causal_parent_id
+                )
+                if authoritative_collaboration_state and report_id is not None:
                     report_key = str(report_id)
                     projection = {
                         key: value[key]
@@ -3061,7 +3570,7 @@ class LocalLiliesService:
                     and payload.get("kind") == "claim_invalidated"
                 ):
                     claim_id = payload.get("claim_id")
-                if claim_id is not None:
+                if authoritative_collaboration_state and claim_id is not None:
                     claim_key = str(claim_id)
                     projection = {
                         key: value[key]
@@ -3078,6 +3587,10 @@ class LocalLiliesService:
                         }
                     )
                     projection.setdefault("claim_id", claim_key)
+                    if message_id is not None:
+                        projection.setdefault("message_id", message_id)
+                    if causal_parent_id is not None:
+                        projection.setdefault("causal_parent_id", causal_parent_id)
                     current_claim = claims.setdefault(claim_key, {})
                     for key, item in projection.items():
                         if key == "claim_revision":
@@ -3110,7 +3623,7 @@ class LocalLiliesService:
                             )
                     claim_seen[claim_key] = seen_counter
 
-                if report_id is not None:
+                if authoritative_collaboration_state and report_id is not None:
                     current_report = reports[str(report_id)]
                     resulting_revision = typed_payload.get("resulting_report_revision")
                     if not isinstance(resulting_revision, int) or isinstance(
@@ -3176,7 +3689,11 @@ class LocalLiliesService:
                     if isinstance(resulting_revision, int):
                         current_report["revision"] = resulting_revision
 
-                if claim_id is not None and message_type == "verification_result":
+                if (
+                    authoritative_collaboration_state
+                    and claim_id is not None
+                    and message_type == "verification_result"
+                ):
                     current_claim = claims[str(claim_id)]
                     verdict = typed_payload.get("verdict")
                     if verdict in {"independently_verified", "verification_failed"}:
@@ -3187,6 +3704,8 @@ class LocalLiliesService:
                     ):
                         current_claim["claim_revision"] = prior_claim_revision + 1
                 if (
+                    authoritative_collaboration_state
+                    and
                     claim_id is not None
                     and message_type == "control"
                     and typed_payload.get("kind") == "claim_invalidated"
@@ -3207,33 +3726,45 @@ class LocalLiliesService:
                         prior_claim_revision, bool
                     ):
                         current_claim["claim_revision"] = prior_claim_revision + 1
-                workflow_projection = {
-                    key: LocalLiliesService._bounded_compaction_value(value[key])
-                    for key in workflow_fields
-                    if key in value and value[key] is not None
-                }
-                if (
-                    workflow_projection
-                    and any(key in value for key in workflow_anchor_fields)
-                    and workflow_projection not in workflow_state
-                ):
-                    workflow_state.append(workflow_projection)
                 decision = value.get("decision")
-                if decision in {"approve", "reject", "needs_more_evidence", "denied"}:
-                    decisions.append(
-                        json.dumps(
+                if allow_decisions and decision in {
+                    "approve",
+                    "reject",
+                    "needs_more_evidence",
+                    "denied",
+                }:
+                    decision_projection = {
+                        "decision": decision,
+                        "report_id": report_id,
+                        "reason": value.get("reason"),
+                        "message_id": message_id,
+                        "causal_parent_id": causal_parent_id,
+                        "resulting_report_revision": value.get(
+                            "resulting_report_revision"
+                        ),
+                    }
+                    record_decision(
+                        outcome=classify_decision_text(str(decision)),
+                        source_ref=value.get("approval_id", message_id),
+                        report_ref=report_id,
+                        causal_parent_ref=causal_parent_id,
+                        resulting_report_revision=value.get(
+                            "resulting_report_revision"
+                        ),
+                        reason=value.get("reason"),
+                        display=json.dumps(
                             LocalLiliesService._bounded_compaction_value(
-                                {
-                                    "decision": decision,
-                                    "report_id": report_id,
-                                    "reason": value.get("reason"),
-                                    "message_id": value.get("message_id"),
-                                }
+                                decision_projection
                             ),
                             ensure_ascii=False,
                             separators=(",", ":"),
                             sort_keys=True,
-                        )
+                        ),
+                        replayable_from_collaboration=(
+                            collaboration_replayable_source
+                            and value.get("approval_id") is not None
+                            and report_id is not None
+                        ),
                     )
                 for key, child in value.items():
                     inspect_value(
@@ -3243,22 +3774,106 @@ class LocalLiliesService:
                             if key == "payload" and report_id is not None
                             else None
                         ),
+                        str(message_id) if message_id is not None else None,
+                        (
+                            str(causal_parent_id)
+                            if causal_parent_id is not None
+                            else None
+                        ),
+                        collaboration_replayable_source,
+                        authoritative_collaboration_state,
+                        allow_decisions,
                     )
             elif isinstance(value, list):
                 for child in value:
-                    inspect_value(child, inherited_report_id)
+                    inspect_value(
+                        child,
+                        inherited_report_id,
+                        inherited_message_id,
+                        inherited_causal_parent_id,
+                        collaboration_replayable_source,
+                        authoritative_collaboration_state,
+                        allow_decisions,
+                    )
             elif isinstance(value, str):
                 parsed = parse_embedded_json(value)
                 if parsed is not None:
-                    inspect_value(parsed, inherited_report_id)
+                    inspect_value(
+                        parsed,
+                        inherited_report_id,
+                        inherited_message_id,
+                        inherited_causal_parent_id,
+                        collaboration_replayable_source,
+                        authoritative_collaboration_state,
+                        allow_decisions,
+                    )
 
-        for item in messages:
+        collaboration_tool_names = {
+            "collaboration_report_submit",
+            "collaboration_updates_read",
+            "collaboration_verification_claim",
+        }
+        collaboration_tool_uses: dict[str, str] = {}
+        for message_ordinal, item in enumerate(messages):
             for block in item.get("content", []):
-                inspect_value(block)
-                if block.get("type") == "text" and item.get("role") == "user":
+                source_message_id: str | int = (
+                    str(item["id"])
+                    if item.get("id") is not None
+                    else message_ordinal
+                )
+                role = item.get("role")
+                if role == "assistant" and block.get("type") == "tool_use":
+                    tool_use_id = block.get("id")
+                    tool_name = block.get("name")
+                    if tool_use_id is not None and tool_name in collaboration_tool_names:
+                        collaboration_tool_uses[str(tool_use_id)] = str(tool_name)
+                    continue
+
+                authoritative_state = item.get("provenance") == "collaboration_update"
+                replayable_source = (
+                    collaboration_replay_available and authoritative_state
+                )
+                value_to_inspect: Any = block
+                if role == "tool" and block.get("type") == "tool_result":
+                    tool_use_id = block.get("tool_use_id")
+                    tool_name = collaboration_tool_uses.pop(str(tool_use_id), None)
+                    raw_envelope = block.get("content")
+                    envelope = (
+                        raw_envelope
+                        if isinstance(raw_envelope, dict)
+                        else parse_embedded_json(str(raw_envelope or ""))
+                    )
+                    if (
+                        tool_name is None
+                        or block.get("is_error") is True
+                        or not isinstance(envelope, dict)
+                        or envelope.get("ok") is not True
+                    ):
+                        continue
+                    value_to_inspect = envelope.get("data")
+                    authoritative_state = True
+                    replayable_source = collaboration_replay_available
+                elif role != "user" or not (
+                    authoritative_state or block.get("type") == "text"
+                ):
+                    continue
+
+                decision_count_before = len(decision_records)
+                inspect_value(
+                    value_to_inspect,
+                    inherited_message_id=source_message_id,
+                    collaboration_replayable_source=replayable_source,
+                    authoritative_collaboration_state=authoritative_state,
+                    allow_decisions=True,
+                )
+                if block.get("type") == "text" and role == "user":
                     text = str(block.get("text") or "")
                     folded = text.casefold()
-                    if any(
+                    parsed_durable_value = parse_embedded_json(text)
+                    if (
+                        parsed_durable_value is None
+                        and len(decision_records) == decision_count_before
+                        and any(
                         marker in folded
                         for marker in (
                             "approve",
@@ -3266,13 +3881,27 @@ class LocalLiliesService:
                             "reject",
                             "denied",
                             "permission",
+                            "granted",
+                            "allowed",
                             "批准",
                             "拒绝",
                             "授权",
+                            "许可",
+                        )
                         )
                     ):
-                        decisions.append(
-                            LocalLiliesService._bounded_compaction_value(text)
+                        bounded_text = LocalLiliesService._bounded_compaction_value(
+                            text
+                        )
+                        record_decision(
+                            outcome=classify_decision_text(text),
+                            source_ref=source_message_id,
+                            report_ref=None,
+                            causal_parent_ref=None,
+                            resulting_report_revision=None,
+                            reason=text,
+                            display=str(bounded_text),
+                            replayable_from_collaboration=False,
                         )
 
         ordered_reports = sorted(reports, key=lambda key: report_seen.get(key, 0))
@@ -3357,6 +3986,229 @@ class LocalLiliesService:
                 )
             return compact
 
+        opaque_reference_values: list[str] = []
+        for claim in claims.values():
+            for key in ("test_run_ids", "business_run_ids"):
+                values = claim.get(key)
+                if isinstance(values, list):
+                    opaque_reference_values.extend(str(item) for item in values)
+        for state in workflow_state:
+            for key in ("run_id", "test_run_ids", "business_run_ids"):
+                values = state.get(key)
+                if isinstance(values, list):
+                    opaque_reference_values.extend(str(item) for item in values)
+                elif values is not None:
+                    opaque_reference_values.append(str(values))
+
+        def opaque_prefix(value: str) -> tuple[str, str] | None:
+            boundary = max(value.rfind(marker) for marker in (":", "-", "_", "."))
+            if boundary < 3 or boundary >= len(value) - 1:
+                return None
+            return value[: boundary + 1], value[boundary + 1 :]
+
+        prefix_counts: dict[str, int] = {}
+        for value in opaque_reference_values:
+            parts = opaque_prefix(value)
+            if parts is not None:
+                prefix_counts[parts[0]] = prefix_counts.get(parts[0], 0) + 1
+        opaque_reference_prefixes = sorted(
+            prefix
+            for prefix, count in prefix_counts.items()
+            if count >= 3 and len(prefix) >= 4
+        )
+        opaque_prefix_codes = {
+            prefix: index for index, prefix in enumerate(opaque_reference_prefixes)
+        }
+
+        def compact_reference(value: Any) -> Any:
+            if value is None:
+                return None
+            if isinstance(value, int) and not isinstance(value, bool):
+                return value
+            try:
+                raw = UUID(str(value)).bytes
+            except (TypeError, ValueError):
+                # Opaque references are identifiers, not prose.  A hash proves
+                # equality but cannot be used to resume or re-query the run.
+                return str(value)
+            return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
+
+        def compact_opaque_reference(value: Any) -> Any:
+            compact = compact_reference(value)
+            if value is None or isinstance(compact, (int, type(None))):
+                return compact
+            try:
+                UUID(str(value))
+            except (TypeError, ValueError):
+                parts = opaque_prefix(str(value))
+                if parts is not None and parts[0] in opaque_prefix_codes:
+                    return f"@{opaque_prefix_codes[parts[0]]}:{parts[1]}"
+            return compact
+
+        def compact_hash(value: Any) -> Any:
+            if value is None:
+                return None
+            text = str(value)
+            if text.startswith("sha256:") and len(text) == 71:
+                try:
+                    raw = bytes.fromhex(text.removeprefix("sha256:"))
+                except ValueError:
+                    pass
+                else:
+                    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode(
+                        "ascii"
+                    )
+            return LocalLiliesService._compaction_compact_digest(value)
+
+        def decision_outcome(value: str) -> str:
+            try:
+                parsed = json.loads(value)
+            except (TypeError, ValueError):
+                parsed = None
+            if isinstance(parsed, dict) and parsed.get("decision") is not None:
+                return str(parsed["decision"])
+            return classify_decision_text(value)
+
+        decision_outcomes = sorted(
+            {str(record["outcome"]) for record in decision_records}
+        )
+        decision_index_schema = [
+            "source_ref",
+            "report_ref",
+            "causal_parent_ref",
+            "outcome_code",
+            "resulting_report_revision",
+            "replayable_from_collaboration",
+            "reason_digest",
+        ]
+        decision_index: list[list[Any]] = []
+        for decision, record in zip(decisions, decision_records, strict=True):
+            decision_index.append(
+                [
+                    compact_reference(record.get("source_ref")),
+                    compact_reference(record.get("report_ref")),
+                    compact_reference(record.get("causal_parent_ref")),
+                    decision_outcomes.index(str(record.get("outcome"))),
+                    record.get("resulting_report_revision"),
+                    bool(record.get("replayable_from_collaboration")),
+                    record.get("reason_digest"),
+                ]
+            )
+
+        claim_statuses = sorted(
+            {str(claims[key].get("status", "")) for key in ordered_claims}
+        )
+        claim_verdicts = sorted(
+            {
+                str(claims[key].get("verdict", ""))
+                for key in ordered_claims
+                if claims[key].get("verdict") is not None
+            }
+        )
+        claim_index_schema = [
+            "claim_ref",
+            "status_code",
+            "claim_revision",
+            "application_ref",
+            "draft_revision",
+            "content_hash_b64",
+            "published_version",
+            "verdict_code",
+            "causal_parent_ref",
+            "test_run_refs",
+            "business_run_refs",
+            "state_digest_b64",
+        ]
+        claim_index = [
+            [
+                compact_reference(claims[key].get("claim_id", key)),
+                claim_statuses.index(str(claims[key].get("status", ""))),
+                claims[key].get("claim_revision"),
+                compact_reference(claims[key].get("application_id")),
+                claims[key].get("draft_revision"),
+                compact_hash(claims[key].get("content_hash")),
+                claims[key].get("published_version"),
+                (
+                    claim_verdicts.index(str(claims[key].get("verdict")))
+                    if claims[key].get("verdict") is not None
+                    else None
+                ),
+                compact_reference(claims[key].get("causal_parent_id")),
+                [
+                    compact_opaque_reference(item)
+                    for item in claims[key].get("test_run_ids", [])
+                ],
+                [
+                    compact_opaque_reference(item)
+                    for item in claims[key].get("business_run_ids", [])
+                ],
+                LocalLiliesService._compaction_compact_digest(
+                    claims[key]
+                ).removeprefix("sha256-b64:"),
+            ]
+            for key in ordered_claims
+        ]
+        claim_oracle_digests = [
+            [ordinal, compact_hash(claims[key].get("oracle_digest"))]
+            for ordinal, key in enumerate(ordered_claims)
+            if claims[key].get("oracle_digest") is not None
+        ]
+        claim_invalidation_reason_digests = [
+            [
+                ordinal,
+                LocalLiliesService._compaction_compact_digest(
+                    claims[key].get("invalidation_reason")
+                ).removeprefix("sha256-b64:"),
+            ]
+            for ordinal, key in enumerate(ordered_claims)
+            if claims[key].get("invalidation_reason") is not None
+        ]
+
+        workflow_index_schema = [
+            "application_ref",
+            "draft_ref",
+            "draft_revision",
+            "content_hash_b64",
+            "run_ref",
+            "test_run_refs",
+            "business_run_refs",
+            "contract_digest_b64_or_session",
+            "state_digest_b64",
+        ]
+        workflow_index = [
+            [
+                compact_reference(state.get("application_id")),
+                compact_reference(state.get("draft_id")),
+                state.get("draft_revision"),
+                compact_hash(state.get("content_hash")),
+                compact_opaque_reference(state.get("run_id")),
+                [
+                    compact_opaque_reference(item)
+                    for item in state.get("test_run_ids", [])
+                ],
+                [
+                    compact_opaque_reference(item)
+                    for item in state.get("business_run_ids", [])
+                ],
+                (
+                    None
+                    if state.get(
+                        "new_contract_digest", state.get("contract_digest")
+                    )
+                    == session.get("platform_contract_digest")
+                    else compact_hash(
+                        state.get(
+                            "new_contract_digest", state.get("contract_digest")
+                        )
+                    )
+                ),
+                LocalLiliesService._compaction_compact_digest(state).removeprefix(
+                    "sha256-b64:"
+                ),
+            ]
+            for state in workflow_state
+        ]
+
         report_attempts = {
             report_id: compact_attempted_routes(reports[report_id])
             for report_id in indexed_report_ids
@@ -3398,7 +4250,16 @@ class LocalLiliesService:
             ]
             for report_id in indexed_report_ids
         ]
-        assignment = session.get("assignment")
+        report_semantic_index = [
+            [
+                *row[:5],
+                reports[report_id].get("original_goal"),
+                report_attempts.get(report_id, []),
+            ]
+            for report_id, row in zip(
+                indexed_report_ids, report_index, strict=True
+            )
+        ]
         assignment_constraints = (
             assignment.get("constraints") if isinstance(assignment, dict) else None
         )
@@ -3419,7 +4280,7 @@ class LocalLiliesService:
             "report_attempt_schema": report_attempt_schema,
             "report_index": report_index,
             "report_index_digest": LocalLiliesService._compaction_value_digest(
-                report_index
+                report_semantic_index
             ),
             "report_count": len(reports),
             "report_index_omitted": 0,
@@ -3429,9 +4290,61 @@ class LocalLiliesService:
                 for key in ordered_claims
             ],
             "claim_count": len(claims),
+            "claim_index_schema": claim_index_schema,
+            "claim_status_codes": claim_statuses,
+            "claim_verdict_codes": claim_verdicts,
+            "claim_index": claim_index,
+            "claim_index_digest": LocalLiliesService._compaction_value_digest(
+                {
+                    "opaque_reference_prefixes": opaque_reference_prefixes,
+                    "rows": claim_index,
+                    "oracle_digests": claim_oracle_digests,
+                    "invalidation_reason_digests": (
+                        claim_invalidation_reason_digests
+                    ),
+                }
+            ),
+            "claim_index_omitted": 0,
+            "claim_run_ref_omitted": 0,
+            "claim_detail_omitted": 0,
             "workflow_state": workflow_state,
+            "workflow_state_count": len(workflow_state),
+            "workflow_index_schema": workflow_index_schema,
+            "workflow_index": workflow_index,
+            "workflow_index_digest": LocalLiliesService._compaction_value_digest(
+                {
+                    "opaque_reference_prefixes": opaque_reference_prefixes,
+                    "rows": workflow_index,
+                }
+            ),
+            "workflow_index_omitted": 0,
+            "workflow_run_ref_omitted": 0,
+            "workflow_detail_omitted": 0,
             "user_decisions": decisions,
+            "decision_count": len(decisions),
+            "decision_index_schema": decision_index_schema,
+            "decision_outcome_codes": decision_outcomes,
+            "decision_index": decision_index,
+            "decision_index_digest": LocalLiliesService._compaction_value_digest(
+                decision_index
+            ),
+            "decision_index_omitted": 0,
+            "decision_detail_omitted": 0,
         }
+        if opaque_reference_prefixes:
+            result["opaque_reference_prefixes"] = opaque_reference_prefixes
+            result["opaque_reference_encoding"] = "@<prefix-index>:<suffix>"
+        if claim_oracle_digests:
+            result["claim_oracle_digest_schema"] = ["claim_ordinal", "digest_b64"]
+            result["claim_oracle_digests"] = claim_oracle_digests
+        if claim_invalidation_reason_digests:
+            result["claim_invalidation_reason_digest_schema"] = [
+                "claim_ordinal",
+                "digest_b64",
+            ]
+            result["claim_invalidation_reason_digests"] = (
+                claim_invalidation_reason_digests
+            )
         state_digest = hashlib.sha256(
             json.dumps(
                 {
@@ -3447,28 +4360,157 @@ class LocalLiliesService:
             ).encode("utf-8")
         ).hexdigest()
         result["state_digest"] = f"sha256:{state_digest}"
-        if len(
-            json.dumps(result, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
-        ) > 30_000 and result["report_index"] and result["reports"]:
-            without_duplicate_index = dict(result)
-            without_duplicate_index["report_index"] = []
-            without_duplicate_index["report_index_schema"] = []
-            without_duplicate_index["report_index_digest"] = None
-            if len(
+        if not claims:
+            for key in (
+                "claim_index_schema",
+                "claim_status_codes",
+                "claim_verdict_codes",
+                "claim_index",
+                "claim_index_digest",
+                "claim_index_omitted",
+                "claim_run_ref_omitted",
+                "claim_detail_omitted",
+            ):
+                result.pop(key, None)
+        if not workflow_state:
+            for key in (
+                "workflow_index_schema",
+                "workflow_index",
+                "workflow_index_digest",
+                "workflow_index_omitted",
+                "workflow_run_ref_omitted",
+                "workflow_detail_omitted",
+            ):
+                result.pop(key, None)
+        if not decisions:
+            for key in (
+                "decision_index_schema",
+                "decision_outcome_codes",
+                "decision_index",
+                "decision_index_digest",
+                "decision_index_omitted",
+                "decision_detail_omitted",
+            ):
+                result.pop(key, None)
+
+        def serialized_size(value: Any) -> int:
+            return len(
                 json.dumps(
-                    without_duplicate_index,
+                    value,
                     ensure_ascii=False,
                     separators=(",", ":"),
                     sort_keys=True,
                 )
-            ) <= 30_000:
-                result["report_index_omitted"] += len(result["report_index"])
-                result["report_index"] = []
-                result["report_index_schema"] = []
-                result["report_index_digest"] = None
-        while len(
-            json.dumps(result, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
-        ) > 30_000:
+            )
+
+        def ensure_durable_recall_contract() -> None:
+            if "compaction_recall" in result:
+                return
+            recall: dict[str, Any] = {
+                "source": "durable_compaction_archive",
+                "strategy": "integrity_only_history_current_claim_and_workflow_stay_inline",
+                "state_digest": result["state_digest"],
+                "index_digest_scope": "full_pre_omission",
+                "integrity_only_collections": ["claim_history", "workflow_history"],
+            }
+            if (
+                isinstance(assignment, dict)
+                and isinstance(assignment.get("collaboration"), dict)
+            ):
+                recall["source"] = "collaboration_event_stream"
+                recall["strategy"] = "paginate_durable_events_from_zero"
+                recall["event_replay_collections"] = [
+                    "approvals",
+                    "developer_responses",
+                    "task_amendments",
+                    "environment_responses",
+                    "verification_results",
+                    "own_verification_claims",
+                    "controls",
+                ]
+                recall["collaboration_event_replay"] = {
+                    "tool": "collaboration_updates_read",
+                    "after": 0,
+                    "limit": 500,
+                    "history_replay": True,
+                    "paginate_after_last_seq": True,
+                }
+                recall["current_claim_resume"] = {
+                    "source": (
+                        "collaboration_updates_read.response.channel_state."
+                        "latest_claim_resume"
+                    ),
+                    "when": "claim_current_inline_complete_is_false",
+                }
+                recall["current_workflow_resume"] = {
+                    "tool": "collaboration_updates_read",
+                    "calls": [
+                        {
+                            "archive_collection": "current_workflow",
+                            "archive_field": "test_run_ids",
+                            "archive_offset": 0,
+                            "archive_limit": 100,
+                        },
+                        {
+                            "archive_collection": "current_workflow",
+                            "archive_field": "business_run_ids",
+                            "archive_offset": 0,
+                            "archive_limit": 100,
+                        },
+                    ],
+                    "paginate_after_next_offset": True,
+                    "when": "workflow_current_inline_complete_is_false",
+                }
+            result["compaction_recall"] = recall
+            result["inline_core_complete"] = False
+
+        def prune_unused_opaque_reference_prefixes() -> None:
+            prefixes = result.get("opaque_reference_prefixes")
+            if not isinstance(prefixes, list):
+                return
+            used_codes: set[int] = set()
+            for index_key in ("claim_index", "workflow_index"):
+                for row in result.get(index_key, []):
+                    for value in row:
+                        values = value if isinstance(value, list) else [value]
+                        for item in values:
+                            if not isinstance(item, str):
+                                continue
+                            match = re.fullmatch(r"@(\d+):(.*)", item, re.DOTALL)
+                            if match is not None:
+                                used_codes.add(int(match.group(1)))
+            if used_codes == set(range(len(prefixes))):
+                return
+            ordered_codes = sorted(
+                code for code in used_codes if 0 <= code < len(prefixes)
+            )
+            remap = {old: new for new, old in enumerate(ordered_codes)}
+
+            def remap_reference(item: Any) -> Any:
+                if not isinstance(item, str):
+                    return item
+                match = re.fullmatch(r"@(\d+):(.*)", item, re.DOTALL)
+                if match is None or int(match.group(1)) not in remap:
+                    return item
+                return f"@{remap[int(match.group(1))]}:{match.group(2)}"
+
+            for index_key in ("claim_index", "workflow_index"):
+                for row in result.get(index_key, []):
+                    for position, value in enumerate(row):
+                        row[position] = (
+                            [remap_reference(item) for item in value]
+                            if isinstance(value, list)
+                            else remap_reference(value)
+                        )
+            if ordered_codes:
+                result["opaque_reference_prefixes"] = [
+                    prefixes[code] for code in ordered_codes
+                ]
+            else:
+                result.pop("opaque_reference_prefixes", None)
+                result.pop("opaque_reference_encoding", None)
+
+        while serialized_size(result) > 30_000:
             report_reductions: list[tuple[int, dict[str, Any], int]] = []
             for index, report in enumerate(result["reports"]):
                 if report.get("_summary_only"):
@@ -3507,13 +4549,20 @@ class LocalLiliesService:
                 result["claims"][index] = minimal
                 continue
 
+            if result.get("user_decisions"):
+                result["decision_detail_omitted"] += len(
+                    result["user_decisions"]
+                )
+                result["user_decisions"] = []
+                continue
+
             if result["reports"]:
                 # The all-report index retains identity, status, causal parent,
                 # exact goal and an attempt/evidence digest.  Evict only the
                 # duplicate detailed copy when the global bound requires it.
                 evicted = result["reports"].pop(0)
                 evicted_id = str(evicted.get("report_id", ""))
-                for row in result["report_index"]:
+                for row in result.get("report_index", []):
                     if str(row[0]) != str(compact_uuid(evicted_id)):
                         continue
                     if evicted.get("original_goal") is not None:
@@ -3523,7 +4572,228 @@ class LocalLiliesService:
                     break
                 result["report_detail_omitted"] += 1
                 continue
-            break
+
+            if result["claims"]:
+                result["claims"].pop(0)
+                result["claim_detail_omitted"] += 1
+                continue
+
+            if result["workflow_state"]:
+                result["workflow_state"].pop(0)
+                result["workflow_detail_omitted"] += 1
+                continue
+
+            if not result.get("indexes_minimized_for_global_bound", False):
+                minimized_reports: list[list[Any]] = []
+                for row in result.get("report_index", []):
+                    exact_goal = row[5]
+                    goal_digest = (
+                        exact_goal
+                        if row[6]
+                        else LocalLiliesService._compaction_compact_digest(exact_goal)
+                    )
+                    attempts = row[7]
+                    minimized_reports.append(
+                        [
+                            *row[:5],
+                            goal_digest,
+                            (
+                                len(attempts)
+                                if isinstance(attempts, list)
+                                else 0
+                            ),
+                            (
+                                LocalLiliesService._compaction_compact_digest(attempts)
+                                if attempts
+                                else None
+                            ),
+                        ]
+                    )
+                if "report_index" in result:
+                    omitted_goals = sum(
+                        int(not bool(row[6]) and row[5] is not None)
+                        for row in result["report_index"]
+                    )
+                    omitted_attempts = sum(
+                        len(row[7]) if isinstance(row[7], list) else 0
+                        for row in result["report_index"]
+                    )
+                    if omitted_goals or omitted_attempts:
+                        ensure_durable_recall_contract()
+                        result["report_goal_detail_omitted"] = omitted_goals
+                        result["report_attempt_detail_omitted"] = omitted_attempts
+                    result["report_index"] = minimized_reports
+                    result["report_index_schema"] = [
+                        "report_id_uuid_hex",
+                        "category_code",
+                        "status_code",
+                        "revision",
+                        "causal_parent_uuid_hex",
+                        "original_goal_digest",
+                        "attempted_route_count",
+                        "attempted_routes_digest",
+                    ]
+                # A decision's reason is useful prose, but the authoritative
+                # invariant is its source/target/causal identity, outcome, and
+                # resulting report revision.  The full pre-reduction index
+                # digest still binds the reason when global pressure requires
+                # dropping the per-row reason digest.
+                if "decision_index" in result:
+                    result["decision_index"] = [
+                        row[:6] for row in result["decision_index"]
+                    ]
+                    result["decision_index_schema"] = [
+                        "source_ref",
+                        "report_ref",
+                        "causal_parent_ref",
+                        "outcome_code",
+                        "resulting_report_revision",
+                        "replayable_from_collaboration",
+                    ]
+                result["indexes_minimized_for_global_bound"] = True
+                continue
+
+            run_ref_reductions: list[
+                tuple[int, str, int, int, dict[str, Any], int]
+            ] = []
+            for index_key, positions, omitted_key in (
+                ("claim_index", (9, 10), "claim_run_ref_omitted"),
+                ("workflow_index", (5, 6), "workflow_run_ref_omitted"),
+            ):
+                for row_index, row in enumerate(result.get(index_key, [])):
+                    for position in positions:
+                        refs = row[position]
+                        if not isinstance(refs, list) or not refs:
+                            continue
+                        summary = {
+                            "count": len(refs),
+                            "digest": LocalLiliesService._compaction_value_digest(
+                                refs
+                            ),
+                        }
+                        saving = serialized_size(refs) - serialized_size(summary)
+                        if saving > 0:
+                            run_ref_reductions.append(
+                                (
+                                    saving,
+                                    index_key,
+                                    row_index,
+                                    position,
+                                    summary,
+                                    len(refs),
+                                )
+                            )
+            if run_ref_reductions:
+                (
+                    _,
+                    index_key,
+                    row_index,
+                    position,
+                    summary,
+                    omitted_count,
+                ) = max(run_ref_reductions, key=lambda item: item[0])
+                ensure_durable_recall_contract()
+                result[index_key][row_index][position] = summary
+                omitted_key = (
+                    "claim_run_ref_omitted"
+                    if index_key == "claim_index"
+                    else "workflow_run_ref_omitted"
+                )
+                result[omitted_key] += omitted_count
+                if (
+                    index_key == "workflow_index"
+                    and row_index == len(result["workflow_index"]) - 1
+                ):
+                    result.setdefault(
+                        "workflow_current_ordinal", len(workflow_index) - 1
+                    )
+                    result.setdefault(
+                        "workflow_current_application_ref",
+                        result["workflow_index"][-1][0],
+                    )
+                    result["workflow_current_inline_complete"] = False
+                if (
+                    index_key == "claim_index"
+                    and row_index == len(result["claim_index"]) - 1
+                ):
+                    result.setdefault("claim_current_ordinal", len(claim_index) - 1)
+                    result.setdefault(
+                        "claim_current_ref", result["claim_index"][-1][0]
+                    )
+                    result["claim_current_inline_complete"] = False
+                schema_key = (
+                    "claim_index_schema"
+                    if index_key == "claim_index"
+                    else "workflow_index_schema"
+                )
+                schema = result.get(schema_key)
+                if isinstance(schema, list):
+                    schema[position] = str(schema[position]).replace(
+                        "_refs", "_refs_or_summary"
+                    )
+                prune_unused_opaque_reference_prefixes()
+                continue
+
+            trimmed_index = False
+            for index_key, omitted_key in (
+                ("decision_index", "decision_index_omitted"),
+                ("claim_index", "claim_index_omitted"),
+                ("report_index", "report_index_omitted"),
+                # Workflow state is local execution state.  Collaboration
+                # decisions, claims, and reports can be replayed through the
+                # durable channel, so retain workflow rows until last.
+                ("workflow_index", "workflow_index_omitted"),
+            ):
+                if not result.get(index_key):
+                    continue
+                removal_index = 0
+                if index_key == "decision_index":
+                    replayable_position = result["decision_index_schema"].index(
+                        "replayable_from_collaboration"
+                    )
+                    replayable_row = next(
+                        (
+                            index
+                            for index, row in enumerate(result[index_key])
+                            if row[replayable_position] is True
+                        ),
+                        None,
+                    )
+                    if replayable_row is None:
+                        continue
+                    removal_index = replayable_row
+                if index_key == "workflow_index" and len(result[index_key]) == 1:
+                    continue
+                if index_key == "claim_index" and len(result[index_key]) == 1:
+                    continue
+                if index_key == "claim_index":
+                    result.setdefault("claim_current_ordinal", len(claim_index) - 1)
+                    result.setdefault(
+                        "claim_current_ref", result["claim_index"][-1][0]
+                    )
+                    result.setdefault("claim_current_inline_complete", True)
+                if index_key == "workflow_index":
+                    result.setdefault(
+                        "workflow_current_ordinal", len(workflow_index) - 1
+                    )
+                    result.setdefault(
+                        "workflow_current_application_ref",
+                        result["workflow_index"][-1][0],
+                    )
+                    result.setdefault("workflow_current_inline_complete", True)
+                ensure_durable_recall_contract()
+                result[index_key].pop(removal_index)
+                result[omitted_key] += 1
+                prune_unused_opaque_reference_prefixes()
+                trimmed_index = True
+                break
+            if trimmed_index:
+                continue
+            raise LiliesServiceError(
+                "compaction reducer could not satisfy the invariant bound"
+            )
+        if serialized_size(result) > 30_000:  # pragma: no cover - postcondition
+            raise LiliesServiceError("compaction invariants exceeded 30k")
         return result
 
     async def _close_uncertain_tool_calls(self, session_id: str) -> None:

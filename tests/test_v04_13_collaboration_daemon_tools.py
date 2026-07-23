@@ -285,7 +285,7 @@ async def test_customer_assignment_has_no_collaboration_projection_tools_or_prom
 
 
 @pytest.mark.asyncio
-async def test_formal_assignment_gets_exactly_three_tools_with_independent_credential(
+async def test_formal_assignment_gets_exactly_three_tools_with_context_recall_mode(
     tmp_path: Path,
 ) -> None:
     service = service_at(tmp_path)
@@ -308,6 +308,69 @@ async def test_formal_assignment_gets_exactly_three_tools_with_independent_crede
         assert tool.client.channel_id == access.channel_id
         assert COLLABORATION_TOKEN not in repr(tool.client)
         assert PLATFORM_TOKEN not in repr(tool.client)
+
+    test_run_ids = [f"test-run:formal-recall-{index:03d}" for index in range(101)]
+    application_id = str(uuid4())
+    workflow_tool_use_id = "formal-workflow-recall-tests"
+    await service.storage.add_message(
+        session_id,
+        "assistant",
+        [
+            {
+                "type": "tool_use",
+                "id": workflow_tool_use_id,
+                "name": "platform_tests_run",
+                "input": {"application_id": application_id},
+            }
+        ],
+    )
+    await service.storage.add_message(
+        session_id,
+        "tool",
+        [
+            {
+                "type": "tool_result",
+                "tool_use_id": workflow_tool_use_id,
+                "content": json.dumps(
+                    {
+                        "ok": True,
+                        "operation": "platform_tests_run",
+                        "request_id": str(uuid4()),
+                        "status_code": 200,
+                        "contract_digest": str(assignment.platform.contract_digest),
+                        "data": {
+                            "passed": True,
+                            "validation": {
+                                "revision": 7,
+                                "content_hash": "sha256:" + "c" * 64,
+                            },
+                            "tests": [
+                                {"run_id": run_id} for run_id in test_run_ids
+                            ],
+                        },
+                        "error": None,
+                        "evidence_refs": [],
+                    },
+                    sort_keys=True,
+                ),
+            }
+        ],
+    )
+    archive_result = await registry.get("collaboration_updates_read").execute(
+        {
+            "archive_collection": "current_workflow",
+            "archive_field": "test_run_ids",
+            "archive_offset": 0,
+            "archive_limit": 100,
+        },
+        LiliesToolContext(session_id=session_id, workspace=tmp_path),
+    )
+    archive_payload = json.loads(archive_result.content)
+    assert archive_payload["ok"] is True
+    recall = archive_payload["data"]["archive_recall"]
+    assert recall["values"] == test_run_ids[:100]
+    assert recall["next_offset"] == 100
+    assert recall["complete"] is False
 
     prompt = build_lilies_system_prompt(
         workspace=str(tmp_path / "workspaces" / session_id),
@@ -631,7 +694,7 @@ async def test_three_collaboration_http_tools_use_header_only_credentials_and_ne
 ) -> None:
     channel_id = uuid4()
     seen: list[httpx.Request] = []
-    state_revisions = iter((7, 8, 9, 10, 11, 12))
+    state_revisions = iter((7, 8, 9, 10, 11, 12, 13))
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen.append(request)
@@ -714,6 +777,12 @@ async def test_three_collaboration_http_tools_use_header_only_credentials_and_ne
             context,
         ),
     ]
+    results.append(
+        await registry.get("collaboration_updates_read").execute(
+            {"after": 0, "limit": 500, "history_replay": True},
+            context,
+        )
+    )
 
     assert all(result.is_error is False for result in results)
     # Every successful tool also refreshes channel CAS state.  The updates tool
@@ -729,6 +798,8 @@ async def test_three_collaboration_http_tools_use_header_only_credentials_and_ne
         ("GET", channel_path),
         ("GET", channel_path),
         ("POST", f"{channel_path}/verification-claims"),
+        ("GET", channel_path),
+        ("GET", f"{channel_path}/events"),
         ("GET", channel_path),
     ]
     assert all(not request.url.path.endswith("/") for request in seen)
@@ -750,11 +821,26 @@ async def test_three_collaboration_http_tools_use_header_only_credentials_and_ne
         "format": "json",
         "after": "4",
     }
+    assert dict(seen[10].url.params) == {
+        "limit": "500",
+        "format": "json",
+        "after": "0",
+        "history_replay": "true",
+    }
     assert json.loads(seen[8].content) == {
         "idempotency_key": "collaboration-claim-0001",
         "expected_channel_revision": 11,
         "claim": claim,
     }
+    rejected_replay_ack = await registry.get("collaboration_updates_read").execute(
+        {
+            "after": 0,
+            "acknowledge_through": 4,
+            "history_replay": True,
+        },
+        context,
+    )
+    assert rejected_replay_ack.is_error is True
     for request in seen:
         assert request.headers["Authorization"] == f"Bearer {COLLABORATION_TOKEN}"
         assert request.headers["Accept"] == "application/json"

@@ -865,6 +865,14 @@ async def test_claim_and_verification_recheck_the_managed_draft_in_the_write_tx(
             (DIGEST_A, application_id),
         )
     claim = await store.create_verification_claim(claim_record, claim_message)
+    latest_claim = await store.get_latest_claim(
+        channel_id=channel_id,
+        assignment_id=assignment_id,
+    )
+    assert latest_claim is not None
+    assert latest_claim["claim_id"] == claim["claim_id"]
+    assert latest_claim["test_run_ids"] == claim["test_run_ids"]
+    assert latest_claim["business_run_ids"] == claim["business_run_ids"]
     verification_record, verification_message = _verification_write(
         channel_id=channel_id,
         claim_id=UUID(claim["claim_id"]),
@@ -895,6 +903,75 @@ async def test_claim_and_verification_recheck_the_managed_draft_in_the_write_tx(
             "SELECT COUNT(*) FROM collaboration_messages "
             "WHERE message_type='verification_result'"
         ).fetchone() == (0,)
+
+
+@pytest.mark.asyncio
+async def test_latest_claim_uses_channel_sequence_when_frozen_timestamps_tie(
+    tmp_path: Path,
+) -> None:
+    store, database, channel = await _store_with_channel(tmp_path)
+    channel_id = UUID(channel["channel_id"])
+    assignment_id = UUID(channel["assignment_id"])
+
+    def claim_write(
+        *,
+        claim_id: str,
+        marker: str,
+        expected_channel_revision: int,
+        draft_revision: int,
+        content_hash: str,
+    ) -> tuple[dict[str, object], dict[str, object]]:
+        record, message = _claim_write(
+            channel_id=channel_id,
+            assignment_id=assignment_id,
+            expected_channel_revision=expected_channel_revision,
+            resolved_report_ids=[],
+            marker=marker,
+        )
+        payload = deepcopy(message["payload"])
+        payload.update(
+            claim_id=claim_id,
+            draft_revision=draft_revision,
+            content_hash=content_hash,
+        )
+        message.update(correlation_id=claim_id, payload=payload)
+        record.update(payload)
+        record["payload"] = payload
+        return record, message
+
+    first_record, first_message = claim_write(
+        claim_id="ffffffff-ffff-4fff-8fff-ffffffffffff",
+        marker="same-time-first",
+        expected_channel_revision=1,
+        draft_revision=1,
+        content_hash=DIGEST_A,
+    )
+    first = await store.create_verification_claim(first_record, first_message)
+    second_record, second_message = claim_write(
+        claim_id="00000000-0000-4000-8000-000000000001",
+        marker="same-time-second",
+        expected_channel_revision=2,
+        draft_revision=2,
+        content_hash=DIGEST_B,
+    )
+    second = await store.create_verification_claim(second_record, second_message)
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "UPDATE collaboration_verification_claims SET frozen_at=? "
+            "WHERE channel_id=?",
+            (second["created_at"], str(channel_id)),
+        )
+
+    latest = await store.get_latest_claim(
+        channel_id=channel_id,
+        assignment_id=assignment_id,
+    )
+
+    assert (await store.get_claim(first["claim_id"]))["status"] == "invalidated"
+    assert latest is not None
+    assert latest["claim_id"] == second["claim_id"]
+    assert latest["draft_revision"] == 2
+    assert latest["content_hash"] == DIGEST_B
 
 
 @pytest.mark.asyncio

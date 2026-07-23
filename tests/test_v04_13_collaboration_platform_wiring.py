@@ -13,7 +13,7 @@ from uuid import UUID, uuid4
 import pytest
 from fastapi.testclient import TestClient
 
-from agent_platform.api import create_app
+from agent_platform.api import _git_tree_contains_blob, create_app
 from agent_platform.collaboration_models import CollaborationReportPayload
 from agent_platform.config import Settings
 from agent_platform.lilies_models import AssignmentMode
@@ -48,6 +48,21 @@ def settings(tmp_path: Path, *, enabled: bool) -> Settings:
 
 def auth(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
+
+
+def test_git_tree_parser_does_not_accept_a_blob_marker_from_path_bytes() -> None:
+    real_blob = "1" * 40
+    spoofed_blob = "2" * 40
+    tree_output = (
+        b"100644 blob "
+        + real_blob.encode("ascii")
+        + b"\treport blob "
+        + spoofed_blob.encode("ascii")
+        + b"\tspoof.txt\0"
+    )
+
+    assert _git_tree_contains_blob(tree_output, real_blob)
+    assert not _git_tree_contains_blob(tree_output, spoofed_blob)
 
 
 @pytest.mark.parametrize(

@@ -685,6 +685,78 @@ async def test_visibility_is_filtered_in_sql_before_page_limit(tmp_path: Path) -
 
 
 @pytest.mark.asyncio
+async def test_lilies_history_replay_recovers_own_schema_max_claim_only(
+    tmp_path: Path,
+) -> None:
+    store, _, channel = await _store_with_channel(tmp_path)
+    channel_id = UUID(channel["channel_id"])
+    assignment_id = UUID(channel["assignment_id"])
+    test_run_ids = [f"test-run:{index:03d}:" + ("t" * 140) for index in range(500)]
+    business_run_ids = [
+        f"business-run:{index:03d}:" + ("b" * 136) for index in range(500)
+    ]
+    claim_message = _verification_claim_message(
+        channel_id,
+        assignment_id,
+        "schema-max-history-replay",
+    )
+    claim_message["payload"]["test_run_ids"] = test_run_ids
+    claim_message["payload"]["business_run_ids"] = business_run_ids
+    other_lilies_claim = _verification_claim_message(
+        channel_id,
+        assignment_id,
+        "other-lilies-private-claim",
+    )
+    other_lilies_claim["sender_id"] = "other-lilies-reader"
+    await store.append_message(other_lilies_claim)
+    await store.append_message(claim_message)
+    service = CollaborationService(store=store, enabled=True, now=lambda: NOW)
+    lilies = CollaborationPrincipal(
+        role=SenderRole.lilies,
+        sender_id="lilies-sqlite",
+        scopes=frozenset(),
+        channel_id=channel_id,
+        assignment_id=assignment_id,
+    )
+
+    normal = await service.list_events(
+        principal=lilies,
+        channel_id=channel_id,
+        after=1,
+        limit=10,
+    )
+    replay = await service.list_events(
+        principal=lilies,
+        channel_id=channel_id,
+        after=1,
+        limit=1,
+        history_replay=True,
+    )
+    other_lilies_replay = await service.list_events(
+        principal=CollaborationPrincipal(
+            role=SenderRole.lilies,
+            sender_id="unrelated-lilies-reader",
+            scopes=frozenset(),
+            channel_id=channel_id,
+            assignment_id=assignment_id,
+        ),
+        channel_id=channel_id,
+        after=1,
+        limit=10,
+        history_replay=True,
+    )
+
+    assert normal == []
+    assert len(replay) == 1
+    assert replay[0]["message_type"] == "verification_claim"
+    assert replay[0]["sender_role"] == "lilies"
+    assert replay[0]["payload"]["test_run_ids"] == test_run_ids
+    assert replay[0]["payload"]["business_run_ids"] == business_run_ids
+    assert "other-lilies-private-claim" not in repr(replay)
+    assert other_lilies_replay == []
+
+
+@pytest.mark.asyncio
 async def test_expired_lease_is_reacquired_and_old_owner_response_is_rejected(
     tmp_path: Path,
 ) -> None:

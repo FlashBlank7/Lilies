@@ -250,10 +250,16 @@ async def test_restart_resumes_same_waiting_turn_report_and_cursor(tmp_path: Pat
     assert session["last_pipeline_cursor"] == 8
     assert session["waiting_collaboration_id"] is None
     messages = await resumed.storage.list_messages_for_compaction(session_id)
-    assert any(
-        report_id in json.dumps(message["content"], sort_keys=True)
+    collaboration_messages = [
+        message
         for message in messages
         if message["role"] == "user"
+        and report_id in json.dumps(message["content"], sort_keys=True)
+    ]
+    assert collaboration_messages
+    assert all(
+        message["provenance"] == "collaboration_update"
+        for message in collaboration_messages
     )
 
 

@@ -646,16 +646,39 @@ def install_collaboration_api(
             alias="format",
         ),
         limit: int = Query(default=100, ge=1, le=500),
+        history_replay: bool = Query(default=False),
         last_event_id: str | None = Header(default=None, alias="Last-Event-ID"),
     ) -> Any:
         parsed_channel_id = _hidden_uuid(channel_id)
-        requested = _requested_cursor(after, last_event_id)
+        accept = request.headers.get("accept", "").casefold()
+        wants_json = response_format == "json" or (
+            response_format is None
+            and "application/json" in accept
+            and "text/event-stream" not in accept
+        )
+        if history_replay and not wants_json:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "history_replay_requires_json",
+                    "message": "history replay is available only through bounded JSON pages",
+                },
+            )
+        # Normal reconnects must resume from the persisted acknowledgement.
+        # Explicit history replay is read-only and intentionally ignores an
+        # HTTP Last-Event-ID so a bounded caller can page from its requested
+        # historical cursor without mutating the durable reader cursor.
+        requested = (
+            after
+            if history_replay
+            else _requested_cursor(after, last_event_id)
+        )
         cursor = await _service_call(
             service.resolve_event_cursor(
                 principal=principal,
                 channel_id=parsed_channel_id,
                 requested_after=requested,
-                durable=True,
+                durable=not history_replay,
             )
         )
         initial_events = await _service_call(
@@ -664,13 +687,8 @@ def install_collaboration_api(
                 channel_id=parsed_channel_id,
                 after=cursor,
                 limit=limit,
+                history_replay=history_replay,
             )
-        )
-        accept = request.headers.get("accept", "").casefold()
-        wants_json = response_format == "json" or (
-            response_format is None
-            and "application/json" in accept
-            and "text/event-stream" not in accept
         )
         if wants_json:
             projected = [_model_dump(event) for event in initial_events]
@@ -682,6 +700,7 @@ def install_collaboration_api(
                 "after": cursor,
                 "next_cursor": next_cursor,
                 "events": projected,
+                **({"history_replay": True} if history_replay else {}),
             }
         return StreamingResponse(
             _durable_event_stream(

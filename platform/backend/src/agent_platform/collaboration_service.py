@@ -1584,6 +1584,7 @@ class CollaborationService:
         channel_id: UUID,
         after: int,
         limit: int,
+        history_replay: bool = False,
     ) -> list[dict[str, Any]]:
         actor = self._principal(principal)
         await self._channel(channel_id, principal=actor)
@@ -1601,15 +1602,30 @@ class CollaborationService:
                 after_seq=after,
                 limit=limit,
                 visibilities=allowed_visibilities,
+                lilies_claim_sender_id=(
+                    actor.sender_id
+                    if actor.role is SenderRole.lilies and history_replay
+                    else None
+                ),
             )
         )
         visible: list[dict[str, Any]] = []
         for raw in records:
             projected = _as_dict(raw)
             visibility = MessageVisibility(str(projected["visibility"]))
+            lilies_own_claim = (
+                actor.role is SenderRole.lilies
+                and history_replay
+                and visibility is MessageVisibility.verifier
+                and projected.get("sender_role") == SenderRole.lilies.value
+                and projected.get("sender_id") == actor.sender_id
+                and projected.get("message_type")
+                == MessageType.verification_claim.value
+            )
             allowed = (
                 allowed_visibilities is None
                 or visibility.value in allowed_visibilities
+                or lilies_own_claim
             )
             if allowed:
                 # Validate the typed envelope at the access-control boundary.
@@ -1643,10 +1659,88 @@ class CollaborationService:
                 ack_seq=0,
                 revision=0,
             )
-        return {
+        latest_claim: dict[str, Any] | None = None
+        lookup_claim = getattr(self.store, "get_latest_claim", None)
+        if callable(lookup_claim):
+            raw_claim = await lookup_claim(
+                channel_id=channel_id,
+                assignment_id=channel.assignment_id,
+            )
+            latest_claim = _as_dict(raw_claim) if raw_claim is not None else None
+        else:  # pragma: no cover - compatibility for narrow external stores
+            list_claims = getattr(self.store, "list_claims", None)
+            if callable(list_claims):
+                raw_claims = _as_list(
+                    await list_claims(
+                        channel_id=channel_id,
+                        assignment_id=channel.assignment_id,
+                        after=0,
+                        limit=5_000,
+                    )
+                )
+                if raw_claims:
+                    latest_claim = _as_dict(raw_claims[-1])
+
+        state = {
             **channel.model_dump(mode="json", exclude_none=True),
             "reader_cursor": cursor.model_dump(mode="json", exclude_none=True),
         }
+        if latest_claim is not None:
+            def collection_digest(value: Any) -> str:
+                canonical = json.dumps(
+                    value,
+                    ensure_ascii=False,
+                    allow_nan=False,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                )
+                return "sha256:" + hashlib.sha256(
+                    canonical.encode("utf-8")
+                ).hexdigest()
+
+            artifact_refs = latest_claim.get("artifact_refs", [])
+            host_receipt_refs = latest_claim.get("host_receipt_refs", [])
+            remaining_limits = latest_claim.get("remaining_limits", [])
+            state["latest_claim_resume"] = {
+                key: latest_claim[key]
+                for key in (
+                    "schema_version",
+                    "claim_id",
+                    "assignment_id",
+                    "application_id",
+                    "claim_revision",
+                    "draft_revision",
+                    "content_hash",
+                    "published_version",
+                    "status",
+                    "claim",
+                    "test_run_ids",
+                    "business_run_ids",
+                    "resolved_report_ids",
+                    "created_at",
+                    "invalidated_at",
+                    "invalidation_reason",
+                )
+                if latest_claim.get(key) is not None
+            }
+            state["latest_claim_resume"].update(
+                {
+                    "artifact_refs": {
+                        "count": len(artifact_refs),
+                        "digest": collection_digest(artifact_refs),
+                    },
+                    "host_receipt_refs": {
+                        "count": len(host_receipt_refs),
+                        "digest": collection_digest(host_receipt_refs),
+                    },
+                    "remaining_limits": {
+                        "count": len(remaining_limits),
+                        "digest": collection_digest(remaining_limits),
+                    },
+                    "claim_digest": collection_digest(latest_claim),
+                }
+            )
+        return state
 
     async def resolve_event_cursor(
         self,

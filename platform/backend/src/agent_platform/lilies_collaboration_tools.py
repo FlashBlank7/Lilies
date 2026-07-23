@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Awaitable, Callable
 from typing import Any, Literal
 from uuid import UUID
 
@@ -78,11 +79,32 @@ class CollaborationUpdatesReadInput(StrictToolInput):
     after: int | None = Field(default=None, ge=0)
     acknowledge_through: int | None = Field(default=None, ge=0)
     limit: int = Field(default=200, ge=1, le=500)
+    history_replay: bool = False
+    archive_collection: Literal["current_workflow"] | None = None
+    archive_field: Literal["test_run_ids", "business_run_ids"] | None = None
+    archive_offset: int = Field(default=0, ge=0)
+    archive_limit: int = Field(default=100, ge=1, le=100)
 
     @model_validator(mode="after")
     def cursor_order_is_monotonic(self) -> CollaborationUpdatesReadInput:
+        if self.archive_collection is not None:
+            if (
+                self.archive_field is None
+                or self.after is not None
+                or self.acknowledge_through is not None
+                or self.history_replay
+            ):
+                raise ValueError(
+                    "archive recall requires only collection, field, offset, and limit"
+                )
+            return self
+        if self.archive_field is not None:
+            raise ValueError("archive_field requires archive_collection")
+        if self.history_replay and self.acknowledge_through is not None:
+            raise ValueError("history replay cannot advance the durable acknowledgement")
         if (
-            self.after is not None
+            not self.history_replay
+            and self.after is not None
             and self.acknowledge_through is not None
             and self.after < self.acknowledge_through
         ):
@@ -103,7 +125,10 @@ _DESCRIPTIONS = {
     ),
     "collaboration_updates_read": (
         "Read persisted approvals, task amendments, environment responses, developer "
-        "responses, verification results, and controls from this task's durable cursor."
+        "responses, verification results, and controls from this task's durable cursor. "
+        "Set history_replay only when a compaction recall contract requires bounded, "
+        "read-only pagination before the durable acknowledgement; use the bounded "
+        "archive fields only when that contract requires exact current workflow IDs."
     ),
     "collaboration_verification_claim": (
         "Submit a frozen ready-for-independent-verification claim for this task. "
@@ -125,6 +150,7 @@ class _CollaborationHttpTool(LiliesTool):
         name: str,
         input_model: type[StrictToolInput],
         mutating: bool,
+        context_archive_reader: Callable[..., Awaitable[dict[str, Any]]] | None = None,
     ) -> None:
         self.client = client
         self.name = name
@@ -133,6 +159,7 @@ class _CollaborationHttpTool(LiliesTool):
         self.mutating = mutating
         self.side_effecting = mutating
         self.dangerous = False
+        self.context_archive_reader = context_archive_reader
 
     async def execute(
         self,
@@ -204,6 +231,41 @@ class _CollaborationHttpTool(LiliesTool):
             return await self._attach_channel_state(
                 await self.client.submit_verification_claim(payload)
             )
+        archive_collection = payload.get("archive_collection")
+        if archive_collection is not None:
+            if self.context_archive_reader is None:
+                return CollaborationHttpResult(
+                    ok=False,
+                    status_code=503,
+                    error={
+                        "code": "compaction_archive_unavailable",
+                        "message": "the durable local context archive is unavailable",
+                        "retryable": True,
+                    },
+                )
+            try:
+                archive = await self.context_archive_reader(
+                    context.session_id,
+                    collection=archive_collection,
+                    field=payload["archive_field"],
+                    offset=int(payload.get("archive_offset", 0)),
+                    limit=int(payload.get("archive_limit", 100)),
+                )
+            except Exception:
+                return CollaborationHttpResult(
+                    ok=False,
+                    status_code=409,
+                    error={
+                        "code": "compaction_archive_read_failed",
+                        "message": "the requested durable context page is unavailable",
+                        "retryable": False,
+                    },
+                )
+            return CollaborationHttpResult(
+                ok=True,
+                status_code=200,
+                data={"archive_recall": archive},
+            )
         acknowledged = payload.get("acknowledge_through")
         acknowledgement: dict[str, Any] | None = None
         if acknowledged is not None:
@@ -230,6 +292,7 @@ class _CollaborationHttpTool(LiliesTool):
         updates = await self.client.read_updates(
             after=payload.get("after"),
             limit=int(payload.get("limit", 200)),
+            history_replay=bool(payload.get("history_replay", False)),
         )
         if acknowledgement is not None and updates.ok:
             updates.data["acknowledgement"] = acknowledgement
@@ -318,6 +381,8 @@ class _CollaborationHttpTool(LiliesTool):
 def register_lilies_collaboration_tools(
     registry: LiliesToolRegistry,
     client: LiliesCollaborationClient,
+    *,
+    context_archive_reader: Callable[..., Awaitable[dict[str, Any]]] | None = None,
 ) -> LiliesToolRegistry:
     """Add the three temporary tools to an already scoped assignment registry."""
 
@@ -337,6 +402,11 @@ def register_lilies_collaboration_tools(
                 name=name,
                 input_model=input_model,
                 mutating=mutating,
+                context_archive_reader=(
+                    context_archive_reader
+                    if name == "collaboration_updates_read"
+                    else None
+                ),
             )
         )
     return registry

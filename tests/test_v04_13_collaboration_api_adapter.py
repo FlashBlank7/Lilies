@@ -114,6 +114,7 @@ class FakeCollaborationService:
         channel_id: UUID,
         after: int,
         limit: int,
+        history_replay: bool = False,
     ) -> list[dict[str, Any]]:
         self.calls.append(
             (
@@ -123,6 +124,7 @@ class FakeCollaborationService:
                     "channel_id": channel_id,
                     "after": after,
                     "limit": limit,
+                    "history_replay": history_replay,
                 },
             )
         )
@@ -292,6 +294,29 @@ def test_lilies_json_events_are_bounded_and_resume_from_durable_ack() -> None:
     assert cursor_call[1]["durable"] is True
     list_call = next(item for item in service.calls if item[0] == "list_events")
     assert list_call[1]["after"] == 3
+    assert list_call[1]["limit"] == 2
+
+
+def test_lilies_json_history_replay_can_read_before_durable_ack() -> None:
+    service = FakeCollaborationService()
+    client = TestClient(build_app(service))
+
+    response = client.get(
+        f"/api/v1/collaboration/channels/{CHANNEL_ID}/events"
+        "?format=json&after=0&limit=2&history_replay=true",
+        headers={**auth("channel-good-bearer"), "Last-Event-ID": "120"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["after"] == 0
+    assert response.json()["history_replay"] is True
+    cursor_call = next(
+        item for item in service.calls if item[0] == "resolve_event_cursor"
+    )
+    assert cursor_call[1]["requested_after"] == 0
+    assert cursor_call[1]["durable"] is False
+    list_call = next(item for item in service.calls if item[0] == "list_events")
+    assert list_call[1]["after"] == 0
     assert list_call[1]["limit"] == 2
 
 

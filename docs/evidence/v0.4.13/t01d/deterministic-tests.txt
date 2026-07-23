@@ -1,5 +1,5 @@
 V04-13-T01D deterministic verification
-Captured at (UTC): 2026-07-22T23:04:25Z
+Captured at (UTC): 2026-07-23T00:40:29Z
 Baseline commit: 91d68006de539df050b84c3791894b8dc81aaa63
 
 1. Collaboration focused suite
@@ -8,7 +8,7 @@ Command:
   uv run --extra dev --frozen python -m pytest -q tests/test_v04_13_collaboration_*.py
 
 Result:
-  123 passed, 2 warnings, 0 failed in 21.09s
+  145 passed, 2 warnings, 0 failed in 29.51s
 
 Coverage includes strict schemas and access matrices; formal-only activation;
 credential/header isolation; deterministic report routing; explicit
@@ -20,7 +20,12 @@ rerun; reachable-commit and same-tree gitblob evidence resolution through the
 real create_app HTTP path; application-bound claim freeze/invalidation/result;
 post-close verifier completion; causal export; OpenAPI non-discoverability;
 daemon side-effect recovery, deadline handling, semantic compaction and
-projection redaction; and SQLite migration.
+projection redaction; bounded read-only history replay before a durable
+acknowledgement; exact-sender verifier-claim isolation before SQL LIMIT;
+schema-max current claim and workflow recall; provenance-bound approval
+replayability; paired-success-only transcript normalization; late workflow-run
+origin rejection; fail-closed conflicting inner/outer contract digests; and
+SQLite migration.
 
 The focused suite includes deterministic fault tests with:
   - 100 subscriber overflow/reconnect rounds and contiguous durable recovery;
@@ -30,9 +35,17 @@ The focused suite includes deterministic fault tests with:
   - same-key payload drift rejection without duplicate side effects;
   - missing commit, missing evidence blob, and mismatched evidence digest leave
     the report implementing and preserve the active lease for retry;
-  - 13 compaction counterexample tests, including 121 unresolved reports under
-    the 30000-character model-summary ceiling without losing goal, route,
-    outcome, or evidence identity.
+  - 30 compaction/recovery counterexample tests, including 121 reports, 121 claims, 121
+    workflow states, 200 decisions, a 10000-character exact business goal, and
+    100 maximum-evidence attempts under the 30000-character model-summary
+    ceiling;
+  - 200 approval-shaped records in both a no-channel session and a formal but
+    unprovenanced transcript remain inline with zero decision omission;
+  - schema-max 500 test-run plus 500 business-run identifiers are exactly
+    recoverable for the current claim and current workflow without adding a
+    fourth collaboration tool;
+  - a strict Git `ls-tree` parser rejects prefix/spoof object identities rather
+    than accepting a line that merely contains the expected object ID.
 
 2. Storage and security transaction subset
 
@@ -42,7 +55,7 @@ Command:
     tests/test_v04_13_collaboration_storage_security.py
 
 Result:
-  20 passed, 0 failed in 1.84s
+  21 passed, 0 failed in 1.78s
 
 3. Full repository regression
 
@@ -59,13 +72,23 @@ Re-run with an ephemeral test-only dependency:
   uv run --extra dev --with python-docx --frozen python -m pytest -q
 
 Result:
-  1219 passed, 85 xfailed, 2 warnings, 0 failed in 253.39s
+  1241 passed, 85 xfailed, 2 warnings, 0 failed in 262.91s
 
 The xfails are the repository's existing expected cases. The two warnings are
 the existing Starlette TestClient deprecation and duplicate fallback OpenAPI
 operation ID warning. The undeclared python-docx test dependency is a truthful
 repository baseline/dependency debt for the later release gate; it is not
 reported as a passing default dev-extra collection.
+
+The final focused and full runs were executed only after the shared working
+tree was stable. The aggregate T01D source/test hash was
+`ecf511e124c942581b883d80d74f14afa1a2d4030d65adb7e9fe557109ba56a1`
+before and after both runs. Earlier runs taken while another process was still
+editing the same files, and the red counterexamples that drove the
+replay/provenance fixes, were excluded from closure evidence. The unrelated
+working-tree edit in `tests/test_v04_09_durable_daily_collection.py` is not part
+of the T01D commit; the exact test from the committed HEAD fixture also passed
+independently (`1 passed`).
 
 4. Static and evolution checks
 
@@ -81,6 +104,7 @@ Commands:
     platform/backend/src/agent_platform/lilies_collaboration_tools.py \
     platform/backend/src/agent_platform/lilies_identity.py \
     platform/backend/src/agent_platform/lilies_service.py \
+    platform/backend/src/agent_platform/lilies_storage.py \
     platform/backend/src/agent_platform/workflow_storage.py \
     tests/test_v04_13_collaboration_*.py
   git diff --check

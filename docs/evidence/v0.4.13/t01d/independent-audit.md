@@ -1,66 +1,56 @@
-# V04-13-T01D independent Closure Audit
+# V04-13-T01D Independent Read-Only Audit
 
-- Auditor: fresh read-only subagent context
-- Audited source state: final T01D working tree before archive commit
-- Verdict: **PASS**
-- Audited at: 2026-07-22T23:09:30Z
+- Captured at (UTC): `2026-07-23T00:40:29Z`
+- Baseline commit: `91d68006de539df050b84c3791894b8dc81aaa63`
+- Reviewer context: fresh read-only sub-agent given the Program Charter, current stage report and locked Stage Contract, the T01D-relevant diff, and final verification evidence
+- Verdict: `PASS for V04-13-T01D only`
 
-The auditor reconstructed T01D from the locked Stage Contract and the expanded
-pipeline design. Earlier review rounds found two mandatory gaps: semantic
-compaction could not preserve more than one hundred unresolved reports, and a
-production `create_app` instance had no trusted commit/evidence resolvers for
-an implemented `DeveloperResponse`. Both gaps were fixed and re-audited; no
-mandatory T01D implementation or evidence gap remains.
+The reviewer reconstructed T01D from the locked contract instead of trusting
+the implementation summary. No mandatory implementation or verification
+blocker remains.
 
-## Final acceptance reconstruction
+The audit independently checked:
 
-- Collaboration is created only for an explicitly enabled, user-notified
-  formal assignment. Ordinary assignments, tool catalogs, prompts, OpenAPI and
-  unknown-route errors do not reveal the surface.
-- Dedicated SQLite tables and transactions own channel sequence, messages,
-  reports, decisions, immutable developer inbox entries, reader cursors,
-  leases, responses, claims, verification, audit and operation receipts.
-- Report routing and every state transition are enum- and role-driven. Manual
-  approval, task-local auto-forward, permission separation and preapproval
-  developer invisibility fail closed.
-- Exact request digests, compare-and-set revisions and durable cursors make
-  retries, reconnect, overflow and lease failure recoverable without duplicate
-  messages or side effects.
-- An implemented developer response requires a full commit reachable from the
-  platform repository's current history and every evidence blob to belong to
-  that exact commit tree with an exact SHA-256 digest. Missing commit/blob or a
-  digest mismatch leaves the report implementing and its lease active.
-- Lilies must refetch a changed contract before re-probing. Task-package and
-  environment responses use their dedicated routes; permission denial cannot
-  become a platform capability gap.
-- Claims freeze the exact application draft and are atomically invalidated by
-  a later draft write. Only the independent verifier may complete an existing
-  claim after channel close.
-- Daemon restart and compaction preserve collaboration wait state, remote
-  side-effect intent/result, original business goal, decisions, contract
-  changes, attempted routes/evidence, draft/run IDs, claim verdicts and the
-  prohibition on substitute validation.
-- Causal export is reconstructed from the collaboration tables without log
-  scanning. A 121-report counterexample remains below the 30,000-character
-  model boundary without losing report identity, goal, route, outcome or
-  evidence identity.
+- formal-task-only activation, ordinary-session nondiscoverability, and complete
+  preapproval developer isolation;
+- dedicated SQLite persistence, strict state transitions, CAS, durable cursors,
+  full-request idempotency, single-snapshot inboxes, and exclusive recoverable
+  leases;
+- report revision and evidence supplementation, approval and task-local
+  auto-forward, task amendments, environment responses, Lilies re-probe, and
+  causal export without log scanning;
+- exact application/draft claim freeze, atomic invalidation, independent
+  verification, and verifier-only completion of an existing claim after close;
+- daemon deadline/restart recovery and uncertain remote-side-effect recovery;
+- production `create_app` enforcement of a full commit reachable from current
+  Git history plus same-tree `gitblob` content and SHA-256 evidence, including
+  negative paths that retain the lease and persist no response;
+- read-only historical replay that cannot advance durable acknowledgements,
+  exact-sender claim filtering before SQL pagination, provenance-bound
+  compaction, exact current-claim/workflow recall, and bounded
+  report/decision/claim/workflow invariants;
+- fail-closed workflow transcript authority: only successful paired public-tool
+  envelopes with matching operations are resumable, older run origins are
+  rejected, and a conflicting inner/outer `contract_digest` excludes the result.
 
-## Verification reviewed
+Evidence reviewed at the stable implementation state:
 
-- Focused collaboration suite: 123 passed, 2 warnings, 0 failures.
-- Former-blocker/state-persistence counterexamples: 6 passed, 1 warning.
-- Full repository regression: 1219 passed, 85 expected xfails, 2 warnings, 0
-  failures, using an ephemeral `python-docx` dependency because the existing
-  dev extra does not declare it.
-- Targeted Ruff, `git diff --check` and evolution-control validation: pass.
-- One hundred overflow/reconnect rounds, one hundred lease-fault rounds and
-  one hundred concurrent identical submitters retain zero loss and zero
-  duplicate side effects.
+- collaboration-focused suite: `145 passed, 2 warnings in 29.51s`;
+- storage/security subset: `21 passed in 1.78s`;
+- full repository regression: `1241 passed, 85 xfailed, 2 warnings in 262.91s`
+  with the ephemeral `python-docx` dependency after the default dev-extra
+  collection truthfully failed;
+- aggregate T01D source/test SHA-256:
+  `ecf511e124c942581b883d80d74f14afa1a2d4030d65adb7e9fe557109ba56a1`,
+  unchanged across focused and full runs;
+- targeted Ruff, `git diff --check`, and evolution-control validation: pass.
 
-## Claim ceiling
+The evidence bundle and stage report must use those final counts and regenerate
+manifest hashes after the last text edit. This is an evidence-finalization
+condition, not an implementation blocker.
 
-T01D proves the collaboration protocol, persistence, access control, routing,
-approval, recovery, developer response existence gate, claim lifecycle and
-causal export at deterministic in-process, real-ASGI HTTP, SQLite and Git
-object levels. It does not claim the T01E monitor UI, T01F task-package/oracle
-process, T01G qualification bundle or T01H enterprise experiment.
+The claim ceiling is deterministic in-process, real ASGI/HTTP, SQLite, and
+Git-object proof of the T01D collaboration protocol. It does not establish T01E
+UI/developer CLI/browser behavior, T01F task-package/oracle/archive or an
+independent verifier process, T01G Q01–Q23 qualification, T01H enterprise
+results, customer production behavior, or v0.4.13 version closure.

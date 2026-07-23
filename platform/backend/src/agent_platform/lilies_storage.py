@@ -1434,7 +1434,17 @@ class LiliesStorage:
             self._require_session_conn(conn, session_id)
             rows = conn.execute(
                 """
-                SELECT * FROM messages WHERE session_id=? ORDER BY created_at,id
+                SELECT m.*,
+                  CASE WHEN EXISTS (
+                    SELECT 1 FROM events AS e
+                    WHERE e.session_id=m.session_id
+                      AND e.event_type IN (
+                        'collaboration.resumed','collaboration.buffered'
+                      )
+                      AND json_extract(e.data_json,'$.message_id')=m.id
+                  ) THEN 'collaboration_update' ELSE 'transcript' END AS provenance
+                FROM messages AS m
+                WHERE m.session_id=? ORDER BY m.created_at,m.id
                 """,
                 (session_id,),
             ).fetchall()
