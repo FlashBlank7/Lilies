@@ -240,6 +240,19 @@
       ]
     },
     {
+      "id": "PRODUCT-017",
+      "category": "product",
+      "priority": "P0",
+      "statement": "Keep Lilies and Codex as assignment-authorized general agents and provide a reusable collaboration substrate that can improve the workflow platform or other explicitly scoped software without being permanently coupled to one product UI.",
+      "acceptance": "A collaboration assignment declares agent roles, workspace and tool grants, network and side-effect boundaries, budgets, and either manual or autonomous handoff; Lilies and Codex can exchange durable evidence and work on an arbitrary authorized software workspace, ordinary sessions cannot discover the capability, autonomous handoff never widens the declared authority, and code-task results remain outside the platform-workflow success denominator.",
+      "status": "in_progress",
+      "evidence": [
+        "docs/PRODUCT_NORTH_STAR.md",
+        "docs/current-design/v0.4.13_lilies_local_agent_and_collaboration_pipeline_expanded_plan.md",
+        "docs/stage-reports/v0.4.13_lilies_local_agent_and_collaboration_pipeline.md"
+      ]
+    },
+    {
       "id": "ARCH-001",
       "category": "architecture",
       "priority": "P0",

@@ -1,0 +1,107 @@
+{
+  "schema_version": "1.0",
+  "stage_version": "v0.4.13",
+  "stage_report": "docs/stage-reports/v0.4.13_lilies_local_agent_and_collaboration_pipeline.md",
+  "contract_revision": 2,
+  "approval_ref": "User approval on 2026-07-24 of role-scoped general-agent authority, reusable cross-software Lilies-Codex collaborative development, and task-level manual or autonomous collaboration, while retaining the real-project platform experiment as the immediate priority.",
+  "source_tasks": [
+    {
+      "task_id": "V04-13-T01",
+      "source_intent_ids": [
+        "ARCH-003",
+        "EVAL-003",
+        "PRODUCT-001",
+        "PRODUCT-005",
+        "PRODUCT-008",
+        "PRODUCT-015",
+        "PRODUCT-016",
+        "PRODUCT-017"
+      ],
+      "source_task": "Run Lilies as an independent general local agent whose authority comes from each assignment; verify black-box Builder delivery, expose a reusable cross-software collaborative-development substrate with manual or autonomous handoff, and complete an independently verified enterprise workflow experiment that repairs the platform from actual project gaps.",
+      "disposition": "accepted mandatory",
+      "authority": "User approval on 2026-07-24 of role-scoped general-agent authority, reusable cross-software Lilies-Codex collaborative development, and task-level manual or autonomous collaboration, while retaining the real-project platform experiment as the immediate priority."
+    }
+  ],
+  "mandatory_tasks": [
+    {
+      "task_id": "V04-13-T01A",
+      "source_intent_ids": ["ARCH-003", "PRODUCT-001"],
+      "surface": "local Lilies core / daemon / CLI",
+      "acceptance": "A standalone loopback Lilies daemon and CLI provide persistent multi-turn sessions, scoped pairing, restart recovery, durable permissions and acknowledgements, budgets and cancellation without importing platform workflow services or sharing the platform data directory or token; pairing-code creation, status, stop, and private credential provision and revoke protocols are included.",
+      "required_evidence": "Strict-schema, session, turn, permission, pairing, acknowledgement, and recovery tests plus independent-process CLI transcripts, a bounded three-turn live-model run, and restart evidence."
+    },
+    {
+      "task_id": "V04-13-T01B",
+      "source_intent_ids": ["ARCH-003", "PRODUCT-001", "PRODUCT-016"],
+      "surface": "platform black-box contract / scoped HTTP tools / audit",
+      "acceptance": "A versioned public platform contract and task-scoped HTTP tools let an isolated Lilies process create, incrementally edit, test, run, inspect artifacts and traces, and publish only assigned applications; publication scope, application isolation, expiry and revocation, idempotent payload conflict detection, audit correlation, contract drift, role-filtered schemas, and internal-endpoint denial are enforced.",
+      "required_evidence": "Contract digest and drift, scope denial, cross-application, idempotency, audit, trace-redaction, artifact-path-safety, and separate-process HTTP-only minimal-build-and-repair evidence."
+    },
+    {
+      "task_id": "V04-13-T01C",
+      "source_intent_ids": ["PRODUCT-001", "PRODUCT-008"],
+      "surface": "platform pairing / BuildAssignment / Studio bridge",
+      "acceptance": "The platform securely pairs with the daemon and privately provisions assignment credentials; a strict BuildAssignment without plaintext secrets or oracle data links application, build, assignment, and session, relays persisted acknowledged events across either-process restart, fails explicitly when unavailable, and never silently falls back or prebuilds the final draft.",
+      "required_evidence": "API, storage, credential, assignment-idempotency, event-replay, reconnect, bidirectional-lookup, cancellation, daemon-unavailable, and Studio-browser evidence."
+    },
+    {
+      "task_id": "V04-13-T01D",
+      "source_intent_ids": ["PRODUCT-005", "PRODUCT-008", "PRODUCT-015"],
+      "surface": "formal collaboration pipeline / approval / Codex isolation / claims",
+      "acceptance": "Only formal tasks receive the experiment report-and-verification channel; dedicated tables and strict state machines implement report creation, evidence supplementation and revision, deterministic routing, user approval and task-local auto-forward, permission separation, reader cursors, idempotent messages, Codex leases and responses, task amendments, environment responses, Lilies reprobe, independently stored claim freeze invalidation and verification, and verifier-only post-close completion while unapproved content remains invisible to developers.",
+      "required_evidence": "Database-migration, state and CAS, access-control, one-hundred-iteration idempotency, reconnect, overflow, and lease-fault tests plus causal export without log scanning."
+    },
+    {
+      "task_id": "V04-13-T01E",
+      "source_intent_ids": ["PRODUCT-005", "PRODUCT-008"],
+      "surface": "Developer Studio / user approval / developer CLI",
+      "acceptance": "The global developer collaboration workspace explains task, observable Lilies context, tools, contracts, drafts, runs, traces, report causality, ownership, and next actions on desktop and mobile; permission and capability approval remain separate, preapproval developer views reveal no report content, a developer CLI supports inbox lease and response, and Customer Runtime exposes neither development content nor private reasoning.",
+      "required_evidence": "Frontend source, typecheck, build, desktop and mobile browser screenshots, keyboard, overflow, reduced-motion, network, console, approval-idempotency, and developer-isolation evidence."
+    },
+    {
+      "task_id": "V04-13-T01F",
+      "source_intent_ids": ["EVAL-003", "PRODUCT-015"],
+      "surface": "task packages / environment lock / archive / hidden verifier",
+      "acceptance": "Immutable task revisions, environment preflight, allowed actions, budgets, filtered workspaces, run archives, and an independent verifier are replayable; formal Builder and developer workspaces exclude git metadata, platform data, and protected oracle content, claims bind frozen hashes, and old-revision mutation, oracle leakage, missing health evidence, and unauthorized substitute validation are rejected.",
+      "required_evidence": "Schema, digest, permission, mount, environment-health, archive-manifest, replay, oracle-leak negative, and read-only-verifier-process evidence."
+    },
+    {
+      "task_id": "V04-13-T01G",
+      "source_intent_ids": ["ARCH-003", "EVAL-003", "PRODUCT-005", "PRODUCT-017"],
+      "surface": "pipeline qualification Q01-Q28 / reusable collaborative development / fault injection",
+      "acceptance": "PIPE-Q01 through Q28 all run without mandatory xfails: Q01-Q23 preserve the formal experiment boundary, ordinary sessions cannot discover collaboration, and one hundred reconnect, idempotency, lease, and concurrency iterations lose no messages and duplicate no side effects; an explicit collaborative-development assignment can target an arbitrary authorized software workspace, assign Lilies and Codex task roles, select manual or autonomous handoff, persist restart-safe work and review, and operate through a platform-neutral API and CLI without a workflow application or Builder dependency, while autonomous execution never widens declared workspace, command, network, side-effect, budget, or hidden-evidence authority and all qualification results remain outside the enterprise-success denominator.",
+      "required_evidence": "A machine qualification bundle records every Q case, iteration, counter, command, digest, API result, browser result, role and authority grant, non-Lilies fixture source diff and test result, durable autonomous-dispatch history, bounded live Lilies-Codex handoff, and an explicit enterprise_denominator=false marker."
+    },
+    {
+      "task_id": "V04-13-T01H",
+      "source_intent_ids": ["EVAL-003", "PRODUCT-001", "PRODUCT-015", "PRODUCT-016", "PRODUCT-017"],
+      "surface": "EXP-LILIES-001 / Paperless / InvenTree / Excel / dynamic capability repair",
+      "acceptance": "Against a frozen real Paperless-ngx 2.20.15 and InvenTree 1.4.2 package, Lilies uses only the black-box platform in one continuous Builder context to deliver document and OCR intake, matching, conflict and low-confidence Human Input, idempotent writeback, receipts, and Excel; only complete generic capability reports routed under the task's explicit manual or autonomous collaboration policy may change the platform, autonomous routing never bypasses separately declared operational authority, Codex authors no adapter mapping or final graph, and a hidden oracle checks all 36 records, every safety gate, and three stable independent seeds while every budget, environment, or functional failure remains in the denominator without mock substitution.",
+      "required_evidence": "Frozen package, environment, seeds, complete session, tool, draft, run, report, approval-policy or autonomous-route record, diff, receipt, workbook, oracle, and archive evidence plus model provider and cost, full denominators, and forbidden-assistance scans."
+    },
+    {
+      "task_id": "V04-13-T01I",
+      "source_intent_ids": ["PRODUCT-008"],
+      "surface": "CLI ASCII / platform background / accessibility",
+      "acceptance": "After the functional loop, an original low-distraction Lilies persona behaves correctly in wide, narrow, NO_COLOR, non-TTY, and screen-reader CLI modes; the platform background appears only on allowed surfaces, Customer Runtime shows no developer identity, reduced motion is static, and readability and functional state are unchanged.",
+      "required_evidence": "Terminal snapshots, frontend source, typecheck, build, and desktop, mobile, reduced-motion, and contrast browser evidence."
+    },
+    {
+      "task_id": "V04-13-T01J",
+      "source_intent_ids": [
+        "ARCH-003",
+        "EVAL-003",
+        "PRODUCT-001",
+        "PRODUCT-005",
+        "PRODUCT-008",
+        "PRODUCT-015",
+        "PRODUCT-016",
+        "PRODUCT-017"
+      ],
+      "surface": "release gate / Chinese report / archive",
+      "acceptance": "The machine release gate includes T01A through I focused and full regression, full-scope Ruff or an explicitly truthful baseline, frontend, Docker configuration, browser, live-model, Q01-Q28 and reusable-collaboration qualification bundles, real-experiment full-denominator, forbidden-assistance, archive-digest, and evolution-control evidence with no current failure; independent Closure Audit and version size pass, the design moves to historical, and the report never labels partial, not-run, or environment failure as completion.",
+      "required_evidence": "Release-gate JSON, closure review, stage report, collaboration and experiment archive manifests and hashes, commits, and validator outputs."
+    }
+  ],
+  "optional_tasks": []
+}
