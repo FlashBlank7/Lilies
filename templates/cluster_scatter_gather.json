@@ -1,0 +1,174 @@
+{
+  "meta": {
+    "name": "cluster_scatter_gather",
+    "title": "Cluster Scatter-Gather Pattern",
+    "category": "agent_architecture",
+    "status": "draft",
+    "version": 1,
+    "description": "Multi-agent scatter-gather coordination pattern: planner discovers workers by capability, publishes tasks, workers subscribe and execute concurrently, results collected via aggregator. Demonstrates cluster_publish, cluster_subscribe, cluster_register, and cluster_discover blocks working together.",
+    "expected_inputs": {
+      "task_description": "Natural language description of the task to parallelize across worker agents"
+    },
+    "expected_outputs": {
+      "aggregated_results": "Combined results from all worker agents"
+    },
+    "tags": ["cluster", "multi-agent", "coordination", "scatter-gather"],
+    "confidence": 0.85,
+    "usage_count": 0,
+    "success_count": 0,
+    "failure_count": 0,
+    "quality_score": 0.0
+  },
+  "workflow": {
+    "nodes": [
+      {
+        "id": "start",
+        "type": "start",
+        "title": "任务输入",
+        "config": {
+          "inputs": [
+            {"name": "task_description", "type": "string", "required": true, "default": "分析销售数据并生成区域报告"}
+          ]
+        },
+        "position": {"x": 0, "y": 0}
+      },
+      {
+        "id": "register_planner",
+        "type": "cluster_register",
+        "title": "注册 Planner",
+        "config": {
+          "agent_id": "agent-planner",
+          "capabilities": ["task_decomposition", "resource_allocation"],
+          "metadata": {"role": "coordinator"}
+        },
+        "position": {"x": 200, "y": 0}
+      },
+      {
+        "id": "discover_workers",
+        "type": "cluster_discover",
+        "title": "发现数据分析 Worker",
+        "config": {
+          "capability": "data_analysis",
+          "agent_id": "agent-planner"
+        },
+        "position": {"x": 400, "y": 0}
+      },
+      {
+        "id": "check_workers",
+        "type": "if_else",
+        "title": "有可用 Worker?",
+        "config": {
+          "condition": {
+            "left": {"$ref": {"node_id": "discover_workers", "path": ["output", "found"]}},
+            "op": "gt",
+            "right": 0
+          }
+        },
+        "position": {"x": 600, "y": 0}
+      },
+      {
+        "id": "decompose_task",
+        "type": "llm",
+        "title": "LLM 拆解任务",
+        "config": {
+          "system": "You decompose a complex task into independent subtasks for parallel execution.",
+          "prompt": "Task: {{task_description}}\n\nAvailable workers: {{agents}}\n\nDecompose this task into subtasks. Output a JSON array of subtask descriptions, one per worker.",
+          "structured_output": {
+            "type": "object",
+            "properties": {
+              "subtasks": {
+                "type": "array",
+                "items": {"type": "string"}
+              }
+            },
+            "required": ["subtasks"]
+          }
+        },
+        "position": {"x": 400, "y": 150}
+      },
+      {
+        "id": "publish_tasks",
+        "type": "iteration",
+        "title": "分发子任务",
+        "config": {
+          "items": {"$ref": {"node_id": "decompose_task", "path": ["structured", "subtasks"]}},
+          "parallelism": 3,
+          "workflow": {
+            "nodes": [
+              {
+                "id": "pub_one",
+                "type": "cluster_publish",
+                "title": "发布单个子任务",
+                "config": {
+                  "topic": "task.assignments",
+                  "publisher_id": "agent-planner",
+                  "payload": {
+                    "_msg_id": "{{uuid}}",
+                    "subtask": "{{item}}",
+                    "deadline": "300"
+                  }
+                }
+              }
+            ],
+            "edges": [{"id": "e_pub", "source": "pub_one", "target": null}]
+          }
+        },
+        "position": {"x": 200, "y": 300}
+      },
+      {
+        "id": "worker_template",
+        "type": "subagent_spawn",
+        "title": "Worker Agent 模板",
+        "config": {
+          "agent_id": "worker-template",
+          "settings": {
+            "system": "You are a worker agent. Subscribe to task assignments, execute them, and publish results.",
+            "tools": ["cluster_subscribe", "llm", "cluster_publish"],
+            "max_turns": 5
+          }
+        },
+        "position": {"x": 400, "y": 300}
+      },
+      {
+        "id": "collect_results",
+        "type": "cluster_subscribe",
+        "title": "收集 Worker 结果",
+        "config": {
+          "topic": "task.results",
+          "subscriber_id": "agent-planner",
+          "timeout_seconds": 300,
+          "poll_mode": false
+        },
+        "position": {"x": 600, "y": 300}
+      },
+      {
+        "id": "aggregate",
+        "type": "llm",
+        "title": "LLM 汇总结果",
+        "config": {
+          "system": "You aggregate results from multiple worker agents into a cohesive report.",
+          "prompt": "Worker results: {{messages}}\n\nOriginal task: {{task_description}}\n\nSynthesize these results into a single comprehensive report."
+        },
+        "position": {"x": 400, "y": 450}
+      },
+      {
+        "id": "end",
+        "type": "end",
+        "title": "输出汇总报告",
+        "config": {"outputs": [{"name": "report", "type": "string"}]},
+        "position": {"x": 600, "y": 450}
+      }
+    ],
+    "edges": [
+      {"id": "e1", "source": "start", "target": "register_planner", "source_port": "task_description", "target_port": "input"},
+      {"id": "e2", "source": "register_planner", "target": "discover_workers", "source_port": "output", "target_port": "input"},
+      {"id": "e3", "source": "discover_workers", "target": "check_workers", "source_port": "output", "target_port": "input"},
+      {"id": "e4", "source": "check_workers", "target": "decompose_task", "source_port": "yes", "target_port": "input"},
+      {"id": "e5", "source": "decompose_task", "target": "publish_tasks", "source_port": "structured", "target_port": "input"},
+      {"id": "e6", "source": "publish_tasks", "target": "worker_template", "source_port": "items", "target_port": "input"},
+      {"id": "e7", "source": "worker_template", "target": "collect_results", "source_port": "state", "target_port": "input"},
+      {"id": "e8", "source": "collect_results", "target": "aggregate", "source_port": "output", "target_port": "input"},
+      {"id": "e9", "source": "aggregate", "target": "end", "source_port": "text", "target_port": "input"}
+    ]
+  }
+}
