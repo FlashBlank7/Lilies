@@ -1,0 +1,118 @@
+{
+  "schema_version": "1.0",
+  "task_id": "V04-13-T01F",
+  "captured_at_utc": "2026-07-24T10:58:45Z",
+  "implementation_commit": "d51e062bfbf0e0f96fb5e5f29d39a1a1a9d7b986",
+  "archive": {
+    "platform_owned": true,
+    "append_only_registry": true,
+    "terminal_statuses_preserved": [
+      "succeeded",
+      "failed",
+      "partial",
+      "environment_failed",
+      "task_author_failed",
+      "cancelled",
+      "invalid"
+    ],
+    "success_requires_real_host_mode": true,
+    "protocol_mock_cannot_form_success_claim": true,
+    "bound_surfaces": [
+      "task package and revision",
+      "environment-ready and every preflight attempt",
+      "workspace and mount manifest",
+      "assignment and collaboration export",
+      "draft and business run",
+      "artifact and receipt bytes",
+      "connector write-budget receipts",
+      "report evidence-round budget",
+      "formal source provenance",
+      "forbidden-assistance scanner inputs and result",
+      "claim binding and verifier process"
+    ],
+    "file_bytes_and_modes_replayed": true,
+    "manifest_and_index_replayed": true,
+    "typed_json_and_jsonl_semantics_replayed": true,
+    "crash_before_checkpoint_is_idempotently_recovered": true,
+    "failed_cancelled_and_environment_failed_runs_remain_in_denominator": true,
+    "archive_byte_mode_index_or_semantic_drift_rejected": true,
+    "toctou_input_change_rejected": true
+  },
+  "claim": {
+    "schema_version": "1.1",
+    "server_owned_assignment_required": true,
+    "frozen_context_fields": [
+      "draft identity and revision",
+      "business run identity and status",
+      "artifact digest",
+      "receipt digest",
+      "report digest",
+      "task-package digest",
+      "environment-ready digest",
+      "run-archive manifest digest",
+      "verification-process digest"
+    ],
+    "full_context_digest_recomputed": true,
+    "legacy_payload_only_or_rehashed_forgery_rejected": true,
+    "no_substitute_validation_required": true,
+    "unregistered_verifier_process_rejected": true
+  },
+  "independent_verifier": {
+    "cli": "lilies-verifier verify",
+    "fresh_python_minus_s_process": true,
+    "frozen_source_bundle": true,
+    "python_executable_digest_and_size_bound": true,
+    "dependency_distribution_file_inventories_bound": [
+      "PyYAML",
+      "annotated-types",
+      "pydantic",
+      "pydantic-core",
+      "typing-extensions",
+      "typing-inspection"
+    ],
+    "same_version_dependency_byte_drift_rejected_before_exec": true,
+    "minimal_environment": true,
+    "deny_network": true,
+    "deny_subprocess": true,
+    "other_task_oracle_unreadable": true,
+    "state_claim_and_oracle_bytes_and_modes_unchanged": true,
+    "only_declared_result_sink_writable": true,
+    "result_bytes_bound_by_broker_receipt": true,
+    "active_shadow_source_cannot_change_verdict": true,
+    "macos_sandbox_exec_required_and_fail_closed": true
+  },
+  "oracle_leakage": {
+    "scan_points": [
+      "source package before freeze",
+      "workspace materialization",
+      "run archive before success claim",
+      "verifier result before publication"
+    ],
+    "encodings_and_forms": [
+      "raw bytes",
+      "canonical JSON",
+      "embedded text",
+      "Unicode normalization and escapes",
+      "base64",
+      "URL-safe base64",
+      "hex",
+      "protected marker and control scalar"
+    ],
+    "positive_detection_forces_invalid_archive": true,
+    "successful_claim_after_leak_detection": false,
+    "public_result_uses_redacted_or_hashed_check_identity": true
+  },
+  "stable_verification": {
+    "platform_seed_key_resolver_only": true,
+    "raw_seed_not_accepted_from_caller": true,
+    "seed_evidence_binds_sealed_package_environment_ready_and_archive": true,
+    "distinct_seed_assignment_archive_and_claim_required": true,
+    "two_trusted_broker_calculations_per_record": true,
+    "duplicate_seed_or_digest_drift_resets_streak": true,
+    "old_success_replay_after_failure_cannot_restore_verdict": true,
+    "ledger_outcome_and_verdict_replayable": true,
+    "qualification_bundle_excludes_raw_seed_secret": true,
+    "qualification_bundle_mode": "0400"
+  },
+  "claim_ceiling": "The archive/verifier mechanism is replayed in a controlled local macOS environment. real_host means authenticated non-mock local health and does not prove an external customer or production host."
+}

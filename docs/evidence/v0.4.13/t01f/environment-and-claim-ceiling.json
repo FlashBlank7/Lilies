@@ -1,0 +1,56 @@
+{
+  "schema_version": "1.0",
+  "task_id": "V04-13-T01F",
+  "captured_at_utc": "2026-07-24T10:58:45Z",
+  "implementation_commit": "d51e062bfbf0e0f96fb5e5f29d39a1a1a9d7b986",
+  "achieved_evidence_level": "deterministic_and_controlled_local_macos_integration",
+  "supported_claims": [
+    "immutable and replayable task-package revisions",
+    "authenticated loopback HTTP/TCP environment preflight",
+    "frozen allowed actions and durable budgets",
+    "filtered Lilies and developer workspaces",
+    "platform-owned terminal archives and exact replay",
+    "frozen claim binding",
+    "read-only independent verifier subprocess under macOS sandbox-exec",
+    "platform-derived hidden-seed stability ledger and deterministic qualification export"
+  ],
+  "real_host_semantics": {
+    "supported_meaning": "authenticated, health-checked, non-protocol-mock controlled-local endpoint",
+    "unsupported_meanings": [
+      "external customer host",
+      "Paperless-ngx production instance",
+      "InvenTree production instance",
+      "customer production workload",
+      "cloud or multi-tenant deployment"
+    ],
+    "remaining_limits_are_not_an_automatic_environment_attestation": true
+  },
+  "platform_limit": {
+    "verifier_sandbox": "macOS sandbox-exec",
+    "unavailable_behavior": "fail closed",
+    "cross_platform_evidence": "not_run",
+    "production_isolation_evidence": "not_run"
+  },
+  "evidence_debt": [
+    {
+      "id": "V0413-ED-001",
+      "owner_task": "V04-13-T01H",
+      "target": "Frozen Paperless-ngx 2.20.15 and InvenTree 1.4.2 real hosts plus three actual independent hidden seeds",
+      "achieved": "T01F mechanism, deterministic replay, authenticated controlled-local health, and stable-seed ledger",
+      "status": "environment_preparation_pending",
+      "external_state": "The previously recorded Docker-daemon blocker was not retried without an external-state change.",
+      "claim_limit": "No real enterprise workflow, 36/36 oracle, or three-seed success claim",
+      "recheck_trigger": "Docker daemon becomes available and T01H freezes the real host package and environment-ready evidence"
+    }
+  ],
+  "explicitly_not_claimed": [
+    "Paperless/InvenTree business workflow execution",
+    "OCR, matching, Human Input, idempotent writeback, receipt, or Excel success",
+    "36/36 hidden-oracle success",
+    "three actual enterprise seed passes",
+    "real model provider or cost evidence for the enterprise experiment",
+    "customer production, hostile multi-tenant, IAM, or cross-platform sandbox security",
+    "T01G Q01-Q23 qualification completion"
+  ],
+  "claim_ceiling": "At commit d51e062, T01F is complete at the deterministic and controlled-local macOS integration evidence floor. All external enterprise-host, model, 36/36 oracle, and three-real-seed claims remain owned by T01H."
+}

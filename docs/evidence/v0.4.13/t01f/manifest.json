@@ -1,0 +1,67 @@
+{
+  "schema_version": "1.0",
+  "task_id": "V04-13-T01F",
+  "captured_at_utc": "2026-07-24T10:58:45Z",
+  "baseline_commit": "327f7458732996aabfa8356da5ffa12d01dc6a4a",
+  "implementation_commit": "d51e062bfbf0e0f96fb5e5f29d39a1a1a9d7b986",
+  "source_state": "Committed T01F implementation at d51e062, followed by a fresh read-only Closure Audit PASS and a post-commit 342-test T01F focused rerun.",
+  "files": [
+    {
+      "path": "archive-and-verifier.json",
+      "sha256": "f6d6e76544d1708c862b618f364fbd0bf25df2e1fd8977f16ccf167fcefca1ee"
+    },
+    {
+      "path": "deterministic-tests.txt",
+      "sha256": "56609273919dd398ca198f64438380d1e4abb82a23a8a14dfc26fac5944e6fdb"
+    },
+    {
+      "path": "environment-and-claim-ceiling.json",
+      "sha256": "42276e2f1b936d948fa6bc3dc7a1cbd8585f670697f29fd62d0ca171869c820c"
+    },
+    {
+      "path": "independent-audit.md",
+      "sha256": "3790844af8cc9fa8b09dae3bc500a47ae9dc33ffbc3f0e8552fe4f8a9ab72977"
+    },
+    {
+      "path": "security-and-boundary-summary.json",
+      "sha256": "65624dde8b101f207afba879eebb8390d907412397709b5892f23cef98ed24f6"
+    },
+    {
+      "path": "task-package-environment-workspace.json",
+      "sha256": "a9909856a88539b35110e742507db87a6e99d477e39b26d9d5628d6fdccfb39b"
+    },
+    {
+      "path": "task-verifier-cli-transcript.txt",
+      "sha256": "11c4d4e27a9c54642e0f2f0ec38ee53bb8b692fcc6548dded29d0aa39315c186"
+    }
+  ],
+  "focused_result": {
+    "test_files": 22,
+    "collected": 342,
+    "passed": 342,
+    "warnings": 1,
+    "failed": 0
+  },
+  "v04_13_regression_result": {
+    "passed": 830,
+    "warnings": 2,
+    "failed": 0
+  },
+  "full_repository_result": {
+    "passed": 1668,
+    "xfailed": 85,
+    "warnings": 2,
+    "failed": 0
+  },
+  "static_result": {
+    "changed_python_paths": 76,
+    "ruff": "passed",
+    "compileall": "passed",
+    "git_diff_check": "passed"
+  },
+  "independent_audit": "PASS",
+  "evidence_level": "deterministic_and_controlled_local_macos_integration",
+  "evidence_debt_id": "V0413-ED-001",
+  "next_task": "V04-13-T01G",
+  "claim_ceiling": "At commit d51e062, T01F is complete for immutable task packages, authenticated controlled-local environment preflight, frozen actions and budgets, filtered workspaces, append-only archives and replay, frozen claims, read-only independent verification, and stable hidden-seed machinery on macOS. It does not prove Paperless/InvenTree, customer production, cross-platform isolation, the T01H 36/36 oracle, or three actual enterprise seeds."
+}

@@ -1,0 +1,83 @@
+V04-13-T01F task and verifier CLI transcript (sanitized)
+Captured at (UTC): 2026-07-24T10:58:45Z
+Implementation commit: d51e062bfbf0e0f96fb5e5f29d39a1a1a9d7b986
+
+Version commands:
+  uv run --frozen lilies-task --version
+  -> Lilies Task 0.4.13
+
+  uv run --frozen lilies-verifier --version
+  -> Lilies Verifier 0.4.13
+
+Top-level command surfaces:
+  uv run --frozen lilies-task --help
+  -> freeze, preflight, workspace, archive, replay
+
+  uv run --frozen lilies-verifier --help
+  -> verify
+
+  uv run --frozen lilies-stability --help
+  -> record, replay, export
+
+Observed required arguments:
+
+  lilies-task freeze
+    --state-root --source
+
+  lilies-task preflight
+    --state-root --task-id --revision --run-id --assignment-id
+    --environment-instance-id --attestation-secret-file [--ttl-seconds]
+
+  lilies-task workspace
+    --state-root --task-id --revision --role {lilies,developer,verifier}
+    --destination --run-id --assignment-id
+    [--environment-ready] [--run-archive]
+
+  lilies-task archive
+    --state-root --task-id --revision --run-id
+    --status {succeeded,failed,partial,environment_failed,
+              task_author_failed,cancelled,invalid}
+    --validation-mode {real_host,protocol_mock} --input-dir
+    [--environment-ready] [--workspace-manifest] [--claim-binding]
+    [--forbidden-assistance-finding]
+
+  lilies-task replay
+    --state-root --task-id --revision --run-id
+    [--expected-manifest-digest]
+
+  lilies-verifier verify
+    --state-root --task-id --revision --claim-file [--result-out]
+
+  lilies-stability record
+    --state-root --broker-root --task-id --revision --claim-file
+    --seed-identity-key-file
+
+  lilies-stability replay
+    --state-root --task-id --revision
+
+  lilies-stability export
+    --state-root --task-id --revision --output
+
+Fresh-process CLI verification:
+
+  tests/test_v04_13_task_package_archive_cli.py
+    - creates a claim-bound archive through lilies-task
+    - replays it in another process
+    - rejects unsafe paths, escaping entries, frozen-state overlap, and unsafe
+      claim-binding inputs
+
+  tests/test_v04_13_independent_verification.py
+    - invokes lilies-verifier in a fresh process
+    - permits only the declared result output
+    - checks that no protected oracle marker reaches stdout, stderr, or result
+
+  tests/test_v04_13_stable_verification_coordinator.py
+    - exercises lilies-stability record/replay/export
+    - requires a regular owner-only seed-key file
+    - verifies secret and path redaction on failure
+    - writes the final qualification bundle at mode 0400
+
+The combined 22-file post-commit T01F suite, which includes all three CLI
+files above, finished at 342 passed / 0 failed. No attestation secret, seed
+identity key, bearer, platform database, protected oracle, or raw hidden check
+was captured in this transcript.

@@ -1,0 +1,96 @@
+{
+  "schema_version": "1.0",
+  "task_id": "V04-13-T01F",
+  "captured_at_utc": "2026-07-24T10:58:45Z",
+  "baseline_commit": "327f7458732996aabfa8356da5ffa12d01dc6a4a",
+  "implementation_commit": "d51e062bfbf0e0f96fb5e5f29d39a1a1a9d7b986",
+  "committed_tree_digests": {
+    "agent_platform_ls_tree_sha256": "5fcf87e7924982f3b77ca74e5dc3a22a40b3c64a925808657859af498ed3833e",
+    "tests_ls_tree_sha256": "8f9e4ef9892b4d15d104ee853000dbd7aaedf3173ed1801d6908c6008dccc549"
+  },
+  "task_package": {
+    "strict_models": true,
+    "unknown_fields_rejected": true,
+    "canonical_json_sha256": true,
+    "parent_revision_chain_required": true,
+    "same_revision_different_content_rejected": true,
+    "frozen_file_bytes_revalidated": true,
+    "frozen_file_permissions_revalidated": true,
+    "extra_or_missing_frozen_files_rejected": true,
+    "verification_policy_source_and_runtime_bound": true,
+    "old_revision_mutation_rejected": true
+  },
+  "environment_preflight": {
+    "task_revision_run_assignment_bound": true,
+    "package_and_environment_lock_digests_bound": true,
+    "environment_instance_bound": true,
+    "challenge_nonce_bound": true,
+    "authenticated_health_required": true,
+    "health_kinds": [
+      "http",
+      "tcp"
+    ],
+    "failed_attempts_append_only": true,
+    "missing_failed_unauthenticated_or_stale_health_issues_ready": false,
+    "ready_revalidated_at_assignment_and_replay": true,
+    "controlled_local_probe_used": true
+  },
+  "allowed_actions_and_budgets": {
+    "caller_cannot_expand_frozen_authority": true,
+    "provider_cannot_expand_frozen_authority": true,
+    "platform_operations_bound": true,
+    "connector_hosts_and_actions_bound": true,
+    "network_policy_bound": true,
+    "model_and_tool_policy_bound": true,
+    "workspace_read_and_write_prefixes_bound": true,
+    "turn_tool_wall_clock_and_cost_budgets_bound": true,
+    "connector_write_and_payload_budgets_bound": true,
+    "report_evidence_round_budget_bound": true,
+    "stable_hidden_run_budget_bound": true,
+    "n_plus_one_and_concurrent_budget_use_rejected": true,
+    "budget_ledger_survives_restart": true
+  },
+  "workspace_projection": {
+    "lilies": {
+      "public_package_only": true,
+      "environment_ready_only": true,
+      "sealed_package_visible": false,
+      "archive_authority_visible": false
+    },
+    "developer": {
+      "filtered_git_head_snapshot": true,
+      "authorized_write_prefixes_only": true,
+      "sealed_package_visible": false,
+      "archive_authority_visible": false,
+      "verification_trust_roots_writable": false
+    },
+    "verifier": {
+      "sealed_package_visible": true,
+      "registered_archive_visible": true,
+      "platform_mutation_authority": false,
+      "single_declared_result_sink": true
+    },
+    "excluded_for_lilies_and_developer": [
+      ".git and case variants",
+      "platform runtime data",
+      "protected and oracle trees",
+      "credentials and secret files",
+      "symlinks and hardlinks",
+      "nested mount-boundary escapes",
+      "cache and generated control paths"
+    ],
+    "physical_tree_revalidated_before_turn_and_promotion": true,
+    "case_collision_and_alias_rejected": true
+  },
+  "formal_source": {
+    "developer_can_modify_platform_code_only_inside_explicit_task_workspace": true,
+    "clean_git_baseline_required": true,
+    "approved_commit_and_exact_tree_blobs_archived": true,
+    "untracked_dirty_or_skipped_commits_rejected": true,
+    "protected_verification_trust_roots_excluded": true,
+    "source_semantics_recomputed_from_git_blobs": true,
+    "task_specific_adapter_mapping_or_final_graph_rejected": true,
+    "unrelated_user_worktree_changes_preserved": true
+  },
+  "claim_ceiling": "Deterministic and authenticated controlled-local macOS package, preflight, budget, and workspace isolation behavior at commit d51e062. No external enterprise-host, production, or cross-platform claim is supported."
+}

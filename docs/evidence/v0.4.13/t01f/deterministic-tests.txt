@@ -1,0 +1,134 @@
+V04-13-T01F deterministic verification
+Captured at (UTC): 2026-07-24T10:58:45Z
+Baseline commit: 327f7458732996aabfa8356da5ffa12d01dc6a4a
+Final implementation commit: d51e062bfbf0e0f96fb5e5f29d39a1a1a9d7b986
+Source state: committed T01F implementation; the only remaining worktree entries
+were the user's unrelated .vscode/, docs/BUSINESS_LOGIC.md,
+docs/phase-reports/zh/, and uv.lock.
+
+1. Commit-after-freeze focused T01F suite
+
+Command:
+  git diff --diff-filter=A --name-only 327f745..d51e062 \
+    -- 'tests/test_v04_13_*.py' |
+    xargs uv run --extra dev --frozen python -m pytest -q
+
+Collection:
+  22 newly added T01F test files
+  342 tests collected
+
+Final result:
+  342 passed, 1 warning, 0 failed in 367.05s
+
+The suite covers strict immutable task-package schemas, content and permission
+digests, authenticated environment health, filtered Lilies and developer
+workspaces, formal assignment authority, budgets, platform-owned terminal
+archives, replay, source provenance and promotion, forbidden-assistance
+scanning, frozen claims, read-only independent verification, broker sandboxing,
+runtime dependency byte drift, and stable hidden-seed aggregation.
+
+2. Final v0.4.13 regression
+
+Command:
+  uv run --extra dev --frozen python -m pytest -q tests/test_v04_13_*.py
+
+Final result:
+  830 passed, 2 warnings, 0 failed in 427.95s
+
+An earlier complete v0.4.13 run correctly found one compatibility regression:
+the retained T01E browser-fixture seeder called create_formal_channel without
+the newly mandatory report-evidence-round budget. That run ended at
+829 passed / 1 failed. The seeder now freezes a four-round budget, its database
+test asserts that value, and the complete 830-test run above is the post-fix
+result used for closure.
+
+3. Full repository regression
+
+Command:
+  uv run --extra dev --with python-docx --frozen python -m pytest -q
+
+Final result:
+  1668 passed, 85 xfailed, 2 warnings, 0 failed in 544.00s
+
+The existing python-docx compatibility route was used without modifying the
+user's untracked uv.lock. The 85 xfails are pre-existing declared xfails, not
+current T01F failures.
+
+4. Focused boundary runs during final hardening
+
+Commands and results:
+  uv run --extra dev --frozen python -m pytest -q \
+    tests/test_v04_13_formal_run_archiver.py \
+    tests/test_v04_13_formal_local_lilies_bridge.py
+    33 passed, 1 warning, 0 failed
+
+  uv run --extra dev --frozen python -m pytest -q \
+    tests/test_v04_10_connector_embedding.py \
+    tests/test_v04_13_formal_assignment_gate.py \
+    tests/test_v04_13_formal_assignment_runtime.py \
+    tests/test_v04_13_formal_assignment_broker.py \
+    tests/test_v04_13_collaboration_report_budget.py \
+    tests/test_v04_13_platform_blackbox_auth.py
+    93 passed, 1 warning, 0 failed in 53.97s
+
+  uv run --extra dev --frozen python -m pytest -q \
+    tests/test_v04_13_stable_verification_coordinator.py
+    5 passed, 0 failed in 44.86s
+
+The final stable-verification hardening also produced these component results
+before the complete focused and repository reruns:
+  stable manager plus coordinator: 17 passed
+  task packages: 41 passed
+  independent verifier broker: 21 passed
+  independent verification: 27 passed
+  frozen verification gate: 9 passed
+  formal source promotion: 24 passed
+
+5. Static and source-integrity checks
+
+Commands and results:
+  git diff --check
+    passed
+
+  uv run --extra dev --frozen ruff check -- <76 T01F changed Python paths>
+    All checks passed!
+
+  uv run --extra dev --frozen python -m compileall -q \
+    platform/backend/src/agent_platform
+    passed
+
+  uv run --extra dev --frozen ruff check -- \
+    scripts/seed_v04_13_t01e_browser.py \
+    tests/test_v04_13_t01e_browser_fixture.py \
+    tests/test_v04_13_forbidden_assistance_scanner_registry.py
+    All checks passed!
+
+An initial accidental unrestricted Ruff invocation, caused by macOS Bash 3.2
+not supporting mapfile, reported 397 existing repository-wide findings. It was
+read-only. The corrected explicit 76-path T01F invocation passed and no
+unrelated lint file was modified.
+
+6. Evolution control
+
+Command:
+  uv run --extra dev --with python-docx --frozen python \
+    scripts/validate_evolution_control.py \
+    docs/stage-reports/v0.4.13_lilies_local_agent_and_collaboration_pipeline.md
+
+Result:
+  evolution control validation passed
+
+The first report-validation attempt rejected explanatory suffixes in the
+machine status and verdict fields. The same claim-ceiling explanations were
+moved into adjacent prose while the normalized fields were changed to
+completed/pass/pending values; the final command above is the passing result.
+
+7. Warnings and claim ceiling
+
+The two final warnings are the existing Starlette TestClient/httpx deprecation
+and duplicate fallback OpenAPI operation-ID warning. Neither is a T01F failure.
+
+All successful evidence in this record is deterministic or controlled-local
+macOS integration evidence. It does not claim real Paperless/InvenTree,
+customer production, cross-platform sandboxing, the T01H 36/36 oracle, or
+three actual enterprise hidden seeds.

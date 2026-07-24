@@ -1,0 +1,65 @@
+{
+  "schema_version": "1.0",
+  "task_id": "V04-13-T01F",
+  "captured_at_utc": "2026-07-24T10:58:45Z",
+  "implementation_commit": "d51e062bfbf0e0f96fb5e5f29d39a1a1a9d7b986",
+  "authorization": {
+    "formal_assignment_is_server_derived": true,
+    "task_revision_run_assignment_session_and_application_bound": true,
+    "caller_authority_widening_rejected": true,
+    "provider_authority_widening_rejected": true,
+    "host_and_action_exact_match_required": true,
+    "raw_assigned_or_formal_http_substitution_denied": true,
+    "permission_authorization_binds_assignment_session_application_and_optional_run": true,
+    "compensation_uses_same_frozen_host_action_and_write_ledger": true,
+    "authorization_receipt_contains_digest_not_raw_identifier": true
+  },
+  "side_effect_budgets": {
+    "connector_write_budget_is_sqlite_durable": true,
+    "concurrent_restart_and_idempotent_replay_safe": true,
+    "success_and_terminal_failure_archives_require_budget_receipts": true,
+    "connector_budget_dual_archive_copies_cross_checked": true,
+    "report_evidence_round_budget_is_sqlite_durable": true,
+    "exact_n_allowed_n_plus_one_rejected": true,
+    "three_unchanged_evidence_rounds_exhaust_the_same_gate": true,
+    "exhaustion_closes_channel_revokes_credential_and_cancels_assignment": true,
+    "budget_policy_digest_write_count_and_writes_replayed": true
+  },
+  "developer_boundary": {
+    "developer_has_general_agent_code_ability_only_when_task_authorized": true,
+    "workspace_is_private_filtered_and_lease_session_bound": true,
+    "only_allowed_prefixes_writable": true,
+    "git_metadata_platform_data_and_oracle_unavailable": true,
+    "verification_trust_root_writes_rejected": true,
+    "sandbox_absence_fails_before_intent": true,
+    "bearer_not_forwarded_to_worker_child": true,
+    "formal_worker_receipt_required_before_response": true,
+    "promotion_preserves_unrelated_dirty_user_state": true,
+    "branch_index_inode_and_worktree_races_fail_closed": true
+  },
+  "negative_gate_matrix": {
+    "old_revision_mutation": "rejected",
+    "frozen_byte_or_permission_drift": "rejected",
+    "missing_failed_stale_or_unauthenticated_health": "rejected",
+    "workspace_symlink_hardlink_case_alias_or_nested_mount": "rejected",
+    "platform_data_git_or_oracle_visibility": "rejected",
+    "archive_byte_mode_index_jsonl_or_typed_semantic_drift": "rejected",
+    "oracle_raw_unicode_base64_urlsafe_hex_or_embedded_leak": "invalid archive; no claim",
+    "claim_field_drift_payload_only_legacy_or_rehash_forgery": "rejected",
+    "protocol_mock_or_non_real_host_success_substitution": "rejected",
+    "unregistered_or_shadow_verifier_process": "rejected",
+    "same_version_dependency_byte_drift": "rejected before verifier exec",
+    "verifier_network_subprocess_other_task_read_or_input_write": "denied",
+    "duplicate_hidden_seed_or_old_success_resurrection": "streak reset or non-qualification"
+  },
+  "secret_and_oracle_capture": {
+    "raw_attestation_secret": false,
+    "raw_seed_identity_key": false,
+    "bearer_or_access_token": false,
+    "platform_database": false,
+    "protected_oracle": false,
+    "private_reasoning": false
+  },
+  "independent_audit": "PASS",
+  "claim_ceiling": "Controlled-local macOS integration and deterministic security assertions only. No claim of hostile multi-tenant containment, production IAM, external enterprise hosts, customer deployment, or cross-platform sandbox parity."
+}
