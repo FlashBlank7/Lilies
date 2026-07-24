@@ -16,6 +16,21 @@
 - `intellectual-assets/asset_platform_harness_task_monitor_boundary.md`
 - `intellectual-assets/asset_harness_llm_composite.md`
 - `intellectual-assets/asset_lilies_competitive_strategy.md`
+- `intellectual-assets/asset_adaptive_reuse_defaultization_gate.md`
+- `intellectual-assets/asset_adaptive_default_live_acceptance_boundary.md`
+- `intellectual-assets/asset_clyins_workflow_as_product.md`
+- `intellectual-assets/asset_theoretical_review.md`
+- `intellectual-assets/asset_cluster_pair_architecture.md` ← **new**
+- `intellectual-assets/asset_cluster_minimality_proof.md` ← **new**
+- `intellectual-assets/asset_the_pair_formal_system.md` ← **new**
+- `intellectual-assets/asset_the_pair_categorical.md` ← **new**
+- `intellectual-assets/asset_the_pair_poem.md` ← **new**
+
+## 当前设计文档
+
+- `current-design/design_clyins_blockflow.md`
+- `current-design/design_evolution_pipeline_blockflow.md`
+- `current-design/design_cluster_messaging_v1.md` ← **new**
 
 ## 当前阶段报告
 
