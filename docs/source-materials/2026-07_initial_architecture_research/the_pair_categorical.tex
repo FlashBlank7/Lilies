@@ -160,9 +160,13 @@ $\catCap$ 的每个态射恰属于 $\catDet$ 或 $\catNonDet$ 之一。不存在
 \end{axiom}
 
 \begin{axiom}[Pair 幂等]
-$\pairMonad^2 \cong \pairMonad$。将 Pair 分解再次应用于自身，不会发现新的分解——第一次分解已是最大分解。本公理不能从公理 1--2 导出，而是 Lilies 工程实践中观察到的结构不变量：在 200+ 个阶段的演化中，从未出现过需要第三层 Harness+LLM 嵌套的情况。
+$\pairMonad^2 \cong \pairMonad$。将 Pair 分解再次应用于自身，不会发现新的分解——第一次分解已是最大分解。本公理不能从公理 1--2 导出（见 \S\ref{thm:axiom3-independence} 的独立性证明），而是作为独立的结构假设被采纳。
 \label{ax:pair-idempotent}
 \end{axiom}
+
+\begin{remark}
+Lilies 工程实践为此公理提供了经验支撑：在 200+ 个版本的迭代演化中，从未出现过需要第三层 Harness+LLM 递归嵌套的场景。然而，经验观察不能替代形式证明——公理的正当性最终来自其结构后果（三层饱和、不动点）与实际架构的一致性，而非来自不可验证的经验计数。公理 3 的本质是一个\emph{设计选择}：Lilies 显式拒绝了那些会使 $P^2 \not\cong P$ 的架构模式（如递归 Agent 嵌套，见 \S\ref{thm:axiom3-independence} 的反模型构造）。
+\end{remark}
 
 \subsection{The Pair 作为 Monad}
 
@@ -234,6 +238,8 @@ Pair 的完整分解为 $f = H_f^{\mathsf{out}} \circ L_f \circ H_f^{\mathsf{in}
 修正方案遵循审查人建议：将幂等性提升为独立公理。
 类比 ZF 集合论中选择公理的地位——不能从其他公理导出，
 但作为基础假设是合理且被实践充分验证的。
+
+\textbf{数学结构注记}：在此公理下，$\mu_A = \id_{\pairMonad(A)}$ 且 $\pairMonad(A) = A$（函子作用于对象为恒等），因此该 monad 的 Kleisli 范畴同构于基础范畴 $\catCap$——monad 结构本身不编码额外的计算能力。这是幂等 monad 的通性：其代数结构（Eilenberg-Moore 代数）的核心内容是代数态射 $\alpha: A \to A$ 的幂等性（$\alpha \circ \alpha = \alpha$），而非 monad 的乘法。三层结构作为``代数''的解释力来自这些幂等投射的层级组织，而非来自 monad 乘法本身的非平凡性质。我们坦诚记录这一数学平凡性，同时认为该 monad 框架在\emph{组织}（识别 Pair 分解的层级结构）而非\emph{计算}（增加表达力）层面提供了价值。
 \end{remark}
 
 \begin{corollary}[三层结构的必然性]
@@ -316,6 +322,8 @@ $F \adjunction U$ 是一个伴随，且 $F(\mathrm{CORE})$ 在 $\catWFlow_{\math
 CORE 的 6 个生成元涵盖这三种控制结构，加上确定性数据变换和 LLM 非确定性语义推理。
 因此：$F(\mathrm{CORE}) \cong \catWFlow_{\mathrm{comp}}$。
 
+\textbf{证明界限}：上述论证中存在一个已知的 gap——Habel \& Plump 证明了图灵完备性（表达能力），但自由严格 monoidal category 的构造还需要验证 $\tensor$ 的严格性条件（结合律和单位律的等式在语法层面成立）以及生成元之间不存在意外关系。严格 monoidal category 上的自由构造在理论上是标准的（给定一个多点范畴上的生成元集和关系，自由严格 monoidal category 的对象是类型列表，态射是由生成元通过 $\circ$ 和 $\tensor$ 生成的项模掉严格 monoidal 等式），但本文未显式构造该语法范畴并证明其与 $\catWFlow_{\mathrm{comp}}$ 的等价性。当前论证提供了充分性方向（6 个生成元足以表达所有纯计算工作流）的图论/可计算性论证，但必要性方向（每个工作流都可标准化为由这 6 个生成元组成的项）依赖于积木闭包的工程经验——迄今为止所有 Lilies 工作流都可通过这 6 个 CORE 生成元的组合（加上 I/O 和通信生成元）表达。这使该定理在当前形式下更接近``充分性猜想''而非完整的范畴论定理。我们保留定理编号以标识其结构位置，并计划在后续版本中补全严格 monoidal 自由构造的语法范畴定义。
+
 注意：第一版错误地声称 $F(\mathrm{CORE}) \cong \catWFlow$（全范畴），忽略了 I/O 和通信积木。修正后范围限于纯计算子范畴，这更准确——CORE 生成的是纯计算能力，I/O 和通信能力需要额外的生成元。
 \end{proof}
 
@@ -387,7 +395,15 @@ $\mathrm{Resolve}$ 是 faithful functor。
 \end{theorem}
 
 \begin{proof}[证明（概要 — 语义层面）]
-Yoneda 引理：对于任意范畴 $\cat{C}$ 和对象 $A \in \cat{C}$，$\homset{\cat{C}}{-}{A}$ 的自然变换与 $\homset{\cat{C}}{A}{-}$ 的元素一一对应。
+\textbf{Yoneda 引理（标准表述）}：对于任意局部小范畴 $\cat{C}$、对象 $A \in \cat{C}$ 和 presheaf $F: \cat{C}^{\mathrm{op}} \to \catSet$，存在自然同构
+\[
+\mathrm{Nat}(\homset{\cat{C}}{-}{A}, F) \cong F(A)
+\]
+其中 $\mathrm{Nat}(-,-)$ 表示自然变换的集合。取 $F = \homset{\cat{C}}{-}{B}$ 的特例：
+\[
+\mathrm{Nat}(\homset{\cat{C}}{-}{A}, \homset{\cat{C}}{-}{B}) \cong \homset{\cat{C}}{A}{B}
+\]
+即：从 $\homset{\cat{C}}{-}{A}$ 到 $\homset{\cat{C}}{-}{B}$ 的自然变换与从 $A$ 到 $B$ 的态射一一对应。这是 Yoneda 引理最常用的工程形式——它声明一个对象 $A$ 完全由“所有其他对象到它的态射”的集合确定。
 
 在 $\catWFlow$ 中，每个节点 $n$ 定义了一个 presheaf：
 \[
@@ -820,7 +836,11 @@ R(f^{\mathsf{eb}}) = \mathrm{colim}_{n \to \infty}\; f^{\mathsf{eb}}_n
 \end{theorem}
 
 \begin{proof}
-每次重试独立的成功概率为 $p_{\mathsf{succ}} = 1 - p_{\mathsf{fail}} > 0$。$n$ 次尝试内成功的概率为 $1 - p_{\mathsf{fail}}^n \to 1$（当 $n \to \infty$）。因此 colimit 存在。
+设每次重试的失败概率为 $p_{\mathsf{fail}}$。由于 $p_{\mathsf{fail}} < 1$，$p_{\mathsf{succ}} = 1 - p_{\mathsf{fail}} > 0$。
+
+\textbf{独立试验假设下的证明}：若各次重试的失败事件相互独立，则 $n$ 次尝试内至少成功一次的概率为 $1 - p_{\mathsf{fail}}^n \to 1$（当 $n \to \infty$）。因此 colimit 存在。
+
+\textbf{相关性注记}：上述独立性假设在实际系统中未必成立——LLM 失败通常具有相关性（相同输入和配置倾向于产生相同的失败模式）。在不假设独立性的情况下，不能保证 $1 - p_{\mathsf{fail}}^n \to 1$。例如，若失败完全相关（每次尝试的失败事件相同），则 $n$ 次重试后的成功率仍为 $p_{\mathsf{succ}}$，不随 $n$ 增长。Lilies 工程实践通过以下策略缓解这一问题：(a) 指数退避延迟改变时序上下文；(b) 温度参数变化改变采样分布；(c) \texttt{max\_attempts} 限制最坏情况资源消耗。这些策略在经验上有效，但在本文的范畴框架内未被形式化——相关失败的重试语义是当前模型的一个已知局限。
 
 语义保持性：当第 $k$ 次尝试成功时，$\pi_A \circ f^{\mathsf{eb}}_k = f$（在成功路径上）。colimit 选择第一个成功的 $f$ 应用，因此 $R(f^{\mathsf{eb}})$ 的成功输出 = $f$ 的第一次成功输出——与无 Error Branch 的 $f$ 语义完全一致。
 \end{proof}
