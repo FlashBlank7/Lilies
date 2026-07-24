@@ -7,6 +7,7 @@ import time
 from collections.abc import AsyncIterator, Iterator
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
+from functools import partial
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -84,6 +85,7 @@ class CustomerSystemHandler(BaseHTTPRequestHandler):
     authorization_headers: list[str] = []
     patch_bodies: list[dict[str, Any]] = []
     slow_reads = False
+    leak_extra_read_field = False
 
     def do_GET(self) -> None:  # noqa: N802
         path = self.path.split("?", 1)[0]
@@ -95,7 +97,10 @@ class CustomerSystemHandler(BaseHTTPRequestHandler):
         type(self).get_calls += 1
         type(self).authorization_headers.append(self.headers.get("Authorization", ""))
         case_id = path.rsplit("/", 1)[-1]
-        self._send(200, {"case_id": case_id, "summary": "Controlled customer case"})
+        response = {"case_id": case_id, "summary": "Controlled customer case"}
+        if type(self).leak_extra_read_field:
+            response["private_secret"] = "must-not-cross-connector-schema"
+        self._send(200, response)
 
     def do_PATCH(self) -> None:  # noqa: N802
         path = self.path.split("?", 1)[0]
@@ -164,6 +169,7 @@ def customer_server() -> Iterator[tuple[str, type[CustomerSystemHandler]]]:
     CustomerSystemHandler.authorization_headers = []
     CustomerSystemHandler.patch_bodies = []
     CustomerSystemHandler.slow_reads = False
+    CustomerSystemHandler.leak_extra_read_field = False
     server = ThreadingHTTPServer(("127.0.0.1", 0), CustomerSystemHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -427,6 +433,10 @@ def create_authorization(
     connector_version: int = 1,
     expires_in_seconds: int = 300,
     max_uses: int = 1,
+    assignment_id: str = "",
+    session_id: str = "",
+    application_id: str = "",
+    run_id: str = "",
 ) -> dict[str, Any]:
     response = client.post(
         "/api/v1/connectors/authorizations",
@@ -441,6 +451,10 @@ def create_authorization(
             "payload": payload,
             "expires_in_seconds": expires_in_seconds,
             "max_uses": max_uses,
+            "assignment_id": assignment_id,
+            "session_id": session_id,
+            "application_id": application_id,
+            "run_id": run_id,
         },
     )
     assert response.status_code == 201, response.text
@@ -487,6 +501,38 @@ def signed_envelope(
         "request": {"case_id": "case-001"},
     }
     return body, ConnectorService.sign_payload(secret, body)
+
+
+def assigned_execute_body(
+    *,
+    operation_id: str,
+    payload: dict[str, Any],
+    idempotency_key: str,
+    authorization_id: str = "",
+    assignment_id: str = "assignment-controlled",
+    allowed_network_hosts: list[str] | None = None,
+    max_write_count: int = 1,
+    max_payload_bytes: int = 10_000,
+) -> dict[str, Any]:
+    return {
+        **execute_body(
+            operation_id=operation_id,
+            payload=payload,
+            idempotency_key=idempotency_key,
+            authorization_id=authorization_id,
+        ),
+        "assignment_id": assignment_id,
+        "session_id": "session-controlled",
+        "allowed_network_hosts": (
+            ["127.0.0.1"]
+            if allowed_network_hosts is None
+            else allowed_network_hosts
+        ),
+        "permission_required": True,
+        "allowed_compensation_operations": ["customer_system.restore_case"],
+        "assignment_max_write_count": max_write_count,
+        "assignment_max_payload_bytes": max_payload_bytes,
+    }
 
 
 def test_manifest_schema_contract_is_immutable_restart_safe_and_secret_free(
@@ -1619,3 +1665,593 @@ def test_v0410_contract_workflow_routes_and_frontend_audience_boundaries() -> No
     assert 'data-governance-connectors="tenant-redacted"' in governance_source
     assert "request_payload" not in governance_source
     assert "secret_ref" not in governance_source
+
+
+def test_assigned_connector_rejects_host_and_fake_permission_before_adapter(
+    tmp_path: Path,
+) -> None:
+    with customer_server() as (base_url, handler):
+        app = create_app(settings(tmp_path), DecisionProvider())
+        with TestClient(app) as client:
+            register_manifest(client, base_url)
+            register_tenant(client, application_ids=["app-controlled"])
+
+            payload = {"case_id": "case-001", "decision": "approve"}
+            wrong_host = client.post(
+                "/api/v1/connectors/executions",
+                headers=HEADERS,
+                json=assigned_execute_body(
+                    operation_id="update_case",
+                    payload=payload,
+                    idempotency_key="assigned-host-denied",
+                    authorization_id="nonempty-but-not-real",
+                    allowed_network_hosts=["customer.invalid"],
+                ),
+            )
+            assert wrong_host.status_code == 403, wrong_host.text
+            assert "assigned host policy" in wrong_host.text
+            assert handler.patch_calls == 0
+            subdomain_bypass = client.post(
+                "/api/v1/connectors/executions",
+                headers=HEADERS,
+                json=assigned_execute_body(
+                    operation_id="update_case",
+                    payload=payload,
+                    idempotency_key="assigned-subdomain-denied",
+                    authorization_id="nonempty-but-not-real",
+                    allowed_network_hosts=["0.0.1"],
+                ),
+            )
+            assert subdomain_bypass.status_code == 403, subdomain_bypass.text
+            assert "assigned host policy" in subdomain_bypass.text
+            assert handler.patch_calls == 0
+
+            # Even when the connector's general domain policy does not require
+            # preauthorization, the frozen assignment action still does.
+            current = client.get(
+                "/api/v1/connectors/policies",
+                headers=HEADERS,
+            ).json()[0]
+            current["mutation_preauthorization_required"] = False
+            current.pop("revision")
+            current.pop("created_at")
+            current.pop("updated_at")
+            changed = client.put(
+                "/api/v1/connectors/policies",
+                headers=HEADERS,
+                json={"expected_revision": 1, "policy": current},
+            )
+            assert changed.status_code == 200, changed.text
+
+            fake_permission = client.post(
+                "/api/v1/connectors/executions",
+                headers=HEADERS,
+                json=assigned_execute_body(
+                    operation_id="update_case",
+                    payload=payload,
+                    idempotency_key="assigned-fake-permission",
+                    authorization_id="nonempty-but-not-real",
+                ),
+            )
+            assert fake_permission.status_code == 403, fake_permission.text
+            assert "authorization does not exist" in fake_permission.text
+            assert handler.patch_calls == 0
+
+
+def test_assigned_connector_does_not_treat_subdomain_as_exact_host(
+    tmp_path: Path,
+) -> None:
+    app = create_app(settings(tmp_path), DecisionProvider())
+    with TestClient(app) as client:
+        manifest_document = manifest("http://evil.paperless.local")
+        manifest_document["deployment_profiles"][0]["allowed_hosts"] = [
+            "paperless.local"
+        ]
+        registered = client.post(
+            "/api/v1/connectors/manifests",
+            headers=HEADERS,
+            json=manifest_document,
+        )
+        assert registered.status_code == 201, registered.text
+        register_tenant(client, application_ids=["app-controlled"])
+        denied = client.post(
+            "/api/v1/connectors/executions",
+            headers=HEADERS,
+            json=assigned_execute_body(
+                operation_id="update_case",
+                payload={"case_id": "case-001", "decision": "approve"},
+                idempotency_key="assigned-evil-subdomain-denied",
+                authorization_id="nonempty-but-not-real",
+                allowed_network_hosts=["paperless.local"],
+            ),
+        )
+        assert denied.status_code == 403, denied.text
+        assert "assigned host policy" in denied.text
+
+
+def test_assigned_connector_rejects_real_authorization_from_another_assignment(
+    tmp_path: Path,
+) -> None:
+    with customer_server() as (base_url, handler):
+        app = create_app(settings(tmp_path), DecisionProvider())
+        with TestClient(app) as client:
+            register_manifest(client, base_url)
+            register_tenant(client, application_ids=["app-controlled"])
+            payload = {"case_id": "case-cross", "decision": "approve"}
+            authorization = create_authorization(
+                client,
+                operation_id="update_case",
+                payload=payload,
+                assignment_id="assignment-other",
+                session_id="session-controlled",
+                application_id="app-controlled",
+            )
+            denied = client.post(
+                "/api/v1/connectors/executions",
+                headers=HEADERS,
+                json=assigned_execute_body(
+                    operation_id="update_case",
+                    payload=payload,
+                    idempotency_key="assigned-cross-authorization",
+                    authorization_id=authorization["id"],
+                ),
+            )
+            assert denied.status_code == 403, denied.text
+            assert "assignment scope does not match" in denied.text
+            assert handler.patch_calls == 0
+
+
+def test_connector_read_response_cannot_leak_undeclared_host_fields(
+    tmp_path: Path,
+) -> None:
+    with customer_server() as (base_url, handler):
+        handler.leak_extra_read_field = True
+        app = create_app(settings(tmp_path), DecisionProvider())
+        with TestClient(app) as client:
+            register_manifest(client, base_url)
+            register_tenant(client, application_ids=["app-controlled"])
+            response = client.post(
+                "/api/v1/connectors/executions",
+                headers=HEADERS,
+                json=execute_body(
+                    operation_id="get_case",
+                    payload={"case_id": "case-private"},
+                    idempotency_key="read-schema-extra-denied",
+                ),
+            )
+            assert response.status_code == 502, response.text
+            assert "undeclared fields" in response.text
+            assert "must-not-cross-connector-schema" not in response.text
+
+
+def test_assigned_connector_budget_survives_replay_run_and_restart(
+    tmp_path: Path,
+) -> None:
+    config = settings(tmp_path)
+    with customer_server() as (base_url, handler):
+        app = create_app(config, DecisionProvider())
+        with TestClient(app) as client:
+            register_manifest(client, base_url)
+            register_tenant(client, application_ids=["app-controlled"])
+            payload = {"case_id": "case-001", "decision": "approve"}
+            authorization = create_authorization(
+                client,
+                operation_id="update_case",
+                payload=payload,
+                assignment_id="assignment-controlled",
+                session_id="session-controlled",
+                application_id="app-controlled",
+            )
+            request = assigned_execute_body(
+                operation_id="update_case",
+                payload=payload,
+                idempotency_key="assigned-budget-write-1",
+                authorization_id=authorization["id"],
+            )
+            first = client.post(
+                "/api/v1/connectors/executions",
+                headers=HEADERS,
+                json=request,
+            )
+            replay = client.post(
+                "/api/v1/connectors/executions",
+                headers=HEADERS,
+                json={**request, "run_id": "run-replay"},
+            )
+            assert first.status_code == 201, first.text
+            assert replay.status_code == 201, replay.text
+            assert replay.json()["receipt"]["replayed"] is True
+            assert handler.patch_calls == 1
+            receipt = client.portal.call(
+                client.app.state.services.connectors.export_assignment_budget,
+                "assignment-controlled",
+            )
+            assert receipt.write_count == 1
+            assert len(receipt.writes) == 1
+            assert receipt.writes[0].idempotency_key == "assigned-budget-write-1"
+            assert receipt.receipt_digest.startswith("sha256:")
+            with pytest.raises(ValueError, match="write count"):
+                type(receipt).model_validate(
+                    {
+                        **receipt.model_dump(mode="json"),
+                        "write_count": 2,
+                    }
+                )
+            with pytest.raises(ValueError, match="duplicate"):
+                type(receipt).model_validate(
+                    {
+                        **receipt.model_dump(mode="json"),
+                        "write_count": 2,
+                        "writes": [
+                            receipt.writes[0].model_dump(mode="json"),
+                            receipt.writes[0].model_dump(mode="json"),
+                        ],
+                    }
+                )
+            # A nested run after the parent write must freeze the original N,
+            # not a locally computed N-k. Re-freezing N is idempotent; using
+            # the remaining value is rejected as policy drift.
+            same_policy = client.portal.call(
+                partial(
+                    client.app.state.services.connectors.freeze_assignment_budget,
+                    assignment_id="assignment-controlled",
+                    allowed_network_hosts=["127.0.0.1"],
+                    allowed_compensation_operations=[
+                        "customer_system.restore_case"
+                    ],
+                    max_write_count=1,
+                    max_payload_bytes=10_000,
+                )
+            )
+            assert same_policy.receipt_digest == receipt.receipt_digest
+            with pytest.raises(ConnectorDenied, match="policy changed"):
+                client.portal.call(
+                    partial(
+                        client.app.state.services.connectors.freeze_assignment_budget,
+                        assignment_id="assignment-controlled",
+                        allowed_network_hosts=["127.0.0.1"],
+                        allowed_compensation_operations=[
+                            "customer_system.restore_case"
+                        ],
+                        max_write_count=0,
+                        max_payload_bytes=10_000,
+                    )
+                )
+
+        restarted = create_app(settings(tmp_path), DecisionProvider())
+        with TestClient(restarted) as client:
+            payload = {"case_id": "case-002", "decision": "approve"}
+            authorization = create_authorization(
+                client,
+                operation_id="update_case",
+                payload=payload,
+                assignment_id="assignment-controlled",
+                session_id="session-controlled",
+                application_id="app-controlled",
+            )
+            exhausted = client.post(
+                "/api/v1/connectors/executions",
+                headers=HEADERS,
+                json=assigned_execute_body(
+                    operation_id="update_case",
+                    payload=payload,
+                    idempotency_key="assigned-budget-write-2",
+                    authorization_id=authorization["id"],
+                ),
+            )
+            assert exhausted.status_code == 403, exhausted.text
+            assert "write limit is exhausted" in exhausted.text
+            assert handler.patch_calls == 1
+            restarted_receipt = client.portal.call(
+                client.app.state.services.connectors.export_assignment_budget,
+                "assignment-controlled",
+            )
+            assert restarted_receipt == receipt
+
+
+def test_assigned_compensation_inherits_policy_counts_and_is_idempotent(
+    tmp_path: Path,
+) -> None:
+    with customer_server() as (base_url, handler):
+        app = create_app(settings(tmp_path), DecisionProvider())
+        with TestClient(app) as client:
+            register_manifest(client, base_url)
+            register_tenant(client, application_ids=["app-controlled"])
+            original_ids: list[str] = []
+            for index in (1, 2):
+                payload = {
+                    "case_id": f"case-comp-{index}",
+                    "decision": "approve",
+                }
+                authorization = create_authorization(
+                    client,
+                    operation_id="update_case",
+                    payload=payload,
+                    assignment_id="assignment-compensate",
+                    session_id="session-controlled",
+                    application_id="app-controlled",
+                )
+                written = client.post(
+                    "/api/v1/connectors/executions",
+                    headers=HEADERS,
+                    json=assigned_execute_body(
+                        operation_id="update_case",
+                        payload=payload,
+                        idempotency_key=f"assigned-comp-write-{index}",
+                        authorization_id=authorization["id"],
+                        assignment_id="assignment-compensate",
+                        max_write_count=3,
+                    ),
+                )
+                assert written.status_code == 201, written.text
+                original_ids.append(written.json()["receipt"]["execution_id"])
+
+            compensation_payload = {
+                "case_id": "case-comp-1",
+                "previous_decision": "pending",
+            }
+            compensation_authorization = create_authorization(
+                client,
+                operation_id="restore_case",
+                payload=compensation_payload,
+                assignment_id="assignment-compensate",
+                session_id="session-controlled",
+                application_id="app-controlled",
+            )
+            compensated = client.post(
+                f"/api/v1/connectors/executions/{original_ids[0]}/compensate",
+                headers=HEADERS,
+                json={
+                    "actor_id": "test-operator",
+                    "actor_roles": ["operator"],
+                    "authorization_id": compensation_authorization["id"],
+                    "idempotency_key": "assigned-compensation-1",
+                },
+            )
+            assert compensated.status_code == 200, compensated.text
+            assert handler.patch_calls == 2
+            assert handler.compensation_calls == 1
+
+            replay = client.post(
+                f"/api/v1/connectors/executions/{original_ids[0]}/compensate",
+                headers=HEADERS,
+                json={
+                    "actor_id": "test-operator",
+                    "actor_roles": ["operator"],
+                    "authorization_id": compensation_authorization["id"],
+                    "idempotency_key": "different-key-is-still-linked-replay",
+                },
+            )
+            assert replay.status_code == 200, replay.text
+            assert replay.json()["execution_id"] == compensated.json()["execution_id"]
+            assert handler.compensation_calls == 1
+
+            second_compensation_payload = {
+                "case_id": "case-comp-2",
+                "previous_decision": "pending",
+            }
+            second_authorization = create_authorization(
+                client,
+                operation_id="restore_case",
+                payload=second_compensation_payload,
+                assignment_id="assignment-compensate",
+                session_id="session-controlled",
+                application_id="app-controlled",
+            )
+            exhausted = client.post(
+                f"/api/v1/connectors/executions/{original_ids[1]}/compensate",
+                headers=HEADERS,
+                json={
+                    "actor_id": "test-operator",
+                    "actor_roles": ["operator"],
+                    "authorization_id": second_authorization["id"],
+                    "idempotency_key": "assigned-compensation-n-plus-one",
+                },
+            )
+            assert exhausted.status_code == 403, exhausted.text
+            assert "write limit is exhausted" in exhausted.text
+            assert handler.compensation_calls == 1
+
+            receipt = client.portal.call(
+                client.app.state.services.connectors.export_assignment_budget,
+                "assignment-compensate",
+            )
+            assert receipt.write_count == 3
+            assert len(receipt.writes) == 3
+            compensation_write = next(
+                item
+                for item in receipt.writes
+                if item.operation_kind == "compensate"
+            )
+            assert compensation_write.authorization_ref_digest is not None
+            serialized = receipt.model_dump_json()
+            assert compensation_authorization["id"] not in serialized
+            compensation_record = client.portal.call(
+                client.app.state.services.connectors.get_execution,
+                compensated.json()["execution_id"],
+            )
+            assert compensation_record.assignment_id == "assignment-compensate"
+            assert compensation_record.session_id == "session-controlled"
+            assert compensation_record.assigned_allowed_network_hosts == [
+                "127.0.0.1"
+            ]
+            assert compensation_record.assignment_max_write_count == 3
+            assert compensation_record.assignment_max_payload_bytes == 10_000
+
+
+def test_assigned_compensation_rejects_unlisted_action_before_adapter(
+    tmp_path: Path,
+) -> None:
+    with customer_server() as (base_url, handler):
+        app = create_app(settings(tmp_path), DecisionProvider())
+        with TestClient(app) as client:
+            register_manifest(client, base_url)
+            register_tenant(client, application_ids=["app-controlled"])
+            payload = {"case_id": "case-policy", "decision": "approve"}
+            authorization = create_authorization(
+                client,
+                operation_id="update_case",
+                payload=payload,
+                assignment_id="assignment-no-compensation",
+                session_id="session-controlled",
+                application_id="app-controlled",
+            )
+            request = assigned_execute_body(
+                operation_id="update_case",
+                payload=payload,
+                idempotency_key="assigned-no-compensation-write",
+                authorization_id=authorization["id"],
+                assignment_id="assignment-no-compensation",
+                max_write_count=2,
+            )
+            request["allowed_compensation_operations"] = []
+            written = client.post(
+                "/api/v1/connectors/executions",
+                headers=HEADERS,
+                json=request,
+            )
+            assert written.status_code == 201, written.text
+            denied = client.post(
+                f"/api/v1/connectors/executions/"
+                f"{written.json()['receipt']['execution_id']}/compensate",
+                headers=HEADERS,
+                json={
+                    "actor_id": "test-operator",
+                    "actor_roles": ["operator"],
+                    "authorization_id": "not-reached",
+                    "idempotency_key": "assigned-unlisted-compensation",
+                },
+            )
+            assert denied.status_code == 403, denied.text
+            assert "outside or ambiguous" in denied.text
+            assert handler.compensation_calls == 0
+
+
+def test_assigned_compensation_rechecks_inherited_exact_host_before_adapter(
+    tmp_path: Path,
+) -> None:
+    with customer_server() as (base_url, handler):
+        app = create_app(settings(tmp_path), DecisionProvider())
+        with TestClient(app) as client:
+            register_manifest(client, base_url)
+            register_tenant(client, application_ids=["app-controlled"])
+            payload = {"case_id": "case-host", "decision": "approve"}
+            authorization = create_authorization(
+                client,
+                operation_id="update_case",
+                payload=payload,
+                assignment_id="assignment-host-compensation",
+                session_id="session-controlled",
+                application_id="app-controlled",
+            )
+            written = client.post(
+                "/api/v1/connectors/executions",
+                headers=HEADERS,
+                json=assigned_execute_body(
+                    operation_id="update_case",
+                    payload=payload,
+                    idempotency_key="assigned-host-compensation-write",
+                    authorization_id=authorization["id"],
+                    assignment_id="assignment-host-compensation",
+                    max_write_count=2,
+                ),
+            )
+            assert written.status_code == 201, written.text
+            execution_id = written.json()["receipt"]["execution_id"]
+            service = client.app.state.services.connectors
+            original = client.portal.call(service.get_execution, execution_id)
+            corrupted = original.model_copy(
+                update={"assigned_allowed_network_hosts": ["evil.invalid"]}
+            )
+            with service.storage._connect() as connection:
+                connection.execute(
+                    """UPDATE connector_executions
+                       SET record_json=? WHERE id=?""",
+                    (corrupted.model_dump_json(), execution_id),
+                )
+            compensation_payload = {
+                "case_id": "case-host",
+                "previous_decision": "pending",
+            }
+            compensation_authorization = create_authorization(
+                client,
+                operation_id="restore_case",
+                payload=compensation_payload,
+                assignment_id="assignment-host-compensation",
+                session_id="session-controlled",
+                application_id="app-controlled",
+            )
+            denied = client.post(
+                f"/api/v1/connectors/executions/{execution_id}/compensate",
+                headers=HEADERS,
+                json={
+                    "actor_id": "test-operator",
+                    "actor_roles": ["operator"],
+                    "authorization_id": compensation_authorization["id"],
+                    "idempotency_key": "assigned-host-compensation-denied",
+                },
+            )
+            assert denied.status_code == 403, denied.text
+            assert "assigned host policy" in denied.text
+            assert handler.compensation_calls == 0
+
+
+def test_assigned_connector_budget_is_atomic_across_service_instances(
+    tmp_path: Path,
+) -> None:
+    with customer_server() as (base_url, handler):
+        app = create_app(settings(tmp_path), DecisionProvider())
+        with TestClient(app) as client:
+            register_manifest(client, base_url)
+            register_tenant(client, application_ids=["app-controlled"])
+            service = client.app.state.services.connectors
+            peer = ConnectorService(
+                storage=service.storage,
+                harness=service.harness,
+            )
+            client.portal.call(peer.initialize)
+            payloads = [
+                {"case_id": f"case-{index}", "decision": "approve"}
+                for index in (1, 2)
+            ]
+            authorizations = [
+                create_authorization(
+                    client,
+                    operation_id="update_case",
+                    payload=payload,
+                    assignment_id="assignment-controlled",
+                    session_id="session-controlled",
+                    application_id="app-controlled",
+                )
+                for payload in payloads
+            ]
+            requests = [
+                ConnectorExecutionRequest.model_validate(
+                    assigned_execute_body(
+                        operation_id="update_case",
+                        payload=payload,
+                        idempotency_key=f"assigned-concurrent-{index}",
+                        authorization_id=authorization["id"],
+                    )
+                )
+                for index, (payload, authorization) in enumerate(
+                    zip(payloads, authorizations, strict=True),
+                    start=1,
+                )
+            ]
+
+            async def race() -> list[Any]:
+                return await asyncio.gather(
+                    service.execute(requests[0]),
+                    peer.execute(requests[1]),
+                    return_exceptions=True,
+                )
+
+            results = client.portal.call(race)
+            assert sum(not isinstance(result, Exception) for result in results) == 1
+            denial = next(
+                result for result in results if isinstance(result, Exception)
+            )
+            assert isinstance(denial, ConnectorDenied)
+            assert "write limit is exhausted" in str(denial)
+            assert handler.patch_calls == 1

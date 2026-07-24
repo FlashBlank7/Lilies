@@ -26,6 +26,7 @@ from agent_platform.collaboration_storage import (
     CollaborationStore,
     CollaborationUnauthorized,
 )
+from agent_platform.formal_run_archiver import FormalRunArchivePreparationRequest
 from agent_platform.lilies_models import (
     AssignmentMode,
     CollaborationScope,
@@ -71,6 +72,7 @@ async def _store_with_channel(
         expires_at=activation_time + timedelta(hours=2),
         retention_until=activation_time + timedelta(days=30),
         idempotency_key="sqlite-formal-channel-activation-0001",
+        max_report_evidence_rounds=3,
     )
     channel = issued.channel.model_dump(mode="json", exclude_none=True)
     return store, database, channel
@@ -474,6 +476,97 @@ async def test_service_replay_precedes_advanced_channel_cas_across_process_store
         request=request,
     )
     assert replayed == results[0]
+
+
+@pytest.mark.asyncio
+async def test_formal_archive_intent_replays_exactly_after_channel_close_and_rejects_drift(
+    tmp_path: Path,
+) -> None:
+    store, database, channel = await _store_with_channel(tmp_path)
+    channel_id = UUID(channel["channel_id"])
+    assignment_id = UUID(channel["assignment_id"])
+    principal = CollaborationPrincipal(
+        role=SenderRole.lilies,
+        sender_id=channel["lilies_session_id"],
+        scopes=frozenset(scope.value for scope in CollaborationScope),
+        channel_id=channel_id,
+        assignment_id=assignment_id,
+    )
+    request = FormalRunArchivePreparationRequest(
+        expected_channel_revision=channel["revision"],
+        claim_id=uuid4(),
+        test_run_ids=["test-run:sqlite-formal-archive-0001"],
+        business_run_ids=["business-run:sqlite-formal-archive-0001"],
+        summary="Freeze the complete platform-owned formal evidence denominator.",
+        idempotency_key="sqlite-formal-archive-intent-0001",
+    )
+    provider_calls: list[str] = []
+
+    async def freeze_intent(
+        bound_channel: Any,
+        bound_request: Any,
+        actor_id: str,
+    ) -> dict[str, Any]:
+        provider_calls.append(actor_id)
+        assert bound_channel.channel_id == channel_id
+        assert bound_request == request
+        return {
+            "schema_version": "1.0",
+            "task_id": bound_channel.task_id,
+            "revision": bound_channel.task_revision,
+            "run_id": "run:sqlite-formal-archive-0001",
+            "assignment_id": str(bound_channel.assignment_id),
+            "channel_id": str(bound_channel.channel_id),
+            "claim_id": str(bound_request.claim_id),
+            "intent_digest": DIGEST_A,
+            "state": "awaiting_daemon_completion",
+            "accepted_at": NOW.isoformat(),
+            "replayed": False,
+        }
+
+    service = CollaborationService(
+        store=store,
+        enabled=True,
+        formal_archive_provider=freeze_intent,
+    )
+    first = await service.prepare_formal_run_archive(
+        principal=principal,
+        channel_id=channel_id,
+        request=request,
+    )
+    assert provider_calls == [principal.sender_id]
+
+    await store.close_channel(
+        channel_id,
+        expected_revision=channel["revision"],
+        idempotency_key="sqlite-close-after-formal-archive-0001",
+        actor_id="studio-user",
+        reason="Prove the intent receipt replays before closed-channel validation.",
+    )
+
+    async def reject_provider(*_: Any) -> dict[str, Any]:
+        raise AssertionError("durable replay must not call the provider")
+
+    restarted = CollaborationService(
+        store=CollaborationStore(database),
+        enabled=True,
+        formal_archive_provider=reject_provider,
+    )
+    replayed = await restarted.prepare_formal_run_archive(
+        principal=principal,
+        channel_id=channel_id,
+        request=request,
+    )
+    assert replayed == first
+
+    with pytest.raises(CollaborationConflict):
+        await restarted.prepare_formal_run_archive(
+            principal=principal,
+            channel_id=channel_id,
+            request=request.model_copy(
+                update={"summary": "The same key now selects another evidence intent."}
+            ),
+        )
 
 
 @pytest.mark.asyncio

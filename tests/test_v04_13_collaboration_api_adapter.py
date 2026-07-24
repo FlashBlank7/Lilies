@@ -162,6 +162,33 @@ class FakeCollaborationService:
         )
         return request.model_dump(mode="json")
 
+    async def prepare_formal_run_archive(
+        self,
+        *,
+        principal: Any,
+        channel_id: UUID,
+        request: Any,
+    ) -> dict[str, Any]:
+        self.calls.append(
+            (
+                "prepare_formal_run_archive",
+                {"principal": principal, "channel_id": channel_id, "request": request},
+            )
+        )
+        return {
+            "schema_version": "1.0",
+            "task_id": "EXP-LILIES-API-001",
+            "revision": 1,
+            "run_id": "run:collaboration-api-0001",
+            "assignment_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            "channel_id": str(channel_id),
+            "claim_id": str(request.claim_id),
+            "intent_digest": "sha256:" + "a" * 64,
+            "state": "awaiting_daemon_completion",
+            "accepted_at": "2026-07-24T00:00:00Z",
+            "replayed": False,
+        }
+
     async def list_channels(self, **kwargs: Any) -> list[dict[str, Any]]:
         self.calls.append(("list_channels", kwargs))
         return [{"channel_id": str(CHANNEL_ID), "status": "active"}]
@@ -351,6 +378,37 @@ def test_ack_uses_strict_model_and_validation_never_echoes_input_values() -> Non
     assert "do-not-echo-this-secret" not in rejected.text
 
 
+def test_formal_archive_endpoint_passes_authenticated_actor_and_strict_request() -> None:
+    service = FakeCollaborationService()
+    client = TestClient(build_app(service))
+    claim_id = "77777777-7777-4777-8777-777777777777"
+    body = {
+        "schema_version": "1.0",
+        "expected_channel_revision": 4,
+        "claim_id": claim_id,
+        "test_run_ids": ["test-run:api-formal-0001"],
+        "business_run_ids": ["business-run:api-formal-0001"],
+        "artifact_ids": [],
+        "host_receipt_ids": [],
+        "remaining_limits": ["controlled local evidence only"],
+        "summary": "Freeze the final platform-owned evidence intent.",
+        "idempotency_key": "formal-archive-api-intent-0001",
+    }
+
+    response = client.post(
+        f"/api/v1/collaboration/channels/{CHANNEL_ID}/formal-run-archives",
+        headers=auth("channel-good-bearer"),
+        json=body,
+    )
+
+    assert response.status_code == 201
+    assert response.json()["claim_id"] == claim_id
+    call = next(item for item in service.calls if item[0] == "prepare_formal_run_archive")
+    assert call[1]["principal"]["sender_id"] == "lilies-local"
+    assert call[1]["channel_id"] == CHANNEL_ID
+    assert call[1]["request"].model_dump(mode="json") == body
+
+
 def test_studio_and_developer_use_distinct_header_credentials() -> None:
     service = FakeCollaborationService()
     client = TestClient(build_app(service))
@@ -392,6 +450,7 @@ def test_route_surface_contains_all_role_and_causal_export_endpoints() -> None:
         "/api/v1/collaboration/channels/{channel_id}/reports/{report_id}/reprobes",
         "/api/v1/collaboration/channels/{channel_id}/events",
         "/api/v1/collaboration/channels/{channel_id}/acks",
+        "/api/v1/collaboration/channels/{channel_id}/formal-run-archives",
         "/api/v1/collaboration/channels/{channel_id}/verification-claims",
         "/api/v1/studio/collaboration/channels",
         "/api/v1/studio/collaboration/channels/{channel_id}",

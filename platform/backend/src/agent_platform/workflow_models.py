@@ -343,6 +343,27 @@ class WorkflowRunState(BaseModel):
     allowed_nested_application_ids: list[str] | None = None
     allowed_runtime_tools: list[str] | None = None
     allowed_network_hosts: list[str] | None = None
+    model_access: bool | None = None
+    allowed_connector_operations: list[str] | None = None
+    writable_connector_operations: list[str] | None = None
+    permission_required_connector_operations: list[str] | None = None
+    compensation_connector_operations: list[str] | None = None
+    max_connector_write_count: int | None = Field(
+        default=None,
+        ge=0,
+        le=1_000_000,
+    )
+    max_connector_payload_bytes: int | None = Field(
+        default=None,
+        ge=1,
+        le=100 * 1024 * 1024,
+    )
+    governed_host_actions: bool = False
+    connector_write_count: int = Field(default=0, ge=0, le=1_000_000)
+    connector_write_keys: list[str] = Field(
+        default_factory=list,
+        max_length=1_000_000,
+    )
     # Black-box runs are owned by one exact task assignment and one exact
     # Lilies session.  Legacy/internal runs leave both values unset and are
     # intentionally undiscoverable through the public task-token facade.

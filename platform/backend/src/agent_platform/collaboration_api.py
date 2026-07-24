@@ -24,6 +24,7 @@ from .collaboration_models import (
     ChannelStatus,
     ChannelSettingsRequest as CollaborationChannelSettingsRequest,
     DeveloperResponseRequest as CollaborationDeveloperResponseRequest,
+    DeveloperSourcePromotionRequest as CollaborationDeveloperSourcePromotionRequest,
     DeveloperInboxResponse,
     EnvironmentResponseRequest as CollaborationEnvironmentResponseRequest,
     LeaseAcquireRequest as CollaborationLeaseAcquireRequest,
@@ -39,6 +40,8 @@ from .collaboration_models import (
     VerificationClaimRequest as CollaborationVerificationClaimRequest,
     VerificationResultRequest as CollaborationVerificationResultRequest,
 )
+from .formal_developer_worker_broker import DeveloperWorkerRunRequest
+from .formal_run_archiver import FormalRunArchivePreparationRequest
 
 
 _MAX_EVENT_CURSOR = 2**63 - 1
@@ -735,6 +738,23 @@ def install_collaboration_api(
         )
 
     @app.post(
+        "/api/v1/collaboration/channels/{channel_id}/formal-run-archives",
+        status_code=201,
+    )
+    async def prepare_collaboration_formal_run_archive(
+        channel_id: str,
+        body: FormalRunArchivePreparationRequest,
+        principal: Any = Depends(lilies_reporter),
+    ) -> Any:
+        return await _service_call(
+            service.prepare_formal_run_archive(
+                principal=principal,
+                channel_id=_hidden_uuid(channel_id),
+                request=body,
+            )
+        )
+
+    @app.post(
         "/api/v1/collaboration/channels/{channel_id}/verification-claims",
         status_code=201,
     )
@@ -940,6 +960,39 @@ def install_collaboration_api(
     ) -> Any:
         return await _service_call(
             service.submit_developer_response(
+                principal=principal,
+                report_id=report_id,
+                request=body,
+            )
+        )
+
+    @app.post(
+        "/api/v1/developer/collaboration/reports/{report_id}/worker-runs",
+        status_code=201,
+    )
+    async def run_developer_collaboration_worker(
+        report_id: UUID,
+        body: DeveloperWorkerRunRequest,
+        principal: Any = Depends(developer_principal),
+    ) -> Any:
+        return await _service_call(
+            service.run_developer_worker(
+                principal=principal,
+                report_id=report_id,
+                request=body,
+            )
+        )
+
+    @app.post(
+        "/api/v1/developer/collaboration/reports/{report_id}/source-promotions"
+    )
+    async def promote_developer_collaboration_source(
+        report_id: UUID,
+        body: CollaborationDeveloperSourcePromotionRequest,
+        principal: Any = Depends(developer_principal),
+    ) -> Any:
+        return await _service_call(
+            service.promote_developer_source(
                 principal=principal,
                 report_id=report_id,
                 request=body,

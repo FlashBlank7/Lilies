@@ -14,13 +14,22 @@ import pytest
 from fastapi.testclient import TestClient
 
 from agent_platform.api import _git_tree_contains_blob, create_app
-from agent_platform.collaboration_models import CollaborationReportPayload
+from agent_platform.collaboration_models import (
+    CollaborationReportPayload,
+    VerificationClaimPayload,
+    frozen_claim_context_digest,
+)
 from agent_platform.config import Settings
+from agent_platform.formal_run_archiver import (
+    FormalRunArchivePreparationRequest,
+    FormalRunArchivePreparationResult,
+)
 from agent_platform.lilies_models import AssignmentMode
 from agent_platform.platform_blackbox_auth import (
     PlatformBlackboxScope,
     TaskCredentialGrant,
 )
+from agent_platform.task_packages import ArchiveClaimBinding
 from tests.test_runtime import ScriptedProvider
 from tests.test_v04_13_collaboration_sqlite_integration import (
     _developer_response_payload,
@@ -40,6 +49,7 @@ def settings(tmp_path: Path, *, enabled: bool) -> Settings:
         data_dir=tmp_path / "data",
         workspace_root=tmp_path / "workspaces",
         scheduler_poll_seconds=3_600,
+        lilies_local_agent_enabled=False,
         lilies_collaboration_enabled=enabled,
         lilies_collaboration_developer_token=DEVELOPER_TOKEN,
         lilies_collaboration_verifier_token=VERIFIER_TOKEN,
@@ -109,6 +119,7 @@ def test_feature_off_makes_every_malformed_collaboration_surface_the_same_404(
         ),
         ("GET", "/api/v1/collaboration/channels/not-a-uuid/events"),
         ("POST", "/api/v1/collaboration/channels/not-a-uuid/acks"),
+        ("POST", "/api/v1/collaboration/channels/not-a-uuid/formal-run-archives"),
         ("POST", "/api/v1/collaboration/channels/not-a-uuid/verification-claims"),
         ("GET", "/api/v1/studio/collaboration/channels"),
         ("GET", "/api/v1/studio/collaboration/channels/not-a-uuid"),
@@ -221,6 +232,145 @@ def test_enabled_platform_separates_user_developer_and_verifier_credentials(
         assert correct_verifier.json()["detail"]["code"] == "invalid_collaboration_request"
 
 
+@pytest.mark.asyncio
+async def test_platform_formal_archive_intent_callback_targets_the_running_bridge(
+    tmp_path: Path,
+) -> None:
+    configured = settings(tmp_path, enabled=True).model_copy(
+        update={"lilies_local_agent_enabled": True}
+    )
+    app = create_app(configured, ScriptedProvider())
+    services = app.state.services
+    provider = services.collaboration._formal_archive_provider
+    assert provider is not None
+    channel = object()
+    request = object()
+    services.local_lilies_bridge.freeze_formal_run_archive_intent = AsyncMock(
+        return_value={"state": "awaiting_daemon_completion"}
+    )
+
+    result = await provider(channel, request, "authenticated-lilies-actor")
+
+    assert result == {"state": "awaiting_daemon_completion"}
+    services.local_lilies_bridge.freeze_formal_run_archive_intent.assert_awaited_once_with(
+        channel=channel,
+        request=request,
+        actor_id="authenticated-lilies-actor",
+    )
+    assert services.formal_run_archiver is not None
+    services.formal_run_archiver.prepare_success_archive = AsyncMock(
+        return_value={"archive_manifest_digest": ZERO_DIGEST}
+    )
+    success_provider = services.local_lilies_bridge.formal_success_archive_provider
+    assert success_provider is not None
+    channel_id = uuid4()
+
+    archived = await success_provider(channel_id, request)
+
+    assert archived == {"archive_manifest_digest": ZERO_DIGEST}
+    services.formal_run_archiver.prepare_success_archive.assert_awaited_once_with(
+        channel_id=channel_id,
+        request=request,
+    )
+
+
+@pytest.mark.asyncio
+async def test_platform_formal_claim_callback_uses_the_frozen_lilies_actor_binding(
+    tmp_path: Path,
+) -> None:
+    configured = settings(tmp_path, enabled=True).model_copy(
+        update={"lilies_local_agent_enabled": True}
+    )
+    app = create_app(configured, ScriptedProvider())
+    services = app.state.services
+    callback = services.local_lilies_bridge.formal_verification_claim_provider
+    assert callback is not None
+
+    channel_id = uuid4()
+    assignment_id = uuid4()
+    application_id = uuid4()
+    claim_id = uuid4()
+    test_run_id = "test-run:platform-claim-callback-0001"
+    business_run_id = "business-run:platform-claim-callback-0001"
+    claim_data = {
+        "schema_version": "1.1",
+        "claim_id": str(claim_id),
+        "application_id": str(application_id),
+        "draft_revision": 3,
+        "content_hash": ZERO_DIGEST,
+        "test_run_ids": [test_run_id],
+        "business_run_ids": [business_run_id],
+        "artifact_refs": [],
+        "host_receipt_refs": [],
+        "resolved_report_ids": [],
+        "remaining_limits": ["controlled local evidence only"],
+        "task_package_digest": ZERO_DIGEST,
+        "environment_ready_digest": ZERO_DIGEST,
+        "archive_manifest_digest": ZERO_DIGEST,
+        "verification_process_digest": ZERO_DIGEST,
+        "validation_mode": "real_host",
+        "claim": "ready_for_independent_verification",
+    }
+    claim_data["frozen_context_digest"] = frozen_claim_context_digest(claim_data)
+    claim = VerificationClaimPayload.model_validate(claim_data)
+    binding = ArchiveClaimBinding(
+        claim_id=claim_id,
+        assignment_id=assignment_id,
+        application_id=application_id,
+        draft_revision=3,
+        content_hash=ZERO_DIGEST,
+        test_run_ids=[test_run_id],
+        business_run_ids=[business_run_id],
+        remaining_limits=["controlled local evidence only"],
+    )
+    archived = FormalRunArchivePreparationResult(
+        task_id="EXP-LILIES-PLATFORM-CLAIM-001",
+        revision=1,
+        run_id="run:platform-claim-callback-0001",
+        assignment_id=assignment_id,
+        channel_id=channel_id,
+        public_summary_digest=ZERO_DIGEST,
+        environment_ready_digest=ZERO_DIGEST,
+        workspace_mount_digest=ZERO_DIGEST,
+        archive_manifest_digest=ZERO_DIGEST,
+        claim_binding=binding,
+        verification_claim=claim,
+    )
+    archive_request = FormalRunArchivePreparationRequest(
+        expected_channel_revision=4,
+        claim_id=claim_id,
+        test_run_ids=[test_run_id],
+        business_run_ids=[business_run_id],
+        remaining_limits=["controlled local evidence only"],
+        summary="Freeze the complete platform-owned formal evidence denominator.",
+        idempotency_key="platform-formal-claim-callback-0001",
+    )
+    services.collaboration.submit_verification_claim = AsyncMock(
+        return_value={"claim_id": str(claim_id), "status": "frozen"}
+    )
+
+    result = await callback(
+        channel_id,
+        "frozen-lilies-actor",
+        archive_request,
+        archived,
+    )
+
+    assert result["claim_id"] == str(claim_id)
+    call = services.collaboration.submit_verification_claim.await_args
+    principal = call.kwargs["principal"]
+    submitted = call.kwargs["request"]
+    assert principal.role.value == "lilies"
+    assert principal.sender_id == "frozen-lilies-actor"
+    assert principal.channel_id == channel_id
+    assert principal.assignment_id == assignment_id
+    assert principal.scopes == frozenset({"collaboration.report:write"})
+    assert call.kwargs["channel_id"] == channel_id
+    assert submitted.idempotency_key == f"formal.claim.{claim_id.hex}"
+    assert submitted.expected_channel_revision == 4
+    assert submitted.claim == claim
+
+
 def test_collaboration_migration_is_safe_across_repeated_platform_lifespans(
     tmp_path: Path,
 ) -> None:
@@ -256,7 +406,7 @@ def test_collaboration_migration_is_safe_across_repeated_platform_lifespans(
     } <= table_names
 
 
-def test_http_developer_response_requires_reachable_commit_and_bound_git_evidence(
+def test_http_formal_developer_response_fails_closed_when_local_agent_is_off(
     tmp_path: Path,
 ) -> None:
     repo_root = Path(__file__).resolve().parents[1]
@@ -291,6 +441,8 @@ def test_http_developer_response_requires_reachable_commit_and_bound_git_evidenc
     app = create_app(settings(tmp_path, enabled=True), ScriptedProvider())
     with TestClient(app) as client:
         service = client.app.state.services.collaboration
+        assert service._developer_promotion_resolver is None  # noqa: SLF001
+        assert service._developer_commit_resolver is not None  # noqa: SLF001
         issued = client.portal.call(
             partial(
                 service.create_formal_channel,
@@ -303,9 +455,10 @@ def test_http_developer_response_requires_reachable_commit_and_bound_git_evidenc
                 collaboration_enabled=True,
                 user_notified=True,
                 expires_at=now + timedelta(hours=1),
-                retention_until=now + timedelta(days=30),
-                idempotency_key="http-response-channel-activation-0001",
-            )
+                    retention_until=now + timedelta(days=30),
+                    idempotency_key="http-response-channel-activation-0001",
+                    max_report_evidence_rounds=3,
+                )
         )
         channel_id = issued.channel.channel_id
         report_id = uuid4()
@@ -388,7 +541,10 @@ def test_http_developer_response_requires_reachable_commit_and_bound_git_evidenc
             ),
         )
         assert missing_commit.status_code == 409, missing_commit.text
-        assert missing_commit.json()["detail"]["code"] == "developer_commit_not_found"
+        assert (
+            missing_commit.json()["detail"]["code"]
+            == "developer_worker_receipt_required"
+        )
 
         missing_evidence = {
             **valid_evidence,
@@ -404,7 +560,10 @@ def test_http_developer_response_requires_reachable_commit_and_bound_git_evidenc
             ),
         )
         assert absent.status_code == 409, absent.text
-        assert absent.json()["detail"]["code"] == "developer_evidence_not_found"
+        assert (
+            absent.json()["detail"]["code"]
+            == "developer_worker_receipt_required"
+        )
 
         mismatched = client.post(
             f"/api/v1/developer/collaboration/reports/{report_id}/responses",
@@ -416,7 +575,10 @@ def test_http_developer_response_requires_reachable_commit_and_bound_git_evidenc
             ),
         )
         assert mismatched.status_code == 409, mismatched.text
-        assert mismatched.json()["detail"]["code"] == "developer_evidence_not_found"
+        assert (
+            mismatched.json()["detail"]["code"]
+            == "developer_worker_receipt_required"
+        )
 
         database = service.store.db_path
         with sqlite3.connect(database) as connection:
@@ -443,18 +605,21 @@ def test_http_developer_response_requires_reachable_commit_and_bound_git_evidenc
                 evidence_ref=valid_evidence,
             ),
         )
-        assert completed.status_code == 200, completed.text
-        assert completed.json()["outcome"] == "implemented"
+        assert completed.status_code == 409, completed.text
+        assert (
+            completed.json()["detail"]["code"]
+            == "developer_worker_receipt_required"
+        )
         with sqlite3.connect(database) as connection:
             assert connection.execute(
                 "SELECT status FROM collaboration_reports WHERE report_id=?",
                 (str(report_id),),
-            ).fetchone() == ("ready_for_lilies_verification",)
+            ).fetchone() == ("implementing",)
             assert connection.execute(
                 "SELECT COUNT(*) FROM collaboration_developer_responses "
                 "WHERE report_id=?",
                 (str(report_id),),
-            ).fetchone() == (1,)
+            ).fetchone() == (0,)
 
 
 def test_platform_wires_configured_secrets_into_collaboration_redaction(

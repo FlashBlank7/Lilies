@@ -38,6 +38,7 @@ COLLABORATION_TOKEN = "private-collaboration-channel-token-value"
 COLLABORATION_TOOL_NAMES = {
     "collaboration_report_submit",
     "collaboration_updates_read",
+    "collaboration_formal_run_archive",
     "collaboration_verification_claim",
 }
 COLLABORATION_SCOPES = [
@@ -285,7 +286,7 @@ async def test_customer_assignment_has_no_collaboration_projection_tools_or_prom
 
 
 @pytest.mark.asyncio
-async def test_formal_assignment_gets_exactly_three_tools_with_context_recall_mode(
+async def test_formal_assignment_gets_exactly_four_tools_with_context_recall_mode(
     tmp_path: Path,
 ) -> None:
     service = service_at(tmp_path)
@@ -302,7 +303,7 @@ async def test_formal_assignment_gets_exactly_three_tools_with_context_recall_mo
         "platform_contract_get",
         *COLLABORATION_TOOL_NAMES,
     }
-    assert len(COLLABORATION_TOOL_NAMES & set(registry.names())) == 3
+    assert len(COLLABORATION_TOOL_NAMES & set(registry.names())) == 4
     for name in COLLABORATION_TOOL_NAMES:
         tool = registry.get(name)
         assert tool.client.channel_id == access.channel_id
@@ -704,7 +705,98 @@ async def test_collaboration_permission_checkpoint_and_restart_use_only_redacted
 
 
 @pytest.mark.asyncio
-async def test_three_collaboration_http_tools_use_header_only_credentials_and_never_leak(
+async def test_formal_archive_tool_calls_the_intent_endpoint_with_current_channel_revision(
+    tmp_path: Path,
+) -> None:
+    channel_id = uuid4()
+    claim_id = uuid4()
+    assignment_id = uuid4()
+    seen: list[httpx.Request] = []
+    revisions = iter((9, 10))
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        channel_path = f"/api/v1/collaboration/channels/{channel_id}"
+        if request.method == "GET" and request.url.path == channel_path:
+            return httpx.Response(
+                200,
+                request=request,
+                json={"channel_id": str(channel_id), "revision": next(revisions)},
+            )
+        assert request.method == "POST"
+        assert request.url.path == f"{channel_path}/formal-run-archives"
+        return httpx.Response(
+            201,
+            request=request,
+            json={
+                "schema_version": "1.0",
+                "task_id": "EXP-LILIES-TOOLS-001",
+                "revision": 1,
+                "run_id": "run:formal-tools-0001",
+                "assignment_id": str(assignment_id),
+                "channel_id": str(channel_id),
+                "claim_id": str(claim_id),
+                "intent_digest": CONTRACT_DIGEST,
+                "state": "awaiting_daemon_completion",
+                "accepted_at": "2026-07-24T00:00:00Z",
+                "replayed": False,
+            },
+        )
+
+    client = LiliesCollaborationClient(
+        base_url="http://127.0.0.1:8001",
+        access_token=COLLABORATION_TOKEN,
+        channel_id=channel_id,
+        transport=httpx.MockTransport(handler),
+    )
+    registry = register_lilies_collaboration_tools(LiliesToolRegistry(), client)
+    result = await registry.get("collaboration_formal_run_archive").execute(
+        {
+            "idempotency_key": "formal-archive-tool-intent-0001",
+            "claim_id": str(claim_id),
+            "test_run_ids": ["test-run:formal-tools-0001"],
+            "business_run_ids": ["business-run:formal-tools-0001"],
+            "remaining_limits": ["controlled local evidence only"],
+            "summary": "Freeze the complete formal evidence selection.",
+        },
+        LiliesToolContext(
+            session_id=str(uuid4()),
+            workspace=tmp_path,
+            turn_id=str(uuid4()),
+            tool_call_id=str(uuid4()),
+        ),
+    )
+
+    assert result.is_error is False
+    payload = json.loads(result.content)
+    assert payload["data"]["claim_id"] == str(claim_id)
+    assert payload["data"]["channel_state"]["revision"] == 10
+    assert [(item.method, item.url.path) for item in seen] == [
+        ("GET", f"/api/v1/collaboration/channels/{channel_id}"),
+        (
+            "POST",
+            f"/api/v1/collaboration/channels/{channel_id}/formal-run-archives",
+        ),
+        ("GET", f"/api/v1/collaboration/channels/{channel_id}"),
+    ]
+    assert json.loads(seen[1].content) == {
+        "idempotency_key": "formal-archive-tool-intent-0001",
+        "claim_id": str(claim_id),
+        "test_run_ids": ["test-run:formal-tools-0001"],
+        "business_run_ids": ["business-run:formal-tools-0001"],
+        "artifact_ids": [],
+        "host_receipt_ids": [],
+        "remaining_limits": ["controlled local evidence only"],
+        "summary": "Freeze the complete formal evidence selection.",
+        "expected_channel_revision": 9,
+    }
+    assert seen[1].headers["Authorization"] == f"Bearer {COLLABORATION_TOKEN}"
+    assert COLLABORATION_TOKEN not in str(seen[1].url)
+    assert COLLABORATION_TOKEN.encode() not in seen[1].content
+
+
+@pytest.mark.asyncio
+async def test_collaboration_http_tools_use_header_only_credentials_and_never_leak(
     tmp_path: Path,
 ) -> None:
     channel_id = uuid4()

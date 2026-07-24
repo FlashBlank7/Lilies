@@ -62,6 +62,9 @@ def test_browser_fixture_uses_one_real_binding_and_four_idempotent_chains(
             "SELECT COUNT(*) FROM collaboration_channels"
         ).fetchone()[0] == 1
         assert connection.execute(
+            "SELECT max_report_evidence_rounds FROM collaboration_channels"
+        ).fetchone()[0] == 4
+        assert connection.execute(
             "SELECT COUNT(*) FROM collaboration_reports"
         ).fetchone()[0] == 4
         assert connection.execute(

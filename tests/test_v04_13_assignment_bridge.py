@@ -121,9 +121,7 @@ class FakeDaemonClient:
         self.pause_entered.set()
         await self.pause_release.wait()
 
-    async def exchange_pairing(
-        self, _: str, payload: dict[str, Any]
-    ) -> dict[str, Any]:
+    async def exchange_pairing(self, _: str, payload: dict[str, Any]) -> dict[str, Any]:
         self._available()
         self.pairing_calls += 1
         assert payload["pairing_code"] == "PAIR-CODE-001"
@@ -203,9 +201,7 @@ class FakeDaemonClient:
         await self._pause("session.created")
         return session
 
-    async def get_session(
-        self, _: str, access_token: str, session_id: str
-    ) -> dict[str, Any]:
+    async def get_session(self, _: str, access_token: str, session_id: str) -> dict[str, Any]:
         self._available()
         if session_id in self.unavailable_sessions:
             raise LocalLiliesUnavailable("fixture session link is offline")
@@ -294,9 +290,7 @@ class FakeDaemonClient:
             "assignment_id": payload["assignment_id"],
             "session_id": session_id,
             "turn_id": str(uuid5(NAMESPACE_URL, f"turn:{payload['assignment_id']}")),
-            "start_message_id": str(
-                uuid5(NAMESPACE_URL, f"message:{payload['assignment_id']}")
-            ),
+            "start_message_id": str(uuid5(NAMESPACE_URL, f"message:{payload['assignment_id']}")),
             "status": "running",
             "event_cursor": 1,
             "accepted_at": now,
@@ -386,9 +380,7 @@ class FakeDaemonClient:
                         "seq": len(self.events) + 1,
                         "event": "assignment.cancelled",
                         "data": {
-                            "assignment_id": (
-                                self.cancel_event_assignment_id or assignment_id
-                            ),
+                            "assignment_id": (self.cancel_event_assignment_id or assignment_id),
                             "reason": "requested_by_user",
                         },
                     }
@@ -449,9 +441,7 @@ class ImmediateProvider(ModelProvider):
 
     async def stream(self, **_: Any) -> AsyncIterator[StreamEvent]:
         self.calls += 1
-        yield StreamEvent(
-            type="message_start", data={"message": {"usage": {"input_tokens": 1}}}
-        )
+        yield StreamEvent(type="message_start", data={"message": {"usage": {"input_tokens": 1}}})
         yield StreamEvent(
             type="content_block_start",
             data={"index": 0, "content_block": {"type": "text", "text": "done"}},
@@ -462,7 +452,9 @@ class ImmediateProvider(ModelProvider):
         )
 
 
-async def platform_parts(tmp_path: Path) -> tuple[Storage, WorkflowStorage, PlatformHarness, PlatformBlackboxAuthStore]:
+async def platform_parts(
+    tmp_path: Path,
+) -> tuple[Storage, WorkflowStorage, PlatformHarness, PlatformBlackboxAuthStore]:
     storage = Storage(tmp_path / "platform")
     await storage.initialize()
     workflow = WorkflowStorage(storage)
@@ -515,9 +507,7 @@ async def empty_application(workflow: WorkflowStorage, marker: str) -> UUID:
     application = await workflow.create_application(
         ApplicationCreateRequest(
             name=f"Local Lilies {marker}",
-            requirement=(
-                "Build an enterprise document review workflow with an auditable result."
-            ),
+            requirement=("Build an enterprise document review workflow with an auditable result."),
         )
     )
     return UUID(application["id"])
@@ -589,8 +579,8 @@ async def test_bridge_store_migrates_v1_operations_and_rejects_future_schema(
         )
     store = LocalLiliesBridgeStore(db_path)
 
-    assert await store.initialize() == {"schema_version": 3}
-    assert await store.initialize() == {"schema_version": 3}
+    assert await store.initialize() == {"schema_version": 7}
+    assert await store.initialize() == {"schema_version": 7}
     with sqlite3.connect(db_path) as conn:
         columns = {
             str(row[1])
@@ -611,13 +601,23 @@ async def test_bridge_store_migrates_v1_operations_and_rejects_future_schema(
     with sqlite3.connect(db_path) as conn:
         assignment_columns = {
             str(row[1])
-            for row in conn.execute(
-                "PRAGMA table_info(local_lilies_assignments)"
-            ).fetchall()
+            for row in conn.execute("PRAGMA table_info(local_lilies_assignments)").fetchall()
         }
     assert {"result_json", "completed_at"} <= columns
     assert "terminal_events_drained_at" in assignment_columns
-    assert versions == [1, 2, 3]
+    assert "daemon_session_creation_started_at" in assignment_columns
+    assert "formal_channel_close_receipt_json" in assignment_columns
+    assert {
+        "formal_archive_intent_json",
+        "formal_archive_intent_digest",
+        "formal_archive_result_json",
+        "formal_claim_result_json",
+        "formal_archive_completed_at",
+        "formal_terminal_archive_result_json",
+        "formal_terminal_archive_manifest_digest",
+        "formal_terminal_archive_completed_at",
+    } <= assignment_columns
+    assert versions == [1, 2, 3, 4, 5, 6, 7]
     with pytest.raises(RuntimeError, match="newer than supported"):
         await store.initialize()
 
@@ -650,9 +650,7 @@ async def test_feature_gate_loopback_and_explicit_none_policy_fail_closed(
             contract_digest_provider=lambda _scopes, _apps: DIGEST,
         )
 
-    bridge = bridge_for(
-        tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon
-    )
+    bridge = bridge_for(tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon)
     connection = await pair(bridge)
     application_id = await empty_application(workflow, "none")
     payload = build_request(connection.connection_id, "none").model_dump(mode="json")
@@ -662,9 +660,7 @@ async def test_feature_gate_loopback_and_explicit_none_policy_fail_closed(
         await bridge.start_build(application_id, request)
     assert await bridge.list_assignments_for_application(application_id) == []
 
-    secret_payload = build_request(connection.connection_id, "secret").model_dump(
-        mode="json"
-    )
+    secret_payload = build_request(connection.connection_id, "secret").model_dump(mode="json")
     secret_payload["requirement"] = (
         "Build the enterprise workflow using "
         f"lpt_{'a' * 32}_{'B' * 43} without exposing credentials."
@@ -679,9 +675,7 @@ async def test_application_allows_only_one_nonterminal_assignment_at_a_time(
 ) -> None:
     _, workflow, harness, auth = await platform_parts(tmp_path)
     daemon = FakeDaemonClient()
-    bridge = bridge_for(
-        tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon
-    )
+    bridge = bridge_for(tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon)
     connection = await pair(bridge)
     application_id = await empty_application(workflow, "single-active")
     first_request = build_request(connection.connection_id, "single-active-first")
@@ -743,9 +737,7 @@ async def test_pairing_recovers_after_daemon_acceptance_without_pairing_code_reu
     with pytest.raises(InjectedCrash, match=crash_stage):
         await bridge.pair_connection(request)
 
-    restarted = bridge_for(
-        tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon
-    )
+    restarted = bridge_for(tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon)
     await restarted.initialize()
     recovered = (await restarted.list_connections())[0]
     replay = await restarted.pair_connection(request)
@@ -761,9 +753,7 @@ async def test_reconnect_replays_durable_receipt_and_rejects_scope_or_client_dow
 ) -> None:
     _, workflow, harness, auth = await platform_parts(tmp_path)
     daemon = FakeDaemonClient()
-    bridge = bridge_for(
-        tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon
-    )
+    bridge = bridge_for(tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon)
     connection = await pair(bridge)
     request = ReconnectLocalLiliesRequest(
         idempotency_key="reconnect-platform-000001",
@@ -817,9 +807,7 @@ async def test_reconnect_recovers_every_post_rotation_crash_window(
 ) -> None:
     _, workflow, harness, auth = await platform_parts(tmp_path)
     daemon = FakeDaemonClient()
-    bridge = bridge_for(
-        tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon
-    )
+    bridge = bridge_for(tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon)
     connection = await pair(bridge)
     bridge.fault_hook = CrashOnce(crash_stage)
     request = ReconnectLocalLiliesRequest(
@@ -830,9 +818,7 @@ async def test_reconnect_recovers_every_post_rotation_crash_window(
     with pytest.raises(InjectedCrash, match=crash_stage):
         await bridge.reconnect_connection(connection.connection_id, request)
 
-    restarted = bridge_for(
-        tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon
-    )
+    restarted = bridge_for(tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon)
     await restarted.initialize()
     after_initialize = await restarted.get_connection(connection.connection_id)
     if crash_stage == "reconnect.prepared_token_saved":
@@ -858,9 +844,7 @@ async def test_refresh_persists_unavailable_after_daemon_fingerprint_substitutio
 ) -> None:
     _, workflow, harness, auth = await platform_parts(tmp_path)
     daemon = FakeDaemonClient()
-    bridge = bridge_for(
-        tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon
-    )
+    bridge = bridge_for(tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon)
     connection = await pair(bridge)
     daemon.status_fingerprint = "sha256:" + "d" * 64
 
@@ -891,9 +875,7 @@ async def test_refresh_fails_closed_on_expired_or_mismatched_bearer_expiry(
 ) -> None:
     _, workflow, harness, auth = await platform_parts(tmp_path)
     daemon = FakeDaemonClient()
-    bridge = bridge_for(
-        tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon
-    )
+    bridge = bridge_for(tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon)
     connection = await pair(bridge)
     daemon.client_expires_at = reported_expiry
 
@@ -910,9 +892,7 @@ async def test_cancel_requires_strict_receipts_and_recovers_daemon_cleanup(
 ) -> None:
     _, workflow, harness, auth = await platform_parts(tmp_path)
     daemon = FakeDaemonClient()
-    bridge = bridge_for(
-        tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon
-    )
+    bridge = bridge_for(tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon)
     connection = await pair(bridge)
     application_id = await empty_application(workflow, "cancel-receipt")
     assignment = await bridge.start_build(
@@ -948,9 +928,7 @@ async def test_cancel_revoke_failure_stays_recoverable_until_daemon_confirms_cle
 ) -> None:
     _, workflow, harness, auth = await platform_parts(tmp_path)
     daemon = FakeDaemonClient()
-    bridge = bridge_for(
-        tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon
-    )
+    bridge = bridge_for(tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon)
     connection = await pair(bridge)
     application_id = await empty_application(workflow, "cancel-revoke")
     assignment = await bridge.start_build(
@@ -974,9 +952,7 @@ async def test_cancel_revoke_failure_stays_recoverable_until_daemon_confirms_cle
     assert recovered.scanned == 1
     assert recovered.cancelled == 1
     assert daemon.credentials == {}
-    assert (await bridge.get_connection(connection.connection_id)).status.value == (
-        "connected"
-    )
+    assert (await bridge.get_connection(connection.connection_id)).status.value == ("connected")
 
 
 @pytest.mark.asyncio
@@ -985,9 +961,7 @@ async def test_revoke_commit_response_loss_reuses_stable_payload_during_recovery
 ) -> None:
     _, workflow, harness, auth = await platform_parts(tmp_path)
     daemon = FakeDaemonClient()
-    bridge = bridge_for(
-        tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon
-    )
+    bridge = bridge_for(tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon)
     connection = await pair(bridge)
     application_id = await empty_application(workflow, "revoke-response-loss")
     assignment = await bridge.start_build(
@@ -1003,9 +977,7 @@ async def test_revoke_commit_response_loss_reuses_stable_payload_during_recovery
             reason="user supplied reason",
         )
 
-    restarted = bridge_for(
-        tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon
-    )
+    restarted = bridge_for(tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon)
     await restarted.initialize()
     recovered = await restarted.recover_pending_assignments()
     assert recovered.scanned == 1
@@ -1014,9 +986,7 @@ async def test_revoke_commit_response_loss_reuses_stable_payload_during_recovery
     assert (await restarted.get_assignment(assignment.assignment_id)).phase == (
         BridgeAssignmentPhase.cancelled
     )
-    assert (await restarted.get_connection(connection.connection_id)).status.value == (
-        "connected"
-    )
+    assert (await restarted.get_connection(connection.connection_id)).status.value == ("connected")
 
 
 @pytest.mark.asyncio
@@ -1052,9 +1022,7 @@ async def test_cancel_cleans_uncertain_session_and_credential_crash_windows(
         )
     assignment = (await crashing.list_assignments_for_application(application_id))[0]
 
-    restarted = bridge_for(
-        tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon
-    )
+    restarted = bridge_for(tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon)
     await restarted.initialize()
     cancelled = await restarted.cancel_assignment(
         assignment.assignment_id,
@@ -1073,9 +1041,7 @@ async def test_post_provision_credential_404_fails_closed_until_recovery(
 ) -> None:
     _, workflow, harness, auth = await platform_parts(tmp_path)
     daemon = FakeDaemonClient()
-    bridge = bridge_for(
-        tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon
-    )
+    bridge = bridge_for(tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon)
     connection = await pair(bridge)
     application_id = await empty_application(workflow, "post-provision-404")
     assignment = await bridge.start_build(
@@ -1106,9 +1072,7 @@ async def test_cancel_replay_is_stable_and_completed_assignment_is_immutable(
 ) -> None:
     _, workflow, harness, auth = await platform_parts(tmp_path)
     daemon = FakeDaemonClient()
-    bridge = bridge_for(
-        tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon
-    )
+    bridge = bridge_for(tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon)
     connection = await pair(bridge)
 
     cancelled_app = await empty_application(workflow, "cancel-replay")
@@ -1144,9 +1108,7 @@ async def test_cancel_replay_is_stable_and_completed_assignment_is_immutable(
     assert preserved.phase == BridgeAssignmentPhase.completed
     assert preserved.status == "completed"
     assert preserved.desired_state.value == "active"
-    assert (await workflow.get_build(str(completed_assignment.build_id)))["status"] == (
-        "succeeded"
-    )
+    assert (await workflow.get_build(str(completed_assignment.build_id)))["status"] == ("succeeded")
 
 
 @pytest.mark.asyncio
@@ -1167,9 +1129,7 @@ async def test_daemon_terminal_state_wins_cancel_409_race(
 ) -> None:
     _, workflow, harness, auth = await platform_parts(tmp_path)
     daemon = FakeDaemonClient()
-    bridge = bridge_for(
-        tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon
-    )
+    bridge = bridge_for(tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon)
     connection = await pair(bridge)
     application_id = await empty_application(workflow, f"cancel-race-{daemon_status}")
     assignment = await bridge.start_build(
@@ -1224,9 +1184,7 @@ async def test_daemon_terminal_state_wins_cancel_409_race(
 async def test_nonterminal_cancel_409_remains_fail_closed(tmp_path: Path) -> None:
     _, workflow, harness, auth = await platform_parts(tmp_path)
     daemon = FakeDaemonClient()
-    bridge = bridge_for(
-        tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon
-    )
+    bridge = bridge_for(tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon)
     connection = await pair(bridge)
     application_id = await empty_application(workflow, "cancel-nonterminal-409")
     assignment = await bridge.start_build(
@@ -1248,9 +1206,7 @@ async def test_nonterminal_cancel_409_remains_fail_closed(tmp_path: Path) -> Non
     assert daemon.credentials
     with pytest.raises(PlatformBlackboxCredentialRevoked):
         await auth.authenticate_credential(daemon.last_task_token)
-    assert (await bridge.get_connection(connection.connection_id)).status.value == (
-        "unavailable"
-    )
+    assert (await bridge.get_connection(connection.connection_id)).status.value == ("unavailable")
 
     daemon.force_cancel_conflict = False
     recovered = await bridge.recover_pending_assignments()
@@ -1264,9 +1220,7 @@ async def test_cancel_409_terminal_receipt_mismatch_remains_fail_closed(
 ) -> None:
     _, workflow, harness, auth = await platform_parts(tmp_path)
     daemon = FakeDaemonClient()
-    bridge = bridge_for(
-        tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon
-    )
+    bridge = bridge_for(tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon)
     connection = await pair(bridge)
     application_id = await empty_application(workflow, "cancel-terminal-mismatch")
     assignment = await bridge.start_build(
@@ -1286,9 +1240,7 @@ async def test_cancel_409_terminal_receipt_mismatch_remains_fail_closed(
     pending = await bridge.get_assignment(assignment.assignment_id)
     assert pending.phase == BridgeAssignmentPhase.unavailable
     assert pending.desired_state.value == "cancelled"
-    assert (await bridge.get_connection(connection.connection_id)).status.value == (
-        "unavailable"
-    )
+    assert (await bridge.get_connection(connection.connection_id)).status.value == ("unavailable")
     with pytest.raises(PlatformBlackboxCredentialRevoked):
         await auth.authenticate_credential(daemon.last_task_token)
 
@@ -1299,9 +1251,7 @@ async def test_relay_finishes_pending_cancel_before_projecting_daemon_state(
 ) -> None:
     _, workflow, harness, auth = await platform_parts(tmp_path)
     daemon = FakeDaemonClient()
-    bridge = bridge_for(
-        tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon
-    )
+    bridge = bridge_for(tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon)
     connection = await pair(bridge)
     application_id = await empty_application(workflow, "cancel-relay")
     assignment = await bridge.start_build(
@@ -1335,12 +1285,8 @@ async def test_cross_bridge_cancel_wins_each_outward_side_effect_race(
 ) -> None:
     _, workflow, harness, auth = await platform_parts(tmp_path)
     daemon = FakeDaemonClient()
-    starter = bridge_for(
-        tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon
-    )
-    canceller = bridge_for(
-        tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon
-    )
+    starter = bridge_for(tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon)
+    canceller = bridge_for(tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon)
     connection = await pair(starter)
     await canceller.initialize()
     application_id = await empty_application(workflow, f"race-{pause_stage}")
@@ -1398,9 +1344,7 @@ async def test_reserved_assignment_rechecks_empty_draft_before_restart_recovery(
         idempotency_key="legacy-draft-touch-000001",
     )
 
-    restarted = bridge_for(
-        tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon
-    )
+    restarted = bridge_for(tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon)
     await restarted.initialize()
     recovered = await restarted.recover_pending_assignments()
 
@@ -1418,9 +1362,7 @@ async def test_relay_rejects_cursor_gap_and_synchronizes_terminal_build_status(
 ) -> None:
     _, workflow, harness, auth = await platform_parts(tmp_path)
     daemon = FakeDaemonClient()
-    bridge = bridge_for(
-        tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon
-    )
+    bridge = bridge_for(tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon)
     connection = await pair(bridge)
     application_id = await empty_application(workflow, "relay-gap")
     assignment = await bridge.start_build(
@@ -1449,9 +1391,7 @@ async def test_relay_rejects_cursor_gap_and_synchronizes_terminal_build_status(
     build = await workflow.get_build(str(assignment.build_id))
     assert build["status"] == "running"
 
-    restarted = bridge_for(
-        tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon
-    )
+    restarted = bridge_for(tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon)
     await restarted.initialize()
     recovered = await restarted.recover_pending_assignments()
     assert recovered.scanned == 0
@@ -1465,9 +1405,7 @@ async def test_relay_ack_cursor_advances_only_after_a_strict_bound_receipt(
 ) -> None:
     _, workflow, harness, auth = await platform_parts(tmp_path)
     daemon = FakeDaemonClient()
-    bridge = bridge_for(
-        tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon
-    )
+    bridge = bridge_for(tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon)
     connection = await pair(bridge)
     application_id = await empty_application(workflow, "ack-receipt")
     assignment = await bridge.start_build(
@@ -1500,9 +1438,7 @@ async def test_relay_rejects_a_session_receipt_outside_the_assignment_binding(
 ) -> None:
     _, workflow, harness, auth = await platform_parts(tmp_path)
     daemon = FakeDaemonClient()
-    bridge = bridge_for(
-        tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon
-    )
+    bridge = bridge_for(tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon)
     connection = await pair(bridge)
     application_id = await empty_application(workflow, f"relay-{escaped_field}")
     assignment = await bridge.start_build(
@@ -1526,9 +1462,7 @@ async def test_resume_rejects_an_operation_receipt_for_another_session(
 ) -> None:
     _, workflow, harness, auth = await platform_parts(tmp_path)
     daemon = FakeDaemonClient()
-    bridge = bridge_for(
-        tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon
-    )
+    bridge = bridge_for(tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon)
     connection = await pair(bridge)
     application_id = await empty_application(workflow, "resume-receipt-binding")
     assignment = await bridge.start_build(
@@ -1563,9 +1497,7 @@ async def test_each_new_error_episode_gets_a_distinct_stable_resume_receipt(
 ) -> None:
     _, workflow, harness, auth = await platform_parts(tmp_path)
     daemon = FakeDaemonClient()
-    bridge = bridge_for(
-        tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon
-    )
+    bridge = bridge_for(tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon)
     connection = await pair(bridge)
     application_id = await empty_application(workflow, "resume-episode")
     assignment = await bridge.start_build(
@@ -1615,9 +1547,7 @@ async def test_task_credential_outbox_recovers_save_issue_and_provision_crashes(
     with pytest.raises(InjectedCrash, match=crash_stage):
         await crashing.start_build(application_id, request)
 
-    resumed = bridge_for(
-        tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon
-    )
+    resumed = bridge_for(tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon)
     await resumed.initialize()
     assignment = (await resumed.list_assignments_for_application(application_id))[0]
     result = await resumed.resume_assignment(assignment.assignment_id)
@@ -1626,9 +1556,10 @@ async def test_task_credential_outbox_recovers_save_issue_and_provision_crashes(
     assert daemon.provision_side_effects == 1
     assert daemon.assignment_side_effects == 1
     assert credential_count(auth.db_path) == 1
-    assert await harness.list_secrets(
-        owner_id=f"local-lilies-assignment:{assignment.assignment_id}"
-    ) == []
+    assert (
+        await harness.list_secrets(owner_id=f"local-lilies-assignment:{assignment.assignment_id}")
+        == []
+    )
     assert daemon.last_task_token.startswith("lpt_")
     assert_plaintext_absent(
         [storage.db_path, auth.db_path, resumed.store.db_path],
@@ -1647,9 +1578,7 @@ async def test_unavailable_preserves_four_ids_then_reconnects_without_prebuild(
 ) -> None:
     _, workflow, harness, auth = await platform_parts(tmp_path)
     daemon = FakeDaemonClient()
-    bridge = bridge_for(
-        tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon
-    )
+    bridge = bridge_for(tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon)
     connection = await pair(bridge)
     application_id = await empty_application(workflow, "offline")
     request = build_request(connection.connection_id, "offline")
@@ -1682,9 +1611,7 @@ async def test_start_idempotency_replay_never_implicitly_resumes_daemon_error(
 ) -> None:
     _, workflow, harness, auth = await platform_parts(tmp_path)
     daemon = FakeDaemonClient()
-    bridge = bridge_for(
-        tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon
-    )
+    bridge = bridge_for(tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon)
     connection = await pair(bridge)
     application_id = await empty_application(workflow, "error-replay")
     request = build_request(connection.connection_id, "error-replay")
@@ -1712,9 +1639,7 @@ async def test_relay_commits_before_ack_replays_after_restart_and_cancel_is_dura
 ) -> None:
     _, workflow, harness, auth = await platform_parts(tmp_path)
     daemon = FakeDaemonClient()
-    bridge = bridge_for(
-        tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon
-    )
+    bridge = bridge_for(tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon)
     connection = await pair(bridge)
     application_id = await empty_application(workflow, "relay")
     assignment = await bridge.start_build(
@@ -1735,9 +1660,7 @@ async def test_relay_commits_before_ack_replays_after_restart_and_cancel_is_dura
         2,
     ]
 
-    restarted = bridge_for(
-        tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon
-    )
+    restarted = bridge_for(tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon)
     await restarted.initialize()
     replay = await restarted.relay_events(assignment.assignment_id)
     assert replay.inserted == 0
@@ -1765,9 +1688,10 @@ async def test_relay_commits_before_ack_replays_after_restart_and_cancel_is_dura
     assert credential.revoked_at is not None
     with pytest.raises(PlatformBlackboxCredentialRevoked):
         await auth.authenticate_credential(daemon.last_task_token)
-    assert await harness.list_secrets(
-        owner_id=f"local-lilies-assignment:{assignment.assignment_id}"
-    ) == []
+    assert (
+        await harness.list_secrets(owner_id=f"local-lilies-assignment:{assignment.assignment_id}")
+        == []
+    )
 
     daemon.unavailable = False
     cancelled = await restarted.cancel_assignment(
@@ -1785,9 +1709,7 @@ async def test_cancel_drains_and_acks_terminal_events_with_connection_bearer(
     _, workflow, harness, auth = await platform_parts(tmp_path)
     daemon = FakeDaemonClient()
     daemon.emit_cancel_events = True
-    bridge = bridge_for(
-        tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon
-    )
+    bridge = bridge_for(tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon)
     connection = await pair(bridge)
     application_id = await empty_application(workflow, "terminal-drain")
     assignment = await bridge.start_build(
@@ -1810,9 +1732,54 @@ async def test_cancel_drains_and_acks_terminal_events_with_connection_bearer(
     ]
     assert events[-1].data["assignment_id"] == str(assignment.assignment_id)
     assert raw["terminal_events_drained_at"] is not None
-    assert await harness.list_secrets(
-        owner_id=f"local-lilies-assignment:{assignment.assignment_id}"
-    ) == []
+    assert (
+        await harness.list_secrets(owner_id=f"local-lilies-assignment:{assignment.assignment_id}")
+        == []
+    )
+
+
+@pytest.mark.asyncio
+async def test_completed_assignment_drains_and_acks_entire_terminal_tail(
+    tmp_path: Path,
+) -> None:
+    _, workflow, harness, auth = await platform_parts(tmp_path)
+    daemon = FakeDaemonClient()
+    bridge = bridge_for(tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon)
+    connection = await pair(bridge)
+    application_id = await empty_application(workflow, "completed-terminal-drain")
+    assignment = await bridge.start_build(
+        application_id,
+        build_request(connection.connection_id, "completed-terminal-drain"),
+    )
+    daemon.events = [
+        {
+            "seq": 1,
+            "event": "assignment.accepted",
+            "data": {"assignment_id": str(assignment.assignment_id)},
+        },
+        {
+            "seq": 2,
+            "event": "message.created",
+            "data": {"role": "assistant", "content": "final result"},
+        },
+        {
+            "seq": 3,
+            "event": "session.status_changed",
+            "data": {"from_status": "running", "to_status": "completed"},
+        },
+    ]
+    daemon.sessions[str(assignment.session_id)]["status"] = "completed"
+
+    relayed = await bridge.relay_events(assignment.assignment_id, max_events=1)
+
+    raw = await bridge.store.get_assignment(assignment.assignment_id)
+    events = await bridge.list_events(assignment.assignment_id)
+    assert relayed.assignment.phase == BridgeAssignmentPhase.completed
+    assert relayed.inserted == 3
+    assert relayed.relay_cursor == relayed.ack_cursor == daemon.acked == 3
+    assert [event.daemon_seq for event in events] == [1, 2, 3]
+    assert raw["terminal_events_drained_at"] is not None
+    assert (await workflow.get_build(str(assignment.build_id)))["status"] == "succeeded"
 
 
 @pytest.mark.asyncio
@@ -1860,26 +1827,23 @@ async def test_cancel_terminal_drain_is_bounded_and_restart_recovers_commit_befo
     assert committed["ack_cursor"] == 0
     assert committed["terminal_events_drained_at"] is None
 
-    recovered = bridge_for(
-        tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon
-    )
+    recovered = bridge_for(tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon)
     await recovered.initialize()
     first = await recovered.relay_events(assignment.assignment_id, max_events=1)
     assert first.assignment.phase == BridgeAssignmentPhase.cancelled
     assert first.relay_cursor == first.ack_cursor == 2
-    assert (
-        await recovered.store.get_assignment(assignment.assignment_id)
-    )["terminal_events_drained_at"] is None
+    assert (await recovered.store.get_assignment(assignment.assignment_id))[
+        "terminal_events_drained_at"
+    ] is None
     summary = await recovered.recover_pending_assignments()
     final = await recovered.store.get_assignment(assignment.assignment_id)
     assert summary.scanned == 1
     assert summary.cancelled == 1
     assert final["relay_cursor"] == final["ack_cursor"] == daemon.acked == 2
     assert final["terminal_events_drained_at"] is not None
-    assert [
-        event.event_type
-        for event in await recovered.list_events(assignment.assignment_id)
-    ][-1] == "assignment.cancelled"
+    assert [event.event_type for event in await recovered.list_events(assignment.assignment_id)][
+        -1
+    ] == "assignment.cancelled"
 
 
 @pytest.mark.asyncio
@@ -1891,9 +1855,7 @@ async def test_cancel_terminal_drain_receipt_mismatch_fails_closed(
     _, workflow, harness, auth = await platform_parts(tmp_path)
     daemon = FakeDaemonClient()
     daemon.emit_cancel_events = mismatch in {"event", "ack"}
-    bridge = bridge_for(
-        tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon
-    )
+    bridge = bridge_for(tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon)
     connection = await pair(bridge)
     application_id = await empty_application(workflow, f"terminal-{mismatch}")
     assignment = await bridge.start_build(
@@ -1932,9 +1894,7 @@ async def test_platform_restart_recovers_each_pending_assignment_without_bypassi
 ) -> None:
     _, workflow, harness, auth = await platform_parts(tmp_path)
     daemon = FakeDaemonClient()
-    bridge = bridge_for(
-        tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon
-    )
+    bridge = bridge_for(tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon)
     connection = await pair(bridge)
     assignments = []
     for marker in ("restart-interrupted", "restart-waiting", "restart-offline"):
@@ -1951,9 +1911,7 @@ async def test_platform_restart_recovers_each_pending_assignment_without_bypassi
     daemon.sessions[str(waiting.session_id)]["status"] = "waiting_permission"
     daemon.unavailable_sessions.add(str(offline.session_id))
 
-    restarted = bridge_for(
-        tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon
-    )
+    restarted = bridge_for(tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon)
     await restarted.initialize()
     summary = await restarted.recover_pending_assignments()
 
@@ -1998,9 +1956,7 @@ async def test_real_daemon_asgi_recovers_pair_and_reconnect_response_loss(
         )
         bridge_path = tmp_path / "platform" / "local-lilies-bridge.db"
 
-        pairing = await app.state.lilies_storage.create_pairing_code(
-            allowed_scopes=required_scopes
-        )
+        pairing = await app.state.lilies_storage.create_pairing_code(allowed_scopes=required_scopes)
         pair_request = PairLocalLiliesRequest(
             idempotency_key="real-pair-response-loss-0001",
             base_url="http://127.0.0.1:8765",
@@ -2034,22 +1990,17 @@ async def test_real_daemon_asgi_recovers_pair_and_reconnect_response_loss(
         )
         await recovered_pair_bridge.initialize()
         connection = (await recovered_pair_bridge.list_connections())[0]
-        paired_client = await app.state.lilies_storage.get_client(
-            str(connection.client_id)
-        )
+        paired_client = await app.state.lilies_storage.get_client(str(connection.client_id))
 
         assert connection.status.value == "connected"
         assert paired_client["client_id"] == str(connection.client_id)
         assert set(paired_client["scopes"]) == set(required_scopes)
-        assert set(scope.value for scope in connection.granted_scopes) == set(
-            required_scopes
-        )
+        assert set(scope.value for scope in connection.granted_scopes) == set(required_scopes)
         assert connection.expires_at is not None
         assert connection.expires_at.isoformat() == paired_client["expires_at"]
         assert await recovered_pair_bridge.pair_connection(pair_request) == connection
         assert [
-            event["event_type"]
-            for event in await app.state.lilies_storage.list_security_events()
+            event["event_type"] for event in await app.state.lilies_storage.list_security_events()
         ].count("pairing.exchange_replayed") == 0
 
         rotation = await app.state.lilies_storage.create_pairing_code(
@@ -2076,12 +2027,8 @@ async def test_real_daemon_asgi_recovers_pair_and_reconnect_response_loss(
             contract_digest_provider=lambda _scopes, _apps: DIGEST,
         )
         await recovered_reconnect_bridge.initialize()
-        reconnected = await recovered_reconnect_bridge.get_connection(
-            connection.connection_id
-        )
-        rotated_client = await app.state.lilies_storage.get_client(
-            str(reconnected.client_id)
-        )
+        reconnected = await recovered_reconnect_bridge.get_connection(connection.connection_id)
+        rotated_client = await app.state.lilies_storage.get_client(str(reconnected.client_id))
         replay = await recovered_reconnect_bridge.reconnect_connection(
             connection.connection_id, reconnect_request
         )
@@ -2091,9 +2038,7 @@ async def test_real_daemon_asgi_recovers_pair_and_reconnect_response_loss(
         assert reconnected.client_id == connection.client_id
         assert rotated_client["client_id"] == str(reconnected.client_id)
         assert set(rotated_client["scopes"]) == set(required_scopes)
-        assert set(scope.value for scope in reconnected.granted_scopes) == set(
-            required_scopes
-        )
+        assert set(scope.value for scope in reconnected.granted_scopes) == set(required_scopes)
         assert reconnected.expires_at is not None
         assert reconnected.expires_at.isoformat() == rotated_client["expires_at"]
         owner_id = f"local-lilies-connection:{connection.connection_id}"
@@ -2101,12 +2046,14 @@ async def test_real_daemon_asgi_recovers_pair_and_reconnect_response_loss(
             not item["name"].startswith("daemon-access-token-rotation-")
             for item in await harness.list_secrets(owner_id=owner_id)
         )
-        assert await recovered_reconnect_bridge.store.list_pending_connection_operations(
-            operation="reconnect"
-        ) == []
+        assert (
+            await recovered_reconnect_bridge.store.list_pending_connection_operations(
+                operation="reconnect"
+            )
+            == []
+        )
         security_event_types = [
-            event["event_type"]
-            for event in await app.state.lilies_storage.list_security_events()
+            event["event_type"] for event in await app.state.lilies_storage.list_security_events()
         ]
         assert security_event_types.count("pairing.exchanged") == 1
         assert security_event_types.count("pairing.rotated") == 1
@@ -2129,6 +2076,7 @@ async def test_real_daemon_asgi_cancel_terminal_events_drain_and_restart_recover
     app = create_lilies_app(settings, provider=ImmediateProvider())
     await app.state.lilies_service.initialize()
     try:
+
         class ASGIBoundedEventClient(LocalLiliesHttpClient):
             # httpx's in-process ASGI transport buffers an infinite streaming
             # response.  Keep every mutation/receipt on the real ASGI API while
@@ -2171,9 +2119,7 @@ async def test_real_daemon_asgi_cancel_terminal_events_drain_and_restart_recover
                 payload: dict[str, Any],
             ) -> dict[str, Any]:
                 self.ack_calls += 1
-                return await super().acknowledge_events(
-                    base_url, access_token, session_id, payload
-                )
+                return await super().acknowledge_events(base_url, access_token, session_id, payload)
 
             async def get_session(
                 self,
@@ -2182,9 +2128,7 @@ async def test_real_daemon_asgi_cancel_terminal_events_drain_and_restart_recover
                 session_id: str,
             ) -> dict[str, Any]:
                 self.get_session_calls += 1
-                return await super().get_session(
-                    base_url, access_token, session_id
-                )
+                return await super().get_session(base_url, access_token, session_id)
 
         code = await app.state.lilies_storage.create_pairing_code(
             allowed_scopes=[
@@ -2230,18 +2174,14 @@ async def test_real_daemon_asgi_cancel_terminal_events_drain_and_restart_recover
             first.assignment_id,
             idempotency_key="real-terminal-drain-cancel-0001",
         )
-        daemon_events = await app.state.lilies_storage.list_events(
-            str(first.session_id)
-        )
+        daemon_events = await app.state.lilies_storage.list_events(str(first.session_id))
         daemon_ack = await app.state.lilies_storage.get_ack(
             str(connection.client_id), str(first.session_id)
         )
         raw = await bridge.store.get_assignment(first.assignment_id)
         highest = max(int(event["seq"]) for event in daemon_events)
         assert cancelled.phase == BridgeAssignmentPhase.cancelled
-        assert "assignment.cancelled" in {
-            event["event_type"] for event in daemon_events
-        }
+        assert "assignment.cancelled" in {event["event_type"] for event in daemon_events}
         assert highest == raw["relay_cursor"] == raw["ack_cursor"]
         assert highest == daemon_ack["cursor"]
         assert raw["terminal_events_drained_at"] is not None
@@ -2277,18 +2217,14 @@ async def test_real_daemon_asgi_cancel_terminal_events_drain_and_restart_recover
         await restarted.initialize()
         recovery = await restarted.recover_pending_assignments()
         final = await restarted.store.get_assignment(second.assignment_id)
-        final_events = await app.state.lilies_storage.list_events(
-            str(second.session_id)
-        )
+        final_events = await app.state.lilies_storage.list_events(str(second.session_id))
         final_ack = await app.state.lilies_storage.get_ack(
             str(connection.client_id), str(second.session_id)
         )
         final_highest = max(int(event["seq"]) for event in final_events)
         assert recovery.scanned == 1
         assert recovery.cancelled == 1
-        assert "assignment.cancelled" in {
-            event["event_type"] for event in final_events
-        }
+        assert "assignment.cancelled" in {event["event_type"] for event in final_events}
         assert final_highest == final["relay_cursor"] == final["ack_cursor"]
         assert final_highest == final_ack["cursor"]
         assert final["terminal_events_drained_at"] is not None
@@ -2330,9 +2266,7 @@ async def test_real_daemon_asgi_pair_assignment_idempotency_and_no_prebuilt_draf
         )
         bridge = LocalLiliesBridge(
             enabled=True,
-            store=LocalLiliesBridgeStore(
-                tmp_path / "platform" / "local-lilies-bridge.db"
-            ),
+            store=LocalLiliesBridgeStore(tmp_path / "platform" / "local-lilies-bridge.db"),
             workflow_storage=workflow,
             harness=harness,
             auth_store=auth,
@@ -2365,9 +2299,7 @@ async def test_real_daemon_asgi_pair_assignment_idempotency_and_no_prebuilt_draf
         assert session["status"] == "ready" and provider.calls == 1, {
             "status": session["status"],
             "provider_calls": provider.calls,
-            "events": await app.state.lilies_storage.list_events(
-                str(assignment.session_id)
-            ),
+            "events": await app.state.lilies_storage.list_events(str(assignment.session_id)),
         }
         refreshed = await bridge.resume_assignment(assignment.assignment_id)
         assert refreshed.phase == BridgeAssignmentPhase.running

@@ -16,7 +16,7 @@ from .lilies_collaboration_client import (
     CollaborationHttpResult,
     LiliesCollaborationClient,
 )
-from .lilies_models import IdempotencyKey
+from .lilies_models import IdempotencyKey, OpaqueReference
 from .lilies_tools import (
     LiliesTool,
     LiliesToolContext,
@@ -129,6 +129,36 @@ class CollaborationVerificationClaimInput(StrictToolInput):
     claim: VerificationClaimPayload
 
 
+class CollaborationFormalRunArchiveInput(StrictToolInput):
+    idempotency_key: IdempotencyKey
+    claim_id: UUID
+    test_run_ids: list[OpaqueReference] = Field(min_length=1, max_length=500)
+    business_run_ids: list[OpaqueReference] = Field(min_length=1, max_length=500)
+    artifact_ids: list[UUID] = Field(default_factory=list, max_length=500)
+    host_receipt_ids: list[UUID] = Field(default_factory=list, max_length=500)
+    remaining_limits: list[str] = Field(default_factory=list, max_length=100)
+    summary: str = Field(min_length=1, max_length=20_000)
+
+    @model_validator(mode="after")
+    def identities_are_unique_and_disjoint(
+        self,
+    ) -> CollaborationFormalRunArchiveInput:
+        for values in (
+            self.test_run_ids,
+            self.business_run_ids,
+            self.artifact_ids,
+            self.host_receipt_ids,
+            self.remaining_limits,
+        ):
+            if len(values) != len(set(values)):
+                raise ValueError("formal archive identities must be unique")
+        if set(self.test_run_ids) & set(self.business_run_ids):
+            raise ValueError("test and business runs must be disjoint")
+        if set(self.artifact_ids) & set(self.host_receipt_ids):
+            raise ValueError("artifact and host-receipt identities must be disjoint")
+        return self
+
+
 _DESCRIPTIONS = {
     "collaboration_report_submit": (
         "Submit a new evidence-backed report, revise that same report after an evidence "
@@ -145,6 +175,12 @@ _DESCRIPTIONS = {
     "collaboration_verification_claim": (
         "Submit a frozen ready-for-independent-verification claim for this task. "
         "The claim is not a pass and remains subject to an independent verifier."
+    ),
+    "collaboration_formal_run_archive": (
+        "Freeze the final formal-run evidence intent while this daemon turn is still "
+        "running. The receipt is not success or a verifier pass. After authenticated "
+        "daemon completion and a complete event-tail drain, the platform automatically "
+        "archives the run and atomically freezes its server-computed v1.1 claim."
     ),
 }
 
@@ -242,6 +278,14 @@ class _CollaborationHttpTool(LiliesTool):
             payload["expected_channel_revision"] = revision
             return await self._attach_channel_state(
                 await self.client.submit_verification_claim(payload)
+            )
+        if self.name == "collaboration_formal_run_archive":
+            revision = await self._current_channel_revision()
+            if isinstance(revision, CollaborationHttpResult):
+                return revision
+            payload["expected_channel_revision"] = revision
+            return await self._attach_channel_state(
+                await self.client.prepare_formal_run_archive(payload)
             )
         archive_collection = payload.get("archive_collection")
         if archive_collection is not None:
@@ -397,7 +441,7 @@ def register_lilies_collaboration_tools(
     *,
     context_archive_reader: Callable[..., Awaitable[dict[str, Any]]] | None = None,
 ) -> LiliesToolRegistry:
-    """Add the three temporary tools to an already scoped assignment registry."""
+    """Add the four temporary tools to an already scoped assignment registry."""
 
     definitions: tuple[tuple[str, type[StrictToolInput], bool], ...] = (
         ("collaboration_report_submit", CollaborationReportSubmitInput, True),
@@ -405,6 +449,11 @@ def register_lilies_collaboration_tools(
         (
             "collaboration_verification_claim",
             CollaborationVerificationClaimInput,
+            True,
+        ),
+        (
+            "collaboration_formal_run_archive",
+            CollaborationFormalRunArchiveInput,
             True,
         ),
     )

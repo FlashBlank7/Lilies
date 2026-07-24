@@ -24,6 +24,7 @@ RESPONSE_ID = UUID("33333333-3333-4333-8333-333333333333")
 CHANNEL_ID = UUID("44444444-4444-4444-8444-444444444444")
 NOW = "2026-07-24T00:00:00Z"
 DIGEST = "sha256:" + "a" * 64
+SOURCE_DIGEST = "sha256:" + "b" * 64
 
 
 def _install_http_client(
@@ -55,6 +56,7 @@ def _lease_payload(
     status: str = "active",
     revision: int = 1,
     report_revision: int = 5,
+    include_workspace: bool = False,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "schema_version": "1.0",
@@ -70,6 +72,23 @@ def _lease_payload(
     }
     if status == "released":
         payload["released_at"] = "2026-07-24T00:02:00+00:00"
+    if include_workspace:
+        payload["developer_workspace"] = {
+            "schema_version": "1.0",
+            "task_id": "EXP-LILIES-TEST-001",
+            "task_revision": 1,
+            "run_id": "formal-run:developer-cli-001",
+            "assignment_id": "55555555-5555-4555-8555-555555555555",
+            "path": "/private/lilies/formal-developer-assignments/assignment-001",
+            "manifest_digest": DIGEST,
+            "policy_digest": "sha256:" + "b" * 64,
+            "source_manifest_digest": SOURCE_DIGEST,
+            "baseline_commit_sha": "a" * 40,
+            "baseline_tree_sha": "b" * 40,
+            "branch_ref": "refs/heads/main",
+            "allowed_new_prefixes": ["platform", "scripts", "tests"],
+            "allowed_new_files": ["pyproject.toml", "uv.lock"],
+        }
     return payload
 
 
@@ -119,6 +138,36 @@ def _developer_response_payload(*, include_bindings: bool) -> dict[str, Any]:
             }
         )
     return payload
+
+
+def _source_promotion_payload() -> dict[str, Any]:
+    return {
+        "schema_version": "1.0",
+        "assignment_id": "55555555-5555-4555-8555-555555555555",
+        "channel_id": str(CHANNEL_ID),
+        "report_id": str(REPORT_ID),
+        "report_revision": 5,
+        "lease_id": str(LEASE_ID),
+        "response_id": str(RESPONSE_ID),
+        "workspace_manifest_digest": DIGEST,
+        "source_manifest_digest": SOURCE_DIGEST,
+        "intent_digest": "sha256:" + "c" * 64,
+        "branch_ref": "refs/heads/main",
+        "parent_commit_sha": "a" * 40,
+        "parent_tree_sha": "b" * 40,
+        "commit_sha": "c" * 40,
+        "tree_sha": "d" * 40,
+        "changed_paths": ["tests/test_generic_intake.py"],
+        "object_state": "object_created",
+        "activation_state": "activated",
+        "reload_status": "not_required",
+        "effective": True,
+        "reload_confirmed": False,
+        "object_created_at": "2026-07-24T00:02:00Z",
+        "activated_at": "2026-07-24T00:02:00Z",
+        "process_instance_id": "66666666-6666-4666-8666-666666666666",
+        "receipt_digest": "sha256:" + "d" * 64,
+    }
 
 
 def _run_cli(
@@ -269,7 +318,11 @@ def test_cli_lease_renew_release_and_respond_use_strict_json_contracts(
                 json=_lease_payload(status="released", revision=3),
             )
         if request.url.path.endswith("/lease"):
-            return httpx.Response(200, request=request, json=_lease_payload())
+            return httpx.Response(
+                200,
+                request=request,
+                json=_lease_payload(include_workspace=True),
+            )
         if request.url.path.endswith("/responses"):
             return httpx.Response(
                 200,
@@ -317,6 +370,13 @@ def test_cli_lease_renew_release_and_respond_use_strict_json_contracts(
         assert exit_code == 0
         assert payload["lease_id"] == str(LEASE_ID)
         assert payload["owner_id"] == "codex-developer"
+        if command[0] == "lease":
+            assert payload["developer_workspace"]["path"].startswith("/private/")
+            assert payload["developer_workspace"]["manifest_digest"] == DIGEST
+            assert (
+                payload["developer_workspace"]["source_manifest_digest"]
+                == SOURCE_DIGEST
+            )
         assert stderr == ""
 
     response_file = tmp_path / "developer-response.json"
@@ -370,6 +430,63 @@ def test_cli_lease_renew_release_and_respond_use_strict_json_contracts(
     assert observed[3][2]["response"] == _developer_response_payload(
         include_bindings=False
     )
+
+
+def test_cli_promote_uses_exact_source_promotion_route_and_strict_json(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    observed: list[dict[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "POST"
+        assert request.url.path == (
+            f"/api/v1/developer/collaboration/reports/{REPORT_ID}/source-promotions"
+        )
+        assert request.headers["authorization"] == f"Bearer {DEVELOPER_TOKEN}"
+        body = json.loads(request.content)
+        observed.append(body)
+        return httpx.Response(
+            200,
+            request=request,
+            json=_source_promotion_payload(),
+        )
+
+    _install_http_client(monkeypatch, handler)
+    exit_code, payload, stderr = _run_cli(
+        monkeypatch,
+        capsys,
+        [
+            "promote",
+            str(REPORT_ID),
+            "--lease-id",
+            str(LEASE_ID),
+            "--expected-report-revision",
+            "5",
+            "--response-id",
+            str(RESPONSE_ID),
+            "--idempotency-key",
+            "developer-cli-promote-0001",
+            "--workspace-manifest-digest",
+            DIGEST,
+            "--source-manifest-digest",
+            SOURCE_DIGEST,
+        ],
+    )
+    assert exit_code == 0
+    assert stderr == ""
+    assert payload == _source_promotion_payload()
+    assert observed == [
+        {
+            "idempotency_key": "developer-cli-promote-0001",
+            "lease_id": str(LEASE_ID),
+            "lease_owner_id": "codex-developer",
+            "expected_report_revision": 5,
+            "response_id": str(RESPONSE_ID),
+            "workspace_manifest_digest": DIGEST,
+            "source_manifest_digest": SOURCE_DIGEST,
+        }
+    ]
 
 
 def test_http_error_json_redacts_bearer_and_returns_nonzero(

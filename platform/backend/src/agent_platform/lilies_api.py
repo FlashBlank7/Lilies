@@ -28,6 +28,8 @@ from .lilies_models import (
     DaemonStatus,
     DaemonStopRequest,
     DaemonStopResult,
+    FormalWorkspaceStagingReceipt,
+    FormalWorkspaceStagingRequest,
     LocalScope,
     PairingCodeCreateRequest,
     PairingCodeResult,
@@ -443,6 +445,22 @@ def create_lilies_app(
         await storage.get_session(session_id, client_id=client["client_id"])
         result = await service.submit_message(session_id, body, client_id=client["client_id"])
         return _operation_projection(result)
+
+    @app.post(
+        "/local/v1/sessions/{session_id}/formal-workspace",
+        status_code=201,
+        response_model=FormalWorkspaceStagingReceipt,
+    )
+    async def stage_formal_workspace(
+        session_id: str,
+        body: FormalWorkspaceStagingRequest,
+        client: ClientRecord = Depends(session_writer),
+    ) -> dict[str, Any]:
+        return await service.stage_formal_workspace(
+            session_id,
+            body,
+            client_id=client["client_id"],
+        )
 
     @app.post(
         "/local/v1/sessions/{session_id}/assignments",

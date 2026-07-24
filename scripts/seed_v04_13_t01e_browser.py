@@ -66,6 +66,7 @@ TASK_ID = "EXP-LILIES-T01E-BROWSER-FIXTURE"
 TASK_REVISION = 1
 FIXTURE_TIME = datetime(2026, 7, 24, 0, 0, tzinfo=timezone.utc)
 FIXTURE_COMMIT = "c" * 40
+MAX_REPORT_EVIDENCE_ROUNDS = 4
 SCENARIOS = (
     "verification_failed",
     "awaiting_user_review",
@@ -705,6 +706,7 @@ async def seed_fixture(database: Path = DEFAULT_DATABASE) -> dict[str, Any]:
             expires_at=_utc_now() + timedelta(days=7),
             retention_until=_utc_now() + timedelta(days=30),
             idempotency_key="t01e-browser-fixture-channel-activation-v1",
+            max_report_evidence_rounds=MAX_REPORT_EVIDENCE_ROUNDS,
         )
         channel = issued.channel.model_dump(mode="json", exclude_none=True)
         # The one-time value remains inside the service boundary and is never

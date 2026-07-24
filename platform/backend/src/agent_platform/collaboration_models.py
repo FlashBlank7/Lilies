@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
+import json
 import re
+from collections.abc import Mapping
 from datetime import datetime, timedelta, timezone
 from enum import Enum
+from pathlib import Path
 from typing import Annotated, Any, Literal, TypeVar
 from uuid import UUID
 
@@ -220,6 +225,7 @@ class LeaseStatus(str, Enum):
 
 class EvidenceKind(str, Enum):
     artifact = "artifact"
+    archive = "archive"
     trace = "trace"
     run = "run"
     test_run = "test_run"
@@ -522,6 +528,10 @@ class CollaborationChannel(StrictModel):
     # channels. New activation paths require at least one application.
     application_ids: list[UUID] = Field(default_factory=list, max_length=500)
     approval_mode: ApprovalMode = ApprovalMode.manual
+    # Formal channels freeze the assignment's per-report evidence-revision
+    # budget. ``None`` is reserved for read-only projection of pre-budget
+    # legacy channels; new formal activation always supplies a concrete bound.
+    max_report_evidence_rounds: int | None = Field(default=None, ge=1, le=100)
     status: ChannelStatus
     revision: int = Field(default=1, ge=1)
     next_seq: int = Field(default=1, ge=1)
@@ -949,10 +959,49 @@ class DeveloperResponse(DeveloperResponsePayload):
         return _require_utc(value)
 
 
+def frozen_claim_context_digest(value: Mapping[str, Any]) -> str:
+    """Digest the complete public, frozen verification context.
+
+    The protected package digest remains verifier-only. The public package,
+    environment-ready, archive, draft, run, artifact, and receipt bindings are
+    safe for Lilies to submit and sufficient for the broker to resolve the
+    protected package independently.
+    """
+
+    keys = (
+        "claim_id",
+        "application_id",
+        "draft_revision",
+        "content_hash",
+        "published_version",
+        "test_run_ids",
+        "business_run_ids",
+        "artifact_refs",
+        "host_receipt_refs",
+        "resolved_report_ids",
+        "remaining_limits",
+        "task_package_digest",
+        "environment_ready_digest",
+        "archive_manifest_digest",
+        "verification_process_digest",
+        "validation_mode",
+    )
+    context = {key: value.get(key) for key in keys}
+    encoded = json.dumps(
+        context,
+        ensure_ascii=False,
+        allow_nan=False,
+        separators=(",", ":"),
+        sort_keys=True,
+        default=str,
+    ).encode("utf-8")
+    return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
+
+
 class VerificationClaimPayload(SafePayloadModel):
     """Lilies-supplied frozen-draft evidence without server-owned lifecycle fields."""
 
-    schema_version: Literal["1.0"] = "1.0"
+    schema_version: Literal["1.0", "1.1"] = "1.0"
     claim_id: UUID
     application_id: UUID
     draft_revision: int = Field(ge=0)
@@ -964,6 +1013,12 @@ class VerificationClaimPayload(SafePayloadModel):
     host_receipt_refs: list[EvidenceRef] = Field(default_factory=list, max_length=500)
     resolved_report_ids: list[UUID] = Field(default_factory=list, max_length=500)
     remaining_limits: list[str] = Field(default_factory=list, max_length=100)
+    task_package_digest: Digest | None = None
+    environment_ready_digest: Digest | None = None
+    archive_manifest_digest: Digest | None = None
+    verification_process_digest: Digest | None = None
+    validation_mode: Literal["real_host"] | None = None
+    frozen_context_digest: Digest | None = None
     claim: Literal["ready_for_independent_verification"]
 
     @field_validator(
@@ -982,6 +1037,29 @@ class VerificationClaimPayload(SafePayloadModel):
             keys = value
         _unique(keys, label="claim entries")
         return value
+
+    @model_validator(mode="after")
+    def frozen_context_is_complete(self) -> VerificationClaimPayload:
+        frozen_fields = (
+            self.task_package_digest,
+            self.environment_ready_digest,
+            self.archive_manifest_digest,
+            self.verification_process_digest,
+            self.validation_mode,
+            self.frozen_context_digest,
+        )
+        if self.schema_version == "1.0":
+            if any(item is not None for item in frozen_fields):
+                raise ValueError("claim schema 1.0 cannot carry v1.1 frozen context")
+            return self
+        if any(item is None for item in frozen_fields):
+            raise ValueError("claim schema 1.1 requires complete frozen context")
+        expected = frozen_claim_context_digest(
+            self.model_dump(mode="json", exclude_none=True)
+        )
+        if not hmac.compare_digest(str(self.frozen_context_digest), expected):
+            raise ValueError("claim frozen_context_digest does not match its bindings")
+        return self
 
 
 class VerificationClaim(VerificationClaimPayload):
@@ -1031,12 +1109,18 @@ class VerificationDifference(StrictModel):
 class VerificationResultPayload(SafePayloadModel):
     """Verifier supplied oracle result without identity and claim bindings."""
 
-    schema_version: Literal["1.0"] = "1.0"
+    schema_version: Literal["1.0", "1.1"] = "1.0"
     verification_id: UUID
     verdict: VerificationVerdict
     oracle_digest: Digest
     differences: list[VerificationDifference] = Field(default_factory=list, max_length=500)
     evidence_refs: list[EvidenceRef] = Field(min_length=1, max_length=500)
+    task_package_digest: Digest | None = None
+    environment_ready_digest: Digest | None = None
+    archive_manifest_digest: Digest | None = None
+    frozen_context_digest: Digest | None = None
+    verification_process_digest: Digest | None = None
+    validation_mode: Literal["real_host"] | None = None
 
     @model_validator(mode="after")
     def verdict_matches_differences(self) -> VerificationResultPayload:
@@ -1044,6 +1128,19 @@ class VerificationResultPayload(SafePayloadModel):
             raise ValueError("successful verification must not contain differences")
         if self.verdict == VerificationVerdict.verification_failed and not self.differences:
             raise ValueError("failed verification requires expected/actual differences")
+        frozen_fields = (
+            self.task_package_digest,
+            self.environment_ready_digest,
+            self.archive_manifest_digest,
+            self.frozen_context_digest,
+            self.verification_process_digest,
+            self.validation_mode,
+        )
+        if self.schema_version == "1.0":
+            if any(item is not None for item in frozen_fields):
+                raise ValueError("verification schema 1.0 cannot carry v1.1 context")
+        elif any(item is None for item in frozen_fields):
+            raise ValueError("verification schema 1.1 requires complete frozen context")
         return self
 
 
@@ -1060,6 +1157,54 @@ class VerificationResult(VerificationResultPayload):
         return _require_utc(value)
 
 
+class DeveloperWorkspaceBinding(StrictModel):
+    """Private source snapshot disclosed only with an owned developer lease."""
+
+    schema_version: Literal["1.0"] = "1.0"
+    task_id: TaskId
+    task_revision: int = Field(ge=1)
+    run_id: OpaqueReference
+    assignment_id: UUID
+    path: str = Field(min_length=1, max_length=4_096)
+    manifest_digest: Digest
+    policy_digest: Digest
+    source_manifest_digest: Digest | None = None
+    baseline_commit_sha: CommitSha | None = None
+    baseline_tree_sha: CommitSha | None = None
+    branch_ref: str | None = Field(default=None, min_length=6, max_length=1_024)
+    allowed_new_prefixes: list[str] = Field(default_factory=list, max_length=100)
+    allowed_new_files: list[str] = Field(default_factory=list, max_length=100)
+
+    @field_validator("path")
+    @classmethod
+    def path_is_absolute(cls, value: str) -> str:
+        if not Path(value).is_absolute():
+            raise ValueError("developer workspace path must be absolute")
+        return value
+
+    @model_validator(mode="after")
+    def trusted_projection_is_complete(self) -> DeveloperWorkspaceBinding:
+        projection_fields = (
+            self.source_manifest_digest,
+            self.baseline_commit_sha,
+            self.baseline_tree_sha,
+            self.branch_ref,
+        )
+        if any(item is not None for item in projection_fields) and any(
+            item is None for item in projection_fields
+        ):
+            raise ValueError(
+                "developer workspace projection requires complete Git baseline binding"
+            )
+        if self.source_manifest_digest is None and (
+            self.allowed_new_prefixes or self.allowed_new_files
+        ):
+            raise ValueError(
+                "legacy developer workspace cannot declare projection allowlists"
+            )
+        return self
+
+
 class DeveloperLease(StrictModel):
     schema_version: Literal["1.0"] = "1.0"
     lease_id: UUID
@@ -1072,6 +1217,7 @@ class DeveloperLease(StrictModel):
     heartbeat_at: datetime
     expires_at: datetime
     released_at: datetime | None = None
+    developer_workspace: DeveloperWorkspaceBinding | None = None
 
     @field_validator("acquired_at", "heartbeat_at", "expires_at", "released_at")
     @classmethod
@@ -1376,12 +1522,68 @@ class LeaseReleaseRequest(StrictModel):
     reason: str = Field(min_length=1, max_length=2_000)
 
 
+class DeveloperWorkerReceiptReference(StrictModel):
+    """Opaque reference to a receipt held by the trusted worker broker."""
+
+    receipt_id: UUID
+    receipt_digest: Digest
+
+
 class DeveloperResponseRequest(StrictModel):
     idempotency_key: IdempotencyKey
     lease_id: UUID
     lease_owner_id: ActorId
     expected_report_revision: int = Field(ge=1)
+    developer_worker_receipt: DeveloperWorkerReceiptReference | None = None
     response: DeveloperResponsePayload
+
+
+class DeveloperSourcePromotionRequest(StrictModel):
+    """Developer request to promote only its lease-bound no-``.git`` delta."""
+
+    idempotency_key: IdempotencyKey
+    lease_id: UUID
+    lease_owner_id: ActorId
+    expected_report_revision: int = Field(ge=1)
+    response_id: UUID
+    workspace_manifest_digest: Digest
+    source_manifest_digest: Digest
+    developer_worker_receipt: DeveloperWorkerReceiptReference | None = None
+
+
+class DeveloperSourcePromotionResult(StrictModel):
+    """Public, strict receipt returned by trusted source promotion."""
+
+    schema_version: Literal["1.0"] = "1.0"
+    assignment_id: UUID
+    channel_id: UUID
+    report_id: UUID
+    report_revision: int = Field(ge=1)
+    lease_id: UUID
+    response_id: UUID
+    workspace_manifest_digest: Digest
+    source_manifest_digest: Digest
+    intent_digest: Digest
+    branch_ref: str = Field(min_length=6, max_length=1_024)
+    parent_commit_sha: CommitSha
+    parent_tree_sha: CommitSha
+    commit_sha: CommitSha
+    tree_sha: CommitSha
+    changed_paths: list[str] = Field(min_length=1, max_length=5_000)
+    object_state: Literal["object_created"]
+    activation_state: Literal["activated"]
+    reload_status: Literal["not_required", "restart_required", "confirmed"]
+    effective: bool | None = None
+    reload_confirmed: bool | None = None
+    object_created_at: datetime
+    activated_at: datetime
+    process_instance_id: UUID
+    receipt_digest: Digest
+
+    @field_validator("object_created_at", "activated_at")
+    @classmethod
+    def timestamps_are_utc(cls, value: datetime) -> datetime:
+        return _require_utc(value)
 
 
 class TaskPackageAmendmentRequest(StrictModel):

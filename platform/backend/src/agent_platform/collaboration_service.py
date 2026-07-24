@@ -30,6 +30,9 @@ from .collaboration_models import (
     DeveloperLease,
     DeveloperResponse,
     DeveloperResponseRequest,
+    DeveloperSourcePromotionRequest,
+    DeveloperWorkerReceiptReference,
+    DeveloperWorkspaceBinding,
     EvidenceRef,
     EnvironmentOutcome,
     EnvironmentResponse,
@@ -64,6 +67,10 @@ from .collaboration_models import (
     sanitize_collaboration_payload,
     validate_collaboration_payload_safety,
 )
+from .formal_developer_worker_broker import (
+    DeveloperWorkerReceipt,
+    DeveloperWorkerRunRequest,
+)
 from .lilies_models import AssignmentMode, CollaborationScope
 
 
@@ -73,9 +80,7 @@ _CAPABILITY_CATEGORIES = frozenset(
         ReportCategory.platform_defect_suspected,
     }
 )
-_OPEN_CHANNEL_STATUSES = frozenset(
-    {ChannelStatus.active, ChannelStatus.disconnected}
-)
+_OPEN_CHANNEL_STATUSES = frozenset({ChannelStatus.active, ChannelStatus.disconnected})
 _DEVELOPER_VISIBLE_REPORT_STATUSES = frozenset(
     {
         ReportStatus.approved_for_codex,
@@ -100,9 +105,7 @@ def _studio_derived_status(
     unread_count: int,
 ) -> dict[str, Any]:
     lease_by_report = {
-        str(item.get("report_id")): item
-        for item in active_leases
-        if item.get("report_id")
+        str(item.get("report_id")): item for item in active_leases if item.get("report_id")
     }
     open_reports = [
         report
@@ -175,9 +178,7 @@ def _studio_derived_status(
             owner_id = str(lease.get("owner_id")) if lease else "codex-developer"
             return result(
                 "developer_implementation",
-                "Codex 正在处理已批准的平台报告"
-                if lease
-                else "已批准报告等待 Codex 领取",
+                "Codex 正在处理已批准的平台报告" if lease else "已批准报告等待 Codex 领取",
                 "codex",
                 owner_id,
                 owner_id,
@@ -237,9 +238,7 @@ def _studio_derived_status(
                 "莉莉丝重跑同一检查并继续任务或提交差异。",
             )
 
-    frozen_claims = [
-        item for item in claims if str(item.get("status")) == ClaimStatus.frozen.value
-    ]
+    frozen_claims = [item for item in claims if str(item.get("status")) == ClaimStatus.frozen.value]
     if frozen_claims:
         return result(
             "independent_verification",
@@ -302,7 +301,6 @@ def _studio_derived_status(
     )
 
 
-
 class CollaborationError(RuntimeError):
     def __init__(
         self,
@@ -344,6 +342,16 @@ class CollaborationClosed(CollaborationError):
             "collaboration_channel_closed",
             "the collaboration channel is closed for new writes",
             status_code=410,
+        )
+
+
+class CollaborationBudgetExhausted(CollaborationError):
+    def __init__(self, *, report_id: UUID, reason: str) -> None:
+        super().__init__(
+            "report_evidence_budget_exhausted",
+            "the formal report evidence budget is exhausted and the assignment was stopped",
+            status_code=409,
+            identifiers={"report_id": str(report_id), "reason": reason},
         )
 
 
@@ -418,11 +426,7 @@ def _replay_receipt_after_conflict(
                         channel_id=actor.channel_id,
                         assignment_id=actor.assignment_id,
                     )
-                bindings = {
-                    name: kwargs[name]
-                    for name in binding_parameters
-                    if name in kwargs
-                }
+                bindings = {name: kwargs[name] for name in binding_parameters if name in kwargs}
                 client_request_digest = self._client_request_digest(
                     digest_operation,
                     request,
@@ -478,6 +482,17 @@ def _replay_lease_after_conflict(
                     reason=getattr(request, "reason", None),
                 )
                 if replay is not None:
+                    if operation == "acquire":
+                        report = CollaborationReport.model_validate(
+                            await self.store.get_report(UUID(str(report_id)))
+                        )
+                        self._require_developer_visible(report)
+                        channel = await self._channel(report.channel_id)
+                        self._require_open(channel)
+                        return await self._lease_with_developer_workspace(
+                            replay,
+                            channel,
+                        )
                     return replay
                 raise
 
@@ -542,19 +557,70 @@ class CollaborationService:
         verifier_token: str = "",
         reserved_role_tokens: Sequence[str] = (),
         now: Callable[[], datetime] = _utc_now,
-        draft_state_provider: Callable[
-            [str], Awaitable[Mapping[str, Any]] | Mapping[str, Any]
+        draft_state_provider: Callable[[str], Awaitable[Mapping[str, Any]] | Mapping[str, Any]]
+        | None = None,
+        developer_commit_resolver: Callable[[str], Awaitable[bool] | bool] | None = None,
+        developer_promotion_resolver: Callable[
+            [CollaborationChannel, DeveloperResponse],
+            Awaitable[bool] | bool,
         ]
         | None = None,
-        developer_commit_resolver: Callable[[str], Awaitable[bool] | bool]
-        | None = None,
-        developer_evidence_resolver: Callable[
-            [str, EvidenceRef], Awaitable[bool] | bool
-        ]
+        developer_evidence_resolver: Callable[[str, EvidenceRef], Awaitable[bool] | bool]
         | None = None,
         studio_context_provider: Callable[
             [CollaborationChannel],
             Awaitable[Mapping[str, Any] | BaseModel] | Mapping[str, Any] | BaseModel,
+        ]
+        | None = None,
+        developer_workspace_provider: Callable[
+            [CollaborationChannel],
+            Awaitable[Mapping[str, Any] | BaseModel] | Mapping[str, Any] | BaseModel,
+        ]
+        | None = None,
+        developer_source_promotion_provider: Callable[
+            [
+                CollaborationChannel,
+                CollaborationReport,
+                DeveloperLease,
+                DeveloperSourcePromotionRequest,
+            ],
+            Awaitable[Mapping[str, Any] | BaseModel]
+            | Mapping[str, Any]
+            | BaseModel,
+        ]
+        | None = None,
+        developer_worker_provider: Callable[
+            [
+                CollaborationChannel,
+                CollaborationReport,
+                DeveloperLease,
+                DeveloperWorkerRunRequest,
+            ],
+            Awaitable[Mapping[str, Any] | BaseModel]
+            | Mapping[str, Any]
+            | BaseModel,
+        ]
+        | None = None,
+        developer_worker_receipt_resolver: Callable[
+            [
+                CollaborationChannel,
+                CollaborationReport,
+                DeveloperLease,
+                UUID,
+                DeveloperWorkerReceiptReference,
+                bool,
+            ],
+            Awaitable[bool] | bool,
+        ]
+        | None = None,
+        formal_archive_provider: Callable[
+            [CollaborationChannel, Any, str],
+            Awaitable[Mapping[str, Any] | BaseModel] | Mapping[str, Any] | BaseModel,
+        ]
+        | None = None,
+        formal_source_response_recorder: Callable[
+            [UUID, UUID],
+            Awaitable[Any] | Any,
         ]
         | None = None,
         assignment_cancel_handler: Callable[
@@ -562,6 +628,23 @@ class CollaborationService:
             Awaitable[Any] | Any,
         ]
         | None = None,
+        verification_claim_resolver: Callable[
+            [CollaborationChannel, VerificationClaim],
+            Awaitable[bool] | bool,
+        ]
+        | None = None,
+        verification_result_resolver: Callable[
+            [VerificationClaim, Any],
+            Awaitable[bool] | bool,
+        ]
+        | None = None,
+        require_frozen_verification_evidence: (
+            bool
+            | Callable[
+                [CollaborationChannel],
+                Awaitable[bool] | bool,
+            ]
+        ) = False,
     ) -> None:
         self.store = store
         self.enabled = enabled
@@ -577,10 +660,58 @@ class CollaborationService:
         self._now = now
         self._draft_state_provider = draft_state_provider
         self._developer_commit_resolver = developer_commit_resolver
+        self._developer_promotion_resolver = developer_promotion_resolver
         self._developer_evidence_resolver = developer_evidence_resolver
         self._studio_context_provider = studio_context_provider
+        self._developer_workspace_provider = developer_workspace_provider
+        self._developer_source_promotion_provider = (
+            developer_source_promotion_provider
+        )
+        self._developer_worker_provider = developer_worker_provider
+        self._developer_worker_receipt_resolver = (
+            developer_worker_receipt_resolver
+        )
+        self._formal_archive_provider = formal_archive_provider
+        self._formal_source_response_recorder = formal_source_response_recorder
         self._assignment_cancel_handler = assignment_cancel_handler
+        self._verification_claim_resolver = verification_claim_resolver
+        self._verification_result_resolver = verification_result_resolver
+        self._require_frozen_verification_evidence = require_frozen_verification_evidence
         self._event_subscribers: dict[UUID, set[CollaborationEventSubscription]] = {}
+
+    async def _record_formal_source_response(
+        self,
+        *,
+        channel_id: UUID,
+        response_id: UUID,
+    ) -> None:
+        provider = self._formal_source_response_recorder
+        if provider is None:
+            return
+        recorded = provider(channel_id, response_id)
+        if inspect.isawaitable(recorded):
+            await recorded
+
+    async def _raise_report_evidence_budget_exhausted(
+        self,
+        record: Mapping[str, Any],
+        *,
+        report_id: UUID,
+    ) -> None:
+        reason = str(record.get("reason") or "max_report_evidence_rounds")
+        assignment_id = UUID(str(record["assignment_id"]))
+        if self._assignment_cancel_handler is not None:
+            cancellation = self._assignment_cancel_handler(
+                assignment_id,
+                f"collaboration.report-budget.{report_id.hex}",
+                f"report evidence budget exhausted: {reason}",
+            )
+            if inspect.isawaitable(cancellation):
+                await cancellation
+        channel_id = record.get("channel_id")
+        if channel_id is not None:
+            self._notify_events(UUID(str(channel_id)))
+        raise CollaborationBudgetExhausted(report_id=report_id, reason=reason)
 
     async def initialize(self) -> None:
         await self.store.initialize()
@@ -598,16 +729,172 @@ class CollaborationService:
             )
         return result
 
+    async def _developer_workspace(
+        self,
+        channel: CollaborationChannel,
+    ) -> DeveloperWorkspaceBinding | None:
+        if self._developer_workspace_provider is None:
+            return None
+        try:
+            result = self._developer_workspace_provider(channel)
+            if inspect.isawaitable(result):
+                result = await result
+            binding = DeveloperWorkspaceBinding.model_validate(result)
+        except Exception as error:
+            raise CollaborationConflict(
+                "developer_workspace_unavailable",
+                "the formal developer workspace could not be verified",
+            ) from error
+        if (
+            binding.task_id != channel.task_id
+            or binding.task_revision != channel.task_revision
+            or binding.assignment_id != channel.assignment_id
+        ):
+            raise CollaborationConflict(
+                "developer_workspace_mismatch",
+                "the developer workspace is not bound to this formal channel",
+            )
+        return binding
+
+    async def _lease_with_developer_workspace(
+        self,
+        lease: Any,
+        channel: CollaborationChannel,
+    ) -> dict[str, Any]:
+        result = _as_dict(lease)
+        binding = await self._developer_workspace(channel)
+        if binding is not None:
+            result["developer_workspace"] = binding.model_dump(
+                mode="json",
+                exclude_none=True,
+            )
+        return result
+
+    async def _require_trusted_verification_claim(
+        self,
+        *,
+        channel: CollaborationChannel,
+        claim: VerificationClaim,
+    ) -> None:
+        if not await self._frozen_verification_required(channel):
+            return
+        if claim.schema_version != "1.1":
+            raise CollaborationConflict(
+                "frozen_verification_claim_required",
+                "formal verification requires a frozen v1.1 claim",
+            )
+        resolver = self._verification_claim_resolver
+        if resolver is None:
+            raise CollaborationConflict(
+                "verification_claim_resolver_unavailable",
+                "the trusted frozen-archive resolver is unavailable",
+            )
+        try:
+            resolved = resolver(channel, claim)
+            if inspect.isawaitable(resolved):
+                resolved = await resolved
+        except Exception as error:
+            raise CollaborationConflict(
+                "verification_claim_resolution_failed",
+                "the frozen claim could not be resolved against trusted evidence",
+            ) from error
+        if resolved is not True:
+            raise CollaborationConflict(
+                "verification_claim_untrusted",
+                "the claim does not match a trusted frozen run archive",
+            )
+
+    async def _require_trusted_verification_result(
+        self,
+        *,
+        channel: CollaborationChannel,
+        claim: VerificationClaim,
+        result: Any,
+    ) -> None:
+        if not await self._frozen_verification_required(channel):
+            return
+        if claim.schema_version != "1.1" or result.schema_version != "1.1":
+            raise CollaborationConflict(
+                "frozen_verification_result_required",
+                "formal verification requires matching v1.1 claim and result evidence",
+            )
+        frozen_fields = (
+            "task_package_digest",
+            "environment_ready_digest",
+            "archive_manifest_digest",
+            "verification_process_digest",
+            "frozen_context_digest",
+            "validation_mode",
+        )
+        if any(
+            str(getattr(result, field, None)) != str(getattr(claim, field, None))
+            for field in frozen_fields
+        ):
+            raise CollaborationConflict(
+                "verification_result_binding_mismatch",
+                "verification result does not bind the exact frozen claim context",
+            )
+        resolver = self._verification_result_resolver
+        if resolver is None:
+            raise CollaborationConflict(
+                "verification_result_resolver_unavailable",
+                "the trusted verifier-result resolver is unavailable",
+            )
+        try:
+            resolved = resolver(claim, result)
+            if inspect.isawaitable(resolved):
+                resolved = await resolved
+        except Exception as error:
+            raise CollaborationConflict(
+                "verification_result_resolution_failed",
+                "the verification result could not be resolved against trusted evidence",
+            ) from error
+        if resolved is not True:
+            raise CollaborationConflict(
+                "verification_result_untrusted",
+                "the verification result is not backed by the trusted verifier process",
+            )
+
+    async def _frozen_verification_required(
+        self,
+        channel: CollaborationChannel,
+    ) -> bool:
+        requirement = self._require_frozen_verification_evidence
+        if isinstance(requirement, bool):
+            return requirement
+        try:
+            required = requirement(channel)
+            if inspect.isawaitable(required):
+                required = await required
+        except Exception as error:
+            raise CollaborationConflict(
+                "verification_evidence_requirement_failed",
+                "the formal verification policy could not resolve the task package",
+            ) from error
+        if not isinstance(required, bool):
+            raise CollaborationConflict(
+                "verification_evidence_requirement_invalid",
+                "the formal verification policy returned an invalid decision",
+            )
+        return required
+
     async def _require_developer_response_evidence(
         self,
+        channel: CollaborationChannel,
         response: DeveloperResponse,
     ) -> None:
         if response.outcome.value != "implemented":
             return
+        promotion_required = await self._frozen_verification_required(channel)
+        if promotion_required and self._developer_promotion_resolver is None:
+            raise CollaborationConflict(
+                "developer_promotion_resolver_unavailable",
+                "formal implemented responses require the trusted promotion resolver",
+            )
         if (
-            self._developer_commit_resolver is None
-            or self._developer_evidence_resolver is None
-        ):
+            self._developer_promotion_resolver is None
+            and self._developer_commit_resolver is None
+        ) or self._developer_evidence_resolver is None:
             raise CollaborationConflict(
                 "developer_evidence_resolver_unavailable",
                 "implemented developer responses require trusted commit and evidence resolvers",
@@ -618,20 +905,37 @@ class CollaborationService:
                 "developer_commit_missing",
                 "implemented developer response has no commit",
             )
-        try:
-            commit_exists = self._developer_commit_resolver(commit_sha)
-            if inspect.isawaitable(commit_exists):
-                commit_exists = await commit_exists
-        except Exception as error:
-            raise CollaborationConflict(
-                "developer_commit_resolution_failed",
-                "the declared implementation commit could not be resolved",
-            ) from error
-        if commit_exists is not True:
-            raise CollaborationConflict(
-                "developer_commit_not_found",
-                "the declared implementation commit does not exist in the trusted source",
-            )
+        if self._developer_promotion_resolver is not None:
+            try:
+                promoted = self._developer_promotion_resolver(channel, response)
+                if inspect.isawaitable(promoted):
+                    promoted = await promoted
+            except Exception as error:
+                raise CollaborationConflict(
+                    "developer_promotion_resolution_failed",
+                    "the declared implementation promotion could not be resolved",
+                ) from error
+            if promoted is not True:
+                raise CollaborationConflict(
+                    "developer_commit_not_promoted",
+                    "the declared commit is not the effective promotion for this response",
+                )
+        else:
+            assert self._developer_commit_resolver is not None
+            try:
+                commit_exists = self._developer_commit_resolver(commit_sha)
+                if inspect.isawaitable(commit_exists):
+                    commit_exists = await commit_exists
+            except Exception as error:
+                raise CollaborationConflict(
+                    "developer_commit_resolution_failed",
+                    "the declared implementation commit could not be resolved",
+                ) from error
+            if commit_exists is not True:
+                raise CollaborationConflict(
+                    "developer_commit_not_found",
+                    "the declared implementation commit does not exist in the trusted source",
+                )
 
         evidence_refs = [test.evidence_ref for test in response.tests_run]
         evidence_refs.extend(response.browser_or_live_evidence)
@@ -658,6 +962,51 @@ class CollaborationService:
                     "developer_evidence_not_found",
                     "declared developer evidence is absent or has another digest",
                 )
+
+    async def _require_developer_worker_receipt(
+        self,
+        *,
+        channel: CollaborationChannel,
+        report: CollaborationReport,
+        lease: DeveloperLease,
+        response_id: UUID,
+        reference: DeveloperWorkerReceiptReference | None,
+        require_success: bool,
+    ) -> None:
+        if not await self._frozen_verification_required(channel):
+            return
+        if reference is None:
+            raise CollaborationConflict(
+                "developer_worker_receipt_required",
+                "formal developer work requires a trusted OS worker receipt",
+            )
+        resolver = self._developer_worker_receipt_resolver
+        if resolver is None:
+            raise CollaborationConflict(
+                "developer_worker_receipt_resolver_unavailable",
+                "the trusted developer worker receipt resolver is unavailable",
+            )
+        try:
+            resolved = resolver(
+                channel,
+                report,
+                lease,
+                response_id,
+                reference,
+                require_success,
+            )
+            if inspect.isawaitable(resolved):
+                resolved = await resolved
+        except Exception as error:
+            raise CollaborationConflict(
+                "developer_worker_receipt_resolution_failed",
+                "the developer worker receipt could not be resolved",
+            ) from error
+        if resolved is not True:
+            raise CollaborationConflict(
+                "developer_worker_receipt_untrusted",
+                "the developer worker receipt is forged, stale, or differently bound",
+            )
 
     def require_enabled(self) -> None:
         if not self.enabled:
@@ -883,6 +1232,7 @@ class CollaborationService:
         expires_at: datetime,
         retention_until: datetime | None,
         idempotency_key: str,
+        max_report_evidence_rounds: int,
         prepared_access_token: SecretStr | None = None,
     ) -> IssuedCollaborationChannel:
         self.require_enabled()
@@ -931,10 +1281,7 @@ class CollaborationService:
         )
         if len(bearer) < 32:
             raise ValueError("prepared collaboration token is too short")
-        if any(
-            hmac.compare_digest(bearer, reserved)
-            for reserved in self._reserved_role_tokens
-        ):
+        if any(hmac.compare_digest(bearer, reserved) for reserved in self._reserved_role_tokens):
             raise CollaborationConflict(
                 "collaboration_credential_role_collision",
                 "collaboration credential must not reuse another role credential",
@@ -950,6 +1297,7 @@ class CollaborationService:
             lilies_session_id=lilies_session_id,
             application_ids=normalized_application_ids,
             approval_mode=ApprovalMode.manual,
+            max_report_evidence_rounds=max_report_evidence_rounds,
             status=ChannelStatus.active,
             revision=1,
             next_seq=1,
@@ -1012,6 +1360,66 @@ class CollaborationService:
             credential_ref=credential_ref,
             access_token=SecretStr(bearer),
         )
+
+    async def close_formal_assignment_channel(
+        self,
+        *,
+        assignment_mode: AssignmentMode | str,
+        task_id: str,
+        task_revision: int,
+        assignment_id: UUID,
+        lilies_session_id: UUID,
+        application_ids: Sequence[UUID],
+    ) -> dict[str, Any]:
+        """Revoke one exact formal channel, including pre-activation races."""
+
+        self.require_enabled()
+        mode = (
+            assignment_mode
+            if isinstance(assignment_mode, AssignmentMode)
+            else AssignmentMode(assignment_mode)
+        )
+        if mode is not AssignmentMode.formal_experiment:
+            raise CollaborationConflict(
+                "collaboration_not_formal",
+                "only a formal assignment can close formal collaboration authority",
+            )
+        normalized_application_ids = list(dict.fromkeys(application_ids))
+        if not normalized_application_ids:
+            raise CollaborationConflict(
+                "collaboration_application_binding_missing",
+                "formal channel close requires its exact application binding",
+            )
+        channel_id = uuid5(
+            NAMESPACE_URL,
+            f"lilies:collaboration:{task_id}:{task_revision}:{assignment_id}",
+        )
+        raw = await self.store.close_formal_channel_boundary(
+            channel_id=channel_id,
+            task_id=task_id,
+            task_revision=task_revision,
+            assignment_id=assignment_id,
+            lilies_session_id=lilies_session_id,
+            application_ids=normalized_application_ids,
+            idempotency_key=f"formal.channel.close.{assignment_id.hex}",
+        )
+        channel = CollaborationChannel.model_validate(raw)
+        if (
+            channel.channel_id != channel_id
+            or channel.task_id != task_id
+            or channel.task_revision != task_revision
+            or channel.assignment_id != assignment_id
+            or channel.lilies_session_id != lilies_session_id
+            or channel.application_ids != normalized_application_ids
+            or channel.status is not ChannelStatus.closed
+            or channel.closed_at is None
+        ):
+            raise CollaborationConflict(
+                "collaboration_formal_close_mismatch",
+                "formal channel close returned another frozen identity",
+            )
+        self._notify_events(channel_id)
+        return channel.model_dump(mode="json", exclude_none=True)
 
     async def authenticate_lilies(
         self,
@@ -1113,9 +1521,7 @@ class CollaborationService:
         principal: CollaborationPrincipal | None = None,
     ) -> CollaborationChannel:
         try:
-            channel = CollaborationChannel.model_validate(
-                await self.store.get_channel(channel_id)
-            )
+            channel = CollaborationChannel.model_validate(await self.store.get_channel(channel_id))
         except (KeyError, ValueError, ValidationError) as error:
             raise CollaborationNotFound() from error
         if principal is not None and principal.channel_id not in {None, channel_id}:
@@ -1167,9 +1573,7 @@ class CollaborationService:
             "sender_role": sender_role.value,
             "sender_id": sender_id,
             "correlation_id": str(correlation_id),
-            "causal_parent_id": (
-                str(causal_parent_id) if causal_parent_id is not None else None
-            ),
+            "causal_parent_id": (str(causal_parent_id) if causal_parent_id is not None else None),
             "idempotency_key": idempotency_key,
             "visibility": visibility.value,
             "payload_schema": payload_schema.value,
@@ -1230,8 +1634,7 @@ class CollaborationService:
             "outbox_id": str(
                 uuid5(
                     NAMESPACE_URL,
-                    f"lilies:collaboration-outbox:{channel_id}:{destination}:"
-                    f"{idempotency_key}",
+                    f"lilies:collaboration-outbox:{channel_id}:{destination}:{idempotency_key}",
                 )
             ),
             "channel_id": str(channel_id),
@@ -1320,12 +1723,8 @@ class CollaborationService:
             and channel.approval_mode is ApprovalMode.auto_forward
         )
         capability_intake = payload.category in _CAPABILITY_CATEGORIES
-        initial_route = (
-            ReportRoute.capability_approval if capability_intake else route
-        )
-        initial_status = (
-            ReportStatus.observed if capability_intake else report_status
-        )
+        initial_route = ReportRoute.capability_approval if capability_intake else route
+        initial_status = ReportStatus.observed if capability_intake else report_status
         now = self._now()
         message_id = uuid4()
         message = self._message(
@@ -1377,9 +1776,7 @@ class CollaborationService:
             )
         validated_revision = 1
         if capability_intake:
-            intake_key_digest = hashlib.sha256(
-                request.idempotency_key.encode()
-            ).hexdigest()
+            intake_key_digest = hashlib.sha256(request.idempotency_key.encode()).hexdigest()
             validation_status = (
                 ReportStatus.awaiting_user_review
                 if payload.is_complete_for_routing()
@@ -1406,8 +1803,7 @@ class CollaborationService:
             validated_revision = 3
         if auto_forward:
             auto_key = (
-                "auto-forward:"
-                + hashlib.sha256(request.idempotency_key.encode()).hexdigest()
+                "auto-forward:" + hashlib.sha256(request.idempotency_key.encode()).hexdigest()
             )
             approval = ApprovalDecision(
                 approval_id=uuid5(
@@ -1497,6 +1893,11 @@ class CollaborationService:
             client_request_digest=client_request_digest,
         )
         if operation_replay is not None:
+            if operation_replay.get("budget_exhausted") is True:
+                await self._raise_report_evidence_budget_exhausted(
+                    operation_replay,
+                    report_id=report_id,
+                )
             return operation_replay
         replay = await self._message_replay(
             channel_id=channel_id,
@@ -1592,9 +1993,7 @@ class CollaborationService:
         validation_transition: dict[str, Any] | None = None
         validated_revision = next_revision
         if validation_status is not None:
-            revision_key_digest = hashlib.sha256(
-                request.idempotency_key.encode()
-            ).hexdigest()
+            revision_key_digest = hashlib.sha256(request.idempotency_key.encode()).hexdigest()
             validation_transition = {
                 "status": validation_status.value,
                 "route": ReportRoute.capability_approval.value,
@@ -1607,8 +2006,7 @@ class CollaborationService:
         auto_forward_record: dict[str, Any] | None = None
         if auto_forward:
             auto_key = (
-                "auto-forward:"
-                + hashlib.sha256(request.idempotency_key.encode()).hexdigest()
+                "auto-forward:" + hashlib.sha256(request.idempotency_key.encode()).hexdigest()
             )
             now = self._now()
             approval = ApprovalDecision(
@@ -1680,10 +2078,14 @@ class CollaborationService:
             auto_forward=auto_forward_record,
             validation_transition=validation_transition,
             expected_channel_revision=(channel.revision if auto_forward else None),
-            expected_approval_mode=(
-                ApprovalMode.auto_forward.value if auto_forward else None
-            ),
+            expected_approval_mode=(ApprovalMode.auto_forward.value if auto_forward else None),
+            consume_evidence_budget=True,
         )
+        if stored.get("budget_exhausted") is True:
+            await self._raise_report_evidence_budget_exhausted(
+                stored,
+                report_id=report_id,
+            )
         self._notify_events(channel_id)
         return _as_dict(stored)
 
@@ -1828,9 +2230,7 @@ class CollaborationService:
                 limit=limit,
                 visibilities=allowed_visibilities,
                 lilies_claim_sender_id=(
-                    actor.sender_id
-                    if actor.role is SenderRole.lilies and history_replay
-                    else None
+                    actor.sender_id if actor.role is SenderRole.lilies and history_replay else None
                 ),
             )
         )
@@ -1844,8 +2244,7 @@ class CollaborationService:
                 and visibility is MessageVisibility.verifier
                 and projected.get("sender_role") == SenderRole.lilies.value
                 and projected.get("sender_id") == actor.sender_id
-                and projected.get("message_type")
-                == MessageType.verification_claim.value
+                and projected.get("message_type") == MessageType.verification_claim.value
             )
             allowed = (
                 allowed_visibilities is None
@@ -1911,6 +2310,7 @@ class CollaborationService:
             "reader_cursor": cursor.model_dump(mode="json", exclude_none=True),
         }
         if latest_claim is not None:
+
             def collection_digest(value: Any) -> str:
                 canonical = json.dumps(
                     value,
@@ -1919,9 +2319,7 @@ class CollaborationService:
                     separators=(",", ":"),
                     sort_keys=True,
                 )
-                return "sha256:" + hashlib.sha256(
-                    canonical.encode("utf-8")
-                ).hexdigest()
+                return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
             artifact_refs = latest_claim.get("artifact_refs", [])
             host_receipt_refs = latest_claim.get("host_receipt_refs", [])
@@ -2392,9 +2790,7 @@ class CollaborationService:
             CollaborationReport.model_validate(item)
             for item in _as_list(await self.store.list_reports(channel_id=channel_id))
         ]
-        reports = [
-            item.model_dump(mode="json", exclude_none=True) for item in typed_reports
-        ]
+        reports = [item.model_dump(mode="json", exclude_none=True) for item in typed_reports]
         messages: list[dict[str, Any]] = []
         after = 0
         while True:
@@ -2447,9 +2843,7 @@ class CollaborationService:
                     mode="json",
                     exclude_none=True,
                 )
-                for item in _as_list(
-                    await list_claims(channel_id=channel_id, after=0, limit=5_000)
-                )
+                for item in _as_list(await list_claims(channel_id=channel_id, after=0, limit=5_000))
             ]
         unread_count = max(0, channel.next_seq - 1)
         reader_cursor: dict[str, Any] | None = None
@@ -2503,8 +2897,7 @@ class CollaborationService:
                         reader_role=SenderRole.user,
                         expected_cursor_revision=cursor_revision,
                         idempotency_key=(
-                            f"studio.read.{channel_id.hex}."
-                            f"{highest_seq}.{cursor_revision}"
+                            f"studio.read.{channel_id.hex}.{highest_seq}.{cursor_revision}"
                         ),
                     )
                     break
@@ -2615,9 +3008,7 @@ class CollaborationService:
                             continue
                         if parsed_route is not None and report.route is not parsed_route:
                             continue
-                        visible_reports.append(
-                            report.model_dump(mode="json", exclude_none=True)
-                        )
+                        visible_reports.append(report.model_dump(mode="json", exclude_none=True))
                     elif claim_id is not None:
                         claim = VerificationClaim.model_validate(
                             delivery.get("claim_snapshot")
@@ -2668,9 +3059,7 @@ class CollaborationService:
             )
         if hasattr(self.store, "list_claims"):
             for item in _as_list(
-                await self.store.list_claims(
-                    statuses=[ClaimStatus.frozen.value], limit=5_000
-                )
+                await self.store.list_claims(statuses=[ClaimStatus.frozen.value], limit=5_000)
             ):
                 claim = VerificationClaim.model_validate(item)
                 visible_entries.append(
@@ -2725,7 +3114,16 @@ class CollaborationService:
             ttl_seconds=request.ttl_seconds,
         )
         if replay is not None:
-            return replay
+            replay_report = CollaborationReport.model_validate(
+                await self.store.get_report(report_id)
+            )
+            self._require_developer_visible(replay_report)
+            replay_channel = await self._channel(replay_report.channel_id)
+            self._require_open(replay_channel)
+            return await self._lease_with_developer_workspace(
+                replay,
+                replay_channel,
+            )
         await self.store.expire_developer_leases(now=self._now())
         report = CollaborationReport.model_validate(await self.store.get_report(report_id))
         self._require_developer_visible(report)
@@ -2745,6 +3143,7 @@ class CollaborationService:
             raise CollaborationConflict(
                 "report_not_leaseable", "report is not available for developer handling"
             )
+        developer_workspace = await self._developer_workspace(channel)
         now = self._now()
         lease = DeveloperLease(
             lease_id=uuid4(),
@@ -2774,7 +3173,13 @@ class CollaborationService:
                 )
             ),
         )
-        return _as_dict(stored)
+        result = _as_dict(stored)
+        if developer_workspace is not None:
+            result["developer_workspace"] = developer_workspace.model_dump(
+                mode="json",
+                exclude_none=True,
+            )
+        return result
 
     @_replay_lease_after_conflict("renew")
     async def renew_developer_lease(
@@ -2879,6 +3284,211 @@ class CollaborationService:
             )
         return lease
 
+    async def run_developer_worker(
+        self,
+        *,
+        principal: Any,
+        report_id: UUID,
+        request: DeveloperWorkerRunRequest,
+    ) -> dict[str, Any]:
+        """Run the fixed developer runtime without disclosing its API bearer."""
+
+        actor = self._principal(principal)
+        if actor.role is not SenderRole.codex or request.lease_owner_id != actor.sender_id:
+            raise CollaborationNotFound()
+        report = CollaborationReport.model_validate(
+            await self.store.get_report(report_id)
+        )
+        client_request_digest = self._client_request_digest(
+            "developer.worker",
+            request,
+            report_id=report_id,
+        )
+        replay = await self._operation_replay(
+            operation="developer.worker",
+            scope_id=report_id,
+            actor=actor,
+            idempotency_key=request.idempotency_key,
+            client_request_digest=client_request_digest,
+        )
+        if replay is not None:
+            try:
+                return DeveloperWorkerReceipt.model_validate(replay).model_dump(
+                    mode="json",
+                    exclude_none=True,
+                )
+            except ValidationError as error:
+                raise CollaborationConflict(
+                    "developer_worker_receipt_untrusted",
+                    "the archived developer worker receipt is invalid",
+                ) from error
+        self._require_developer_visible(report)
+        channel = await self._channel(report.channel_id)
+        self._require_open(channel)
+        if report.category not in _CAPABILITY_CATEGORIES:
+            raise CollaborationConflict(
+                "wrong_response_route",
+                "only capability reports can run the developer worker",
+            )
+        if report.status is not ReportStatus.implementing:
+            raise CollaborationConflict(
+                "report_not_implementing",
+                "report is not in the implementing state",
+            )
+        if report.revision != request.expected_report_revision:
+            raise CollaborationConflict(
+                "report_revision_conflict",
+                "report changed before developer worker execution",
+            )
+        lease = await self._active_owned_lease(
+            report=report,
+            actor=actor,
+            lease_id=request.lease_id,
+        )
+        provider = self._developer_worker_provider
+        if provider is None:
+            raise CollaborationConflict(
+                "developer_worker_unavailable",
+                "the trusted OS developer worker is unavailable",
+            )
+        try:
+            supplied = provider(channel, report, lease, request)
+            if inspect.isawaitable(supplied):
+                supplied = await supplied
+            receipt = DeveloperWorkerReceipt.model_validate(supplied)
+        except Exception as error:
+            raise CollaborationConflict(
+                "developer_worker_rejected",
+                "the developer runtime did not produce a trusted OS receipt",
+            ) from error
+        if (
+            receipt.assignment_id != channel.assignment_id
+            or receipt.channel_id != channel.channel_id
+            or receipt.report_id != report.report_id
+            or receipt.report_revision != report.revision
+            or receipt.lease_id != lease.lease_id
+            or receipt.lease_owner_id != lease.owner_id
+            or receipt.response_id != request.response_id
+        ):
+            raise CollaborationConflict(
+                "developer_worker_receipt_untrusted",
+                "the developer worker receipt has another formal binding",
+            )
+        reference = DeveloperWorkerReceiptReference(
+            receipt_id=receipt.receipt_id,
+            receipt_digest=receipt.receipt_digest,
+        )
+        await self._require_developer_worker_receipt(
+            channel=channel,
+            report=report,
+            lease=lease,
+            response_id=request.response_id,
+            reference=reference,
+            require_success=False,
+        )
+        persist = getattr(self.store, "record_operation_receipt", None)
+        if not callable(persist):
+            raise CollaborationConflict(
+                "developer_worker_receipt_store_unavailable",
+                "the trusted developer worker receipt store is unavailable",
+            )
+        stored = await persist(
+            operation="developer.worker",
+            scope_id=report_id,
+            actor_role=actor.role.value,
+            actor_id=actor.sender_id,
+            idempotency_key=request.idempotency_key,
+            request_digest=client_request_digest,
+            response_kind="developer_worker_receipt",
+            response=receipt.model_dump(mode="json", exclude_none=True),
+        )
+        try:
+            return DeveloperWorkerReceipt.model_validate(stored).model_dump(
+                mode="json",
+                exclude_none=True,
+            )
+        except ValidationError as error:
+            raise CollaborationConflict(
+                "developer_worker_receipt_untrusted",
+                "the durable developer worker receipt changed during archival",
+            ) from error
+
+    async def promote_developer_source(
+        self,
+        *,
+        principal: Any,
+        report_id: UUID,
+        request: DeveloperSourcePromotionRequest,
+    ) -> dict[str, Any]:
+        """Promote the exact private workspace delta before DeveloperResponse."""
+
+        actor = self._principal(principal)
+        if actor.role is not SenderRole.codex or request.lease_owner_id != actor.sender_id:
+            raise CollaborationNotFound()
+        report = CollaborationReport.model_validate(
+            await self.store.get_report(report_id)
+        )
+        self._require_developer_visible(report)
+        channel = await self._channel(report.channel_id)
+        self._require_open(channel)
+        if report.category not in _CAPABILITY_CATEGORIES:
+            raise CollaborationConflict(
+                "wrong_response_route",
+                "only capability reports can promote developer source",
+            )
+        if report.status is not ReportStatus.implementing:
+            raise CollaborationConflict(
+                "report_not_implementing",
+                "report is not in the implementing state",
+            )
+        if report.revision != request.expected_report_revision:
+            raise CollaborationConflict(
+                "report_revision_conflict",
+                "report changed before developer source promotion",
+            )
+        lease = await self._active_owned_lease(
+            report=report,
+            actor=actor,
+            lease_id=request.lease_id,
+        )
+        await self._require_developer_worker_receipt(
+            channel=channel,
+            report=report,
+            lease=lease,
+            response_id=request.response_id,
+            reference=request.developer_worker_receipt,
+            require_success=True,
+        )
+        provider = self._developer_source_promotion_provider
+        if provider is None:
+            raise CollaborationConflict(
+                "developer_source_promotion_unavailable",
+                "trusted developer source promotion is not configured",
+            )
+        try:
+            promoted = provider(channel, report, lease, request)
+            if inspect.isawaitable(promoted):
+                promoted = await promoted
+        except Exception as error:
+            raise CollaborationConflict(
+                "developer_source_promotion_rejected",
+                "the lease-bound developer workspace delta could not be promoted",
+            ) from error
+        result = _as_dict(promoted)
+        if (
+            str(result.get("assignment_id")) != str(channel.assignment_id)
+            or str(result.get("channel_id")) != str(channel.channel_id)
+            or str(result.get("report_id")) != str(report.report_id)
+            or str(result.get("response_id")) != str(request.response_id)
+            or result.get("activation_state") != "activated"
+            or not result.get("commit_sha")
+        ):
+            raise CollaborationConflict(
+                "developer_source_promotion_invalid",
+                "trusted promotion returned another report or activation state",
+            )
+        return result
+
     @_replay_receipt_after_conflict(
         receipt_operation="developer.response",
         digest_operation="developer.response",
@@ -2907,6 +3517,12 @@ class CollaborationService:
             client_request_digest=client_request_digest,
         )
         if operation_replay is not None:
+            replay_response_id = operation_replay.get("response_id")
+            if replay_response_id is not None:
+                await self._record_formal_source_response(
+                    channel_id=report.channel_id,
+                    response_id=UUID(str(replay_response_id)),
+                )
             return operation_replay
         replay = await self._message_replay(
             channel_id=report.channel_id,
@@ -2918,6 +3534,10 @@ class CollaborationService:
         )
         if replay is not None:
             persisted = DeveloperResponse.model_validate(replay.payload)
+            await self._record_formal_source_response(
+                channel_id=report.channel_id,
+                response_id=persisted.response_id,
+            )
             return await self._persisted_replay(
                 "get_developer_response", persisted.response_id, replay.payload
             )
@@ -2937,8 +3557,10 @@ class CollaborationService:
             raise CollaborationConflict(
                 "report_revision_conflict", "report changed before developer response"
             )
-        await self._active_owned_lease(
-            report=report, actor=actor, lease_id=request.lease_id
+        lease = await self._active_owned_lease(
+            report=report,
+            actor=actor,
+            lease_id=request.lease_id,
         )
         response = DeveloperResponse.model_validate(
             {
@@ -2949,7 +3571,15 @@ class CollaborationService:
                 "created_at": self._now(),
             }
         )
-        await self._require_developer_response_evidence(response)
+        await self._require_developer_worker_receipt(
+            channel=channel,
+            report=report,
+            lease=lease,
+            response_id=response.response_id,
+            reference=request.developer_worker_receipt,
+            require_success=response.outcome.value == "implemented",
+        )
+        await self._require_developer_response_evidence(channel, response)
         next_status = (
             ReportStatus.ready_for_lilies_verification
             if response.outcome.value == "implemented"
@@ -2996,6 +3626,10 @@ class CollaborationService:
                 idempotency_key=request.idempotency_key,
                 payload={"report_id": str(report_id)},
             ),
+        )
+        await self._record_formal_source_response(
+            channel_id=report.channel_id,
+            response_id=response.response_id,
         )
         self._notify_events(report.channel_id)
         return _as_dict(stored)
@@ -3052,17 +3686,14 @@ class CollaborationService:
         channel = await self._channel(report.channel_id)
         self._require_open(channel)
         if report.category is not ReportCategory.task_spec_gap:
-            raise CollaborationConflict(
-                "wrong_response_route", "report is not a task-package gap"
-            )
+            raise CollaborationConflict("wrong_response_route", "report is not a task-package gap")
         if report.revision != request.expected_report_revision:
             raise CollaborationConflict(
                 "report_revision_conflict", "report changed before task amendment"
             )
         if (
             request.amendment.previous_task_revision != channel.task_revision
-            or request.amendment.previous_requirement_digest
-            != report.requirement_digest
+            or request.amendment.previous_requirement_digest != report.requirement_digest
         ):
             raise CollaborationConflict(
                 "task_amendment_context_mismatch",
@@ -3072,11 +3703,11 @@ class CollaborationService:
         amendment = TaskPackageAmendment.model_validate(
             {
                 **request.amendment.model_dump(mode="json", exclude_none=True),
-                    "channel_id": report.channel_id,
-                    "report_id": report_id,
-                    "report_revision": report.revision,
-                    "task_id": channel.task_id,
-                    "created_at": self._now(),
+                "channel_id": report.channel_id,
+                "report_id": report_id,
+                "report_revision": report.revision,
+                "task_id": channel.task_id,
+                "created_at": self._now(),
             }
         )
         next_status = (
@@ -3162,9 +3793,7 @@ class CollaborationService:
         channel = await self._channel(report.channel_id)
         self._require_open(channel)
         if report.category is not ReportCategory.environment_gap:
-            raise CollaborationConflict(
-                "wrong_response_route", "report is not an environment gap"
-            )
+            raise CollaborationConflict("wrong_response_route", "report is not an environment gap")
         if report.revision != request.expected_report_revision:
             raise CollaborationConflict(
                 "report_revision_conflict", "report changed before environment response"
@@ -3173,10 +3802,10 @@ class CollaborationService:
         response = EnvironmentResponse.model_validate(
             {
                 **request.response.model_dump(mode="json", exclude_none=True),
-                    "channel_id": report.channel_id,
-                    "report_id": report_id,
-                    "report_revision": report.revision,
-                    "created_at": self._now(),
+                "channel_id": report.channel_id,
+                "report_id": report_id,
+                "report_revision": report.revision,
+                "created_at": self._now(),
             }
         )
         next_status = (
@@ -3252,9 +3881,7 @@ class CollaborationService:
         )
         if replay is not None:
             persisted = LiliesReprobeResult.model_validate(replay.payload)
-            return await self._persisted_replay(
-                "get_reprobe", persisted.reprobe_id, replay.payload
-            )
+            return await self._persisted_replay("get_reprobe", persisted.reprobe_id, replay.payload)
         channel = await self._channel(channel_id, principal=actor)
         self._require_open(channel)
         report = CollaborationReport.model_validate(await self.store.get_report(report_id))
@@ -3301,10 +3928,7 @@ class CollaborationService:
                     "task_amendment_not_ready", "no amended task package is ready to recheck"
                 )
             latest = await self._latest_report_chain_message(report)
-            if (
-                latest is None
-                or latest.payload_schema is not PayloadSchema.task_amendment_v1
-            ):
+            if latest is None or latest.payload_schema is not PayloadSchema.task_amendment_v1:
                 raise CollaborationConflict(
                     "task_amendment_evidence_missing",
                     "task recheck requires the latest persisted amendment response",
@@ -3332,10 +3956,7 @@ class CollaborationService:
                     "an unresolved environment cannot be reported as rechecked",
                 )
             latest = await self._latest_report_chain_message(report)
-            if (
-                latest is None
-                or latest.payload_schema is not PayloadSchema.environment_response_v1
-            ):
+            if latest is None or latest.payload_schema is not PayloadSchema.environment_response_v1:
                 raise CollaborationConflict(
                     "environment_evidence_missing",
                     "environment recheck requires the latest persisted health response",
@@ -3364,12 +3985,11 @@ class CollaborationService:
                 for check in environment.health_checks
             }
             reprobe_evidence = {
-                (evidence.evidence_id, evidence.digest)
-                for evidence in request.result.evidence_refs
+                (evidence.evidence_id, evidence.digest) for evidence in request.result.evidence_refs
             }
-            if response_evidence.intersection(reprobe_evidence) or len(
-                reprobe_evidence
-            ) < len(environment.health_checks):
+            if response_evidence.intersection(reprobe_evidence) or len(reprobe_evidence) < len(
+                environment.health_checks
+            ):
                 raise CollaborationConflict(
                     "environment_health_evidence_not_independent",
                     "Lilies must produce fresh evidence for its own restored-host health checks",
@@ -3390,10 +4010,10 @@ class CollaborationService:
         result = LiliesReprobeResult.model_validate(
             {
                 **request.result.model_dump(mode="json", exclude_none=True),
-                    "channel_id": channel_id,
-                    "report_id": report_id,
-                    "report_revision": report.revision,
-                    "created_at": self._now(),
+                "channel_id": channel_id,
+                "report_id": report_id,
+                "report_revision": report.revision,
+                "created_at": self._now(),
             }
         )
         message = self._message(
@@ -3489,9 +4109,7 @@ class CollaborationService:
                     limit=5_000,
                 )
             )
-            channel_reports.extend(
-                CollaborationReport.model_validate(item) for item in page
-            )
+            channel_reports.extend(CollaborationReport.model_validate(item) for item in page)
             if len(page) < 5_000:
                 break
             offset += len(page)
@@ -3525,8 +4143,7 @@ class CollaborationService:
             },
         }
         if any(
-            report.status not in resolved_statuses[report.category]
-            for report in channel_reports
+            report.status not in resolved_statuses[report.category] for report in channel_reports
         ):
             raise CollaborationConflict(
                 "claim_report_unresolved",
@@ -3535,14 +4152,18 @@ class CollaborationService:
         claim = VerificationClaim.model_validate(
             {
                 **request.claim.model_dump(mode="json", exclude_none=True),
-                    "channel_id": channel_id,
-                    "assignment_id": channel.assignment_id,
-                    "claim_revision": 1,
-                    "status": ClaimStatus.frozen,
-                    "created_at": self._now(),
-                    "invalidated_at": None,
-                    "invalidation_reason": None,
+                "channel_id": channel_id,
+                "assignment_id": channel.assignment_id,
+                "claim_revision": 1,
+                "status": ClaimStatus.frozen,
+                "created_at": self._now(),
+                "invalidated_at": None,
+                "invalidation_reason": None,
             }
+        )
+        await self._require_trusted_verification_claim(
+            channel=channel,
+            claim=claim,
         )
         message = self._message(
             channel_id=channel_id,
@@ -3578,6 +4199,139 @@ class CollaborationService:
         )
         self._notify_events(channel_id)
         return _as_dict(stored)
+
+    async def prepare_formal_run_archive(
+        self,
+        *,
+        principal: Any,
+        channel_id: UUID,
+        request: Any,
+    ) -> dict[str, Any]:
+        """Prepare claim-bound evidence only through the platform-owned exporter."""
+
+        actor = self._principal(principal)
+        if actor.role is not SenderRole.lilies:
+            raise CollaborationNotFound()
+        channel = await self._channel(channel_id, principal=actor)
+        idempotency_key = str(getattr(request, "idempotency_key", ""))
+        client_request_digest = self._client_request_digest(
+            "formal_archive.prepare",
+            request,
+            channel_id=channel_id,
+            assignment_id=channel.assignment_id,
+        )
+        replay = await self._operation_replay(
+            operation="formal_archive.prepare",
+            scope_id=channel_id,
+            actor=actor,
+            idempotency_key=idempotency_key,
+            client_request_digest=client_request_digest,
+        )
+        if replay is not None:
+            projected = replay
+        else:
+            self._require_open(channel)
+            expected_revision = getattr(request, "expected_channel_revision", None)
+            if expected_revision != channel.revision:
+                raise CollaborationConflict(
+                    "channel_revision_conflict",
+                    "channel changed before formal archive preparation",
+                )
+            provider = self._formal_archive_provider
+            if provider is None:
+                raise CollaborationConflict(
+                    "formal_archive_unavailable",
+                    "the trusted formal run archiver is unavailable",
+                )
+            try:
+                result = provider(channel, request, actor.sender_id)
+                if inspect.isawaitable(result):
+                    result = await result
+                projected = _as_dict(result)
+            except CollaborationConflict:
+                raise
+            except Exception as error:
+                raise CollaborationConflict(
+                    "formal_archive_rejected",
+                    "the durable formal run could not be archived",
+                ) from error
+        if (
+            str(projected.get("assignment_id")) != str(channel.assignment_id)
+            or str(projected.get("channel_id")) != str(channel.channel_id)
+            or str(projected.get("task_id")) != channel.task_id
+            or int(projected.get("revision", -1)) != channel.task_revision
+        ):
+            raise CollaborationConflict(
+                "formal_archive_binding_mismatch",
+                "the formal archive result changed its channel binding",
+            )
+        if replay is not None:
+            return projected
+        persist_receipt = getattr(self.store, "record_operation_receipt", None)
+        if not callable(persist_receipt):
+            raise CollaborationConflict(
+                "formal_archive_unavailable",
+                "the trusted formal archive receipt store is unavailable",
+            )
+        stored = await persist_receipt(
+            operation="formal_archive.prepare",
+            scope_id=channel_id,
+            actor_role=actor.role.value,
+            actor_id=actor.sender_id,
+            idempotency_key=idempotency_key,
+            request_digest=client_request_digest,
+            response_kind="formal_run_archive",
+            response=projected,
+        )
+        return _as_dict(stored)
+
+    async def finalize_formal_archive_claim(
+        self,
+        *,
+        channel_id: UUID,
+        actor_id: str,
+        archive_request: Any,
+        archive_result: Any,
+    ) -> dict[str, Any]:
+        """Freeze the platform-authored archive claim without another daemon turn."""
+
+        projected = _as_dict(archive_result)
+        claim_payload = projected.get("verification_claim")
+        if not isinstance(claim_payload, Mapping):
+            raise CollaborationConflict(
+                "formal_archive_claim_invalid",
+                "the formal archive did not produce a verification claim",
+            )
+        channel = await self._channel(channel_id)
+        if (
+            str(projected.get("assignment_id")) != str(channel.assignment_id)
+            or str(projected.get("channel_id")) != str(channel.channel_id)
+            or str(claim_payload.get("claim_id"))
+            != str(getattr(archive_request, "claim_id", ""))
+        ):
+            raise CollaborationConflict(
+                "formal_archive_claim_binding_mismatch",
+                "the archived verification claim changed its frozen assignment binding",
+            )
+        principal = CollaborationPrincipal(
+            role=SenderRole.lilies,
+            sender_id=actor_id,
+            scopes=frozenset({CollaborationScope.report_write.value}),
+            channel_id=channel.channel_id,
+            assignment_id=channel.assignment_id,
+        )
+        claim_id = UUID(str(claim_payload["claim_id"]))
+        return await self.submit_verification_claim(
+            principal=principal,
+            channel_id=channel.channel_id,
+            request=VerificationClaimRequest(
+                idempotency_key=f"formal.archive.claim.{claim_id.hex}",
+                expected_channel_revision=int(
+                    getattr(archive_request, "expected_channel_revision")
+                ),
+                claim=claim_payload,
+            ),
+        )
 
     async def invalidate_claims_for_draft(
         self,
@@ -3678,12 +4432,17 @@ class CollaborationService:
         result = VerificationResult.model_validate(
             {
                 **request.result.model_dump(mode="json", exclude_none=True),
-                    "channel_id": claim.channel_id,
-                    "claim_id": claim_id,
-                    "claim_revision": claim.claim_revision,
-                    "verifier_id": actor.sender_id,
-                    "created_at": self._now(),
+                "channel_id": claim.channel_id,
+                "claim_id": claim_id,
+                "claim_revision": claim.claim_revision,
+                "verifier_id": actor.sender_id,
+                "created_at": self._now(),
             }
+        )
+        await self._require_trusted_verification_result(
+            channel=channel,
+            claim=claim,
+            result=result,
         )
         next_status = (
             ClaimStatus.independently_verified

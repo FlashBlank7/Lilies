@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
@@ -18,6 +19,7 @@ from agent_platform.platform_blackbox_auth import (
     PlatformBlackboxCredentialExpired,
     PlatformBlackboxCredentialRevoked,
     PlatformBlackboxIdempotencyConflict,
+    PlatformBlackboxOperationDenied,
     PlatformBlackboxOperation,
     PlatformBlackboxRequestConflict,
     PlatformBlackboxScope,
@@ -41,6 +43,7 @@ def grant(
     session_id=None,
     application_ids=None,
     scopes=None,
+    **policy,
 ) -> TaskCredentialGrant:
     return TaskCredentialGrant(
         assignment_id=assignment_id or uuid4(),
@@ -52,6 +55,7 @@ def grant(
             PlatformBlackboxScope.draft_write,
         ],
         expires_at=clock.value + timedelta(hours=1),
+        **policy,
     )
 
 
@@ -104,7 +108,7 @@ async def test_credential_persists_only_hash_and_constant_time_verifier_is_alway
 ) -> None:
     clock = MutableClock()
     store = PlatformBlackboxAuthStore(tmp_path / "agent_platform.db", clock=clock)
-    assert await store.initialize() == {"schema_version": 2}
+    assert await store.initialize() == {"schema_version": 4}
     application_id = uuid4()
     credential_grant = grant(clock, application_ids=[application_id])
     issued = await store.issue_credential(credential_grant)
@@ -204,6 +208,119 @@ async def test_scope_application_expiry_and_revoke_fail_closed_and_are_audited(t
 
 
 @pytest.mark.asyncio
+async def test_exact_operation_is_enforced_without_charging_host_payload_budget(
+    tmp_path,
+) -> None:
+    clock = MutableClock()
+    store = PlatformBlackboxAuthStore(tmp_path / "agent_platform.db", clock=clock)
+    await store.initialize()
+    application_id = uuid4()
+    boundary_payload = {"value": "accepted"}
+    boundary_bytes = len(
+        json.dumps(
+            boundary_payload,
+            ensure_ascii=False,
+            allow_nan=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    )
+    credential_grant = grant(
+        clock,
+        application_ids=[application_id],
+        scopes=[PlatformBlackboxScope.draft_write],
+        allowed_operations=[PlatformBlackboxOperation.draft_inspect],
+        max_payload_bytes=boundary_bytes,
+    )
+    issued = await store.issue_credential(credential_grant)
+
+    accepted = await store.authorize_request(
+        issued.access_token,
+        request_for(
+            credential_grant,
+            application_id,
+            operation=PlatformBlackboxOperation.draft_inspect,
+            payload=boundary_payload,
+        ),
+    )
+    assert accepted.replayed is False
+    with pytest.raises(PlatformBlackboxOperationDenied):
+        await store.authorize_request(
+            issued.access_token,
+            request_for(
+                credential_grant,
+                application_id,
+                operation=PlatformBlackboxOperation.draft_apply,
+                idempotency_key="blackbox-operation-denied-1",
+                payload=boundary_payload,
+            ),
+        )
+    oversized_platform_request = await store.authorize_request(
+        issued.access_token,
+        request_for(
+            credential_grant,
+            application_id,
+            operation=PlatformBlackboxOperation.draft_inspect,
+            idempotency_key="blackbox-payload-not-host-budget-001",
+            payload={"value": "accepted!"},
+        ),
+    )
+    assert oversized_platform_request.replayed is False
+    assert [event.reason_code for event in await store.list_audit()][-2:] == [
+        "operation_denied",
+        None,
+    ]
+
+
+@pytest.mark.asyncio
+async def test_host_write_limit_does_not_charge_platform_draft_requests(
+    tmp_path,
+) -> None:
+    clock = MutableClock()
+    db_path = tmp_path / "agent_platform.db"
+    first_store = PlatformBlackboxAuthStore(db_path, clock=clock)
+    await first_store.initialize()
+    application_id = uuid4()
+    credential_grant = grant(
+        clock,
+        application_ids=[application_id],
+        scopes=[PlatformBlackboxScope.draft_write],
+        allowed_operations=[PlatformBlackboxOperation.draft_apply],
+        max_write_count=1,
+    )
+    issued = await first_store.issue_credential(credential_grant)
+    first_request = request_for(credential_grant, application_id)
+    first = await first_store.authorize_request(issued.access_token, first_request)
+
+    restarted = PlatformBlackboxAuthStore(db_path, clock=clock)
+    await restarted.initialize()
+    replay = await restarted.authorize_request(
+        issued.access_token,
+        first_request.model_copy(
+            update={
+                "request_id": uuid4(),
+                "tool_call_id": "tool-call-write-replay",
+            }
+        ),
+    )
+    assert replay.replayed is True
+    assert replay.authorization_id == first.authorization_id
+    second = await restarted.authorize_request(
+        issued.access_token,
+        request_for(
+            credential_grant,
+            application_id,
+            idempotency_key="blackbox-write-not-host-budget-0002",
+        ),
+    )
+    assert second.replayed is False
+    with sqlite3.connect(db_path) as connection:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM platform_blackbox_requests"
+        ).fetchone()[0] == 2
+
+
+@pytest.mark.asyncio
 async def test_idempotency_replays_original_result_and_conflicting_payload_is_rejected(
     tmp_path,
 ) -> None:
@@ -224,6 +341,14 @@ async def test_idempotency_replays_original_result_and_conflicting_payload_is_re
         result={"revision": 4, "content_hash": "sha256:" + "b" * 64},
     )
     assert completed.result == {"revision": 4, "content_hash": "sha256:" + "b" * 64}
+    exported = await store.export_assignment_snapshot(
+        assignment_id=credential_grant.assignment_id,
+        session_id=credential_grant.session_id,
+    )
+    assert exported["complete"] is True
+    assert exported["requests"][0]["payload"] == original_request.payload
+    assert exported["audit_min_seq"] == exported["audit"][0]["seq"]
+    assert exported["audit_max_seq"] == exported["audit"][-1]["seq"]
 
     retry = original_request.model_copy(
         update={
@@ -554,7 +679,7 @@ async def test_prepared_credential_issue_replays_across_restart_without_plaintex
     )
 
     restarted = PlatformBlackboxAuthStore(db_path, clock=clock)
-    assert await restarted.initialize() == {"schema_version": 2}
+    assert await restarted.initialize() == {"schema_version": 4}
     replay = await restarted.issue_credential(
         credential_grant,
         idempotency_key=issue_key,

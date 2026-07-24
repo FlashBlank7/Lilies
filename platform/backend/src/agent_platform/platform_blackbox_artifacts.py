@@ -8,7 +8,7 @@ import os
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path, PurePosixPath, PureWindowsPath
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID, uuid4
 
 from pydantic import (
@@ -17,6 +17,7 @@ from pydantic import (
     Field,
     StringConstraints,
     field_validator,
+    model_validator,
 )
 
 from .lilies_platform_contract import (
@@ -119,6 +120,47 @@ class ArtifactRegistrationRequest(StrictArtifactModel):
         return _validate_media_type(value)
 
 
+class HostReceiptRegistrationRequest(ArtifactRegistrationRequest):
+    """Trusted platform registration for one real host-write receipt.
+
+    This model is deliberately not exposed by the Lilies black-box API.  The
+    public run-artifact scanner always calls ``register_artifact`` and therefore
+    cannot promote a workspace file into host-receipt evidence.
+    """
+
+    receipt_id: CorrelationId
+    operation: CorrelationId
+
+
+class ArtifactProvenance(StrictArtifactModel):
+    schema_version: Literal["1.0"] = "1.0"
+    evidence_kind: Literal["artifact", "host_receipt"]
+    source: Literal["platform_artifact_scan", "platform_host_write"]
+    assignment_id: UUID
+    session_id: UUID
+    application_id: UUID
+    run_id: CorrelationId
+    receipt_id: CorrelationId | None = None
+    operation: CorrelationId | None = None
+
+    @model_validator(mode="after")
+    def kind_matches_platform_source(self) -> "ArtifactProvenance":
+        if self.evidence_kind == "artifact":
+            if (
+                self.source != "platform_artifact_scan"
+                or self.receipt_id is not None
+                or self.operation is not None
+            ):
+                raise ValueError("artifact provenance must come from the platform scanner")
+        elif (
+            self.source != "platform_host_write"
+            or self.receipt_id is None
+            or self.operation is None
+        ):
+            raise ValueError("host-receipt provenance requires a platform host write")
+        return self
+
+
 class ArtifactReadRequest(StrictArtifactModel):
     artifact_id: UUID
     binding: ArtifactBinding
@@ -141,6 +183,8 @@ class ArtifactRecord(StrictArtifactModel):
     media_type: str
     size_bytes: int = Field(ge=0)
     sha256: Sha256Digest
+    evidence_kind: Literal["artifact", "host_receipt"]
+    provenance: ArtifactProvenance
     created_at: datetime
 
     @field_validator("root_path")
@@ -292,6 +336,7 @@ class PlatformBlackboxArtifactStore:
                 )
             if current < 1:
                 self._migrate_v1(conn)
+            self._ensure_provenance_registry(conn)
         self._secure_database_files()
         return {"schema_version": SCHEMA_VERSION}
 
@@ -329,6 +374,30 @@ class PlatformBlackboxArtifactStore:
             (1, _utc_now().isoformat()),
         )
 
+    @staticmethod
+    def _ensure_provenance_registry(conn: sqlite3.Connection) -> None:
+        """Add immutable server provenance without rewriting the v1 artifact table."""
+
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS platform_blackbox_artifact_provenance (
+              artifact_id TEXT PRIMARY KEY,
+              evidence_kind TEXT NOT NULL
+                CHECK(evidence_kind IN ('artifact','host_receipt')),
+              provenance_json TEXT NOT NULL,
+              created_at TEXT NOT NULL,
+              FOREIGN KEY(artifact_id) REFERENCES platform_blackbox_artifacts(artifact_id)
+                ON DELETE RESTRICT
+            );
+            CREATE TRIGGER IF NOT EXISTS platform_blackbox_artifact_provenance_no_update
+              BEFORE UPDATE ON platform_blackbox_artifact_provenance
+              BEGIN SELECT RAISE(ABORT, 'platform artifact provenance is immutable'); END;
+            CREATE TRIGGER IF NOT EXISTS platform_blackbox_artifact_provenance_no_delete
+              BEFORE DELETE ON platform_blackbox_artifact_provenance
+              BEGIN SELECT RAISE(ABORT, 'platform artifact provenance is immutable'); END;
+            """
+        )
+
     def _secure_database_files(self) -> None:
         for path in (
             self.db_path,
@@ -352,6 +421,36 @@ class PlatformBlackboxArtifactStore:
                 request,
                 Path(artifact_root),
                 limit,
+                ArtifactProvenance(
+                    evidence_kind="artifact",
+                    source="platform_artifact_scan",
+                    **request.binding.model_dump(mode="python"),
+                ),
+            )
+
+    async def register_host_receipt(
+        self,
+        request: HostReceiptRegistrationRequest,
+        *,
+        artifact_root: Path,
+        max_bytes: int | None = None,
+    ) -> ArtifactRegistrationResult:
+        """Register host-receipt evidence from trusted platform execution code."""
+
+        limit = self._effective_limit(max_bytes)
+        async with self._lock:
+            return await asyncio.to_thread(
+                self._register_artifact_sync,
+                request,
+                Path(artifact_root),
+                limit,
+                ArtifactProvenance(
+                    evidence_kind="host_receipt",
+                    source="platform_host_write",
+                    receipt_id=request.receipt_id,
+                    operation=request.operation,
+                    **request.binding.model_dump(mode="python"),
+                ),
             )
 
     def _register_artifact_sync(
@@ -359,6 +458,7 @@ class PlatformBlackboxArtifactStore:
         request: ArtifactRegistrationRequest,
         artifact_root: Path,
         max_bytes: int,
+        provenance: ArtifactProvenance,
     ) -> ArtifactRegistrationResult:
         root = self._canonical_root(artifact_root)
         artifact_file = self._contained_file(root, request.relative_path)
@@ -403,17 +503,22 @@ class PlatformBlackboxArtifactStore:
                 ),
             ).fetchone()
             if existing is not None:
+                persisted_provenance = self._provenance_for_row(conn, existing)
                 same = (
                     existing["media_type"] == request.media_type
                     and existing["size_bytes"] == len(raw)
                     and hmac.compare_digest(existing["sha256"], digest)
+                    and persisted_provenance == provenance
                 )
                 if not same:
                     raise PlatformBlackboxArtifactConflict(
                         "artifact path is already registered with different immutable metadata"
                     )
                 return ArtifactRegistrationResult(
-                    artifact=self._record_from_row(existing),
+                    artifact=self._record_from_row(
+                        existing,
+                        provenance=persisted_provenance,
+                    ),
                     replayed=True,
                 )
             conn.execute(
@@ -437,18 +542,93 @@ class PlatformBlackboxArtifactStore:
                     now.isoformat(),
                 ),
             )
+            conn.execute(
+                """
+                INSERT INTO platform_blackbox_artifact_provenance(
+                  artifact_id,evidence_kind,provenance_json,created_at
+                ) VALUES (?,?,?,?)
+                """,
+                (
+                    str(artifact_id),
+                    provenance.evidence_kind,
+                    provenance.model_dump_json(exclude_none=True),
+                    now.isoformat(),
+                ),
+            )
             row = self._require_record_conn(conn, str(artifact_id))
             return ArtifactRegistrationResult(
-                artifact=self._record_from_row(row),
+                artifact=self._record_from_row(
+                    row,
+                    provenance=self._provenance_for_row(conn, row),
+                ),
                 replayed=False,
             )
 
     async def get_artifact(self, artifact_id: UUID) -> ArtifactRecord:
         return await asyncio.to_thread(self._get_artifact_sync, str(artifact_id))
 
+    async def export_assignment_inventory(
+        self,
+        *,
+        assignment_id: UUID,
+        session_id: UUID,
+        application_id: UUID,
+    ) -> dict[str, Any]:
+        """Export every immutable artifact record for one formal assignment."""
+
+        async with self._lock:
+            return await asyncio.to_thread(
+                self._export_assignment_inventory_sync,
+                str(assignment_id),
+                str(session_id),
+                str(application_id),
+            )
+
+    def _export_assignment_inventory_sync(
+        self,
+        assignment_id: str,
+        session_id: str,
+        application_id: str,
+    ) -> dict[str, Any]:
+        with self._connect() as conn:
+            conn.execute("BEGIN")
+            rows = conn.execute(
+                """
+                SELECT * FROM platform_blackbox_artifacts
+                WHERE assignment_id=? AND session_id=? AND application_id=?
+                ORDER BY created_at,artifact_id
+                """,
+                (assignment_id, session_id, application_id),
+            ).fetchall()
+            if len(rows) > 10_000:
+                raise PlatformBlackboxArtifactStoreError(
+                    "formal artifact inventory exceeds the complete export limit"
+                )
+            records = []
+            for row in rows:
+                payload = self._record_from_row(
+                    row,
+                    provenance=self._provenance_for_row(conn, row),
+                ).model_dump(mode="json", exclude_none=True)
+                payload.pop("root_path", None)
+                records.append(payload)
+        return {
+            "schema_version": "1.0",
+            "assignment_id": assignment_id,
+            "session_id": session_id,
+            "application_id": application_id,
+            "complete": True,
+            "count": len(records),
+            "records": records,
+        }
+
     def _get_artifact_sync(self, artifact_id: str) -> ArtifactRecord:
         with self._connect() as conn:
-            return self._record_from_row(self._require_record_conn(conn, artifact_id))
+            row = self._require_record_conn(conn, artifact_id)
+            return self._record_from_row(
+                row,
+                provenance=self._provenance_for_row(conn, row),
+            )
 
     async def read_artifact(
         self,
@@ -470,7 +650,8 @@ class PlatformBlackboxArtifactStore:
         root = self._canonical_root(artifact_root)
         with self._connect() as conn:
             row = self._require_record_conn(conn, str(request.artifact_id))
-        record = self._record_from_row(row)
+            provenance = self._provenance_for_row(conn, row)
+        record = self._record_from_row(row, provenance=provenance)
         binding = request.binding
         if (
             record.assignment_id != binding.assignment_id
@@ -587,7 +768,43 @@ class PlatformBlackboxArtifactStore:
         return row
 
     @staticmethod
-    def _record_from_row(row: sqlite3.Row) -> ArtifactRecord:
+    def _provenance_for_row(
+        conn: sqlite3.Connection,
+        row: sqlite3.Row,
+    ) -> ArtifactProvenance:
+        persisted = conn.execute(
+            """
+            SELECT evidence_kind,provenance_json
+            FROM platform_blackbox_artifact_provenance WHERE artifact_id=?
+            """,
+            (str(row["artifact_id"]),),
+        ).fetchone()
+        if persisted is not None:
+            provenance = ArtifactProvenance.model_validate_json(
+                str(persisted["provenance_json"])
+            )
+            if provenance.evidence_kind != str(persisted["evidence_kind"]):
+                raise PlatformBlackboxArtifactIntegrityError(
+                    "artifact provenance kind is inconsistent"
+                )
+            return provenance
+        # Pre-provenance v1 rows remain ordinary artifacts.  They can never be
+        # upgraded into host receipts because both registries are immutable.
+        return ArtifactProvenance(
+            evidence_kind="artifact",
+            source="platform_artifact_scan",
+            assignment_id=row["assignment_id"],
+            session_id=row["session_id"],
+            application_id=row["application_id"],
+            run_id=row["run_id"],
+        )
+
+    @staticmethod
+    def _record_from_row(
+        row: sqlite3.Row,
+        *,
+        provenance: ArtifactProvenance,
+    ) -> ArtifactRecord:
         return ArtifactRecord(
             artifact_id=row["artifact_id"],
             assignment_id=row["assignment_id"],
@@ -599,5 +816,7 @@ class PlatformBlackboxArtifactStore:
             media_type=row["media_type"],
             size_bytes=row["size_bytes"],
             sha256=row["sha256"],
+            evidence_kind=provenance.evidence_kind,
+            provenance=provenance,
             created_at=_parse_utc(row["created_at"]),
         )

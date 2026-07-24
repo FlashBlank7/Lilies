@@ -141,6 +141,21 @@ class LocalLiliesHttpClient:
             json_payload=payload,
         )
 
+    async def stage_formal_workspace(
+        self,
+        base_url: str,
+        access_token: str,
+        session_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        return await self._json(
+            "POST",
+            base_url,
+            f"/local/v1/sessions/{session_id}/formal-workspace",
+            access_token=access_token,
+            json_payload=payload,
+        )
+
     async def cancel_session(
         self,
         base_url: str,

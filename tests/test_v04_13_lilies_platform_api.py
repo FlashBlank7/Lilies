@@ -6,6 +6,7 @@ import re
 from datetime import datetime, timedelta, timezone
 from functools import partial
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID, uuid4
 
@@ -50,6 +51,7 @@ def _issue(
     *,
     scopes: list[PlatformBlackboxScope] | None = None,
     application_ids: list[UUID] | None = None,
+    grant_policy: dict[str, Any] | None = None,
 ) -> tuple[dict[str, str], str, UUID, UUID, str]:
     assignment_id = uuid4()
     session_id = uuid4()
@@ -61,6 +63,7 @@ def _issue(
             scopes=scopes or ALL_SCOPES,
             application_ids=application_ids or [],
             expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+            **(grant_policy or {}),
         ),
     )
     token = issued.access_token.get_secret_value()

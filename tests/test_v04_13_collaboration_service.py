@@ -487,6 +487,7 @@ async def _activated_service(
         expires_at=NOW + timedelta(hours=2),
         retention_until=NOW + timedelta(days=30),
         idempotency_key="activate-formal-channel-0001",
+        max_report_evidence_rounds=3,
     )
     lilies = CollaborationPrincipal(
         role=SenderRole.lilies,
@@ -534,6 +535,7 @@ async def test_formal_only_activation_and_channel_bound_lilies_credential() -> N
         "expires_at": NOW + timedelta(hours=1),
         "retention_until": NOW + timedelta(days=7),
         "idempotency_key": "formal-activation-0001",
+        "max_report_evidence_rounds": 3,
     }
     with pytest.raises(CollaborationNotFound):
         await disabled.create_formal_channel(

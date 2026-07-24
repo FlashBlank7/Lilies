@@ -20,6 +20,7 @@ from .local_lilies_bridge import (
     LocalLiliesRelayEvent,
     PairLocalLiliesRequest,
     ReconnectLocalLiliesRequest,
+    StartFormalLocalLiliesBuildRequest,
     StartLocalLiliesBuildRequest,
 )
 from .lilies_models import PermissionDecisionRequest
@@ -300,6 +301,16 @@ def install_local_lilies_bridge_api(
         body: StartLocalLiliesBuildRequest,
     ) -> Any:
         return await _bridge_call(bridge.start_build(application_id, body))
+
+    @app.post(
+        "/api/v1/local-lilies/applications/{application_id}/formal-builds",
+        dependencies=dependencies,
+    )
+    async def start_formal_local_lilies_build(
+        application_id: UUID,
+        body: StartFormalLocalLiliesBuildRequest,
+    ) -> Any:
+        return await _bridge_call(bridge.start_formal_build(application_id, body))
 
     @app.get(
         "/api/v1/local-lilies/applications/{application_id}/assignments",

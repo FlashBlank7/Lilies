@@ -1,8 +1,15 @@
 from __future__ import annotations
 
+import base64
+import binascii
+import hashlib
+import hmac
+import json
 import re
+import unicodedata
 from datetime import datetime, timedelta, timezone
 from enum import Enum
+from pathlib import PurePosixPath
 from typing import Annotated, Any, Literal, TypeVar
 from uuid import UUID
 
@@ -540,6 +547,39 @@ class TaskPackageRef(StrictModel):
     )
     revision: int = Field(ge=1)
     public_summary_digest: Digest
+    run_id: OpaqueReference | None = None
+    environment_ready_digest: Digest | None = None
+    environment_lock_digest: Digest | None = None
+    allowed_actions_digest: Digest | None = None
+    budget_digest: Digest | None = None
+    environment_instance_id: OpaqueReference | None = None
+    workspace_mount_digest: Digest | None = None
+    workspace_policy_digest: Digest | None = None
+
+    @model_validator(mode="after")
+    def frozen_run_binding_is_complete(self) -> TaskPackageRef:
+        supplied = (
+            self.run_id,
+            self.environment_ready_digest,
+            self.environment_lock_digest,
+            self.allowed_actions_digest,
+            self.budget_digest,
+            self.environment_instance_id,
+        )
+        if any(item is not None for item in supplied) and any(
+            item is None for item in supplied
+        ):
+            raise ValueError(
+                "formal task package run bindings must be supplied together"
+            )
+        workspace = (self.workspace_mount_digest, self.workspace_policy_digest)
+        if any(item is not None for item in workspace) and any(
+            item is None for item in workspace
+        ):
+            raise ValueError(
+                "task package workspace mount and policy digests must be supplied together"
+            )
+        return self
 
 
 class ApplicationTargetMode(str, Enum):
@@ -613,11 +653,15 @@ class AllowedAction(str, Enum):
 
 class ProhibitedAction(str, Enum):
     read_platform_source = "read_platform_source"
+    read_platform_database = "read_platform_database"
     read_hidden_oracle = "read_hidden_oracle"
+    read_protected = "read_protected"
     write_task_package = "write_task_package"
+    modify_task_package = "modify_task_package"
+    install_unknown_adapter = "install_unknown_adapter"
 
 
-REQUIRED_PROHIBITED_ACTIONS = frozenset(ProhibitedAction)
+REQUIRED_PROHIBITED_ACTIONS = frozenset({ProhibitedAction.read_platform_source})
 
 
 class AssignmentConstraints(StrictModel):
@@ -630,6 +674,24 @@ class AssignmentConstraints(StrictModel):
     allowed_actions: list[AllowedAction] = Field(min_length=1)
     prohibited_actions: list[ProhibitedAction] = Field(min_length=3)
     no_substitute_validation: bool = False
+    readable_host_objects: list[str] = Field(default_factory=list, max_length=500)
+    writable_host_operations: list[str] = Field(default_factory=list, max_length=500)
+    model_access: bool | None = None
+    file_access: bool | None = None
+    connector_access: bool | None = None
+    permission_required_actions: list[str] = Field(
+        default_factory=list,
+        max_length=500,
+    )
+    max_write_count: int | None = Field(default=None, ge=0, le=1_000_000)
+    max_payload_bytes: int | None = Field(
+        default=None,
+        ge=1,
+        le=100 * 1024 * 1024,
+    )
+    compensation_actions: list[str] = Field(default_factory=list, max_length=500)
+    max_report_evidence_rounds: int | None = Field(default=None, ge=1, le=100)
+    stable_hidden_runs: int | None = Field(default=None, ge=1, le=100)
 
     @field_validator("deadline_at")
     @classmethod
@@ -649,6 +711,16 @@ class AssignmentConstraints(StrictModel):
     def actions_are_unique(cls, value: list[AllowedAction]) -> list[AllowedAction]:
         return _unique(value, label="allowed_actions")
 
+    @field_validator(
+        "readable_host_objects",
+        "writable_host_operations",
+        "permission_required_actions",
+        "compensation_actions",
+    )
+    @classmethod
+    def policy_entries_are_unique(cls, value: list[str]) -> list[str]:
+        return _unique(value, label="formal policy entries")
+
     @field_validator("prohibited_actions")
     @classmethod
     def prohibited_actions_are_complete(
@@ -660,6 +732,20 @@ class AssignmentConstraints(StrictModel):
         if missing:
             missing_values = sorted(action.value for action in missing)
             raise ValueError(f"prohibited_actions missing mandatory entries: {missing_values}")
+        if not {
+            ProhibitedAction.read_hidden_oracle,
+            ProhibitedAction.read_protected,
+        }.intersection(value):
+            raise ValueError(
+                "prohibited_actions must deny hidden or protected reads"
+            )
+        if not {
+            ProhibitedAction.write_task_package,
+            ProhibitedAction.modify_task_package,
+        }.intersection(value):
+            raise ValueError(
+                "prohibited_actions must deny task-package mutation"
+            )
         return value
 
     @model_validator(mode="after")
@@ -896,4 +982,277 @@ class AssignmentSubmissionResult(StrictModel):
     @field_validator("accepted_at")
     @classmethod
     def accepted_at_is_utc(cls, value: datetime) -> datetime:
+        return _require_utc(value)
+
+
+MAX_FORMAL_WORKSPACE_FILES = 10_000
+MAX_FORMAL_WORKSPACE_FILE_BYTES = 128 * 1024 * 1024
+MAX_FORMAL_WORKSPACE_TOTAL_BYTES = 512 * 1024 * 1024
+FORMAL_WORKSPACE_MANIFEST_FILE = ".lilies-mount-manifest.json"
+FORMAL_WORKSPACE_POLICY_FILE = ".lilies-workspace-policy.json"
+_FORMAL_WORKSPACE_CONTROL_FILES = frozenset(
+    {
+        FORMAL_WORKSPACE_MANIFEST_FILE,
+        FORMAL_WORKSPACE_POLICY_FILE,
+    }
+)
+_FORMAL_WORKSPACE_DENIED_SEGMENTS = frozenset(
+    {
+        ".git",
+        ".hg",
+        ".svn",
+        "__pycache__",
+        "platform-data",
+        "platform_data",
+        "protected",
+        "oracle",
+        "expected-state",
+        "expected_state",
+    }
+)
+
+
+def _formal_workspace_path(value: str) -> str:
+    if (
+        "\x00" in value
+        or "\\" in value
+        or unicodedata.normalize("NFC", value) != value
+    ):
+        raise ValueError("formal workspace path must be an NFC POSIX path")
+    path = PurePosixPath(value)
+    if (
+        path.is_absolute()
+        or not path.parts
+        or len(value.encode("utf-8")) > 1024
+        or any(part in {"", ".", ".."} for part in path.parts)
+    ):
+        raise ValueError("formal workspace path must remain below the bundle root")
+    if any(
+        part.casefold() in _FORMAL_WORKSPACE_DENIED_SEGMENTS
+        for part in path.parts
+    ):
+        raise ValueError("formal workspace path contains a denied segment")
+    return path.as_posix()
+
+
+def _formal_workspace_canonical_json(value: Any) -> bytes:
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        allow_nan=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+
+def formal_assignment_digest(assignment: BuildAssignment) -> str:
+    """Return the wire-canonical digest bound by a workspace staging receipt."""
+
+    payload = assignment.model_dump(mode="json", exclude_none=True)
+    return f"sha256:{hashlib.sha256(_formal_workspace_canonical_json(payload)).hexdigest()}"
+
+
+class FormalWorkspaceFileEntry(StrictModel):
+    """One regular file in a host-path-free formal workspace bundle."""
+
+    path: str = Field(min_length=1, max_length=1024)
+    kind: Literal["file"] = "file"
+    digest: Digest
+    size_bytes: int = Field(ge=0, le=MAX_FORMAL_WORKSPACE_FILE_BYTES)
+    content_base64: str
+
+    @field_validator("path")
+    @classmethod
+    def path_is_safe(cls, value: str) -> str:
+        return _formal_workspace_path(value)
+
+    @model_validator(mode="after")
+    def content_matches_declared_identity(self) -> FormalWorkspaceFileEntry:
+        try:
+            payload = base64.b64decode(
+                self.content_base64.encode("ascii"),
+                validate=True,
+            )
+        except (UnicodeEncodeError, binascii.Error) as error:
+            raise ValueError("formal workspace content is not canonical base64") from error
+        if base64.b64encode(payload).decode("ascii") != self.content_base64:
+            raise ValueError("formal workspace content is not canonical base64")
+        if len(payload) != self.size_bytes:
+            raise ValueError("formal workspace file size differs from its content")
+        actual = f"sha256:{hashlib.sha256(payload).hexdigest()}"
+        if not hmac.compare_digest(actual, self.digest):
+            raise ValueError("formal workspace file digest differs from its content")
+        return self
+
+    def decoded_content(self) -> bytes:
+        # Validation above makes this a deterministic, bounded decode.
+        return base64.b64decode(self.content_base64.encode("ascii"), validate=True)
+
+
+class FormalWorkspaceBundle(StrictModel):
+    """Deterministic file-entry bundle; it cannot express host paths or links."""
+
+    schema_version: Literal["1.0"] = "1.0"
+    entries: list[FormalWorkspaceFileEntry] = Field(
+        min_length=1,
+        max_length=MAX_FORMAL_WORKSPACE_FILES,
+    )
+    bundle_digest: Digest
+
+    @staticmethod
+    def digest_entries(entries: list[FormalWorkspaceFileEntry]) -> str:
+        projection = {
+            "schema_version": "1.0",
+            "entries": [
+                {
+                    "path": entry.path,
+                    "kind": entry.kind,
+                    "digest": entry.digest,
+                    "size_bytes": entry.size_bytes,
+                }
+                for entry in entries
+            ],
+        }
+        return (
+            "sha256:"
+            + hashlib.sha256(_formal_workspace_canonical_json(projection)).hexdigest()
+        )
+
+    @model_validator(mode="after")
+    def bundle_is_canonical_and_bounded(self) -> FormalWorkspaceBundle:
+        paths = [entry.path for entry in self.entries]
+        if paths != sorted(paths):
+            raise ValueError("formal workspace entries must use canonical path order")
+        if len(paths) != len(set(paths)):
+            raise ValueError("formal workspace entries must not repeat a path")
+
+        identities: dict[str, str] = {}
+        file_identities = {
+            unicodedata.normalize("NFC", path).casefold() for path in paths
+        }
+        for path in paths:
+            parts = PurePosixPath(path).parts
+            for index in range(1, len(parts) + 1):
+                prefix = PurePosixPath(*parts[:index]).as_posix()
+                identity = unicodedata.normalize("NFC", prefix).casefold()
+                previous = identities.setdefault(identity, prefix)
+                if previous != prefix:
+                    raise ValueError(
+                        "formal workspace paths collide after Unicode/case normalization"
+                    )
+                if index < len(parts) and identity in file_identities:
+                    raise ValueError(
+                        "formal workspace file cannot also be a parent directory"
+                    )
+
+        total_bytes = sum(entry.size_bytes for entry in self.entries)
+        if total_bytes > MAX_FORMAL_WORKSPACE_TOTAL_BYTES:
+            raise ValueError("formal workspace bundle exceeds its total size limit")
+        actual = self.digest_entries(self.entries)
+        if not hmac.compare_digest(actual, self.bundle_digest):
+            raise ValueError("formal workspace bundle digest is invalid")
+        return self
+
+
+class FormalWorkspaceStagingRequest(StrictModel):
+    """Assignment-bound request to materialize one public daemon workspace."""
+
+    schema_version: Literal["1.0"] = "1.0"
+    idempotency_key: IdempotencyKey
+    assignment_id: UUID
+    assignment_digest: Digest
+    task_package_digest: Digest
+    workspace_mount_digest: Digest
+    workspace_policy_digest: Digest
+    bundle: FormalWorkspaceBundle
+
+    @model_validator(mode="after")
+    def control_files_bind_the_request(self) -> FormalWorkspaceStagingRequest:
+        entries = {entry.path: entry for entry in self.bundle.entries}
+        if not _FORMAL_WORKSPACE_CONTROL_FILES <= set(entries):
+            raise ValueError("formal workspace bundle omits a required control file")
+        manifest_entry = entries[FORMAL_WORKSPACE_MANIFEST_FILE]
+        policy_entry = entries[FORMAL_WORKSPACE_POLICY_FILE]
+        if not hmac.compare_digest(
+            manifest_entry.digest,
+            self.workspace_mount_digest,
+        ) or not hmac.compare_digest(
+            policy_entry.digest,
+            self.workspace_policy_digest,
+        ):
+            raise ValueError(
+                "formal workspace control digests differ from the request"
+            )
+        try:
+            manifest = json.loads(manifest_entry.decoded_content())
+            policy = json.loads(policy_entry.decoded_content())
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise ValueError("formal workspace controls are not valid JSON") from error
+        if not isinstance(manifest, dict) or not isinstance(policy, dict):
+            raise ValueError("formal workspace controls must be JSON objects")
+        if (
+            manifest.get("role") != "lilies"
+            or manifest.get("assignment_id") != str(self.assignment_id)
+            or manifest.get("public_summary_digest")
+            != self.task_package_digest
+            or manifest.get("writable_prefixes") != ["work", "artifacts"]
+        ):
+            raise ValueError(
+                "formal workspace manifest differs from the request binding"
+            )
+        declared = manifest.get("entries")
+        if not isinstance(declared, list):
+            raise ValueError("formal workspace manifest has no file inventory")
+        declared_by_path: dict[str, dict[str, Any]] = {}
+        for item in declared:
+            if not isinstance(item, dict) or not isinstance(
+                item.get("target_path"), str
+            ):
+                raise ValueError("formal workspace manifest entry is invalid")
+            path = _formal_workspace_path(item["target_path"])
+            if path in declared_by_path:
+                raise ValueError("formal workspace manifest repeats a path")
+            declared_by_path[path] = item
+        public_entries = {
+            path: entry
+            for path, entry in entries.items()
+            if path not in _FORMAL_WORKSPACE_CONTROL_FILES
+        }
+        if set(declared_by_path) != set(public_entries):
+            raise ValueError(
+                "formal workspace bundle differs from its manifest inventory"
+            )
+        for path, item in declared_by_path.items():
+            entry = public_entries[path]
+            if (
+                item.get("read_only") is not True
+                or item.get("digest") != entry.digest
+                or item.get("size_bytes") != entry.size_bytes
+            ):
+                raise ValueError(
+                    "formal workspace file differs from its manifest entry"
+                )
+        return self
+
+
+class FormalWorkspaceStagingReceipt(StrictModel):
+    """Durable public receipt for the bytes installed in one session workspace."""
+
+    schema_version: Literal["1.0"] = "1.0"
+    session_id: UUID
+    idempotency_key: IdempotencyKey
+    assignment_id: UUID
+    assignment_digest: Digest
+    task_package_digest: Digest
+    workspace_mount_digest: Digest
+    workspace_policy_digest: Digest
+    bundle_digest: Digest
+    file_count: int = Field(ge=1, le=MAX_FORMAL_WORKSPACE_FILES)
+    total_bytes: int = Field(ge=0, le=MAX_FORMAL_WORKSPACE_TOTAL_BYTES)
+    staged_at: datetime
+    replayed: bool = False
+
+    @field_validator("staged_at")
+    @classmethod
+    def staged_at_is_utc(cls, value: datetime) -> datetime:
         return _require_utc(value)

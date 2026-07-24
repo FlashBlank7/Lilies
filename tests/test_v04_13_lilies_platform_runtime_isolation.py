@@ -446,6 +446,415 @@ def test_blackbox_rejects_indirect_runtime_tool_and_network_escape(
         ) == []
 
 
+def test_blackbox_runtime_uses_exact_credential_file_and_network_policy(
+    tmp_path: Path,
+) -> None:
+    app = create_app(_settings(tmp_path), ScriptedProvider())
+    with TestClient(app) as client:
+        application_id = _create_internal_application(
+            client,
+            "Credential runtime policy",
+        )
+        headers, _, _, _, _ = _issue(
+            client,
+            application_ids=[UUID(application_id)],
+            grant_policy={
+                "file_access": False,
+                "connector_access": True,
+                "allowed_network_hosts": ["paperless.local"],
+            },
+        )
+        _apply_operations(
+            client,
+            application_id,
+            _linear_operations(
+                {
+                    "id": "middle",
+                    "type": "http_request",
+                    "title": "Allowed locked host",
+                    "config": {
+                        "method": "GET",
+                        "url": "http://paperless.local/api/documents",
+                    },
+                }
+            ),
+        )
+
+        response = _request(
+            client,
+            "POST",
+            f"/api/v1/lilies/applications/{application_id}/runs",
+            headers,
+            key="credential-runtime-policy-0001",
+            json={"inputs": {"name": "Ada"}, "use_draft": True},
+        )
+        assert response.status_code == 202, response.text
+        run_id = response.json()["data"]["run_id"]
+        run = client.portal.call(
+            client.app.state.services.workflow_store.get_run,
+            run_id,
+        )
+        assert run["state"].allowed_runtime_tools == []
+        assert run["state"].allowed_network_hosts == ["paperless.local"]
+
+
+def test_formal_frozen_policy_rejects_raw_http_host_bypass(
+    tmp_path: Path,
+) -> None:
+    app = create_app(_settings(tmp_path), ScriptedProvider())
+    with TestClient(app) as client:
+        application_id = _create_internal_application(
+            client,
+            "Formal raw HTTP denial",
+        )
+        headers, _, _, _, _ = _issue(
+            client,
+            application_ids=[UUID(application_id)],
+            grant_policy={
+                "connector_access": True,
+                "allowed_network_hosts": ["paperless.local"],
+                "allowed_actions_digest": ZERO_DIGEST,
+                "budget_digest": ZERO_DIGEST,
+            },
+        )
+        _apply_operations(
+            client,
+            application_id,
+            _linear_operations(
+                {
+                    "id": "middle",
+                    "type": "http_request",
+                    "title": "Forbidden raw HTTP",
+                    "config": {
+                        "method": "GET",
+                        "url": "http://paperless.local/api/documents",
+                    },
+                }
+            ),
+        )
+        response = _request(
+            client,
+            "POST",
+            f"/api/v1/lilies/applications/{application_id}/runs",
+            headers,
+            key="formal-raw-http-denial-0001",
+            json={"inputs": {"name": "Ada"}, "use_draft": True},
+        )
+        assert response.status_code == 403, response.text
+        assert response.json()["error"]["code"] == "runtime_network_scope_denied"
+
+
+@pytest.mark.parametrize(
+    ("grant_policy", "middle", "expected_code"),
+    [
+        (
+            {"model_access": False},
+            {
+                "id": "middle",
+                "type": "llm",
+                "title": "Forbidden model",
+                "config": {"prompt": "Do not run", "system": "Policy test"},
+            },
+            "runtime_model_scope_denied",
+        ),
+        (
+            {
+                "connector_access": True,
+                "readable_host_objects": ["paperless.documents"],
+            },
+            {
+                "id": "middle",
+                "type": "connector_action",
+                "title": "Unlisted connector operation",
+                "config": {
+                    "connector_id": "paperless",
+                    "operation_id": "metadata.update",
+                    "tenant_id": "tenant-1",
+                    "actor_id": "actor-1",
+                    "actor_roles": ["operator"],
+                    "profile_id": "profile-1",
+                    "payload": {},
+                    "idempotency_key": "connector-policy-denied-0001",
+                    "execution_mode": "dry_run",
+                },
+            },
+            "runtime_connector_scope_denied",
+        ),
+    ],
+)
+def test_blackbox_runtime_rejects_disabled_model_and_unlisted_connector(
+    tmp_path: Path,
+    grant_policy: dict,
+    middle: dict,
+    expected_code: str,
+) -> None:
+    app = create_app(_settings(tmp_path), ScriptedProvider())
+    with TestClient(app) as client:
+        application_id = _create_internal_application(
+            client,
+            f"Rejected {expected_code}",
+        )
+        headers, _, _, _, _ = _issue(
+            client,
+            application_ids=[UUID(application_id)],
+            grant_policy=grant_policy,
+        )
+        operations = _linear_operations(middle)
+        if expected_code == "runtime_model_scope_denied":
+            for operation, data in operations:
+                node = data.get("node")
+                edge = data.get("edge")
+                if (
+                    operation == "add_node"
+                    and isinstance(node, dict)
+                    and node.get("id") == "end"
+                ):
+                    node["config"]["outputs"]["value"]["$ref"]["path"] = [
+                        "text"
+                    ]
+                if (
+                    operation == "add_edge"
+                    and isinstance(edge, dict)
+                    and edge.get("id") == "middle-end"
+                ):
+                    edge["source_port"] = "text"
+        _apply_operations(client, application_id, operations)
+        response = _request(
+            client,
+            "POST",
+            f"/api/v1/lilies/applications/{application_id}/runs",
+            headers,
+            key=f"{expected_code}-0001",
+            json={"inputs": {"name": "Ada"}, "use_draft": True},
+        )
+        assert response.status_code == 403, response.text
+        assert response.json()["error"]["code"] == expected_code
+        assert client.portal.call(
+            partial(
+                client.app.state.services.workflow_store.list_runs,
+                application_id,
+            )
+        ) == []
+
+
+def test_connector_permission_and_write_limit_are_enforced_inside_the_run(
+    tmp_path: Path,
+) -> None:
+    app = create_app(_settings(tmp_path), ScriptedProvider())
+    with TestClient(app) as client:
+        services = client.app.state.services
+        execution = MagicMock()
+        execution.id = "connector-execution-0001"
+        execution.operation_id = "metadata.update"
+        execution.status = "succeeded"
+        execution.replayed = False
+        execution.response = {"updated": True}
+        execution.public_receipt.return_value = {
+            "execution_id": execution.id,
+            "status": execution.status,
+        }
+        execute = AsyncMock(return_value=execution)
+        services.workflow_runtime.connector_service.execute = execute
+
+        async def terminal_run(run_id: str) -> dict:
+            for _ in range(200):
+                run = await services.workflow_store.get_run(run_id)
+                if run["status"] in {"succeeded", "failed", "cancelled"}:
+                    return run
+                await asyncio.sleep(0.01)
+            raise AssertionError("connector policy run did not become terminal")
+
+        def connector_operations(
+            authorization_ids: list[str],
+        ) -> list[tuple[str, dict]]:
+            nodes = [
+                {
+                    "id": f"connector-{index}",
+                    "type": "connector_action",
+                    "title": f"Connector write {index}",
+                    "config": {
+                        "connector_id": "paperless",
+                        "operation_id": "metadata.update",
+                        "tenant_id": "tenant-1",
+                        "actor_id": "actor-1",
+                        "actor_roles": ["operator"],
+                        "profile_id": "profile-1",
+                        "payload": {"index": index},
+                        "idempotency_key": f"connector-write-{index:04d}",
+                        "authorization_id": authorization_id,
+                        "execution_mode": "execute",
+                    },
+                }
+                for index, authorization_id in enumerate(
+                    authorization_ids,
+                    start=1,
+                )
+            ]
+            operations: list[tuple[str, dict]] = [
+                (
+                    "add_node",
+                    {
+                        "node": {
+                            "id": "start",
+                            "type": "start",
+                            "title": "Start",
+                            "config": {"inputs": []},
+                        }
+                    },
+                ),
+                *[("add_node", {"node": node}) for node in nodes],
+                (
+                    "add_node",
+                    {
+                        "node": {
+                            "id": "end",
+                            "type": "end",
+                            "title": "End",
+                            "config": {
+                                "outputs": {
+                                    "value": {
+                                        "$ref": {
+                                            "node_id": nodes[-1]["id"],
+                                            "path": ["output"],
+                                        }
+                                    }
+                                }
+                            },
+                        }
+                    },
+                ),
+            ]
+            chain = ["start", *[node["id"] for node in nodes], "end"]
+            for index, (source, target) in enumerate(
+                zip(chain, chain[1:])
+            ):
+                operations.append(
+                    (
+                        "add_edge",
+                        {
+                            "edge": {
+                                "id": f"connector-edge-{index}",
+                                "source": source,
+                                "target": target,
+                                "source_port": "output",
+                                "target_port": "input",
+                            }
+                        },
+                    )
+                )
+            return operations
+
+        policy = {
+            "connector_access": True,
+            "writable_host_operations": ["paperless.metadata.update"],
+            "permission_required_actions": ["paperless.metadata.update"],
+            "max_write_count": 1,
+        }
+        oversized_payload_app = _create_internal_application(
+            client,
+            "Connector payload limit",
+        )
+        oversized_headers, _, _, _, _ = _issue(
+            client,
+            application_ids=[UUID(oversized_payload_app)],
+            grant_policy={**policy, "max_payload_bytes": 512},
+        )
+        oversized_operations = connector_operations(["authorization-payload"])
+        connector_node = next(
+            data["node"]
+            for operation, data in oversized_operations
+            if operation == "add_node"
+            and data.get("node", {}).get("type") == "connector_action"
+        )
+        connector_node["config"]["payload"] = {"value": "x" * 1_000}
+        _apply_operations(
+            client,
+            oversized_payload_app,
+            oversized_operations,
+        )
+        oversized = _request(
+            client,
+            "POST",
+            f"/api/v1/lilies/applications/{oversized_payload_app}/runs",
+            oversized_headers,
+            key="connector-payload-limit-run-0001",
+            json={"inputs": {}, "use_draft": True},
+        )
+        assert oversized.status_code == 202, oversized.text
+        oversized_run = client.portal.call(
+            terminal_run,
+            oversized.json()["data"]["run_id"],
+        )
+        assert oversized_run["status"] == "failed"
+        assert "payload exceeds the assigned byte limit" in str(
+            oversized_run["error"]
+        )
+        assert execute.await_count == 0
+
+        missing_auth_app = _create_internal_application(
+            client,
+            "Missing connector authorization",
+        )
+        missing_headers, _, _, _, _ = _issue(
+            client,
+            application_ids=[UUID(missing_auth_app)],
+            grant_policy=policy,
+        )
+        _apply_operations(
+            client,
+            missing_auth_app,
+            connector_operations([""]),
+        )
+        missing = _request(
+            client,
+            "POST",
+            f"/api/v1/lilies/applications/{missing_auth_app}/runs",
+            missing_headers,
+            key="connector-permission-run-0001",
+            json={"inputs": {}, "use_draft": True},
+        )
+        assert missing.status_code == 202, missing.text
+        missing_run = client.portal.call(
+            terminal_run,
+            missing.json()["data"]["run_id"],
+        )
+        assert missing_run["status"] == "failed"
+        assert "authorization receipt" in str(missing_run["error"])
+        assert execute.await_count == 0
+
+        limited_app = _create_internal_application(
+            client,
+            "Connector write limit",
+        )
+        limited_headers, _, _, _, _ = _issue(
+            client,
+            application_ids=[UUID(limited_app)],
+            grant_policy=policy,
+        )
+        _apply_operations(
+            client,
+            limited_app,
+            connector_operations(["authorization-1", "authorization-2"]),
+        )
+        limited = _request(
+            client,
+            "POST",
+            f"/api/v1/lilies/applications/{limited_app}/runs",
+            limited_headers,
+            key="connector-write-limit-run-0001",
+            json={"inputs": {}, "use_draft": True},
+        )
+        assert limited.status_code == 202, limited.text
+        limited_run = client.portal.call(
+            terminal_run,
+            limited.json()["data"]["run_id"],
+        )
+        assert limited_run["status"] == "failed"
+        assert "write limit is exhausted" in str(limited_run["error"])
+        assert limited_run["state"].connector_write_count == 1
+        assert execute.await_count == 1
+
+
 @pytest.mark.parametrize("endpoint", ["tests", "run"])
 def test_blackbox_rejects_mcp_gateway_before_process_side_effect(
     tmp_path: Path,

@@ -94,6 +94,26 @@ class WorkflowRuntimeSecretScopeDenied(ValueError):
     """A workflow attempted to resolve a secret outside its run policy."""
 
 
+class WorkflowRuntimeModelScopeDenied(ValueError):
+    """A workflow attempted model execution while model access was disabled."""
+
+
+class WorkflowRuntimeConnectorScopeDenied(ValueError):
+    """A workflow attempted a connector operation outside its task policy."""
+
+
+class WorkflowRuntimePermissionScopeDenied(ValueError):
+    """A connector operation lacked its task-required authorization receipt."""
+
+
+class WorkflowRuntimeWriteLimitExceeded(ValueError):
+    """A workflow exceeded its frozen host write count."""
+
+
+class WorkflowRuntimePayloadLimitExceeded(ValueError):
+    """A workflow connector payload exceeded its frozen byte limit."""
+
+
 BLACKBOX_RUNTIME_TOOL_ALLOWLIST = frozenset({"Edit", "Glob", "Grep", "Read", "Write"})
 BLACKBOX_RUNTIME_NETWORK_ALLOWLIST: frozenset[str] = frozenset()
 MAX_NESTED_WORKFLOW_DEPTH = 16
@@ -147,6 +167,11 @@ class WorkflowRuntime:
         self._nested_application_allowlists: dict[str, frozenset[str]] = {}
         self._runtime_tool_allowlists: dict[str, frozenset[str]] = {}
         self._network_host_allowlists: dict[str, frozenset[str]] = {}
+        self._model_access_policies: dict[str, bool] = {}
+        self._connector_operation_allowlists: dict[str, frozenset[str]] = {}
+        self._writable_connector_operations: dict[str, frozenset[str]] = {}
+        self._permission_connector_operations: dict[str, frozenset[str]] = {}
+        self._compensation_connector_operations: dict[str, frozenset[str]] = {}
 
     async def create_run(
         self,
@@ -159,6 +184,14 @@ class WorkflowRuntime:
         allowed_nested_application_ids: Collection[str] | None = None,
         allowed_runtime_tools: Collection[str] | None = None,
         allowed_network_hosts: Collection[str] | None = None,
+        model_access: bool | None = None,
+        allowed_connector_operations: Collection[str] | None = None,
+        writable_connector_operations: Collection[str] | None = None,
+        permission_required_connector_operations: Collection[str] | None = None,
+        compensation_connector_operations: Collection[str] | None = None,
+        max_connector_write_count: int | None = None,
+        max_connector_payload_bytes: int | None = None,
+        governed_host_actions: bool = False,
         assignment_id: str | None = None,
         session_id: str | None = None,
         application_call_chain: Collection[str] | None = None,
@@ -180,6 +213,13 @@ class WorkflowRuntime:
                 allowed_nested_application_ids,
                 allowed_runtime_tools,
                 allowed_network_hosts,
+                model_access,
+                allowed_connector_operations,
+                writable_connector_operations,
+                permission_required_connector_operations,
+                compensation_connector_operations,
+                max_connector_write_count,
+                max_connector_payload_bytes,
                 assignment_id,
                 session_id,
             )
@@ -220,14 +260,71 @@ class WorkflowRuntime:
             if allowed_network_hosts is not None
             else None
         )
+        connector_allowlist = (
+            frozenset(str(value) for value in allowed_connector_operations)
+            if allowed_connector_operations is not None
+            else None
+        )
+        writable_connector_allowlist = (
+            frozenset(str(value) for value in writable_connector_operations)
+            if writable_connector_operations is not None
+            else None
+        )
+        permission_connector_allowlist = (
+            frozenset(
+                str(value)
+                for value in permission_required_connector_operations
+            )
+            if permission_required_connector_operations is not None
+            else None
+        )
+        compensation_connector_allowlist = (
+            frozenset(str(value) for value in compensation_connector_operations)
+            if compensation_connector_operations is not None
+            else None
+        )
+        if connector_allowlist is not None and any(
+            policy is not None and not policy.issubset(connector_allowlist)
+            for policy in (
+                writable_connector_allowlist,
+                permission_connector_allowlist,
+                compensation_connector_allowlist,
+            )
+        ):
+            raise WorkflowRuntimeConnectorScopeDenied(
+                "connector sub-policies exceed the assigned connector operation policy"
+            )
         self._validate_execution_policy(
             snapshot.workflow,
             workspace_boundary=resolved_boundary,
             allowed_nested_application_ids=nested_allowlist,
             allowed_runtime_tools=runtime_tool_allowlist,
             allowed_network_hosts=network_host_allowlist,
+            model_access=model_access,
+            allowed_connector_operations=connector_allowlist,
+            governed_host_actions=governed_host_actions,
             agents=snapshot.agents,
         )
+        if governed_host_actions:
+            if (
+                self.connector_service is None
+                or assignment_id is None
+                or network_host_allowlist is None
+                or max_connector_write_count is None
+                or max_connector_payload_bytes is None
+            ):
+                raise WorkflowRuntimeConnectorScopeDenied(
+                    "governed host-action policy is incomplete"
+                )
+            await self.connector_service.freeze_assignment_budget(
+                assignment_id=assignment_id,
+                allowed_network_hosts=sorted(network_host_allowlist),
+                allowed_compensation_operations=sorted(
+                    compensation_connector_allowlist or ()
+                ),
+                max_write_count=max_connector_write_count,
+                max_payload_bytes=max_connector_payload_bytes,
+            )
         run_id = str(uuid4())
         inputs = await self._inputs_with_governed_memory(
             application_id=application_id,
@@ -256,6 +353,30 @@ class WorkflowRuntime:
             allowed_network_hosts=(
                 sorted(network_host_allowlist) if network_host_allowlist is not None else None
             ),
+            model_access=model_access,
+            allowed_connector_operations=(
+                sorted(connector_allowlist)
+                if connector_allowlist is not None
+                else None
+            ),
+            writable_connector_operations=(
+                sorted(writable_connector_allowlist)
+                if writable_connector_allowlist is not None
+                else None
+            ),
+            permission_required_connector_operations=(
+                sorted(permission_connector_allowlist)
+                if permission_connector_allowlist is not None
+                else None
+            ),
+            compensation_connector_operations=(
+                sorted(compensation_connector_allowlist)
+                if compensation_connector_allowlist is not None
+                else None
+            ),
+            max_connector_write_count=max_connector_write_count,
+            max_connector_payload_bytes=max_connector_payload_bytes,
+            governed_host_actions=governed_host_actions,
             assignment_id=assignment_id,
             session_id=session_id,
             application_call_chain=current_call_chain,
@@ -320,6 +441,9 @@ class WorkflowRuntime:
         allowed_nested_application_ids: frozenset[str] | None,
         allowed_runtime_tools: frozenset[str] | None = None,
         allowed_network_hosts: frozenset[str] | None = None,
+        model_access: bool | None = None,
+        allowed_connector_operations: frozenset[str] | None = None,
+        governed_host_actions: bool = False,
         agents: dict[str, AgentSpec] | None = None,
     ) -> None:
         """Reject statically declared boundary escapes before a run is persisted."""
@@ -332,6 +456,8 @@ class WorkflowRuntime:
                     allowed_nested_application_ids,
                     allowed_runtime_tools,
                     allowed_network_hosts,
+                    model_access,
+                    allowed_connector_operations,
                 )
             ):
                 definition = self.blocks.get(node.type)
@@ -347,19 +473,46 @@ class WorkflowRuntime:
                     "secret references are outside the assigned run policy"
                 )
             config = self.blocks.validate_node(node)
+            if model_access is False and isinstance(
+                config,
+                (
+                    LLMConfig,
+                    ClassifierConfig,
+                    ParameterExtractorConfig,
+                    ClaudeAgentConfig,
+                ),
+            ):
+                raise WorkflowRuntimeModelScopeDenied(
+                    "model-backed workflow blocks are outside the assigned run policy"
+                )
+            if (
+                model_access is False
+                and isinstance(config, AgentArchitectureConfig)
+                and node.type in {"model_turn", "subagent_spawn"}
+            ):
+                raise WorkflowRuntimeModelScopeDenied(
+                    "model-backed workflow blocks are outside the assigned run policy"
+                )
             if isinstance(config, ToolConfig):
                 self._validate_nested_workflow_target(
                     config.tool_name,
                     allowed_nested_application_ids,
                 )
                 self._validate_runtime_tool_target(config.tool_name, allowed_runtime_tools)
+            if isinstance(config, HTTPConfig) and governed_host_actions:
+                raise WorkflowRuntimeNetworkScopeDenied(
+                    "raw HTTP blocks cannot bypass assigned host actions"
+                )
             if isinstance(config, HTTPConfig) and allowed_network_hosts is not None:
                 self._validate_network_url(config.url, allowed_network_hosts)
-            if isinstance(config, (WebCollectionConfig, ConnectorActionConfig)) and (
-                allowed_network_hosts is not None
-            ):
+            if isinstance(config, WebCollectionConfig) and allowed_network_hosts is not None:
                 raise WorkflowRuntimeNetworkScopeDenied(
                     "network-backed workflow blocks are outside the assigned run policy"
+                )
+            if isinstance(config, ConnectorActionConfig):
+                self._resolve_connector_operation(
+                    config,
+                    allowed_connector_operations,
                 )
             if isinstance(config, ClaudeAgentConfig) and agents is not None:
                 agent = agents.get(config.agent_id)
@@ -416,6 +569,9 @@ class WorkflowRuntime:
                     allowed_nested_application_ids=allowed_nested_application_ids,
                     allowed_runtime_tools=allowed_runtime_tools,
                     allowed_network_hosts=allowed_network_hosts,
+                    model_access=model_access,
+                    allowed_connector_operations=allowed_connector_operations,
+                    governed_host_actions=governed_host_actions,
                     agents=agents,
                 )
 
@@ -430,6 +586,26 @@ class WorkflowRuntime:
             raise WorkflowRuntimeToolScopeDenied(
                 "runtime tool is outside the assigned run policy"
             )
+
+    @staticmethod
+    def _resolve_connector_operation(
+        config: ConnectorActionConfig,
+        allowed_operations: frozenset[str] | None,
+    ) -> str:
+        canonical = f"{config.connector_id}.{config.operation_id}"
+        if allowed_operations is None:
+            return canonical
+        candidates = {
+            config.operation_id,
+            canonical,
+            f"{config.connector_id}:{config.operation_id}",
+        }
+        matched = sorted(candidates.intersection(allowed_operations))
+        if len(matched) != 1:
+            raise WorkflowRuntimeConnectorScopeDenied(
+                "connector operation is absent from or ambiguous in the assigned policy"
+            )
+        return matched[0]
 
     @staticmethod
     def _validate_network_url(
@@ -509,6 +685,9 @@ class WorkflowRuntime:
         allowed_nested_application_ids: Collection[str],
         allowed_runtime_tools: Collection[str],
         allowed_network_hosts: Collection[str],
+        model_access: bool | None = None,
+        allowed_connector_operations: Collection[str] | None = None,
+        governed_host_actions: bool = False,
         for_publication: bool = False,
     ) -> None:
         """Apply the same static policy used by black-box runs without persisting a run."""
@@ -526,6 +705,13 @@ class WorkflowRuntime:
             allowed_network_hosts=frozenset(
                 str(value).casefold() for value in allowed_network_hosts
             ),
+            model_access=model_access,
+            allowed_connector_operations=(
+                frozenset(str(value) for value in allowed_connector_operations)
+                if allowed_connector_operations is not None
+                else None
+            ),
+            governed_host_actions=governed_host_actions,
             agents=snapshot.agents,
         )
         if for_publication:
@@ -708,6 +894,24 @@ class WorkflowRuntime:
         if state.allowed_network_hosts is not None:
             self._network_host_allowlists[state.run_id] = frozenset(
                 host.casefold() for host in state.allowed_network_hosts
+            )
+        if state.model_access is not None:
+            self._model_access_policies[state.run_id] = state.model_access
+        if state.allowed_connector_operations is not None:
+            self._connector_operation_allowlists[state.run_id] = frozenset(
+                state.allowed_connector_operations
+            )
+        if state.writable_connector_operations is not None:
+            self._writable_connector_operations[state.run_id] = frozenset(
+                state.writable_connector_operations
+            )
+        if state.permission_required_connector_operations is not None:
+            self._permission_connector_operations[state.run_id] = frozenset(
+                state.permission_required_connector_operations
+            )
+        if state.compensation_connector_operations is not None:
+            self._compensation_connector_operations[state.run_id] = frozenset(
+                state.compensation_connector_operations
             )
         task = asyncio.create_task(self._run(state))
         self.active_tasks[state.run_id] = task
@@ -1112,12 +1316,12 @@ class WorkflowRuntime:
                 self._resolve(config.topic, context),
             )
         if isinstance(config, ConnectorActionConfig):
-            if run_id in self._network_host_allowlists:
-                raise WorkflowRuntimeNetworkScopeDenied(
-                    "network-backed workflow blocks are outside the assigned run policy"
-                )
             if self.connector_service is None:
                 raise RuntimeError("Connector service is not configured")
+            operation = self._resolve_connector_operation(
+                config,
+                self._connector_operation_allowlists.get(run_id),
+            )
             tenant_id = str(self._resolve(config.tenant_id, context))
             actor_id = str(self._resolve(config.actor_id, context))
             actor_roles = self._resolve(config.actor_roles, context)
@@ -1134,6 +1338,68 @@ class WorkflowRuntime:
                 raise ValueError("connector payload must resolve to an object")
             if execution_mode not in {"dry_run", "execute"}:
                 raise ValueError("connector execution_mode must be dry_run or execute")
+            if run_id in self._connector_operation_allowlists:
+                if state is None or state.max_connector_payload_bytes is None:
+                    raise WorkflowRuntimePayloadLimitExceeded(
+                        "connector payload limit is absent from the assigned run policy"
+                    )
+                try:
+                    payload_bytes = len(
+                        json.dumps(
+                            payload,
+                            ensure_ascii=False,
+                            allow_nan=False,
+                            separators=(",", ":"),
+                            sort_keys=True,
+                        ).encode("utf-8")
+                    )
+                except (TypeError, ValueError) as error:
+                    raise ValueError(
+                        "connector payload must be finite canonical JSON"
+                    ) from error
+                if payload_bytes > state.max_connector_payload_bytes:
+                    raise WorkflowRuntimePayloadLimitExceeded(
+                        "connector payload exceeds the assigned byte limit"
+                    )
+                writable = self._writable_connector_operations.get(
+                    run_id,
+                    frozenset(),
+                )
+                compensations = self._compensation_connector_operations.get(
+                    run_id,
+                    frozenset(),
+                )
+                if execution_mode == "execute" and operation not in {
+                    *writable,
+                    *compensations,
+                }:
+                    raise WorkflowRuntimeConnectorScopeDenied(
+                        "connector write is outside the assigned host operation policy"
+                    )
+                if (
+                    execution_mode == "execute"
+                    and operation
+                    in self._permission_connector_operations.get(
+                        run_id,
+                        frozenset(),
+                    )
+                    and not authorization_id
+                ):
+                    raise WorkflowRuntimePermissionScopeDenied(
+                        "connector write requires an authorization receipt"
+                    )
+                if execution_mode == "execute" and state is not None:
+                    limit = state.max_connector_write_count
+                    if idempotency_key not in state.connector_write_keys:
+                        if (
+                            limit is None
+                            or state.connector_write_count >= limit
+                        ):
+                            raise WorkflowRuntimeWriteLimitExceeded(
+                                "connector write limit is exhausted"
+                            )
+                        state.connector_write_count += 1
+                        state.connector_write_keys.append(idempotency_key)
             execution = await self.connector_service.execute(
                 ConnectorExecutionRequest(
                     connector_id=config.connector_id,
@@ -1149,6 +1415,52 @@ class WorkflowRuntime:
                     dry_run=execution_mode == "dry_run",
                     application_id=state.application_id if state else "",
                     run_id=run_id,
+                    assignment_id=(
+                        state.assignment_id
+                        if state is not None
+                        and state.governed_host_actions
+                        and state.assignment_id is not None
+                        else ""
+                    ),
+                    session_id=(
+                        state.session_id
+                        if state is not None
+                        and state.governed_host_actions
+                        and state.session_id is not None
+                        else ""
+                    ),
+                    allowed_network_hosts=(
+                        list(state.allowed_network_hosts)
+                        if state is not None
+                        and state.governed_host_actions
+                        and state.allowed_network_hosts is not None
+                        else None
+                    ),
+                    allowed_compensation_operations=(
+                        list(state.compensation_connector_operations)
+                        if state is not None
+                        and state.governed_host_actions
+                        and state.compensation_connector_operations is not None
+                        else None
+                    ),
+                    permission_required=(
+                        execution_mode == "execute"
+                        and operation
+                        in self._permission_connector_operations.get(
+                            run_id,
+                            frozenset(),
+                        )
+                    ),
+                    assignment_max_write_count=(
+                        state.max_connector_write_count
+                        if state is not None and state.governed_host_actions
+                        else None
+                    ),
+                    assignment_max_payload_bytes=(
+                        state.max_connector_payload_bytes
+                        if state is not None and state.governed_host_actions
+                        else None
+                    ),
                 )
             )
             receipt = execution.public_receipt()
@@ -2458,6 +2770,33 @@ class WorkflowRuntime:
                 allowed_nested_application_ids=self._nested_application_allowlists.get(run_id),
                 allowed_runtime_tools=self._runtime_tool_allowlists.get(run_id),
                 allowed_network_hosts=self._network_host_allowlists.get(run_id),
+                model_access=self._model_access_policies.get(run_id),
+                allowed_connector_operations=(
+                    self._connector_operation_allowlists.get(run_id)
+                ),
+                writable_connector_operations=(
+                    self._writable_connector_operations.get(run_id)
+                ),
+                permission_required_connector_operations=(
+                    self._permission_connector_operations.get(run_id)
+                ),
+                compensation_connector_operations=(
+                    self._compensation_connector_operations.get(run_id)
+                ),
+                max_connector_write_count=(
+                    state.max_connector_write_count
+                    if state is not None
+                    and state.max_connector_write_count is not None
+                    else None
+                ),
+                max_connector_payload_bytes=(
+                    state.max_connector_payload_bytes
+                    if state is not None
+                    else None
+                ),
+                governed_host_actions=(
+                    state.governed_host_actions if state is not None else False
+                ),
                 assignment_id=state.assignment_id if state is not None else None,
                 session_id=state.session_id if state is not None else None,
                 application_call_chain=(
@@ -2466,6 +2805,13 @@ class WorkflowRuntime:
             )
             await self.active_tasks[nested["run_id"]]
             record = await self.workflow_store.get_run(nested["run_id"])
+            if state is not None and state.max_connector_write_count is not None:
+                nested_state = WorkflowRunState.model_validate(record["state"])
+                state.connector_write_count += nested_state.connector_write_count
+                if state.connector_write_count > state.max_connector_write_count:
+                    raise WorkflowRuntimeWriteLimitExceeded(
+                        "nested workflow exceeded the connector write limit"
+                    )
             if record["status"] != "succeeded":
                 raise RuntimeError(
                     f"nested workflow {application_id} ended with {record['status']}: {record.get('error') or ''}"
@@ -2680,6 +3026,14 @@ class WorkflowRuntime:
         allowed_nested_application_ids: Collection[str] | None = None,
         allowed_runtime_tools: Collection[str] | None = None,
         allowed_network_hosts: Collection[str] | None = None,
+        model_access: bool | None = None,
+        allowed_connector_operations: Collection[str] | None = None,
+        writable_connector_operations: Collection[str] | None = None,
+        permission_required_connector_operations: Collection[str] | None = None,
+        compensation_connector_operations: Collection[str] | None = None,
+        max_connector_write_count: int | None = None,
+        max_connector_payload_bytes: int | None = None,
+        governed_host_actions: bool = False,
         assignment_id: str | None = None,
         session_id: str | None = None,
     ) -> dict[str, Any]:
@@ -2700,6 +3054,29 @@ class WorkflowRuntime:
             if allowed_network_hosts is not None
             else None
         )
+        connector_allowlist = (
+            frozenset(str(value) for value in allowed_connector_operations)
+            if allowed_connector_operations is not None
+            else None
+        )
+        writable_connector_allowlist = (
+            frozenset(str(value) for value in writable_connector_operations)
+            if writable_connector_operations is not None
+            else None
+        )
+        permission_connector_allowlist = (
+            frozenset(
+                str(value)
+                for value in permission_required_connector_operations
+            )
+            if permission_required_connector_operations is not None
+            else None
+        )
+        compensation_connector_allowlist = (
+            frozenset(str(value) for value in compensation_connector_operations)
+            if compensation_connector_operations is not None
+            else None
+        )
         if any(
             value is not None
             for value in (
@@ -2707,6 +3084,8 @@ class WorkflowRuntime:
                 nested_allowlist,
                 runtime_tool_allowlist,
                 network_host_allowlist,
+                model_access,
+                connector_allowlist,
             )
         ):
             for test in snapshot.tests:
@@ -2725,6 +3104,9 @@ class WorkflowRuntime:
                 allowed_nested_application_ids=nested_allowlist,
                 allowed_runtime_tools=runtime_tool_allowlist,
                 allowed_network_hosts=network_host_allowlist,
+                model_access=model_access,
+                allowed_connector_operations=connector_allowlist,
+                governed_host_actions=governed_host_actions,
                 agents=snapshot.agents,
             )
         validation = await self.applications.validate_draft(application_id)
@@ -2739,6 +3121,8 @@ class WorkflowRuntime:
                     allowed_nested_application_ids=nested_allowlist,
                     allowed_runtime_tools=runtime_tool_allowlist,
                     allowed_network_hosts=network_host_allowlist,
+                    model_access=model_access,
+                    allowed_connector_operations=connector_allowlist,
                     agents=snapshot.agents,
                 )
                 case_workspaces[index] = case_workspace
@@ -2907,6 +3291,18 @@ class WorkflowRuntime:
                     allowed_nested_application_ids=nested_allowlist,
                     allowed_runtime_tools=runtime_tool_allowlist,
                     allowed_network_hosts=network_host_allowlist,
+                    model_access=model_access,
+                    allowed_connector_operations=connector_allowlist,
+                    writable_connector_operations=writable_connector_allowlist,
+                    permission_required_connector_operations=(
+                        permission_connector_allowlist
+                    ),
+                    compensation_connector_operations=(
+                        compensation_connector_allowlist
+                    ),
+                    max_connector_write_count=max_connector_write_count,
+                    max_connector_payload_bytes=max_connector_payload_bytes,
+                    governed_host_actions=governed_host_actions,
                     assignment_id=assignment_id,
                     session_id=session_id,
                 )
@@ -3476,3 +3872,8 @@ class WorkflowRuntime:
         self._nested_application_allowlists.pop(run_id, None)
         self._runtime_tool_allowlists.pop(run_id, None)
         self._network_host_allowlists.pop(run_id, None)
+        self._model_access_policies.pop(run_id, None)
+        self._connector_operation_allowlists.pop(run_id, None)
+        self._writable_connector_operations.pop(run_id, None)
+        self._permission_connector_operations.pop(run_id, None)
+        self._compensation_connector_operations.pop(run_id, None)

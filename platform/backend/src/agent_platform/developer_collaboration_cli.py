@@ -11,7 +11,11 @@ from uuid import UUID
 
 from pydantic import ValidationError
 
-from .collaboration_models import DeveloperResponsePayload, ReportRoute
+from .collaboration_models import (
+    DeveloperResponsePayload,
+    DeveloperWorkerReceiptReference,
+    ReportRoute,
+)
 from .developer_collaboration_client import (
     DeveloperCollaborationClient,
     DeveloperCollaborationClientError,
@@ -63,6 +67,38 @@ def build_parser() -> argparse.ArgumentParser:
     release.add_argument("--idempotency-key", required=True)
     release.add_argument("--reason", required=True)
 
+    promote = subparsers.add_parser(
+        "promote",
+        help="promote the exact lease-bound developer workspace delta",
+    )
+    promote.add_argument("report_id", type=UUID)
+    promote.add_argument("--lease-id", type=UUID, required=True)
+    promote.add_argument("--expected-report-revision", type=int, required=True)
+    promote.add_argument("--response-id", type=UUID, required=True)
+    promote.add_argument("--idempotency-key", required=True)
+    promote.add_argument("--workspace-manifest-digest", required=True)
+    promote.add_argument("--source-manifest-digest", required=True)
+    promote.add_argument("--worker-receipt-id", type=UUID)
+    promote.add_argument("--worker-receipt-digest")
+
+    worker = subparsers.add_parser(
+        "worker",
+        help="run the platform-owned sandboxed developer runtime",
+    )
+    worker.add_argument("report_id", type=UUID)
+    worker.add_argument("--lease-id", type=UUID, required=True)
+    worker.add_argument("--expected-report-revision", type=int, required=True)
+    worker.add_argument("--response-id", type=UUID, required=True)
+    worker.add_argument("--idempotency-key", required=True)
+    worker.add_argument("--timeout-seconds", type=int, default=600)
+    worker.add_argument(
+        "--argument",
+        dest="arguments",
+        action="append",
+        required=True,
+        help="one fixed-runtime argument; repeat in process order",
+    )
+
     respond = subparsers.add_parser(
         "respond",
         help="submit a substantive DeveloperResponse payload",
@@ -71,6 +107,8 @@ def build_parser() -> argparse.ArgumentParser:
     respond.add_argument("--lease-id", type=UUID, required=True)
     respond.add_argument("--expected-report-revision", type=int, required=True)
     respond.add_argument("--idempotency-key", required=True)
+    respond.add_argument("--worker-receipt-id", type=UUID)
+    respond.add_argument("--worker-receipt-digest")
     respond.add_argument(
         "--response-file",
         required=True,
@@ -131,6 +169,23 @@ def _emit(value: Any, *, stream: Any = None) -> None:
     )
 
 
+def _worker_receipt_reference(
+    args: argparse.Namespace,
+) -> DeveloperWorkerReceiptReference | None:
+    receipt_id = getattr(args, "worker_receipt_id", None)
+    receipt_digest = getattr(args, "worker_receipt_digest", None)
+    if receipt_id is None and receipt_digest is None:
+        return None
+    if receipt_id is None or receipt_digest is None:
+        raise DeveloperCollaborationClientError(
+            "worker receipt ID and digest must be supplied together"
+        )
+    return DeveloperWorkerReceiptReference(
+        receipt_id=receipt_id,
+        receipt_digest=receipt_digest,
+    )
+
+
 def _dispatch(args: argparse.Namespace, client: DeveloperCollaborationClient) -> Any:
     if args.command == "inbox":
         return client.inbox(after=args.after, limit=args.limit, route=args.route)
@@ -155,14 +210,40 @@ def _dispatch(args: argparse.Namespace, client: DeveloperCollaborationClient) ->
             idempotency_key=args.idempotency_key,
             reason=args.reason,
         )
-    if args.command == "respond":
-        return client.respond(
+    if args.command == "promote":
+        parameters = {
+            "lease_id": args.lease_id,
+            "expected_report_revision": args.expected_report_revision,
+            "response_id": args.response_id,
+            "idempotency_key": args.idempotency_key,
+            "workspace_manifest_digest": args.workspace_manifest_digest,
+            "source_manifest_digest": args.source_manifest_digest,
+        }
+        receipt = _worker_receipt_reference(args)
+        if receipt is not None:
+            parameters["developer_worker_receipt"] = receipt
+        return client.promote_source(args.report_id, **parameters)
+    if args.command == "worker":
+        return client.run_worker(
             args.report_id,
             lease_id=args.lease_id,
             expected_report_revision=args.expected_report_revision,
+            response_id=args.response_id,
             idempotency_key=args.idempotency_key,
-            response=_read_response_payload(args.response_file),
+            arguments=args.arguments,
+            timeout_seconds=args.timeout_seconds,
         )
+    if args.command == "respond":
+        parameters = {
+            "lease_id": args.lease_id,
+            "expected_report_revision": args.expected_report_revision,
+            "idempotency_key": args.idempotency_key,
+            "response": _read_response_payload(args.response_file),
+        }
+        receipt = _worker_receipt_reference(args)
+        if receipt is not None:
+            parameters["developer_worker_receipt"] = receipt
+        return client.respond(args.report_id, **parameters)
     raise AssertionError(f"unhandled command: {args.command}")
 
 

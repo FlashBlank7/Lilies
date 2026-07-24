@@ -27,13 +27,22 @@ class ApplicationService:
         self.blocks = blocks
         self.tools = tools
 
-    async def apply_operation(self, application_id: str, operation: DraftOperation) -> dict[str, Any]:
+    async def apply_operation(
+        self,
+        application_id: str,
+        operation: DraftOperation,
+        *,
+        formal_mutation_context: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
         draft = await self.store.get_draft(application_id)
         snapshot: ApplicationSnapshot = draft["snapshot"].model_copy(deep=True)
+        original_snapshot = snapshot.model_dump(mode="json")
         data = operation.data
         self._apply_to_snapshot(snapshot, operation.op, data)
 
         snapshot = ApplicationSnapshot.model_validate(snapshot.model_dump(mode="json"))
+        if snapshot.model_dump(mode="json") == original_snapshot:
+            raise ValueError("draft operation would not change the workflow")
         result = await self.store.save_draft(
             application_id,
             snapshot,
@@ -44,6 +53,7 @@ class ApplicationService:
                 application_id,
                 operation,
             ),
+            formal_mutation_context=formal_mutation_context,
         )
         result["operation"] = operation.op
         return result

@@ -4,12 +4,17 @@ import asyncio
 import base64
 import hashlib
 import hmac
+import inspect
 import json
+import os
 import re
+import shutil
+import stat
+import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Awaitable, Callable, Literal, Mapping
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from pydantic import ValidationError
@@ -33,11 +38,14 @@ from .lilies_models import (
     BuildAssignment,
     CollaborationScope,
     CredentialKind,
+    FormalWorkspaceStagingReceipt,
+    FormalWorkspaceStagingRequest,
     PermissionDecisionRequest,
     SessionCancelRequest,
     SessionCreateRequest,
     SessionMessageRequest,
     SessionResumeRequest,
+    formal_assignment_digest,
 )
 from .lilies_platform_client import LiliesPlatformClient
 from .lilies_platform_contract import operation_by_name
@@ -197,6 +205,12 @@ class LocalLiliesService:
         storage: LiliesStorage | None = None,
         provider: ModelProvider | None = None,
         tools: LiliesToolRegistry | None = None,
+        formal_assignment_authorizer: Callable[
+            [BuildAssignment, Path],
+            Awaitable[Mapping[str, Any]] | Mapping[str, Any],
+        ]
+        | None = None,
+        require_frozen_formal_assignments: bool = False,
     ) -> None:
         self.settings = settings
         self.storage = storage or LiliesStorage(settings.data_dir)
@@ -206,6 +220,10 @@ class LocalLiliesService:
             settings.model_timeout_seconds,
         )
         self.tools = tools or build_lilies_core_registry()
+        self._formal_assignment_authorizer = formal_assignment_authorizer
+        self._require_frozen_formal_assignments = (
+            require_frozen_formal_assignments
+        )
         self.assignment_tool_bindings: dict[str, _AssignmentToolBinding] = {}
         self._registered_secret_values: dict[str, frozenset[str]] = {}
         self.active_turns: dict[str, asyncio.Task[None]] = {}
@@ -340,6 +358,7 @@ class LocalLiliesService:
         if not isinstance(target, dict) or target.get("application_id") is None:
             return None
         application_id = str(target["application_id"])
+        formal_assignment = assignment.get("mode") == "formal_experiment"
 
         def json_object(value: Any) -> dict[str, Any] | None:
             if isinstance(value, dict):
@@ -386,6 +405,7 @@ class LocalLiliesService:
         latest_test_message_index = -1
         last_tool_activity_index = -1
         final_claim_index = -1
+        formal_archive_intent_index = -1
 
         for message_index, item in enumerate(messages):
             if str(item.get("turn_id") or "") != turn_id:
@@ -460,6 +480,26 @@ class LocalLiliesService:
                 tool_use_id = str(block.get("tool_use_id") or "")
                 name, tool_input, expected_tool_use_id = binding
                 if tool_use_id != expected_tool_use_id:
+                    continue
+                if name == "collaboration_formal_run_archive":
+                    if block.get("is_error") is True:
+                        continue
+                    envelope = json_object(block.get("content"))
+                    data = (
+                        envelope.get("data")
+                        if isinstance(envelope, dict)
+                        and envelope.get("ok") is True
+                        else None
+                    )
+                    if (
+                        isinstance(data, dict)
+                        and str(data.get("assignment_id") or "")
+                        == str(assignment.get("assignment_id") or "")
+                        and str(data.get("claim_id") or "")
+                        == str(tool_input.get("claim_id") or "")
+                        and data.get("state") == "awaiting_daemon_completion"
+                    ):
+                        formal_archive_intent_index = message_index
                     continue
                 if str(tool_input.get("application_id") or "") != application_id:
                     continue
@@ -562,6 +602,13 @@ class LocalLiliesService:
             != (latest_test.revision, latest_test.content_hash)
             or final_claim_index <= latest_test_message_index
             or final_claim_index <= last_tool_activity_index
+            or (
+                formal_assignment
+                and (
+                    formal_archive_intent_index <= latest_test_message_index
+                    or final_claim_index <= formal_archive_intent_index
+                )
+            )
         ):
             return None
         return latest_test
@@ -663,7 +710,7 @@ class LocalLiliesService:
         )
         registry = build_lilies_platform_registry(
             client,
-            include_core_tools=False,
+            include_core_tools=bool(assignment.constraints.file_access),
             allowed_operations=allowed_operations,
         )
         if assignment.collaboration is not None:
@@ -861,6 +908,102 @@ class LocalLiliesService:
         self._workspace_for(session_id).mkdir(parents=True, exist_ok=True, mode=0o700)
         return session
 
+    async def stage_formal_workspace(
+        self,
+        session_id: str,
+        request: FormalWorkspaceStagingRequest,
+        *,
+        client_id: str,
+    ) -> dict[str, Any]:
+        """Install an authenticated, host-path-free public workspace exactly once."""
+
+        if self.stopping:
+            raise LiliesConflictError("daemon is stopping")
+        request_digest = self._formal_staging_request_digest(request)
+        async with self._session_lock(session_id):
+            session = await self.storage.get_session(
+                session_id,
+                client_id=client_id,
+            )
+            config = session.get("config") or {}
+            if config.get("kind") != "platform":
+                raise LiliesConflictError(
+                    "formal workspace staging requires a platform session"
+                )
+            if session.get("status") != "ready" or session.get(
+                "assignment_id"
+            ) is not None:
+                raise LiliesConflictError(
+                    "formal workspace staging requires an unassigned ready session"
+                )
+
+            persisted = self._read_formal_staging_record(session_id)
+            if persisted is not None:
+                if not hmac.compare_digest(
+                    str(persisted.get("request_digest", "")),
+                    request_digest,
+                ):
+                    raise LiliesConflictError(
+                        "formal workspace staging idempotency conflict"
+                    )
+                receipt = self._receipt_from_staging_record(
+                    persisted,
+                    session_id=session_id,
+                )
+                workspace = self._workspace_for(session_id)
+                if not self._formal_workspace_matches_bundle(workspace, request):
+                    if not self._workspace_is_empty(workspace):
+                        raise LiliesAccessDeniedError(
+                            "staged formal workspace differs from its receipt"
+                        )
+                    self._install_formal_workspace_bundle(workspace, request)
+                if persisted.get("state") != "committed":
+                    persisted = {**persisted, "state": "committed"}
+                    self._write_formal_staging_record(session_id, persisted)
+                return {
+                    **receipt.model_dump(mode="json"),
+                    "replayed": True,
+                }
+
+            workspace = self._workspace_for(session_id)
+            if not self._workspace_is_empty(workspace):
+                raise LiliesConflictError(
+                    "formal workspace can only replace an empty session workspace"
+                )
+            receipt = FormalWorkspaceStagingReceipt(
+                session_id=UUID(session_id),
+                idempotency_key=request.idempotency_key,
+                assignment_id=request.assignment_id,
+                assignment_digest=request.assignment_digest,
+                task_package_digest=request.task_package_digest,
+                workspace_mount_digest=request.workspace_mount_digest,
+                workspace_policy_digest=request.workspace_policy_digest,
+                bundle_digest=request.bundle.bundle_digest,
+                file_count=len(request.bundle.entries),
+                total_bytes=sum(
+                    entry.size_bytes for entry in request.bundle.entries
+                ),
+                staged_at=datetime.now(timezone.utc),
+            )
+            record = {
+                "schema_version": "1.0",
+                "state": "prepared",
+                "request_digest": request_digest,
+                "receipt": receipt.model_dump(mode="json"),
+            }
+            self._write_formal_staging_record(session_id, record)
+            try:
+                self._install_formal_workspace_bundle(workspace, request)
+            except Exception:
+                # The prepared record intentionally remains. An exact retry can
+                # complete the atomic install after a crash or transient failure.
+                raise
+            self._write_formal_staging_record(
+                session_id,
+                {**record, "state": "committed"},
+            )
+            return receipt.model_dump(mode="json")
+
     async def submit_assignment(
         self,
         session_id: str,
@@ -921,7 +1064,156 @@ class LocalLiliesService:
                     "platform and collaboration credentials must be distinct"
                 )
 
+            formal_evidence: dict[str, Any] | None = None
+            formal_staging_receipt: FormalWorkspaceStagingReceipt | None = None
+            staging_record = self._read_formal_staging_record(session_id)
+            if staging_record is not None:
+                if staging_record.get("state") != "committed":
+                    raise LiliesAccessDeniedError(
+                        "formal workspace staging is not committed"
+                    )
+                formal_staging_receipt = self._receipt_from_staging_record(
+                    staging_record,
+                    session_id=session_id,
+                )
+                task_ref = assignment.task_package
+                expected_staging = {
+                    "assignment_id": str(assignment.assignment_id),
+                    "assignment_digest": formal_assignment_digest(assignment),
+                    "task_package_digest": (
+                        task_ref.public_summary_digest if task_ref is not None else ""
+                    ),
+                    "workspace_mount_digest": (
+                        task_ref.workspace_mount_digest if task_ref is not None else ""
+                    ),
+                    "workspace_policy_digest": (
+                        task_ref.workspace_policy_digest if task_ref is not None else ""
+                    ),
+                }
+                actual_staging = {
+                    "assignment_id": str(
+                        formal_staging_receipt.assignment_id
+                    ),
+                    "assignment_digest": (
+                        formal_staging_receipt.assignment_digest
+                    ),
+                    "task_package_digest": (
+                        formal_staging_receipt.task_package_digest
+                    ),
+                    "workspace_mount_digest": (
+                        formal_staging_receipt.workspace_mount_digest
+                    ),
+                    "workspace_policy_digest": (
+                        formal_staging_receipt.workspace_policy_digest
+                    ),
+                }
+                if (
+                    assignment.mode.value != "formal_experiment"
+                    or any(
+                        not hmac.compare_digest(
+                            actual_staging[key],
+                            str(expected),
+                        )
+                        for key, expected in expected_staging.items()
+                    )
+                ):
+                    raise LiliesAccessDeniedError(
+                        "formal assignment differs from its workspace staging receipt"
+                    )
+            if assignment.mode.value == "formal_experiment":
+                authorizer = self._formal_assignment_authorizer
+                if authorizer is None:
+                    if self._require_frozen_formal_assignments:
+                        raise LiliesAccessDeniedError(
+                            "formal assignments require the frozen task-package gate"
+                        )
+                else:
+                    workspace = self._workspace_for(session_id)
+                    try:
+                        authorization = authorizer(assignment, workspace)
+                        if inspect.isawaitable(authorization):
+                            authorization = await authorization
+                    except Exception as error:
+                        raise LiliesAccessDeniedError(
+                            "formal assignment failed frozen task-package authorization"
+                        ) from error
+                    if not isinstance(authorization, Mapping):
+                        raise LiliesAccessDeniedError(
+                            "formal assignment authorizer returned invalid evidence"
+                        )
+                    formal_evidence = dict(authorization)
+                    required_evidence = {
+                        "task_package_digest",
+                        "environment_ready_digest",
+                        "workspace_mount_digest",
+                        "workspace_policy_digest",
+                    }
+                    if set(formal_evidence) != required_evidence or any(
+                        re.fullmatch(r"sha256:[0-9a-f]{64}", str(value)) is None
+                        for value in formal_evidence.values()
+                    ):
+                        raise LiliesAccessDeniedError(
+                            "formal assignment authorization evidence is incomplete"
+                        )
+                    task_ref = assignment.task_package
+                    if (
+                        task_ref is None
+                        or task_ref.environment_ready_digest is None
+                        or task_ref.workspace_mount_digest is None
+                        or task_ref.workspace_policy_digest is None
+                    ):
+                        raise LiliesAccessDeniedError(
+                            "formal assignment is missing its frozen workspace binding"
+                        )
+                    expected_evidence = {
+                        "task_package_digest": task_ref.public_summary_digest,
+                        "environment_ready_digest": (
+                            task_ref.environment_ready_digest
+                        ),
+                        "workspace_mount_digest": task_ref.workspace_mount_digest,
+                        "workspace_policy_digest": task_ref.workspace_policy_digest,
+                    }
+                    if any(
+                        not hmac.compare_digest(
+                            str(formal_evidence[key]),
+                            str(expected),
+                        )
+                        for key, expected in expected_evidence.items()
+                    ):
+                        raise LiliesAccessDeniedError(
+                            "formal assignment authorization evidence differs "
+                            "from its frozen run binding"
+                        )
+                    control_files = {
+                        "workspace_mount_digest": ".lilies-mount-manifest.json",
+                        "workspace_policy_digest": ".lilies-workspace-policy.json",
+                    }
+                    for evidence_key, control_file in control_files.items():
+                        path = workspace / control_file
+                        if not path.is_file() or path.is_symlink():
+                            raise LiliesAccessDeniedError(
+                                "formal assignment workspace policy is unavailable"
+                            )
+                        actual_digest = (
+                            f"sha256:{hashlib.sha256(path.read_bytes()).hexdigest()}"
+                        )
+                        if not hmac.compare_digest(
+                            actual_digest,
+                            str(formal_evidence[evidence_key]),
+                        ):
+                            raise LiliesAccessDeniedError(
+                                "formal assignment workspace control digest differs "
+                                "from its authorization evidence"
+                            )
+
             constraints = assignment.constraints
+            if (
+                assignment.mode.value == "formal_experiment"
+                and constraints.model_access is not True
+            ):
+                raise LiliesAccessDeniedError(
+                    "formal Lilies assignments require explicit model_access"
+                )
             config.update(
                 {
                     "max_turns": constraints.max_turns,
@@ -933,10 +1225,40 @@ class LocalLiliesService:
                     "allowed_actions": [
                         action.value for action in constraints.allowed_actions
                     ],
+                    "readable_host_objects": list(
+                        constraints.readable_host_objects
+                    ),
+                    "writable_host_operations": list(
+                        constraints.writable_host_operations
+                    ),
+                    "model_access": constraints.model_access,
+                    "file_access": constraints.file_access,
+                    "connector_access": constraints.connector_access,
+                    "permission_required_actions": list(
+                        constraints.permission_required_actions
+                    ),
+                    "max_write_count": constraints.max_write_count,
+                    "max_payload_bytes": constraints.max_payload_bytes,
+                    "compensation_actions": list(
+                        constraints.compensation_actions
+                    ),
+                    "max_report_evidence_rounds": (
+                        constraints.max_report_evidence_rounds
+                    ),
+                    "stable_hidden_runs": constraints.stable_hidden_runs,
                 }
             )
             if constraints.max_budget_usd is not None:
                 config["max_budget_usd"] = constraints.max_budget_usd
+            if formal_evidence is not None:
+                config["formal_assignment_evidence"] = formal_evidence
+            if formal_staging_receipt is not None:
+                config["formal_workspace_staging_receipt"] = (
+                    formal_staging_receipt.model_dump(
+                        mode="json",
+                        exclude={"replayed"},
+                    )
+                )
 
             assignment_id = str(assignment.assignment_id)
             start_message_id = str(
@@ -1362,6 +1684,7 @@ class LocalLiliesService:
         turn = await self.storage.get_turn(turn_id)
         metrics = TurnMetrics.from_checkpoint(turn["checkpoint"])
         try:
+            await self._require_persisted_formal_workspace(session_id)
             pending = turn.get("checkpoint", {}).get("pending", {})
             if (
                 turn["status"] == "running"
@@ -4648,6 +4971,7 @@ class LocalLiliesService:
         collaboration_tool_names = {
             "collaboration_report_submit",
             "collaboration_updates_read",
+            "collaboration_formal_run_archive",
             "collaboration_verification_claim",
         }
         collaboration_tool_uses: dict[str, str] = {}
@@ -5821,6 +6145,7 @@ class LocalLiliesService:
     def _is_collaboration_mutation(tool_name: str) -> bool:
         return tool_name in {
             "collaboration_report_submit",
+            "collaboration_formal_run_archive",
             "collaboration_verification_claim",
         }
 
@@ -5967,16 +6292,404 @@ class LocalLiliesService:
             data = projected
         await self.storage.append_event(session_id, kind, data)
 
+    @staticmethod
+    def _formal_staging_request_digest(
+        request: FormalWorkspaceStagingRequest,
+    ) -> str:
+        binding = {
+            "schema_version": request.schema_version,
+            "idempotency_key": request.idempotency_key,
+            "assignment_id": str(request.assignment_id),
+            "assignment_digest": request.assignment_digest,
+            "task_package_digest": request.task_package_digest,
+            "workspace_mount_digest": request.workspace_mount_digest,
+            "workspace_policy_digest": request.workspace_policy_digest,
+            "bundle_digest": request.bundle.bundle_digest,
+        }
+        return LocalLiliesService._digest_json(binding)
+
+    def _formal_staging_root(self) -> Path:
+        root = self.settings.data_dir / "formal-workspace-staging"
+        if root.exists():
+            metadata = root.lstat()
+            if not stat.S_ISDIR(metadata.st_mode) or root.is_symlink():
+                raise LiliesAccessDeniedError(
+                    "formal workspace receipt root is unsafe"
+                )
+        else:
+            root.mkdir(mode=0o700)
+        os.chmod(root, 0o700)
+        return root
+
+    def _formal_staging_record_path(self, session_id: str) -> Path:
+        parsed = UUID(session_id)
+        return self._formal_staging_root() / f"{parsed}.json"
+
+    def _read_formal_staging_record(
+        self,
+        session_id: str,
+    ) -> dict[str, Any] | None:
+        path = self._formal_staging_record_path(session_id)
+        if not path.exists():
+            return None
+        metadata = path.lstat()
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or path.is_symlink()
+            or metadata.st_nlink != 1
+            or metadata.st_size > 64 * 1024
+        ):
+            raise LiliesAccessDeniedError(
+                "formal workspace staging receipt is unsafe"
+            )
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+        try:
+            descriptor = os.open(path, flags)
+        except OSError as error:
+            raise LiliesAccessDeniedError(
+                "formal workspace staging receipt is unavailable"
+            ) from error
+        try:
+            payload = os.read(descriptor, 64 * 1024 + 1)
+        finally:
+            os.close(descriptor)
+        try:
+            record = json.loads(payload)
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise LiliesAccessDeniedError(
+                "formal workspace staging receipt is invalid"
+            ) from error
+        if (
+            not isinstance(record, dict)
+            or set(record)
+            != {"schema_version", "state", "request_digest", "receipt"}
+            or record.get("schema_version") != "1.0"
+            or record.get("state") not in {"prepared", "committed"}
+            or re.fullmatch(
+                r"sha256:[0-9a-f]{64}",
+                str(record.get("request_digest", "")),
+            )
+            is None
+        ):
+            raise LiliesAccessDeniedError(
+                "formal workspace staging receipt is invalid"
+            )
+        self._receipt_from_staging_record(record, session_id=session_id)
+        return record
+
+    @staticmethod
+    def _receipt_from_staging_record(
+        record: Mapping[str, Any],
+        *,
+        session_id: str,
+    ) -> FormalWorkspaceStagingReceipt:
+        try:
+            receipt = FormalWorkspaceStagingReceipt.model_validate(
+                record.get("receipt")
+            )
+        except ValidationError as error:
+            raise LiliesAccessDeniedError(
+                "formal workspace staging receipt is invalid"
+            ) from error
+        if receipt.session_id != UUID(session_id):
+            raise LiliesAccessDeniedError(
+                "formal workspace staging receipt belongs to another session"
+            )
+        return receipt
+
+    def _write_formal_staging_record(
+        self,
+        session_id: str,
+        record: Mapping[str, Any],
+    ) -> None:
+        root = self._formal_staging_root()
+        target = self._formal_staging_record_path(session_id)
+        payload = json.dumps(
+            dict(record),
+            ensure_ascii=False,
+            allow_nan=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        if len(payload) > 64 * 1024:
+            raise LiliesAccessDeniedError(
+                "formal workspace staging receipt exceeds its size limit"
+            )
+        descriptor, temporary_name = tempfile.mkstemp(
+            prefix=f".{UUID(session_id)}.",
+            suffix=".tmp",
+            dir=root,
+        )
+        temporary = Path(temporary_name)
+        try:
+            os.fchmod(descriptor, 0o600)
+            written = 0
+            while written < len(payload):
+                written += os.write(descriptor, payload[written:])
+            os.fsync(descriptor)
+            os.close(descriptor)
+            descriptor = -1
+            os.replace(temporary, target)
+            directory_descriptor = os.open(root, os.O_RDONLY)
+            try:
+                os.fsync(directory_descriptor)
+            finally:
+                os.close(directory_descriptor)
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+            if temporary.exists():
+                temporary.unlink()
+
+    @staticmethod
+    def _workspace_is_empty(workspace: Path) -> bool:
+        try:
+            metadata = workspace.lstat()
+        except OSError as error:
+            raise LiliesAccessDeniedError(
+                "session workspace is unavailable"
+            ) from error
+        if not stat.S_ISDIR(metadata.st_mode) or workspace.is_symlink():
+            raise LiliesAccessDeniedError(
+                "session workspace is not a real directory"
+            )
+        return next(workspace.iterdir(), None) is None
+
+    @staticmethod
+    def _formal_workspace_matches_bundle(
+        workspace: Path,
+        request: FormalWorkspaceStagingRequest,
+    ) -> bool:
+        try:
+            metadata = workspace.lstat()
+            if not stat.S_ISDIR(metadata.st_mode) or workspace.is_symlink():
+                return False
+            actual_files: dict[str, Path] = {}
+            actual_directories: set[str] = set()
+            for current, names, files in os.walk(workspace, followlinks=False):
+                current_path = Path(current)
+                relative_directory = current_path.relative_to(workspace).as_posix()
+                if relative_directory != ".":
+                    actual_directories.add(relative_directory)
+                for name in names:
+                    directory = current_path / name
+                    child_metadata = directory.lstat()
+                    if (
+                        not stat.S_ISDIR(child_metadata.st_mode)
+                        or directory.is_symlink()
+                    ):
+                        return False
+                for name in files:
+                    path = current_path / name
+                    relative = path.relative_to(workspace).as_posix()
+                    child_metadata = path.lstat()
+                    if (
+                        not stat.S_ISREG(child_metadata.st_mode)
+                        or path.is_symlink()
+                        or child_metadata.st_nlink != 1
+                    ):
+                        return False
+                    actual_files[relative] = path
+            expected_files = {entry.path: entry for entry in request.bundle.entries}
+            expected_directories = {"work", "artifacts"}
+            for relative in expected_files:
+                parent = Path(relative).parent
+                while parent.as_posix() != ".":
+                    expected_directories.add(parent.as_posix())
+                    parent = parent.parent
+            if (
+                set(actual_files) != set(expected_files)
+                or actual_directories != expected_directories
+            ):
+                return False
+            for relative, entry in expected_files.items():
+                path = actual_files[relative]
+                if stat.S_IMODE(path.stat(follow_symlinks=False).st_mode) & 0o222:
+                    return False
+                flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+                descriptor = os.open(path, flags)
+                try:
+                    digest = hashlib.sha256()
+                    total = 0
+                    while chunk := os.read(descriptor, 1024 * 1024):
+                        total += len(chunk)
+                        if total > entry.size_bytes:
+                            return False
+                        digest.update(chunk)
+                finally:
+                    os.close(descriptor)
+                if (
+                    total != entry.size_bytes
+                    or not hmac.compare_digest(
+                        f"sha256:{digest.hexdigest()}",
+                        entry.digest,
+                    )
+                ):
+                    return False
+            return True
+        except (OSError, ValueError):
+            return False
+
+    def _install_formal_workspace_bundle(
+        self,
+        workspace: Path,
+        request: FormalWorkspaceStagingRequest,
+    ) -> None:
+        if not self._workspace_is_empty(workspace):
+            raise LiliesConflictError(
+                "formal workspace can only replace an empty session workspace"
+            )
+        root = workspace.parent
+        root_metadata = root.lstat()
+        if not stat.S_ISDIR(root_metadata.st_mode) or root.is_symlink():
+            raise LiliesAccessDeniedError("session workspace root is unsafe")
+        temporary = Path(
+            tempfile.mkdtemp(
+                prefix=f".{workspace.name}.formal-stage-",
+                dir=root,
+            )
+        )
+        try:
+            os.chmod(temporary, 0o700)
+            directories: set[Path] = set()
+            for entry in request.bundle.entries:
+                relative = Path(*entry.path.split("/"))
+                destination = temporary / relative
+                destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+                parent = destination.parent
+                while parent != temporary:
+                    directories.add(parent)
+                    parent = parent.parent
+                flags = (
+                    os.O_WRONLY
+                    | os.O_CREAT
+                    | os.O_EXCL
+                    | getattr(os, "O_NOFOLLOW", 0)
+                )
+                descriptor = os.open(destination, flags, 0o600)
+                try:
+                    payload = entry.decoded_content()
+                    written = 0
+                    while written < len(payload):
+                        written += os.write(descriptor, payload[written:])
+                    os.fsync(descriptor)
+                    metadata = os.fstat(descriptor)
+                    if (
+                        not stat.S_ISREG(metadata.st_mode)
+                        or metadata.st_nlink != 1
+                    ):
+                        raise LiliesAccessDeniedError(
+                            "formal workspace entry is not an isolated regular file"
+                        )
+                    os.fchmod(descriptor, 0o400)
+                finally:
+                    os.close(descriptor)
+            for output in ("work", "artifacts"):
+                directory = temporary / output
+                directory.mkdir(mode=0o700)
+                directories.add(directory)
+            for directory in sorted(
+                directories,
+                key=lambda item: len(item.parts),
+                reverse=True,
+            ):
+                relative = directory.relative_to(temporary).parts
+                output = bool(relative) and relative[0] in {"work", "artifacts"}
+                os.chmod(directory, 0o700 if output else 0o500)
+            os.chmod(temporary, 0o700)
+            if not self._formal_workspace_matches_bundle(temporary, request):
+                raise LiliesAccessDeniedError(
+                    "formal workspace extraction did not match its bundle"
+                )
+            os.replace(temporary, workspace)
+            if not self._formal_workspace_matches_bundle(workspace, request):
+                raise LiliesAccessDeniedError(
+                    "formal workspace changed during atomic installation"
+                )
+        finally:
+            if temporary.exists():
+                shutil.rmtree(temporary)
+
     def _workspace_for(self, session_id: str) -> Path:
         try:
             UUID(session_id)
         except ValueError as error:
             raise ValueError("invalid session id") from error
         root = self.settings.resolved_workspace_root.resolve()
-        workspace = (root / session_id).resolve()
-        if root not in workspace.parents:
+        workspace = root / session_id
+        if workspace.is_symlink():
+            raise ValueError("session workspace cannot be a symlink")
+        resolved = workspace.resolve(strict=False)
+        if root not in resolved.parents:
             raise ValueError("session workspace escapes workspace root")
         return workspace
+
+    async def _require_persisted_formal_workspace(
+        self,
+        session_id: str,
+    ) -> None:
+        session = await self.storage.get_session(session_id)
+        config = session.get("config") or {}
+        persisted = config.get("formal_assignment_evidence")
+        if persisted is None:
+            return
+        assignment_value = session.get("assignment")
+        if not isinstance(assignment_value, dict):
+            raise LiliesAccessDeniedError(
+                "formal workspace has no persisted assignment binding"
+            )
+        assignment = BuildAssignment.model_validate(assignment_value)
+        if assignment.mode.value != "formal_experiment":
+            raise LiliesAccessDeniedError(
+                "formal workspace evidence is attached to another assignment mode"
+            )
+        authorizer = self._formal_assignment_authorizer
+        if authorizer is None:
+            raise LiliesAccessDeniedError(
+                "formal workspace cannot be revalidated"
+            )
+        workspace = self._workspace_for(session_id)
+        try:
+            authorization = authorizer(assignment, workspace)
+            if inspect.isawaitable(authorization):
+                authorization = await authorization
+        except Exception as error:
+            raise LiliesAccessDeniedError(
+                "formal workspace changed after assignment authorization"
+            ) from error
+        if not isinstance(authorization, Mapping):
+            raise LiliesAccessDeniedError(
+                "formal workspace revalidation returned invalid evidence"
+            )
+        actual = dict(authorization)
+        if set(actual) != set(persisted) or any(
+            not hmac.compare_digest(
+                str(actual[key]),
+                str(persisted[key]),
+            )
+            for key in persisted
+        ):
+            raise LiliesAccessDeniedError(
+                "formal workspace no longer matches its persisted evidence"
+            )
+        control_files = {
+            "workspace_mount_digest": ".lilies-mount-manifest.json",
+            "workspace_policy_digest": ".lilies-workspace-policy.json",
+        }
+        for evidence_key, control_file in control_files.items():
+            path = workspace / control_file
+            if not path.is_file() or path.is_symlink():
+                raise LiliesAccessDeniedError(
+                    "formal workspace control file is unavailable"
+                )
+            digest = f"sha256:{hashlib.sha256(path.read_bytes()).hexdigest()}"
+            if not hmac.compare_digest(
+                digest,
+                str(persisted.get(evidence_key, "")),
+            ):
+                raise LiliesAccessDeniedError(
+                    "formal workspace control bytes changed after authorization"
+                )
 
     def _session_lock(self, session_id: str) -> asyncio.Lock:
         lock = self.session_locks.get(session_id)
@@ -6030,11 +6743,17 @@ def build_local_lilies_core(
 
     selected_storage = storage or LiliesStorage(settings.data_dir)
     selected_tools = tools or build_lilies_core_registry()
+    from .formal_workspace import (  # pylint: disable=import-outside-toplevel
+        validate_public_formal_workspace,
+    )
+
     service = LocalLiliesService(
         settings,
         storage=selected_storage,
         provider=provider,
         tools=selected_tools,
+        formal_assignment_authorizer=validate_public_formal_workspace,
+        require_frozen_formal_assignments=True,
     )
     return LocalLiliesCore(
         storage=selected_storage,

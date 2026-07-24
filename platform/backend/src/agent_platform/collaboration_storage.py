@@ -49,9 +49,7 @@ _DEVELOPER_VISIBLE_REPORT_STATUSES = frozenset(
     }
 )
 _DIRECT_DEVELOPER_ROUTES = frozenset({"task_author", "environment", "verifier"})
-_CAPABILITY_REPORT_CATEGORIES = frozenset(
-    {"platform_capability_gap", "platform_defect_suspected"}
-)
+_CAPABILITY_REPORT_CATEGORIES = frozenset({"platform_capability_gap", "platform_defect_suspected"})
 _CLAIM_RESOLVED_REPORT_STATUSES = {
     "platform_capability_gap": frozenset(
         {"lilies_verified", "independently_verified", "rejected", "withdrawn"}
@@ -60,9 +58,7 @@ _CLAIM_RESOLVED_REPORT_STATUSES = {
         {"lilies_verified", "independently_verified", "rejected", "withdrawn"}
     ),
     "task_spec_gap": frozenset({"lilies_rechecks", "independently_verified"}),
-    "environment_gap": frozenset(
-        {"lilies_health_checks", "independently_verified"}
-    ),
+    "environment_gap": frozenset({"lilies_health_checks", "independently_verified"}),
 }
 _ACTIVE_CLAIM_STATUSES = frozenset(
     {"frozen", "ready_for_independent_verification", "awaiting_independent_verification"}
@@ -204,6 +200,27 @@ def _canonical_content_hash(value: Any) -> str:
         else:
             return f"sha256:{raw.lower()}"
     return digest
+
+
+def _report_evidence_digest(payload: Mapping[str, Any]) -> str:
+    """Digest only evidence-bearing report fields.
+
+    Platform-authored validation and approval revisions never call the Lilies
+    evidence-revision path, so they cannot consume this budget.  Changes to
+    prose such as ``summary`` also cannot disguise an unchanged evidence set.
+    """
+
+    evidence_fields = (
+        "manuals_checked",
+        "attempted_routes",
+        "expected",
+        "actual",
+        "reproduction",
+        "missing_contract",
+        "independent_work",
+        "evidence_refs",
+    )
+    return _digest({name: payload.get(name) for name in evidence_fields})
 
 
 def _bearer_selector(bearer: str) -> str:
@@ -352,11 +369,7 @@ class CollaborationStore:
         )
         self._registered_secret_values = tuple(
             sorted(
-                {
-                    str(value)
-                    for value in (registered_secret_values or ())
-                    if str(value)
-                },
+                {str(value) for value in (registered_secret_values or ()) if str(value)},
                 key=len,
                 reverse=True,
             )
@@ -431,9 +444,7 @@ class CollaborationStore:
                 if len(candidate) < len(secret):
                     continue
                 for offset in range(len(candidate) - len(secret) + 1):
-                    if hmac.compare_digest(
-                        candidate[offset : offset + len(secret)], secret
-                    ):
+                    if hmac.compare_digest(candidate[offset : offset + len(secret)], secret):
                         raise CollaborationConflict(
                             "collaboration identifier contains a registered secret"
                         )
@@ -506,6 +517,8 @@ class CollaborationStore:
                   lilies_session_id TEXT NOT NULL UNIQUE,
                   application_ids_json TEXT NOT NULL,
                   approval_mode TEXT NOT NULL CHECK(approval_mode IN ('manual','auto_forward')),
+                  max_report_evidence_rounds INTEGER
+                    CHECK(max_report_evidence_rounds BETWEEN 1 AND 100),
                   status TEXT NOT NULL CHECK(status IN
                     ('created','active','disconnected','closing','closed','archived')),
                   revision INTEGER NOT NULL DEFAULT 1 CHECK(revision >= 1),
@@ -615,6 +628,25 @@ class CollaborationStore:
                   UNIQUE(report_id, actor_role, actor_id, idempotency_key),
                   FOREIGN KEY(report_id) REFERENCES collaboration_reports(report_id),
                   FOREIGN KEY(message_id) REFERENCES collaboration_messages(message_id)
+                );
+
+                CREATE TABLE IF NOT EXISTS collaboration_report_evidence_budgets (
+                  report_id TEXT PRIMARY KEY,
+                  channel_id TEXT NOT NULL,
+                  max_rounds INTEGER NOT NULL CHECK(max_rounds BETWEEN 1 AND 100),
+                  rounds_used INTEGER NOT NULL DEFAULT 0 CHECK(rounds_used >= 0),
+                  last_evidence_digest TEXT NOT NULL,
+                  unchanged_evidence_streak INTEGER NOT NULL DEFAULT 0
+                    CHECK(unchanged_evidence_streak >= 0),
+                  status TEXT NOT NULL DEFAULT 'active'
+                    CHECK(status IN ('active','budget_exhausted')),
+                  exhausted_reason TEXT,
+                  exhausted_at TEXT,
+                  last_idempotency_key TEXT,
+                  last_request_digest TEXT,
+                  updated_at TEXT NOT NULL,
+                  FOREIGN KEY(report_id) REFERENCES collaboration_reports(report_id),
+                  FOREIGN KEY(channel_id) REFERENCES collaboration_channels(channel_id)
                 );
 
                 CREATE TABLE IF NOT EXISTS collaboration_approvals (
@@ -895,6 +927,11 @@ class CollaborationStore:
                     "ALTER TABLE collaboration_channels "
                     "ADD COLUMN application_ids_json TEXT NOT NULL DEFAULT '[]'"
                 )
+            if "max_report_evidence_rounds" not in channel_columns:
+                connection.execute(
+                    "ALTER TABLE collaboration_channels "
+                    "ADD COLUMN max_report_evidence_rounds INTEGER"
+                )
             legacy_channels = connection.execute(
                 """
                 SELECT * FROM collaboration_channels
@@ -909,13 +946,9 @@ class CollaborationStore:
                     metadata = {}
                 if not isinstance(metadata, dict):
                     metadata = {}
-                if metadata.get("closure_reason") == (
-                    "legacy_channel_missing_application_binding"
-                ):
+                if metadata.get("closure_reason") == ("legacy_channel_missing_application_binding"):
                     continue
-                metadata["closure_reason"] = (
-                    "legacy_channel_missing_application_binding"
-                )
+                metadata["closure_reason"] = "legacy_channel_missing_application_binding"
                 status = str(legacy["status"])
                 transition_to_closed = status not in {"closed", "archived"}
                 retention_until = legacy["retention_until"]
@@ -966,28 +999,51 @@ class CollaborationStore:
                         "actor_role": "platform",
                         "actor_id": "collaboration-schema-migration",
                         "idempotency_key": "legacy-application-binding-closure-v1",
-                        "details": {
-                            "reason": "legacy_channel_missing_application_binding"
-                        },
+                        "details": {"reason": "legacy_channel_missing_application_binding"},
                     },
                 )
             needs_message_digest_backfill = connection.execute(
-                "SELECT 1 FROM collaboration_messages "
-                "WHERE client_request_digest='' LIMIT 1"
+                "SELECT 1 FROM collaboration_messages WHERE client_request_digest='' LIMIT 1"
             ).fetchone()
             if needs_message_digest_backfill is not None:
                 # A pre-release v1 database can already have the append-only
                 # trigger. Temporarily remove only that trigger while backfilling
                 # the new internal digest, then recreate it below.
-                connection.execute(
-                    "DROP TRIGGER IF EXISTS collaboration_messages_no_update"
-                )
+                connection.execute("DROP TRIGGER IF EXISTS collaboration_messages_no_update")
                 connection.execute(
                     "UPDATE collaboration_messages "
                     "SET client_request_digest=request_digest "
                     "WHERE client_request_digest=''"
                 )
             self._create_immutable_triggers(connection)
+            connection.execute(
+                """
+                CREATE TRIGGER IF NOT EXISTS collaboration_channel_report_budget_immutable
+                BEFORE UPDATE OF max_report_evidence_rounds
+                ON collaboration_channels
+                WHEN OLD.max_report_evidence_rounds IS NOT NEW.max_report_evidence_rounds
+                BEGIN
+                  SELECT RAISE(
+                    ABORT,
+                    'formal collaboration report evidence budget is immutable'
+                  );
+                END
+                """
+            )
+            connection.execute(
+                """
+                CREATE TRIGGER IF NOT EXISTS collaboration_report_budget_limit_immutable
+                BEFORE UPDATE OF max_rounds
+                ON collaboration_report_evidence_budgets
+                WHEN OLD.max_rounds IS NOT NEW.max_rounds
+                BEGIN
+                  SELECT RAISE(
+                    ABORT,
+                    'collaboration report evidence budget limit is immutable'
+                  );
+                END
+                """
+            )
             if current < 1:
                 connection.execute(
                     "INSERT INTO collaboration_schema(version,applied_at) VALUES (?,?)",
@@ -1038,9 +1094,7 @@ class CollaborationStore:
         return row
 
     @classmethod
-    def _writable_channel_row(
-        cls, connection: sqlite3.Connection, channel_id: str
-    ) -> sqlite3.Row:
+    def _writable_channel_row(cls, connection: sqlite3.Connection, channel_id: str) -> sqlite3.Row:
         row = cls._channel_row(connection, channel_id)
         if str(row["status"]) in _CLOSED_CHANNEL_STATUSES:
             raise CollaborationChannelClosed("collaboration channel no longer accepts writes")
@@ -1075,9 +1129,7 @@ class CollaborationStore:
         return response
 
     @classmethod
-    def _decode_operation_receipt(
-        cls, row: sqlite3.Row | Mapping[str, Any]
-    ) -> dict[str, Any]:
+    def _decode_operation_receipt(cls, row: sqlite3.Row | Mapping[str, Any]) -> dict[str, Any]:
         decoded = dict(row)
         decoded["response"] = cls._operation_receipt_response(row)
         decoded.pop("response_json", None)
@@ -1192,9 +1244,7 @@ class CollaborationStore:
         request_digest: str | None = None,
     ) -> dict[str, Any] | None:
         normalized_digest = (
-            _validated_request_digest(request_digest)
-            if request_digest is not None
-            else None
+            _validated_request_digest(request_digest) if request_digest is not None else None
         )
         return await asyncio.to_thread(
             self._get_operation_receipt_sync,
@@ -1226,6 +1276,60 @@ class CollaborationStore:
                 request_digest=request_digest,
             )
 
+    async def record_operation_receipt(
+        self,
+        *,
+        operation: str,
+        scope_id: str | UUID,
+        actor_role: str | Enum,
+        actor_id: str,
+        idempotency_key: str,
+        request_digest: str,
+        response_kind: str,
+        response: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        """Persist a completed external operation for crash-safe replay."""
+
+        normalized_digest = _validated_request_digest(request_digest)
+        async with self._lock:
+            return await asyncio.to_thread(
+                self._record_operation_receipt_sync,
+                operation,
+                str(scope_id),
+                str(actor_role.value if isinstance(actor_role, Enum) else actor_role),
+                actor_id,
+                idempotency_key,
+                normalized_digest,
+                response_kind,
+                dict(response),
+            )
+
+    def _record_operation_receipt_sync(
+        self,
+        operation: str,
+        scope_id: str,
+        actor_role: str,
+        actor_id: str,
+        idempotency_key: str,
+        request_digest: str,
+        response_kind: str,
+        response: Mapping[str, Any],
+    ) -> dict[str, Any]:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            return self._insert_operation_receipt_conn(
+                connection,
+                operation=operation,
+                scope_id=scope_id,
+                actor_role=actor_role,
+                actor_id=actor_id,
+                idempotency_key=idempotency_key,
+                request_digest=request_digest,
+                response_kind=response_kind,
+                response=response,
+                created_at=_now().isoformat(),
+            )
+
     @staticmethod
     def _decode_channel(row: sqlite3.Row | Mapping[str, Any]) -> dict[str, Any]:
         data = dict(row)
@@ -1238,6 +1342,11 @@ class CollaborationStore:
             "lilies_session_id": str(data["lilies_session_id"]),
             "application_ids": json.loads(str(data["application_ids_json"])),
             "approval_mode": str(data["approval_mode"]),
+            "max_report_evidence_rounds": (
+                int(data["max_report_evidence_rounds"])
+                if data.get("max_report_evidence_rounds") is not None
+                else None
+            ),
             "status": str(data["status"]),
             "revision": int(data["revision"]),
             "next_seq": int(data["next_seq"]),
@@ -1381,9 +1490,7 @@ class CollaborationStore:
                 raise CollaborationConflict(
                     "task revision, assignment, or Lilies session already has a channel"
                 ) from error
-            return self._decode_channel(
-                self._channel_row(connection, channel_id)
-            )
+            return self._decode_channel(self._channel_row(connection, channel_id))
 
     async def activate_channel(
         self,
@@ -1422,9 +1529,12 @@ class CollaborationStore:
         task_revision = int(_required(channel_data, "task_revision"))
         assignment_id = str(_required(channel_data, "assignment_id"))
         session_id = str(_required(channel_data, "lilies_session_id"))
-        application_ids = _normalized_application_ids(
-            channel_data.get("application_ids")
+        application_ids = _normalized_application_ids(channel_data.get("application_ids"))
+        max_report_evidence_rounds = int(
+            _required(channel_data, "max_report_evidence_rounds")
         )
+        if not 1 <= max_report_evidence_rounds <= 100:
+            raise ValueError("max_report_evidence_rounds must be between 1 and 100")
         credential_id = str(_required(credential_data, "credential_id"))
         role = str(_required(credential_data, "role"))
         idempotency_key = str(_required(credential_data, "idempotency_key"))
@@ -1437,6 +1547,7 @@ class CollaborationStore:
             "assignment_id": assignment_id,
             "lilies_session_id": session_id,
             "application_ids": application_ids,
+            "max_report_evidence_rounds": max_report_evidence_rounds,
             "role": role,
             "scopes": scopes,
             "expires_at": expires_at,
@@ -1456,8 +1567,12 @@ class CollaborationStore:
                     and int(existing_channel["task_revision"]) == task_revision
                     and str(existing_channel["assignment_id"]) == assignment_id
                     and str(existing_channel["lilies_session_id"]) == session_id
-                    and json.loads(str(existing_channel["application_ids_json"]))
-                    == application_ids
+                    and json.loads(str(existing_channel["application_ids_json"])) == application_ids
+                    and existing_channel["max_report_evidence_rounds"] is not None
+                    and (
+                        int(existing_channel["max_report_evidence_rounds"])
+                        == max_report_evidence_rounds
+                    )
                 )
                 if not identity_matches:
                     raise CollaborationConflict(
@@ -1531,9 +1646,10 @@ class CollaborationStore:
                     """
                     INSERT INTO collaboration_channels(
                       channel_id,task_id,task_revision,assignment_id,lilies_session_id,
-                      application_ids_json,approval_mode,status,revision,next_seq,
+                      application_ids_json,approval_mode,max_report_evidence_rounds,
+                      status,revision,next_seq,
                       metadata_json,created_at,updated_at,retention_until
-                    ) VALUES(?,?,?,?,?,?,?,'active',1,1,?,?,?,?)
+                    ) VALUES(?,?,?,?,?,?,?,?,'active',1,1,?,?,?,?)
                     """,
                     (
                         channel_id,
@@ -1543,9 +1659,8 @@ class CollaborationStore:
                         session_id,
                         _canonical_json(application_ids),
                         str(channel_data.get("approval_mode", "manual")),
-                        _canonical_json(
-                            self._safe_payload(channel_data.get("metadata", {}))
-                        ),
+                        max_report_evidence_rounds,
+                        _canonical_json(self._safe_payload(channel_data.get("metadata", {}))),
                         created_at,
                         created_at,
                         retention_until,
@@ -1629,9 +1744,7 @@ class CollaborationStore:
             limit,
         )
 
-    def _list_channels_sync(
-        self, status: str | None, limit: int
-    ) -> list[dict[str, Any]]:
+    def _list_channels_sync(self, status: str | None, limit: int) -> list[dict[str, Any]]:
         where = "WHERE status=?" if status is not None else ""
         parameters: tuple[Any, ...] = (status, limit) if status is not None else (limit,)
         with self._connect() as connection:
@@ -1657,7 +1770,11 @@ class CollaborationStore:
                 str(channel_id),
                 str(status.value if isinstance(status, Enum) else status),
                 (
-                    str(expected_status.value if isinstance(expected_status, Enum) else expected_status)
+                    str(
+                        expected_status.value
+                        if isinstance(expected_status, Enum)
+                        else expected_status
+                    )
                     if expected_status is not None
                     else None
                 ),
@@ -1717,9 +1834,7 @@ class CollaborationStore:
             raise ValueError("approval mode is required")
         data = {
             "expected_revision": expected_revision,
-            "mode": (
-                selected_mode.value if isinstance(selected_mode, Enum) else selected_mode
-            ),
+            "mode": (selected_mode.value if isinstance(selected_mode, Enum) else selected_mode),
             "resulting_revision": resulting_revision,
             "message": _record(message),
             "audit": _record(audit),
@@ -1863,6 +1978,186 @@ class CollaborationStore:
         self._secure_database_files()
         return result
 
+    async def close_formal_channel_boundary(
+        self,
+        *,
+        channel_id: str | UUID,
+        task_id: str,
+        task_revision: int,
+        assignment_id: str | UUID,
+        lilies_session_id: str | UUID,
+        application_ids: Sequence[str | UUID],
+        idempotency_key: str,
+    ) -> dict[str, Any]:
+        """Atomically close an exact formal channel or persist a close tombstone.
+
+        A cancellation may win before channel activation commits in another
+        platform worker. Persisting the closed identity in the channel table
+        makes any later activation fail closed instead of recreating authority.
+        """
+
+        async with self._lock:
+            result = await asyncio.to_thread(
+                self._close_formal_channel_boundary_sync,
+                str(channel_id),
+                task_id,
+                task_revision,
+                str(assignment_id),
+                str(lilies_session_id),
+                [str(item) for item in application_ids],
+                idempotency_key,
+            )
+        self._secure_database_files()
+        return result
+
+    def _close_formal_channel_boundary_sync(
+        self,
+        channel_id: str,
+        task_id: str,
+        task_revision: int,
+        assignment_id: str,
+        lilies_session_id: str,
+        application_ids: list[str],
+        idempotency_key: str,
+    ) -> dict[str, Any]:
+        normalized_applications = _normalized_application_ids(application_ids)
+        if not normalized_applications:
+            raise ValueError("formal channel close requires an application binding")
+        semantic = {
+            "channel_id": channel_id,
+            "task_id": task_id,
+            "task_revision": task_revision,
+            "assignment_id": assignment_id,
+            "lilies_session_id": lilies_session_id,
+            "application_ids": normalized_applications,
+        }
+        request_digest = _idempotency_digest(semantic)
+        now = _now().isoformat()
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT * FROM collaboration_channels WHERE channel_id=?",
+                (channel_id,),
+            ).fetchone()
+            if row is not None:
+                identity_matches = (
+                    str(row["task_id"]) == task_id
+                    and int(row["task_revision"]) == task_revision
+                    and str(row["assignment_id"]) == assignment_id
+                    and str(row["lilies_session_id"]) == lilies_session_id
+                    and json.loads(str(row["application_ids_json"])) == normalized_applications
+                )
+                if not identity_matches:
+                    raise CollaborationConflict(
+                        "formal channel close resolved another frozen identity"
+                    )
+            operation = connection.execute(
+                """
+                SELECT * FROM collaboration_channel_operations
+                WHERE channel_id=? AND operation='close'
+                  AND actor_id='platform' AND idempotency_key=?
+                """,
+                (channel_id, idempotency_key),
+            ).fetchone()
+            if operation is not None:
+                if not hmac.compare_digest(
+                    str(operation["request_digest"]),
+                    request_digest,
+                ):
+                    raise CollaborationConflict(
+                        "formal channel close idempotency changed its identity"
+                    )
+                return self._decode_channel(self._channel_row(connection, channel_id))
+            try:
+                if row is None:
+                    connection.execute(
+                        """
+                        INSERT INTO collaboration_channels(
+                          channel_id,task_id,task_revision,assignment_id,
+                          lilies_session_id,application_ids_json,approval_mode,
+                          status,revision,next_seq,metadata_json,created_at,
+                          updated_at,closed_at
+                        ) VALUES(?,?,?,?,?,?,'manual','closed',1,1,?,?,?,?)
+                        """,
+                        (
+                            channel_id,
+                            task_id,
+                            task_revision,
+                            assignment_id,
+                            lilies_session_id,
+                            _canonical_json(normalized_applications),
+                            _canonical_json({"formal_close_tombstone": True}),
+                            now,
+                            now,
+                            now,
+                        ),
+                    )
+                    resulting_revision = 1
+                elif str(row["status"]) in _CLOSED_CHANNEL_STATUSES:
+                    resulting_revision = int(row["revision"])
+                else:
+                    resulting_revision = int(row["revision"]) + 1
+                    cursor = connection.execute(
+                        """
+                        UPDATE collaboration_channels
+                        SET status='closed',revision=?,closed_at=?,updated_at=?
+                        WHERE channel_id=? AND revision=?
+                        """,
+                        (
+                            resulting_revision,
+                            now,
+                            now,
+                            channel_id,
+                            int(row["revision"]),
+                        ),
+                    )
+                    if cursor.rowcount != 1:
+                        raise CollaborationConflict(
+                            "formal channel changed before cancellation close"
+                        )
+                connection.execute(
+                    """
+                    UPDATE collaboration_credentials
+                    SET revoked_at=COALESCE(revoked_at,?),
+                        revocation_reason=COALESCE(
+                          revocation_reason,
+                          'formal assignment cancelled'
+                        )
+                    WHERE channel_id=? AND revoked_at IS NULL
+                    """,
+                    (now, channel_id),
+                )
+                connection.execute(
+                    """
+                    UPDATE collaboration_developer_leases
+                    SET status='released',revision=revision+1,
+                        renewed_at=?,released_at=?
+                    WHERE channel_id=? AND status='active'
+                    """,
+                    (now, now, channel_id),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO collaboration_channel_operations(
+                      channel_id,operation,actor_id,idempotency_key,
+                      request_digest,resulting_revision,message_id,audit_id,
+                      created_at
+                    ) VALUES(?,'close','platform',?,?,?,NULL,NULL,?)
+                    """,
+                    (
+                        channel_id,
+                        idempotency_key,
+                        request_digest,
+                        resulting_revision,
+                        now,
+                    ),
+                )
+            except sqlite3.IntegrityError as error:
+                raise CollaborationConflict(
+                    "formal channel close identity conflicts with persisted state"
+                ) from error
+            return self._decode_channel(self._channel_row(connection, channel_id))
+
     def _close_channel_sync(
         self,
         channel_id: str,
@@ -1926,9 +2221,7 @@ class CollaborationStore:
             message_row = (
                 self._append_message_conn(connection, message) if message is not None else None
             )
-            audit_row = (
-                self._append_audit_conn(connection, audit) if audit is not None else None
-            )
+            audit_row = self._append_audit_conn(connection, audit) if audit is not None else None
             resulting_revision = int(row["revision"]) + 1
             connection.execute(
                 """
@@ -2005,9 +2298,7 @@ class CollaborationStore:
         self._secure_database_files()
         return result
 
-    def _provision_credential_sync(
-        self, data: dict[str, Any], bearer: str
-    ) -> dict[str, Any]:
+    def _provision_credential_sync(self, data: dict[str, Any], bearer: str) -> dict[str, Any]:
         credential_id = str(_required(data, "credential_id"))
         channel_id = str(_required(data, "channel_id"))
         assignment_id = str(_required(data, "assignment_id"))
@@ -2088,7 +2379,9 @@ class CollaborationStore:
                     ),
                 )
             except sqlite3.IntegrityError as error:
-                raise CollaborationConflict("collaboration credential identity is already used") from error
+                raise CollaborationConflict(
+                    "collaboration credential identity is already used"
+                ) from error
             row = connection.execute(
                 "SELECT * FROM collaboration_credentials WHERE credential_id=?",
                 (credential_id,),
@@ -2139,13 +2432,9 @@ class CollaborationStore:
         self.register_secret_value(bearer)
         return self._credential_public(row)
 
-    async def revoke_credential(
-        self, credential_id: str | UUID, reason: str
-    ) -> dict[str, Any]:
+    async def revoke_credential(self, credential_id: str | UUID, reason: str) -> dict[str, Any]:
         async with self._lock:
-            return await asyncio.to_thread(
-                self._revoke_credential_sync, str(credential_id), reason
-            )
+            return await asyncio.to_thread(self._revoke_credential_sync, str(credential_id), reason)
 
     def _revoke_credential_sync(self, credential_id: str, reason: str) -> dict[str, Any]:
         reason = str(self._safe_payload(reason))
@@ -2174,9 +2463,7 @@ class CollaborationStore:
                 raise CollaborationStorageError("credential disappeared during revoke")
             return self._credential_public(persisted)
 
-    async def revoke_channel_credentials(
-        self, channel_id: str | UUID, reason: str
-    ) -> int:
+    async def revoke_channel_credentials(self, channel_id: str | UUID, reason: str) -> int:
         async with self._lock:
             return await asyncio.to_thread(
                 self._revoke_channel_credentials_sync, str(channel_id), reason
@@ -2255,18 +2542,14 @@ class CollaborationStore:
                 raise CollaborationConflict(
                     "message idempotency key was reused with another payload"
                 )
-            if not hmac.compare_digest(
-                str(replay["client_request_digest"]), client_request_digest
-            ):
+            if not hmac.compare_digest(str(replay["client_request_digest"]), client_request_digest):
                 raise CollaborationConflict(
                     "message idempotency key was reused with another client request"
                 )
             return self._decode_message(replay)
         channel = self._channel_row(connection, channel_id)
         if str(channel["status"]) == "archived":
-            raise CollaborationChannelClosed(
-                "archived collaboration channel is immutable"
-            )
+            raise CollaborationChannelClosed("archived collaboration channel is immutable")
         if str(channel["status"]) in _CLOSED_CHANNEL_STATUSES:
             if not allow_closed_verification and not allow_closed_claim_invalidation:
                 raise CollaborationChannelClosed("collaboration channel no longer accepts writes")
@@ -2374,16 +2657,10 @@ class CollaborationStore:
             raise CollaborationNotFound("collaboration message not found")
         return self._decode_message(row)
 
-    async def get_latest_report_chain_message(
-        self, report_id: str | UUID
-    ) -> dict[str, Any] | None:
-        return await asyncio.to_thread(
-            self._get_latest_report_chain_message_sync, str(report_id)
-        )
+    async def get_latest_report_chain_message(self, report_id: str | UUID) -> dict[str, Any] | None:
+        return await asyncio.to_thread(self._get_latest_report_chain_message_sync, str(report_id))
 
-    def _get_latest_report_chain_message_sync(
-        self, report_id: str
-    ) -> dict[str, Any] | None:
+    def _get_latest_report_chain_message_sync(self, report_id: str) -> dict[str, Any] | None:
         with self._connect() as connection:
             report = self._report_row(connection, report_id)
             row = connection.execute(
@@ -2438,10 +2715,7 @@ class CollaborationStore:
             after_seq,
             limit,
             (
-                tuple(
-                    str(item.value if isinstance(item, Enum) else item)
-                    for item in visibilities
-                )
+                tuple(str(item.value if isinstance(item, Enum) else item) for item in visibilities)
                 if visibilities is not None
                 else None
             ),
@@ -2495,9 +2769,7 @@ class CollaborationStore:
         expected_revision: int | None = None,
     ) -> dict[str, Any]:
         selected_revision = (
-            expected_cursor_revision
-            if expected_cursor_revision is not None
-            else expected_revision
+            expected_cursor_revision if expected_cursor_revision is not None else expected_revision
         )
         if selected_revision is None:
             raise ValueError("expected cursor revision is required")
@@ -2555,18 +2827,21 @@ class CollaborationStore:
                     raise CollaborationConflict(
                         "reader ack idempotency key was reused with another payload"
                     )
-                return _validated_projection(ReaderCursor, {
-                    "channel_id": channel_id,
-                    "reader_role": str(replay["reader_role"]),
-                    "reader_id": reader_id,
-                    "ack_seq": int(replay["resulting_ack_seq"]),
-                    "revision": int(replay["resulting_revision"]),
-                    "updated_at": (
-                        str(replay["created_at"])
-                        if int(replay["resulting_revision"]) > 0
-                        else None
-                    ),
-                })
+                return _validated_projection(
+                    ReaderCursor,
+                    {
+                        "channel_id": channel_id,
+                        "reader_role": str(replay["reader_role"]),
+                        "reader_id": reader_id,
+                        "ack_seq": int(replay["resulting_ack_seq"]),
+                        "revision": int(replay["resulting_revision"]),
+                        "updated_at": (
+                            str(replay["created_at"])
+                            if int(replay["resulting_revision"]) > 0
+                            else None
+                        ),
+                    },
+                )
             channel = self._channel_row(connection, channel_id)
             highest_seq = int(channel["next_seq"]) - 1
             if seq > highest_seq:
@@ -2626,14 +2901,17 @@ class CollaborationStore:
                     now,
                 ),
             )
-            return _validated_projection(ReaderCursor, {
-                "channel_id": channel_id,
-                "reader_role": reader_role,
-                "reader_id": reader_id,
-                "ack_seq": resulting_seq,
-                "revision": resulting_revision,
-                "updated_at": now if resulting_revision > 0 else None,
-            })
+            return _validated_projection(
+                ReaderCursor,
+                {
+                    "channel_id": channel_id,
+                    "reader_role": reader_role,
+                    "reader_id": reader_id,
+                    "ack_seq": resulting_seq,
+                    "revision": resulting_revision,
+                    "updated_at": now if resulting_revision > 0 else None,
+                },
+            )
 
     async def get_reader_cursor(
         self,
@@ -2662,14 +2940,17 @@ class CollaborationStore:
                 (channel_id, reader_id),
             ).fetchone()
         if row is None:
-            return _validated_projection(ReaderCursor, {
-                "channel_id": channel_id,
-                "reader_role": reader_role,
-                "reader_id": reader_id,
-                "ack_seq": 0,
-                "revision": 0,
-                "updated_at": None,
-            })
+            return _validated_projection(
+                ReaderCursor,
+                {
+                    "channel_id": channel_id,
+                    "reader_role": reader_role,
+                    "reader_id": reader_id,
+                    "ack_seq": 0,
+                    "revision": 0,
+                    "updated_at": None,
+                },
+            )
         return _validated_projection(ReaderCursor, dict(row))
 
     @staticmethod
@@ -2678,9 +2959,7 @@ class CollaborationStore:
             nested = data["payload"]
             if not isinstance(nested, Mapping):
                 raise ValueError("report payload must be an object")
-            return {
-                key: value for key, value in nested.items() if key in _REPORT_PAYLOAD_FIELDS
-            }
+            return {key: value for key, value in nested.items() if key in _REPORT_PAYLOAD_FIELDS}
         return {key: value for key, value in data.items() if key in _REPORT_PAYLOAD_FIELDS}
 
     @staticmethod
@@ -2751,6 +3030,146 @@ class CollaborationStore:
             ),
         )
 
+    def _exhaust_report_evidence_budget_conn(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        budget: sqlite3.Row,
+        report: sqlite3.Row,
+        actor_role: str,
+        actor_id: str,
+        idempotency_key: str,
+        request_digest: str,
+        reason: str,
+        now: str,
+        attempted_rounds_used: int | None = None,
+        attempted_unchanged_streak: int | None = None,
+        attempted_evidence_digest: str | None = None,
+    ) -> dict[str, Any]:
+        report_id = str(report["report_id"])
+        channel_id = str(report["channel_id"])
+        rounds_used = (
+            int(attempted_rounds_used)
+            if attempted_rounds_used is not None
+            else int(budget["rounds_used"])
+        )
+        connection.execute(
+            """
+            UPDATE collaboration_report_evidence_budgets
+            SET rounds_used=?,status='budget_exhausted',exhausted_reason=?,
+                exhausted_at=?,last_idempotency_key=?,last_request_digest=?,
+                unchanged_evidence_streak=?,last_evidence_digest=?,updated_at=?
+            WHERE report_id=? AND status='active'
+            """,
+            (
+                rounds_used,
+                reason,
+                now,
+                idempotency_key,
+                request_digest,
+                (
+                    int(attempted_unchanged_streak)
+                    if attempted_unchanged_streak is not None
+                    else int(budget["unchanged_evidence_streak"])
+                ),
+                attempted_evidence_digest or str(budget["last_evidence_digest"]),
+                now,
+                report_id,
+            ),
+        )
+        channel = self._channel_row(connection, channel_id)
+        metadata = json.loads(str(channel["metadata_json"]))
+        if not isinstance(metadata, dict):
+            metadata = {}
+        metadata.update(
+            {
+                "closure_reason": "report_evidence_budget_exhausted",
+                "budget_exhausted_report_id": report_id,
+                "budget_exhausted_reason": reason,
+            }
+        )
+        connection.execute(
+            """
+            UPDATE collaboration_channels
+            SET status='closed',revision=revision+1,metadata_json=?,
+                closed_at=COALESCE(closed_at,?),updated_at=?
+            WHERE channel_id=? AND status IN ('active','disconnected')
+            """,
+            (_canonical_json(metadata), now, now, channel_id),
+        )
+        connection.execute(
+            """
+            UPDATE collaboration_credentials
+            SET revoked_at=COALESCE(revoked_at,?),
+                revocation_reason=COALESCE(
+                  revocation_reason,
+                  'formal report evidence budget exhausted'
+                )
+            WHERE channel_id=? AND revoked_at IS NULL
+            """,
+            (now, channel_id),
+        )
+        self._append_audit_conn(
+            connection,
+            {
+                "channel_id": channel_id,
+                "entity_kind": "report_evidence_budget",
+                "entity_id": report_id,
+                "event_type": "collaboration.report_evidence_budget_exhausted",
+                "actor_role": actor_role,
+                "actor_id": actor_id,
+                "idempotency_key": f"budget-exhausted:{idempotency_key}",
+                "details": {
+                    "status": "budget_exhausted",
+                    "reason": reason,
+                    "rounds_used": rounds_used,
+                    "max_rounds": int(budget["max_rounds"]),
+                },
+            },
+        )
+        response = {
+            "budget_exhausted": True,
+            "report_id": report_id,
+            "channel_id": channel_id,
+            "assignment_id": str(channel["assignment_id"]),
+            "reason": reason,
+            "rounds_used": rounds_used,
+            "max_rounds": int(budget["max_rounds"]),
+        }
+        return self._insert_operation_receipt_conn(
+            connection,
+            operation="report.revise",
+            scope_id=report_id,
+            actor_role=actor_role,
+            actor_id=actor_id,
+            idempotency_key=idempotency_key,
+            request_digest=request_digest,
+            response_kind="report_evidence_budget_exhausted",
+            response=response,
+            created_at=now,
+        )
+
+    async def get_report_evidence_budget(
+        self, report_id: str | UUID
+    ) -> dict[str, Any] | None:
+        return await asyncio.to_thread(
+            self._get_report_evidence_budget_sync,
+            str(report_id),
+        )
+
+    def _get_report_evidence_budget_sync(
+        self, report_id: str
+    ) -> dict[str, Any] | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT * FROM collaboration_report_evidence_budgets
+                WHERE report_id=?
+                """,
+                (report_id,),
+            ).fetchone()
+        return dict(row) if row is not None else None
+
     async def create_report(
         self,
         record: Mapping[str, Any] | Any,
@@ -2759,15 +3178,11 @@ class CollaborationStore:
         data = _record(record)
         message_data = _record(message)
         async with self._lock:
-            result = await asyncio.to_thread(
-                self._create_report_sync, data, message_data
-            )
+            result = await asyncio.to_thread(self._create_report_sync, data, message_data)
         self._secure_database_files()
         return result
 
-    def _create_report_sync(
-        self, data: dict[str, Any], message: dict[str, Any]
-    ) -> dict[str, Any]:
+    def _create_report_sync(self, data: dict[str, Any], message: dict[str, Any]) -> dict[str, Any]:
         report_id = str(_required(data, "report_id"))
         channel_id = str(_required(data, "channel_id"))
         category = str(_required(data, "category"))
@@ -2870,6 +3285,22 @@ class CollaborationStore:
                 ),
             )
             persisted = self._report_row(connection, report_id)
+            if channel["max_report_evidence_rounds"] is not None:
+                connection.execute(
+                    """
+                    INSERT INTO collaboration_report_evidence_budgets(
+                      report_id,channel_id,max_rounds,rounds_used,
+                      last_evidence_digest,unchanged_evidence_streak,status,updated_at
+                    ) VALUES(?,?,?,0,?,0,'active',?)
+                    """,
+                    (
+                        report_id,
+                        channel_id,
+                        int(channel["max_report_evidence_rounds"]),
+                        _report_evidence_digest(payload),
+                        now,
+                    ),
+                )
             self._insert_report_revision_conn(
                 connection,
                 report=persisted,
@@ -2881,10 +3312,14 @@ class CollaborationStore:
                 created_at=now,
             )
             if intake_transitions:
-                if category not in {
-                    "platform_capability_gap",
-                    "platform_defect_suspected",
-                } or status != "observed":
+                if (
+                    category
+                    not in {
+                        "platform_capability_gap",
+                        "platform_defect_suspected",
+                    }
+                    or status != "observed"
+                ):
                     raise CollaborationConflict(
                         "only an observed platform report may record intake transitions"
                     )
@@ -2895,27 +3330,16 @@ class CollaborationStore:
                 for index, raw_transition in enumerate(intake_transitions, start=1):
                     transition = _record(raw_transition)
                     transition_status = str(_required(transition, "status"))
-                    transition_route = str(
-                        transition.get("route", "capability_approval")
-                    )
-                    transition_visibility = str(
-                        transition.get("visibility", "user_and_lilies")
-                    )
-                    transition_actor_role = str(
-                        _required(transition, "actor_role")
-                    )
+                    transition_route = str(transition.get("route", "capability_approval"))
+                    transition_visibility = str(transition.get("visibility", "user_and_lilies"))
+                    transition_actor_role = str(_required(transition, "actor_role"))
                     transition_actor_id = str(_required(transition, "actor_id"))
                     transition_key = str(_required(transition, "idempotency_key"))
-                    expected_status = (
-                        "evidence_collecting" if index == 1 else None
-                    )
+                    expected_status = "evidence_collecting" if index == 1 else None
                     if (
                         transition_route != "capability_approval"
                         or transition_visibility != "user_and_lilies"
-                        or (
-                            expected_status is not None
-                            and transition_status != expected_status
-                        )
+                        or (expected_status is not None and transition_status != expected_status)
                         or (
                             index == 2
                             and transition_status
@@ -2924,8 +3348,7 @@ class CollaborationStore:
                         or (
                             index == 1
                             and (
-                                transition_actor_role != "lilies"
-                                or transition_actor_id != actor_id
+                                transition_actor_role != "lilies" or transition_actor_id != actor_id
                             )
                         )
                         or (index == 2 and transition_actor_role != "platform")
@@ -2987,9 +3410,7 @@ class CollaborationStore:
                 outbox = _record(_required(auto_forward, "outbox"))
                 approval_message_data = auto_forward.get("message")
                 approval_message = (
-                    self._append_message_conn(
-                        connection, _record(approval_message_data)
-                    )
+                    self._append_message_conn(connection, _record(approval_message_data))
                     if approval_message_data is not None
                     else None
                 )
@@ -3005,13 +3426,9 @@ class CollaborationStore:
                         "auto-forward approval report revision does not match intake"
                     )
                 approval_resulting = approval_expected + 1
-                auto_status = str(
-                    auto_forward.get("next_report_status", "approved_for_codex")
-                )
+                auto_status = str(auto_forward.get("next_report_status", "approved_for_codex"))
                 auto_route = str(auto_forward.get("next_report_route", "developer"))
-                auto_visibility = str(
-                    auto_forward.get("next_visibility", "approved_developer")
-                )
+                auto_visibility = str(auto_forward.get("next_visibility", "approved_developer"))
                 approval_digest = _digest(
                     {
                         "approval": approval,
@@ -3071,11 +3488,7 @@ class CollaborationStore:
                         approval_key,
                         approval_digest,
                         approval.get("reason"),
-                        (
-                            approval_message["message_id"]
-                            if approval_message is not None
-                            else None
-                        ),
+                        (approval_message["message_id"] if approval_message is not None else None),
                         now,
                     ),
                 )
@@ -3125,11 +3538,7 @@ class CollaborationStore:
             str(channel_id) if channel_id is not None else None,
             normalized_statuses,
             developer_visible_only,
-            (
-                str(route.value if isinstance(route, Enum) else route)
-                if route is not None
-                else None
-            ),
+            (str(route.value if isinstance(route, Enum) else route) if route is not None else None),
             after,
             limit,
         )
@@ -3190,16 +3599,13 @@ class CollaborationStore:
         audit: Mapping[str, Any] | Any | None = None,
         expected_channel_revision: int | None = None,
         expected_approval_mode: str | None = None,
+        consume_evidence_budget: bool = False,
     ) -> dict[str, Any]:
         normalized = _record(changes)
         normalized_message = _record(message) if message is not None else None
-        normalized_auto_forward = (
-            _record(auto_forward) if auto_forward is not None else None
-        )
+        normalized_auto_forward = _record(auto_forward) if auto_forward is not None else None
         normalized_validation_transition = (
-            _record(validation_transition)
-            if validation_transition is not None
-            else None
+            _record(validation_transition) if validation_transition is not None else None
         )
         normalized_audit = _record(audit) if audit is not None else None
         async with self._lock:
@@ -3217,6 +3623,7 @@ class CollaborationStore:
                 normalized_audit,
                 expected_channel_revision,
                 expected_approval_mode,
+                consume_evidence_budget,
             )
         self._secure_database_files()
         return result
@@ -3235,6 +3642,7 @@ class CollaborationStore:
         audit: dict[str, Any] | None,
         expected_channel_revision: int | None,
         expected_approval_mode: str | None,
+        consume_evidence_budget: bool,
     ) -> dict[str, Any]:
         request_digest = _idempotency_digest(
             {
@@ -3246,6 +3654,7 @@ class CollaborationStore:
                 "audit": audit,
                 "expected_channel_revision": expected_channel_revision,
                 "expected_approval_mode": expected_approval_mode,
+                "consume_evidence_budget": consume_evidence_budget,
             }
         )
         operation_digest = _validated_request_digest(
@@ -3286,9 +3695,7 @@ class CollaborationStore:
                 fallback_report_status="approved_for_codex",
             )
             current = self._report_row(connection, report_id)
-            channel = self._writable_channel_row(
-                connection, str(current["channel_id"])
-            )
+            channel = self._writable_channel_row(connection, str(current["channel_id"]))
             if auto_forward is not None and (
                 expected_channel_revision is None
                 or int(channel["revision"]) != expected_channel_revision
@@ -3298,9 +3705,7 @@ class CollaborationStore:
                 raise CollaborationConflict(
                     "auto-forward approval mode changed before revision commit"
                 )
-            self._assert_report_writes_not_frozen_conn(
-                connection, str(current["channel_id"])
-            )
+            self._assert_report_writes_not_frozen_conn(connection, str(current["channel_id"]))
             if int(current["revision"]) != expected_revision:
                 raise CollaborationConflict("report revision compare-and-set failed")
             active_lease = connection.execute(
@@ -3317,9 +3722,7 @@ class CollaborationStore:
             replacement_payload = self._report_payload(changes)
             current_payload = json.loads(str(current["payload_json"]))
             if not isinstance(current_payload, dict):
-                raise CollaborationStorageError(
-                    "persisted report payload must be an object"
-                )
+                raise CollaborationStorageError("persisted report payload must be an object")
             if replacement_payload:
                 safe_replacement_payload = self._safe_payload(replacement_payload)
                 for immutable_field in ("original_goal", "requirement_digest"):
@@ -3334,6 +3737,88 @@ class CollaborationStore:
                 payload = self._safe_payload(current_payload)
             payload_json = _canonical_json(payload)
             payload_digest = _digest(payload)
+            if consume_evidence_budget:
+                if actor_role != "lilies" or message is None:
+                    raise CollaborationConflict(
+                        "only a Lilies evidence supplementation may consume "
+                        "the report evidence budget"
+                    )
+                budget = connection.execute(
+                    """
+                    SELECT * FROM collaboration_report_evidence_budgets
+                    WHERE report_id=?
+                    """,
+                    (report_id,),
+                ).fetchone()
+                if budget is not None:
+                    if str(budget["status"]) == "budget_exhausted":
+                        return self._exhaust_report_evidence_budget_conn(
+                            connection,
+                            budget=budget,
+                            report=current,
+                            actor_role=actor_role,
+                            actor_id=actor_id,
+                            idempotency_key=idempotency_key,
+                            request_digest=operation_digest,
+                            reason=str(
+                                budget["exhausted_reason"]
+                                or "max_report_evidence_rounds"
+                            ),
+                            now=now,
+                        )
+                    if int(budget["rounds_used"]) >= int(budget["max_rounds"]):
+                        return self._exhaust_report_evidence_budget_conn(
+                            connection,
+                            budget=budget,
+                            report=current,
+                            actor_role=actor_role,
+                            actor_id=actor_id,
+                            idempotency_key=idempotency_key,
+                            request_digest=operation_digest,
+                            reason="max_report_evidence_rounds",
+                            now=now,
+                        )
+                    evidence_digest = _report_evidence_digest(payload)
+                    unchanged_streak = (
+                        int(budget["unchanged_evidence_streak"]) + 1
+                        if hmac.compare_digest(
+                            str(budget["last_evidence_digest"]),
+                            evidence_digest,
+                        )
+                        else 0
+                    )
+                    if unchanged_streak >= 3:
+                        return self._exhaust_report_evidence_budget_conn(
+                            connection,
+                            budget=budget,
+                            report=current,
+                            actor_role=actor_role,
+                            actor_id=actor_id,
+                            idempotency_key=idempotency_key,
+                            request_digest=operation_digest,
+                            reason="unchanged_evidence_digest_three_times",
+                            now=now,
+                            attempted_rounds_used=int(budget["rounds_used"]) + 1,
+                            attempted_unchanged_streak=unchanged_streak,
+                            attempted_evidence_digest=evidence_digest,
+                        )
+                    connection.execute(
+                        """
+                        UPDATE collaboration_report_evidence_budgets
+                        SET rounds_used=rounds_used+1,last_evidence_digest=?,
+                            unchanged_evidence_streak=?,last_idempotency_key=?,
+                            last_request_digest=?,updated_at=?
+                        WHERE report_id=? AND status='active'
+                        """,
+                        (
+                            evidence_digest,
+                            unchanged_streak,
+                            idempotency_key,
+                            operation_digest,
+                            now,
+                            report_id,
+                        ),
+                    )
             message_row = (
                 self._append_message_conn(connection, message) if message is not None else None
             )
@@ -3376,24 +3861,14 @@ class CollaborationStore:
                 created_at=now,
             )
             if validation_transition is not None:
-                transition_status = str(
-                    _required(validation_transition, "status")
-                )
-                transition_route = str(
-                    validation_transition.get("route", "capability_approval")
-                )
+                transition_status = str(_required(validation_transition, "status"))
+                transition_route = str(validation_transition.get("route", "capability_approval"))
                 transition_visibility = str(
                     validation_transition.get("visibility", "user_and_lilies")
                 )
-                transition_actor_role = str(
-                    _required(validation_transition, "actor_role")
-                )
-                transition_actor_id = str(
-                    _required(validation_transition, "actor_id")
-                )
-                transition_key = str(
-                    _required(validation_transition, "idempotency_key")
-                )
+                transition_actor_role = str(_required(validation_transition, "actor_role"))
+                transition_actor_id = str(_required(validation_transition, "actor_id"))
+                transition_key = str(_required(validation_transition, "idempotency_key"))
                 if (
                     str(current["category"])
                     not in {
@@ -3403,8 +3878,7 @@ class CollaborationStore:
                     or str(persisted["status"]) != "evidence_collecting"
                     or actor_role != "lilies"
                     or transition_actor_role != "platform"
-                    or transition_status
-                    not in {"needs_more_evidence", "awaiting_user_review"}
+                    or transition_status not in {"needs_more_evidence", "awaiting_user_review"}
                     or transition_route != "capability_approval"
                     or transition_visibility != "user_and_lilies"
                 ):
@@ -3451,30 +3925,20 @@ class CollaborationStore:
                     connection, _record(_required(auto_forward, "message"))
                 )
                 approval_id = str(_required(approval, "approval_id"))
-                approval_actor = str(
-                    approval.get("actor_id", "platform-auto-forward")
-                )
+                approval_actor = str(approval.get("actor_id", "platform-auto-forward"))
                 approval_key = str(_required(approval, "idempotency_key"))
                 approval_decision = str(approval.get("decision", "approve"))
                 approval_expected = int(
-                    approval.get(
-                        "expected_report_revision", int(persisted["revision"])
-                    )
+                    approval.get("expected_report_revision", int(persisted["revision"]))
                 )
                 if approval_expected != int(persisted["revision"]):
                     raise CollaborationConflict(
                         "auto-forward approval report revision does not match revision"
                     )
                 approval_resulting = approval_expected + 1
-                auto_status = str(
-                    auto_forward.get("next_report_status", "approved_for_codex")
-                )
-                auto_route = str(
-                    auto_forward.get("next_report_route", "developer")
-                )
-                auto_visibility = str(
-                    auto_forward.get("next_visibility", "approved_developer")
-                )
+                auto_status = str(auto_forward.get("next_report_status", "approved_for_codex"))
+                auto_route = str(auto_forward.get("next_report_route", "developer"))
+                auto_visibility = str(auto_forward.get("next_visibility", "approved_developer"))
                 approval_reason = (
                     str(self._safe_payload(approval["reason"]))
                     if approval.get("reason") is not None
@@ -3602,11 +4066,7 @@ class CollaborationStore:
         actor_role = str(data.get("actor_role", "user"))
         actor_id = str(_required(data, "actor_id"))
         idempotency_key = str(_required(data, "idempotency_key"))
-        reason = (
-            str(self._safe_payload(data["reason"]))
-            if data.get("reason") is not None
-            else None
-        )
+        reason = str(self._safe_payload(data["reason"])) if data.get("reason") is not None else None
         semantic = {
             "approval_id": approval_id,
             "channel_id": channel_id,
@@ -3806,9 +4266,7 @@ class CollaborationStore:
         return row
 
     @staticmethod
-    def _lease_reference(
-        connection: sqlite3.Connection, lease_or_report_id: str
-    ) -> sqlite3.Row:
+    def _lease_reference(connection: sqlite3.Connection, lease_or_report_id: str) -> sqlite3.Row:
         row = connection.execute(
             "SELECT * FROM collaboration_developer_leases WHERE lease_id=?",
             (lease_or_report_id,),
@@ -4095,9 +4553,7 @@ class CollaborationStore:
             _as_utc(now, default=_now()),
         )
 
-    def _get_active_lease_sync(
-        self, report_id: str, now: datetime
-    ) -> dict[str, Any] | None:
+    def _get_active_lease_sync(self, report_id: str, now: datetime) -> dict[str, Any] | None:
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             self._report_row(connection, report_id)
@@ -4242,8 +4698,7 @@ class CollaborationStore:
     ) -> None:
         report = self._report_row(connection, str(lease["report_id"]))
         if not (
-            str(report["category"])
-            in {"platform_capability_gap", "platform_defect_suspected"}
+            str(report["category"]) in {"platform_capability_gap", "platform_defect_suspected"}
             and str(report["status"]) == "implementing"
             and int(report["revision"]) == int(lease["report_revision"])
         ):
@@ -4348,10 +4803,7 @@ class CollaborationStore:
                 raise CollaborationUnauthorized("only the lease owner may release it")
             if int(lease["revision"]) != expected_revision:
                 raise CollaborationConflict("lease revision compare-and-set failed")
-            if (
-                str(lease["status"]) != "active"
-                or _as_utc(str(lease["expires_at"])) <= now
-            ):
+            if str(lease["status"]) != "active" or _as_utc(str(lease["expires_at"])) <= now:
                 raise CollaborationConflict("developer lease is not active")
             next_revision = expected_revision + 1
             connection.execute(
@@ -4391,9 +4843,7 @@ class CollaborationStore:
                     "channel_id": str(lease["channel_id"]),
                     "message_id": None,
                     "destination": "developer_inbox",
-                    "idempotency_key": (
-                        f"inbox:lease-release:{lease_id}:{idempotency_key}"
-                    ),
+                    "idempotency_key": (f"inbox:lease-release:{lease_id}:{idempotency_key}"),
                     "payload": {"report_id": report_id},
                 },
             )
@@ -4431,14 +4881,10 @@ class CollaborationStore:
         self._secure_database_files()
         return result
 
-    def _expire_developer_leases_sync(
-        self, now: datetime, fallback_report_status: str
-    ) -> int:
+    def _expire_developer_leases_sync(self, now: datetime, fallback_report_status: str) -> int:
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            return self._expire_developer_leases_conn(
-                connection, now, fallback_report_status
-            )
+            return self._expire_developer_leases_conn(connection, now, fallback_report_status)
 
     async def record_developer_response(
         self,
@@ -4466,9 +4912,7 @@ class CollaborationStore:
         return result
 
     @staticmethod
-    def _decode_typed_payload(
-        row: sqlite3.Row | Mapping[str, Any], model: Any
-    ) -> dict[str, Any]:
+    def _decode_typed_payload(row: sqlite3.Row | Mapping[str, Any], model: Any) -> dict[str, Any]:
         data = dict(row)
         payload = json.loads(str(data["payload_json"]))
         if not isinstance(payload, dict):
@@ -4483,11 +4927,7 @@ class CollaborationStore:
         payload = self._safe_payload(data.get("payload", data))
         if not isinstance(payload, dict):
             raise ValueError("collaboration domain payload must be an object")
-        return {
-            key: value
-            for key, value in payload.items()
-            if key not in _DOMAIN_TRANSPORT_FIELDS
-        }
+        return {key: value for key, value in payload.items() if key not in _DOMAIN_TRANSPORT_FIELDS}
 
     def _record_developer_response_sync(
         self,
@@ -4585,9 +5025,7 @@ class CollaborationStore:
                     else report["route"]
                 )
             )
-            next_visibility = str(
-                data.get("next_visibility") or "user_and_lilies"
-            )
+            next_visibility = str(data.get("next_visibility") or "user_and_lilies")
             connection.execute(
                 """
                 UPDATE collaboration_reports
@@ -4671,12 +5109,8 @@ class CollaborationStore:
                 created_at=now_iso,
             )
 
-    async def get_latest_developer_response(
-        self, report_id: str | UUID
-    ) -> dict[str, Any]:
-        return await asyncio.to_thread(
-            self._get_latest_developer_response_sync, str(report_id)
-        )
+    async def get_latest_developer_response(self, report_id: str | UUID) -> dict[str, Any]:
+        return await asyncio.to_thread(self._get_latest_developer_response_sync, str(report_id))
 
     def _get_latest_developer_response_sync(self, report_id: str) -> dict[str, Any]:
         with self._connect() as connection:
@@ -4708,9 +5142,7 @@ class CollaborationStore:
             raise CollaborationNotFound("collaboration domain response not found")
         return self._decode_typed_payload(row, model)
 
-    async def get_developer_response(
-        self, response_id: str | UUID
-    ) -> dict[str, Any]:
+    async def get_developer_response(self, response_id: str | UUID) -> dict[str, Any]:
         return await asyncio.to_thread(
             self._get_typed_domain_record_sync,
             table="collaboration_developer_responses",
@@ -4719,9 +5151,7 @@ class CollaborationStore:
             model=DeveloperResponse,
         )
 
-    async def get_task_amendment(
-        self, amendment_id: str | UUID
-    ) -> dict[str, Any]:
+    async def get_task_amendment(self, amendment_id: str | UUID) -> dict[str, Any]:
         return await asyncio.to_thread(
             self._get_typed_domain_record_sync,
             table="collaboration_task_amendments",
@@ -4730,9 +5160,7 @@ class CollaborationStore:
             model=TaskPackageAmendment,
         )
 
-    async def get_environment_response(
-        self, response_id: str | UUID
-    ) -> dict[str, Any]:
+    async def get_environment_response(self, response_id: str | UUID) -> dict[str, Any]:
         return await asyncio.to_thread(
             self._get_typed_domain_record_sync,
             table="collaboration_environment_responses",
@@ -4838,9 +5266,7 @@ class CollaborationStore:
                     "domain response requires the report's active lease owner"
                 )
             if int(lease["report_revision"]) != expected_revision:
-                raise CollaborationConflict(
-                    "developer lease is bound to another report revision"
-                )
+                raise CollaborationConflict("developer lease is bound to another report revision")
             if _as_utc(str(lease["expires_at"])) <= now:
                 raise CollaborationConflict("developer lease has expired")
         message_row = self._append_message_conn(connection, message)
@@ -4859,9 +5285,7 @@ class CollaborationStore:
             actor_role=actor_role,
             actor_id=str(message_row["sender_id"]),
             idempotency_key=idempotency_key,
-            request_digest=_idempotency_digest(
-                {"record_id": row_id, "status": next_report_status}
-            ),
+            request_digest=_idempotency_digest({"record_id": row_id, "status": next_report_status}),
             message_id=str(message_row["message_id"]),
             created_at=now_iso,
         )
@@ -4888,8 +5312,7 @@ class CollaborationStore:
             now_iso,
         ]
         connection.execute(
-            f"INSERT INTO {table}({','.join(columns)}) "
-            f"VALUES({','.join('?' for _ in values)})",
+            f"INSERT INTO {table}({','.join(columns)}) VALUES({','.join('?' for _ in values)})",
             values,
         )
         if lease_id is not None and lease_owner_id is not None:
@@ -4908,9 +5331,7 @@ class CollaborationStore:
                 ),
             ).rowcount
             if changed != 1:
-                raise CollaborationConflict(
-                    "developer lease changed before domain response commit"
-                )
+                raise CollaborationConflict("developer lease changed before domain response commit")
         if next_report_status in {
             "approved_for_codex",
             "verification_failed",
@@ -4919,8 +5340,7 @@ class CollaborationStore:
             "unresolved",
         }:
             inbox_key = (
-                f"inbox:actionable:{operation}:{report_id}:"
-                f"{resulting_revision}:{idempotency_key}"
+                f"inbox:actionable:{operation}:{report_id}:{resulting_revision}:{idempotency_key}"
             )
             self._enqueue_outbox_conn(
                 connection,
@@ -4943,9 +5363,7 @@ class CollaborationStore:
                     },
                 },
             )
-        row = connection.execute(
-            f"SELECT * FROM {table} WHERE {id_column}=?", (row_id,)
-        ).fetchone()
+        row = connection.execute(f"SELECT * FROM {table} WHERE {id_column}=?", (row_id,)).fetchone()
         if row is None:  # pragma: no cover
             raise CollaborationStorageError("domain response insert did not persist")
         response = self._decode_typed_payload(row, model)
@@ -4970,9 +5388,7 @@ class CollaborationStore:
         data = _record(record)
         message_data = _record(message)
         async with self._lock:
-            result = await asyncio.to_thread(
-                self._record_task_amendment_sync, data, message_data
-            )
+            result = await asyncio.to_thread(self._record_task_amendment_sync, data, message_data)
         self._secure_database_files()
         return result
 
@@ -4984,9 +5400,7 @@ class CollaborationStore:
             data.get("next_report_status")
             or ("task_package_amended" if outcome == "amended" else "rejected_with_evidence")
         )
-        prior_revision = int(
-            data.get("prior_task_revision", data.get("previous_task_revision", 0))
-        )
+        prior_revision = int(data.get("prior_task_revision", data.get("previous_task_revision", 0)))
         task_revision = data.get("task_revision", data.get("new_task_revision"))
         persisted_revision = int(task_revision or prior_revision)
         with self._connect() as connection:
@@ -5063,15 +5477,11 @@ class CollaborationStore:
         self._secure_database_files()
         return result
 
-    def _record_reprobe_sync(
-        self, data: dict[str, Any], message: dict[str, Any]
-    ) -> dict[str, Any]:
+    def _record_reprobe_sync(self, data: dict[str, Any], message: dict[str, Any]) -> dict[str, Any]:
         outcome = str(_required(data, "outcome"))
         if outcome not in {"lilies_verified", "verification_failed"}:
             raise ValueError("unsupported Lilies reprobe outcome")
-        contract_digest = data.get(
-            "observed_contract_digest", data.get("contract_digest")
-        )
+        contract_digest = data.get("observed_contract_digest", data.get("contract_digest"))
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             return self._record_related_domain_conn(
@@ -5375,9 +5785,7 @@ class CollaborationStore:
             channel = self._writable_channel_row(connection, channel_id)
             if str(channel["assignment_id"]) != assignment_id:
                 raise CollaborationConflict("verification claim belongs to another assignment")
-            bound_application_ids = json.loads(
-                str(channel["application_ids_json"])
-            )
+            bound_application_ids = json.loads(str(channel["application_ids_json"]))
             if application_id not in bound_application_ids:
                 raise CollaborationConflict(
                     "verification claim application is not bound to this channel"
@@ -5673,9 +6081,7 @@ class CollaborationStore:
         effective_now = _as_utc(now, default=_now())
         reason = str(self._safe_payload(reason))
         now_iso = effective_now.isoformat()
-        assignment_clause = (
-            " AND claim.assignment_id=?" if assignment_id is not None else ""
-        )
+        assignment_clause = " AND claim.assignment_id=?" if assignment_id is not None else ""
         parameters: list[Any] = [
             application_id,
             current_draft_revision,
@@ -5763,9 +6169,7 @@ class CollaborationStore:
         data = _record(record)
         message_data = _record(message)
         async with self._lock:
-            result = await asyncio.to_thread(
-                self._record_verification_sync, data, message_data
-            )
+            result = await asyncio.to_thread(self._record_verification_sync, data, message_data)
         self._secure_database_files()
         return result
 
@@ -5787,9 +6191,7 @@ class CollaborationStore:
             raise CollaborationStorageError("persisted claim payload must be an object")
         raw_report_ids = claim_payload.get("resolved_report_ids", [])
         if not isinstance(raw_report_ids, list):
-            raise CollaborationStorageError(
-                "persisted claim resolved_report_ids must be a list"
-            )
+            raise CollaborationStorageError("persisted claim resolved_report_ids must be a list")
         for report_id in sorted(str(item) for item in raw_report_ids):
             report = self._report_row(connection, report_id)
             if str(report["channel_id"]) != str(claim["channel_id"]):
@@ -5808,9 +6210,7 @@ class CollaborationStore:
             }:
                 continue
             if str(report["status"]) != "lilies_verified":
-                raise CollaborationConflict(
-                    "resolved capability report is not lilies_verified"
-                )
+                raise CollaborationConflict("resolved capability report is not lilies_verified")
             previous_revision = int(report["revision"])
             next_revision = previous_revision + 1
             changed = connection.execute(
@@ -5828,9 +6228,7 @@ class CollaborationStore:
                 ),
             )
             if changed.rowcount != 1:
-                raise CollaborationConflict(
-                    "capability report verification compare-and-set failed"
-                )
+                raise CollaborationConflict("capability report verification compare-and-set failed")
             persisted = self._report_row(connection, report_id)
             # Validate the route/status state before exposing or recording it.
             self._decode_report(persisted)
@@ -5839,9 +6237,7 @@ class CollaborationStore:
                 report=persisted,
                 actor_role="verifier",
                 actor_id=verifier_id,
-                idempotency_key=(
-                    f"independent-verification:{verification_id}:{report_id}"
-                ),
+                idempotency_key=(f"independent-verification:{verification_id}:{report_id}"),
                 request_digest=_idempotency_digest(
                     {
                         "verification_id": verification_id,
@@ -5926,9 +6322,7 @@ class CollaborationStore:
             )
             claim_payload = json.loads(str(claim["payload_json"]))
             if not isinstance(claim_payload, dict):
-                raise CollaborationStorageError(
-                    "persisted claim payload must be an object"
-                )
+                raise CollaborationStorageError("persisted claim payload must be an object")
             self._assert_claim_report_accounting_conn(
                 connection,
                 channel_id=channel_id,
@@ -6016,12 +6410,8 @@ class CollaborationStore:
                 created_at=now,
             )
 
-    async def get_verification(
-        self, verification_id: str | UUID
-    ) -> dict[str, Any]:
-        return await asyncio.to_thread(
-            self._get_verification_sync, str(verification_id)
-        )
+    async def get_verification(self, verification_id: str | UUID) -> dict[str, Any]:
+        return await asyncio.to_thread(self._get_verification_sync, str(verification_id))
 
     def _get_verification_sync(self, verification_id: str) -> dict[str, Any]:
         with self._connect() as connection:
@@ -6037,20 +6427,13 @@ class CollaborationStore:
         self, connection: sqlite3.Connection, data: Mapping[str, Any]
     ) -> dict[str, Any]:
         normalized = _record(data)
-        channel_id = (
-            str(normalized["channel_id"]) if normalized.get("channel_id") else None
-        )
+        channel_id = str(normalized["channel_id"]) if normalized.get("channel_id") else None
         entity_kind = str(normalized.get("entity_kind", "collaboration_channel"))
         entity_id = str(
-            normalized.get("entity_id")
-            or channel_id
-            or normalized.get("task_id")
-            or "global"
+            normalized.get("entity_id") or channel_id or normalized.get("task_id") or "global"
         )
         event_type = str(
-            normalized.get("event_type")
-            or normalized.get("action")
-            or "collaboration.audit"
+            normalized.get("event_type") or normalized.get("action") or "collaboration.audit"
         )
         actor_role = str(normalized.get("actor_role", "user"))
         actor_id = str(normalized.get("actor_id", "platform"))
@@ -6069,26 +6452,28 @@ class CollaborationStore:
                 "idempotency_key": idempotency_key,
             }
         )
-        details = self._safe_payload(normalized.get(
-            "details",
-            {
-                key: value
-                for key, value in normalized.items()
-                if key
-                not in {
-                    "audit_id",
-                    "channel_id",
-                    "entity_kind",
-                    "entity_id",
-                    "event_type",
-                    "action",
-                    "actor_role",
-                    "actor_id",
-                    "idempotency_key",
-                    "created_at",
-                }
-            },
-        ))
+        details = self._safe_payload(
+            normalized.get(
+                "details",
+                {
+                    key: value
+                    for key, value in normalized.items()
+                    if key
+                    not in {
+                        "audit_id",
+                        "channel_id",
+                        "entity_kind",
+                        "entity_id",
+                        "event_type",
+                        "action",
+                        "actor_role",
+                        "actor_id",
+                        "idempotency_key",
+                        "created_at",
+                    }
+                },
+            )
+        )
         semantic = {
             "channel_id": channel_id,
             "entity_kind": entity_kind,
@@ -6113,9 +6498,7 @@ class CollaborationStore:
         ).fetchone()
         if replay is not None:
             if not hmac.compare_digest(str(replay["request_digest"]), request_digest):
-                raise CollaborationConflict(
-                    "audit idempotency key was reused with another payload"
-                )
+                raise CollaborationConflict("audit idempotency key was reused with another payload")
             return self._decode_row(replay)
         created_at = _now().isoformat()
         connection.execute(
@@ -6162,9 +6545,7 @@ class CollaborationStore:
         self, connection: sqlite3.Connection, data: Mapping[str, Any]
     ) -> dict[str, Any]:
         normalized = _record(data)
-        destination = str(
-            normalized.get("destination") or normalized.get("kind") or "developer"
-        )
+        destination = str(normalized.get("destination") or normalized.get("kind") or "developer")
         idempotency_key = str(_required(normalized, "idempotency_key"))
         self._reject_registered_secret_identifiers(
             {
@@ -6352,9 +6733,7 @@ class CollaborationStore:
         finally:
             connection.close()
 
-    def _list_pending_outbox_sync(
-        self, now: datetime, limit: int
-    ) -> list[dict[str, Any]]:
+    def _list_pending_outbox_sync(self, now: datetime, limit: int) -> list[dict[str, Any]]:
         with self._connect() as connection:
             rows = connection.execute(
                 """
@@ -6376,9 +6755,7 @@ class CollaborationStore:
                 _as_utc(delivered_at, default=_now()),
             )
 
-    def _mark_outbox_delivered_sync(
-        self, outbox_id: str, delivered_at: datetime
-    ) -> dict[str, Any]:
+    def _mark_outbox_delivered_sync(self, outbox_id: str, delivered_at: datetime) -> dict[str, Any]:
         now = delivered_at.isoformat()
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -6504,9 +6881,7 @@ class CollaborationStore:
         if (
             row is not None
             and client_request_digest is not None
-            and not hmac.compare_digest(
-                str(row["client_request_digest"]), client_request_digest
-            )
+            and not hmac.compare_digest(str(row["client_request_digest"]), client_request_digest)
         ):
             raise CollaborationConflict(
                 "message idempotency key was reused with another client request"
@@ -6613,9 +6988,7 @@ class CollaborationStore:
                 ).fetchone()
         if row is not None and expected_digest is not None:
             persisted_digest = str(
-                row["request_digest"]
-                if operation == "acquire"
-                else row["receipt_request_digest"]
+                row["request_digest"] if operation == "acquire" else row["receipt_request_digest"]
             )
             if not hmac.compare_digest(persisted_digest, expected_digest):
                 raise CollaborationConflict(
@@ -6652,6 +7025,13 @@ class CollaborationStore:
                 SELECT revision.* FROM collaboration_report_revisions AS revision
                 JOIN collaboration_reports AS report ON report.report_id=revision.report_id
                 WHERE report.channel_id=? ORDER BY revision.report_id,revision.revision
+                """,
+                (channel_id,),
+            ).fetchall()
+            report_evidence_budgets = connection.execute(
+                """
+                SELECT * FROM collaboration_report_evidence_budgets
+                WHERE channel_id=? ORDER BY report_id
                 """,
                 (channel_id,),
             ).fetchall()
@@ -6712,17 +7092,13 @@ class CollaborationStore:
             developer_responses = rows(
                 "collaboration_developer_responses", "created_at,response_id"
             )
-            task_amendments = rows(
-                "collaboration_task_amendments", "created_at,amendment_id"
-            )
+            task_amendments = rows("collaboration_task_amendments", "created_at,amendment_id")
             environment_responses = rows(
                 "collaboration_environment_responses", "created_at,response_id"
             )
             reprobes = rows("collaboration_reprobes", "created_at,reprobe_id")
             claims = rows("collaboration_verification_claims", "frozen_at,claim_id")
-            verifications = rows(
-                "collaboration_verifications", "created_at,verification_id"
-            )
+            verifications = rows("collaboration_verifications", "created_at,verification_id")
             audit = rows("collaboration_audit", "created_at,audit_id")
             outbox = rows("collaboration_outbox", "created_at,outbox_id")
             channel_operations = rows(
@@ -6743,27 +7119,74 @@ class CollaborationStore:
                 """,
                 (channel_id, channel_id, channel_id),
             ).fetchall()
+        message_seqs = [int(item["seq"]) for item in messages]
+        next_seq = int(channel["next_seq"])
+        complete = message_seqs == list(range(1, next_seq))
+        counts = {
+            "credentials": len(credentials),
+            "messages": len(messages),
+            "reports": len(reports),
+            "report_revisions": len(report_revisions),
+            "report_evidence_budgets": len(report_evidence_budgets),
+            "approvals": len(approvals),
+            "reader_cursors": len(cursors),
+            "reader_ack_receipts": len(cursor_receipts),
+            "developer_leases": len(leases),
+            "lease_operations": len(lease_operations),
+            "developer_responses": len(developer_responses),
+            "task_amendments": len(task_amendments),
+            "environment_responses": len(environment_responses),
+            "reprobes": len(reprobes),
+            "claims": len(claims),
+            "verifications": len(verifications),
+            "audit": len(audit),
+            "outbox": len(outbox),
+            "channel_operations": len(channel_operations),
+            "operation_receipts": len(operation_receipts),
+        }
         return {
             "schema_version": "1.0",
+            "complete": complete,
+            "counts": counts,
+            "watermark": {
+                "min_message_seq": message_seqs[0] if message_seqs else None,
+                "max_message_seq": message_seqs[-1] if message_seqs else None,
+                "next_seq": next_seq,
+                "max_report_evidence_rounds": (
+                    int(channel["max_report_evidence_rounds"])
+                    if channel["max_report_evidence_rounds"] is not None
+                    else None
+                ),
+                "report_evidence_rounds_used_total": sum(
+                    int(item["rounds_used"]) for item in report_evidence_budgets
+                ),
+                "max_report_evidence_rounds_used": max(
+                    (int(item["rounds_used"]) for item in report_evidence_budgets),
+                    default=0,
+                ),
+                "budget_exhausted_reports": sum(
+                    str(item["status"]) == "budget_exhausted"
+                    for item in report_evidence_budgets
+                ),
+            },
             "channel": self._decode_channel(channel),
             "credentials": [self._credential_public(item) for item in credentials],
             "messages": [self._decode_message(item) for item in messages],
             "reports": [self._decode_report(item) for item in reports],
             "report_revisions": [self._decode_row(item) for item in report_revisions],
-            "approvals": [self._decode_approval(item) for item in approvals],
-            "reader_cursors": [
-                _validated_projection(ReaderCursor, dict(item)) for item in cursors
+            "report_evidence_budgets": [
+                self._decode_row(item) for item in report_evidence_budgets
             ],
+            "approvals": [self._decode_approval(item) for item in approvals],
+            "reader_cursors": [_validated_projection(ReaderCursor, dict(item)) for item in cursors],
             "reader_ack_receipts": [self._decode_row(item) for item in cursor_receipts],
             "developer_leases": [self._decode_lease(item) for item in leases],
             "lease_operations": [self._decode_row(item) for item in lease_operations],
             "developer_responses": [
-                self._decode_typed_payload(item, DeveloperResponse)
-                for item in developer_responses
+                self._decode_typed_payload(item, DeveloperResponse) for item in developer_responses
             ],
             "task_amendments": [
-                self._decode_typed_payload(item, TaskPackageAmendment)
-                for item in task_amendments
+                self._decode_typed_payload(item, TaskPackageAmendment) for item in task_amendments
             ],
             "environment_responses": [
                 self._decode_typed_payload(item, EnvironmentResponse)
@@ -6773,14 +7196,10 @@ class CollaborationStore:
                 self._decode_typed_payload(item, LiliesReprobeResult) for item in reprobes
             ],
             "claims": [self._decode_claim(item) for item in claims],
-            "verifications": [
-                self._verification_projection(item) for item in verifications
-            ],
+            "verifications": [self._verification_projection(item) for item in verifications],
             "audit": [self._decode_row(item) for item in audit],
             "outbox": [self._decode_row(item) for item in outbox],
-            "channel_operations": [
-                self._decode_row(item) for item in channel_operations
-            ],
+            "channel_operations": [self._decode_row(item) for item in channel_operations],
             "operation_receipts": [
                 self._decode_operation_receipt(item) for item in operation_receipts
             ],

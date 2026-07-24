@@ -23,10 +23,11 @@ from pydantic import (
     SecretStr,
     StringConstraints,
     field_validator,
+    model_validator,
 )
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 4
 _TOKEN_PATTERN = re.compile(r"^lpt_([0-9a-f]{32})_([A-Za-z0-9_-]{43,128})$")
 _ISSUE_KEY_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
 _TOKEN_HASH_ITERATIONS = 120_000
@@ -198,6 +199,18 @@ _APPLICATION_SCOPED_OPERATIONS = frozenset(
     }
 )
 
+_MUTATING_OPERATIONS = frozenset(
+    {
+        PlatformBlackboxOperation.application_create,
+        PlatformBlackboxOperation.draft_apply,
+        PlatformBlackboxOperation.tests_run,
+        PlatformBlackboxOperation.run_start,
+        PlatformBlackboxOperation.run_resume,
+        PlatformBlackboxOperation.run_cancel,
+        PlatformBlackboxOperation.publish,
+    }
+)
+
 
 class TaskCredentialGrant(StrictBlackboxModel):
     schema_version: Literal["1.0"] = "1.0"
@@ -205,6 +218,29 @@ class TaskCredentialGrant(StrictBlackboxModel):
     session_id: UUID
     scopes: list[PlatformBlackboxScope] = Field(min_length=1, max_length=16)
     application_ids: list[UUID] = Field(default_factory=list, max_length=100)
+    allowed_operations: list[PlatformBlackboxOperation] = Field(
+        default_factory=lambda: list(PlatformBlackboxOperation),
+        min_length=1,
+        max_length=100,
+    )
+    allowed_actions_digest: Digest | None = None
+    budget_digest: Digest | None = None
+    allowed_network_hosts: list[str] = Field(default_factory=list, max_length=100)
+    model_access: bool = True
+    file_access: bool = True
+    connector_access: bool = False
+    readable_host_objects: list[str] = Field(default_factory=list, max_length=500)
+    writable_host_operations: list[str] = Field(default_factory=list, max_length=500)
+    permission_required_actions: list[str] = Field(default_factory=list, max_length=500)
+    max_write_count: int = Field(default=1_000_000, ge=0, le=1_000_000)
+    max_payload_bytes: int = Field(
+        default=100 * 1024 * 1024,
+        ge=1,
+        le=100 * 1024 * 1024,
+    )
+    compensation_actions: list[str] = Field(default_factory=list, max_length=500)
+    max_report_evidence_rounds: int = Field(default=100, ge=1, le=100)
+    stable_hidden_runs: int = Field(default=1, ge=1, le=100)
     expires_at: datetime
 
     @field_validator("scopes")
@@ -214,17 +250,56 @@ class TaskCredentialGrant(StrictBlackboxModel):
             raise ValueError("scopes must not contain duplicates")
         return value
 
-    @field_validator("application_ids")
+    @field_validator("application_ids", "allowed_operations")
     @classmethod
-    def applications_are_unique(cls, value: list[UUID]) -> list[UUID]:
+    def enum_values_are_unique(cls, value: list[Any]) -> list[Any]:
         if len(value) != len(set(value)):
-            raise ValueError("application_ids must not contain duplicates")
+            raise ValueError("credential policy values must not contain duplicates")
+        return value
+
+    @field_validator(
+        "allowed_network_hosts",
+        "readable_host_objects",
+        "writable_host_operations",
+        "permission_required_actions",
+        "compensation_actions",
+    )
+    @classmethod
+    def string_policy_values_are_unique(cls, value: list[str]) -> list[str]:
+        if any(not item for item in value) or len(value) != len(set(value)):
+            raise ValueError("credential policy values must be non-empty and unique")
         return value
 
     @field_validator("expires_at")
     @classmethod
     def expiry_is_utc(cls, value: datetime) -> datetime:
         return _require_utc(value)
+
+    @model_validator(mode="after")
+    def policy_is_coherent(self) -> TaskCredentialGrant:
+        if (self.allowed_actions_digest is None) != (self.budget_digest is None):
+            raise ValueError(
+                "formal credential policy and budget digests must be supplied together"
+            )
+        if not set(self.permission_required_actions).issubset(
+            self.writable_host_operations
+        ):
+            raise ValueError(
+                "permission-required actions must be writable host operations"
+            )
+        if (
+            not self.connector_access
+            and (
+                self.readable_host_objects
+                or self.writable_host_operations
+                or self.permission_required_actions
+                or self.compensation_actions
+            )
+        ):
+            raise ValueError(
+                "host object and operation policy requires connector_access"
+            )
+        return self
 
 
 class TaskCredentialRecord(StrictBlackboxModel):
@@ -234,6 +309,27 @@ class TaskCredentialRecord(StrictBlackboxModel):
     session_id: UUID
     scopes: list[PlatformBlackboxScope]
     application_ids: list[UUID]
+    allowed_operations: list[PlatformBlackboxOperation] = Field(
+        default_factory=lambda: list(PlatformBlackboxOperation)
+    )
+    allowed_actions_digest: Digest | None = None
+    budget_digest: Digest | None = None
+    allowed_network_hosts: list[str] = Field(default_factory=list)
+    model_access: bool = True
+    file_access: bool = True
+    connector_access: bool = False
+    readable_host_objects: list[str] = Field(default_factory=list)
+    writable_host_operations: list[str] = Field(default_factory=list)
+    permission_required_actions: list[str] = Field(default_factory=list)
+    max_write_count: int = Field(default=1_000_000, ge=0, le=1_000_000)
+    max_payload_bytes: int = Field(
+        default=100 * 1024 * 1024,
+        ge=1,
+        le=100 * 1024 * 1024,
+    )
+    compensation_actions: list[str] = Field(default_factory=list)
+    max_report_evidence_rounds: int = Field(default=100, ge=1, le=100)
+    stable_hidden_runs: int = Field(default=1, ge=1, le=100)
     expires_at: datetime
     revoked_at: datetime | None = None
     revoke_reason: str | None = Field(default=None, max_length=1_000)
@@ -393,6 +489,18 @@ class PlatformBlackboxApplicationDenied(PlatformBlackboxAuthorizationError):
     code = "application_denied"
 
 
+class PlatformBlackboxOperationDenied(PlatformBlackboxAuthorizationError):
+    code = "operation_denied"
+
+
+class PlatformBlackboxPayloadLimitExceeded(PlatformBlackboxAuthorizationError):
+    code = "payload_limit_exceeded"
+
+
+class PlatformBlackboxWriteLimitExceeded(PlatformBlackboxAuthorizationError):
+    code = "write_limit_exceeded"
+
+
 class PlatformBlackboxIdempotencyConflict(PlatformBlackboxAuthError):
     code = "idempotency_conflict"
 
@@ -478,6 +586,12 @@ class PlatformBlackboxAuthStore:
                 current = 1
             if current < 2:
                 self._migrate_v2(conn)
+                current = 2
+            if current < 3:
+                self._migrate_v3(conn)
+                current = 3
+            if current < 4:
+                self._migrate_v4(conn)
         self._secure_database_files()
         return {"schema_version": SCHEMA_VERSION}
 
@@ -627,6 +741,79 @@ class PlatformBlackboxAuthStore:
             (2, self._now().isoformat()),
         )
 
+    def _migrate_v3(self, conn: sqlite3.Connection) -> None:
+        """Persist the exact canonical request payload for formal replay."""
+
+        conn.execute(
+            "ALTER TABLE platform_blackbox_requests ADD COLUMN payload_json TEXT"
+        )
+        conn.execute("DROP TRIGGER platform_blackbox_request_correlation_no_update")
+        conn.executescript(
+            """
+            CREATE TRIGGER platform_blackbox_request_correlation_no_update
+              BEFORE UPDATE OF credential_id,idempotency_key,request_id,assignment_id,
+                session_id,tool_call_id,application_id,operation,required_scope,
+                contract_digest,payload_digest,payload_json,request_fingerprint,created_at
+              ON platform_blackbox_requests
+              BEGIN SELECT RAISE(ABORT, 'platform blackbox request correlation is immutable'); END;
+            """
+        )
+        conn.execute(
+            "INSERT INTO platform_blackbox_auth_schema(version,applied_at) VALUES (?,?)",
+            (3, self._now().isoformat()),
+        )
+
+    def _migrate_v4(self, conn: sqlite3.Connection) -> None:
+        """Bind formal task policy and durable write/payload budgets to credentials."""
+
+        conn.executescript(
+            """
+            ALTER TABLE platform_task_credentials
+              ADD COLUMN allowed_operations_json TEXT NOT NULL DEFAULT '[]';
+            ALTER TABLE platform_task_credentials
+              ADD COLUMN allowed_actions_digest TEXT;
+            ALTER TABLE platform_task_credentials
+              ADD COLUMN budget_digest TEXT;
+            ALTER TABLE platform_task_credentials
+              ADD COLUMN allowed_network_hosts_json TEXT NOT NULL DEFAULT '[]';
+            ALTER TABLE platform_task_credentials
+              ADD COLUMN model_access INTEGER NOT NULL DEFAULT 1;
+            ALTER TABLE platform_task_credentials
+              ADD COLUMN file_access INTEGER NOT NULL DEFAULT 0;
+            ALTER TABLE platform_task_credentials
+              ADD COLUMN connector_access INTEGER NOT NULL DEFAULT 0;
+            ALTER TABLE platform_task_credentials
+              ADD COLUMN readable_host_objects_json TEXT NOT NULL DEFAULT '[]';
+            ALTER TABLE platform_task_credentials
+              ADD COLUMN writable_host_operations_json TEXT NOT NULL DEFAULT '[]';
+            ALTER TABLE platform_task_credentials
+              ADD COLUMN permission_required_actions_json TEXT NOT NULL DEFAULT '[]';
+            ALTER TABLE platform_task_credentials
+              ADD COLUMN max_write_count INTEGER NOT NULL DEFAULT 1000000;
+            ALTER TABLE platform_task_credentials
+              ADD COLUMN max_payload_bytes INTEGER NOT NULL DEFAULT 104857600;
+            ALTER TABLE platform_task_credentials
+              ADD COLUMN compensation_actions_json TEXT NOT NULL DEFAULT '[]';
+            ALTER TABLE platform_task_credentials
+              ADD COLUMN max_report_evidence_rounds INTEGER NOT NULL DEFAULT 100;
+            ALTER TABLE platform_task_credentials
+              ADD COLUMN stable_hidden_runs INTEGER NOT NULL DEFAULT 1;
+
+            CREATE TRIGGER platform_task_credential_policy_no_update
+              BEFORE UPDATE OF allowed_operations_json,allowed_actions_digest,budget_digest,
+                allowed_network_hosts_json,model_access,file_access,connector_access,
+                readable_host_objects_json,writable_host_operations_json,
+                permission_required_actions_json,max_write_count,max_payload_bytes,
+                compensation_actions_json,max_report_evidence_rounds,stable_hidden_runs
+              ON platform_task_credentials
+              BEGIN SELECT RAISE(ABORT, 'platform task credential policy is immutable'); END;
+            """
+        )
+        conn.execute(
+            "INSERT INTO platform_blackbox_auth_schema(version,applied_at) VALUES (?,?)",
+            (4, self._now().isoformat()),
+        )
+
     def _secure_database_files(self) -> None:
         for path in (
             self.db_path,
@@ -695,6 +882,12 @@ class PlatformBlackboxAuthStore:
         token_digest = _derive_token_digest(access_token, salt)
         scopes = sorted(scope.value for scope in grant.scopes)
         applications = sorted({str(application_id) for application_id in grant.application_ids})
+        allowed_operations = sorted(operation.value for operation in grant.allowed_operations)
+        allowed_network_hosts = sorted(host.casefold() for host in grant.allowed_network_hosts)
+        readable_host_objects = sorted(grant.readable_host_objects)
+        writable_host_operations = sorted(grant.writable_host_operations)
+        permission_required_actions = sorted(grant.permission_required_actions)
+        compensation_actions = sorted(grant.compensation_actions)
         issue_payload_digest = _json_digest(
             {
                 "credential_id": str(credential_id),
@@ -702,6 +895,21 @@ class PlatformBlackboxAuthStore:
                 "session_id": str(grant.session_id),
                 "scopes": scopes,
                 "application_ids": applications,
+                "allowed_operations": allowed_operations,
+                "allowed_actions_digest": grant.allowed_actions_digest,
+                "budget_digest": grant.budget_digest,
+                "allowed_network_hosts": allowed_network_hosts,
+                "model_access": grant.model_access,
+                "file_access": grant.file_access,
+                "connector_access": grant.connector_access,
+                "readable_host_objects": readable_host_objects,
+                "writable_host_operations": writable_host_operations,
+                "permission_required_actions": permission_required_actions,
+                "max_write_count": grant.max_write_count,
+                "max_payload_bytes": grant.max_payload_bytes,
+                "compensation_actions": compensation_actions,
+                "max_report_evidence_rounds": grant.max_report_evidence_rounds,
+                "stable_hidden_runs": grant.stable_hidden_runs,
                 "expires_at": grant.expires_at.isoformat(),
             }
         )
@@ -740,8 +948,14 @@ class PlatformBlackboxAuthStore:
                         INSERT INTO platform_task_credentials(
                           id,credential_ref,assignment_id,session_id,token_salt_hex,
                           token_digest,scopes_json,expires_at,created_at,updated_at,
-                          issue_idempotency_key,issue_payload_digest
-                        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                          issue_idempotency_key,issue_payload_digest,
+                          allowed_operations_json,allowed_actions_digest,budget_digest,
+                          allowed_network_hosts_json,model_access,file_access,connector_access,
+                          readable_host_objects_json,writable_host_operations_json,
+                          permission_required_actions_json,max_write_count,max_payload_bytes,
+                          compensation_actions_json,max_report_evidence_rounds,
+                          stable_hidden_runs
+                        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                         """,
                         (
                             str(credential_id),
@@ -756,6 +970,21 @@ class PlatformBlackboxAuthStore:
                             now.isoformat(),
                             idempotency_key,
                             issue_payload_digest if idempotency_key is not None else None,
+                            _canonical_json(allowed_operations),
+                            grant.allowed_actions_digest,
+                            grant.budget_digest,
+                            _canonical_json(allowed_network_hosts),
+                            int(grant.model_access),
+                            int(grant.file_access),
+                            int(grant.connector_access),
+                            _canonical_json(readable_host_objects),
+                            _canonical_json(writable_host_operations),
+                            _canonical_json(permission_required_actions),
+                            grant.max_write_count,
+                            grant.max_payload_bytes,
+                            _canonical_json(compensation_actions),
+                            grant.max_report_evidence_rounds,
+                            grant.stable_hidden_runs,
                         ),
                     )
                 except sqlite3.IntegrityError as error:
@@ -779,7 +1008,15 @@ class PlatformBlackboxAuthStore:
                     credential_id=str(credential_id),
                     assignment_id=str(grant.assignment_id),
                     session_id=str(grant.session_id),
-                    details={"scopes": scopes, "application_ids": applications},
+                    details={
+                        "scopes": scopes,
+                        "application_ids": applications,
+                        "allowed_operations": allowed_operations,
+                        "allowed_actions_digest": grant.allowed_actions_digest,
+                        "budget_digest": grant.budget_digest,
+                        "max_write_count": grant.max_write_count,
+                        "max_payload_bytes": grant.max_payload_bytes,
+                    },
                     created_at=now,
                 )
             row = self._require_credential_conn(conn, credential_ref)
@@ -905,6 +1142,7 @@ class PlatformBlackboxAuthStore:
         request: BlackboxAuthorizationRequest,
     ) -> tuple[BlackboxAuthorizationDecision | None, _Failure | None]:
         now = self._now()
+        payload_json = _canonical_json(request.payload)
         payload_digest = _json_digest(request.payload)
         required_scope = OPERATION_SCOPES[request.operation]
         fingerprint = _idempotency_fingerprint(
@@ -927,6 +1165,13 @@ class PlatformBlackboxAuthStore:
                     failure = _Failure(
                         PlatformBlackboxScopeDenied,
                         f"credential does not grant {required_scope.value}",
+                    )
+                elif request.operation.value not in set(
+                    json.loads(credential["allowed_operations_json"])
+                ):
+                    failure = _Failure(
+                        PlatformBlackboxOperationDenied,
+                        "operation is outside the task credential policy",
                     )
             existing = (
                 conn.execute(
@@ -1046,8 +1291,9 @@ class PlatformBlackboxAuthStore:
                 INSERT INTO platform_blackbox_requests(
                   authorization_id,credential_id,idempotency_key,request_id,assignment_id,
                   session_id,tool_call_id,application_id,operation,required_scope,
-                  contract_digest,payload_digest,request_fingerprint,state,created_at,updated_at
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'reserved',?,?)
+                  contract_digest,payload_digest,payload_json,request_fingerprint,state,
+                  created_at,updated_at
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'reserved',?,?)
                 """,
                 (
                     str(authorization_id),
@@ -1062,6 +1308,7 @@ class PlatformBlackboxAuthStore:
                     required_scope.value,
                     request.contract_digest,
                     payload_digest,
+                    payload_json,
                     fingerprint,
                     now.isoformat(),
                     now.isoformat(),
@@ -1316,6 +1563,202 @@ class PlatformBlackboxAuthStore:
             ).fetchall()
         return [self._audit_from_row(row) for row in rows]
 
+    async def export_assignment_snapshot(
+        self,
+        *,
+        assignment_id: UUID,
+        session_id: UUID,
+    ) -> dict[str, Any]:
+        """Export one complete, secret-free assignment audit snapshot.
+
+        This route is server-internal.  It intentionally excludes token salts
+        and verifier digests while preserving every request, audit event, and
+        credential lifecycle record needed for independent run reconstruction.
+        """
+
+        async with self._lock:
+            return await asyncio.to_thread(
+                self._export_assignment_snapshot_sync,
+                str(assignment_id),
+                str(session_id),
+            )
+
+    def _export_assignment_snapshot_sync(
+        self,
+        assignment_id: str,
+        session_id: str,
+    ) -> dict[str, Any]:
+        with self._connect() as conn:
+            conn.execute("BEGIN")
+            credentials = conn.execute(
+                """
+                SELECT id,credential_ref,assignment_id,session_id,scopes_json,
+                       allowed_operations_json,allowed_actions_digest,budget_digest,
+                       allowed_network_hosts_json,model_access,file_access,
+                       connector_access,readable_host_objects_json,
+                       writable_host_operations_json,permission_required_actions_json,
+                       max_write_count,max_payload_bytes,compensation_actions_json,
+                       max_report_evidence_rounds,stable_hidden_runs,
+                       expires_at,revoked_at,revoke_reason,created_at,updated_at
+                FROM platform_task_credentials
+                WHERE assignment_id=? AND session_id=?
+                ORDER BY created_at,id
+                """,
+                (assignment_id, session_id),
+            ).fetchall()
+            credential_ids = [str(row["id"]) for row in credentials]
+            applications: list[sqlite3.Row] = []
+            if credential_ids:
+                placeholders = ",".join("?" for _ in credential_ids)
+                applications = list(
+                    conn.execute(
+                        f"""
+                        SELECT credential_id,application_id,granted_at
+                        FROM platform_task_credential_applications
+                        WHERE credential_id IN ({placeholders})
+                        ORDER BY credential_id,application_id
+                        """,  # noqa: S608
+                        credential_ids,
+                    ).fetchall()
+                )
+            requests = conn.execute(
+                """
+                SELECT authorization_id,credential_id,idempotency_key,request_id,
+                       assignment_id,session_id,tool_call_id,application_id,
+                       operation,required_scope,contract_digest,payload_digest,
+                       payload_json,request_fingerprint,state,status_code,response_json,
+                       response_digest,created_application_id,created_at,
+                       updated_at,completed_at
+                FROM platform_blackbox_requests
+                WHERE assignment_id=? AND session_id=?
+                ORDER BY created_at,authorization_id
+                """,
+                (assignment_id, session_id),
+            ).fetchall()
+            audit_rows = conn.execute(
+                """
+                SELECT * FROM platform_blackbox_audit
+                WHERE assignment_id=? AND session_id=?
+                ORDER BY seq
+                """,
+                (assignment_id, session_id),
+            ).fetchall()
+            security_rows = conn.execute(
+                """
+                SELECT * FROM platform_task_credential_security_events
+                WHERE assignment_id=? AND session_id=?
+                ORDER BY seq
+                """,
+                (assignment_id, session_id),
+            ).fetchall()
+        if (
+            len(requests) > 10_000
+            or len(audit_rows) > 50_000
+            or len(security_rows) > 10_000
+        ):
+            raise PlatformBlackboxStoreError(
+                "formal assignment audit exceeds the complete export limit"
+            )
+
+        def decoded_request(row: sqlite3.Row) -> dict[str, Any]:
+            value = dict(row)
+            encoded_payload = value.pop("payload_json")
+            encoded = value.pop("response_json")
+            value["payload"] = (
+                json.loads(str(encoded_payload))
+                if encoded_payload is not None
+                else None
+            )
+            value["response"] = (
+                json.loads(str(encoded)) if encoded is not None else None
+            )
+            return value
+
+        audits = [
+            self._audit_from_row(row).model_dump(mode="json", exclude_none=True)
+            for row in audit_rows
+        ]
+        security_events = [
+            self._security_event_from_row(row).model_dump(
+                mode="json",
+                exclude_none=True,
+            )
+            for row in security_rows
+        ]
+        return {
+            "schema_version": "1.0",
+            "assignment_id": assignment_id,
+            "session_id": session_id,
+            "complete": all(row["payload_json"] is not None for row in requests),
+            "credentials": [
+                {
+                    **{
+                        key: value
+                        for key, value in dict(row).items()
+                        if key
+                        not in {
+                            "scopes_json",
+                            "allowed_operations_json",
+                            "allowed_network_hosts_json",
+                            "readable_host_objects_json",
+                            "writable_host_operations_json",
+                            "permission_required_actions_json",
+                            "compensation_actions_json",
+                            "model_access",
+                            "file_access",
+                            "connector_access",
+                        }
+                    },
+                    "scopes": json.loads(str(row["scopes_json"])),
+                    "allowed_operations": json.loads(
+                        str(row["allowed_operations_json"])
+                    ),
+                    "allowed_network_hosts": json.loads(
+                        str(row["allowed_network_hosts_json"])
+                    ),
+                    "model_access": bool(row["model_access"]),
+                    "file_access": bool(row["file_access"]),
+                    "connector_access": bool(row["connector_access"]),
+                    "readable_host_objects": json.loads(
+                        str(row["readable_host_objects_json"])
+                    ),
+                    "writable_host_operations": json.loads(
+                        str(row["writable_host_operations_json"])
+                    ),
+                    "permission_required_actions": json.loads(
+                        str(row["permission_required_actions_json"])
+                    ),
+                    "compensation_actions": json.loads(
+                        str(row["compensation_actions_json"])
+                    ),
+                }
+                for row in credentials
+            ],
+            "credential_applications": [dict(row) for row in applications],
+            "requests": [decoded_request(row) for row in requests],
+            "audit": audits,
+            "security_events": security_events,
+            "counts": {
+                "credentials": len(credentials),
+                "credential_applications": len(applications),
+                "requests": len(requests),
+                "audit": len(audit_rows),
+                "security_events": len(security_rows),
+            },
+            "audit_min_seq": (
+                int(audit_rows[0]["seq"]) if audit_rows else None
+            ),
+            "audit_max_seq": (
+                int(audit_rows[-1]["seq"]) if audit_rows else None
+            ),
+            "security_min_seq": (
+                int(security_rows[0]["seq"]) if security_rows else None
+            ),
+            "security_max_seq": (
+                int(security_rows[-1]["seq"]) if security_rows else None
+            ),
+        }
+
     async def list_security_events(self, *, limit: int = 500) -> list[CredentialSecurityEvent]:
         return await asyncio.to_thread(
             self._list_security_events_sync,
@@ -1380,6 +1823,25 @@ class PlatformBlackboxAuthStore:
             session_id=row["session_id"],
             scopes=json.loads(row["scopes_json"]),
             application_ids=[item["application_id"] for item in applications],
+            allowed_operations=json.loads(row["allowed_operations_json"]),
+            allowed_actions_digest=row["allowed_actions_digest"],
+            budget_digest=row["budget_digest"],
+            allowed_network_hosts=json.loads(row["allowed_network_hosts_json"]),
+            model_access=bool(row["model_access"]),
+            file_access=bool(row["file_access"]),
+            connector_access=bool(row["connector_access"]),
+            readable_host_objects=json.loads(row["readable_host_objects_json"]),
+            writable_host_operations=json.loads(
+                row["writable_host_operations_json"]
+            ),
+            permission_required_actions=json.loads(
+                row["permission_required_actions_json"]
+            ),
+            max_write_count=int(row["max_write_count"]),
+            max_payload_bytes=int(row["max_payload_bytes"]),
+            compensation_actions=json.loads(row["compensation_actions_json"]),
+            max_report_evidence_rounds=int(row["max_report_evidence_rounds"]),
+            stable_hidden_runs=int(row["stable_hidden_runs"]),
             expires_at=_parse_utc(row["expires_at"]),
             revoked_at=_parse_utc(row["revoked_at"]) if row["revoked_at"] else None,
             revoke_reason=row["revoke_reason"],

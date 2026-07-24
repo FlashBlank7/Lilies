@@ -117,6 +117,12 @@ class LiliesCollaborationClient:
     ) -> CollaborationHttpResult:
         return await self._request("POST", "verification-claims", json_payload=payload)
 
+    async def prepare_formal_run_archive(
+        self,
+        payload: dict[str, Any],
+    ) -> CollaborationHttpResult:
+        return await self._request("POST", "formal-run-archives", json_payload=payload)
+
     async def acknowledge(self, payload: dict[str, Any]) -> CollaborationHttpResult:
         return await self._request("POST", "acks", json_payload=payload)
 

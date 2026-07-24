@@ -184,6 +184,8 @@ async def test_activation_replay_requires_the_original_prepared_bearer(
             base + timedelta(seconds=1),
             base + timedelta(minutes=1),
             base + timedelta(minutes=1, seconds=1),
+            base + timedelta(minutes=2),
+            base + timedelta(minutes=2, seconds=1),
         )
     )
     service = CollaborationService(store=store, enabled=True, now=lambda: next(ticks))
@@ -202,12 +204,20 @@ async def test_activation_replay_requires_the_original_prepared_bearer(
         "expires_at": base + timedelta(hours=2),
         "retention_until": base + timedelta(days=30),
         "idempotency_key": "activation-prepared-replay-0001",
+        "max_report_evidence_rounds": 3,
         "prepared_access_token": prepared,
     }
     first = await service.create_formal_channel(**request)
     replay = await service.create_formal_channel(**request)
     assert replay == first
     assert replay.access_token.get_secret_value() == prepared.get_secret_value()
+    with pytest.raises(
+        CollaborationConflict,
+        match="different activation bindings",
+    ):
+        await service.create_formal_channel(
+            **{**request, "max_report_evidence_rounds": 4}
+        )
     with sqlite3.connect(database) as connection:
         assert connection.execute(
             "SELECT COUNT(*) FROM collaboration_credentials"
@@ -1014,6 +1024,7 @@ async def test_workflow_draft_commit_atomically_invalidates_claim_and_uses_sql_c
         expires_at=activation_time + timedelta(hours=2),
         retention_until=activation_time + timedelta(days=30),
         idempotency_key="atomic-draft-channel-activation-0001",
+        max_report_evidence_rounds=3,
     )
     channel = issued.channel.model_dump(mode="json", exclude_none=True)
     channel_id = UUID(channel["channel_id"])

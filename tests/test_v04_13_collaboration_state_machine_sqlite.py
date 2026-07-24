@@ -79,6 +79,8 @@ def _evidence(
 
 async def _harness(
     tmp_path: Path,
+    *,
+    formal_source_response_recorder: Any = None,
 ) -> tuple[
     CollaborationService,
     CollaborationStore,
@@ -96,6 +98,7 @@ async def _harness(
         developer_evidence_resolver=lambda commit_sha, evidence: (
             commit_sha == "c" * 40 and evidence.evidence_id.startswith("evidence:")
         ),
+        formal_source_response_recorder=formal_source_response_recorder,
     )
     channel_id = UUID(channel["channel_id"])
     assignment_id = UUID(channel["assignment_id"])
@@ -260,7 +263,17 @@ async def test_lilies_withdrawal_is_terminal_causal_and_idempotent(
 async def test_manual_capability_report_reaches_post_close_independent_verification(
     tmp_path: Path,
 ) -> None:
-    service, store, channel, lilies, user, developer = await _harness(tmp_path)
+    source_response_records: list[tuple[UUID, UUID]] = []
+
+    def record_source_response(channel_id: UUID, response_id: UUID) -> None:
+        source_response_records.append((channel_id, response_id))
+        if len(source_response_records) == 1:
+            raise RuntimeError("injected post-persistence source recorder crash")
+
+    service, store, channel, lilies, user, developer = await _harness(
+        tmp_path,
+        formal_source_response_recorder=record_source_response,
+    )
     channel_id = UUID(channel["channel_id"])
     assignment_id = UUID(channel["assignment_id"])
     report_id = uuid4()
@@ -472,12 +485,25 @@ async def test_manual_capability_report_reaches_post_close_independent_verificat
             (str(report_id),),
         ).fetchone() == (0,)
 
+    with pytest.raises(
+        RuntimeError,
+        match="post-persistence source recorder crash",
+    ):
+        await service.submit_developer_response(
+            principal=developer,
+            report_id=report_id,
+            request=response_request,
+        )
     response = await service.submit_developer_response(
         principal=developer,
         report_id=report_id,
         request=response_request,
     )
     assert response["outcome"] == "implemented"
+    assert source_response_records == [
+        (channel_id, UUID(response["response_id"])),
+        (channel_id, UUID(response["response_id"])),
+    ]
     ready_report = await store.get_report(report_id)
     assert (ready_report["status"], ready_report["revision"]) == (
         "ready_for_lilies_verification",

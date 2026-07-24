@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import mimetypes
 import re
 from dataclasses import dataclass
@@ -69,12 +70,16 @@ from .workflow_models import (
     WorkflowRunRequest,
 )
 from .workflow_runtime import (
-    BLACKBOX_RUNTIME_NETWORK_ALLOWLIST,
     BLACKBOX_RUNTIME_TOOL_ALLOWLIST,
     NestedWorkflowScopeDenied,
     WorkflowRuntimeNetworkScopeDenied,
+    WorkflowRuntimeConnectorScopeDenied,
+    WorkflowRuntimeModelScopeDenied,
+    WorkflowRuntimePayloadLimitExceeded,
+    WorkflowRuntimePermissionScopeDenied,
     WorkflowRuntimeSecretScopeDenied,
     WorkflowRuntimeToolScopeDenied,
+    WorkflowRuntimeWriteLimitExceeded,
     WorkflowWorkspaceBoundaryViolation,
 )
 from .workflow_storage import PublishGateError, RevisionConflict
@@ -101,6 +106,41 @@ _PRIVATE_REASONING_KEY_RE = re.compile(
     r"reasoning|reasoning[_-]?content)$",
     re.IGNORECASE,
 )
+
+
+def _runtime_tool_policy(
+    credential: TaskCredentialRecord,
+) -> frozenset[str]:
+    return BLACKBOX_RUNTIME_TOOL_ALLOWLIST if credential.file_access else frozenset()
+
+
+def _runtime_network_policy(
+    credential: TaskCredentialRecord,
+) -> frozenset[str]:
+    if not credential.connector_access:
+        return frozenset()
+    return frozenset(host.casefold() for host in credential.allowed_network_hosts)
+
+
+def _runtime_connector_policy(
+    credential: TaskCredentialRecord,
+) -> frozenset[str]:
+    if not credential.connector_access:
+        return frozenset()
+    return frozenset(
+        {
+            *credential.readable_host_objects,
+            *credential.writable_host_operations,
+            *credential.compensation_actions,
+        }
+    )
+
+
+def _governed_host_actions(credential: TaskCredentialRecord) -> bool:
+    return (
+        credential.allowed_actions_digest is not None
+        and credential.budget_digest is not None
+    )
 _EMBEDDED_WINDOWS_PATH_RE = re.compile(
     r"(?<![A-Za-z0-9])(?:[A-Za-z]:[\\/][^\s\"'<>\[\]{}(),;]+)"
 )
@@ -725,6 +765,41 @@ def _operation_failure(error: Exception) -> _FacadeFailure:
             "secret references are outside the assigned run policy",
             status_code=403,
             failure_owner="user_permission",
+        )
+    if isinstance(error, WorkflowRuntimeModelScopeDenied):
+        return _FacadeFailure(
+            "runtime_model_scope_denied",
+            "model access is outside the assigned run policy",
+            status_code=403,
+            failure_owner="user_permission",
+        )
+    if isinstance(error, WorkflowRuntimeConnectorScopeDenied):
+        return _FacadeFailure(
+            "runtime_connector_scope_denied",
+            "connector operation is outside the assigned run policy",
+            status_code=403,
+            failure_owner="user_permission",
+        )
+    if isinstance(error, WorkflowRuntimePermissionScopeDenied):
+        return _FacadeFailure(
+            "runtime_permission_required",
+            "connector operation requires an authorization receipt",
+            status_code=403,
+            failure_owner="user_permission",
+        )
+    if isinstance(error, WorkflowRuntimeWriteLimitExceeded):
+        return _FacadeFailure(
+            "runtime_write_limit_exceeded",
+            "connector write limit is exhausted",
+            status_code=429,
+            failure_owner="lilies",
+        )
+    if isinstance(error, WorkflowRuntimePayloadLimitExceeded):
+        return _FacadeFailure(
+            "runtime_payload_limit_exceeded",
+            "connector payload exceeds the assigned byte limit",
+            status_code=413,
+            failure_owner="lilies",
         )
     if isinstance(error, PlatformBlackboxArtifactNotFound):
         return _FacadeFailure("not_found", _public_error_message(error), status_code=404)
@@ -1483,7 +1558,10 @@ def install_lilies_platform_api(app: FastAPI, services: Any) -> None:
         application_id: str,
         body: DraftApplyBody,
     ) -> JSONResponse:
-        async def execute(correlation: _Correlation, __: TaskCredentialRecord) -> dict[str, Any]:
+        async def execute(
+            correlation: _Correlation,
+            credential: TaskCredentialRecord,
+        ) -> dict[str, Any]:
             operation = DraftOperation(
                 expected_revision=body.expected_revision,
                 idempotency_key=correlation.idempotency_key,
@@ -1505,7 +1583,33 @@ def install_lilies_platform_api(app: FastAPI, services: Any) -> None:
                     node for node in preview.workflow.nodes if node.id == node_id
                 )
                 _validate_public_node_tree(services.blocks, updated_node)
-            return await services.applications.apply_operation(application_id, operation)
+            return await services.applications.apply_operation(
+                application_id,
+                operation,
+                formal_mutation_context={
+                    "assignment_id": str(credential.assignment_id),
+                    "session_id": str(credential.session_id),
+                    "application_id": application_id,
+                    "request_id": str(correlation.request_id),
+                    "tool_call_id": correlation.tool_call_id,
+                    "operation": body.op,
+                    "request_payload_digest": (
+                        "sha256:"
+                        + hashlib.sha256(
+                            json.dumps(
+                                {
+                                    "application_id": application_id,
+                                    **body.model_dump(mode="json"),
+                                },
+                                ensure_ascii=False,
+                                allow_nan=False,
+                                separators=(",", ":"),
+                                sort_keys=True,
+                            ).encode()
+                        ).hexdigest()
+                    ),
+                },
+            )
 
         return await _invoke(
             services,
@@ -1540,8 +1644,24 @@ def install_lilies_platform_api(app: FastAPI, services: Any) -> None:
                     allowed_nested_application_ids={
                         str(value) for value in credential.application_ids
                     },
-                    allowed_runtime_tools=BLACKBOX_RUNTIME_TOOL_ALLOWLIST,
-                    allowed_network_hosts=BLACKBOX_RUNTIME_NETWORK_ALLOWLIST,
+                    allowed_runtime_tools=_runtime_tool_policy(credential),
+                    allowed_network_hosts=_runtime_network_policy(credential),
+                    model_access=credential.model_access,
+                    allowed_connector_operations=_runtime_connector_policy(
+                        credential
+                    ),
+                    writable_connector_operations=(
+                        credential.writable_host_operations
+                    ),
+                    permission_required_connector_operations=(
+                        credential.permission_required_actions
+                    ),
+                    compensation_connector_operations=(
+                        credential.compensation_actions
+                    ),
+                    max_connector_write_count=credential.max_write_count,
+                    max_connector_payload_bytes=credential.max_payload_bytes,
+                    governed_host_actions=_governed_host_actions(credential),
                     assignment_id=str(correlation.assignment_id),
                     session_id=str(correlation.session_id),
                 )
@@ -1585,8 +1705,24 @@ def install_lilies_platform_api(app: FastAPI, services: Any) -> None:
                 allowed_nested_application_ids={
                     str(value) for value in credential.application_ids
                 },
-                allowed_runtime_tools=BLACKBOX_RUNTIME_TOOL_ALLOWLIST,
-                allowed_network_hosts=BLACKBOX_RUNTIME_NETWORK_ALLOWLIST,
+                allowed_runtime_tools=_runtime_tool_policy(credential),
+                allowed_network_hosts=_runtime_network_policy(credential),
+                model_access=credential.model_access,
+                allowed_connector_operations=_runtime_connector_policy(
+                    credential
+                ),
+                writable_connector_operations=(
+                    credential.writable_host_operations
+                ),
+                permission_required_connector_operations=(
+                    credential.permission_required_actions
+                ),
+                compensation_connector_operations=(
+                    credential.compensation_actions
+                ),
+                max_connector_write_count=credential.max_write_count,
+                max_connector_payload_bytes=credential.max_payload_bytes,
+                governed_host_actions=_governed_host_actions(credential),
                 assignment_id=str(correlation.assignment_id),
                 session_id=str(correlation.session_id),
             )
@@ -1821,8 +1957,13 @@ def install_lilies_platform_api(app: FastAPI, services: Any) -> None:
                 allowed_nested_application_ids={
                     str(value) for value in credential.application_ids
                 },
-                allowed_runtime_tools=BLACKBOX_RUNTIME_TOOL_ALLOWLIST,
-                allowed_network_hosts=BLACKBOX_RUNTIME_NETWORK_ALLOWLIST,
+                allowed_runtime_tools=_runtime_tool_policy(credential),
+                allowed_network_hosts=_runtime_network_policy(credential),
+                model_access=credential.model_access,
+                allowed_connector_operations=_runtime_connector_policy(
+                    credential
+                ),
+                governed_host_actions=_governed_host_actions(credential),
                 for_publication=True,
             )
             publish_request = PublishApplicationRequest(

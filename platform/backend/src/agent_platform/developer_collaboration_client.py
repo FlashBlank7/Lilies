@@ -16,6 +16,12 @@ from .collaboration_models import (
     DeveloperLease,
     DeveloperResponse,
     DeveloperResponsePayload,
+    DeveloperSourcePromotionResult,
+    DeveloperWorkerReceiptReference,
+)
+from .formal_developer_worker_broker import (
+    DeveloperWorkerReceipt,
+    DeveloperWorkerRunRequest,
 )
 
 
@@ -210,18 +216,91 @@ class DeveloperCollaborationClient:
         expected_report_revision: int,
         idempotency_key: str,
         response: DeveloperResponsePayload,
+        developer_worker_receipt: DeveloperWorkerReceiptReference | None = None,
     ) -> DeveloperResponse:
+        body: dict[str, Any] = {
+            "idempotency_key": idempotency_key,
+            "lease_id": str(lease_id),
+            "lease_owner_id": self.owner_id,
+            "expected_report_revision": expected_report_revision,
+            "response": response.model_dump(mode="json", exclude_none=True),
+        }
+        if developer_worker_receipt is not None:
+            body["developer_worker_receipt"] = developer_worker_receipt.model_dump(
+                mode="json"
+            )
         return DeveloperResponse.model_validate(
             self._request(
                 "POST",
                 f"/api/v1/developer/collaboration/reports/{report_id}/responses",
-                {
-                    "idempotency_key": idempotency_key,
-                    "lease_id": str(lease_id),
-                    "lease_owner_id": self.owner_id,
-                    "expected_report_revision": expected_report_revision,
-                    "response": response.model_dump(mode="json", exclude_none=True),
-                },
+                body,
+            )
+        )
+
+    def run_worker(
+        self,
+        report_id: UUID,
+        *,
+        lease_id: UUID,
+        expected_report_revision: int,
+        response_id: UUID,
+        idempotency_key: str,
+        arguments: list[str],
+        timeout_seconds: int = 600,
+    ) -> DeveloperWorkerReceipt:
+        request = DeveloperWorkerRunRequest(
+            idempotency_key=idempotency_key,
+            lease_id=lease_id,
+            lease_owner_id=self.owner_id,
+            expected_report_revision=expected_report_revision,
+            response_id=response_id,
+            arguments=arguments,
+            timeout_seconds=timeout_seconds,
+        )
+        return DeveloperWorkerReceipt.model_validate(
+            self._request(
+                "POST",
+                (
+                    "/api/v1/developer/collaboration/reports/"
+                    f"{report_id}/worker-runs"
+                ),
+                request.model_dump(mode="json"),
+            )
+        )
+
+    def promote_source(
+        self,
+        report_id: UUID,
+        *,
+        lease_id: UUID,
+        expected_report_revision: int,
+        response_id: UUID,
+        idempotency_key: str,
+        workspace_manifest_digest: str,
+        source_manifest_digest: str,
+        developer_worker_receipt: DeveloperWorkerReceiptReference | None = None,
+    ) -> DeveloperSourcePromotionResult:
+        body: dict[str, Any] = {
+            "idempotency_key": idempotency_key,
+            "lease_id": str(lease_id),
+            "lease_owner_id": self.owner_id,
+            "expected_report_revision": expected_report_revision,
+            "response_id": str(response_id),
+            "workspace_manifest_digest": workspace_manifest_digest,
+            "source_manifest_digest": source_manifest_digest,
+        }
+        if developer_worker_receipt is not None:
+            body["developer_worker_receipt"] = developer_worker_receipt.model_dump(
+                mode="json"
+            )
+        return DeveloperSourcePromotionResult.model_validate(
+            self._request(
+                "POST",
+                (
+                    "/api/v1/developer/collaboration/reports/"
+                    f"{report_id}/source-promotions"
+                ),
+                body,
             )
         )
 

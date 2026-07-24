@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import re
 import sqlite3
@@ -142,6 +143,36 @@ class WorkflowStorage:
                   created_at TEXT NOT NULL,
                   PRIMARY KEY(application_id, idempotency_key)
                 );
+                CREATE TABLE IF NOT EXISTS formal_draft_baselines (
+                  assignment_id TEXT PRIMARY KEY,
+                  session_id TEXT NOT NULL,
+                  application_id TEXT NOT NULL,
+                  baseline_revision INTEGER NOT NULL CHECK(baseline_revision >= 0),
+                  baseline_content_hash TEXT NOT NULL,
+                  started_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS formal_draft_mutations (
+                  mutation_id TEXT PRIMARY KEY,
+                  assignment_id TEXT NOT NULL,
+                  session_id TEXT NOT NULL,
+                  application_id TEXT NOT NULL,
+                  actor_kind TEXT NOT NULL CHECK(
+                    actor_kind IN ('lilies_blackbox','unattributed')
+                  ),
+                  request_id TEXT,
+                  tool_call_id TEXT,
+                  operation TEXT NOT NULL,
+                  operation_digest TEXT NOT NULL,
+                  request_payload_digest TEXT,
+                  idempotency_key TEXT NOT NULL,
+                  before_revision INTEGER NOT NULL CHECK(before_revision >= 0),
+                  before_content_hash TEXT NOT NULL,
+                  after_revision INTEGER NOT NULL CHECK(after_revision > 0),
+                  after_content_hash TEXT NOT NULL,
+                  content_changed INTEGER NOT NULL CHECK(content_changed IN (0,1)),
+                  created_at TEXT NOT NULL,
+                  FOREIGN KEY(assignment_id) REFERENCES formal_draft_baselines(assignment_id)
+                );
                 CREATE TABLE IF NOT EXISTS builds (
                   id TEXT PRIMARY KEY,
                   application_id TEXT NOT NULL,
@@ -183,6 +214,22 @@ class WorkflowStorage:
                   ON application_versions(application_id, version DESC);
                 CREATE INDEX IF NOT EXISTS idx_builds_app ON builds(application_id, created_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_workflow_runs_app ON workflow_runs(application_id, created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_formal_draft_baselines_app
+                  ON formal_draft_baselines(application_id,started_at,assignment_id);
+                CREATE INDEX IF NOT EXISTS idx_formal_draft_mutations_assignment
+                  ON formal_draft_mutations(assignment_id,after_revision,mutation_id);
+                CREATE TRIGGER IF NOT EXISTS formal_draft_baselines_no_update
+                  BEFORE UPDATE ON formal_draft_baselines
+                  BEGIN SELECT RAISE(ABORT, 'formal draft baseline is immutable'); END;
+                CREATE TRIGGER IF NOT EXISTS formal_draft_baselines_no_delete
+                  BEFORE DELETE ON formal_draft_baselines
+                  BEGIN SELECT RAISE(ABORT, 'formal draft baseline is immutable'); END;
+                CREATE TRIGGER IF NOT EXISTS formal_draft_mutations_no_update
+                  BEFORE UPDATE ON formal_draft_mutations
+                  BEGIN SELECT RAISE(ABORT, 'formal draft mutation audit is immutable'); END;
+                CREATE TRIGGER IF NOT EXISTS formal_draft_mutations_no_delete
+                  BEFORE DELETE ON formal_draft_mutations
+                  BEGIN SELECT RAISE(ABORT, 'formal draft mutation audit is immutable'); END;
                 """
             )
             columns = {
@@ -376,6 +423,81 @@ class WorkflowStorage:
     async def get_draft(self, application_id: str) -> dict[str, Any]:
         return await asyncio.to_thread(self._get_draft_sync, application_id)
 
+    async def begin_formal_draft_provenance(
+        self,
+        *,
+        assignment_id: str,
+        session_id: str,
+        application_id: str,
+    ) -> dict[str, Any]:
+        """Freeze the exact draft state before a formal agent receives authority."""
+
+        if not assignment_id or not session_id or not application_id:
+            raise ValueError("formal draft baseline requires complete binding IDs")
+        async with self._lock:
+            return await asyncio.to_thread(
+                self._begin_formal_draft_provenance_sync,
+                assignment_id,
+                session_id,
+                application_id,
+            )
+
+    def _begin_formal_draft_provenance_sync(
+        self,
+        assignment_id: str,
+        session_id: str,
+        application_id: str,
+    ) -> dict[str, Any]:
+        now = utc_now()
+        with self.storage._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            existing = conn.execute(
+                "SELECT * FROM formal_draft_baselines WHERE assignment_id=?",
+                (assignment_id,),
+            ).fetchone()
+            if existing is not None:
+                persisted = dict(existing)
+                if (
+                    persisted["session_id"] != session_id
+                    or persisted["application_id"] != application_id
+                ):
+                    raise RevisionConflict(
+                        "formal assignment baseline was reused with another binding"
+                    )
+                return persisted
+            draft = conn.execute(
+                """
+                SELECT revision,content_hash FROM application_drafts
+                WHERE application_id=?
+                """,
+                (application_id,),
+            ).fetchone()
+            if draft is None:
+                raise KeyError(f"application draft not found: {application_id}")
+            conn.execute(
+                """
+                INSERT INTO formal_draft_baselines(
+                  assignment_id,session_id,application_id,baseline_revision,
+                  baseline_content_hash,started_at
+                ) VALUES(?,?,?,?,?,?)
+                """,
+                (
+                    assignment_id,
+                    session_id,
+                    application_id,
+                    int(draft["revision"]),
+                    str(draft["content_hash"]),
+                    now,
+                ),
+            )
+            stored = conn.execute(
+                "SELECT * FROM formal_draft_baselines WHERE assignment_id=?",
+                (assignment_id,),
+            ).fetchone()
+            if stored is None:  # pragma: no cover - protected by insert
+                raise RuntimeError("formal draft baseline did not persist")
+            return dict(stored)
+
     def _get_draft_sync(self, application_id: str) -> dict[str, Any]:
         with self.storage._connect() as conn:
             row = conn.execute(
@@ -406,6 +528,7 @@ class WorkflowStorage:
         idempotency_key: str,
         change_context: dict[str, Any] | None = None,
         idempotency_digest: str | None = None,
+        formal_mutation_context: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         async with self._lock:
             result = await asyncio.to_thread(
@@ -416,6 +539,7 @@ class WorkflowStorage:
                 idempotency_key,
                 change_context,
                 idempotency_digest,
+                formal_mutation_context,
             )
         idempotent_replay = bool(result.pop("_idempotent_replay", False))
         if self.on_draft_changed is not None and not idempotent_replay:
@@ -430,6 +554,7 @@ class WorkflowStorage:
         idempotency_key: str,
         change_context: dict[str, Any] | None,
         idempotency_digest: str | None,
+        formal_mutation_context: dict[str, str] | None,
     ) -> dict[str, Any]:
         now = utc_now()
         with self.storage._connect() as conn:
@@ -526,6 +651,86 @@ class WorkflowStorage:
                 "content_hash": content_hash,
                 "evidence_state": self._evidence_state(row["tested_hash"], content_hash),
             }
+            baselines = conn.execute(
+                """
+                SELECT * FROM formal_draft_baselines
+                WHERE application_id=? AND baseline_revision<?
+                ORDER BY started_at,assignment_id
+                """,
+                (application_id, revision),
+            ).fetchall()
+            context = formal_mutation_context or {}
+            operation = str(
+                context.get("operation")
+                or (change_context or {}).get("operation")
+                or "draft_update"
+            )
+            operation_digest = str(
+                idempotency_digest
+                or "sha256:"
+                + hashlib.sha256(
+                    json.dumps(
+                        {
+                            "application_id": application_id,
+                            "expected_revision": expected_revision,
+                            "operation": operation,
+                            "idempotency_key": idempotency_key,
+                        },
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                        sort_keys=True,
+                    ).encode()
+                ).hexdigest()
+            )
+            for baseline in baselines:
+                bound = (
+                    str(context.get("assignment_id") or "")
+                    == str(baseline["assignment_id"])
+                    and str(context.get("session_id") or "")
+                    == str(baseline["session_id"])
+                    and str(context.get("application_id") or application_id)
+                    == application_id
+                    and bool(context.get("request_id"))
+                    and bool(context.get("tool_call_id"))
+                    and bool(context.get("request_payload_digest"))
+                )
+                actor_kind = "lilies_blackbox" if bound else "unattributed"
+                mutation_id = hashlib.sha256(
+                    (
+                        f"{baseline['assignment_id']}:{application_id}:"
+                        f"{expected_revision}:{revision}:{idempotency_key}"
+                    ).encode()
+                ).hexdigest()
+                conn.execute(
+                    """
+                    INSERT INTO formal_draft_mutations(
+                      mutation_id,assignment_id,session_id,application_id,
+                      actor_kind,request_id,tool_call_id,operation,
+                      operation_digest,request_payload_digest,idempotency_key,before_revision,
+                      before_content_hash,after_revision,after_content_hash,
+                      content_changed,created_at
+                    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                    """,
+                    (
+                        mutation_id,
+                        str(baseline["assignment_id"]),
+                        str(baseline["session_id"]),
+                        application_id,
+                        actor_kind,
+                        context.get("request_id") if bound else None,
+                        context.get("tool_call_id") if bound else None,
+                        operation,
+                        operation_digest,
+                        context.get("request_payload_digest") if bound else None,
+                        idempotency_key,
+                        expected_revision,
+                        str(row["content_hash"]),
+                        revision,
+                        content_hash,
+                        int(content_changed),
+                        now,
+                    ),
+                )
             if self.on_draft_changed_in_transaction is not None:
                 self.on_draft_changed_in_transaction(conn, application_id, response)
             stored_response = dict(response)
@@ -1145,6 +1350,188 @@ class WorkflowStorage:
             row["state"] = WorkflowRunState.model_validate_json(row.pop("state_json"))
             row["outputs"] = json.loads(row.pop("outputs_json"))
         return rows
+
+    async def export_formal_run_snapshot(
+        self,
+        application_id: str,
+        *,
+        assignment_id: str,
+        session_id: str,
+    ) -> dict[str, Any]:
+        """Export every run durably owned by one formal assignment/session.
+
+        Run selection is server-owned: callers cannot hide a successful run by
+        leaving its id out of an archive request.
+        """
+
+        if not assignment_id or not session_id:
+            raise ValueError("formal run export requires assignment and session IDs")
+        return await asyncio.to_thread(
+            self._export_formal_run_snapshot_sync,
+            application_id,
+            assignment_id,
+            session_id,
+        )
+
+    def _export_formal_run_snapshot_sync(
+        self,
+        application_id: str,
+        assignment_id: str,
+        session_id: str,
+    ) -> dict[str, Any]:
+        with self.storage._connect() as conn:
+            conn.execute("BEGIN")
+            application = conn.execute(
+                "SELECT id,active_version,created_at,updated_at FROM applications WHERE id=?",
+                (application_id,),
+            ).fetchone()
+            draft = conn.execute(
+                """
+                SELECT revision,content_hash,snapshot_json,validation_report_json,
+                       tested_hash,updated_at
+                FROM application_drafts WHERE application_id=?
+                """,
+                (application_id,),
+            ).fetchone()
+            if application is None or draft is None:
+                raise KeyError(f"application draft not found: {application_id}")
+            active_version = application["active_version"]
+            version = None
+            if active_version is not None:
+                version = conn.execute(
+                    """
+                    SELECT application_id,version,content_hash,snapshot_json,created_at
+                    FROM application_versions WHERE application_id=? AND version=?
+                    """,
+                    (application_id, int(active_version)),
+                ).fetchone()
+                if version is None:
+                    raise KeyError(
+                        f"application version not found: {application_id}@{active_version}"
+                    )
+            run_rows = conn.execute(
+                """
+                SELECT * FROM workflow_runs
+                WHERE application_id=? ORDER BY created_at,id
+                """,
+                (application_id,),
+            ).fetchall()
+            baseline_rows = conn.execute(
+                """
+                SELECT * FROM formal_draft_baselines
+                WHERE assignment_id=? AND session_id=? AND application_id=?
+                ORDER BY started_at,assignment_id
+                """,
+                (assignment_id, session_id, application_id),
+            ).fetchall()
+            mutation_rows = conn.execute(
+                """
+                SELECT * FROM formal_draft_mutations
+                WHERE assignment_id=? AND session_id=? AND application_id=?
+                ORDER BY after_revision,created_at,mutation_id
+                """,
+                (assignment_id, session_id, application_id),
+            ).fetchall()
+            runs: list[dict[str, Any]] = []
+            run_event_counts: dict[str, int] = {}
+            run_event_complete = True
+            for row in run_rows:
+                raw_state = json.loads(str(row["state_json"]))
+                if not isinstance(raw_state, dict) or (
+                    str(raw_state.get("assignment_id") or "") != assignment_id
+                    or str(raw_state.get("session_id") or "") != session_id
+                ):
+                    continue
+                state = WorkflowRunState.model_validate(raw_state)
+                run_id = str(row["id"])
+                events = conn.execute(
+                    """
+                    SELECT seq,event_type,data_json,created_at
+                    FROM events WHERE stream_id=? ORDER BY seq
+                    """,
+                    (run_id,),
+                ).fetchall()
+                event_seqs = [int(event["seq"]) for event in events]
+                run_event_counts[run_id] = len(event_seqs)
+                if event_seqs and event_seqs != list(
+                    range(event_seqs[0], event_seqs[-1] + 1)
+                ):
+                    run_event_complete = False
+                runs.append(
+                    {
+                        "id": str(row["id"]),
+                        "application_id": str(row["application_id"]),
+                        "version": row["version"],
+                        "draft_revision": row["draft_revision"],
+                        "status": str(row["status"]),
+                        "state": state.model_dump(mode="json", exclude_none=True),
+                        "outputs": json.loads(str(row["outputs_json"])),
+                        "error": row["error"],
+                        "created_at": str(row["created_at"]),
+                        "updated_at": str(row["updated_at"]),
+                        "events": [
+                            {
+                                "seq": int(event["seq"]),
+                                "type": str(event["event_type"]),
+                                "data": json.loads(str(event["data_json"])),
+                                "created_at": str(event["created_at"]),
+                            }
+                            for event in events
+                        ],
+                    }
+                )
+            if len(runs) > 1_000:
+                raise ValueError("formal assignment has more than 1000 workflow runs")
+            complete = len(baseline_rows) == 1 and run_event_complete
+        return {
+            "schema_version": "1.0",
+            "complete": complete,
+            "counts": {
+                "runs": len(runs),
+                "run_events": sum(run_event_counts.values()),
+                "formal_draft_baselines": len(baseline_rows),
+                "formal_draft_mutations": len(mutation_rows),
+            },
+            "run_event_counts": run_event_counts,
+            "application": {
+                "id": str(application["id"]),
+                "active_version": (
+                    int(active_version) if active_version is not None else None
+                ),
+                "created_at": str(application["created_at"]),
+                "updated_at": str(application["updated_at"]),
+            },
+            "draft": {
+                "revision": int(draft["revision"]),
+                "content_hash": str(draft["content_hash"]),
+                "snapshot": ApplicationSnapshot.model_validate_json(
+                    draft["snapshot_json"]
+                ).model_dump(mode="json", exclude_none=True),
+                "validation_report": json.loads(
+                    str(draft["validation_report_json"])
+                ),
+                "tested_hash": draft["tested_hash"],
+                "updated_at": str(draft["updated_at"]),
+            },
+            "published_version": (
+                {
+                    "application_id": str(version["application_id"]),
+                    "version": int(version["version"]),
+                    "content_hash": str(version["content_hash"]),
+                    "snapshot": ApplicationSnapshot.model_validate_json(
+                        version["snapshot_json"]
+                    ).model_dump(mode="json", exclude_none=True),
+                    "created_at": str(version["created_at"]),
+                }
+                if version is not None
+                else None
+            ),
+            "runs": runs,
+            "formal_draft_provenance": {
+                "baselines": [dict(row) for row in baseline_rows],
+                "mutations": [dict(row) for row in mutation_rows],
+            },
+        }
 
     def _list_runs_sync(self, application_id: str, limit: int) -> list[dict[str, Any]]:
         with self.storage._connect() as conn:

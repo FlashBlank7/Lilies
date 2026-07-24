@@ -160,6 +160,60 @@ async def test_platform_tools_are_resolved_per_assignment_from_private_credentia
 
 
 @pytest.mark.asyncio
+async def test_assignment_file_access_controls_workspace_tool_registration(
+    tmp_path: Path,
+) -> None:
+    service = LocalLiliesService(
+        LiliesSettings(
+            data_dir=tmp_path / "lilies",
+            workspace_root=tmp_path / "workspaces",
+        ),
+        provider=ScriptedLocalProvider(),
+    )
+    await service.initialize()
+    assignment_id = str(uuid4())
+    session_id = str(uuid4())
+    credential_ref = "credential:platform-file-policy"
+    base = _assignment(
+        assignment_id=assignment_id,
+        credential_ref=credential_ref,
+    )
+    assignment = base.model_copy(
+        update={
+            "constraints": base.constraints.model_copy(
+                update={"file_access": True}
+            )
+        }
+    )
+    await service.storage.provision_credential(
+        "platform_assignment",
+        PLATFORM_TOKEN,
+        scopes=[scope.value for scope in assignment.platform.scopes],
+        credential_ref=credential_ref,
+        assignment_id=assignment_id,
+        expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+    )
+    await service.storage.create_session(
+        session_id=session_id,
+        assignment_id=assignment_id,
+        assignment=assignment.model_dump(mode="json", exclude_none=True),
+        platform_contract_digest=CONTRACT_DIGEST,
+    )
+
+    names = set((await service.tool_registry_for_session(session_id)).names())
+    assert {
+        "local_time",
+        "workspace_list",
+        "workspace_read",
+        "workspace_write",
+        "workspace_patch",
+    }.issubset(names)
+    assert {"platform_contract_get", "platform_application_create"}.issubset(
+        names
+    )
+
+
+@pytest.mark.asyncio
 async def test_assignment_tool_resolution_rejects_scope_and_network_mismatch(
     tmp_path: Path,
 ) -> None:

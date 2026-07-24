@@ -438,6 +438,10 @@ class ConnectorAuthorization(BaseModel):
     operation_id: str
     payload_hash: str
     policy_revision: int
+    assignment_id: str = ""
+    session_id: str = ""
+    application_id: str = ""
+    run_id: str = ""
     max_uses: int = Field(default=1, ge=1, le=100)
     use_count: int = 0
     expires_at: str
@@ -457,6 +461,12 @@ class ConnectorExecution(BaseModel):
     actor_roles: list[str]
     application_id: str = ""
     run_id: str = ""
+    assignment_id: str = ""
+    session_id: str = ""
+    assigned_allowed_network_hosts: list[str] | None = None
+    assigned_compensation_operations: list[str] | None = None
+    assignment_max_write_count: int | None = None
+    assignment_max_payload_bytes: int | None = None
     profile_id: str
     operation_id: str
     operation_kind: ConnectorOperationKind
@@ -576,6 +586,121 @@ class ConnectorExecutionRequest(BaseModel):
     dry_run: bool = False
     application_id: str = ""
     run_id: str = ""
+    assignment_id: str = ""
+    session_id: str = ""
+    allowed_network_hosts: list[str] | None = None
+    allowed_compensation_operations: list[str] | None = None
+    permission_required: bool = False
+    assignment_max_write_count: int | None = Field(
+        default=None,
+        ge=0,
+        le=1_000_000,
+    )
+    assignment_max_payload_bytes: int | None = Field(
+        default=None,
+        ge=1,
+        le=100 * 1024 * 1024,
+    )
+
+
+class ConnectorAssignmentWriteReceipt(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    execution_id: str
+    connector_id: str
+    connector_version: int
+    tenant_id: str
+    profile_id: str
+    operation_id: str
+    operation_kind: ConnectorOperationKind
+    idempotency_key: str
+    payload_hash: str
+    status: ConnectorExecutionStatus
+    side_effect_state: Literal["none", "applied", "unknown", "compensated"]
+    authorization_ref_digest: str | None
+    adapter_called: bool
+    created_at: str
+    updated_at: str
+
+
+class ConnectorAssignmentBudgetReceipt(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    schema_version: Literal["1.0"] = "1.0"
+    assignment_id: str
+    policy_digest: str
+    allowed_network_hosts: list[str]
+    allowed_compensation_operations: list[str]
+    max_write_count: int
+    max_payload_bytes: int
+    write_count: int
+    writes: list[ConnectorAssignmentWriteReceipt]
+    receipt_digest: str
+
+    @model_validator(mode="after")
+    def verify_frozen_receipt(self) -> ConnectorAssignmentBudgetReceipt:
+        identities = [
+            (
+                item.connector_id,
+                item.connector_version,
+                item.tenant_id,
+                item.operation_id,
+                item.idempotency_key,
+                item.execution_id,
+            )
+            for item in self.writes
+        ]
+        if identities != sorted(identities):
+            raise ValueError(
+                "connector assignment writes are not in stable execution identity order"
+            )
+        if len(identities) != len(set(identities)):
+            raise ValueError("connector assignment receipt contains duplicate writes")
+        execution_ids = [item.execution_id for item in self.writes]
+        if len(execution_ids) != len(set(execution_ids)):
+            raise ValueError(
+                "connector assignment receipt contains duplicate execution ids"
+            )
+        # A budget reservation and its execution row are inserted in the same
+        # BEGIN IMMEDIATE transaction. Failed/unknown adapter outcomes still
+        # consume a reservation because a side effect may have occurred.
+        if self.write_count != len(self.writes):
+            raise ValueError(
+                "connector assignment write count does not match durable reservations"
+            )
+        policy_document = {
+            "allowed_network_hosts": self.allowed_network_hosts,
+            "allowed_compensation_operations": (
+                self.allowed_compensation_operations
+            ),
+            "max_write_count": self.max_write_count,
+            "max_payload_bytes": self.max_payload_bytes,
+        }
+        policy_digest = hashlib.sha256(
+            json.dumps(
+                policy_document,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        if not hmac.compare_digest(self.policy_digest, policy_digest):
+            raise ValueError("connector assignment policy digest does not match receipt")
+        unsigned = self.model_dump(mode="json", exclude={"receipt_digest"})
+        expected_receipt_digest = (
+            "sha256:"
+            + hashlib.sha256(
+                json.dumps(
+                    unsigned,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+            ).hexdigest()
+        )
+        if not hmac.compare_digest(self.receipt_digest, expected_receipt_digest):
+            raise ValueError("connector assignment receipt digest does not match content")
+        return self
 
 
 class ConnectorService:
@@ -680,6 +805,16 @@ class ConnectorService:
                   record_json TEXT NOT NULL,
                   created_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS connector_assignment_budgets (
+                  assignment_id TEXT PRIMARY KEY,
+                  policy_digest TEXT NOT NULL,
+                  policy_json TEXT NOT NULL,
+                  max_write_count INTEGER NOT NULL,
+                  max_payload_bytes INTEGER NOT NULL,
+                  write_count INTEGER NOT NULL DEFAULT 0,
+                  created_at TEXT NOT NULL,
+                  updated_at TEXT NOT NULL
+                );
                 """
             )
 
@@ -698,6 +833,192 @@ class ConnectorService:
             (item.connector_id, item.connector_version, item.tenant_id): item
             for row in bindings
             if (item := ConnectorTenantBinding.model_validate_json(row["record_json"]))
+        }
+
+    async def freeze_assignment_budget(
+        self,
+        *,
+        assignment_id: str,
+        allowed_network_hosts: list[str],
+        allowed_compensation_operations: list[str],
+        max_write_count: int,
+        max_payload_bytes: int,
+    ) -> ConnectorAssignmentBudgetReceipt:
+        if not assignment_id:
+            raise ValueError("assignment_id is required")
+        if max_write_count < 0 or max_write_count > 1_000_000:
+            raise ValueError("max_write_count is outside the supported range")
+        if max_payload_bytes < 1 or max_payload_bytes > 100 * 1024 * 1024:
+            raise ValueError("max_payload_bytes is outside the supported range")
+        async with self._lock:
+            await asyncio.to_thread(
+                self._freeze_assignment_budget_sync,
+                assignment_id,
+                allowed_network_hosts,
+                allowed_compensation_operations,
+                max_write_count,
+                max_payload_bytes,
+            )
+        return await self.export_assignment_budget(assignment_id)
+
+    def _freeze_assignment_budget_sync(
+        self,
+        assignment_id: str,
+        allowed_network_hosts: list[str],
+        allowed_compensation_operations: list[str],
+        max_write_count: int,
+        max_payload_bytes: int,
+    ) -> None:
+        policy_document = self._assignment_budget_policy(
+            allowed_network_hosts=allowed_network_hosts,
+            allowed_compensation_operations=allowed_compensation_operations,
+            max_write_count=max_write_count,
+            max_payload_bytes=max_payload_bytes,
+        )
+        policy_json = self.canonical_json(policy_document)
+        policy_digest = self.payload_hash(policy_document)
+        now = utc_now()
+        with self.storage._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                """SELECT policy_digest,policy_json,max_write_count,max_payload_bytes
+                   FROM connector_assignment_budgets WHERE assignment_id=?""",
+                (assignment_id,),
+            ).fetchone()
+            if row is None:
+                conn.execute(
+                    """INSERT INTO connector_assignment_budgets(
+                         assignment_id,policy_digest,policy_json,max_write_count,
+                         max_payload_bytes,write_count,created_at,updated_at
+                       ) VALUES(?,?,?,?,?,0,?,?)""",
+                    (
+                        assignment_id,
+                        policy_digest,
+                        policy_json,
+                        max_write_count,
+                        max_payload_bytes,
+                        now,
+                        now,
+                    ),
+                )
+                return
+            if (
+                str(row["policy_digest"]) != policy_digest
+                or str(row["policy_json"]) != policy_json
+                or int(row["max_write_count"]) != max_write_count
+                or int(row["max_payload_bytes"]) != max_payload_bytes
+            ):
+                raise ConnectorDenied("assigned connector side-effect policy changed")
+
+    async def export_assignment_budget(
+        self,
+        assignment_id: str,
+    ) -> ConnectorAssignmentBudgetReceipt:
+        return await asyncio.to_thread(
+            self._export_assignment_budget_sync,
+            assignment_id,
+        )
+
+    def _export_assignment_budget_sync(
+        self,
+        assignment_id: str,
+    ) -> ConnectorAssignmentBudgetReceipt:
+        with self.storage._connect() as conn:
+            row = conn.execute(
+                """SELECT policy_digest,policy_json,max_write_count,max_payload_bytes,
+                          write_count
+                   FROM connector_assignment_budgets WHERE assignment_id=?""",
+                (assignment_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"unknown connector assignment budget: {assignment_id}")
+            execution_rows = conn.execute(
+                """SELECT record_json FROM connector_executions
+                   ORDER BY created_at,id"""
+            ).fetchall()
+        writes: list[ConnectorAssignmentWriteReceipt] = []
+        for execution_row in execution_rows:
+            execution = ConnectorExecution.model_validate_json(
+                execution_row["record_json"]
+            )
+            if (
+                execution.assignment_id != assignment_id
+                or execution.operation_kind not in {"write", "compensate"}
+            ):
+                continue
+            writes.append(
+                ConnectorAssignmentWriteReceipt(
+                    execution_id=execution.id,
+                    connector_id=execution.connector_id,
+                    connector_version=execution.connector_version,
+                    tenant_id=execution.tenant_id,
+                    profile_id=execution.profile_id,
+                    operation_id=execution.operation_id,
+                    operation_kind=execution.operation_kind,
+                    idempotency_key=execution.idempotency_key,
+                    payload_hash=execution.payload_hash,
+                    status=execution.status,
+                    side_effect_state=execution.side_effect_state,
+                    authorization_ref_digest=(
+                        f"sha256:{self.payload_hash(execution.authorization_id)}"
+                        if execution.authorization_id
+                        else None
+                    ),
+                    adapter_called=execution.adapter_called,
+                    created_at=execution.created_at,
+                    updated_at=execution.updated_at,
+                )
+            )
+        writes.sort(
+            key=lambda item: (
+                item.connector_id,
+                item.connector_version,
+                item.tenant_id,
+                item.operation_id,
+                item.idempotency_key,
+                item.execution_id,
+            )
+        )
+        policy = json.loads(str(row["policy_json"]))
+        unsigned = {
+            "schema_version": "1.0",
+            "assignment_id": assignment_id,
+            "policy_digest": str(row["policy_digest"]),
+            "allowed_network_hosts": list(policy["allowed_network_hosts"]),
+            "allowed_compensation_operations": list(
+                policy["allowed_compensation_operations"]
+            ),
+            "max_write_count": int(row["max_write_count"]),
+            "max_payload_bytes": int(row["max_payload_bytes"]),
+            "write_count": int(row["write_count"]),
+            "writes": [item.model_dump(mode="json") for item in writes],
+        }
+        return ConnectorAssignmentBudgetReceipt(
+            **unsigned,
+            receipt_digest=f"sha256:{self.payload_hash(unsigned)}",
+        )
+
+    @staticmethod
+    def _assignment_budget_policy(
+        *,
+        allowed_network_hosts: list[str],
+        allowed_compensation_operations: list[str],
+        max_write_count: int,
+        max_payload_bytes: int,
+    ) -> dict[str, Any]:
+        return {
+            "allowed_network_hosts": sorted(
+                {
+                    str(item).casefold().rstrip(".")
+                    for item in allowed_network_hosts
+                    if str(item).strip()
+                }
+            ),
+            "allowed_compensation_operations": sorted(
+                set(allowed_compensation_operations)
+            ),
+            "max_write_count": max_write_count,
+            "max_payload_bytes": max_payload_bytes,
         }
 
     async def register_manifest(self, manifest: ConnectorManifest) -> ConnectorManifest:
@@ -994,6 +1315,10 @@ class ConnectorService:
         profile_id: str,
         operation_id: str,
         payload: dict[str, Any],
+        assignment_id: str = "",
+        session_id: str = "",
+        application_id: str = "",
+        run_id: str = "",
         expires_in_seconds: int = 300,
         max_uses: int = 1,
     ) -> ConnectorAuthorization:
@@ -1014,6 +1339,10 @@ class ConnectorService:
             operation_id=operation_id,
             payload_hash=self.payload_hash(payload),
             policy_revision=policy.revision,
+            assignment_id=assignment_id,
+            session_id=session_id,
+            application_id=application_id,
+            run_id=run_id,
             max_uses=max_uses,
             expires_at=(now + timedelta(seconds=max(1, expires_in_seconds))).isoformat(),
         )
@@ -1218,6 +1547,52 @@ class ConnectorService:
         payload_bytes = len(self.canonical_json(payload).encode())
         if payload_bytes > policy.max_payload_bytes:
             raise ConnectorDenied("connector payload exceeds policy limit")
+        if request.assignment_id:
+            if (
+                not request.session_id
+                or not request.application_id
+                or request.allowed_compensation_operations is None
+            ):
+                raise ConnectorDenied(
+                    "assigned connector identity or compensation policy is missing"
+                )
+            if request.allowed_network_hosts is None:
+                raise ConnectorDenied(
+                    "assigned connector host policy is missing"
+                )
+            endpoint_host = (urlsplit(profile.base_url).hostname or "").casefold().rstrip(".")
+            assigned_hosts = {
+                str(item).casefold().rstrip(".")
+                for item in request.allowed_network_hosts
+                if str(item).strip()
+            }
+            if endpoint_host not in assigned_hosts:
+                raise ConnectorDenied(
+                    "connector deployment host is outside the assigned host policy"
+                )
+            if request.assignment_max_payload_bytes is None:
+                raise ConnectorDenied(
+                    "assigned connector payload budget is missing"
+                )
+            if payload_bytes > request.assignment_max_payload_bytes:
+                raise ConnectorDenied(
+                    "connector payload exceeds the assigned byte limit"
+                )
+            if (
+                operation.mutating
+                and not request.dry_run
+                and request.assignment_max_write_count is None
+            ):
+                raise ConnectorDenied(
+                    "assigned connector write budget is missing"
+                )
+            if operation.kind == "compensate":
+                self._require_assigned_operation(
+                    connector_id=request.connector_id,
+                    operation_id=request.operation_id,
+                    allowed_operations=request.allowed_compensation_operations,
+                    label="compensation",
+                )
         if request.dry_run and not policy.allow_dry_run:
             raise ConnectorDenied("connector policy disables dry-run")
         if not profile.available:
@@ -1232,6 +1607,26 @@ class ConnectorService:
                 )
         if manifest.domain != policy.domain:
             raise ConnectorDenied("connector policy domain mismatch")
+
+    @staticmethod
+    def _require_assigned_operation(
+        *,
+        connector_id: str,
+        operation_id: str,
+        allowed_operations: list[str],
+        label: str,
+    ) -> str:
+        candidates = {
+            operation_id,
+            f"{connector_id}.{operation_id}",
+            f"{connector_id}:{operation_id}",
+        }
+        matched = sorted(candidates.intersection(allowed_operations))
+        if len(matched) != 1:
+            raise ConnectorDenied(
+                f"connector {label} is outside or ambiguous in the assigned policy"
+            )
+        return matched[0]
 
     def _record_denial_sync(
         self,
@@ -1299,6 +1694,12 @@ class ConnectorService:
                     record.profile_id,
                     record.payload_hash,
                     record.application_id,
+                    record.assignment_id,
+                    record.session_id,
+                    record.assigned_allowed_network_hosts,
+                    record.assigned_compensation_operations,
+                    record.assignment_max_write_count,
+                    record.assignment_max_payload_bytes,
                 )
                 if immutable != (
                     request.actor_id,
@@ -1306,6 +1707,25 @@ class ConnectorService:
                     request.profile_id,
                     payload_hash,
                     request.application_id,
+                    request.assignment_id,
+                    request.session_id,
+                    (
+                        sorted(
+                            {
+                                host.casefold().rstrip(".")
+                                for host in request.allowed_network_hosts
+                            }
+                        )
+                        if request.allowed_network_hosts is not None
+                        else None
+                    ),
+                    (
+                        sorted(set(request.allowed_compensation_operations))
+                        if request.allowed_compensation_operations is not None
+                        else None
+                    ),
+                    request.assignment_max_write_count,
+                    request.assignment_max_payload_bytes,
                 ):
                     raise ConnectorConflict(
                         "connector idempotency key is bound to different input"
@@ -1329,12 +1749,19 @@ class ConnectorService:
                     )
                     if current_policy.revision != policy.revision:
                         raise ConnectorConflict("connector policy changed during execution")
-                    if operation.mutating:
+                    if operation.mutating or request.permission_required:
                         self._consume_authorization_sync(
                             conn,
                             request,
                             current_policy,
                             payload_hash,
+                            force_required=request.permission_required,
+                        )
+                    if operation.mutating:
+                        self._consume_assignment_budget_sync(
+                            conn,
+                            request,
+                            payload,
                         )
                     promoted = record.model_copy(
                         update={
@@ -1385,12 +1812,22 @@ class ConnectorService:
             )
             if current_policy.revision != policy.revision:
                 raise ConnectorConflict("connector policy changed during execution")
-            if operation.mutating and not request.dry_run:
+            if (
+                (operation.mutating or request.permission_required)
+                and not request.dry_run
+            ):
                 self._consume_authorization_sync(
                     conn,
                     request,
                     current_policy,
                     payload_hash,
+                    force_required=request.permission_required,
+                )
+            if operation.mutating and not request.dry_run:
+                self._consume_assignment_budget_sync(
+                    conn,
+                    request,
+                    payload,
                 )
             status: ConnectorExecutionStatus = "dry_run" if request.dry_run else "executing"
             record = ConnectorExecution(
@@ -1402,6 +1839,25 @@ class ConnectorService:
                 actor_roles=list(request.actor_roles),
                 application_id=request.application_id,
                 run_id=request.run_id,
+                assignment_id=request.assignment_id,
+                session_id=request.session_id,
+                assigned_allowed_network_hosts=(
+                    sorted(
+                        {
+                            host.casefold().rstrip(".")
+                            for host in request.allowed_network_hosts
+                        }
+                    )
+                    if request.allowed_network_hosts is not None
+                    else None
+                ),
+                assigned_compensation_operations=(
+                    sorted(set(request.allowed_compensation_operations))
+                    if request.allowed_compensation_operations is not None
+                    else None
+                ),
+                assignment_max_write_count=request.assignment_max_write_count,
+                assignment_max_payload_bytes=request.assignment_max_payload_bytes,
                 profile_id=request.profile_id,
                 operation_id=request.operation_id,
                 operation_kind=operation.kind,
@@ -1466,8 +1922,10 @@ class ConnectorService:
         request: ConnectorExecutionRequest,
         policy: ConnectorDomainPolicy,
         payload_hash: str,
+        *,
+        force_required: bool = False,
     ) -> None:
-        if not policy.mutation_preauthorization_required:
+        if not policy.mutation_preauthorization_required and not force_required:
             return
         if not request.authorization_id:
             raise ConnectorDenied("connector mutation requires preauthorization")
@@ -1500,6 +1958,31 @@ class ConnectorService:
         )
         if actual != expected:
             raise ConnectorDenied("connector authorization scope does not match execution")
+        if request.assignment_id and request.permission_required:
+            assigned_expected = (
+                request.assignment_id,
+                request.session_id,
+                request.application_id,
+            )
+            assigned_actual = (
+                authorization.assignment_id,
+                authorization.session_id,
+                authorization.application_id,
+            )
+            if (
+                not all(assigned_actual)
+                or assigned_actual != assigned_expected
+            ):
+                raise ConnectorDenied(
+                    "connector authorization assignment scope does not match execution"
+                )
+            if (
+                authorization.run_id
+                and authorization.run_id != request.run_id
+            ):
+                raise ConnectorDenied(
+                    "connector authorization run scope does not match execution"
+                )
         if authorization.revoked or authorization.use_count >= authorization.max_uses:
             raise ConnectorDenied("connector authorization is revoked or exhausted")
         if self._parse_time(authorization.expires_at) <= datetime.now(timezone.utc):
@@ -1510,6 +1993,83 @@ class ConnectorService:
         conn.execute(
             "UPDATE connector_authorizations SET record_json=?,updated_at=? WHERE id=?",
             (updated.model_dump_json(), updated.updated_at, updated.id),
+        )
+
+    def _consume_assignment_budget_sync(
+        self,
+        conn: Any,
+        request: ConnectorExecutionRequest,
+        payload: dict[str, Any],
+    ) -> None:
+        """Atomically reserve one real host mutation for a frozen assignment.
+
+        The Connector service, rather than the in-memory workflow runner, owns
+        this counter so separate runs, processes, and restarts share one exact
+        N-write ceiling. Idempotent replays return before this method is called.
+        """
+
+        if not request.assignment_id:
+            return
+        if (
+            request.assignment_max_write_count is None
+            or request.assignment_max_payload_bytes is None
+            or request.allowed_network_hosts is None
+        ):
+            raise ConnectorDenied("assigned connector side-effect budget is incomplete")
+        payload_bytes = len(self.canonical_json(payload).encode("utf-8"))
+        if payload_bytes > request.assignment_max_payload_bytes:
+            raise ConnectorDenied("connector payload exceeds the assigned byte limit")
+        policy_document = self._assignment_budget_policy(
+            allowed_network_hosts=request.allowed_network_hosts,
+            allowed_compensation_operations=(
+                request.allowed_compensation_operations
+                if request.allowed_compensation_operations is not None
+                else []
+            ),
+            max_write_count=request.assignment_max_write_count,
+            max_payload_bytes=request.assignment_max_payload_bytes,
+        )
+        policy_json = self.canonical_json(policy_document)
+        policy_digest = self.payload_hash(policy_document)
+        now = utc_now()
+        row = conn.execute(
+            """SELECT policy_digest,policy_json,max_write_count,max_payload_bytes,write_count
+               FROM connector_assignment_budgets WHERE assignment_id=?""",
+            (request.assignment_id,),
+        ).fetchone()
+        if row is None:
+            if request.assignment_max_write_count < 1:
+                raise ConnectorDenied("assigned connector write limit is exhausted")
+            conn.execute(
+                """INSERT INTO connector_assignment_budgets(
+                     assignment_id,policy_digest,policy_json,max_write_count,max_payload_bytes,
+                     write_count,created_at,updated_at
+                   ) VALUES(?,?,?,?,?,1,?,?)""",
+                (
+                    request.assignment_id,
+                    policy_digest,
+                    policy_json,
+                    request.assignment_max_write_count,
+                    request.assignment_max_payload_bytes,
+                    now,
+                    now,
+                ),
+            )
+            return
+        if (
+            str(row["policy_digest"]) != policy_digest
+            or str(row["policy_json"]) != policy_json
+            or int(row["max_write_count"]) != request.assignment_max_write_count
+            or int(row["max_payload_bytes"]) != request.assignment_max_payload_bytes
+        ):
+            raise ConnectorDenied("assigned connector side-effect policy changed")
+        if int(row["write_count"]) >= request.assignment_max_write_count:
+            raise ConnectorDenied("assigned connector write limit is exhausted")
+        conn.execute(
+            """UPDATE connector_assignment_budgets
+               SET write_count=write_count+1,updated_at=?
+               WHERE assignment_id=?""",
+            (now, request.assignment_id),
         )
 
     async def _call_adapter(
@@ -1746,14 +2306,46 @@ class ConnectorService:
         idempotency_key: str,
     ) -> ConnectorExecution:
         original = await self.get_execution(execution_id)
-        if original.compensation_execution_id:
-            return await self.get_execution(original.compensation_execution_id)
-        if original.status != "succeeded" or not original.compensation_payload:
-            raise ConnectorConflict("connector execution is not compensation-eligible")
         manifest = await self.get_manifest(original.connector_id, original.connector_version)
         operation = manifest.operation(original.operation_id)
         if not operation.compensation_operation_id:
             raise ConnectorConflict("connector operation has no compensation contract")
+        if original.assignment_id:
+            if (
+                not original.session_id
+                or not original.application_id
+                or original.assigned_allowed_network_hosts is None
+                or original.assigned_compensation_operations is None
+                or original.assignment_max_write_count is None
+                or original.assignment_max_payload_bytes is None
+            ):
+                raise ConnectorDenied(
+                    "assigned connector compensation policy is missing"
+                )
+            self._require_assigned_operation(
+                connector_id=original.connector_id,
+                operation_id=operation.compensation_operation_id,
+                allowed_operations=original.assigned_compensation_operations,
+                label="compensation",
+            )
+        if original.compensation_execution_id:
+            compensation = await self.get_execution(
+                original.compensation_execution_id
+            )
+            if (
+                original.assignment_id
+                and (
+                    compensation.assignment_id != original.assignment_id
+                    or compensation.session_id != original.session_id
+                    or compensation.application_id != original.application_id
+                )
+            ):
+                raise ConnectorDenied(
+                    "assigned connector compensation receipt is outside the original scope"
+                )
+            return compensation
+        if original.status != "succeeded" or not original.compensation_payload:
+            raise ConnectorConflict("connector execution is not compensation-eligible")
         compensation = await self.execute(
             ConnectorExecutionRequest(
                 connector_id=original.connector_id,
@@ -1768,6 +2360,17 @@ class ConnectorService:
                 authorization_id=authorization_id,
                 application_id=original.application_id,
                 run_id=original.run_id,
+                assignment_id=original.assignment_id,
+                session_id=original.session_id,
+                allowed_network_hosts=original.assigned_allowed_network_hosts,
+                allowed_compensation_operations=(
+                    original.assigned_compensation_operations
+                ),
+                permission_required=bool(original.assignment_id),
+                assignment_max_write_count=original.assignment_max_write_count,
+                assignment_max_payload_bytes=(
+                    original.assignment_max_payload_bytes
+                ),
             )
         )
         await asyncio.to_thread(

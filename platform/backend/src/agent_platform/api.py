@@ -12,7 +12,7 @@ from dataclasses import asdict, dataclass
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, AsyncIterator, Literal
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, status
@@ -58,7 +58,7 @@ from .complexity_router import (
     runtime_activation_rollout_metrics,
     validate_operator_override,
 )
-from .collaboration_service import CollaborationService
+from .collaboration_service import CollaborationPrincipal, CollaborationService
 from .collaboration_storage import CollaborationStore
 from .customer_runtime_projection import (
     project_runtime_application,
@@ -180,9 +180,15 @@ RUNTIME_ROUTE_CHECKS: dict[str, tuple[str, str]] = {
     "smoke_cleanup": ("POST", "/api/v1/applications/{application_id}/smoke-cleanup"),
     "requirement_intake": ("POST", "/api/v1/requirements/complete"),
     "scenario_catalog": ("GET", "/api/v1/scenarios"),
-    "scenario_apply": ("POST", "/api/v1/applications/{application_id}/scenarios/{scenario_id}/apply"),
+    "scenario_apply": (
+        "POST",
+        "/api/v1/applications/{application_id}/scenarios/{scenario_id}/apply",
+    ),
     "capability_contract_validate": ("POST", "/api/v1/capability-contracts/validate"),
-    "application_capability_contract": ("GET", "/api/v1/applications/{application_id}/capability-contract"),
+    "application_capability_contract": (
+        "GET",
+        "/api/v1/applications/{application_id}/capability-contract",
+    ),
     "capability_modules": ("GET", "/api/v1/capability-modules"),
     "capability_evidence": ("GET", "/api/v1/capability-evidence"),
     "governance_overview": ("GET", "/api/v1/governance/overview"),
@@ -387,7 +393,9 @@ def runtime_git_identity() -> dict[str, str | bool]:
             _git_differs(repo_root, "diff", "--quiet", "HEAD", "--")
             or _git_differs(repo_root, "diff", "--cached", "--quiet", "--")
         ),
-        "untracked_present": _git_has_output(repo_root, "ls-files", "--others", "--exclude-standard"),
+        "untracked_present": _git_has_output(
+            repo_root, "ls-files", "--others", "--exclude-standard"
+        ),
     }
 
 
@@ -440,6 +448,7 @@ class Services:
     platform_contract_versions: PlatformContractVersionStore
     local_lilies_bridge: LocalLiliesBridge
     collaboration: CollaborationService
+    formal_run_archiver: Any | None
     worker_supervisor: Any | None
     worker_process_manager: Any | None
     background_tasks: set[asyncio.Task[Any]]
@@ -521,6 +530,10 @@ class ConnectorAuthorizationCreateRequest(BaseModel):
     profile_id: str
     operation_id: str
     payload: dict[str, Any]
+    assignment_id: str = ""
+    session_id: str = ""
+    application_id: str = ""
+    run_id: str = ""
     expires_in_seconds: int = Field(default=300, ge=1, le=3600)
     max_uses: int = Field(default=1, ge=1, le=100)
 
@@ -658,7 +671,9 @@ class RequirementIntakeAnswer(BaseModel):
     question: str = Field(default="", max_length=1000)
     choice_type: Literal["single", "multi"] | None = None
     selected_option_ids: list[str] = Field(default_factory=list, max_length=8)
-    selected_options: list[RequirementIntakeSelectedOption] = Field(default_factory=list, max_length=8)
+    selected_options: list[RequirementIntakeSelectedOption] = Field(
+        default_factory=list, max_length=8
+    )
     custom_answer: str = Field(default="", max_length=4000)
     answer: str | None = Field(default=None, max_length=4000)
 
@@ -768,15 +783,15 @@ def _requirement_intake_system(locale: str) -> str:
         "Always answer in JSON only, no markdown fences. "
         f"Use {language} for user-visible text. "
         "JSON schema: {"
-        "\"status\":\"needs_input|ready\","
-        "\"confidence\":0.0,"
-        "\"reasoning_summary\":\"short rationale\","
-        "\"detected_goal\":\"what the user is trying to build\","
-        "\"missing\":[\"specific missing facts\"],"
-        "\"questions\":[{\"id\":\"stable_snake_case\",\"label\":\"short label\",\"question\":\"decision question\",\"why\":\"why it matters\",\"decision_axis\":\"functional_capability|runtime_guarantee|external_contract|execution_envelope|carrier|evidence|runtime_interface|permission_boundary|target_user\",\"choice_type\":\"single|multi\",\"options\":[{\"id\":\"stable_option_id\",\"label\":\"option label\",\"description\":\"what this means\",\"impact\":\"how it changes the workflow\",\"recommended\":true,\"effects\":[{\"axis\":\"functional_capability|runtime_guarantee|external_contract|execution_envelope|carrier|evidence|runtime_interface|permission_boundary|target_user\",\"target_id\":\"F.example\",\"action\":\"include|require|exclude|configure|raise_envelope\",\"value\":\"specific effect\"}]}],\"custom_allowed\":true,\"custom_placeholder\":\"optional custom answer placeholder\"}],"
-        "\"completed_requirement\":\"string or null\","
-        "\"workflow_intent\":{\"target_user\":\"\",\"runtime_input\":\"\",\"runtime_output\":\"\",\"core_steps\":[\"\"],\"permissions\":[\"\"],\"acceptance_cases\":[\"\"]},"
-        "\"capability_build_contract\":{}"
+        '"status":"needs_input|ready",'
+        '"confidence":0.0,'
+        '"reasoning_summary":"short rationale",'
+        '"detected_goal":"what the user is trying to build",'
+        '"missing":["specific missing facts"],'
+        '"questions":[{"id":"stable_snake_case","label":"short label","question":"decision question","why":"why it matters","decision_axis":"functional_capability|runtime_guarantee|external_contract|execution_envelope|carrier|evidence|runtime_interface|permission_boundary|target_user","choice_type":"single|multi","options":[{"id":"stable_option_id","label":"option label","description":"what this means","impact":"how it changes the workflow","recommended":true,"effects":[{"axis":"functional_capability|runtime_guarantee|external_contract|execution_envelope|carrier|evidence|runtime_interface|permission_boundary|target_user","target_id":"F.example","action":"include|require|exclude|configure|raise_envelope","value":"specific effect"}]}],"custom_allowed":true,"custom_placeholder":"optional custom answer placeholder"}],'
+        '"completed_requirement":"string or null",'
+        '"workflow_intent":{"target_user":"","runtime_input":"","runtime_output":"","core_steps":[""],"permissions":[""],"acceptance_cases":[""]},'
+        '"capability_build_contract":{}'
         "}. "
         "For a vague request such as 'make a workflow like Codex', do not complete the requirement directly. "
         "Return option questions covering Codex-like capability scope, target user, runtime interface, permission/tool boundary, and acceptance strategy. "
@@ -792,18 +807,22 @@ def _requirement_intake_prompt(body: RequirementIntakeRequest) -> str:
             "question": answer.question,
             "choice_type": answer.choice_type,
             "selected_option_ids": answer.selected_option_ids,
-            "selected_options": [option.model_dump(mode="json") for option in answer.selected_options],
+            "selected_options": [
+                option.model_dump(mode="json") for option in answer.selected_options
+            ],
             "custom_answer": answer.custom_answer,
             "legacy_answer": answer.answer or "",
         }
         for answer in body.answers
     ]
-    answered_axes = sorted({
-        effect.axis
-        for answer in body.answers
-        for option in answer.selected_options
-        for effect in option.effects
-    })
+    answered_axes = sorted(
+        {
+            effect.axis
+            for answer in body.answers
+            for option in answer.selected_options
+            for effect in option.effects
+        }
+    )
     return json.dumps(
         {
             "requirement": body.requirement,
@@ -850,8 +869,7 @@ def _validate_requirement_intake_response(result: RequirementIntakeResponse) -> 
         closure = evaluate_capability_contract(result.capability_build_contract)
         if not closure.valid:
             raise ValueError(
-                "ready capability build contract is invalid: "
-                + "; ".join(closure.blocking_errors)
+                "ready capability build contract is invalid: " + "; ".join(closure.blocking_errors)
             )
 
 
@@ -899,7 +917,9 @@ _LOCAL_RESOURCE_USE_RE = re.compile(
     r"|\b(?:local files?|workspace files?|filesystem|file access|read files?)\b",
     re.I,
 )
-_HIGHER_ENVELOPE_RE = re.compile(r"\bE[2-5]\b|持久任务|定时调度|生产嵌入|durable|scheduled|production", re.I)
+_HIGHER_ENVELOPE_RE = re.compile(
+    r"\bE[2-5]\b|持久任务|定时调度|生产嵌入|durable|scheduled|production", re.I
+)
 _TRACE_CAPABILITY_RE = re.compile(
     r"step[_ .-]?trace|traceability|step[_ .-]?log|execution[_ .-]?log"
     r"|步骤(?:可)?追踪|步骤日志|执行日志",
@@ -944,8 +964,7 @@ def _intake_option_text(option: dict[str, Any]) -> str:
             if not isinstance(effect, dict):
                 continue
             parts.extend(
-                str(effect.get(key) or "")
-                for key in ("axis", "action", "target_id", "value")
+                str(effect.get(key) or "") for key in ("axis", "action", "target_id", "value")
             )
     return "\n".join(parts)
 
@@ -1008,9 +1027,7 @@ def _normalize_intake_recommendations(
     decision_text = _requirement_decision_text(body)
     explicit_no_external = _states_no_external(body.requirement)
     explicit_human_review = _requests_human_review(decision_text)
-    explicit_local_resources = bool(
-        _LOCAL_RESOURCE_USE_RE.search(body.requirement)
-    )
+    explicit_local_resources = bool(_LOCAL_RESOURCE_USE_RE.search(body.requirement))
     if not explicit_no_external:
         return
 
@@ -1039,10 +1056,7 @@ def _normalize_intake_recommendations(
     for index, option in enumerate(options):
         if isinstance(option, dict) and scores[index] >= 50:
             option["recommended"] = False
-    if not any(
-        isinstance(option, dict) and option.get("recommended")
-        for option in options
-    ):
+    if not any(isinstance(option, dict) and option.get("recommended") for option in options):
         best_index = min(compatible_indexes, key=lambda index: (scores[index], index))
         options[best_index]["recommended"] = True
 
@@ -1110,11 +1124,7 @@ def _normalize_intake_axis(value: Any, *, fallback: str) -> str:
         return normalized
     fallback_token = _intake_protocol_token(fallback)
     fallback_axis = _INTAKE_AXIS_ALIASES.get(fallback_token, fallback_token)
-    return (
-        fallback_axis
-        if fallback_axis in _INTAKE_DECISION_AXES
-        else "functional_capability"
-    )
+    return fallback_axis if fallback_axis in _INTAKE_DECISION_AXES else "functional_capability"
 
 
 def _normalize_intake_option_effects(
@@ -1137,34 +1147,28 @@ def _normalize_intake_option_effects(
         if action not in _INTAKE_EFFECT_ACTIONS:
             action = "configure"
         option_id = str(option.get("id") or "option")
-        target_id = str(
-            raw_effect.get("target_id")
-            or f"{axis}.{option_id}"
-        ).strip()[:160]
+        target_id = str(raw_effect.get("target_id") or f"{axis}.{option_id}").strip()[:160]
         value = str(
-            raw_effect.get("value")
-            or option.get("impact")
-            or option.get("label")
-            or option_id
+            raw_effect.get("value") or option.get("impact") or option.get("label") or option_id
         ).strip()[:500]
-        normalized.append({
-            "axis": axis,
-            "target_id": target_id,
-            "action": action,
-            "value": value or option_id,
-        })
+        normalized.append(
+            {
+                "axis": axis,
+                "target_id": target_id,
+                "action": action,
+                "value": value or option_id,
+            }
+        )
     if not normalized:
         option_id = str(option.get("id") or "legacy_option")
-        normalized = [{
-            "axis": question_axis,
-            "target_id": f"{question_axis}.{option_id}"[:160],
-            "action": "configure",
-            "value": str(
-                option.get("impact")
-                or option.get("label")
-                or option_id
-            )[:500],
-        }]
+        normalized = [
+            {
+                "axis": question_axis,
+                "target_id": f"{question_axis}.{option_id}"[:160],
+                "action": "configure",
+                "value": str(option.get("impact") or option.get("label") or option_id)[:500],
+            }
+        ]
     option["effects"] = normalized
 
 
@@ -1207,8 +1211,7 @@ def _normalize_raw_carrier_decisions(
     exact = {
         decision.get("capability_id"): decision
         for decision in decisions
-        if isinstance(decision, dict)
-        and decision.get("capability_id") in capability_ids
+        if isinstance(decision, dict) and decision.get("capability_id") in capability_ids
     }
     normalized = list(exact.values())
     normalized_ids = set(exact)
@@ -1222,10 +1225,12 @@ def _normalize_raw_carrier_decisions(
         for capability_id in capability_ids:
             if capability_id not in tokens or capability_id in normalized_ids:
                 continue
-            normalized.append({
-                **decision,
-                "capability_id": capability_id,
-            })
+            normalized.append(
+                {
+                    **decision,
+                    "capability_id": capability_id,
+                }
+            )
             normalized_ids.add(capability_id)
     raw_contract["carrier_decisions"] = normalized
     return raw_contract
@@ -1246,8 +1251,7 @@ def _ensure_explicit_runtime_guarantees(
     trace_guarantees = [
         item
         for item in guarantees
-        if isinstance(item, dict)
-        and _TRACE_CAPABILITY_RE.search(_capability_text(item))
+        if isinstance(item, dict) and _TRACE_CAPABILITY_RE.search(_capability_text(item))
     ]
     if trace_guarantees:
         for guarantee in trace_guarantees:
@@ -1268,26 +1272,28 @@ def _ensure_explicit_runtime_guarantees(
     envelope = str(raw_contract.get("required_envelope") or "E1")
     if envelope not in {"E0", "E1", "E2", "E3", "E4", "E5"}:
         envelope = "E1"
-    guarantees.append({
-        "id": capability_id,
-        "title": "步骤可追踪" if body.locale == "zh" else "Traceable workflow steps",
-        "description": (
-            "由工作流运行时记录节点进度，并在结果中保留结构化步骤证据。"
-            if body.locale == "zh"
-            else "Record node progress in the workflow runtime and retain structured "
-            "step evidence in the result."
-        ),
-        "required_envelope": envelope,
-        "guarantee_type": "observability",
-        "acceptance": [
-            (
-                "运行记录包含可定位的节点步骤，客户结果包含结构化步骤证据。"
+    guarantees.append(
+        {
+            "id": capability_id,
+            "title": "步骤可追踪" if body.locale == "zh" else "Traceable workflow steps",
+            "description": (
+                "由工作流运行时记录节点进度，并在结果中保留结构化步骤证据。"
                 if body.locale == "zh"
-                else "The run exposes addressable node steps and the customer result "
-                "contains structured step evidence."
-            )
-        ],
-    })
+                else "Record node progress in the workflow runtime and retain structured "
+                "step evidence in the result."
+            ),
+            "required_envelope": envelope,
+            "guarantee_type": "observability",
+            "acceptance": [
+                (
+                    "运行记录包含可定位的节点步骤，客户结果包含结构化步骤证据。"
+                    if body.locale == "zh"
+                    else "The run exposes addressable node steps and the customer result "
+                    "contains structured step evidence."
+                )
+            ],
+        }
+    )
     return raw_contract
 
 
@@ -1346,11 +1352,7 @@ def _normalize_ready_capability_contract(
         and item.get("outputs")
         and all(_TRACE_OUTPUT_RE.search(str(output)) for output in item["outputs"])
     }
-    removed_ids = (
-        removed_external_ids
-        | removed_review_ids
-        | removed_duplicate_function_ids
-    )
+    removed_ids = removed_external_ids | removed_review_ids | removed_duplicate_function_ids
 
     data["external_contracts"] = [
         item
@@ -1415,13 +1417,10 @@ def _normalize_ready_capability_contract(
         data["workflow_outline"] = [
             item
             for item in data.get("workflow_outline", [])
-            if not _references_any(item, removed_review_ids)
-            and not _requests_human_review(item)
+            if not _references_any(item, removed_review_ids) and not _requests_human_review(item)
         ]
         data["risk_reasons"] = [
-            item
-            for item in data.get("risk_reasons", [])
-            if not _requests_human_review(item)
+            item for item in data.get("risk_reasons", []) if not _requests_human_review(item)
         ]
         if _requests_human_review(str(data.get("runtime_interface") or "")):
             data["runtime_interface"] = (
@@ -1483,69 +1482,73 @@ def _normalize_ready_capability_contract(
         }
         outline = data.get("workflow_outline", [])
         model_step_indexes = [
-            index
-            for index, item in enumerate(outline)
-            if re.search(r"LLM|模型|model", item, re.I)
+            index for index, item in enumerate(outline) if re.search(r"LLM|模型|model", item, re.I)
         ]
         if len(model_step_indexes) > 1:
             first_model_step = model_step_indexes[0]
             combined_model_step = (
-                "使用一个结构化模型步骤同时完成："
-                + "、".join(functional_titles)
+                "使用一个结构化模型步骤同时完成：" + "、".join(functional_titles)
                 if body.locale == "zh"
-                else "Use one structured model step for: "
-                + ", ".join(functional_titles)
+                else "Use one structured model step for: " + ", ".join(functional_titles)
             )
             data["workflow_outline"] = [
                 *outline[:first_model_step],
                 combined_model_step,
                 *[
                     item
-                    for index, item in enumerate(outline[first_model_step + 1 :], first_model_step + 1)
+                    for index, item in enumerate(
+                        outline[first_model_step + 1 :], first_model_step + 1
+                    )
                     if index not in model_step_indexes
                 ],
             ]
         for decision in data.get("carrier_decisions", []):
             capability_id = decision.get("capability_id")
-            if (
-                capability_id in functional_ids
-                and decision.get("carrier_type") in {"atomic_block", "reusable_module"}
-            ):
-                decision.update({
-                    "carrier_type": "atomic_block",
-                    "resource_hint": "shared:model_turn:structured_workflow_result",
-                    "rationale": (
-                        "One structured Model Turn covers the related text capabilities; "
-                        "runtime node events and the structured step_log preserve traceability."
-                    ),
-                    "status": "proposed",
-                    "implementation_refs": [],
-                })
+            if capability_id in functional_ids and decision.get("carrier_type") in {
+                "atomic_block",
+                "reusable_module",
+            }:
+                decision.update(
+                    {
+                        "carrier_type": "atomic_block",
+                        "resource_hint": "shared:model_turn:structured_workflow_result",
+                        "rationale": (
+                            "One structured Model Turn covers the related text capabilities; "
+                            "runtime node events and the structured step_log preserve traceability."
+                        ),
+                        "status": "proposed",
+                        "implementation_refs": [],
+                    }
+                )
             elif guarantee_types.get(capability_id) in {"state", "audit", "observability"}:
-                decision.update({
-                    "carrier_type": "runtime_service",
-                    "resource_hint": "runtime:workflow_runtime",
-                    "rationale": (
-                        "The workflow runtime records node progress and structured result evidence; "
-                        "no extra model call or Event Recorder node is required."
-                    ),
-                    "status": "proposed",
-                    "implementation_refs": [],
-                })
+                decision.update(
+                    {
+                        "carrier_type": "runtime_service",
+                        "resource_hint": "runtime:workflow_runtime",
+                        "rationale": (
+                            "The workflow runtime records node progress and structured result evidence; "
+                            "no extra model call or Event Recorder node is required."
+                        ),
+                        "status": "proposed",
+                        "implementation_refs": [],
+                    }
+                )
         for coverage in data.get("platform_coverage", []):
             if guarantee_types.get(coverage.get("capability_id")) in {
                 "state",
                 "audit",
                 "observability",
             }:
-                coverage.update({
-                    "owner": "workflow_runtime",
-                    "surface": "runtime:workflow_runtime",
-                    "notes": (
-                        "Runtime node events and structured outputs provide step evidence "
-                        "without adding a separate workflow node."
-                    ),
-                })
+                coverage.update(
+                    {
+                        "owner": "workflow_runtime",
+                        "surface": "runtime:workflow_runtime",
+                        "notes": (
+                            "Runtime node events and structured outputs provide step evidence "
+                            "without adding a separate workflow node."
+                        ),
+                    }
+                )
 
     return CapabilityBuildContract.model_validate(data)
 
@@ -1653,7 +1656,12 @@ async def complete_requirement_intake(
         stream = services.provider.stream(
             model=model,
             system=_requirement_intake_system(body.locale),
-            messages=[ChatMessage(role="user", content=[ContentBlock(type="text", text=_requirement_intake_prompt(body))])],
+            messages=[
+                ChatMessage(
+                    role="user",
+                    content=[ContentBlock(type="text", text=_requirement_intake_prompt(body))],
+                )
+            ],
             tools=[],
             max_output_tokens=12_000,
             thinking_enabled=False,
@@ -1719,14 +1727,8 @@ async def _model_workflow_edit_preview(
             "title": block.title,
             "description": block.description,
             "config_schema": block.config_schema,
-            "input_ports": [
-                port.model_dump(mode="json")
-                for port in block.input_ports
-            ],
-            "output_ports": [
-                port.model_dump(mode="json")
-                for port in block.output_ports
-            ],
+            "input_ports": [port.model_dump(mode="json") for port in block.input_ports],
+            "output_ports": [port.model_dump(mode="json") for port in block.output_ports],
         }
         for block in services.blocks.list()
     ]
@@ -1831,7 +1833,9 @@ async def _model_workflow_edit_preview(
         raise ValueError("AI workflow edit preview exceeded the 40-operation review boundary")
 
     parsed_operations: list[DraftOperation] = []
-    explicit_requirement_change = bool(re.search(r"requirement|goal|需求|目标", body.instruction, re.I))
+    explicit_requirement_change = bool(
+        re.search(r"requirement|goal|需求|目标", body.instruction, re.I)
+    )
     explicit_removal = bool(re.search(r"remove|delete|删除|移除|去掉", body.instruction, re.I))
     for raw_operation in raw_operations:
         if not isinstance(raw_operation, dict):
@@ -1841,13 +1845,17 @@ async def _model_workflow_edit_preview(
         normalized["idempotency_key"] = str(uuid4())
         operation = DraftOperation.model_validate(normalized)
         if operation.op == "remove_node" and not explicit_removal:
-            raise ValueError("AI workflow edit attempted node removal without an explicit removal request")
+            raise ValueError(
+                "AI workflow edit attempted node removal without an explicit removal request"
+            )
         if (
             operation.op == "set_metadata"
             and "requirement" in operation.data
             and not explicit_requirement_change
         ):
-            raise ValueError("AI workflow edit attempted to overwrite the requirement without a requirement-change request")
+            raise ValueError(
+                "AI workflow edit attempted to overwrite the requirement without a requirement-change request"
+            )
         parsed_operations.append(operation)
     services.applications.validate_preview_operations(snapshot, parsed_operations)
     selection_warnings = validate_selection_operations(
@@ -1922,11 +1930,7 @@ def _workflow_edit_plan_digest(
 
 def _workflow_edit_draft_payload(draft: dict[str, Any]) -> dict[str, Any]:
     return {
-        **{
-            key: value
-            for key, value in draft.items()
-            if key not in {"snapshot"}
-        },
+        **{key: value for key, value in draft.items() if key not in {"snapshot"}},
         "snapshot": draft["snapshot"].model_dump(mode="json"),
     }
 
@@ -1951,16 +1955,12 @@ def _validate_workflow_edit_response(
     services.applications.validate_preview_operations(snapshot, parsed)
     selection_warnings = validate_selection_operations(
         snapshot,
-        [
-            operation.model_dump(mode="json", exclude={"idempotency_key"})
-            for operation in parsed
-        ],
+        [operation.model_dump(mode="json", exclude={"idempotency_key"}) for operation in parsed],
         node_ids=response.node_ids,
         edge_ids=response.edge_ids,
     )
     response.operations = [
-        operation.model_dump(mode="json", exclude={"idempotency_key"})
-        for operation in parsed
+        operation.model_dump(mode="json", exclude={"idempotency_key"}) for operation in parsed
     ]
     response.warnings = list(dict.fromkeys([*response.warnings, *selection_warnings]))
     return response
@@ -2017,7 +2017,10 @@ async def _plan_workflow_edit(
     except Exception as error:
         warnings = [str(error)]
         if deterministic_error is not None:
-            warnings.insert(0, f"Deterministic preview was outside the selected edit boundary: {deterministic_error}")
+            warnings.insert(
+                0,
+                f"Deterministic preview was outside the selected edit boundary: {deterministic_error}",
+            )
         response = DraftPatchPreviewResponse(
             supported=False,
             intent="unsupported",
@@ -2151,9 +2154,7 @@ def _collaboration_secret_registry(
             if configured:
                 values.append(configured)
         elif isinstance(configured, dict):
-            values.extend(
-                str(value) for value in configured.values() if str(value)
-            )
+            values.extend(str(value) for value in configured.values() if str(value))
     return tuple(fields), tuple(values)
 
 
@@ -2191,6 +2192,11 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
     platform_blackbox_artifacts = PlatformBlackboxArtifactStore(storage.db_path)
     platform_contract_versions = PlatformContractVersionStore(storage.db_path)
     services: Services
+    local_lilies_bridge: LocalLiliesBridge
+    local_lilies_platform_base_url = (
+        settings.lilies_platform_base_url.strip() or f"http://127.0.0.1:{settings.port}"
+    )
+    local_lilies_bridge_store = LocalLiliesBridgeStore(settings.data_dir / "local-lilies-bridge.db")
 
     async def local_lilies_contract_digest(
         scopes: tuple[Any, ...],
@@ -2206,20 +2212,6 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
             application_ids,
         )
 
-    local_lilies_bridge = LocalLiliesBridge(
-        enabled=settings.lilies_local_agent_enabled,
-        store=LocalLiliesBridgeStore(settings.data_dir / "local-lilies-bridge.db"),
-        workflow_storage=workflow_store,
-        harness=harness,
-        auth_store=platform_blackbox_auth,
-        client=LocalLiliesHttpClient(),
-        platform_base_url=(
-            settings.lilies_platform_base_url.strip()
-            or f"http://127.0.0.1:{settings.port}"
-        ),
-        contract_digest_provider=local_lilies_contract_digest,
-        default_route=settings.lilies_local_builder_default,
-    )
     web_collector = ControlledWebCollector(jobs=durable_jobs, harness=harness)
     connectors = ConnectorService(storage=storage, harness=harness)
     openapi_connectors = OpenAPIConnectorService(
@@ -2276,8 +2268,8 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         templates.evidence,
         evidence_root=_repo_root() or Path.cwd(),
     )
-    collaboration_secret_fields, collaboration_secret_values = (
-        _collaboration_secret_registry(settings)
+    collaboration_secret_fields, collaboration_secret_values = _collaboration_secret_registry(
+        settings
     )
     repository_root = _repo_root()
 
@@ -2327,21 +2319,485 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
                 return current
             raise
 
+    from .collaboration_models import (
+        CollaborationChannel,
+        DeveloperWorkspaceBinding,
+        SenderRole,
+        VerificationClaimRequest,
+        VerificationResultPayload,
+    )
+    from .independent_verifier_broker import (
+        run_independent_verifier_subprocess,
+    )
+    from .task_packages import TaskPackageError, TaskPackageManager
+
+    task_packages = TaskPackageManager(settings.data_dir / "task-packages")
+    collaboration_store = CollaborationStore(
+        storage.db_path,
+        registered_secret_fields=collaboration_secret_fields,
+        registered_secret_values=collaboration_secret_values,
+    )
+
+    def frozen_verification_required(_channel: CollaborationChannel) -> bool:
+        # Collaboration channels are created only for formal assignments.
+        # Absence of a registered frozen revision is therefore a rejection,
+        # never a reason to fall back to the legacy, caller-supplied verdict.
+        return True
+
+    def resolve_frozen_claim(channel: Any, claim: Any) -> bool:
+        try:
+            manifest = task_packages.validate_claim_binding(
+                task_id=channel.task_id,
+                revision=channel.task_revision,
+                claim=claim,
+            )
+        except (TaskPackageError, ValueError):
+            return False
+        return (
+            claim.channel_id == channel.channel_id
+            and claim.assignment_id == channel.assignment_id
+            and manifest.claim_binding is not None
+            and manifest.claim_binding.assignment_id == channel.assignment_id
+        )
+
+    async def resolve_verifier_result(claim: Any, result: Any) -> bool:
+        try:
+            channel = CollaborationChannel.model_validate(
+                await collaboration_store.get_channel(claim.channel_id)
+            )
+            expected = await asyncio.to_thread(
+                run_independent_verifier_subprocess,
+                state_root=settings.data_dir / "task-packages",
+                task_id=channel.task_id,
+                revision=channel.task_revision,
+                claim=claim,
+                broker_root=settings.data_dir / "verifier-broker",
+            )
+            payload_fields = set(VerificationResultPayload.model_fields)
+            supplied = VerificationResultPayload.model_validate(
+                {
+                    key: value
+                    for key, value in result.model_dump(
+                        mode="json",
+                        exclude_none=True,
+                    ).items()
+                    if key in payload_fields
+                }
+            )
+        except Exception:
+            return False
+        return supplied == expected
+
+    formal_assignment_runtime = None
+    formal_developer_worker_broker = None
+    formal_run_archiver = None
+    formal_source_provenance = None
+    local_lilies_bridge: LocalLiliesBridge | None = None
+
+    async def resolve_developer_workspace(channel: CollaborationChannel) -> dict[str, Any]:
+        runtime = formal_assignment_runtime
+        if runtime is None:
+            raise TaskPackageError("formal developer workspace is unavailable")
+        resolved = await runtime.developer_workspace_for_channel(channel)
+        return _developer_workspace_binding(resolved).model_dump(
+            mode="json",
+            exclude_none=True,
+        )
+
+    def _developer_workspace_binding(resolved: Any) -> DeveloperWorkspaceBinding:
+        return DeveloperWorkspaceBinding.model_validate(
+            {
+                "schema_version": resolved.schema_version,
+                "task_id": resolved.task_id,
+                "task_revision": resolved.task_revision,
+                "run_id": resolved.run_id,
+                "assignment_id": str(resolved.assignment_id),
+                "path": resolved.workspace.path,
+                "manifest_digest": resolved.workspace.manifest_digest,
+                "policy_digest": resolved.workspace.policy_digest,
+                "source_manifest_digest": resolved.source_manifest_digest,
+                "baseline_commit_sha": resolved.baseline_commit_sha,
+                "baseline_tree_sha": resolved.baseline_tree_sha,
+                "branch_ref": resolved.branch_ref,
+                "allowed_new_prefixes": list(resolved.allowed_new_prefixes),
+                "allowed_new_files": list(resolved.allowed_new_files),
+            }
+        )
+
+    async def run_formal_developer_worker(
+        channel: Any,
+        report: Any,
+        lease: Any,
+        request: Any,
+    ) -> Any:
+        runtime = formal_assignment_runtime
+        broker = formal_developer_worker_broker
+        if runtime is None or broker is None:
+            raise TaskPackageError("formal developer worker is unavailable")
+        resolved = await runtime.developer_workspace_for_channel(channel)
+        binding = _developer_workspace_binding(resolved)
+        return await asyncio.to_thread(
+            broker.run,
+            channel=channel,
+            report=report,
+            lease=lease,
+            workspace=binding,
+            request=request,
+        )
+
+    async def resolve_formal_developer_worker_receipt(
+        channel: Any,
+        report: Any,
+        lease: Any,
+        response_id: UUID,
+        reference: Any,
+        require_success: bool,
+    ) -> bool:
+        runtime = formal_assignment_runtime
+        broker = formal_developer_worker_broker
+        if runtime is None or broker is None:
+            return False
+        try:
+            resolved = await runtime.developer_workspace_for_channel(channel)
+            binding = _developer_workspace_binding(resolved)
+            return await asyncio.to_thread(
+                broker.validate_receipt,
+                channel=channel,
+                report=report,
+                lease=lease,
+                workspace=binding,
+                response_id=response_id,
+                receipt_id=reference.receipt_id,
+                receipt_digest=reference.receipt_digest,
+                require_success=require_success,
+            )
+        except Exception:
+            return False
+
+    async def promote_developer_source(
+        channel: Any,
+        report: Any,
+        lease: Any,
+        request: Any,
+    ) -> Any:
+        runtime = formal_assignment_runtime
+        if runtime is None:
+            raise TaskPackageError(
+                "formal developer source promotion is unavailable"
+            )
+        return await runtime.promote_developer_workspace(
+            channel=channel,
+            report=report,
+            lease=lease,
+            request=request,
+        )
+
+    async def resolve_developer_promotion(
+        channel: Any,
+        response: Any,
+    ) -> bool:
+        coordinator = formal_source_provenance
+        if coordinator is None or response.commit_sha is None:
+            return False
+        return await asyncio.to_thread(
+            coordinator.promoted_response_is_effective,
+            assignment_id=channel.assignment_id,
+            channel_id=channel.channel_id,
+            report_id=response.report_id,
+            report_revision=response.report_revision,
+            response_id=response.response_id,
+            commit_sha=response.commit_sha,
+        )
+
+    async def prepare_formal_archive(
+        channel: CollaborationChannel,
+        request: Any,
+        actor_id: str,
+    ) -> Any:
+        bridge = local_lilies_bridge
+        if bridge is None:
+            raise TaskPackageError("formal archive intent bridge is unavailable")
+        return await bridge.freeze_formal_run_archive_intent(
+            channel=channel,
+            request=request,
+            actor_id=actor_id,
+        )
+
+    async def record_formal_source_response(
+        channel_id: UUID,
+        response_id: UUID,
+    ) -> None:
+        coordinator = formal_source_provenance
+        if coordinator is None:
+            raise TaskPackageError(
+                "formal developer source provenance is unavailable"
+            )
+        from .formal_source_provenance import (
+            approved_developer_response_bindings,
+        )
+
+        export = await collaboration_store.export_channel(channel_id)
+        bindings = approved_developer_response_bindings(
+            export.get("messages", []),
+            channel_id=channel_id,
+        )
+        matching = [
+            binding
+            for binding in bindings
+            if binding.response_id == response_id
+        ]
+        if not matching:
+            # Non-implemented DeveloperResponses intentionally carry no source
+            # commit and therefore create no Git provenance record.
+            return
+        if len(matching) != 1:
+            raise TaskPackageError(
+                "formal developer response has ambiguous source provenance"
+            )
+        await asyncio.to_thread(
+            coordinator.record_promoted_response,
+            assignment_id=UUID(str(export["channel"]["assignment_id"])),
+            binding=matching[0],
+        )
+
     collaboration = CollaborationService(
-        store=CollaborationStore(
-            storage.db_path,
-            registered_secret_fields=collaboration_secret_fields,
-            registered_secret_values=collaboration_secret_values,
-        ),
+        store=collaboration_store,
         enabled=settings.lilies_collaboration_enabled,
         developer_token=settings.lilies_collaboration_developer_token,
         verifier_token=settings.lilies_collaboration_verifier_token,
         reserved_role_tokens=(settings.api_token,),
         draft_state_provider=workflow_store.get_draft,
         developer_commit_resolver=resolve_developer_commit,
+        developer_promotion_resolver=(
+            resolve_developer_promotion
+            if settings.lilies_local_agent_enabled
+            and settings.lilies_collaboration_enabled
+            else None
+        ),
         developer_evidence_resolver=resolve_developer_evidence,
         studio_context_provider=collaboration_studio_context,
+        developer_workspace_provider=(
+            resolve_developer_workspace
+            if settings.lilies_local_agent_enabled and settings.lilies_collaboration_enabled
+            else None
+        ),
+        developer_source_promotion_provider=(
+            promote_developer_source
+            if settings.lilies_local_agent_enabled
+            and settings.lilies_collaboration_enabled
+            else None
+        ),
+        developer_worker_provider=(
+            run_formal_developer_worker
+            if settings.lilies_local_agent_enabled
+            and settings.lilies_collaboration_enabled
+            else None
+        ),
+        developer_worker_receipt_resolver=(
+            resolve_formal_developer_worker_receipt
+            if settings.lilies_local_agent_enabled
+            and settings.lilies_collaboration_enabled
+            else None
+        ),
+        formal_archive_provider=(
+            prepare_formal_archive
+            if settings.lilies_local_agent_enabled and settings.lilies_collaboration_enabled
+            else None
+        ),
+        formal_source_response_recorder=(
+            record_formal_source_response
+            if settings.lilies_local_agent_enabled
+            and settings.lilies_collaboration_enabled
+            else None
+        ),
         assignment_cancel_handler=cancel_collaboration_assignment,
+        verification_claim_resolver=resolve_frozen_claim,
+        verification_result_resolver=resolve_verifier_result,
+        require_frozen_verification_evidence=frozen_verification_required,
+    )
+    if settings.lilies_local_agent_enabled and settings.lilies_collaboration_enabled:
+        from .formal_assignment_runtime import PlatformFormalAssignmentRuntime
+        from .formal_source_provenance import (
+            FormalSourceProvenanceCoordinator,
+        )
+
+        formal_source_provenance = FormalSourceProvenanceCoordinator(
+            repository_root=repository_root,
+            state_root=settings.data_dir / "formal-source-provenance",
+        )
+
+        formal_assignment_runtime = PlatformFormalAssignmentRuntime(
+            task_state_root=settings.data_dir / "task-packages",
+            broker_state_root=settings.data_dir / "formal-assignment-broker",
+            public_workspace_root=(settings.workspace_root / "formal-lilies-assignments"),
+            platform_base_url=local_lilies_platform_base_url,
+            contract_digest_provider=local_lilies_contract_digest,
+            harness=harness,
+            collaboration=collaboration,
+            developer_source_root=repository_root,
+            developer_workspace_root=(settings.workspace_root / "formal-developer-assignments"),
+            source_provenance=formal_source_provenance,
+        )
+
+        from .formal_developer_worker_broker import (
+            FormalDeveloperWorkerBroker,
+        )
+
+        configured_worker = settings.lilies_developer_worker_executable
+        discovered_worker = shutil.which("codex")
+        worker_executable = (
+            configured_worker
+            if configured_worker is not None
+            else Path(discovered_worker)
+            if discovered_worker is not None
+            else None
+        )
+        if worker_executable is not None:
+            explicit_runtime_roots = tuple(
+                path
+                for path in (
+                    Path("/bin/bash"),
+                    Path("/bin/cat"),
+                    Path("/bin/chmod"),
+                    Path("/bin/cp"),
+                    Path("/bin/ln"),
+                    Path("/bin/ls"),
+                    Path("/bin/mkdir"),
+                    Path("/bin/mv"),
+                    Path("/bin/pwd"),
+                    Path("/bin/rm"),
+                    Path("/bin/sh"),
+                    Path("/bin/test"),
+                    Path("/usr/bin/clang"),
+                    Path("/usr/bin/env"),
+                    Path("/usr/bin/find"),
+                    Path("/usr/bin/git"),
+                    Path("/usr/bin/grep"),
+                    Path("/usr/bin/make"),
+                    Path("/usr/bin/patch"),
+                    Path("/usr/bin/python3"),
+                    Path("/usr/bin/sed"),
+                    Path("/usr/bin/xargs"),
+                    Path(
+                        "/Library/Developer/CommandLineTools/usr/bin/git"
+                    ),
+                    Path(
+                        "/Library/Developer/CommandLineTools/usr/libexec/git-core"
+                    ),
+                )
+                if path.exists()
+            )
+            formal_developer_worker_broker = FormalDeveloperWorkerBroker(
+                state_root=settings.data_dir / "formal-developer-worker",
+                runtime_executable=worker_executable,
+                runtime_read_roots=tuple(
+                    path
+                    for path in (
+                        Path(worker_executable).resolve(strict=True).parent,
+                        Path("/private/var/select"),
+                    )
+                    if path.exists()
+                ),
+                runtime_executable_roots=explicit_runtime_roots,
+            )
+
+        from .formal_run_archiver import (
+            FormalRunArchiveCoordinator,
+            FormalRunArchivePreparationResult,
+        )
+
+        formal_run_archiver = FormalRunArchiveCoordinator(
+            task_state_root=settings.data_dir / "task-packages",
+            public_workspace_root=(settings.workspace_root / "formal-lilies-assignments"),
+            bridge_store=local_lilies_bridge_store,
+            collaboration_store=collaboration_store,
+            workflow_storage=workflow_store,
+            artifact_store=platform_blackbox_artifacts,
+            auth_store=platform_blackbox_auth,
+            connector_service=connectors,
+            source_provenance=formal_source_provenance,
+        )
+
+    async def archive_formal_terminal(assignment_id: Any) -> Any:
+        archiver = formal_run_archiver
+        if archiver is None:
+            return None
+        return await archiver.archive_terminal_assignment(assignment_id)
+
+    async def archive_formal_success(channel_id: Any, request: Any) -> Any:
+        archiver = formal_run_archiver
+        if archiver is None:
+            raise TaskPackageError("formal run archiver is unavailable")
+        return await archiver.prepare_success_archive(
+            channel_id=channel_id,
+            request=request,
+        )
+
+    async def freeze_formal_verification_claim(
+        channel_id: Any,
+        actor_id: str,
+        request: Any,
+        archive_result: Any,
+    ) -> Any:
+        archived = FormalRunArchivePreparationResult.model_validate(archive_result)
+        resolved_channel_id = UUID(str(channel_id))
+        if (
+            archived.channel_id != resolved_channel_id
+            or archived.verification_claim.claim_id != request.claim_id
+            or archived.claim_binding.claim_id != request.claim_id
+        ):
+            raise TaskPackageError(
+                "formal archive claim changed its frozen assignment binding"
+            )
+        principal = CollaborationPrincipal(
+            role=SenderRole.lilies,
+            sender_id=actor_id,
+            scopes=frozenset({"collaboration.report:write"}),
+            channel_id=resolved_channel_id,
+            assignment_id=archived.assignment_id,
+        )
+        return await collaboration.submit_verification_claim(
+            principal=principal,
+            channel_id=resolved_channel_id,
+            request=VerificationClaimRequest(
+                idempotency_key=f"formal.claim.{request.claim_id.hex}",
+                expected_channel_revision=request.expected_channel_revision,
+                claim=archived.verification_claim,
+            ),
+        )
+
+    local_lilies_bridge = LocalLiliesBridge(
+        enabled=settings.lilies_local_agent_enabled,
+        store=local_lilies_bridge_store,
+        workflow_storage=workflow_store,
+        harness=harness,
+        auth_store=platform_blackbox_auth,
+        client=LocalLiliesHttpClient(),
+        platform_base_url=local_lilies_platform_base_url,
+        contract_digest_provider=local_lilies_contract_digest,
+        formal_assignment_broker=formal_assignment_runtime,
+        formal_credential_secret_provider=(
+            formal_assignment_runtime.collaboration_credential_secret
+            if formal_assignment_runtime is not None
+            else None
+        ),
+        formal_channel_close_provider=(
+            formal_assignment_runtime.close_collaboration_authority
+            if formal_assignment_runtime is not None
+            else None
+        ),
+        formal_terminal_archive_provider=(
+            archive_formal_terminal if formal_run_archiver is not None else None
+        ),
+        formal_success_archive_provider=(
+            archive_formal_success if formal_run_archiver is not None else None
+        ),
+        formal_verification_claim_provider=(
+            freeze_formal_verification_claim
+            if formal_run_archiver is not None
+            else None
+        ),
+        default_route=settings.lilies_local_builder_default,
     )
 
     def invalidate_collaboration_claims_with_draft_write(
@@ -2426,6 +2882,7 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         platform_contract_versions=platform_contract_versions,
         local_lilies_bridge=local_lilies_bridge,
         collaboration=collaboration,
+        formal_run_archiver=formal_run_archiver,
         worker_supervisor=None,
         worker_process_manager=None,
         background_tasks=set(),
@@ -2452,7 +2909,9 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
     services.worker_process_manager = ExternalWorkerProcessManager(
         command=list(settings.platform_harness_worker_process_command),
         cwd=settings.platform_harness_worker_process_cwd,
-        stop_timeout_seconds=max(settings.platform_harness_worker_process_stop_timeout_seconds, 0.001),
+        stop_timeout_seconds=max(
+            settings.platform_harness_worker_process_stop_timeout_seconds, 0.001
+        ),
     )
     return services
 
@@ -2493,9 +2952,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                     # publish readiness.
                     await lifespan_ready.wait()
                     await asyncio.sleep(0.05)
-                    recovery = (
-                        await services.local_lilies_bridge.recover_pending_assignments()
-                    )
+                    recovery = await services.local_lilies_bridge.recover_pending_assignments()
                     lifespan_app.state.local_lilies_recovery = {
                         "status": "completed",
                         **recovery.model_dump(mode="json"),
@@ -2531,7 +2988,10 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             services.background_tasks.add(adaptive_refresh_task)
         lifespan_ready.set()
         yield
-        if services.worker_process_manager is not None and services.worker_process_manager.is_running:
+        if (
+            services.worker_process_manager is not None
+            and services.worker_process_manager.is_running
+        ):
             services.worker_process_manager.stop()
         if services.worker_supervisor is not None and services.worker_supervisor.loop_running:
             await services.worker_supervisor.stop()
@@ -2556,7 +3016,9 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
     ) -> None:
         supplied = credentials.credentials if credentials else request.query_params.get("token")
         if supplied != settings.api_token:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid API token")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid API token"
+            )
 
     async def require_local_lilies_token(
         request: Request,
@@ -2601,7 +3063,9 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         return {
             "provider": services.provider.name,
             "type": services.provider.name,  # new key, backward compat
-            "configured_providers": getattr(services.provider, "configured_providers", ["deepseek"]),
+            "configured_providers": getattr(
+                services.provider, "configured_providers", ["deepseek"]
+            ),
             "configured_models": getattr(services.provider, "configured_models", []),
             "generator_model": settings.deepseek_generator_model,
             "runtime_model": settings.deepseek_runtime_model,
@@ -2728,7 +3192,9 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
     async def get_platform_harness_policy_controls() -> dict[str, Any]:
         return services.harness.policy_controls()
 
-    @app.get("/api/v1/platform/harness/worker-handler-catalog", dependencies=[Depends(require_token)])
+    @app.get(
+        "/api/v1/platform/harness/worker-handler-catalog", dependencies=[Depends(require_token)]
+    )
     async def get_platform_harness_worker_handler_catalog() -> dict[str, Any]:
         from .worker_runner import build_platform_worker_handlers, platform_worker_handler_catalog
 
@@ -2755,7 +3221,9 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         except PlatformHarnessViolation as error:
             raise HTTPException(422, str(error)) from error
 
-    @app.get("/api/v1/platform/complexity-router/default-safety", dependencies=[Depends(require_token)])
+    @app.get(
+        "/api/v1/platform/complexity-router/default-safety", dependencies=[Depends(require_token)]
+    )
     async def get_complexity_router_default_safety() -> dict[str, Any]:
         return complexity_router_default_safety_gate(
             default_enabled=(
@@ -2764,11 +3232,17 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             )
         )
 
-    @app.get("/api/v1/platform/complexity-router/requirement-classification", dependencies=[Depends(require_token)])
+    @app.get(
+        "/api/v1/platform/complexity-router/requirement-classification",
+        dependencies=[Depends(require_token)],
+    )
     async def get_complexity_router_requirement_classification_contract() -> dict[str, Any]:
         return requirement_classification_contract_status()
 
-    @app.post("/api/v1/platform/complexity-router/classify-requirement", dependencies=[Depends(require_token)])
+    @app.post(
+        "/api/v1/platform/complexity-router/classify-requirement",
+        dependencies=[Depends(require_token)],
+    )
     async def post_complexity_router_classify_requirement(
         body: RequirementClassificationRequest,
     ) -> dict[str, Any]:
@@ -2801,7 +3275,9 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             require_bound_carriers=require_bound_carriers,
         ).model_dump(mode="json")
 
-    @app.get("/api/v1/capability-contracts/reference-scenarios", dependencies=[Depends(require_token)])
+    @app.get(
+        "/api/v1/capability-contracts/reference-scenarios", dependencies=[Depends(require_token)]
+    )
     async def list_reference_capability_contracts() -> list[dict[str, Any]]:
         return [
             {
@@ -2811,7 +3287,10 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             for contract in reference_capability_contracts()
         ]
 
-    @app.get("/api/v1/platform/complexity-router/default-enableable-plan", dependencies=[Depends(require_token)])
+    @app.get(
+        "/api/v1/platform/complexity-router/default-enableable-plan",
+        dependencies=[Depends(require_token)],
+    )
     async def get_complexity_router_default_enableable_plan() -> dict[str, Any]:
         return limited_default_enablement_plan_status(
             default_mode=services.settings.complexity_router_default_mode,
@@ -2819,26 +3298,42 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             min_confidence=services.settings.complexity_router_limited_default_min_confidence,
         )
 
-    @app.get("/api/v1/platform/complexity-router/runtime-activation-metrics", dependencies=[Depends(require_token)])
+    @app.get(
+        "/api/v1/platform/complexity-router/runtime-activation-metrics",
+        dependencies=[Depends(require_token)],
+    )
     async def get_complexity_router_runtime_activation_metrics(limit: int = 100) -> dict[str, Any]:
         builds = await services.workflow_store.list_recent_builds(limit=max(1, min(limit, 500)))
         return runtime_activation_rollout_metrics(builds)
 
-    @app.get("/api/v1/platform/complexity-router/operator-override-plan", dependencies=[Depends(require_token)])
+    @app.get(
+        "/api/v1/platform/complexity-router/operator-override-plan",
+        dependencies=[Depends(require_token)],
+    )
     async def get_complexity_router_operator_override_plan() -> dict[str, Any]:
         return operator_override_plan_status()
 
-    @app.post("/api/v1/platform/complexity-router/validate-operator-override", dependencies=[Depends(require_token)])
+    @app.post(
+        "/api/v1/platform/complexity-router/validate-operator-override",
+        dependencies=[Depends(require_token)],
+    )
     async def post_complexity_router_validate_operator_override(
         body: OperatorOverrideRequest,
     ) -> dict[str, Any]:
         return validate_operator_override(body.mode, body.reason)
 
-    @app.get("/api/v1/platform/complexity-router/rollout-metrics-prerequisites", dependencies=[Depends(require_token)])
-    async def get_complexity_router_rollout_metrics_prerequisites(sample_count: int = 0) -> dict[str, Any]:
+    @app.get(
+        "/api/v1/platform/complexity-router/rollout-metrics-prerequisites",
+        dependencies=[Depends(require_token)],
+    )
+    async def get_complexity_router_rollout_metrics_prerequisites(
+        sample_count: int = 0,
+    ) -> dict[str, Any]:
         return rollout_metrics_prerequisites_status(sample_count)
 
-    @app.post("/api/v1/platform/harness/tasks/{task_id}/lease", dependencies=[Depends(require_token)])
+    @app.post(
+        "/api/v1/platform/harness/tasks/{task_id}/lease", dependencies=[Depends(require_token)]
+    )
     async def claim_platform_harness_task_lease(
         task_id: str, body: PlatformTaskLeaseRequest
     ) -> dict[str, Any]:
@@ -2854,7 +3349,10 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         except PlatformHarnessViolation as error:
             raise HTTPException(409, str(error)) from error
 
-    @app.post("/api/v1/platform/harness/tasks/{task_id}/lease/renew", dependencies=[Depends(require_token)])
+    @app.post(
+        "/api/v1/platform/harness/tasks/{task_id}/lease/renew",
+        dependencies=[Depends(require_token)],
+    )
     async def renew_platform_harness_task_lease(
         task_id: str, body: PlatformTaskLeaseRequest
     ) -> dict[str, Any]:
@@ -2870,7 +3368,10 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         except PlatformHarnessViolation as error:
             raise HTTPException(409, str(error)) from error
 
-    @app.post("/api/v1/platform/harness/tasks/{task_id}/lease/release", dependencies=[Depends(require_token)])
+    @app.post(
+        "/api/v1/platform/harness/tasks/{task_id}/lease/release",
+        dependencies=[Depends(require_token)],
+    )
     async def release_platform_harness_task_lease(
         task_id: str, body: PlatformTaskLeaseReleaseRequest
     ) -> dict[str, Any]:
@@ -2895,7 +3396,9 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
     async def get_platform_harness_queue_semantics(limit: int = 100) -> dict[str, Any]:
         return await services.harness.queue_semantics_snapshot(limit=max(1, min(limit, 500)))
 
-    @app.post("/api/v1/platform/harness/queue/requeue-expired", dependencies=[Depends(require_token)])
+    @app.post(
+        "/api/v1/platform/harness/queue/requeue-expired", dependencies=[Depends(require_token)]
+    )
     async def requeue_platform_harness_expired_queue_tasks() -> list[dict[str, Any]]:
         tasks = await services.harness.requeue_expired_task_leases()
         return [task.model_dump(mode="json") for task in tasks]
@@ -2911,7 +3414,9 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             raise HTTPException(503, "platform worker supervisor unavailable")
         return await services.worker_supervisor.snapshot()
 
-    @app.post("/api/v1/platform/harness/worker-supervision/start", dependencies=[Depends(require_token)])
+    @app.post(
+        "/api/v1/platform/harness/worker-supervision/start", dependencies=[Depends(require_token)]
+    )
     async def start_platform_harness_worker_supervision(
         body: PlatformWorkerSupervisionStartRequest | None = None,
     ) -> dict[str, Any]:
@@ -2926,19 +3431,26 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         except ValueError as error:
             raise HTTPException(422, str(error)) from error
 
-    @app.post("/api/v1/platform/harness/worker-supervision/stop", dependencies=[Depends(require_token)])
+    @app.post(
+        "/api/v1/platform/harness/worker-supervision/stop", dependencies=[Depends(require_token)]
+    )
     async def stop_platform_harness_worker_supervision() -> dict[str, Any]:
         if services.worker_supervisor is None:
             raise HTTPException(503, "platform worker supervisor unavailable")
         return await services.worker_supervisor.stop()
 
-    @app.get("/api/v1/platform/harness/worker-process-manager", dependencies=[Depends(require_token)])
+    @app.get(
+        "/api/v1/platform/harness/worker-process-manager", dependencies=[Depends(require_token)]
+    )
     async def get_platform_harness_worker_process_manager() -> dict[str, Any]:
         if services.worker_process_manager is None:
             raise HTTPException(503, "platform worker process manager unavailable")
         return services.worker_process_manager.snapshot()
 
-    @app.post("/api/v1/platform/harness/worker-process-manager/start", dependencies=[Depends(require_token)])
+    @app.post(
+        "/api/v1/platform/harness/worker-process-manager/start",
+        dependencies=[Depends(require_token)],
+    )
     async def start_platform_harness_worker_process_manager(
         body: PlatformWorkerProcessStartRequest | None = None,
     ) -> dict[str, Any]:
@@ -2954,13 +3466,19 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         except ValueError as error:
             raise HTTPException(422, str(error)) from error
 
-    @app.post("/api/v1/platform/harness/worker-process-manager/stop", dependencies=[Depends(require_token)])
+    @app.post(
+        "/api/v1/platform/harness/worker-process-manager/stop",
+        dependencies=[Depends(require_token)],
+    )
     async def stop_platform_harness_worker_process_manager() -> dict[str, Any]:
         if services.worker_process_manager is None:
             raise HTTPException(503, "platform worker process manager unavailable")
         return services.worker_process_manager.stop()
 
-    @app.post("/api/v1/platform/harness/worker-process-manager/restart", dependencies=[Depends(require_token)])
+    @app.post(
+        "/api/v1/platform/harness/worker-process-manager/restart",
+        dependencies=[Depends(require_token)],
+    )
     async def restart_platform_harness_worker_process_manager(
         body: PlatformWorkerProcessStartRequest | None = None,
     ) -> dict[str, Any]:
@@ -3235,6 +3753,10 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                 profile_id=body.profile_id,
                 operation_id=body.operation_id,
                 payload=body.payload,
+                assignment_id=body.assignment_id,
+                session_id=body.session_id,
+                application_id=body.application_id,
+                run_id=body.run_id,
                 expires_in_seconds=body.expires_in_seconds,
                 max_uses=body.max_uses,
             )
@@ -3509,7 +4031,9 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         except (ValueError, RuntimeError, PlatformHarnessViolation) as error:
             raise HTTPException(422, str(error)) from error
 
-    @app.post("/api/v1/platform/governed-memory", status_code=201, dependencies=[Depends(require_token)])
+    @app.post(
+        "/api/v1/platform/governed-memory", status_code=201, dependencies=[Depends(require_token)]
+    )
     async def create_governed_memory(body: GovernedMemoryCreateRequest) -> dict[str, Any]:
         try:
             item = await services.governed_memory.create(
@@ -3554,16 +4078,26 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         except GovernedMemoryViolation as error:
             raise HTTPException(422, str(error)) from error
 
-    @app.post("/api/v1/platform/governed-memory/{memory_id}/read", dependencies=[Depends(require_token)])
-    async def read_governed_memory(memory_id: str, body: GovernedMemoryReadRequest) -> dict[str, Any]:
+    @app.post(
+        "/api/v1/platform/governed-memory/{memory_id}/read", dependencies=[Depends(require_token)]
+    )
+    async def read_governed_memory(
+        memory_id: str, body: GovernedMemoryReadRequest
+    ) -> dict[str, Any]:
         try:
-            item = await services.governed_memory.read(memory_id, permission=body.permission, reason=body.reason)
+            item = await services.governed_memory.read(
+                memory_id, permission=body.permission, reason=body.reason
+            )
             return item.model_dump(mode="json")
         except GovernedMemoryViolation as error:
             raise HTTPException(422, str(error)) from error
 
-    @app.patch("/api/v1/platform/governed-memory/{memory_id}", dependencies=[Depends(require_token)])
-    async def update_governed_memory(memory_id: str, body: GovernedMemoryUpdateRequest) -> dict[str, Any]:
+    @app.patch(
+        "/api/v1/platform/governed-memory/{memory_id}", dependencies=[Depends(require_token)]
+    )
+    async def update_governed_memory(
+        memory_id: str, body: GovernedMemoryUpdateRequest
+    ) -> dict[str, Any]:
         try:
             item = await services.governed_memory.update(
                 memory_id,
@@ -3576,10 +4110,16 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         except GovernedMemoryViolation as error:
             raise HTTPException(422, str(error)) from error
 
-    @app.post("/api/v1/platform/governed-memory/{memory_id}/revoke", dependencies=[Depends(require_token)])
-    async def revoke_governed_memory(memory_id: str, body: GovernedMemoryReadRequest) -> dict[str, Any]:
+    @app.post(
+        "/api/v1/platform/governed-memory/{memory_id}/revoke", dependencies=[Depends(require_token)]
+    )
+    async def revoke_governed_memory(
+        memory_id: str, body: GovernedMemoryReadRequest
+    ) -> dict[str, Any]:
         try:
-            item = await services.governed_memory.revoke(memory_id, permission=body.permission, reason=body.reason)
+            item = await services.governed_memory.revoke(
+                memory_id, permission=body.permission, reason=body.reason
+            )
             return item.model_dump(mode="json")
         except GovernedMemoryViolation as error:
             raise HTTPException(422, str(error)) from error
@@ -3593,7 +4133,10 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                 reason=body.reason,
                 now=body.now,
             )
-            return {"expired": [item.model_dump(mode="json") for item in expired], "expired_count": len(expired)}
+            return {
+                "expired": [item.model_dump(mode="json") for item in expired],
+                "expired_count": len(expired),
+            }
         except GovernedMemoryViolation as error:
             raise HTTPException(422, str(error)) from error
 
@@ -3745,9 +4288,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         status: str | None = None,
         query: str = "",
     ) -> list[dict[str, Any]]:
-        allowed_statuses = {
-            "legacy_unverified", "draft", "verified", "deprecated", "quarantined"
-        }
+        allowed_statuses = {"legacy_unverified", "draft", "verified", "deprecated", "quarantined"}
         if status is not None and status not in allowed_statuses:
             raise HTTPException(422, f"unknown module status: {status}")
         records = services.templates.list_records(
@@ -3936,17 +4477,19 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         payloads: list[dict[str, Any]] = []
         for meta in services.templates.list(category=category, query=query):
             record = services.templates.get_record(meta.name, meta.version)
-            payloads.append({
-                **meta.model_dump(mode="json"),
-                "module_ref": record.module_ref,
-                "module_status": record.state.status,
-                "content_hash": record.state.content_hash,
-                "module_contract": (
-                    record.template.module_contract.model_dump(mode="json")
-                    if record.template.module_contract
-                    else None
-                ),
-            })
+            payloads.append(
+                {
+                    **meta.model_dump(mode="json"),
+                    "module_ref": record.module_ref,
+                    "module_status": record.state.status,
+                    "content_hash": record.state.content_hash,
+                    "module_contract": (
+                        record.template.module_contract.model_dump(mode="json")
+                        if record.template.module_contract
+                        else None
+                    ),
+                }
+            )
         return payloads
 
     @app.get("/api/v1/templates/categories", dependencies=[Depends(require_token)])
@@ -3976,7 +4519,9 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         }
 
     @app.get("/api/v1/templates/suggestions", dependencies=[Depends(require_token)])
-    async def suggest_templates(requirement: str = "", reuse_depth: str | None = None) -> list[dict[str, Any]]:
+    async def suggest_templates(
+        requirement: str = "", reuse_depth: str | None = None
+    ) -> list[dict[str, Any]]:
         """Suggest matching templates for a requirement, sorted by relevance."""
         if not requirement:
             return []
@@ -3987,53 +4532,65 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             return []
         scored = score_template_matches(
             requirement,
-            [
-                record.template.meta
-                for record in services.templates.list_records(all_versions=True)
-            ],
+            [record.template.meta for record in services.templates.list_records(all_versions=True)],
         )
         payloads: list[dict[str, Any]] = []
         for score, meta in scored[:5]:
             record = services.templates.get_record(meta.name, meta.version)
-            payloads.append({
-                **build_suggestion_payload(
-                    meta,
-                    score,
-                    reuse_depth,
-                    default_metadata=default_metadata,
-                ),
-                "module_ref": record.module_ref,
-                "module_status": record.state.status,
-                "verified_capability_carrier": record.state.status == "verified",
-            })
+            payloads.append(
+                {
+                    **build_suggestion_payload(
+                        meta,
+                        score,
+                        reuse_depth,
+                        default_metadata=default_metadata,
+                    ),
+                    "module_ref": record.module_ref,
+                    "module_status": record.state.status,
+                    "verified_capability_carrier": record.state.status == "verified",
+                }
+            )
         return payloads
 
     @app.get("/api/v1/templates/adaptive-monitoring", dependencies=[Depends(require_token)])
     async def get_adaptive_template_monitoring() -> dict[str, Any]:
         return adaptive_monitoring_status_with_history(services.settings.data_dir)
 
-    @app.post("/api/v1/templates/adaptive-monitoring/refresh", dependencies=[Depends(require_token)])
+    @app.post(
+        "/api/v1/templates/adaptive-monitoring/refresh", dependencies=[Depends(require_token)]
+    )
     async def refresh_adaptive_template_monitoring() -> dict[str, Any]:
         return record_adaptive_monitoring_refresh(services.settings.data_dir)
 
-    @app.get("/api/v1/templates/adaptive-monitoring/schedule", dependencies=[Depends(require_token)])
+    @app.get(
+        "/api/v1/templates/adaptive-monitoring/schedule", dependencies=[Depends(require_token)]
+    )
     async def get_adaptive_template_monitoring_schedule() -> dict[str, Any]:
         interval = services.settings.adaptive_monitoring_refresh_interval_seconds
         running = any(
             task.get_name() == "adaptive-monitoring-refresh-loop" and not task.done()
             for task in services.background_tasks
         )
-        return adaptive_monitoring_schedule_status(services.settings.data_dir, interval, running=running)
+        return adaptive_monitoring_schedule_status(
+            services.settings.data_dir, interval, running=running
+        )
 
-    @app.post("/api/v1/templates/adaptive-monitoring/schedule/run-once", dependencies=[Depends(require_token)])
+    @app.post(
+        "/api/v1/templates/adaptive-monitoring/schedule/run-once",
+        dependencies=[Depends(require_token)],
+    )
     async def run_adaptive_template_monitoring_schedule_once() -> dict[str, Any]:
-        record_adaptive_monitoring_refresh(services.settings.data_dir, trigger="manual_schedule_run")
+        record_adaptive_monitoring_refresh(
+            services.settings.data_dir, trigger="manual_schedule_run"
+        )
         interval = services.settings.adaptive_monitoring_refresh_interval_seconds
         running = any(
             task.get_name() == "adaptive-monitoring-refresh-loop" and not task.done()
             for task in services.background_tasks
         )
-        return adaptive_monitoring_schedule_status(services.settings.data_dir, interval, running=running)
+        return adaptive_monitoring_schedule_status(
+            services.settings.data_dir, interval, running=running
+        )
 
     @app.get("/api/v1/templates/{name}", dependencies=[Depends(require_token)])
     async def get_template(name: str, version: int | None = None) -> dict[str, Any]:
@@ -4074,9 +4631,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         status_code=201,
         dependencies=[Depends(require_token)],
     )
-    async def publish_template(
-        application_id: str, body: TemplateCreateRequest
-    ) -> dict[str, Any]:
+    async def publish_template(application_id: str, body: TemplateCreateRequest) -> dict[str, Any]:
         try:
             draft = await services.workflow_store.get_draft(application_id)
         except KeyError as error:
@@ -4127,11 +4682,11 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             if msg.get("role") == "user" and i + 1 < len(messages):
                 if messages[i + 1].get("role") == "assistant":
                     question = "".join(
-                        b.get("text", "") for b in msg.get("content", [])
-                        if b.get("type") == "text"
+                        b.get("text", "") for b in msg.get("content", []) if b.get("type") == "text"
                     )[:200]
                     answer = "".join(
-                        b.get("text", "") for b in messages[i + 1].get("content", [])
+                        b.get("text", "")
+                        for b in messages[i + 1].get("content", [])
                         if b.get("type") == "text"
                     )[:200]
                     if question and answer and len(question) > 20:
@@ -4159,9 +4714,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         "/api/v1/templates/{name}/merge-check",
         dependencies=[Depends(require_token)],
     )
-    async def check_template_merge(
-        name: str, body: dict[str, Any]
-    ) -> dict[str, Any]:
+    async def check_template_merge(name: str, body: dict[str, Any]) -> dict[str, Any]:
         """Check if a candidate workflow should be merged into an existing template."""
         from .merge_engine import MergeEngine
         from .workflow_models import WorkflowSpec
@@ -4191,9 +4744,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         "/api/v1/templates/{name}/merge",
         dependencies=[Depends(require_token)],
     )
-    async def merge_template(
-        name: str, body: dict[str, Any]
-    ) -> dict[str, Any]:
+    async def merge_template(name: str, body: dict[str, Any]) -> dict[str, Any]:
         """Merge a candidate workflow into an existing template."""
         from .merge_engine import MergeEngine
         from .workflow_models import WorkflowSpec
@@ -4241,6 +4792,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
     ) -> dict[str, Any]:
         """Recommend block sequences, blocks, and templates for a requirement."""
         from .orchestration_advisor import OrchestrationAdvisor
+
         advisor = OrchestrationAdvisor(services.blocks, services.templates)
         return advisor.recommend_all(requirement)
 
@@ -4253,6 +4805,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
     async def run_metrics(run_id: str) -> dict[str, Any]:
         """Get detailed metrics for a completed workflow run."""
         from .observability import RunAnalyzer, render_metrics_summary
+
         analyzer = RunAnalyzer(services.storage)
         metrics = await analyzer.analyze(run_id)
         if metrics is None:
@@ -4296,6 +4849,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
     ) -> list[dict[str, Any]]:
         """Get failure pattern clusters for an application."""
         from .observability import RunAnalyzer
+
         analyzer = RunAnalyzer(services.storage)
         patterns = await analyzer.failure_patterns(application_id)
         return [
@@ -4319,6 +4873,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         """Check if a JSON value conforms to the ModuleOutput envelope."""
         from .module_protocol import is_envelope
         import json as _json
+
         try:
             parsed = _json.loads(data) if data else {}
         except _json.JSONDecodeError:
@@ -4341,8 +4896,11 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
     ) -> dict[str, Any]:
         """List available soft-block strategies, grouped by family."""
         from .soft_block import (
-            FAMILY_MAP, strategy_help, get_discrete_block_type,
+            FAMILY_MAP,
+            strategy_help,
+            get_discrete_block_type,
         )
+
         if family and family in FAMILY_MAP:
             strategies = {
                 s: {
@@ -4369,18 +4927,19 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
     @app.get("/api/v1/tools", dependencies=[Depends(require_token)])
     async def list_platform_tools() -> list[dict[str, Any]]:
         result = [
-            {"name": name, "type": "core", "published": True}
-            for name in services.tools.names()
+            {"name": name, "type": "core", "published": True} for name in services.tools.names()
         ]
         for application in await services.workflow_store.list_applications():
             if application["active_version"] is not None:
-                result.append({
-                    "name": f"workflow:{application['id']}",
-                    "type": "workflow",
-                    "title": application["name"],
-                    "version": application["active_version"],
-                    "published": True,
-                })
+                result.append(
+                    {
+                        "name": f"workflow:{application['id']}",
+                        "type": "workflow",
+                        "title": application["name"],
+                        "version": application["active_version"],
+                        "published": True,
+                    }
+                )
         return result
 
     @app.get("/api/v1/schedules", dependencies=[Depends(require_token)])
@@ -4547,8 +5106,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             if not closure.valid:
                 raise HTTPException(
                     422,
-                    "invalid capability build contract: "
-                    + "; ".join(closure.blocking_errors),
+                    "invalid capability build contract: " + "; ".join(closure.blocking_errors),
                 )
         return await services.workflow_store.create_application(body)
 
@@ -4563,7 +5121,9 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
 
-    @app.post("/api/v1/applications/{application_id}/smoke-cleanup", dependencies=[Depends(require_token)])
+    @app.post(
+        "/api/v1/applications/{application_id}/smoke-cleanup", dependencies=[Depends(require_token)]
+    )
     async def smoke_cleanup_application(
         application_id: str,
         body: SmokeCleanupRequest,
@@ -4655,7 +5215,9 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             scenario = services.scenarios.get(scenario_id)
             draft = await services.workflow_store.get_draft(application_id)
             snapshot = draft["snapshot"]
-            if (snapshot.workflow.nodes or snapshot.workflow.edges or snapshot.tests) and not body.replace_existing:
+            if (
+                snapshot.workflow.nodes or snapshot.workflow.edges or snapshot.tests
+            ) and not body.replace_existing:
                 raise ValueError(
                     "draft already contains workflow content; set replace_existing=true to replace it atomically"
                 )
@@ -4678,8 +5240,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                         "op": "replace_tests",
                         "data": {
                             "tests": [
-                                test.model_dump(mode="json")
-                                for test in scenario.acceptance_cases
+                                test.model_dump(mode="json") for test in scenario.acceptance_cases
                             ]
                         },
                     },
@@ -4701,9 +5262,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             raise HTTPException(422, str(error)) from error
 
     @app.post("/api/v1/applications/{application_id}/draft", dependencies=[Depends(require_token)])
-    async def mutate_application_draft(
-        application_id: str, body: DraftOperation
-    ) -> dict[str, Any]:
+    async def mutate_application_draft(application_id: str, body: DraftOperation) -> dict[str, Any]:
         try:
             return await services.applications.apply_operation(application_id, body)
         except RevisionConflict as error:
@@ -4778,9 +5337,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             },
         )
         try:
-            if body.preview_only and (
-                body.preview_task_id or body.expected_preview_digest
-            ):
+            if body.preview_only and (body.preview_task_id or body.expected_preview_digest):
                 raise ValueError(
                     "preview_task_id and expected_preview_digest are apply-only fields"
                 )
@@ -4793,16 +5350,18 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                 )
             draft = await services.workflow_store.get_draft(application_id)
             if not body.preview_only:
-                response, preview_digest, stored_preview_source = (
-                    await _load_workflow_edit_stored_plan(
+                (
+                    response,
+                    preview_digest,
+                    stored_preview_source,
+                ) = await _load_workflow_edit_stored_plan(
                     services,
                     application_id=application_id,
                     body=body,
-                    )
                 )
-                preview_source: Literal[
-                    "deterministic", "model", "stored_preview"
-                ] = "stored_preview"
+                preview_source: Literal["deterministic", "model", "stored_preview"] = (
+                    "stored_preview"
+                )
             else:
                 if int(draft["revision"]) != body.expected_revision:
                     raise RevisionConflict(
@@ -4830,10 +5389,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                     operations=response.operations,
                 )
 
-            if (
-                body.expected_preview_digest
-                and body.expected_preview_digest != preview_digest
-            ):
+            if body.expected_preview_digest and body.expected_preview_digest != preview_digest:
                 raise RevisionConflict(
                     "workflow edit preview digest no longer matches the reviewed plan"
                 )
@@ -4856,9 +5412,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                 body=body,
                 response=response,
                 preview_source=(
-                    planned_source
-                    if preview_source != "stored_preview"
-                    else stored_preview_source
+                    planned_source if preview_source != "stored_preview" else stored_preview_source
                 ),
                 preview_digest=preview_digest,
             )
@@ -4925,9 +5479,9 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                 requested_planning_mode=body.planning_mode,
             )
             complexity_router = None
-            capability_closure = evaluate_capability_contract(
-                capability_contract
-            ).model_dump(mode="json")
+            capability_closure = evaluate_capability_contract(capability_contract).model_dump(
+                mode="json"
+            )
         else:
             router_activation = runtime_activation_for_build(
                 body.requirement,
@@ -4962,9 +5516,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             "deadline": deadline_summary(body.max_elapsed_seconds),
             "complexity_router": router_activation,
             "routing_source": router_activation.get("routing_source", "legacy_complexity_router"),
-            "capability_routing": (
-                router_activation if capability_contract is not None else None
-            ),
+            "capability_routing": (router_activation if capability_contract is not None else None),
         }
 
     @app.get(
@@ -5019,17 +5571,11 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
 
     @app.get("/api/v1/evaluation/profiles", dependencies=[Depends(require_token)])
     async def list_evaluation_profiles() -> list[dict[str, Any]]:
-        return [
-            item.model_dump(mode="json")
-            for item in services.evaluation_harness.profiles()
-        ]
+        return [item.model_dump(mode="json") for item in services.evaluation_harness.profiles()]
 
     @app.get("/api/v1/evaluation/environments", dependencies=[Depends(require_token)])
     async def list_evaluation_environments() -> list[dict[str, Any]]:
-        return [
-            item.model_dump(mode="json")
-            for item in services.evaluation_harness.environments()
-        ]
+        return [item.model_dump(mode="json") for item in services.evaluation_harness.environments()]
 
     @app.post(
         "/api/v1/applications/{application_id}/evaluation/plan",
@@ -5167,7 +5713,9 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                 response.workflow_edit_preview = workflow_edit.model_dump(mode="json")
                 response.preview_source = "acceptance_structural+whole_workflow_context"
                 workflow_edit_intent = workflow_edit.intent
-            except Exception as error:  # Preview failure must remain visible without mutating the draft.
+            except (
+                Exception
+            ) as error:  # Preview failure must remain visible without mutating the draft.
                 response.workflow_edit_preview = {
                     "supported": False,
                     "intent": "unsupported",
@@ -5352,9 +5900,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             return {
                 "application": project_runtime_application(application),
                 "definition": definition,
-                "latest_run": (
-                    project_runtime_run(latest_run) if latest_run is not None else None
-                ),
+                "latest_run": (project_runtime_run(latest_run) if latest_run is not None else None),
                 "latest_events": project_runtime_events(events),
             }
         except KeyError as error:
@@ -5399,9 +5945,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         status_code=202,
         dependencies=[Depends(require_token)],
     )
-    async def create_workflow_run(
-        application_id: str, body: WorkflowRunRequest
-    ) -> dict[str, Any]:
+    async def create_workflow_run(application_id: str, body: WorkflowRunRequest) -> dict[str, Any]:
         try:
             return await services.workflow_runtime.create_run(application_id, body)
         except KeyError as error:
@@ -5462,7 +6006,9 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         generation_id = str(uuid4())
         if body.workspace_path:
             services.sandboxes.resolve_workspace(body.workspace_path)
-        await services.storage.create_generation(generation_id, body.requirement, body.workspace_path)
+        await services.storage.create_generation(
+            generation_id, body.requirement, body.workspace_path
+        )
         task = asyncio.create_task(services.factory.generate(generation_id, body))
         services.background_tasks.add(task)
         task.add_done_callback(services.background_tasks.discard)
@@ -5482,7 +6028,9 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
     @app.get("/v1/agents/{agent_id}", dependencies=[Depends(require_token)])
     async def get_agent(agent_id: str, version: int | None = None) -> dict[str, Any]:
         try:
-            spec, resolved_version, version_status = await services.storage.get_agent(agent_id, version)
+            spec, resolved_version, version_status = await services.storage.get_agent(
+                agent_id, version
+            )
             return {
                 "version": resolved_version,
                 "status": version_status,
@@ -5491,7 +6039,9 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
 
-    @app.post("/v1/agents/{agent_id}/versions/{version}/publish", dependencies=[Depends(require_token)])
+    @app.post(
+        "/v1/agents/{agent_id}/versions/{version}/publish", dependencies=[Depends(require_token)]
+    )
     async def publish_agent(agent_id: str, version: int) -> dict[str, Any]:
         try:
             await services.storage.publish_agent(agent_id, version)
@@ -5522,7 +6072,9 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
 
-    @app.post("/v1/sessions/{session_id}/messages", status_code=202, dependencies=[Depends(require_token)])
+    @app.post(
+        "/v1/sessions/{session_id}/messages", status_code=202, dependencies=[Depends(require_token)]
+    )
     async def send_message(session_id: str, body: MessageRequest) -> dict[str, str]:
         try:
             turn_id = await services.runtime.start_turn(session_id, body.content)
@@ -5658,16 +6210,22 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                 )
                 merged = engine.merge(wf, sim.target_template, source)
                 if merged:
-                    print(f"[auto-extract] Build {build_id[:8]}: merged into {sim.target_template} v{merged.meta.version} conf={merged.meta.confidence}")
+                    print(
+                        f"[auto-extract] Build {build_id[:8]}: merged into {sim.target_template} v{merged.meta.version} conf={merged.meta.confidence}"
+                    )
             elif all(not t.name.startswith("build-") for t in services.templates.list()):
                 # Register as new template if no obvious match
                 tname = f"build-extracted-{build_id[:8]}"
-                services.templates.register(tname, wf, meta_overrides={
-                    "title": f"Extracted: {requirement[:50]}",
-                    "category": "task_management",
-                    "tags": node_types[:5],
-                    "author": "auto-extract",
-                })
+                services.templates.register(
+                    tname,
+                    wf,
+                    meta_overrides={
+                        "title": f"Extracted: {requirement[:50]}",
+                        "category": "task_management",
+                        "tags": node_types[:5],
+                        "author": "auto-extract",
+                    },
+                )
                 print(f"[auto-extract] Build {build_id[:8]}: registered as {tname}")
         except Exception as exc:
             print(f"[auto-extract] Build {build_id[:8]} failed: {exc}")
@@ -5687,26 +6245,46 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
     @app.get("/dingtalk-icon-192.png")
     async def dingtalk_icon_192():
         from fastapi.responses import FileResponse
+
         p = _pwa_dir / "dingtalk-icon-192.png"
-        return FileResponse(p, media_type="image/png") if p.exists() else HTMLResponse("", status_code=404)
+        return (
+            FileResponse(p, media_type="image/png")
+            if p.exists()
+            else HTMLResponse("", status_code=404)
+        )
 
     @app.get("/dingtalk-icon-512.png")
     async def dingtalk_icon_512():
         from fastapi.responses import FileResponse
+
         p = _pwa_dir / "dingtalk-icon-512.png"
-        return FileResponse(p, media_type="image/png") if p.exists() else HTMLResponse("", status_code=404)
+        return (
+            FileResponse(p, media_type="image/png")
+            if p.exists()
+            else HTMLResponse("", status_code=404)
+        )
 
     @app.get("/manifest.json")
     async def dingtalk_manifest():
         from fastapi.responses import FileResponse
+
         p = _pwa_dir / "manifest.json"
-        return FileResponse(p, media_type="application/json") if p.exists() else HTMLResponse("", status_code=404)
+        return (
+            FileResponse(p, media_type="application/json")
+            if p.exists()
+            else HTMLResponse("", status_code=404)
+        )
 
     @app.get("/sw.js")
     async def dingtalk_sw():
         from fastapi.responses import FileResponse
+
         p = _pwa_dir / "sw.js"
-        return FileResponse(p, media_type="application/javascript") if p.exists() else HTMLResponse("", status_code=404)
+        return (
+            FileResponse(p, media_type="application/javascript")
+            if p.exists()
+            else HTMLResponse("", status_code=404)
+        )
 
     # ── Dashboard ────────────────────────────────────────────
 

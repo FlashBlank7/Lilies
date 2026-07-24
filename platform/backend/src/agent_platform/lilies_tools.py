@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import fnmatch
+import json
 import os
+import stat
 import tempfile
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -35,6 +37,96 @@ class LiliesToolContext:
 class LiliesToolResult:
     content: str
     is_error: bool = False
+
+
+_WORKSPACE_POLICY_FILE = ".lilies-workspace-policy.json"
+_MAX_WORKSPACE_POLICY_BYTES = 32 * 1024
+
+
+def _workspace_policy(workspace: Path) -> dict[str, tuple[str, ...]] | None:
+    policy_path = workspace.resolve() / _WORKSPACE_POLICY_FILE
+    if not policy_path.exists():
+        return None
+    if policy_path.is_symlink():
+        raise LiliesToolError("workspace policy is not a regular file")
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(policy_path, flags)
+    except OSError as error:
+        raise LiliesToolError("workspace policy is not readable") from error
+    try:
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+            raise LiliesToolError("workspace policy is not an isolated regular file")
+        raw = os.read(descriptor, _MAX_WORKSPACE_POLICY_BYTES + 1)
+    finally:
+        os.close(descriptor)
+    if len(raw) > _MAX_WORKSPACE_POLICY_BYTES:
+        raise LiliesToolError("workspace policy is too large")
+    try:
+        value = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise LiliesToolError("workspace policy is invalid") from error
+    if (
+        not isinstance(value, dict)
+        or set(value) != {"schema_version", "denied_segments", "writable_prefixes"}
+        or value.get("schema_version") != "1.0"
+        or not isinstance(value.get("denied_segments"), list)
+        or not isinstance(value.get("writable_prefixes"), list)
+        or not all(
+            isinstance(item, str) and item and "/" not in item and "\\" not in item
+            for item in value["denied_segments"]
+        )
+        or not all(
+            isinstance(item, str)
+            and item
+            and not item.startswith("/")
+            and "\\" not in item
+            and ".." not in Path(item).parts
+            for item in value["writable_prefixes"]
+        )
+    ):
+        raise LiliesToolError("workspace policy is invalid")
+    return {
+        "denied_segments": tuple(value["denied_segments"]),
+        "writable_prefixes": tuple(value["writable_prefixes"]),
+    }
+
+
+def _workspace_request_parts(requested: str) -> tuple[str, ...]:
+    if "\x00" in requested or "\\" in requested:
+        raise LiliesToolError("workspace path is not canonical")
+    path = PurePosixPath(requested)
+    if path.is_absolute():
+        raise LiliesToolError("workspace path is not canonical")
+    parts = path.parts
+    if any(part in {"..", ""} for part in parts):
+        raise LiliesToolError("workspace path is not canonical")
+    return tuple(part for part in parts if part != ".")
+
+
+def _enforce_workspace_policy(
+    workspace: Path,
+    requested: str,
+    *,
+    for_write: bool,
+) -> None:
+    policy = _workspace_policy(workspace)
+    if policy is None:
+        return
+    parts = _workspace_request_parts(requested)
+    denied = {item.casefold() for item in policy["denied_segments"]}
+    if any(part.casefold() in denied for part in parts):
+        raise LiliesToolError("path is reserved by the formal task workspace")
+    if not for_write:
+        return
+    requested_path = PurePosixPath(*parts).as_posix() if parts else "."
+    allowed = any(
+        requested_path == prefix or requested_path.startswith(f"{prefix}/")
+        for prefix in policy["writable_prefixes"]
+    )
+    if not allowed:
+        raise LiliesToolError("path is read-only in the formal task workspace")
 
 
 class LiliesTool(ABC):
@@ -65,6 +157,7 @@ class LiliesTool(ABC):
 
 
 def _resolve_workspace_path(workspace: Path, requested: str, *, for_write: bool = False) -> Path:
+    _enforce_workspace_policy(workspace, requested, for_write=for_write)
     root = workspace.resolve()
     candidate = root / requested
     if for_write and not candidate.exists():
@@ -118,15 +211,28 @@ class WorkspaceListTool(LiliesTool):
             if not path.is_dir():
                 raise LiliesToolError(f"not a directory: {args.path}")
             root = context.workspace.resolve()
+            policy = _workspace_policy(context.workspace)
+            denied = (
+                {item.casefold() for item in policy["denied_segments"]}
+                if policy is not None
+                else set()
+            )
             entries: list[str] = []
-            for item in sorted(path.rglob("*")):
-                relative = item.relative_to(root).as_posix()
-                if fnmatch.fnmatch(relative, args.pattern) or fnmatch.fnmatch(
-                    item.name, args.pattern
-                ):
-                    entries.append(relative + ("/" if item.is_dir() else ""))
-                if len(entries) >= args.limit:
-                    break
+            for current, directories, files in os.walk(path, followlinks=False):
+                directories[:] = sorted(
+                    item for item in directories if item.casefold() not in denied
+                )
+                for name in [*directories, *sorted(files)]:
+                    if name.casefold() in denied:
+                        continue
+                    item = Path(current) / name
+                    relative = item.relative_to(root).as_posix()
+                    if fnmatch.fnmatch(relative, args.pattern) or fnmatch.fnmatch(
+                        item.name, args.pattern
+                    ):
+                        entries.append(relative + ("/" if item.is_dir() else ""))
+                    if len(entries) >= args.limit:
+                        return "\n".join(entries)
             return "\n".join(entries) or "(workspace is empty)"
 
         return LiliesToolResult(await asyncio.to_thread(run))
@@ -225,7 +331,11 @@ class WorkspacePatchTool(LiliesTool):
         args = WorkspacePatchInput.model_validate(data)
 
         def run() -> str:
-            path = _resolve_workspace_path(context.workspace, args.path)
+            path = _resolve_workspace_path(
+                context.workspace,
+                args.path,
+                for_write=True,
+            )
             if not path.is_file():
                 raise LiliesToolError(f"file not found: {args.path}")
             text = path.read_text(encoding="utf-8")
