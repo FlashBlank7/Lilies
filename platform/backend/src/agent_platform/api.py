@@ -1960,6 +1960,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
 
     app = FastAPI(title=settings.app_name, version=__version__, lifespan=lifespan)
     app.state.services = services
+    app.state.workflow_runtime = services.workflow_runtime
     bearer = HTTPBearer(auto_error=False)
 
     async def require_token(
@@ -3722,17 +3723,17 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             "has_module_name": "module_name" in parsed,
         }
 
-    # ── Soft Block Strategies ──────────────────────────────────
+    # ── Block Family Strategies ──────────────────────────────
 
     @app.get(
-        "/api/v1/soft-block/strategies",
+        "/api/v1/block-families/strategies",
         dependencies=[Depends(require_token)],
     )
-    async def list_soft_block_strategies(
+    async def list_block_strategies(
         family: str | None = None,
     ) -> dict[str, Any]:
-        """List available soft-block strategies, grouped by family."""
-        from .soft_block import (
+        """List available block strategies grouped by family (context/model/tool/governance/agent/skill)."""
+        from .block_families import (
             FAMILY_MAP, strategy_help, get_discrete_block_type,
         )
         if family and family in FAMILY_MAP:
@@ -3755,6 +3756,57 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                 for s in strategies
             }
         return {"families": list(FAMILY_MAP.keys()), "strategies": result}
+
+    # ── Cluster Monitoring ──────────────────────────────────
+
+    @app.get("/api/v1/cluster/topics", dependencies=[Depends(require_token)])
+    async def list_cluster_topics(
+        limit: int = Query(default=20, ge=1, le=200),
+    ) -> list[dict[str, Any]]:
+        """List cluster pub/sub topics with recent message counts."""
+        runtime = getattr(app.state, "workflow_runtime", None)
+        if runtime is None or runtime._cluster_bus is None:
+            return []
+        bus = runtime._cluster_bus
+        def _topics() -> list[dict[str, Any]]:
+            with bus._connect() as conn:
+                rows = conn.execute(
+                    "SELECT t.name, COUNT(m.id) as msg_count, MAX(m.sequence) as last_seq FROM cluster_topics t LEFT JOIN cluster_messages m ON t.id = m.topic_id GROUP BY t.id ORDER BY t.created_at DESC LIMIT ?",
+                    (limit,),
+                ).fetchall()
+                return [{"name": r["name"], "message_count": r["msg_count"] or 0, "last_sequence": r["last_seq"] or 0} for r in rows]
+        return await asyncio.to_thread(_topics)
+
+    @app.get("/api/v1/cluster/topics/{topic}/messages", dependencies=[Depends(require_token)])
+    async def get_cluster_topic_messages(
+        topic: str, limit: int = Query(default=50, ge=1, le=500),
+    ) -> list[dict[str, Any]]:
+        """Get recent messages on a cluster topic."""
+        runtime = getattr(app.state, "workflow_runtime", None)
+        if runtime is None or runtime._cluster_bus is None:
+            return []
+        msgs = await runtime._cluster_bus.topic_history(topic, limit)
+        return [{"id": m.id, "publisher_id": m.publisher_id, "payload": m.payload, "sequence": m.sequence, "created_at": m.created_at} for m in msgs]
+
+    @app.get("/api/v1/cluster/registry", dependencies=[Depends(require_token)])
+    async def list_cluster_agents(
+        capability: str | None = Query(default=None),
+    ) -> list[dict[str, Any]]:
+        """Discover active agents in the cluster by capability."""
+        runtime = getattr(app.state, "workflow_runtime", None)
+        if runtime is None or runtime._cluster_registry is None:
+            return []
+        agents = await runtime._cluster_registry.discover(capability)
+        return [{"agent_id": a.agent_id, "capabilities": a.capabilities, "status": a.status, "metadata": a.metadata, "updated_at": a.updated_at} for a in agents]
+
+    @app.get("/api/v1/cluster/locks", dependencies=[Depends(require_token)])
+    async def list_cluster_locks() -> list[dict[str, Any]]:
+        """List all active resource locks."""
+        runtime = getattr(app.state, "workflow_runtime", None)
+        if runtime is None or runtime._conflict_detector is None:
+            return []
+        locks = await runtime._conflict_detector.list_locks()
+        return [{"resource_id": l.resource_id, "owner_id": l.owner_id, "mode": l.mode, "acquired_at": l.acquired_at, "expires_at": l.expires_at} for l in locks]
 
     # ── Tools ────────────────────────────────────────────────
 

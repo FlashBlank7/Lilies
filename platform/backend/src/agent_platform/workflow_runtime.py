@@ -19,6 +19,12 @@ from .blocks import (
     BlockRegistry,
     ClaudeAgentConfig,
     ClassifierConfig,
+    ClusterAcquireConfig,
+    ClusterDiscoverConfig,
+    ClusterPublishConfig,
+    ClusterRegisterConfig,
+    ClusterReleaseConfig,
+    ClusterSubscribeConfig,
     CollectionDigestConfig,
     ConnectorActionConfig,
     Condition,
@@ -37,6 +43,9 @@ from .blocks import (
     VariableAggregatorConfig,
     VariableAssignerConfig,
     WebCollectionConfig,
+)
+from .cluster_messaging import (
+    ClusterMessageBus, ClusterRegistry, ConflictDetector, create_cluster_infrastructure,
 )
 from .connector_sdk import ConnectorExecutionRequest, ConnectorService
 from .models import AgentSpec, ChatMessage, ContentBlock, PermissionMode, Usage
@@ -107,7 +116,23 @@ class WorkflowRuntime:
         self.governed_memory = governed_memory
         self.web_collector = web_collector
         self.connector_service = connector_service
+        # Cluster infrastructure (lazy init)
+        self._cluster_bus: ClusterMessageBus | None = None
+        self._cluster_registry: ClusterRegistry | None = None
+        self._conflict_detector: ConflictDetector | None = None
+        self._cluster_init_lock = asyncio.Lock()
         self.active_tasks: dict[str, asyncio.Task[None]] = {}
+
+    async def _ensure_cluster(self) -> tuple[ClusterMessageBus, ClusterRegistry, ConflictDetector]:
+        """Lazy-initialize cluster infrastructure on first use."""
+        if self._cluster_bus is None:
+            async with self._cluster_init_lock:
+                if self._cluster_bus is None:
+                    bus, reg, det = await create_cluster_infrastructure(self.storage.data_dir)
+                    self._cluster_bus = bus
+                    self._cluster_registry = reg
+                    self._conflict_detector = det
+        return self._cluster_bus, self._cluster_registry, self._conflict_detector
 
     async def create_run(
         self,
@@ -697,6 +722,91 @@ class WorkflowRuntime:
                 "receipt": receipt,
                 "response": execution.response,
             }
+        # ── Cluster coordination blocks ──────────────────────
+        if isinstance(config, ClusterPublishConfig):
+            bus, _, _ = await self._ensure_cluster()
+            topic = str(self._resolve(config.topic, context))
+            publisher_id = str(self._resolve(config.publisher_id, context))
+            payload = self._resolve(config.payload, context) if config.payload else {}
+            msg = await bus.publish(topic, publisher_id, payload if isinstance(payload, dict) else {"data": payload})
+            await self._emit(run_id, "cluster.published", {
+                "node_id": scoped_id, "topic": topic,
+                "msg_id": msg.id, "sequence": msg.sequence,
+            })
+            return {"output": {"topic": topic, "msg_id": msg.id, "sequence": msg.sequence, "payload": payload}}
+
+        if isinstance(config, ClusterSubscribeConfig):
+            bus, _, _ = await self._ensure_cluster()
+            topic = str(self._resolve(config.topic, context))
+            subscriber_id = str(self._resolve(config.subscriber_id, context))
+            timeout = float(self._resolve(config.timeout_seconds, context) or 30.0)
+            await bus.subscribe(topic, subscriber_id)
+            if config.poll_mode:
+                msgs = await bus.poll_messages(topic, subscriber_id)
+            else:
+                msg = await bus.await_message(topic, subscriber_id, timeout=timeout)
+                msgs = [msg] if msg else []
+            await self._emit(run_id, "cluster.subscribed", {
+                "node_id": scoped_id, "topic": topic,
+                "message_count": len(msgs),
+            })
+            return {
+                "output": {"topic": topic, "count": len(msgs)},
+                "messages": [{"id": m.id, "publisher_id": m.publisher_id, "payload": m.payload, "sequence": m.sequence} for m in msgs],
+            }
+
+        if isinstance(config, ClusterRegisterConfig):
+            _, registry, _ = await self._ensure_cluster()
+            agent_id = str(self._resolve(config.agent_id, context))
+            capabilities = self._resolve(config.capabilities, context)
+            if not isinstance(capabilities, list):
+                capabilities = [str(capabilities)]
+            metadata = self._resolve(config.metadata, context) or {}
+            await registry.register(agent_id, [str(c) for c in capabilities], metadata if isinstance(metadata, dict) else {})
+            await self._emit(run_id, "cluster.registered", {
+                "node_id": scoped_id, "agent_id": agent_id, "capabilities": capabilities,
+            })
+            return {"output": {"agent_id": agent_id, "capabilities": capabilities, "status": "registered"}}
+
+        if isinstance(config, ClusterDiscoverConfig):
+            _, registry, _ = await self._ensure_cluster()
+            capability = str(self._resolve(config.capability, context) or "")
+            agent_id = str(self._resolve(config.agent_id, context))
+            agents = await registry.discover(capability if capability else None)
+            await self._emit(run_id, "cluster.discovered", {
+                "node_id": scoped_id, "capability": capability,
+                "found": len(agents),
+            })
+            return {
+                "output": {"query": capability, "found": len(agents)},
+                "agents": [{"agent_id": a.agent_id, "capabilities": a.capabilities, "status": a.status, "metadata": a.metadata} for a in agents],
+            }
+
+        if isinstance(config, ClusterAcquireConfig):
+            _, _, detector = await self._ensure_cluster()
+            resource_id = str(self._resolve(config.resource_id, context))
+            agent_id = str(self._resolve(config.agent_id, context) or scoped_id)
+            mode = str(self._resolve(config.mode, context) or "write")
+            ttl = float(self._resolve(config.ttl_seconds, context) or 300.0)
+            acquired = await detector.acquire(resource_id, agent_id, mode, ttl)  # type: ignore[arg-type]
+            await self._emit(run_id, "cluster.acquired" if acquired else "cluster.conflict", {
+                "node_id": scoped_id, "resource_id": resource_id,
+                "agent_id": agent_id, "mode": mode, "acquired": acquired,
+            })
+            return {"output": {"resource_id": resource_id, "acquired": acquired, "mode": mode}, "acquired": acquired}
+
+        if isinstance(config, ClusterReleaseConfig):
+            _, _, detector = await self._ensure_cluster()
+            resource_id = str(self._resolve(config.resource_id, context))
+            agent_id = str(self._resolve(config.agent_id, context) or scoped_id)
+            released = await detector.release(resource_id, agent_id)
+            await self._emit(run_id, "cluster.released", {
+                "node_id": scoped_id, "resource_id": resource_id, "agent_id": agent_id,
+            })
+            return {"output": {"resource_id": resource_id, "released": released}}
+
+        # ── End cluster blocks ────────────────────────────────
+
         if isinstance(config, IterationConfig):
             items = self._resolve(config.items, context)
             if not isinstance(items, list):
@@ -1540,32 +1650,6 @@ class WorkflowRuntime:
                 "output": {"input": value, "allowed": allowed, "current_round": current_round, "max_rounds": max_rounds},
                 "state": {"mechanism": node.type, "allowed": allowed, "current_round": current_round, "max_rounds": max_rounds},
             }
-
-        if node.type == "soft_block":
-            from .soft_block import get_discrete_block_type
-            strategy = str(settings.get("strategy", "context_assemble"))
-            discrete_type = get_discrete_block_type(strategy)
-            if discrete_type is None:
-                raise RuntimeError(f"soft_block: unknown strategy: {strategy}")
-
-            # SoftBlock is a design-time macro: at runtime it delegates directly
-            # to the equivalent discrete block. No runtime strategy selection.
-            return await self._execute_agent_architecture_block(
-                AgentArchitectureConfig(
-                    input=config.input,
-                    settings=settings,
-                ),
-                snapshot,
-                NodeSpec(
-                    id=node.id, type=discrete_type, title=node.title,
-                    config={"input": config.input, "settings": settings},
-                ),
-                context,
-                workspace_path,
-                run_id,
-                scoped_id,
-                state,
-            )
 
         if node.type == "hook_point":
             hook_name = str(settings.get("hook_name", node.title))

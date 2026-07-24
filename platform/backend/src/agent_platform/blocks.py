@@ -6,6 +6,11 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, Field, field_validator
 
+from .cluster_blocks import (
+    ClusterAcquireConfig, ClusterDiscoverConfig, ClusterPublishConfig,
+    ClusterRegisterConfig, ClusterReleaseConfig, ClusterSubscribeConfig,
+    _CLUSTER_BLOCKS, _CLUSTER_EDITOR_FIELDS, _CLUSTER_MANUALS, _ZH_CLUSTER_BLOCKS,
+)
 from .workflow_models import (
     BlockDefinition,
     EdgeSpec,
@@ -310,8 +315,9 @@ _ZH_BLOCKS = {
     "checkpoint_resume": ("检查点/恢复", "记录可恢复状态。"),
     "event_recorder": ("事件记录器", "向 Trace 写入结构化事件。"),
     "hook_point": ("钩子点", "在工作流中插入可被外部系统监听的钩子。"),
-    "soft_block": ("软积木", "通过策略选择，一个积木可以充当多种 Agent 架构积木。"),
 }
+# Merge cluster block ZH names
+_ZH_BLOCKS.update(_ZH_CLUSTER_BLOCKS)
 
 
 _EDITOR_FIELDS: dict[str, list[dict[str, Any]]] = {
@@ -392,6 +398,8 @@ _EDITOR_FIELDS: dict[str, list[dict[str, Any]]] = {
         {"path": "checkpoint_each_iteration", "label": "Checkpoint every iteration", "label_zh": "每轮保存检查点", "control": "boolean", "description": "Persist iteration state for inspection and recovery."},
     ],
 }
+# Merge cluster block editor fields
+_EDITOR_FIELDS.update(_CLUSTER_EDITOR_FIELDS)
 
 
 _EDITOR_NOTICES: dict[str, list[dict[str, str]]] = {
@@ -436,7 +444,6 @@ _AGENT_ARCHITECTURE_BLOCKS: list[tuple[str, str, str, str]] = [
     ("checkpoint_resume", "Checkpoint / Resume", "Persist resumable state for later recovery.", "Session recovery"),
     ("event_recorder", "Event Recorder", "Write structured trace events for observability.", "Telemetry and trace"),
     ("hook_point", "Hook Point", "Expose a named hook for external systems to observe or intercept.", "External hook / plugin"),
-    ("soft_block", "Soft Block", "Design-time macro: one block, many strategies. Expands to discrete blocks at publish time. No runtime variability.", "Design-time meta-block"),
 ]
 
 
@@ -787,19 +794,22 @@ def build_block_registry() -> BlockRegistry:
         (_definition("web_collection", "Controlled Web Collection", "Collect approved Web sources with durable provenance and access receipts.", "integration", WebCollectionConfig, inputs=[("input", ValueType.any)], outputs=[("output", ValueType.object), ("items", ValueType.array), ("receipts", ValueType.array)], retry=True, error_branch=True), WebCollectionConfig),
         (_definition("collection_digest", "Collection Digest", "Render collected source results as a customer-readable Markdown digest.", "transform", CollectionDigestConfig, inputs=[("input", ValueType.any)], outputs=[("text", ValueType.string), ("summary", ValueType.object)]), CollectionDigestConfig),
         (_definition("connector_action", "Connector Action", "Execute a versioned tenant-scoped Connector operation through platform policy.", "integration", ConnectorActionConfig, inputs=[("input", ValueType.any)], outputs=[("output", ValueType.object), ("receipt", ValueType.object), ("response", ValueType.object)], retry=True, error_branch=True), ConnectorActionConfig),
+        # ── Cluster coordination blocks ──────────────────────────
+        (_definition("cluster_publish", "Cluster Publish", "Publish a structured message to a named topic with persistence, ordering, and idempotent delivery for multi-agent coordination.", "integration", ClusterPublishConfig, inputs=[("input", ValueType.any)], outputs=[("output", ValueType.object)], retry=True, error_branch=True, manual=_CLUSTER_MANUALS["cluster_publish"]), ClusterPublishConfig),
+        (_definition("cluster_subscribe", "Cluster Subscribe", "Subscribe to a topic and receive new messages with ordered delivery. Supports blocking wait and non-blocking poll. Each subscriber tracks an independent cursor.", "integration", ClusterSubscribeConfig, inputs=[("input", ValueType.any)], outputs=[("output", ValueType.object), ("messages", ValueType.array)], retry=True, manual=_CLUSTER_MANUALS["cluster_subscribe"]), ClusterSubscribeConfig),
+        (_definition("cluster_register", "Cluster Register", "Register agent capabilities (e.g. 'image_analysis','database_write') in the cluster registry so other agents can discover and coordinate.", "integration", ClusterRegisterConfig, inputs=[("input", ValueType.any)], outputs=[("output", ValueType.object)], manual=_CLUSTER_MANUALS["cluster_register"]), ClusterRegisterConfig),
+        (_definition("cluster_discover", "Cluster Discover", "Query the cluster registry for active agents matching a capability keyword. Returns agent list for dynamic coordination (who can handle this task?).", "integration", ClusterDiscoverConfig, inputs=[("input", ValueType.any)], outputs=[("output", ValueType.object), ("agents", ValueType.array)], manual=_CLUSTER_MANUALS["cluster_discover"]), ClusterDiscoverConfig),
+        (_definition("cluster_acquire", "Cluster Acquire", "Acquire a distributed lock (read or write) on a shared resource before modification. Auto-expires after TTL to prevent dead agents holding locks forever.", "integration", ClusterAcquireConfig, inputs=[("input", ValueType.any)], outputs=[("output", ValueType.object), ("acquired", ValueType.boolean)], retry=True, manual=_CLUSTER_MANUALS["cluster_acquire"]), ClusterAcquireConfig),
+        (_definition("cluster_release", "Cluster Release", "Release a previously acquired resource lock. Only the original lock owner can release. Always pair with cluster_acquire in the same workflow path.", "integration", ClusterReleaseConfig, inputs=[("input", ValueType.any)], outputs=[("output", ValueType.object)], manual=_CLUSTER_MANUALS["cluster_release"]), ClusterReleaseConfig),
         (_definition("iteration", "Iteration", "Run a nested workflow for each array item.", "logic", IterationConfig, inputs=[("input", ValueType.array)], outputs=[("items", ValueType.array)], retry=True, error_branch=True), IterationConfig),
         (_definition("loop", "Loop", "Run a nested workflow until a condition matches.", "logic", LoopConfig, inputs=[("input", ValueType.any)], outputs=[("output", ValueType.object)], retry=True, error_branch=True), LoopConfig),
         (_definition("human_input", "Human Input", "Pause and resume with a typed form.", "input", HumanInputConfig, inputs=[("input", ValueType.any)], outputs=[("output", ValueType.object)]), HumanInputConfig),
         (_definition("end", "End", "Return named workflow outputs.", "output", EndConfig, inputs=[("input", ValueType.any)], outputs=[]), EndConfig),
         (_definition("answer", "Answer", "Return a chat answer.", "output", AnswerConfig, inputs=[("input", ValueType.any)], outputs=[]), AnswerConfig),
     ]
-    from .soft_block import SoftBlockConfig
     for block_type, title, description, mapping in _AGENT_ARCHITECTURE_BLOCKS:
-        is_soft = (block_type == "soft_block")
         config_model: type[BaseModel]
-        if is_soft:
-            config_model = SoftBlockConfig
-        elif block_type == "model_turn":
+        if block_type == "model_turn":
             config_model = ModelTurnConfig
         elif block_type == "tool_executor":
             config_model = ToolExecutorConfig
