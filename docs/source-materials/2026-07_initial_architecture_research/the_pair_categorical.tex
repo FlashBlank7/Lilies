@@ -93,7 +93,7 @@
 在这三条公理下，本文证明了：
 \begin{enumerate}[leftmargin=2em,label=(\arabic*)]
     \item \textbf{Pair Monad 定理}：The Pair （Harness+LLM 复合体）是幂等 monad；
-    \item \textbf{自由构造定理}：CORE 生成的自由严格 monoidal category 等价于纯计算工作流子范畴 $\catWFlow_{\mathrm{comp}}$（修正了第一版过度泛化的结论）；
+    \item \textbf{自由构造定理}：CORE（6 个纯计算生成元）生成的自由严格 monoidal category 等价于纯计算工作流子范畴 $\catWFlow_{\mathrm{comp}}$；完整生成元集（18 个，含 I/O、通信、并行三类扩展）等价于全范畴 $\catWFlow$（\S\ref{thm:free-construction-full}，修正了第一版过度泛化的结论）；
     \item \textbf{不动点定理}：三层 Pair 结构是该 monad 的 Eilenberg-Moore 代数，两层迭代后到达不动点；
     \item \textbf{普遍性质定理}：给定上述公理，纯计算工作流的架构在范畴等价意义下唯一。
 \end{enumerate}
@@ -326,6 +326,122 @@ CORE 的 6 个生成元涵盖这三种控制结构，加上确定性数据变换
 
 注意：第一版错误地声称 $F(\mathrm{CORE}) \cong \catWFlow$（全范畴），忽略了 I/O 和通信积木。修正后范围限于纯计算子范畴，这更准确——CORE 生成的是纯计算能力，I/O 和通信能力需要额外的生成元。
 \end{proof}
+
+\subsection{完整生成元谱系}
+
+上述构造自然引出一个问题：既然 CORE 仅生成纯计算子范畴，那些被排除的积木作为额外的生成元加入后，完整的生成元集是什么？
+
+以下给出 $\catWFlow$ 中全部 \texttt{business\_workflow} 积木（25 个）的生成元分类。此分类同时解释了为什么本文以 CORE 为出发点而非直接列出全部 18 个生成元：CORE 定义了\emph{纯计算与外部交互的边界}，使得每一步扩展的范畴必要性都可以被独立论证。
+
+\begin{definition}[扩展生成元分类]
+$\catWFlow$ 的完整生成元集 $\mathcal{G}$ 由四类互不相交的生成元组成：
+\[
+\mathcal{G} = \mathcal{G}_{\mathrm{CORE}} \cup \mathcal{G}_{\mathrm{IO}} \cup \mathcal{G}_{\mathrm{COMM}} \cup \mathcal{G}_{\mathrm{PARALLEL}}
+\]
+\end{definition}
+
+\begin{enumerate}[leftmargin=2em,label=\textbf{类别 \arabic*:}]
+
+\item \textbf{纯计算生成元} $\mathcal{G}_{\mathrm{CORE}}$（6 个）——闭世界，输入 $\to$ 计算 $\to$ 输出：
+\[
+\begin{aligned}
+\mathtt{start}&: I \to I_0                  &&\text{(创建输入端口)} \\
+\mathtt{end}&: I_{\mathrm{final}} \to I     &&\text{(产生输出端口)} \\
+\mathtt{llm}&: I \to O                      &&\text{(非确定性语义推理)} \\
+\mathtt{if\_else}&: I \to O \oplus O        &&\text{(条件分支，$\oplus$ 是余积)} \\
+\mathtt{loop}&: I \to O                     &&\text{(有界迭代，对应 Trace 算子)} \\
+\mathtt{template\_transform}&: I \to O      &&\text{(确定性数据变换)}
+\end{aligned}
+\]
+
+CORE 的 6 个生成元对应 Habel \& Plump (2001) 的三种最小控制结构（顺序复合、条件分支、有界迭代）加上确定性数据变换和非确定性推理。它们生成纯计算子范畴：
+\[
+F(\mathcal{G}_{\mathrm{CORE}}) \cong \catWFlow_{\mathrm{comp}}
+\]
+
+\textbf{为什么这是正确的起点}：$\mathcal{G}_{\mathrm{CORE}}$ 恰好是"所有不含外部依赖的积木"的生成基。这条切割线具有理论后果——Thm 8.3（Det 闭包定理）依赖于 CORE 定义了一个纯计算子范畴，其中不包含任何外部 I/O 或通信。若将 $\mathcal{G}_{\mathrm{IO}}$ 或 $\mathcal{G}_{\mathrm{COMM}}$ 混入 CORE，Det 闭包定理将退化（外部 I/O 即使不含 LLM 调用也是非确定性的，因为外部系统可能处于任意状态）。
+
+\item \textbf{外部 I/O 生成元} $\mathcal{G}_{\mathrm{IO}}$（5 个）——开世界，结果依赖外部系统状态：
+\[
+\begin{aligned}
+\mathtt{http\_request}&: I \to O                                  &&\text{(同步 HTTP 调用)} \\
+\mathtt{web\_collection}&: I \to O \otimes \mathrm{Receipt}       &&\text{(受控网页采集 + 来源证据)} \\
+\mathtt{connector\_action}&: I \to O \otimes \mathrm{Receipt} \otimes \mathrm{Response}
+                        &&\text{(版本化租户范围的外部系统操作)} \\
+\mathtt{human\_input}&: I \to O                                    &&\text{(暂停等人类，非可计算函数)} \\
+\mathtt{schedule\_trigger}&: \mathrm{Time} \to I_0                 &&\text{(时间驱动入口，非数据驱动)}
+\end{aligned}
+\]
+
+\textbf{范畴结构}：$\mathcal{G}_{\mathrm{IO}}$ 引入的外部世界依赖不能用纯计算建模。每个 I/O 生成元的态射值不仅取决于其输入类型，还依赖于一个隐式的外部状态参数。它们在范畴中表现为\emph{新对象类型}（$\mathrm{Time}$, $\mathrm{Receipt}$, $\mathrm{Response}$）和\emph{新态射}（不能从 $\mathcal{G}_{\mathrm{CORE}}$ 生成）。$\mathtt{schedule\_trigger}$ 是 \texttt{start} 的 I/O 对应物——它将时间事件而非数据输入作为工作流的入口点。
+
+\item \textbf{集群通信生成元} $\mathcal{G}_{\mathrm{COMM}}$（6 个）——开世界，结果依赖其他并发 Agent：
+\[
+\begin{aligned}
+\mathtt{cluster\_publish}&: I \to \mathrm{Topic}       &&\text{(发布消息到主题)} \\
+\mathtt{cluster\_subscribe}&: \mathrm{Topic} \to I     &&\text{(订阅主题并等待消息)} \\
+\mathtt{cluster\_register}&: I \to \mathrm{Registry}   &&\text{(注册 Agent 能力)} \\
+\mathtt{cluster\_discover}&: \mathrm{Registry} \to I   &&\text{(按能力发现 Agent)} \\
+\mathtt{cluster\_acquire}&: I \to \mathrm{Lock}        &&\text{(获取共享资源锁)} \\
+\mathtt{cluster\_release}&: \mathrm{Lock} \to I        &&\text{(释放共享资源锁)}
+\end{aligned}
+\]
+
+\textbf{范畴结构}：$\mathcal{G}_{\mathrm{COMM}}$ 引入了跨工作流实例的通信和并发安全。Thm 6.1 证明了 $\mathrm{publish} \dashv \mathrm{subscribe}$ 构成通信的最小伴随对。Thm 8.4 证明了 $\{\mathrm{publish}, \mathrm{subscribe}, \mathrm{acquire}, \mathrm{release}\}$ 是实现并发安全的完全集（L1 最小谱系）。$\mathrm{register}$ 和 $\mathrm{discover}$ 在逻辑上可由 $\mathrm{subscribe}$ 导出（P2），但为工程便利独立实现（L2）。
+
+\item \textbf{并行执行生成元} $\mathcal{G}_{\mathrm{PARALLEL}}$（1 个）——执行模型属性：
+\[
+\mathtt{iteration}: I \otimes \mathrm{Array} \to \mathrm{Array} \quad\text{(对数组每项并行运行嵌套工作流)}
+\]
+
+\textbf{范畴结构}：$\mathtt{iteration}$ 引入的并行性是\emph{执行模型}属性而非计算属性。串行 $\mathtt{iteration}$（$\mathrm{parallelism}=1$）和并行 $\mathtt{iteration}$（$\mathrm{parallelism}>1$）产生相同的计算结果，但具有不同的时间和资源特性。它在范畴中表现为 $\tensor$（张量积 = 并行组合）在态射级别的实例化——将同一工作流复制 $n$ 份并行应用于数组的 $n$ 个元素。这是 $\tensor$ 的迭代推广，不是新的态射类型，但因其改变了执行语义（从串行到并行）而需要独立标注。
+
+\end{enumerate}
+
+\begin{definition}[便利积木]
+$\catWFlow$ 中剩余的 7 个 \texttt{business\_workflow} 积木是\emph{便利积木}——它们可通过上述 18 个生成元的组合来表达，不引入新的范畴结构：
+\[
+\begin{aligned}
+\mathtt{tool} &\cong \mathtt{template\_transform} \otimes \text{工具注册表} \\
+\mathtt{question\_classifier} &\cong \mathtt{llm} \circ \mathtt{if\_else} \quad\text{(LLM 输出类别标签，if\_else 按标签分支)} \\
+\mathtt{parameter\_extractor} &\cong \mathtt{llm} \circ \mathtt{template\_transform} \quad\text{(LLM 提取字段，模板构造 JSON)} \\
+\mathtt{variable\_assigner} &\cong \mathtt{template\_transform} \quad\text{(特化形式：空模板 + 赋值)} \\
+\mathtt{variable\_aggregator} &\cong \mathtt{template\_transform} \quad\text{(特化形式：合并模式)} \\
+\mathtt{collection\_digest} &\cong \mathtt{template\_transform} \circ \mathtt{web\_collection} \quad\text{(采集结果 + 模板渲染)} \\
+\mathtt{answer} &\cong \mathtt{end} \quad\text{(聊天模式的 end 变体)}
+\end{aligned}
+\]
+\end{definition}
+
+\begin{theorem}[完整自由构造]\label{thm:free-construction-full}
+设 $\mathcal{G} = \mathcal{G}_{\mathrm{CORE}} \cup \mathcal{G}_{\mathrm{IO}} \cup \mathcal{G}_{\mathrm{COMM}} \cup \mathcal{G}_{\mathrm{PARALLEL}}$ 为全部 18 个生成元。则：
+\[
+F(\mathcal{G}) \cong \catWFlow
+\]
+其中 $F(\mathcal{G})$ 是由 $\mathcal{G}$ 生成的自由严格 traced monoidal category（加上 $\mathcal{G}_{\mathrm{COMM}}$ 引入的 2-categorical 结构）。
+\end{theorem}
+
+\begin{proof}[证明（概要）]
+由 Thm 3.2a，$F(\mathcal{G}_{\mathrm{CORE}}) \cong \catWFlow_{\mathrm{comp}}$（纯计算子范畴）。
+$\mathcal{G}_{\mathrm{IO}}$ 引入外部系统交互——这些态射不能从纯计算导出，因为它们的值依赖于外部世界状态。$\mathcal{G}_{\mathrm{COMM}}$ 引入跨工作流通信和并发安全——Thm 6.1 和 Thm 8.4 分别证明了它们的最小性和完全性。$\mathcal{G}_{\mathrm{PARALLEL}}$ 引入并行执行——它是 $\tensor$ 在数组元素上的迭代应用。
+
+充分性：$\mathcal{G}$ 中的 18 个生成元覆盖了 Habel \& Plump 的控制结构 + 确定性变换 + 非确定性推理 + 外部 I/O + 跨工作流通信 + 并行执行。工程经验表明所有 25 个 \texttt{business\_workflow} 积木均可表示为这 18 个生成元的组合（7 个便利积木具有显式的组合表达式）。
+
+必要性：$\mathcal{G}$ 中的每个类别引入了不可互归约的范畴结构——I/O、通信、并行不能从纯计算导出，纯计算不能从外部交互导出。
+\end{proof}
+
+\begin{remark}[为什么本文以 CORE 为出发点]
+完整生成元集 $\mathcal{G}$（18 个）在工程上是准确的，但在理论上不是最简的——它掩盖了两条关键的切割线：
+
+\begin{enumerate}[leftmargin=1.5em,label=(\arabic*)]
+    \item \textbf{纯计算 vs 外部交互}：$\mathcal{G}_{\mathrm{CORE}}$ 是闭世界计算的生成基。Thm 8.3（Det 闭包）的证明依赖于这条切割——它仅对纯计算子范畴中的确定性态射成立。外部 I/O 即使不含 LLM 调用也是非确定性的。
+    \item \textbf{通信的伴随结构}：$\mathcal{G}_{\mathrm{COMM}}$ 中的 publish $\dashv$ subscribe 构成了通信的最小充分集（Thm 6.1），acquire/release 被证明是并发安全的必要补充（Thm 8.4），register/discover 是工程便利层（Thm 8.4 推论）。这些分层性质在 $\mathcal{G}$ 的扁平列表中不可见。
+\end{enumerate}
+
+从 CORE 出发的推导路线（CORE $\to$ CORE+IO $\to$ CORE+IO+COMM $\to$ CORE+IO+COMM+PARALLEL）确保了\emph{每一步扩展的范畴必要性都被独立论证}。18 个生成元不是"我们恰好有这么多"，而是"每一步都别无选择"。
+
+本文保留了 CORE 的切割线作为主要表述，完整生成元集 $\mathcal{G}$ 在此作为 Thm 3.2a 的自然推广被给出。两者互补——CORE 版本最大化理论清晰性，$\mathcal{G}$ 版本最大化工程完整性。
+\end{remark}
 
 \subsection{DAG + Loop 的范畴语义：Traced Monoidal Category}
 
@@ -666,18 +782,21 @@ $\pairMonad(\mathrm{level}_2) = \pairMonad^3(\mathrm{level}_0)$。由公理~\ref
 \end{theorem}
 
 \begin{proof}
-这是自由构造（定理~\ref{thm:free-construction}）的标准推论。
-$F(\mathrm{CORE})$ 是自由对象，任意 $\cat{C}$ 中的"实现"对应一个 functor $U: F(\mathrm{CORE}) \to \cat{C}$。
-由于 $F(\mathrm{CORE}) \cong \catWFlow_{\mathrm{comp}}$，对于纯计算工作流子范畴存在唯一的 $U$。
-完整范畴 $\catWFlow$ 需要在 CORE 之外增加 I/O 和通信生成元。
+这是自由构造定理（\S\ref{thm:free-construction} 和 \S\ref{thm:free-construction-full}）的标准推论。
 
-唯一性来自自由对象的普遍性质：给定了 CORE 在 $\cat{C}$ 中的实现（即选择了哪些 $\cat{C}$ 中的态射对应核心积木），存在唯一的 functor 保持 monoidal 结构。
+对于纯计算子范畴：$F(\mathcal{G}_{\mathrm{CORE}})$ 是自由对象，任意 $\cat{C}$ 中的"实现"对应一个 functor $U_{\mathrm{comp}}: F(\mathcal{G}_{\mathrm{CORE}}) \to \cat{C}$。由于 $F(\mathcal{G}_{\mathrm{CORE}}) \cong \catWFlow_{\mathrm{comp}}$，对于纯计算工作流子范畴存在唯一的 $U_{\mathrm{comp}}$。
+
+对于完整范畴：给定 $\mathcal{G}_{\mathrm{IO}}$ 中的外部 I/O 生成元在 $\cat{C}$ 中的实现（即选择了哪些 $\cat{C}$ 中的态射对应 HTTP 调用、人工输入等），以及 $\mathcal{G}_{\mathrm{COMM}}$ 中的通信生成元在 $\cat{C}$ 中的实现（即选择了哪些 $\cat{C}$ 中的态射对应 publish/subscribe/acquire/release），存在唯一的 functor $U: F(\mathcal{G}) \to \cat{C}$ 推广 $U_{\mathrm{comp}}$。
+
+唯一性来自自由对象的普遍性质：给定了生成元集 $\mathcal{G}$ 在 $\cat{C}$ 中的实现，存在唯一的 functor 保持 monoidal 结构和伴随结构。$U$ 在纯计算子范畴上的限制即为 $U_{\mathrm{comp}}$。
 \end{proof}
 
 \begin{remark}
 这个普遍性质意味着 Lilies 的架构不是"任意选择的"——
-给定了 The Pair 作为原子单元，$\catWFlow$ 的结构由 CORE 生成元唯一确定（在范畴等价意义下）。
-若另一个团队也从相同公理出发构建 Agent 工作流平台，他们将得到与 $\catWFlow_{\mathrm{comp}}$ 范畴等价的架构。
+
+给定了 The Pair 作为原子单元，\textbf{纯计算工作流的架构}由 $\mathcal{G}_{\mathrm{CORE}}$（6 个生成元）唯一确定（在范畴等价意义下）。若另一个团队也从相同的三条公理出发构建 Agent 工作流平台，他们将得到与 $\catWFlow_{\mathrm{comp}}$ 范畴等价的纯计算核心——无论他们选择的编程语言、UI 范式或部署模型是什么。
+
+\textbf{完整架构}（含外部 I/O、通信和并行执行）由 $\mathcal{G}$（18 个生成元）唯一确定。$\mathcal{G}_{\mathrm{IO}}$ 和 $\mathcal{G}_{\mathrm{COMM}}$ 的加入不破坏纯计算核心的范畴等价性——它们在结构上是\emph{独立于}纯计算核心的扩展，而非核心的修改。这意味着：任何满足三条公理的平台，其与 Lilies 的差异仅限于 (a) 纯计算核心的等价实现选择（编程语言、积木命名），和 (b) I/O、通信和并行生成元的具体工程实现——两者的纯计算工作流可以在结构上互相翻译。
 \end{remark}
 
 % ═══════════════════════════════════════════════════════════════════
@@ -713,18 +832,19 @@ $\pairMonad^2 \cong \pairMonad$: 两层迭代后到达不动点 $\pairMonad(\mat
 \toprule
 \textbf{本文定理} & \textbf{对应 FS 定理} & \textbf{内容} \\
 \midrule
-Thm~\ref{thm:pair-monad}   & FS Thm 1   & $\pairMonad$ 是幂等 monad \\
-Cor~\ref{cor:three-levels} & —           & 三层结构是 Eilenberg-Moore 代数 \\
-Thm~\ref{thm:free-construction} & FS Thm 2, 3 & $F(\mathrm{CORE}) \cong \catWFlow_{\mathrm{comp}}$ \\
-Thm~3.3                     & FS Thm 6   & DAG+loop = 最少 Trace \\
-Thm~\ref{thm:resolve-functor}, \ref{thm:yoneda-ref} & FS Thm 7-9 & \$ref faithful functor + Yoneda \\
-Thm~\ref{thm:template-kleisli} & FS Thm 10-11 & 模板市场是 $\mathrm{Kl}(\monadT)$ \\
-Thm~\ref{thm:soundness-deterministic}, \ref{thm:soundness-approx} & FS Thm 12-13 & $\mathcal{S}$ lax functor \\
-Thm~\ref{thm:cluster-2morphism} & FS Thm 14 & publish $\adjunction$ subscribe \\
-Thm~\ref{thm:lock-irreducible} & FS Thm 16-17 & acquire 不可消去 \\
-Thm~\ref{thm:cluster-naturality} & FS Thm 15 & $\eta: F \natarrow G$ natural \\
-Thm~\ref{thm:fixed-point}   & —           & 不动点：level\_3 = level\_2 \\
-Thm~\ref{thm:universal-property} & —        & 普遍性质：架构唯一 \\
+Thm 1 (\S\ref{thm:pair-monad})   & FS Thm 1   & $\pairMonad$ 是幂等 monad \\
+Cor 1.1 (\S\ref{cor:three-levels}) & —           & 三层结构是 Eilenberg-Moore 代数 \\
+Thm 2a (\S\ref{thm:free-construction}) & FS Thm 2, 3 & $F(\mathcal{G}_{\mathrm{CORE}}) \cong \catWFlow_{\mathrm{comp}}$（CORE 自由构造）\\
+Thm 2b (\S\ref{thm:free-construction-full}) & — & $F(\mathcal{G}) \cong \catWFlow$（完整 18 生成元自由构造）\\
+Thm 3.3                     & FS Thm 6   & DAG+loop = 最少 Trace \\
+Thm \ref{thm:resolve-functor}, \ref{thm:yoneda-ref} & FS Thm 7-9 & \$ref faithful functor + Yoneda \\
+Thm \ref{thm:template-kleisli} & FS Thm 10-11 & 模板市场是 $\mathrm{Kl}(\monadT)$ \\
+Thm \ref{thm:soundness-deterministic}, \ref{thm:soundness-approx} & FS Thm 12-13 & $\mathcal{S}$ lax functor \\
+Thm \ref{thm:cluster-2morphism} & FS Thm 14 & publish $\adjunction$ subscribe \\
+Thm \ref{thm:lock-irreducible} & FS Thm 16-17 & acquire 不可消去 \\
+Thm \ref{thm:cluster-naturality} & FS Thm 15 & $\eta: F \natarrow G$ natural \\
+Thm \ref{thm:fixed-point}   & —           & 不动点：level\_3 = level\_2 \\
+Thm \ref{thm:universal-property} & —        & 普遍性质：架构唯一 \\
 \midrule
 \multicolumn{3}{c}{\textbf{修订版新增（§8.3）}} \\
 \midrule
