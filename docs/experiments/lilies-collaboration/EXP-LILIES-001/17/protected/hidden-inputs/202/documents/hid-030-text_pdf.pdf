@@ -1,0 +1,53 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>
+endobj
+4 0 obj
+<< /Length 281 >>
+stream
+BT
+/F1 11 Tf
+52 742 Td
+14 TL
+(SUPPLIER INVOICE) Tj
+T*
+(DOCUMENT REF: DOC-202-0030) Tj
+T*
+(SUPPLIER: ALPHA INDUSTRIAL) Tj
+T*
+(PURCHASE ORDER: PO-202-1030) Tj
+T*
+(PART NUMBER: UNKNOWN-030) Tj
+T*
+(LOT NUMBER: LOT-02-030) Tj
+T*
+(QUANTITY: 84) Tj
+T*
+(DOCUMENT DATE: 2026-07-04) Tj
+T*
+ET
+endstream
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000121 00000 n 
+0000000247 00000 n 
+0000000579 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+649
+%%EOF

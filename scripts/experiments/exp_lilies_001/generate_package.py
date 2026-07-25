@@ -13,8 +13,8 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[3]
 TASK_ID = "EXP-LILIES-001"
-REVISION = 16
-CREATED_AT = "2026-07-25T07:15:00Z"
+REVISION = 17
+CREATED_AT = "2026-07-25T17:46:01Z"
 DEFAULT_OUTPUT = (
     ROOT
     / "docs"
@@ -964,19 +964,19 @@ def generate(output: Path) -> None:
             "collaboration_enabled": True,
             "author": "codex-task-author",
             "created_at": CREATED_AT,
-            "parent_revision": 15,
+            "parent_revision": 16,
             "amendment_reason": (
-                "Revision 15 observed waiting_permission after the first platform relay "
-                "ended at tool.requested event 472, while the daemon had subsequently "
-                "committed permission.requested event 478. The runner queried the Studio "
-                "projection before synchronizing that later event and incorrectly rejected "
-                "the unattended task-local request. Revision 16 preserves "
-                "the business requirement, fixtures, oracle, budgets, permissions, "
-                "collaboration authority, model-egress gate, CAP admission, and acceptance "
-                "from revision 15. Only the generic runner changes: after observing "
-                "waiting_permission it relays the same assignment once more, then continues "
-                "to decide solely from the redacted Studio event under the existing "
-                "fail-closed workspace policy."
+                "Revision 16 proved the post-wait relay barrier and one exact task-local "
+                "permission, then requested workspace_write with a 12,873-byte public "
+                "payload. Studio's generic 8 KB monitor projection replaced the entire "
+                "redacted input with digest-only metadata and discarded the safe top-level "
+                "path, so the runner correctly failed closed. Revision 17 preserves the "
+                "business requirement, fixtures, oracle, budgets, permissions, collaboration "
+                "authority, model-egress gate, CAP admission, and acceptance from revision "
+                "16. Only the generic Studio permission projection changes: oversized "
+                "inputs keep an exact sanitized top-level path of at most 1,000 characters "
+                "while all bulk content remains digest-only; the runner's existing "
+                "canonical path and frozen-prefix checks remain fail-closed."
             ),
         },
     )
@@ -984,7 +984,7 @@ def generate(output: Path) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Generate immutable EXP-LILIES-001 revision-sixteen source files."
+        description="Generate immutable EXP-LILIES-001 revision-seventeen source files."
     )
     parser.add_argument(
         "--output",
