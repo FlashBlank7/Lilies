@@ -2,8 +2,8 @@
   "schema_version": "v0.4.13-t01h-runtime-environment-1",
   "stage_task_id": "V04-13-T01H",
   "experiment_task_id": "EXP-LILIES-001",
-  "revision": 7,
-  "observed_at": "2026-07-25T06:21:53Z",
+  "revision": 8,
+  "observed_at": "2026-07-25T06:50:00Z",
   "environment": {
     "status": "ready",
     "docker_daemon_probe": "passed",
@@ -20,11 +20,11 @@
       "missing_digests": []
     },
     "task_author_preflight": {
-      "status": "passed",
-      "candidate_revision": 7,
+      "status": "failed",
+      "candidate_revision": 8,
       "runner_preparation": "passed",
       "inherited_pinned_image_count": 6,
-      "reason": "Revision 7 projected the frozen 120-turn task budget before session creation and passed its seven-container, 36-record, zero-write baseline, fault-proxy, version, and HMAC identity preflight."
+      "reason": "Revision 8 froze the ready-without-completion-claim runner terminal and passed package preparation plus a 36-record zero-write real-host baseline, but stale revision 7 platform and daemon processes left by the interrupted runner still occupied ports 18100/18101. The revision 8 health probe reached the old platform, which correctly rejected the new task-local API token before application or assignment creation."
     },
     "previous_revision_preflight": {
       "status": "passed",
@@ -101,6 +101,11 @@
         "revision": 7,
         "outcome": "builder_ready_without_completion_claim",
         "reason": "A fresh-state retry of the same immutable revision reached 58 model calls, 73 tools, draft revision 19, three succeeded and one paused workflow runs, generated JSON and CSV artifacts for 24 public records, then ended its Builder turn while real XLSX, host writes, registered artifacts, publication, acceptance, capability report, claim, and oracle remained absent. Three exact workspace-write permissions were independently allowed. The daemon session was cancelled after the incomplete final summary, but formal collaboration authority closure remained pending and the empty runner poll was interrupted."
+      },
+      {
+        "revision": 8,
+        "outcome": "formal_pre_assignment_failed_stale_task_processes",
+        "reason": "Revision 8 package preparation and real-host zero-write baseline passed. Before application creation, the task-local secret provisioning request reached stale revision 7 processes still bound to ports 18100/18101 and failed with invalid API token. The exact stale environment, platform, daemon, proxy, and attestation process groups were terminated; no host write, application, assignment, report, claim, or oracle was produced."
       }
     ],
     "model_authority": {
@@ -111,23 +116,23 @@
     "real_host_services_started": true,
     "real_host_runs": 3,
     "formal_attempts": {
-      "total": 10,
+      "total": 11,
       "passed": 0,
-      "failed": 7,
+      "failed": 8,
       "waiting_permission_checkpoints": 3,
-      "seed_101_failed": 7,
+      "seed_101_failed": 8,
       "seed_101_waiting_permission_checkpoints": 3,
       "seed_202_not_run": 1,
       "seed_303_not_run": 1,
       "immutable_attempt_evidence": true,
-      "latest_failure": "The fresh-state revision 7 retry generated JSON and CSV for 24 public records but ended ready without real XLSX, host writes, publication, capability report, claim, or oracle; task-author cancellation then exposed a formal collaboration-close pending state"
+      "latest_failure": "Revision 8 package preparation and real-host baseline passed, but stale revision 7 task processes on the fixed platform and daemon ports rejected the new task-local API token before application or assignment creation"
     },
     "stable_hidden_runs": {
       "completed": 0,
       "required": 3
     },
     "blocked_by": null,
-    "recheck_trigger": "Preserve and commit the fresh-state revision 7 permission checkpoints and failed Builder observation, then freeze a child revision that treats a ready Builder turn without a completion claim as a truthful incomplete terminal instead of polling until the deadline."
+    "recheck_trigger": "Preserve and commit the revision 8 pre-assignment failure, then rerun the same immutable revision from a fresh state root after the exact stale task process groups have been terminated."
   },
   "enterprise_denominator": {
     "required_runs": 3,
@@ -137,5 +142,5 @@
     "failed_runs": 3,
     "not_run_runs": 2
   },
-  "claim_ceiling": "Frozen revision 7 package and real-host preflight plus three failed Builder executions: revision 6 reached draft 48/six runs before an under-projected runner ceiling; the first revision 7 run reached draft 37/eleven runs at the correct frozen budget but self-reported only 8/24 public records; the fresh-state revision 7 retry reached draft 19/four runs and isolated JSON/CSV for 24 public records but ended ready without real XLSX, host writes, publication, capability report, claim, or oracle. All failures remain in the enterprise denominator; no completed workflow, hidden 36/36 oracle pass, or stable-seed result is claimed."
+  "claim_ceiling": "Frozen revision 8 package preparation and zero-write real-host baseline plus the prior three failed Builder executions. The first revision 8 attempt failed before application or assignment creation because stale revision 7 task processes occupied the fixed ports and rejected the new API token. No completed workflow, host writeback, hidden 36/36 oracle pass, or stable-seed result is claimed."
 }
