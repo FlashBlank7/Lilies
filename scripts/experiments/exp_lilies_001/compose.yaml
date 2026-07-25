@@ -1,4 +1,4 @@
-name: exp-lilies-001-r5
+name: exp-lilies-001-r6
 
 services:
   paperless-broker:
@@ -120,7 +120,7 @@ services:
 
 networks:
   default:
-    name: exp-lilies-001-r5
+    name: exp-lilies-001-r6
 
 volumes:
   paperless-redis:

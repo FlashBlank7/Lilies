@@ -789,16 +789,19 @@ def test_auto_forward_replay_accepts_an_already_confirmed_channel(
         _base_url: str,
         path: str,
         **kwargs: Any,
-    ) -> list[dict[str, Any]]:
+    ) -> dict[str, Any]:
         calls.append((path, kwargs))
-        return [
-            {
-                "assignment_id": "assignment-1",
-                "channel_id": "channel-1",
-                "revision": 4,
-                "approval_mode": "auto_forward",
-            }
-        ]
+        return {
+            "channels": [
+                {
+                    "assignment_id": "assignment-1",
+                    "channel_id": "channel-1",
+                    "revision": 4,
+                    "approval_mode": "auto_forward",
+                }
+            ],
+            "count": 1,
+        }
 
     monkeypatch.setattr(runner, "_request_json", fake_request)
 

@@ -2,8 +2,8 @@
   "schema_version": "v0.4.13-t01h-runtime-environment-1",
   "stage_task_id": "V04-13-T01H",
   "experiment_task_id": "EXP-LILIES-001",
-  "revision": 5,
-  "observed_at": "2026-07-25T04:49:03Z",
+  "revision": 6,
+  "observed_at": "2026-07-25T05:00:12Z",
   "environment": {
     "status": "ready",
     "docker_daemon_probe": "passed",
@@ -21,14 +21,14 @@
     },
     "task_author_preflight": {
       "status": "pending",
-      "candidate_revision": 5,
+      "candidate_revision": 6,
       "runner_preparation": "passed",
       "inherited_pinned_image_count": 6,
-      "reason": "Revision 5 was generated after the revision 4 formal source baseline rejected sealed task paths outside the developer projection and has not yet started a real-host preflight."
+      "reason": "Revision 6 was generated after revision 5 created and started the formal assignment but the task-author runner treated the Studio collaboration-channel response envelope as a raw list; revision 6 has not yet started a real-host preflight."
     },
     "previous_revision_preflight": {
       "status": "passed",
-      "candidate_revision": 4,
+      "candidate_revision": 5,
       "runner_preparation": "passed",
       "container_count": 7,
       "stable_container_count": 7,
@@ -36,7 +36,7 @@
       "inventree_version": "1.4.2",
       "hidden_record_count": 36,
       "baseline_snapshot_mode": "0600",
-      "baseline_snapshot_digest": "sha256:27b2bd365e4f8361fb7bd6ec9a8977a1914c5448424a5c014df7373fdbcebef9",
+      "baseline_snapshot_digest": "sha256:b0645e5b5060a8c611f7830a65a925968e623038c47f23218b242a832b642d04",
       "baseline_request_log_count": 0,
       "baseline_forbidden_write_count": 0,
       "baseline_duplicate_effect_count": 0,
@@ -45,7 +45,14 @@
         18011
       ],
       "environment_attestation": "verified",
-      "services_stopped_after_preflight": false
+      "formal_assignment": {
+        "assignment_id": "8b3a384f-bf3b-5db1-89f8-675f63a9b9b6",
+        "session_id": "42aa94d9-1671-590c-8643-5d63f8601d7b",
+        "channel_id": "a124844c-4bd8-542d-93c0-699fcef52262",
+        "status": "running",
+        "phase": "running"
+      },
+      "services_stopped_after_failure": true
     },
     "amendment_history": [
       {
@@ -69,8 +76,13 @@
       },
       {
         "revision": 5,
+        "outcome": "formal_assignment_started_auto_forward_configuration_failed",
+        "reason": "Revision 5 passed the real-host preflight and formal source preparation, then created and started the formal assignment and persisted its collaboration channel before the task-author runner rejected the Studio channel inventory response envelope."
+      },
+      {
+        "revision": 6,
         "outcome": "task_author_preflight_pending",
-        "reason": "Revision 4 preserved the failed attempt and revision 5 separates repository-tree integrity from developer projection visibility."
+        "reason": "Revision 5 preserved the failed attempt and revision 6 reads the documented Studio channel inventory response envelope before enabling the user-authorized auto-forward policy."
       }
     ],
     "model_authority": {
@@ -81,21 +93,21 @@
     "real_host_services_started": true,
     "real_host_runs": 0,
     "formal_attempts": {
-      "total": 4,
+      "total": 5,
       "passed": 0,
-      "failed": 4,
-      "seed_101_failed": 4,
+      "failed": 5,
+      "seed_101_failed": 5,
       "seed_202_not_run": 1,
       "seed_303_not_run": 1,
       "immutable_attempt_evidence": true,
-      "latest_failure": "Revision 4 formal source baseline rejected sealed task paths outside the developer-visible projection before daemon submission"
+      "latest_failure": "Revision 5 created and started the formal assignment, but the task-author runner treated the Studio collaboration-channel inventory response envelope as a raw list before enabling auto-forward"
     },
     "stable_hidden_runs": {
       "completed": 0,
       "required": 3
     },
     "blocked_by": null,
-    "recheck_trigger": "Commit the repaired source baseline and execute revision 5 real-host preflight through the same formal boundary."
+    "recheck_trigger": "Commit the revision 6 response-envelope fix and execute its real-host preflight and seed 101 through the same formal boundary."
   },
   "enterprise_denominator": {
     "required_runs": 3,
@@ -105,5 +117,5 @@
     "failed_runs": 0,
     "not_run_runs": 3
   },
-  "claim_ceiling": "Frozen revision 5 package preparation plus revision 4 real-host preflight and four preserved pre-assignment failure attempts. No revision 5 real-host preflight, Builder run, hidden 36/36 oracle pass, or stable-seed result is claimed."
+  "claim_ceiling": "Frozen revision 6 package preparation plus revision 5 real-host preflight, formal assignment-start evidence, and five preserved failed attempts. No Builder tool execution, completed workflow, hidden 36/36 oracle pass, or stable-seed result is claimed."
 }

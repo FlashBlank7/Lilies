@@ -28,7 +28,7 @@ from agent_platform.task_packages import TaskPackageManager
 
 ROOT = Path(__file__).resolve().parents[1]
 TASK_ID = "EXP-LILIES-001"
-REVISION = 5
+REVISION = 6
 TASK_ROOT = (
     ROOT
     / "docs"
@@ -579,11 +579,16 @@ def _set_auto_forward(
     *,
     assignment_id: str,
 ) -> dict[str, Any]:
-    channels = _request_json(
+    inventory = _request_json(
         platform_url,
         "/api/v1/studio/collaboration/channels?limit=500",
         token=platform_token,
     )
+    channels = inventory.get("channels") if isinstance(inventory, dict) else None
+    if not isinstance(channels, list):
+        raise EnterpriseExperimentError(
+            "formal collaboration channel inventory is invalid"
+        )
     matching = [
         item
         for item in channels
