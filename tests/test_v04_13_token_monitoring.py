@@ -400,8 +400,95 @@ def test_process_detection_and_delta() -> None:
     assert delta["tokens"] == 15
     assert delta["model_calls"] == 2
     assert delta["unknown_usage_model_calls"] == 0
+    assert delta["reconciled_unknown_usage_model_calls"] == 0
     assert delta["cost_usd"] == 0.15
     assert delta["tokens_per_minute"] == 30
+
+
+def test_active_local_turn_uses_checkpoint_call_counters(tmp_path: Path) -> None:
+    lilies = tmp_path / "lilies.db"
+    _lilies_db(lilies)
+    connection = sqlite3.connect(lilies)
+    connection.execute(
+        "UPDATE sessions SET status='running',token_count=0,cost_usd=0,"
+        "tool_count=0,model_call_count=0 WHERE id='session-1'"
+    )
+    connection.execute(
+        "UPDATE turns SET status='running',token_count=0,cost_usd=0,"
+        "tool_count=0,model_call_count=0,checkpoint_json=? WHERE id='turn-1'",
+        (
+            json.dumps(
+                {
+                    "metrics": {
+                        "model_calls": 57,
+                        "tool_calls": 77,
+                        "usage_backed_model_calls": 55,
+                        "usage": {
+                            "input_tokens": 7_803_173,
+                            "output_tokens": 34_003,
+                            "cache_read_input_tokens": 405_376,
+                            "cost_usd": 1.101965,
+                            "cost_source": "estimated_configured_price",
+                        },
+                    }
+                }
+            ),
+        ),
+    )
+    connection.commit()
+    connection.close()
+
+    result = collect_token_monitor_snapshot(
+        platform_db=tmp_path / "missing-platform.db",
+        lilies_db=lilies,
+        bridge_db=tmp_path / "missing-bridge.db",
+        development_db=tmp_path / "missing-development.db",
+        required_sources=("local_lilies",),
+        process_rows=[],
+    )
+
+    totals = result["usage"]["totals"]
+    assert totals["model_calls"] == 57
+    assert totals["unknown_usage_model_calls"] == 2
+    assert totals["tokens"] == 7_837_176
+    assert result["sources"]["local_lilies"]["active_sessions"] == [
+        {
+            "session_id": "session-1",
+            "assignment_id": "assignment-1",
+            "status": "running",
+            "stage": "local_lilies_collaboration",
+            "tokens": 7_837_176,
+            "cost_usd": 1.101965,
+            "model_calls": 57,
+            "tool_calls": 77,
+            "updated_at": "2026-07-25T00:01:00+00:00",
+        }
+    ]
+
+
+def test_unknown_usage_delta_labels_late_receipt_reconciliation() -> None:
+    previous = {
+        "usage": {
+            "totals": {
+                "model_calls": 57,
+                "unknown_usage_model_calls": 2,
+            }
+        }
+    }
+    current = {
+        "usage": {
+            "totals": {
+                "model_calls": 57,
+                "unknown_usage_model_calls": 0,
+            }
+        }
+    }
+
+    delta = snapshot_delta(previous, current, elapsed_seconds=5)
+
+    assert delta["model_calls"] == 0
+    assert delta["unknown_usage_model_calls"] == 0
+    assert delta["reconciled_unknown_usage_model_calls"] == 2
 
 
 def test_enterprise_runner_persists_private_live_monitor_snapshot(

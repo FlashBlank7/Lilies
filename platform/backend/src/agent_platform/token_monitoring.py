@@ -348,6 +348,7 @@ def _local_lilies_snapshot(path: Path) -> dict[str, Any]:
             detailed_tokens = 0
             detailed_cost = 0.0
             detailed_calls = 0
+            detailed_tools = 0
             session_turns = turns_by_session.get(session_id, [])
             for turn in session_turns:
                 checkpoint = _json_object(turn["checkpoint_json"])
@@ -367,7 +368,21 @@ def _local_lilies_snapshot(path: Path) -> dict[str, Any]:
                         "task_kind": config.get("kind"),
                     },
                 )
-                sample["model_calls"] = int(turn["model_call_count"])
+                checkpoint_model_calls = int(
+                    _number(metrics.get("model_calls"), integer=True)
+                )
+                effective_model_calls = max(
+                    int(turn["model_call_count"]),
+                    checkpoint_model_calls,
+                )
+                checkpoint_tool_calls = int(
+                    _number(metrics.get("tool_calls"), integer=True)
+                )
+                effective_tool_calls = max(
+                    int(turn["tool_count"]),
+                    checkpoint_tool_calls,
+                )
+                sample["model_calls"] = effective_model_calls
                 sample["usage_records"] = 1 if usage else 0
                 usage_backed_calls = int(
                     _number(
@@ -377,12 +392,13 @@ def _local_lilies_snapshot(path: Path) -> dict[str, Any]:
                 )
                 sample["unknown_usage_model_calls"] = max(
                     0,
-                    int(turn["model_call_count"]) - usage_backed_calls,
+                    effective_model_calls - usage_backed_calls,
                 )
-                sample["tool_calls"] = int(turn["tool_count"])
+                sample["tool_calls"] = effective_tool_calls
                 detailed_tokens += int(sample["tokens"])
                 detailed_cost += float(sample["cost_usd"])
                 detailed_calls += int(sample["model_calls"])
+                detailed_tools += int(sample["tool_calls"])
                 samples.append(sample)
                 pending = _json_object(checkpoint.get("pending"))
                 if str(turn["status"]) in {"running", "waiting_collaboration"} and (
@@ -435,10 +451,10 @@ def _local_lilies_snapshot(path: Path) -> dict[str, Any]:
                 "assignment_id": assignment_id,
                 "status": str(row["status"]),
                 "stage": stage,
-                "tokens": authoritative_tokens,
-                "cost_usd": authoritative_cost,
-                "model_calls": authoritative_calls,
-                "tool_calls": int(row["tool_count"]),
+                "tokens": max(authoritative_tokens, detailed_tokens),
+                "cost_usd": max(authoritative_cost, detailed_cost),
+                "model_calls": max(authoritative_calls, detailed_calls),
+                "tool_calls": max(int(row["tool_count"]), detailed_tools),
                 "updated_at": str(row["updated_at"]),
             }
             sessions.append(session_view)
@@ -784,6 +800,15 @@ def collect_token_monitor_snapshot(
                     "A model call without a persisted provider usage payload is counted "
                     "as unknown, never as a confirmed zero-token call."
                 ),
+                "active_turn_semantics": (
+                    "Active Local Lilies calls and tools use the greater of settled "
+                    "database counters and durable checkpoint metrics."
+                ),
+                "unknown_usage_reconciliation_semantics": (
+                    "When a late provider receipt reduces the unknown-call balance, "
+                    "delta reports the reduction as reconciled_unknown_usage_model_calls "
+                    "instead of negative consumption."
+                ),
             },
             "samples": sorted(samples, key=lambda item: str(item["created_at"])),
         },
@@ -820,6 +845,9 @@ def snapshot_delta(
         - int(_number(previous_totals.get(field), integer=True))
         for field in fields
     }
+    raw_unknown_delta = delta["unknown_usage_model_calls"]
+    delta["unknown_usage_model_calls"] = max(0, raw_unknown_delta)
+    delta["reconciled_unknown_usage_model_calls"] = max(0, -raw_unknown_delta)
     delta["cost_usd"] = float(_number(current_totals.get("cost_usd"))) - float(
         _number(previous_totals.get("cost_usd"))
     )

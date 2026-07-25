@@ -98,6 +98,9 @@ def _print_snapshot(
             f"tokens={_number(delta['tokens'])} "
             f"rate={float(delta['tokens_per_minute']):,.1f}/min "
             f"calls={_number(delta['model_calls'])} "
+            f"unknown={_number(delta['unknown_usage_model_calls'])} "
+            f"reconciled-unknown="
+            f"{_number(delta['reconciled_unknown_usage_model_calls'])} "
             f"cost={_money(delta['cost_usd'])}"
         )
     print("By stage:")
