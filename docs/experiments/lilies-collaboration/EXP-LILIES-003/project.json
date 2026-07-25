@@ -1,0 +1,56 @@
+{
+  "schema_version": "1.0",
+  "portfolio_id": "PORT-LILIES-V04-13-T01H",
+  "stage_task_id": "V04-13-T01H",
+  "project_id": "EXP-LILIES-003",
+  "sequence": 3,
+  "title": "Durable facility event monitoring and governed automation",
+  "status": "selected",
+  "cohort": "individual_and_small_facility",
+  "enterprise_denominator": false,
+  "capability_family": "event_driven_monitoring_cross_system_automation",
+  "intervention_type": "replacement",
+  "replacement_contract": {
+    "host_flow": "Replace the standard door-open-for-five-minutes notification automation while leaving Home Assistant event ingestion, entity state, services, identity, and device control intact.",
+    "compatibility_contract": "For the same ordered event and restart trace, produce exactly one notification at the same logical deadline, produce none when the door closes before the deadline, and perform no device service action.",
+    "original_flow_baseline": "Freeze and replay the official Home Assistant trigger with a for duration, including the documented restart or automation-reload reset behavior.",
+    "rollback": "Disable the generated workflow and re-enable the frozen Home Assistant automation without changing entity, service, or notification configuration.",
+    "comparison": "Report semantic correctness and restart durability before latency or resource performance."
+  },
+  "customer_role": "Small-facility operator responsible for safety and energy events",
+  "business_problem": "Preserve timed event decisions and deduplicated notifications across host restart while keeping risky device actions behind approval.",
+  "host_projects": [
+    {
+      "name": "Home Assistant Core",
+      "repository": "https://github.com/home-assistant/core",
+      "release": "2026.7.2",
+      "official_interfaces": ["WebSocket API", "REST API", "events", "states", "service actions"]
+    }
+  ],
+  "inputs": ["door, energy, and environmental sensor events", "entity state", "restart and disconnect events"],
+  "models": ["optional versioned anomaly or forecast model; deterministic timer remains the replacement baseline"],
+  "external_systems": ["Home Assistant", "scoped notification sink"],
+  "human_decisions": ["approval before a high-risk device service action"],
+  "deliverables": ["deduplicated notification", "durable timer and recovery trace", "governed service-action receipt"],
+  "workflow_result": "A generated workflow discovers and subscribes to the WebSocket contract, validates events, preserves timers across restart, deduplicates notifications, and gates risky service actions.",
+  "independent_oracle": "A frozen event clock replays duplicates, disconnects, restart, reload, stale state, and permission denial and checks exact notification count, timer deadlines, recovery, and zero unapproved device actions.",
+  "source_intent_ids": ["EVAL-003", "PRODUCT-001", "PRODUCT-010", "PRODUCT-011", "PRODUCT-015", "PRODUCT-016", "PRODUCT-017", "SCENARIO-009", "SCENARIO-010", "SCENARIO-011"],
+  "selection_gates": {
+    "real_user_and_problem": true,
+    "full_workflow_elements": true,
+    "platform_workflow_outcome": true,
+    "independent_business_oracle": true,
+    "host_not_component": true,
+    "intervention_boundary": true
+  },
+  "official_evidence": [
+    "https://developers.home-assistant.io/docs/api/websocket/",
+    "https://developers.home-assistant.io/docs/api/rest/",
+    "https://www.home-assistant.io/docs/automation/trigger/"
+  ],
+  "task_package_root": "docs/experiments/lilies-collaboration/EXP-LILIES-003",
+  "latest_revision": 0,
+  "revision_semantics": "Revision 1 starts only after EXP-LILIES-002 closes.",
+  "current_blocker": null,
+  "next_action": "Freeze the WebSocket schema, host image, event fixtures, clock, permissions, seeds, and replacement baseline."
+}

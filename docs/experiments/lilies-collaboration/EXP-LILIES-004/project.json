@@ -1,0 +1,67 @@
+{
+  "schema_version": "1.0",
+  "portfolio_id": "PORT-LILIES-V04-13-T01H",
+  "stage_task_id": "V04-13-T01H",
+  "project_id": "EXP-LILIES-004",
+  "sequence": 4,
+  "title": "Predictive-maintenance inference, review, and model monitoring",
+  "status": "selected",
+  "cohort": "enterprise",
+  "enterprise_denominator": true,
+  "capability_family": "ml_dl_inference_threshold_review_monitoring",
+  "intervention_type": "augmentation_and_separately_reported_replacement",
+  "separate_intervention_denominators": true,
+  "interventions": [
+    {
+      "kind": "augmentation",
+      "boundary": "Add versioned model inference, review, and monitoring while preserving ThingsBoard telemetry ingestion, Rule Engine transport, alarm storage, and human alarm lifecycle.",
+      "oracle": "Compare generated alarm and model evidence with hidden labeled telemetry and safety gates."
+    },
+    {
+      "kind": "replacement",
+      "host_flow": "Replace only a frozen threshold-detection Rule Chain segment.",
+      "compatibility_contract": "Consume the same validated telemetry message contract and emit the same alarm identity, severity, and state contract; no Device RPC is allowed.",
+      "original_flow_baseline": "Freeze the original threshold Rule Chain JSON and replay it on the same event clock.",
+      "rollback": "Restore the frozen Rule Chain segment and disable generated inference routing.",
+      "comparison": "REP-FLOW preserves the threshold algorithm and measures orchestration equivalence; REP-STACK changes the model and reports task quality separately from runtime performance."
+    }
+  ],
+  "customer_role": "Device operations engineer, reliability engineer, and model owner",
+  "business_problem": "Detect equipment risk from telemetry with versioned models, control false alarms, route uncertain cases, and monitor drift without unsafe device action.",
+  "host_projects": [
+    {
+      "name": "ThingsBoard Community Edition",
+      "repository": "https://github.com/thingsboard/thingsboard",
+      "release": "v4.3.1.3",
+      "official_interfaces": ["MQTT Device API", "REST API and Swagger", "Rule Engine", "alarms"]
+    }
+  ],
+  "inputs": ["timestamped device telemetry", "units and device metadata", "labeled failure windows"],
+  "models": ["imported or trained versioned anomaly or failure model", "frozen feature schema and thresholds"],
+  "external_systems": ["ThingsBoard Community Edition"],
+  "human_decisions": ["model promotion", "uncertain-alarm review", "acknowledge and clear", "approval before any Device RPC"],
+  "deliverables": ["ThingsBoard alarm", "inference trace", "model card", "evaluation report", "drift report"],
+  "workflow_result": "A generated workflow validates telemetry, runs a versioned model, applies confidence and business thresholds, creates or updates alarms, routes review, and monitors model and data drift.",
+  "independent_oracle": "Hidden telemetry replay checks event-level precision/recall/AUPRC, latency, units, duplicates, disorder, reconnect, exact alarm identity/state/history, and zero Device RPC before approval.",
+  "source_intent_ids": ["EVAL-003", "PRODUCT-001", "PRODUCT-011", "PRODUCT-012", "PRODUCT-015", "PRODUCT-016", "PRODUCT-017", "SCENARIO-004", "SCENARIO-009", "SCENARIO-011"],
+  "selection_gates": {
+    "real_user_and_problem": true,
+    "full_workflow_elements": true,
+    "platform_workflow_outcome": true,
+    "independent_business_oracle": true,
+    "host_not_component": true,
+    "intervention_boundary": true
+  },
+  "official_evidence": [
+    "https://thingsboard.io/docs/user-guide/rule-engine/",
+    "https://thingsboard.io/docs/reference/rest-api/",
+    "https://thingsboard.io/docs/reference/mqtt-api/",
+    "https://thingsboard.io/docs/concepts/alarms-and-notifications/",
+    "https://github.com/thingsboard/thingsboard/releases/tag/v4.3.1.3"
+  ],
+  "task_package_root": "docs/experiments/lilies-collaboration/EXP-LILIES-004",
+  "latest_revision": 0,
+  "revision_semantics": "Revision 1 starts only after EXP-LILIES-003 closes.",
+  "current_blocker": null,
+  "next_action": "Freeze CE images, Swagger, Rule Chain baseline, telemetry replay, model data split, clock, seeds, and oracle."
+}

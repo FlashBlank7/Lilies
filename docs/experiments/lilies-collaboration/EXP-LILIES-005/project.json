@@ -1,0 +1,51 @@
+{
+  "schema_version": "1.0",
+  "portfolio_id": "PORT-LILIES-V04-13-T01H",
+  "stage_task_id": "V04-13-T01H",
+  "project_id": "EXP-LILIES-005",
+  "sequence": 5,
+  "title": "Structured finance reconciliation and artifact delivery",
+  "status": "selected",
+  "cohort": "individual_and_small_business",
+  "enterprise_denominator": false,
+  "capability_family": "structured_data_artifact_customer_delivery",
+  "intervention_type": "augmentation",
+  "customer_role": "Small-business bookkeeper or individual budget owner",
+  "business_problem": "Reconcile receipt facts with imported transactions, preserve balance and deduplication invariants, route conflicts, and deliver a validated audit artifact.",
+  "host_projects": [
+    {
+      "name": "Actual Budget",
+      "repository": "https://github.com/actualbudget/actual",
+      "release": "v26.7.0",
+      "official_interfaces": ["Node.js API", "official CLI", "transaction import", "ordered rules"]
+    }
+  ],
+  "inputs": ["transaction exports", "receipt records", "account and category schema", "ordered classification rules"],
+  "models": ["optional versioned receipt classifier or matcher"],
+  "external_systems": ["Actual Budget via generated SDK or CLI bridge"],
+  "human_decisions": ["conflicting match or category review", "approval before transaction mutation"],
+  "deliverables": ["typed reconciliation table", "validated CSV or XLSX artifact", "Actual mutation receipts", "balance invariant report"],
+  "workflow_result": "A generated workflow builds a typed SDK or CLI contract, validates and transforms finance data, reconciles records, routes conflicts, writes approved updates exactly once, and emits an independently checked artifact.",
+  "independent_oracle": "Hidden transactions and receipts check schema, types, exact amounts, balance invariants, rule ordering, deduplication, artifact cells, SDK or CLI receipts, retry behavior, and zero unauthorized mutations.",
+  "source_intent_ids": ["EVAL-003", "PRODUCT-001", "PRODUCT-010", "PRODUCT-011", "PRODUCT-014", "PRODUCT-015", "PRODUCT-016", "PRODUCT-017", "SCENARIO-005", "SCENARIO-010", "SCENARIO-011"],
+  "selection_gates": {
+    "real_user_and_problem": true,
+    "full_workflow_elements": true,
+    "platform_workflow_outcome": true,
+    "independent_business_oracle": true,
+    "host_not_component": true,
+    "intervention_boundary": true
+  },
+  "official_evidence": [
+    "https://actualbudget.org/docs/api/",
+    "https://actualbudget.org/docs/api/reference/",
+    "https://actualbudget.org/docs/api/cli/",
+    "https://actualbudget.org/docs/budgeting/rules/"
+  ],
+  "task_package_root": "docs/experiments/lilies-collaboration/EXP-LILIES-005",
+  "latest_revision": 0,
+  "revision_semantics": "Revision 1 starts only after EXP-LILIES-004 closes.",
+  "current_blocker": null,
+  "next_action": "Freeze the server and API package versions, CLI help, budget fixture, rule baseline, secrets, seeds, and oracle."
+}
+

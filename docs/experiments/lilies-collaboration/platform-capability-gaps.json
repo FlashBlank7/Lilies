@@ -1,0 +1,20 @@
+{
+  "schema_version": "1.0",
+  "lane_id": "CAP-LILIES-V04-13-T01H",
+  "stage_task_id": "V04-13-T01H",
+  "purpose": "Track reusable platform capability work separately from customer-project iterations and results.",
+  "enterprise_denominator": false,
+  "admission_contract": {
+    "required_origin": ["project_id", "task_revision", "attempt_id", "evidence_digest"],
+    "required_generality": "The report must describe a reusable platform contract and tests; a host-specific adapter, field mapping, webhook handler, SDK wrapper, or final workflow is forbidden.",
+    "required_completion_evidence": ["implementation_diff", "platform_tests", "independent_review", "affected_project_rerun"],
+    "authority": "Only a complete report routed by the frozen project collaboration policy may create an implementation work item.",
+    "denominator_rule": "Capability implementation and qualification never count as customer-project success."
+  },
+  "candidate_backlog_not_authorized": {
+    "source": "docs/evidence/platform_interface_capability_audit_2026-07-21.json",
+    "meaning": "IF-01 through IF-14 are pre-portfolio audit candidates, not project-derived capability reports and not permission to implement them speculatively."
+  },
+  "entries": []
+}
+

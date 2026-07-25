@@ -1,0 +1,128 @@
+{
+  "schema_version": "1.0",
+  "portfolio_id": "PORT-LILIES-V04-13-T01H",
+  "stage_task_id": "V04-13-T01H",
+  "contract_revision": 3,
+  "selection_status": "locked",
+  "execution_status": "project_1_active",
+  "approved_at": "2026-07-25",
+  "approval_ref": "User approved continuing with approximately six real projects organized by distinct capability families, executed one by one, with iterations under each project and reusable platform supplementation tracked separately.",
+  "required_project_count": 6,
+  "execution_policy": {
+    "mode": "strictly_sequential",
+    "active_project_id": "EXP-LILIES-001",
+    "next_project_requires_previous_project_closure": true,
+    "one_builder_context_per_project_revision": true,
+    "shared_assignment_session_seed_or_archive": false,
+    "all_attempts_remain_in_project_denominator": true,
+    "portfolio_average_cannot_mask_project_failure": true,
+    "provider_egress_default": "disabled"
+  },
+  "cohort_policy": {
+    "primary_target": "traditional_enterprise",
+    "enterprise_projects": ["EXP-LILIES-001", "EXP-LILIES-002", "EXP-LILIES-004", "EXP-LILIES-006"],
+    "separately_reported_generalization_projects": ["EXP-LILIES-003", "EXP-LILIES-005"],
+    "mixed_denominator_forbidden": true
+  },
+  "protocol_sequence": [
+    {
+      "position": 1,
+      "project_id": "EXP-LILIES-003",
+      "surface": "Home Assistant WebSocket"
+    },
+    {
+      "position": 2,
+      "project_id": "EXP-LILIES-004",
+      "surface": "ThingsBoard MQTT"
+    },
+    {
+      "position": 3,
+      "project_id": "EXP-LILIES-005",
+      "surface": "Actual SDK/CLI"
+    }
+  ],
+  "authorized_intent_ids": [
+    "EVAL-003",
+    "PRODUCT-001",
+    "PRODUCT-010",
+    "PRODUCT-011",
+    "PRODUCT-012",
+    "PRODUCT-013",
+    "PRODUCT-014",
+    "PRODUCT-015",
+    "PRODUCT-016",
+    "PRODUCT-017",
+    "SCENARIO-004",
+    "SCENARIO-005",
+    "SCENARIO-006",
+    "SCENARIO-007",
+    "SCENARIO-008",
+    "SCENARIO-009",
+    "SCENARIO-010",
+    "SCENARIO-011"
+  ],
+  "member_manifest_set_sha256": "6550d4f1292048d08d9bfd40c2d93c6ec317c5f2387c990f17407abca45a8ee2",
+  "projects": [
+    {
+      "project_id": "EXP-LILIES-001",
+      "sequence": 1,
+      "manifest": "docs/experiments/lilies-collaboration/EXP-LILIES-001/project.json",
+      "manifest_sha256": "bba133d7ba8ea0fac8d4e15037efcd2944c0f68f574087e47a54c0c0b90756df",
+      "latest_revision": 10,
+      "status": "active_blocked_by_environment"
+    },
+    {
+      "project_id": "EXP-LILIES-002",
+      "sequence": 2,
+      "manifest": "docs/experiments/lilies-collaboration/EXP-LILIES-002/project.json",
+      "manifest_sha256": "59eb6b6efc45f1d87942623d483d33533fb3e9c5b6b940da65caaa11100fac40",
+      "latest_revision": 0,
+      "status": "selected"
+    },
+    {
+      "project_id": "EXP-LILIES-003",
+      "sequence": 3,
+      "manifest": "docs/experiments/lilies-collaboration/EXP-LILIES-003/project.json",
+      "manifest_sha256": "aaa95da2e66c1319f09ab42c6344dbfd48e9590d53011ab63e76e0b64788ce93",
+      "latest_revision": 0,
+      "status": "selected"
+    },
+    {
+      "project_id": "EXP-LILIES-004",
+      "sequence": 4,
+      "manifest": "docs/experiments/lilies-collaboration/EXP-LILIES-004/project.json",
+      "manifest_sha256": "1b22e1b018349d9212c53266b0e614d46ae8d0367d8965b4bfadec5582bc1c44",
+      "latest_revision": 0,
+      "status": "selected"
+    },
+    {
+      "project_id": "EXP-LILIES-005",
+      "sequence": 5,
+      "manifest": "docs/experiments/lilies-collaboration/EXP-LILIES-005/project.json",
+      "manifest_sha256": "a12a6f382050826c56b176ca20a17dcc274d9635f18c5bab5c36d7ae281d9cd1",
+      "latest_revision": 0,
+      "status": "selected"
+    },
+    {
+      "project_id": "EXP-LILIES-006",
+      "sequence": 6,
+      "manifest": "docs/experiments/lilies-collaboration/EXP-LILIES-006/project.json",
+      "manifest_sha256": "6636dcd108b432a22954d9f26a37ad956c58c29fea5f45e9b475fb5e75667050",
+      "latest_revision": 0,
+      "status": "selected"
+    }
+  ],
+  "generic_capability_lane": {
+    "registry": "docs/experiments/lilies-collaboration/platform-capability-gaps.json",
+    "enterprise_denominator": false,
+    "project_specific_adapter_forbidden": true,
+    "affected_project_rerun_required": true
+  },
+  "closure_policy": {
+    "required_project_verdict": "pass_for_every_project",
+    "required_capability_gap_state": "all_accepted_entries_terminal_and_affected_projects_rerun",
+    "t01i_may_start_before_portfolio_closure": false,
+    "t01j_may_start_before_portfolio_closure": false,
+    "version_closure_may_average_projects": false
+  }
+}

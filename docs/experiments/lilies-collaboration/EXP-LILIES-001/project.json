@@ -1,0 +1,51 @@
+{
+  "schema_version": "1.0",
+  "portfolio_id": "PORT-LILIES-V04-13-T01H",
+  "stage_task_id": "V04-13-T01H",
+  "project_id": "EXP-LILIES-001",
+  "sequence": 1,
+  "title": "Supplier document intake, procurement reconciliation, and governed handoff",
+  "status": "active_blocked_by_environment",
+  "cohort": "enterprise",
+  "enterprise_denominator": true,
+  "capability_family": "document_ocr_procurement_excel_writeback",
+  "intervention_type": "augmentation",
+  "customer_role": "Manufacturing procurement operator and quality-document reviewer",
+  "business_problem": "Process supplier invoices and certificates, match them to purchasing and part records, route ambiguity, write approved facts exactly once, and deliver an auditable workbook.",
+  "host_projects": [
+    {
+      "name": "paperless-ngx",
+      "repository": "https://github.com/paperless-ngx/paperless-ngx",
+      "release": "v2.20.15",
+      "official_interfaces": ["versioned REST API", "document workflows"]
+    },
+    {
+      "name": "InvenTree",
+      "repository": "https://github.com/inventree/InvenTree",
+      "release": "1.4.2",
+      "official_interfaces": ["OpenAPI", "authenticated REST API"]
+    }
+  ],
+  "inputs": ["supplier invoice PDFs", "quality-certificate scans", "purchase orders", "supplier-part records"],
+  "models": ["OCR and document extraction selected by the generated workflow"],
+  "external_systems": ["Paperless-ngx", "InvenTree"],
+  "human_decisions": ["conflict and low-confidence review", "approval before governed writeback"],
+  "deliverables": ["typed reconciliation JSON", "validated XLSX workbook", "host write receipts"],
+  "workflow_result": "A generated workflow performs intake, extraction, validation, reconciliation, review routing, exactly-once writeback, and workbook delivery.",
+  "independent_oracle": "Three hidden seeds each verify 36 records, workbook cells and formulas, host final state, permissions, fault recovery, duplicate suppression, and write receipts.",
+  "source_intent_ids": ["EVAL-003", "PRODUCT-001", "PRODUCT-011", "PRODUCT-014", "PRODUCT-015", "PRODUCT-016", "PRODUCT-017", "SCENARIO-008", "SCENARIO-011"],
+  "selection_gates": {
+    "real_user_and_problem": true,
+    "full_workflow_elements": true,
+    "platform_workflow_outcome": true,
+    "independent_business_oracle": true,
+    "host_not_component": true,
+    "intervention_boundary": true
+  },
+  "task_package_root": "docs/experiments/lilies-collaboration/EXP-LILIES-001",
+  "latest_revision": 10,
+  "revision_semantics": "Revisions 1 through 10 are iterations of this project only.",
+  "current_blocker": "DeepSeek returned HTTP 402 Insufficient Balance; provider egress remains disabled.",
+  "next_action": "After balance or an authorized provider changes, explicitly run revision 10 seed 101 without modifying the package."
+}
+

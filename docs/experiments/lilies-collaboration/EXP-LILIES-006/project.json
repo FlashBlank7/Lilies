@@ -1,0 +1,51 @@
+{
+  "schema_version": "1.0",
+  "portfolio_id": "PORT-LILIES-V04-13-T01H",
+  "stage_task_id": "V04-13-T01H",
+  "project_id": "EXP-LILIES-006",
+  "sequence": 6,
+  "title": "Forecast-driven constrained replenishment planning",
+  "status": "selected",
+  "cohort": "enterprise",
+  "enterprise_denominator": true,
+  "capability_family": "forecasting_constrained_optimization_planning",
+  "intervention_type": "augmentation",
+  "customer_role": "Manufacturing or distribution inventory planner and purchasing manager",
+  "business_problem": "Turn demand, inventory, open orders, lead time, MOQ, capacity, and budget constraints into a feasible, reviewable replenishment plan.",
+  "host_projects": [
+    {
+      "name": "ERPNext",
+      "repository": "https://github.com/frappe/erpnext",
+      "release": "v16.20.0",
+      "official_interfaces": ["Frappe REST resource API", "webhooks", "Material Request", "MRP"]
+    }
+  ],
+  "inputs": ["historical and current demand", "inventory and open orders", "lead times", "MOQ and lot sizes", "capacity and budget constraints"],
+  "models": ["versioned forecast model", "versioned constrained optimization model"],
+  "external_systems": ["ERPNext"],
+  "human_decisions": ["forecast and plan review", "approval before submitting procurement or stock transactions"],
+  "deliverables": ["forecast and intervals", "feasible replenishment plan", "constraint and objective evidence", "draft ERPNext records and receipts"],
+  "workflow_result": "A generated workflow validates units and history, backtests a versioned forecast, solves a constrained plan, explains infeasibility, routes high-impact choices, and writes only approved draft planning records.",
+  "independent_oracle": "Hidden time splits check WAPE or MASE and interval coverage; a deterministic solver independently recomputes inventory balance, lead-time, MOQ, capacity, budget, objective, and infeasibility, then compares every draft record read back from ERPNext.",
+  "source_intent_ids": ["EVAL-003", "PRODUCT-001", "PRODUCT-011", "PRODUCT-012", "PRODUCT-014", "PRODUCT-015", "PRODUCT-016", "PRODUCT-017", "SCENARIO-005", "SCENARIO-007", "SCENARIO-011"],
+  "selection_gates": {
+    "real_user_and_problem": true,
+    "full_workflow_elements": true,
+    "platform_workflow_outcome": true,
+    "independent_business_oracle": true,
+    "host_not_component": true,
+    "intervention_boundary": true
+  },
+  "official_evidence": [
+    "https://docs.frappe.io/erpnext/material-requirements-planning-mrp",
+    "https://docs.frappe.io/framework/user/en/api/rest",
+    "https://docs.frappe.io/erpnext/material-request",
+    "https://github.com/frappe/erpnext/releases/tag/v16.20.0"
+  ],
+  "task_package_root": "docs/experiments/lilies-collaboration/EXP-LILIES-006",
+  "latest_revision": 0,
+  "revision_semantics": "Revision 1 starts only after EXP-LILIES-005 closes.",
+  "current_blocker": null,
+  "next_action": "Freeze ERPNext and Frappe digests, API schema, roles, database seed, historical split, constraints, baseline plan, seeds, and oracle."
+}
+

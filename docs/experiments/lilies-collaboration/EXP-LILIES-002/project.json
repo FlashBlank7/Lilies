@@ -1,0 +1,51 @@
+{
+  "schema_version": "1.0",
+  "portfolio_id": "PORT-LILIES-V04-13-T01H",
+  "stage_task_id": "V04-13-T01H",
+  "project_id": "EXP-LILIES-002",
+  "sequence": 2,
+  "title": "Access-controlled enterprise knowledge assistant",
+  "status": "selected",
+  "cohort": "enterprise",
+  "enterprise_denominator": true,
+  "capability_family": "enterprise_rag_authorization_citation_update",
+  "intervention_type": "augmentation",
+  "customer_role": "Knowledge-base administrator, service operator, and compliance reviewer",
+  "business_problem": "Answer operational questions from governed knowledge without exposing role-restricted content, while retaining citations and reacting correctly to updates and deletion.",
+  "host_projects": [
+    {
+      "name": "BookStack",
+      "repository": "https://codeberg.org/bookstack/bookstack",
+      "release": "v26.05",
+      "official_interfaces": ["REST API", "role and content permissions", "webhooks"]
+    }
+  ],
+  "inputs": ["books, chapters, pages, attachments, tags, revisions", "role and content permissions", "held-out user questions"],
+  "models": ["versioned embedding model", "versioned reranker", "versioned answer model"],
+  "external_systems": ["BookStack"],
+  "human_decisions": ["knowledge-owner approval of ingestion scope", "review of sensitive or low-evidence answers"],
+  "deliverables": ["cited answer or explicit refusal", "retrieval trace", "ACL decision log", "index update receipt", "evaluation report"],
+  "workflow_result": "A generated workflow ingests authorized content, preserves ACL and revision lineage, retrieves and reranks per user identity, cites evidence, refuses unsupported answers, and updates or deletes index entries.",
+  "independent_oracle": "A hidden corpus and permission matrix check answer fields, allowed and forbidden sources, citation validity, retrieval metrics, update freshness, deletion, webhook idempotency, and forbidden_chunk_count equals zero.",
+  "source_intent_ids": ["EVAL-003", "PRODUCT-001", "PRODUCT-013", "PRODUCT-015", "PRODUCT-016", "PRODUCT-017", "SCENARIO-006", "SCENARIO-011"],
+  "selection_gates": {
+    "real_user_and_problem": true,
+    "full_workflow_elements": true,
+    "platform_workflow_outcome": true,
+    "independent_business_oracle": true,
+    "host_not_component": true,
+    "intervention_boundary": true
+  },
+  "official_evidence": [
+    "https://demo.bookstackapp.com/api/docs",
+    "https://www.bookstackapp.com/docs/admin/email-webhooks/",
+    "https://www.bookstackapp.com/docs/user/roles-and-permissions/",
+    "https://github.com/BookStackApp/BookStack/releases/tag/v26.05"
+  ],
+  "task_package_root": "docs/experiments/lilies-collaboration/EXP-LILIES-002",
+  "latest_revision": 0,
+  "revision_semantics": "Revision 1 will freeze source, image, API schema, corpus, permissions, seeds, budget, and oracle.",
+  "current_blocker": null,
+  "next_action": "After project 1 closes, freeze revision 1 and run its contract and environment preflight before any model call."
+}
+
