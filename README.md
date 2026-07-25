@@ -148,6 +148,55 @@ pip install -e ".[dev]"
 
 本地开发请优先使用 `./scripts/dev_platform.sh` 同时启动 API 和 Studio。该脚本会把 Studio 代理和 Local Lilies assignment 回调都指向实际的 API host/port（默认 `http://127.0.0.1:8001`）；显式设置 `LILIES_PLATFORM_BASE_URL` 时则保留该值。不要手动把后端启动在另一个端口后再打开 Studio，否则前端代理或本地 daemon 回调会连到错误端口。
 
+### 莉莉丝与 Codex 的跨软件协同开发
+
+协同开发是独立于工作流应用和 Builder 的任务模式。每个
+`DevelopmentAssignment` 都要冻结目标、Git baseline、莉莉丝与 Codex
+各自的工作区、允许路径、精确命令、网络主机、秘密引用、副作用、预算、
+截止时间，以及 `manual_dispatch` 或 `autonomous` 交接方式。自主交接只省去
+逐条转发，不会扩大这些授权。
+
+平台内使用：
+
+```bash
+# 创建 assignment；token 建议来自 mode 0600 文件，不放在命令行
+lilies develop \
+  --base-url http://127.0.0.1:8001 \
+  --token-file .secrets/platform-owner-token \
+  --assignment-file assignment.json \
+  --idempotency-key create-project-repair-0001
+
+lilies develop --base-url http://127.0.0.1:8001 \
+  --token-file .secrets/platform-owner-token status <assignment-id>
+
+# manual 模式批准一个 work item；autonomous 模式由持久 worker 自动交接
+lilies develop --base-url http://127.0.0.1:8001 \
+  --token-file .secrets/platform-owner-token approve <assignment-id> \
+  --work-item <work-item-id> --idempotency-key dispatch-repair-0001
+```
+
+若其他软件不需要启动工作流平台，可单独运行：
+
+```bash
+lilies-collab serve \
+  --data-dir .local/lilies-collaboration \
+  --owner-token-file .secrets/collaboration-owner-token \
+  --signing-key-file .secrets/collaboration-signing-key
+
+LILIES_AUTONOMOUS_COLLABORATION_ENABLED=true \
+lilies-collab worker \
+  --data-dir .local/lilies-collaboration \
+  --continuous \
+  --lilies-handler-argv-file .secrets/lilies-handler-argv.json \
+  --codex-handler-argv-file .secrets/codex-handler-argv.json
+```
+
+`lilies-collab --help` 列出创建、状态、授权、停止、归档、工作项、结果、
+复验、事件和游标命令。协同开发产生的代码任务证据始终带
+`enterprise_denominator=false`，不能替代平台生成企业工作流的业务验收。
+CLI 只允许在 loopback 使用明文 HTTP；连接其他主机必须使用 HTTPS，避免
+assignment bearer 在传输中泄漏。
+
 ---
 
 ## 目录结构

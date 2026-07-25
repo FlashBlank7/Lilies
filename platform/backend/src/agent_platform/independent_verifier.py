@@ -5,14 +5,18 @@ import hashlib
 import hmac
 import json
 import os
+import posixpath
 import stat
 import sys
 import unicodedata
+import zipfile
 from collections.abc import Mapping, Sequence
 from datetime import datetime
+from io import BytesIO
 from pathlib import Path, PurePosixPath
 from typing import Any
 from uuid import NAMESPACE_URL, uuid5
+from xml.etree import ElementTree
 
 from .collaboration_models import (
     EvidenceKind,
@@ -38,6 +42,13 @@ from .task_packages import (
 
 MAX_ORACLE_FILE_BYTES = 2 * 1024 * 1024
 MAX_DIFFERENCE_TEXT = 500
+MAX_XLSX_ENTRIES = 2_048
+MAX_XLSX_UNCOMPRESSED_BYTES = 32 * 1024 * 1024
+MAX_XLSX_XML_BYTES = 8 * 1024 * 1024
+MAX_XLSX_COMPRESSION_RATIO = 200
+_OFFICE_RELATIONSHIP_ID = (
+    "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id"
+)
 
 
 class IndependentVerificationError(RuntimeError):
@@ -151,6 +162,14 @@ def _oracle_expectation_summary(check: OracleCheck) -> str:
         return "oracle requires the selected value to be absent"
     if check.kind == "json_length":
         return "oracle requires a different collection length"
+    if check.kind == "xlsx_sheet_exists":
+        return "oracle requires the workbook sheet"
+    if check.kind == "xlsx_headers":
+        return "oracle requires the declared workbook columns"
+    if check.kind == "xlsx_row_count":
+        return "oracle requires a different workbook data-row count"
+    if check.kind == "xlsx_cell_equals":
+        return "oracle expected workbook value was not satisfied"
     return "oracle expected value was not satisfied"
 
 
@@ -208,6 +227,251 @@ def _json_values_equal(actual: Any, expected: Any) -> bool:
             for key in actual
         )
     return bool(actual == expected)
+
+
+def _xlsx_member_bytes(
+    archive: zipfile.ZipFile,
+    member: str,
+) -> bytes:
+    try:
+        info = archive.getinfo(member)
+    except KeyError as error:
+        raise ValueError(f"missing XLSX member: {member}") from error
+    if info.file_size > MAX_XLSX_XML_BYTES:
+        raise ValueError("XLSX XML member exceeds its size limit")
+    with archive.open(info, "r") as handle:
+        payload = handle.read(MAX_XLSX_XML_BYTES + 1)
+    if len(payload) > MAX_XLSX_XML_BYTES:
+        raise ValueError("XLSX XML member exceeds its size limit")
+    return payload
+
+
+def _xlsx_archive(payload: bytes) -> zipfile.ZipFile:
+    try:
+        archive = zipfile.ZipFile(BytesIO(payload), "r")
+    except (OSError, zipfile.BadZipFile) as error:
+        raise ValueError("artifact is not a valid XLSX ZIP container") from error
+    entries = archive.infolist()
+    if len(entries) > MAX_XLSX_ENTRIES:
+        archive.close()
+        raise ValueError("XLSX contains too many ZIP entries")
+    total = 0
+    for entry in entries:
+        name = entry.filename
+        path = PurePosixPath(name)
+        if (
+            not name
+            or "\\" in name
+            or path.is_absolute()
+            or any(part in {"", ".", ".."} for part in path.parts)
+            or entry.flag_bits & 0x1
+        ):
+            archive.close()
+            raise ValueError("XLSX contains an unsafe ZIP entry")
+        total += entry.file_size
+        if total > MAX_XLSX_UNCOMPRESSED_BYTES:
+            archive.close()
+            raise ValueError("XLSX uncompressed content exceeds its size limit")
+        if (
+            entry.file_size > 0
+            and (
+                entry.compress_size == 0
+                or entry.file_size
+                > entry.compress_size * MAX_XLSX_COMPRESSION_RATIO
+            )
+        ):
+            archive.close()
+            raise ValueError("XLSX ZIP entry exceeds the compression-ratio limit")
+    return archive
+
+
+def _xlsx_xml(payload: bytes) -> ElementTree.Element:
+    try:
+        return ElementTree.fromstring(payload)
+    except ElementTree.ParseError as error:
+        raise ValueError("XLSX contains invalid XML") from error
+
+
+def _xlsx_sheet_members(
+    archive: zipfile.ZipFile,
+) -> dict[str, str]:
+    workbook = _xlsx_xml(_xlsx_member_bytes(archive, "xl/workbook.xml"))
+    relationships = _xlsx_xml(
+        _xlsx_member_bytes(archive, "xl/_rels/workbook.xml.rels")
+    )
+    relationship_targets: dict[str, str] = {}
+    for relationship in relationships.iter():
+        if relationship.tag.rsplit("}", 1)[-1] != "Relationship":
+            continue
+        relation_id = relationship.attrib.get("Id")
+        target = relationship.attrib.get("Target")
+        if (
+            not relation_id
+            or not target
+            or relationship.attrib.get("TargetMode") == "External"
+        ):
+            raise ValueError("XLSX workbook relationship is invalid")
+        normalized = posixpath.normpath(posixpath.join("xl", target))
+        if (
+            normalized.startswith("../")
+            or not normalized.startswith("xl/worksheets/")
+        ):
+            raise ValueError("XLSX worksheet relationship escapes its boundary")
+        relationship_targets[relation_id] = normalized
+    sheets: dict[str, str] = {}
+    for sheet in workbook.iter():
+        if sheet.tag.rsplit("}", 1)[-1] != "sheet":
+            continue
+        name = sheet.attrib.get("name")
+        relation_id = sheet.attrib.get(_OFFICE_RELATIONSHIP_ID)
+        if not name or not relation_id or relation_id not in relationship_targets:
+            raise ValueError("XLSX workbook sheet relationship is incomplete")
+        if name in sheets:
+            raise ValueError("XLSX workbook contains duplicate sheet names")
+        sheets[name] = relationship_targets[relation_id]
+    if not sheets:
+        raise ValueError("XLSX workbook contains no sheets")
+    return sheets
+
+
+def _xlsx_shared_strings(archive: zipfile.ZipFile) -> list[str]:
+    if "xl/sharedStrings.xml" not in archive.namelist():
+        return []
+    root = _xlsx_xml(_xlsx_member_bytes(archive, "xl/sharedStrings.xml"))
+    values: list[str] = []
+    for item in root:
+        if item.tag.rsplit("}", 1)[-1] != "si":
+            continue
+        values.append(
+            "".join(
+                node.text or ""
+                for node in item.iter()
+                if node.tag.rsplit("}", 1)[-1] == "t"
+            )
+        )
+    return values
+
+
+def _xlsx_cell_value(
+    cell: ElementTree.Element,
+    *,
+    shared_strings: Sequence[str],
+) -> Any:
+    if any(node.tag.rsplit("}", 1)[-1] == "f" for node in cell):
+        raise ValueError("XLSX formula cells are not accepted as oracle evidence")
+    cell_type = cell.attrib.get("t")
+    if cell_type == "inlineStr":
+        return "".join(
+            node.text or ""
+            for node in cell.iter()
+            if node.tag.rsplit("}", 1)[-1] == "t"
+        )
+    value_node = next(
+        (
+            node
+            for node in cell
+            if node.tag.rsplit("}", 1)[-1] == "v"
+        ),
+        None,
+    )
+    raw = "" if value_node is None or value_node.text is None else value_node.text
+    if cell_type == "s":
+        if not raw.isdigit() or int(raw) >= len(shared_strings):
+            raise ValueError("XLSX shared-string reference is invalid")
+        return shared_strings[int(raw)]
+    if cell_type == "b":
+        if raw not in {"0", "1"}:
+            raise ValueError("XLSX boolean cell is invalid")
+        return raw == "1"
+    if cell_type in {"str", "e"}:
+        return raw
+    if raw == "":
+        return ""
+    try:
+        return int(raw)
+    except ValueError:
+        try:
+            return float(raw)
+        except ValueError as error:
+            raise ValueError("XLSX numeric cell is invalid") from error
+
+
+def _xlsx_sheet_cells(
+    payload: bytes,
+    *,
+    sheet_name: str,
+) -> dict[str, Any]:
+    archive = _xlsx_archive(payload)
+    try:
+        sheets = _xlsx_sheet_members(archive)
+        if sheet_name not in sheets:
+            raise KeyError(sheet_name)
+        shared_strings = _xlsx_shared_strings(archive)
+        sheet = _xlsx_xml(_xlsx_member_bytes(archive, sheets[sheet_name]))
+        cells: dict[str, Any] = {}
+        for cell in sheet.iter():
+            if cell.tag.rsplit("}", 1)[-1] != "c":
+                continue
+            reference = cell.attrib.get("r")
+            if (
+                not reference
+                or reference in cells
+                or not reference[:1].isalpha()
+            ):
+                raise ValueError("XLSX cell reference is missing or duplicated")
+            cells[reference] = _xlsx_cell_value(
+                cell,
+                shared_strings=shared_strings,
+            )
+        return cells
+    finally:
+        archive.close()
+
+
+def _xlsx_column_number(reference: str) -> int:
+    letters = reference.rstrip("0123456789")
+    value = 0
+    for character in letters:
+        if not ("A" <= character <= "Z"):
+            raise ValueError("XLSX cell reference is invalid")
+        value = value * 26 + ord(character) - ord("A") + 1
+    return value
+
+
+def _xlsx_row_number(reference: str) -> int:
+    digits = reference[len(reference.rstrip("0123456789")) :]
+    if not digits:
+        raise ValueError("XLSX cell reference is invalid")
+    return int(digits)
+
+
+def _xlsx_headers_and_data_rows(
+    cells: Mapping[str, Any],
+) -> tuple[list[Any], int]:
+    occupied_rows = sorted(
+        {
+            _xlsx_row_number(reference)
+            for reference, value in cells.items()
+            if value not in {"", None}
+        }
+    )
+    if not occupied_rows:
+        return [], 0
+    header_row = occupied_rows[0]
+    header_cells = {
+        _xlsx_column_number(reference): value
+        for reference, value in cells.items()
+        if _xlsx_row_number(reference) == header_row
+        and value not in {"", None}
+    }
+    if not header_cells:
+        return [], 0
+    headers = [
+        header_cells.get(column, "")
+        for column in range(1, max(header_cells) + 1)
+    ]
+    data_rows = sum(1 for row in occupied_rows if row > header_row)
+    return headers, data_rows
 
 
 def _evaluate_check(
@@ -286,6 +550,68 @@ def _evaluate_check(
                 check_id=public_check_id,
                 expected=_oracle_expectation_summary(check),
                 actual=actual_digest,
+                evidence_refs=[evidence],
+            ),
+            evidence,
+        )
+    if check.kind.startswith("xlsx_"):
+        assert check.sheet_name is not None
+        try:
+            cells = _xlsx_sheet_cells(
+                payload,
+                sheet_name=check.sheet_name,
+            )
+        except KeyError:
+            return (
+                VerificationDifference(
+                    check_id=public_check_id,
+                    expected=_oracle_expectation_summary(check),
+                    actual="workbook sheet missing",
+                    evidence_refs=[evidence],
+                ),
+                evidence,
+            )
+        except ValueError:
+            return (
+                VerificationDifference(
+                    check_id=public_check_id,
+                    expected="oracle requires a safe, valid XLSX workbook",
+                    actual="invalid XLSX",
+                    evidence_refs=[evidence],
+                ),
+                evidence,
+            )
+        if check.kind == "xlsx_sheet_exists":
+            return None, evidence
+        headers, row_count = _xlsx_headers_and_data_rows(cells)
+        if check.kind == "xlsx_headers":
+            if _json_values_equal(headers, check.expected):
+                return None, evidence
+            actual = _observed_summary(
+                headers,
+                protected_markers=protected_markers,
+            )
+        elif check.kind == "xlsx_row_count":
+            if row_count == check.expected:
+                return None, evidence
+            actual = f"rows={row_count}"
+        else:
+            assert check.cell_reference is not None
+            if check.cell_reference not in cells:
+                actual = "cell missing"
+            else:
+                value = cells[check.cell_reference]
+                if _json_values_equal(value, check.expected):
+                    return None, evidence
+                actual = _observed_summary(
+                    value,
+                    protected_markers=protected_markers,
+                )
+        return (
+            VerificationDifference(
+                check_id=public_check_id,
+                expected=_oracle_expectation_summary(check),
+                actual=actual,
                 evidence_refs=[evidence],
             ),
             evidence,

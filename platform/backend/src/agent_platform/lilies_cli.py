@@ -1,16 +1,21 @@
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 import time
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlencode
+from uuid import UUID
 
+import httpx
 import uvicorn
 
 from .lilies_client import (
@@ -49,6 +54,10 @@ HELP_TEXT = """Commands:
   /inspect <event-id>   show a redacted event received by this CLI
   /exit                 detach without stopping the daemon
 """
+
+
+class LiliesDevelopmentCliError(RuntimeError):
+    pass
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -91,6 +100,73 @@ def build_parser() -> argparse.ArgumentParser:
     attach.add_argument("session_id")
 
     subparsers.add_parser("status", help="show daemon status")
+
+    develop = subparsers.add_parser(
+        "develop",
+        help="create and control a platform-neutral software collaboration",
+    )
+    develop.add_argument(
+        "--base-url",
+        default=os.environ.get(
+            "LILIES_COLLABORATIVE_DEVELOPMENT_BASE_URL",
+            "http://127.0.0.1:8780",
+        ),
+    )
+    develop.add_argument("--token-file", type=Path)
+    develop.add_argument(
+        "--assignment-file",
+        help="DevelopmentAssignment JSON; omit only for a nested control command",
+    )
+    develop.add_argument(
+        "--idempotency-key",
+        help="idempotency key for assignment creation",
+    )
+    develop_commands = develop.add_subparsers(dest="develop_command")
+
+    develop_status = develop_commands.add_parser(
+        "status",
+        help="show assignment status and pending authority requests",
+    )
+    develop_status.add_argument("assignment_id", type=UUID)
+
+    develop_approve = develop_commands.add_parser(
+        "approve",
+        help="dispatch a manual work item or decide a durable authority request",
+    )
+    develop_approve.add_argument("assignment_id", type=UUID)
+    approval_target = develop_approve.add_mutually_exclusive_group()
+    approval_target.add_argument("--work-item", type=UUID)
+    approval_target.add_argument("--authority-request", type=UUID)
+    develop_approve.add_argument(
+        "--decision",
+        choices=("approve", "reject"),
+        default="approve",
+    )
+    develop_approve.add_argument(
+        "--status",
+        choices=("pending", "approved", "rejected", "all"),
+        default="pending",
+        help="filter when listing authority requests",
+    )
+    develop_approve.add_argument("--expected-revision", type=int)
+    develop_approve.add_argument(
+        "--grant-file",
+        help="complete replacement WorkspaceGrant JSON for authority approval",
+    )
+    develop_approve.add_argument(
+        "--budget-file",
+        help="replacement DevelopmentBudget JSON when the request includes budget",
+    )
+    develop_approve.add_argument("--reason")
+    develop_approve.add_argument("--idempotency-key")
+
+    develop_stop = develop_commands.add_parser(
+        "stop",
+        help="stop an assignment and revoke its role credentials",
+    )
+    develop_stop.add_argument("assignment_id", type=UUID)
+    develop_stop.add_argument("--expected-revision", type=int, required=True)
+    develop_stop.add_argument("--idempotency-key", required=True)
 
     pair = subparsers.add_parser(
         "pair",
@@ -161,6 +237,286 @@ def _print_json(value: Any, *, stream: Any = None) -> None:
     if len(rendered) > 20_000:
         rendered = f"{rendered[:20_000]}\n... [truncated]"
     print(rendered, file=destination)
+
+
+def _read_development_token(path: Path | None) -> str:
+    if path is None:
+        value = os.environ.get("LILIES_COLLABORATIVE_DEVELOPMENT_TOKEN", "").strip()
+        if len(value) < 32:
+            raise LiliesDevelopmentCliError(
+                "set LILIES_COLLABORATIVE_DEVELOPMENT_TOKEN or use --token-file"
+            )
+        return value
+    if path.is_symlink():
+        raise LiliesDevelopmentCliError("development token file must not be a symlink")
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        descriptor = os.open(path, flags)
+    except OSError as error:
+        raise LiliesDevelopmentCliError(
+            "development token file is not readable"
+        ) from error
+    try:
+        with os.fdopen(descriptor, encoding="utf-8") as handle:
+            metadata = os.fstat(handle.fileno())
+            if not stat.S_ISREG(metadata.st_mode) or metadata.st_mode & 0o777 != 0o600:
+                raise LiliesDevelopmentCliError(
+                    "development token file must be a regular file with mode 0600"
+                )
+            value = handle.read(4_097).strip()
+    except (OSError, UnicodeError) as error:
+        raise LiliesDevelopmentCliError(
+            "development token file is not readable"
+        ) from error
+    if not 32 <= len(value) <= 4_096:
+        raise LiliesDevelopmentCliError(
+            "development token must contain between 32 and 4096 characters"
+        )
+    return value
+
+
+def _read_development_json(
+    path: str,
+    *,
+    label: str = "development JSON",
+) -> dict[str, Any]:
+    try:
+        raw = Path(path).read_bytes()
+    except OSError as error:
+        raise LiliesDevelopmentCliError(f"{label} is not readable") from error
+    if len(raw) > 2 * 1024 * 1024:
+        raise LiliesDevelopmentCliError(f"{label} exceeds 2 MiB")
+    try:
+        value = json.loads(raw)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise LiliesDevelopmentCliError(f"{label} is not valid JSON") from error
+    if not isinstance(value, dict):
+        raise LiliesDevelopmentCliError(f"{label} must be an object")
+    return value
+
+
+class _DevelopmentClient:
+    def __init__(self, *, base_url: str, access_token: str) -> None:
+        parsed = httpx.URL(base_url)
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.host
+            or parsed.username
+            or parsed.password
+            or parsed.query
+            or parsed.fragment
+            or parsed.path not in {"", "/"}
+        ):
+            raise LiliesDevelopmentCliError(
+                "development base URL must be a plain http(s) origin"
+            )
+        host = parsed.host
+        assert host is not None
+        try:
+            loopback = ipaddress.ip_address(host).is_loopback
+        except ValueError:
+            loopback = host.casefold() == "localhost"
+        if parsed.scheme == "http" and not loopback:
+            raise LiliesDevelopmentCliError(
+                "plaintext development HTTP is allowed only for a loopback origin"
+            )
+        self.base_url = str(parsed).rstrip("/")
+        self.access_token = access_token
+
+    def request(
+        self,
+        method: str,
+        path: str,
+        body: dict[str, Any] | None = None,
+    ) -> Any:
+        try:
+            response = httpx.request(
+                method,
+                f"{self.base_url}{path}",
+                headers={
+                    "Authorization": f"Bearer {self.access_token}",
+                    **({"Content-Type": "application/json"} if body is not None else {}),
+                },
+                json=body,
+                timeout=30,
+            )
+        except httpx.HTTPError as error:
+            raise LiliesDevelopmentCliError(
+                "collaborative development API is unavailable"
+            ) from error
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = {"status": response.status_code}
+        if response.is_error:
+            detail = payload.get("detail", {}) if isinstance(payload, dict) else {}
+            if isinstance(detail, dict):
+                code = str(detail.get("code", "request_failed"))
+                message = str(detail.get("message", "request failed"))
+            else:
+                code = "request_failed"
+                message = "request failed"
+            raise LiliesDevelopmentCliError(
+                f"{code}: {message} (HTTP {response.status_code})"
+            )
+        return payload
+
+
+def _required_development_argument(
+    value: Any,
+    *,
+    option: str,
+) -> Any:
+    if value is None or (isinstance(value, str) and not value.strip()):
+        raise LiliesDevelopmentCliError(f"{option} is required")
+    return value
+
+
+def _run_develop(args: argparse.Namespace) -> int:
+    client = _DevelopmentClient(
+        base_url=args.base_url,
+        access_token=_read_development_token(args.token_file),
+    )
+    command = args.develop_command
+    if command is None:
+        assignment_file = _required_development_argument(
+            args.assignment_file,
+            option="--assignment-file",
+        )
+        idempotency_key = _required_development_argument(
+            args.idempotency_key,
+            option="--idempotency-key",
+        )
+        result = client.request(
+            "POST",
+            "/api/v1/collaborative-development/assignments",
+            {
+                "idempotency_key": idempotency_key,
+                "assignment": _read_development_json(
+                    assignment_file,
+                    label="development assignment JSON",
+                ),
+            },
+        )
+        _print_json(result)
+        return 0
+
+    assignment_id = args.assignment_id
+    assignment_path = (
+        f"/api/v1/collaborative-development/assignments/{assignment_id}"
+    )
+    if command == "status":
+        status = client.request("GET", f"{assignment_path}/status")
+        authority = client.request(
+            "GET",
+            f"{assignment_path}/authority-requests?"
+            + urlencode({"status": "pending"}),
+        )
+        if isinstance(status, dict):
+            status = {
+                **status,
+                "pending_authority_requests": authority.get("requests", [])
+                if isinstance(authority, dict)
+                else [],
+            }
+        _print_json(status)
+        return 0
+
+    if command == "approve":
+        if args.work_item is None and args.authority_request is None:
+            result = client.request(
+                "GET",
+                f"{assignment_path}/authority-requests?"
+                + urlencode({"status": args.status}),
+            )
+            _print_json(result)
+            return 0
+        idempotency_key = _required_development_argument(
+            args.idempotency_key,
+            option="--idempotency-key",
+        )
+        if args.authority_request is not None:
+            reason = _required_development_argument(args.reason, option="--reason")
+            body: dict[str, Any] = {
+                "idempotency_key": idempotency_key,
+                "reason": reason,
+            }
+            if args.decision == "approve":
+                expected_revision = _required_development_argument(
+                    args.expected_revision,
+                    option="--expected-revision",
+                )
+                grant_file = _required_development_argument(
+                    args.grant_file,
+                    option="--grant-file",
+                )
+                body.update(
+                    {
+                        "expected_assignment_revision": expected_revision,
+                        "replacement_grant": _read_development_json(
+                            grant_file,
+                            label="replacement grant JSON",
+                        ),
+                    }
+                )
+                if args.budget_file is not None:
+                    body["replacement_budget"] = _read_development_json(
+                        args.budget_file,
+                        label="replacement budget JSON",
+                    )
+            elif (
+                args.expected_revision is not None
+                or args.grant_file is not None
+                or args.budget_file is not None
+            ):
+                raise LiliesDevelopmentCliError(
+                    "authority rejection cannot carry a grant, budget, or revision"
+                )
+            result = client.request(
+                "POST",
+                f"{assignment_path}/authority-requests/"
+                f"{args.authority_request}/{args.decision}",
+                body,
+            )
+            _print_json(result)
+            return 0
+        expected_revision = _required_development_argument(
+            args.expected_revision,
+            option="--expected-revision",
+        )
+        items = client.request("GET", f"{assignment_path}/work-items")
+        if not isinstance(items, list) or not any(
+            str(item.get("work_item_id")) == str(args.work_item)
+            for item in items
+            if isinstance(item, dict)
+        ):
+            raise LiliesDevelopmentCliError(
+                "work item does not belong to the selected assignment"
+            )
+        result = client.request(
+            "POST",
+            f"/api/v1/collaborative-development/work-items/"
+            f"{args.work_item}/dispatch",
+            {
+                "idempotency_key": idempotency_key,
+                "expected_revision": expected_revision,
+            },
+        )
+        _print_json(result)
+        return 0
+
+    if command == "stop":
+        result = client.request(
+            "POST",
+            f"{assignment_path}/stop",
+            {
+                "idempotency_key": args.idempotency_key,
+                "expected_revision": args.expected_revision,
+            },
+        )
+        _print_json(result)
+        return 0
+    raise AssertionError(f"unhandled develop command: {command}")
 
 
 def _session_id(value: dict[str, Any]) -> str:
@@ -622,12 +978,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
+        if args.command == "develop":
+            return _run_develop(args)
         settings = _settings_from_args(args)
         return _dispatch(args, settings)
     except KeyboardInterrupt:
         print("\ndetached; daemon remains running", file=sys.stderr)
         return 130
-    except (LiliesClientError, FileNotFoundError, PermissionError, ValueError) as error:
+    except (
+        LiliesClientError,
+        LiliesDevelopmentCliError,
+        FileNotFoundError,
+        PermissionError,
+        ValueError,
+    ) as error:
         print(f"lilies: {_redact_text(str(error))}", file=sys.stderr)
         return 1
 

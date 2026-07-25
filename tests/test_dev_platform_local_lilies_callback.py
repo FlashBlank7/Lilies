@@ -80,3 +80,39 @@ def test_dev_platform_brackets_ipv6_callback_authority(
     output = _check_env(tmp_path, api_host="::1", api_port=8126)
 
     assert "Local Lilies callback http://[::1]:8126" in output
+
+
+def test_dev_platform_checks_collaborative_development_signing_key(
+    tmp_path: Path,
+) -> None:
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    script = scripts / "dev_platform.sh"
+    script.write_text(
+        (ROOT / "scripts" / "dev_platform.sh").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    (tmp_path / ".env").write_text(
+        "\n".join(
+            (
+                "DEEPSEEK_API_KEY=test-key",
+                "API_TOKEN=test-token",
+                "LILIES_COLLABORATIVE_DEVELOPMENT_ENABLED=true",
+                "LILIES_COLLABORATIVE_DEVELOPMENT_SIGNING_KEY="
+                + "development-signing-" + "x" * 32,
+            )
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        ["bash", str(script), "--check-env"],
+        cwd=tmp_path,
+        env=os.environ.copy(),
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert "LILIES_COLLABORATIVE_DEVELOPMENT_SIGNING_KEY ok" in result.stdout

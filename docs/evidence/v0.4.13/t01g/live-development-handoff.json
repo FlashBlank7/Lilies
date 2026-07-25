@@ -1,0 +1,920 @@
+{
+  "kind": "bounded_live_lilies_codex_handoff",
+  "stage_task_id": "V04-13-T01G",
+  "source_revision": "sha256:7d6828833b9ab553969f09f5467160459e4699a738870a386e45a798b290e4fc",
+  "enterprise_denominator": false,
+  "status": "passed",
+  "record": {
+    "schema_version": "2.0",
+    "stage_task_id": "V04-13-T01G",
+    "source_revision": "sha256:7d6828833b9ab553969f09f5467160459e4699a738870a386e45a798b290e4fc",
+    "enterprise_denominator": false,
+    "assignment_id": "0a1c7272-2546-473e-86b1-c6abd97dd343",
+    "assignment_status": "archived",
+    "work_item_status": "closed",
+    "software_fixture": {
+      "kind": "unrelated_plain_python_git_repository",
+      "baseline_commit": "bff0faf756293d3e7feb623c9e426bf51f119f61",
+      "source_unchanged": true
+    },
+    "authority": {
+      "codex": {
+        "grant_digest": "sha256:fcc8bf4e2081e8671d6e46fbe298d768c9d99fab26039fd09b8087c399820897",
+        "workspace_id": "c0c87574-145f-549e-9de8-6790449b1cfa",
+        "workspace": "<codex-workspace>",
+        "baseline_commit": "bff0faf756293d3e7feb623c9e426bf51f119f61",
+        "grant_revision": 1,
+        "allowed_paths": [
+          "src",
+          "tests"
+        ],
+        "allowed_argv": [
+          [
+            "codex",
+            "-a",
+            "never",
+            "exec",
+            "-m",
+            "gpt-5.6-terra",
+            "-C",
+            "<run-root>/codex-runtime/model-workspace",
+            "--skip-git-repo-check",
+            "--sandbox",
+            "read-only",
+            "--ephemeral",
+            "--ignore-user-config",
+            "--ignore-rules",
+            "--output-schema",
+            "<run-root>/codex-runtime/patch-schema.json",
+            "--json",
+            "-"
+          ],
+          [
+            "python3",
+            "check.py"
+          ]
+        ],
+        "allowed_hosts": [
+          "api.openai.com",
+          "auth.openai.com",
+          "chatgpt.com"
+        ],
+        "allowed_side_effects": [
+          "workspace_write",
+          "process_execute",
+          "network_access"
+        ],
+        "secret_refs": [
+          "codex-cli-session"
+        ]
+      },
+      "lilies": {
+        "grant_digest": "sha256:4cfdeea20e6fd6c5afc0132041b2c2e1119ffd0ada94139f903d80f2de8859c8",
+        "workspace_id": "477865fc-4ea3-56b8-a527-338688690a14",
+        "workspace": "<lilies-workspace>",
+        "baseline_commit": "bff0faf756293d3e7feb623c9e426bf51f119f61",
+        "grant_revision": 1,
+        "allowed_paths": [
+          "src",
+          "tests"
+        ],
+        "allowed_argv": [
+          [
+            "python3",
+            "check.py"
+          ]
+        ],
+        "allowed_hosts": [
+          "api.deepseek.com"
+        ],
+        "allowed_side_effects": [
+          "process_execute",
+          "network_access"
+        ],
+        "secret_refs": [
+          "deepseek-runtime-credential"
+        ]
+      }
+    },
+    "effective_handler_authority": {
+      "codex": {
+        "grant_digest": "sha256:fcc8bf4e2081e8671d6e46fbe298d768c9d99fab26039fd09b8087c399820897",
+        "workspace_id": "c0c87574-145f-549e-9de8-6790449b1cfa",
+        "workspace": "<codex-workspace>",
+        "baseline_commit": "bff0faf756293d3e7feb623c9e426bf51f119f61",
+        "grant_revision": 1,
+        "allowed_paths": [
+          "src",
+          "tests"
+        ],
+        "allowed_argv": [
+          [
+            "codex",
+            "-a",
+            "never",
+            "exec",
+            "-m",
+            "gpt-5.6-terra",
+            "-C",
+            "<run-root>/codex-runtime/model-workspace",
+            "--skip-git-repo-check",
+            "--sandbox",
+            "read-only",
+            "--ephemeral",
+            "--ignore-user-config",
+            "--ignore-rules",
+            "--output-schema",
+            "<run-root>/codex-runtime/patch-schema.json",
+            "--json",
+            "-"
+          ],
+          [
+            "python3",
+            "check.py"
+          ]
+        ],
+        "allowed_hosts": [
+          "api.openai.com",
+          "auth.openai.com",
+          "chatgpt.com"
+        ],
+        "allowed_side_effects": [
+          "workspace_write",
+          "process_execute",
+          "network_access"
+        ],
+        "secret_refs": [
+          "codex-cli-session"
+        ],
+        "provider_capability_digest": "sha256:c60e5f345af14c26a23bfc1d3dda3788eea1dc485b7b72f52f8756b847640d36",
+        "provider_dispatch_grant_digest": "sha256:fcc8bf4e2081e8671d6e46fbe298d768c9d99fab26039fd09b8087c399820897"
+      },
+      "lilies": {
+        "grant_digest": "sha256:18d5e604a7d3565061ddb7a3b7b6ea02286dea6a7c1bd82d001ea449aaa9a094",
+        "workspace_id": "602aff73-c294-5d00-a04c-4dae321ffba9",
+        "workspace": "<lilies-workspace>",
+        "baseline_commit": "bff0faf756293d3e7feb623c9e426bf51f119f61",
+        "grant_revision": 1,
+        "allowed_paths": [
+          "src",
+          "tests"
+        ],
+        "allowed_argv": [
+          [
+            "python3",
+            "check.py"
+          ]
+        ],
+        "allowed_hosts": [
+          "api.deepseek.com"
+        ],
+        "allowed_side_effects": [
+          "process_execute",
+          "network_access"
+        ],
+        "secret_refs": [
+          "deepseek-runtime-credential"
+        ],
+        "provider_capability_digest": "sha256:702daf34138782d17218007511ef4b08a227d16cdbbc07d775c6781e1ee425ea",
+        "provider_dispatch_grant_digest": "sha256:18d5e604a7d3565061ddb7a3b7b6ea02286dea6a7c1bd82d001ea449aaa9a094"
+      }
+    },
+    "codex_implementation": {
+      "argv": [
+        "codex",
+        "-a",
+        "never",
+        "exec",
+        "-m",
+        "gpt-5.6-terra",
+        "-C",
+        "<run-root>/codex-runtime/model-workspace",
+        "--skip-git-repo-check",
+        "--sandbox",
+        "read-only",
+        "--ephemeral",
+        "--ignore-user-config",
+        "--ignore-rules",
+        "--output-schema",
+        "<run-root>/codex-runtime/patch-schema.json",
+        "--json",
+        "-"
+      ],
+      "exit_code": 0,
+      "duration_ms": 6102.343,
+      "stdout_digest": "sha256:fdfd9bf7313d2810355782c4e07cc6c82dbe0fecd7dc3e681eb7145ba9e9e4a7",
+      "stderr_digest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "last_message_digest": "sha256:4100b61cb257809ed24356f2687accdee03812c67a078573272ca77d099c4b07",
+      "clean_environment_keys": [
+        "ALL_PROXY",
+        "CODEX_HOME",
+        "HOME",
+        "HTTPS_PROXY",
+        "HTTP_PROXY",
+        "LANG",
+        "LC_ALL",
+        "NO_COLOR",
+        "NO_PROXY",
+        "PATH",
+        "TERM",
+        "TMPDIR",
+        "all_proxy",
+        "http_proxy",
+        "https_proxy",
+        "no_proxy"
+      ],
+      "inherited_full_environment": false,
+      "provider": "openai-codex-cli",
+      "model": "gpt-5.6-terra",
+      "billing_mode": "subscription_no_per_request_charge_reported",
+      "credential_billing": {
+        "auth_mode": "chatgpt",
+        "api_key_present": false,
+        "tokens_present": true,
+        "billing_mode": "chatgpt_subscription",
+        "credential_identity": "codex-cli-subscription"
+      },
+      "workspace_supplied_to_model_process": false,
+      "outer_filesystem_sandbox": "macos-seatbelt",
+      "provider_proxy": {
+        "transport": "loopback-connect-proxy",
+        "allowed_hosts": [
+          "api.openai.com",
+          "auth.openai.com",
+          "chatgpt.com"
+        ],
+        "observations": [
+          {
+            "method": "CONNECT",
+            "host": "chatgpt.com",
+            "port": 443,
+            "allowed": true,
+            "client_to_provider_bytes": 2395,
+            "provider_to_client_bytes": 4902,
+            "upstream_connected": true
+          },
+          {
+            "method": "CONNECT",
+            "host": "chatgpt.com",
+            "port": 443,
+            "allowed": true,
+            "client_to_provider_bytes": 2395,
+            "provider_to_client_bytes": 309435,
+            "upstream_connected": true
+          },
+          {
+            "method": "CONNECT",
+            "host": "chatgpt.com",
+            "port": 443,
+            "allowed": true,
+            "client_to_provider_bytes": 2421,
+            "provider_to_client_bytes": 90392,
+            "upstream_connected": true
+          },
+          {
+            "method": "CONNECT",
+            "host": "chatgpt.com",
+            "port": 443,
+            "allowed": true,
+            "client_to_provider_bytes": 2421,
+            "provider_to_client_bytes": 60496,
+            "upstream_connected": true
+          },
+          {
+            "method": "CONNECT",
+            "host": "chatgpt.com",
+            "port": 443,
+            "allowed": true,
+            "client_to_provider_bytes": 2419,
+            "provider_to_client_bytes": 4434,
+            "upstream_connected": true
+          },
+          {
+            "method": "CONNECT",
+            "host": "chatgpt.com",
+            "port": 443,
+            "allowed": true,
+            "client_to_provider_bytes": 2424,
+            "provider_to_client_bytes": 4438,
+            "upstream_connected": true
+          },
+          {
+            "method": "CONNECT",
+            "host": "chatgpt.com",
+            "port": 443,
+            "allowed": true,
+            "client_to_provider_bytes": 2425,
+            "provider_to_client_bytes": 309437,
+            "upstream_connected": true
+          },
+          {
+            "method": "CONNECT",
+            "host": "sdmntprsoutheastus3.oaiusercontent.com",
+            "port": 443,
+            "allowed": false,
+            "client_to_provider_bytes": 0,
+            "provider_to_client_bytes": 0
+          },
+          {
+            "method": "CONNECT",
+            "host": "sdmntprnorthcentralus.oaiusercontent.com",
+            "port": 443,
+            "allowed": false,
+            "client_to_provider_bytes": 0,
+            "provider_to_client_bytes": 0
+          },
+          {
+            "method": "CONNECT",
+            "host": "sdmntprnorthcentralus.oaiusercontent.com",
+            "port": 443,
+            "allowed": false,
+            "client_to_provider_bytes": 0,
+            "provider_to_client_bytes": 0
+          },
+          {
+            "method": "CONNECT",
+            "host": "sdmntprcentralus.oaiusercontent.com",
+            "port": 443,
+            "allowed": false,
+            "client_to_provider_bytes": 0,
+            "provider_to_client_bytes": 0
+          },
+          {
+            "method": "CONNECT",
+            "host": "sdmntprsouthcentralus.oaiusercontent.com",
+            "port": 443,
+            "allowed": false,
+            "client_to_provider_bytes": 0,
+            "provider_to_client_bytes": 0
+          },
+          {
+            "method": "CONNECT",
+            "host": "sdmntprsouthcentralus.oaiusercontent.com",
+            "port": 443,
+            "allowed": false,
+            "client_to_provider_bytes": 0,
+            "provider_to_client_bytes": 0
+          },
+          {
+            "method": "CONNECT",
+            "host": "chatgpt.com",
+            "port": 443,
+            "allowed": true,
+            "client_to_provider_bytes": 2449,
+            "provider_to_client_bytes": 4434,
+            "upstream_connected": true
+          },
+          {
+            "method": "CONNECT",
+            "host": "chatgpt.com",
+            "port": 443,
+            "allowed": true,
+            "client_to_provider_bytes": 2444,
+            "provider_to_client_bytes": 4443,
+            "upstream_connected": true
+          },
+          {
+            "method": "CONNECT",
+            "host": "chatgpt.com",
+            "port": 443,
+            "allowed": true,
+            "client_to_provider_bytes": 2446,
+            "provider_to_client_bytes": 62843,
+            "upstream_connected": true
+          },
+          {
+            "method": "CONNECT",
+            "host": "chatgpt.com",
+            "port": 443,
+            "allowed": true,
+            "client_to_provider_bytes": 3005,
+            "provider_to_client_bytes": 4097,
+            "upstream_connected": true
+          },
+          {
+            "method": "CONNECT",
+            "host": "chatgpt.com",
+            "port": 443,
+            "allowed": true,
+            "client_to_provider_bytes": 3509,
+            "provider_to_client_bytes": 3768,
+            "upstream_connected": true
+          },
+          {
+            "method": "CONNECT",
+            "host": "chatgpt.com",
+            "port": 443,
+            "allowed": true,
+            "client_to_provider_bytes": 2867,
+            "provider_to_client_bytes": 3634,
+            "upstream_connected": true
+          },
+          {
+            "method": "CONNECT",
+            "host": "chatgpt.com",
+            "port": 443,
+            "allowed": true,
+            "client_to_provider_bytes": 2898,
+            "provider_to_client_bytes": 686412,
+            "upstream_connected": true
+          },
+          {
+            "method": "CONNECT",
+            "host": "chatgpt.com",
+            "port": 443,
+            "allowed": true,
+            "client_to_provider_bytes": 2786,
+            "provider_to_client_bytes": 4166,
+            "upstream_connected": true
+          },
+          {
+            "method": "CONNECT",
+            "host": "chatgpt.com",
+            "port": 443,
+            "allowed": true,
+            "client_to_provider_bytes": 43550,
+            "provider_to_client_bytes": 77898,
+            "upstream_connected": true
+          },
+          {
+            "method": "CONNECT",
+            "host": "ab.chatgpt.com",
+            "port": 443,
+            "allowed": false,
+            "client_to_provider_bytes": 0,
+            "provider_to_client_bytes": 0
+          },
+          {
+            "method": "CONNECT",
+            "host": "chatgpt.com",
+            "port": 443,
+            "allowed": true,
+            "client_to_provider_bytes": 22303,
+            "provider_to_client_bytes": 3406509,
+            "upstream_connected": true
+          },
+          {
+            "method": "CONNECT",
+            "host": "chatgpt.com",
+            "port": 443,
+            "allowed": true,
+            "client_to_provider_bytes": 0,
+            "provider_to_client_bytes": 0,
+            "upstream_connected": true
+          }
+        ],
+        "denied_connections": 7
+      },
+      "proposal_digest": "sha256:89a3611952e371ac122557581016b152ac33e0c7d6ed526a2e805c9ab3e9a381",
+      "event_count": 4,
+      "command_count": 0,
+      "commands": [],
+      "file_or_external_tool_events": 0,
+      "usage": {
+        "input_tokens": 13042,
+        "cached_input_tokens": 0,
+        "cache_write_input_tokens": 0,
+        "output_tokens": 98,
+        "reasoning_output_tokens": 0
+      },
+      "event_stream_digest": "sha256:fdfd9bf7313d2810355782c4e07cc6c82dbe0fecd7dc3e681eb7145ba9e9e4a7",
+      "provider_cost": {
+        "reservation_id": "b5167e43-f125-4ca8-bef7-d1a1beb57dc0",
+        "provider_request_id": "t01g-live-codex-provider:2ae6cc57ba504863815d2090f70295a0",
+        "worst_case_cost_usd": 1.0,
+        "actual_cost_usd": 0.0,
+        "cost_source": "Codex subscription transport reports token usage but no per-request monetary charge",
+        "provider_capability_digest": "sha256:c60e5f345af14c26a23bfc1d3dda3788eea1dc485b7b72f52f8756b847640d36",
+        "dispatch_grant_digest": "sha256:fcc8bf4e2081e8671d6e46fbe298d768c9d99fab26039fd09b8087c399820897",
+        "provider_hosts": [
+          "api.openai.com",
+          "auth.openai.com",
+          "chatgpt.com"
+        ],
+        "secret_refs": [
+          "codex-cli-session"
+        ],
+        "credential_identity": "codex-cli-subscription",
+        "authorization_evidence_digest": "sha256:42c7a01f4a00e690544bb0acd88ae7ab2488eb06fd8215d74f46fa0a027c2c04",
+        "receipt_evidence_digest": "sha256:abcd653a0c6c8b05aa503a6510e5938acfd04f1359d678c70e8e6ed4bbde1d3f",
+        "settled": true
+      },
+      "provider_authority": {
+        "schema_version": "1.0",
+        "assignment_id": "0a1c7272-2546-473e-86b1-c6abd97dd343",
+        "agent_role": "codex",
+        "workspace_id": "c0c87574-145f-549e-9de8-6790449b1cfa",
+        "dispatch_grant_digest": "sha256:fcc8bf4e2081e8671d6e46fbe298d768c9d99fab26039fd09b8087c399820897",
+        "provider": "openai-codex-cli",
+        "model": "gpt-5.6-terra",
+        "endpoint_hosts": [
+          "api.openai.com",
+          "auth.openai.com",
+          "chatgpt.com"
+        ],
+        "secret_refs": [
+          "codex-cli-session"
+        ],
+        "allowed_side_effects": [
+          "workspace_write",
+          "process_execute",
+          "network_access"
+        ],
+        "credential_identity": "codex-cli-subscription",
+        "capability_digest": "sha256:c60e5f345af14c26a23bfc1d3dda3788eea1dc485b7b72f52f8756b847640d36"
+      },
+      "result_id": "955e7b14-89c3-4672-a62c-b8f42589ff2e",
+      "source_read_digest": "sha256:8042293662f7b00f26bdc1e5204145c0a1d461f69a6abdfd4aaf1ce90b29400e",
+      "trusted_patch_digest": "sha256:c3f7ec9143c6ebe46cacdff77bd34bf11def81a30877743f55a17f7975cdb79d",
+      "changed_files": [
+        "src/mathlib.py"
+      ],
+      "diff": "diff --git a/src/mathlib.py b/src/mathlib.py\nindex 8390b7f..e2907f6 100644\n--- a/src/mathlib.py\n+++ b/src/mathlib.py\n@@ -1,3 +1,3 @@\n def add(left: int, right: int) -> int:\n     \"\"\"Return the sum of two integers.\"\"\"\n-    return left - right\n+    return left + right\n",
+      "diff_digest": "sha256:3c239a4762a84c8b99eea27303a68a786ada509892e726b4caf568310d105bc5",
+      "broker_diff_digest": "sha256:d41f2f27eb12d52b2337cfe3fe9838fdf742950d24c055dbe6983ea5e3f57c9a",
+      "role_grant_digest": "sha256:fcc8bf4e2081e8671d6e46fbe298d768c9d99fab26039fd09b8087c399820897",
+      "other_role_grant_visible_to_model": false,
+      "test": {
+        "argv": [
+          "python3",
+          "check.py"
+        ],
+        "cwd": "tests",
+        "exit_code": 0,
+        "stdout_digest": "sha256:aa54569cbd1ca8290649d156771158d54cedcc1b0ebb2195fff6394d6bc00cb0",
+        "stderr_digest": "sha256:12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126",
+        "output_digest": "sha256:52a693904b3823637cffeb0ad040bb2ec5ecff6aa03a6142ae160c4cfa6865a1"
+      }
+    },
+    "lilies_review": {
+      "review": {
+        "verdict": "accepted",
+        "acceptance_checks": [
+          {
+            "criterion": "The implementation returns arithmetic addition, not subtraction.",
+            "passed": true,
+            "evidence": "workspace_read shows `return left + right` in the current file; git_diff confirms the previous line was `return left - right` and has been changed to `return left + right`."
+          },
+          {
+            "criterion": "The frozen two-case tests/check.py command exits with status 0.",
+            "passed": true,
+            "evidence": "process_run on tests/check.py exited with code 0 and stdout reported '2 acceptance checks passed'."
+          },
+          {
+            "criterion": "Only src/mathlib.py differs from the frozen baseline.",
+            "passed": true,
+            "evidence": "The git_diff output (with paths limited to src/mathlib.py) shows exactly one file changed; no other files appear in the diff. The diff content is entirely the single-line fix from subtraction to addition."
+          }
+        ],
+        "summary": "Codex repaired a bounded arithmetic bug in src/mathlib.py by changing `return left - right` to `return left + right`. The frozen two-case test exits cleanly with status 0. No other files were modified. The implementation now returns arithmetic addition as required.",
+        "limitations": [
+          "Review scope is limited to a single plain-Python file (src/mathlib.py) and one frozen test suite (tests/check.py).",
+          "No coverage, property-based, or integration tests were exercised; only the two frozen acceptance cases were checked.",
+          "The authorisation sandbox prevents network access and limits tool reach; only file reads, git diff, and a single script execution were permitted.",
+          "The diff digest in the source result binding (sha256:d41f2f27eb12d52b2337cfe3fe9838fdf742950d24c055dbe6983ea5e3f57c9a) does not match the actual git_diff output digest (sha256:10827e3cc13754810c3b831464d09cda29b7df0716db86d0136d72d855b582c1), indicating the binding anchor may refer to a compressed or encoded representation rather than the raw diff text. This does not affect the functional acceptance verdict."
+        ]
+      },
+      "frozen_acceptance": [
+        "The implementation returns arithmetic addition, not subtraction.",
+        "The frozen two-case tests/check.py command exits with status 0.",
+        "Only src/mathlib.py differs from the frozen baseline."
+      ],
+      "model_acceptance_checks": [
+        {
+          "criterion": "The implementation returns arithmetic addition, not subtraction.",
+          "passed": true,
+          "evidence": "workspace_read shows `return left + right` in the current file; git_diff confirms the previous line was `return left - right` and has been changed to `return left + right`."
+        },
+        {
+          "criterion": "The frozen two-case tests/check.py command exits with status 0.",
+          "passed": true,
+          "evidence": "process_run on tests/check.py exited with code 0 and stdout reported '2 acceptance checks passed'."
+        },
+        {
+          "criterion": "Only src/mathlib.py differs from the frozen baseline.",
+          "passed": true,
+          "evidence": "The git_diff output (with paths limited to src/mathlib.py) shows exactly one file changed; no other files appear in the diff. The diff content is entirely the single-line fix from subtraction to addition."
+        }
+      ],
+      "persisted_review_id": "bbfebf27-8e60-46f2-b66e-dc4ba70000da",
+      "provider": "deepseek",
+      "model": "deepseek-v4-flash",
+      "provider_authority": {
+        "schema_version": "1.0",
+        "assignment_id": "0a1c7272-2546-473e-86b1-c6abd97dd343",
+        "agent_role": "lilies",
+        "workspace_id": "602aff73-c294-5d00-a04c-4dae321ffba9",
+        "dispatch_grant_digest": "sha256:18d5e604a7d3565061ddb7a3b7b6ea02286dea6a7c1bd82d001ea449aaa9a094",
+        "provider": "deepseek",
+        "model": "deepseek-v4-flash",
+        "endpoint_hosts": [
+          "api.deepseek.com"
+        ],
+        "secret_refs": [
+          "deepseek-runtime-credential"
+        ],
+        "allowed_side_effects": [
+          "process_execute",
+          "network_access"
+        ],
+        "credential_identity": "deepseek-api-account",
+        "capability_digest": "sha256:702daf34138782d17218007511ef4b08a227d16cdbbc07d775c6781e1ee425ea"
+      },
+      "usage": [
+        {
+          "input_tokens": 2099,
+          "output_tokens": 185,
+          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "reasoning_tokens": null,
+          "cost_usd": 0.00034566,
+          "cost_source": "estimated_configured_price",
+          "field_support": {
+            "input_tokens": "reported",
+            "output_tokens": "reported",
+            "cache_read_input_tokens": "reported",
+            "cache_creation_input_tokens": "reported",
+            "cost_usd": "estimated"
+          }
+        },
+        {
+          "input_tokens": 1589,
+          "output_tokens": 1124,
+          "cache_read_input_tokens": 0,
+          "cache_creation_input_tokens": 0,
+          "reasoning_tokens": null,
+          "cost_usd": 0.0005371800000000001,
+          "cost_source": "estimated_configured_price",
+          "field_support": {
+            "input_tokens": "reported",
+            "output_tokens": "reported",
+            "cache_read_input_tokens": "reported",
+            "cache_creation_input_tokens": "reported",
+            "cost_usd": "estimated"
+          }
+        }
+      ],
+      "provider_cost_control": [
+        {
+          "reservation_id": "df80c7cc-6836-42f3-a2b5-ad72b6c0f8e8",
+          "provider_request_id": "t01g-live-lilies-review:tool-loop-1:14607e6b79544a9bb6eec32616234064",
+          "worst_case_cost_usd": 1.0,
+          "cost_source": "estimated_configured_price",
+          "settled": true,
+          "provider_capability_digest": "sha256:702daf34138782d17218007511ef4b08a227d16cdbbc07d775c6781e1ee425ea",
+          "dispatch_grant_digest": "sha256:18d5e604a7d3565061ddb7a3b7b6ea02286dea6a7c1bd82d001ea449aaa9a094",
+          "provider_hosts": [
+            "api.deepseek.com"
+          ],
+          "secret_refs": [
+            "deepseek-runtime-credential"
+          ],
+          "credential_identity": "deepseek-api-account",
+          "authorization_evidence_digest": "sha256:ffed1a12b5ccea069c97d19cfb8060cbda64e9b39d4844af242f35d68c831b2e",
+          "actual_cost_usd": 0.00034566,
+          "input_tokens": 2099,
+          "output_tokens": 185,
+          "receipt_evidence_digest": "sha256:e5e4a72f561904c8a276307426add81f78714983c2d2c765b0902f29f1ef8839"
+        },
+        {
+          "reservation_id": "4d10da80-e80a-437f-9ffe-d479379b75a2",
+          "provider_request_id": "t01g-live-lilies-review:final:dec4f1fd605c49f4bdbfa6fa940a3107",
+          "worst_case_cost_usd": 1.0,
+          "cost_source": "estimated_configured_price",
+          "settled": true,
+          "provider_capability_digest": "sha256:702daf34138782d17218007511ef4b08a227d16cdbbc07d775c6781e1ee425ea",
+          "dispatch_grant_digest": "sha256:18d5e604a7d3565061ddb7a3b7b6ea02286dea6a7c1bd82d001ea449aaa9a094",
+          "provider_hosts": [
+            "api.deepseek.com"
+          ],
+          "secret_refs": [
+            "deepseek-runtime-credential"
+          ],
+          "credential_identity": "deepseek-api-account",
+          "authorization_evidence_digest": "sha256:b0bb6e12dfa273bb2f7e245143495ef4c9f3a88ccd4d4db1ae570dd2a1809285",
+          "actual_cost_usd": 0.0005371800000000001,
+          "input_tokens": 1589,
+          "output_tokens": 1124,
+          "receipt_evidence_digest": "sha256:6ed9c86b03143e631936372cdbb27494bb36bd84a319e15db8aa7eb8e117e1f2"
+        }
+      ],
+      "tool_calls": [
+        {
+          "name": "workspace_read",
+          "input_digest": "sha256:a616094ee777b6a3230a157fb5b88f25ac678ffb1e9afee964367c4515fcd7dd",
+          "result_digest": "sha256:556b62945b479498f5577ca7117685b0a305af5469a380615a00c0196576e484",
+          "is_error": false,
+          "iteration": 1
+        },
+        {
+          "name": "git_diff",
+          "input_digest": "sha256:cc2fe3fd45dd82d131e212f760e91180cb03c131ae04debfd75d1029d34ae3c7",
+          "result_digest": "sha256:26f405e33a09537c8e1849aaf6320dab5aa921ce6566d4064e4afd6b7a8389d6",
+          "is_error": false,
+          "iteration": 1
+        },
+        {
+          "name": "process_run",
+          "input_digest": "sha256:6c8ef8305786e09c72af34c218a468675db9702fc12c3101ca752bbf56dd985b",
+          "result_digest": "sha256:2c06352c8ca448250fbd3525f09b1a7296882c23824f64e7e7b647a38e7fee0c",
+          "is_error": false,
+          "iteration": 1
+        }
+      ],
+      "called_tool_names": [
+        "git_diff",
+        "process_run",
+        "workspace_read"
+      ],
+      "successful_tool_names": [
+        "git_diff",
+        "process_run",
+        "workspace_read"
+      ],
+      "denied_tool_calls": 0,
+      "mandatory_tool_names": [
+        "git_diff",
+        "process_run",
+        "workspace_read"
+      ],
+      "response_digest": "sha256:20d8de7e6ec6d2b286c64ce5b1b4a67dec04d8c29ee687b76fbb462573584ecb",
+      "normalizations": [
+        "verdict_enum_alias"
+      ],
+      "review_snapshot_id": "602aff73-c294-5d00-a04c-4dae321ffba9",
+      "review_snapshot_receipt_digest": "sha256:b2daa0eba6f4f4d8fa5e8098b280c5dc70fc25d677e8f04e0f6be1e678e3aee1",
+      "independent_snapshot": true
+    },
+    "provider_cost_control": [
+      {
+        "reservation_id": "b5167e43-f125-4ca8-bef7-d1a1beb57dc0",
+        "provider_request_id": "t01g-live-codex-provider:2ae6cc57ba504863815d2090f70295a0",
+        "provider": "openai-codex-cli",
+        "model": "gpt-5.6-terra",
+        "worst_case_cost_usd": 1.0,
+        "authorization_evidence_digest": "sha256:42c7a01f4a00e690544bb0acd88ae7ab2488eb06fd8215d74f46fa0a027c2c04",
+        "actual_cost_usd": 0.0,
+        "input_tokens": 13042,
+        "output_tokens": 98,
+        "receipt_evidence_digest": "sha256:abcd653a0c6c8b05aa503a6510e5938acfd04f1359d678c70e8e6ed4bbde1d3f",
+        "provider_capability_digest": "sha256:c60e5f345af14c26a23bfc1d3dda3788eea1dc485b7b72f52f8756b847640d36",
+        "dispatch_grant_digest": "sha256:fcc8bf4e2081e8671d6e46fbe298d768c9d99fab26039fd09b8087c399820897",
+        "provider_hosts": [
+          "api.openai.com",
+          "auth.openai.com",
+          "chatgpt.com"
+        ],
+        "secret_refs": [
+          "codex-cli-session"
+        ],
+        "provider_side_effects": [
+          "workspace_write",
+          "process_execute",
+          "network_access"
+        ],
+        "credential_identity": "codex-cli-subscription",
+        "settled": true
+      },
+      {
+        "reservation_id": "df80c7cc-6836-42f3-a2b5-ad72b6c0f8e8",
+        "provider_request_id": "t01g-live-lilies-review:tool-loop-1:14607e6b79544a9bb6eec32616234064",
+        "provider": "deepseek",
+        "model": "deepseek-v4-flash",
+        "worst_case_cost_usd": 1.0,
+        "authorization_evidence_digest": "sha256:ffed1a12b5ccea069c97d19cfb8060cbda64e9b39d4844af242f35d68c831b2e",
+        "actual_cost_usd": 0.00034566,
+        "input_tokens": 2099,
+        "output_tokens": 185,
+        "receipt_evidence_digest": "sha256:e5e4a72f561904c8a276307426add81f78714983c2d2c765b0902f29f1ef8839",
+        "provider_capability_digest": "sha256:702daf34138782d17218007511ef4b08a227d16cdbbc07d775c6781e1ee425ea",
+        "dispatch_grant_digest": "sha256:18d5e604a7d3565061ddb7a3b7b6ea02286dea6a7c1bd82d001ea449aaa9a094",
+        "provider_hosts": [
+          "api.deepseek.com"
+        ],
+        "secret_refs": [
+          "deepseek-runtime-credential"
+        ],
+        "provider_side_effects": [
+          "process_execute",
+          "network_access"
+        ],
+        "credential_identity": "deepseek-api-account",
+        "settled": true
+      },
+      {
+        "reservation_id": "4d10da80-e80a-437f-9ffe-d479379b75a2",
+        "provider_request_id": "t01g-live-lilies-review:final:dec4f1fd605c49f4bdbfa6fa940a3107",
+        "provider": "deepseek",
+        "model": "deepseek-v4-flash",
+        "worst_case_cost_usd": 1.0,
+        "authorization_evidence_digest": "sha256:b0bb6e12dfa273bb2f7e245143495ef4c9f3a88ccd4d4db1ae570dd2a1809285",
+        "actual_cost_usd": 0.0005371800000000001,
+        "input_tokens": 1589,
+        "output_tokens": 1124,
+        "receipt_evidence_digest": "sha256:6ed9c86b03143e631936372cdbb27494bb36bd84a319e15db8aa7eb8e117e1f2",
+        "provider_capability_digest": "sha256:702daf34138782d17218007511ef4b08a227d16cdbbc07d775c6781e1ee425ea",
+        "dispatch_grant_digest": "sha256:18d5e604a7d3565061ddb7a3b7b6ea02286dea6a7c1bd82d001ea449aaa9a094",
+        "provider_hosts": [
+          "api.deepseek.com"
+        ],
+        "secret_refs": [
+          "deepseek-runtime-credential"
+        ],
+        "provider_side_effects": [
+          "process_execute",
+          "network_access"
+        ],
+        "credential_identity": "deepseek-api-account",
+        "settled": true
+      }
+    ],
+    "budget_ledger": {
+      "tool_calls": 8,
+      "commands": 5,
+      "completed_records": 8,
+      "by_role": {
+        "codex": {
+          "tool_calls": 5,
+          "commands": 3
+        },
+        "lilies": {
+          "tool_calls": 3,
+          "commands": 2
+        }
+      },
+      "provider_reservations": 3,
+      "provider_settled": 3,
+      "within_assignment_budget": true
+    },
+    "actual_lifecycle": {
+      "events": [
+        "assignment.created",
+        "work_item.created",
+        "work_item.awaiting_dispatch",
+        "work_item.leased",
+        "work_item.working",
+        "work_item.result_submitted",
+        "work_item.accepted",
+        "work_item.closed",
+        "assignment.stopped",
+        "assignment.archived"
+      ],
+      "required_events_present": true,
+      "dispatch_history": [
+        {
+          "schema_version": "1.0",
+          "dispatch_id": "6ae0e1e9-cddb-51a2-bb70-1a7c3df4b099",
+          "outbox_id": "110d4056-edcc-5037-b4af-fdbc7dabc9b4",
+          "attempt": 1,
+          "assignment_id": "0a1c7272-2546-473e-86b1-c6abd97dd343",
+          "work_item_id": "9df50846-bc6b-4636-8d9c-7fe1dd524bc6",
+          "destination_role": "codex",
+          "outbox_kind": "work_dispatch",
+          "execution_mode": "autonomous",
+          "grant_digest": "sha256:fcc8bf4e2081e8671d6e46fbe298d768c9d99fab26039fd09b8087c399820897",
+          "status": "delivered",
+          "evidence_refs": [
+            "sha256:d41f2f27eb12d52b2337cfe3fe9838fdf742950d24c055dbe6983ea5e3f57c9a",
+            "sha256:c3f7ec9143c6ebe46cacdff77bd34bf11def81a30877743f55a17f7975cdb79d",
+            "sha256:5d18d460063bc420bc7ff2a5260b20d8946cce3faeae7d0157c794c979596eb8",
+            "sha256:52a693904b3823637cffeb0ad040bb2ec5ecff6aa03a6142ae160c4cfa6865a1"
+          ],
+          "invocation_fence_id": "5191e912-cbe2-5375-baa5-a09b5d82f991",
+          "authorization_request_id": null,
+          "retry_after_seconds": null,
+          "detail": "Codex produced a role-bound DevelopmentResult with a real diff and zero-exit test.",
+          "created_at": "2026-07-24T22:46:41.487832Z"
+        },
+        {
+          "schema_version": "1.0",
+          "dispatch_id": "ad7711e9-a16b-55f5-9ad7-7a785924bfa8",
+          "outbox_id": "e03e4128-3fc6-53ba-8a95-56605789d357",
+          "attempt": 1,
+          "assignment_id": "0a1c7272-2546-473e-86b1-c6abd97dd343",
+          "work_item_id": "9df50846-bc6b-4636-8d9c-7fe1dd524bc6",
+          "destination_role": "lilies",
+          "outbox_kind": "lilies_review",
+          "execution_mode": "autonomous",
+          "grant_digest": "sha256:4cfdeea20e6fd6c5afc0132041b2c2e1119ffd0ada94139f903d80f2de8859c8",
+          "status": "delivered",
+          "evidence_refs": [
+            "sha256:b2daa0eba6f4f4d8fa5e8098b280c5dc70fc25d677e8f04e0f6be1e678e3aee1",
+            "sha256:d41f2f27eb12d52b2337cfe3fe9838fdf742950d24c055dbe6983ea5e3f57c9a",
+            "sha256:52a693904b3823637cffeb0ad040bb2ec5ecff6aa03a6142ae160c4cfa6865a1"
+          ],
+          "invocation_fence_id": "a6a46cc1-f95a-5e76-a626-a364ba420bbe",
+          "authorization_request_id": null,
+          "retry_after_seconds": null,
+          "detail": "Lilies independently inspected the review snapshot and submitted a bound accepted review.",
+          "created_at": "2026-07-24T22:46:54.693949Z"
+        }
+      ],
+      "dispatch_history_restart_equal": true,
+      "original_grants_unchanged": true,
+      "independent_review_snapshot": true
+    },
+    "status": "passed",
+    "evidence_digest": "sha256:2f86e48ec5b91c635422b0cc6a4d07e625b241dcddfb57e61e749f509929ecad"
+  },
+  "evidence_digest": "sha256:1a0d47eda141f7e7ac081999fd08e8bc34d23d2c9ead281d0e77aeeec0dfbc7a"
+}

@@ -1,0 +1,104 @@
+{
+  "schema_version": "v0.4.13-t01h-runtime-environment-1",
+  "stage_task_id": "V04-13-T01H",
+  "experiment_task_id": "EXP-LILIES-001",
+  "revision": 4,
+  "observed_at": "2026-07-25T04:31:30Z",
+  "environment": {
+    "status": "ready",
+    "docker_daemon_probe": "passed",
+    "docker_server": {
+      "version": "29.4.0",
+      "operating_system": "Docker Desktop",
+      "os_type": "linux",
+      "architecture": "aarch64"
+    },
+    "pinned_image_pull": {
+      "status": "passed",
+      "required_image_count": 6,
+      "completed_image_count": 6,
+      "missing_digests": []
+    },
+    "task_author_preflight": {
+      "status": "pending",
+      "candidate_revision": 4,
+      "runner_preparation": "passed",
+      "inherited_pinned_image_count": 6,
+      "reason": "Revision 4 was generated after the revision 3 formal source projection mismatch and has not yet started a real-host preflight."
+    },
+    "previous_revision_preflight": {
+      "status": "passed",
+      "candidate_revision": 3,
+      "runner_preparation": "passed",
+      "container_count": 7,
+      "stable_container_count": 7,
+      "paperless_version": "2.20.15",
+      "inventree_version": "1.4.2",
+      "debug_record_count": 24,
+      "baseline_snapshot_mode": "0600",
+      "baseline_snapshot_digest": "sha256:06eba75a46cab0f3b3d2e2d470a406cc0b76c333c53be02f87533fccdb87ad24",
+      "baseline_request_log_count": 0,
+      "baseline_forbidden_write_count": 0,
+      "baseline_duplicate_effect_count": 0,
+      "fault_proxy_ports": [
+        18010,
+        18011
+      ],
+      "environment_attestation": "verified",
+      "services_stopped_after_preflight": true
+    },
+    "amendment_history": [
+      {
+        "revision": 1,
+        "outcome": "task_author_preflight_failed",
+        "reason": "InvenTree container manage.py path and shell profile behavior were incompatible with the scoped-account initializer."
+      },
+      {
+        "revision": 2,
+        "outcome": "task_author_preflight_failed",
+        "reason": "Worker URL, purchase-order wildcard pattern, and version-attestation endpoints were incompatible with the exact host releases."
+      },
+      {
+        "revision": 3,
+        "outcome": "task_author_preflight_passed"
+      },
+      {
+        "revision": 4,
+        "outcome": "task_author_preflight_pending",
+        "reason": "Revision 3 formal-run attempts exposed a dotenv projection mismatch before daemon submission."
+      }
+    ],
+    "model_authority": {
+      "provider": "deepseek",
+      "required_environment_variable": "DEEPSEEK_API_KEY",
+      "present": true
+    },
+    "real_host_services_started": true,
+    "real_host_runs": 0,
+    "formal_attempts": {
+      "total": 3,
+      "passed": 0,
+      "failed": 3,
+      "seed_101_failed": 3,
+      "seed_202_not_run": 1,
+      "seed_303_not_run": 1,
+      "immutable_attempt_evidence": true,
+      "latest_failure": "Revision 3 formal developer Git projection and workspace filtering disagreed on dotenv-variant exclusion before daemon submission"
+    },
+    "stable_hidden_runs": {
+      "completed": 0,
+      "required": 3
+    },
+    "blocked_by": null,
+    "recheck_trigger": "Commit the repaired source baseline and execute revision 4 real-host preflight through the same formal boundary."
+  },
+  "enterprise_denominator": {
+    "required_runs": 3,
+    "required_hidden_records_per_run": 36,
+    "completed_runs": 0,
+    "passed_runs": 0,
+    "failed_runs": 0,
+    "not_run_runs": 3
+  },
+  "claim_ceiling": "Frozen revision 4 package preparation plus revision 3 real-host preflight and three preserved pre-assignment failure attempts. No revision 4 real-host preflight, Builder run, hidden 36/36 oracle pass, or stable-seed result is claimed."
+}

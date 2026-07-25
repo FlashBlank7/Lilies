@@ -86,7 +86,14 @@ class Settings(BaseSettings):
     lilies_collaboration_enabled: bool = False
     lilies_collaboration_developer_token: str = Field(default="", repr=False)
     lilies_collaboration_verifier_token: str = Field(default="", repr=False)
+    lilies_formal_hidden_seed_key: str = Field(default="", repr=False)
     lilies_developer_worker_executable: Path | None = None
+    lilies_collaborative_development_enabled: bool = False
+    lilies_collaborative_development_signing_key: str = Field(
+        default="",
+        repr=False,
+    )
+    lilies_autonomous_collaboration_enabled: bool = False
     lilies_local_builder_default: bool = False
     lilies_platform_base_url: str = ""
 

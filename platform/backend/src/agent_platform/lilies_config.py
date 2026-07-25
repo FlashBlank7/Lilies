@@ -74,7 +74,7 @@ class LiliesSettings(BaseSettings):
     host: str = "127.0.0.1"
     port: int = Field(default=8765, ge=1, le=65_535)
     schema_version: str = "1.0"
-    system_identity_version: str = "lilies-local-v1"
+    system_identity_version: str = "lilies-local-v2"
     agent_version: str = "0.4.13"
 
     model: str = "deepseek-v4-flash"

@@ -1,0 +1,19 @@
+{
+  "status": "blocked_by_environment",
+  "source": "browser-client:getForUrl:http://127.0.0.1:3000/",
+  "summary": "On 2026-07-25 the browser runtime returned \"No browser is available\" for the local Studio URL. Bootstrap troubleshooting was followed and the authoritative browser list was empty ([]). No HTTP, source, or synthetic screenshot result is substituted for a browser pass.",
+  "observations": [
+    {
+      "operation": "get_for_url",
+      "requested_url": "http://127.0.0.1:3000/",
+      "result": "No browser is available"
+    },
+    {
+      "operation": "list_browsers",
+      "available_browsers": []
+    }
+  ],
+  "claim_ceiling": "PIPE-Q01 through PIPE-Q23 behavior may be accepted only at deterministic, fault-injection, and actual API level. Rendered interaction, layout, accessibility, screenshot, console, and browser-network behavior are not browser-verified.",
+  "recheck_trigger": "Re-run the formal Studio browser journey when runtime browser discovery returns at least one controllable browser.",
+  "digest": "sha256:0492eaa4c41397f19f0d1aff2952a297ac23163e6fe1cb6d7b96d3d6987e41ff"
+}

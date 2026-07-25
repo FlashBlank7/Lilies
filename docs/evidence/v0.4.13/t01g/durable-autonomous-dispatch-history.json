@@ -1,0 +1,333 @@
+{
+  "enterprise_denominator": false,
+  "evidence_digest": "sha256:463b16857580efc4bca5819756459e77948167235d4126df78571a9cefc5b58e",
+  "kind": "durable_autonomous_dispatch_history",
+  "record": {
+    "assignment_id": "f65cff60-dacd-454a-8c7e-8943cc13e19c",
+    "evidence_digest": "sha256:126e2dfcb93928502cbc4ef37f2d866e4a4a3ec4c6561897549f920a53011440",
+    "execution_mode": "autonomous",
+    "final_assignment_status": "archived",
+    "final_work_item_status": "closed",
+    "history": [
+      {
+        "assignment_id": "f65cff60-dacd-454a-8c7e-8943cc13e19c",
+        "attempt": 1,
+        "created_at": "2026-07-24T22:47:06.449542Z",
+        "destination_role": "codex",
+        "detail": "Codex submitted one fenced result from the exact role grant.",
+        "dispatch_id": "e520d3ff-472b-5f4f-8e37-309e6abdc966",
+        "evidence_refs": [
+          "sha256:b1383b17afa2001e7eee515220df53a32e798de2e80812e29b2e1bd962403c8d",
+          "sha256:eecc646b8ff1a22a4eade4e83f906ccf4d47c5a34ace14421bd2d05f2459ca72",
+          "sha256:b3ec6b59939f6ff25ffaa5add5d3a371ecdc3e35e3c8d61467a4c1ba08ccd4a1"
+        ],
+        "execution_mode": "autonomous",
+        "grant_digest": "sha256:00531197305db5e210de7be10726ee451d4824be46a95f806e877b20d12054ed",
+        "invocation_fence_id": "65eeaf62-6caf-5f91-b868-312f3385f5fa",
+        "outbox_id": "1090cde4-04b2-5c1e-8be2-7028838f2ddc",
+        "outbox_kind": "work_dispatch",
+        "schema_version": "1.0",
+        "status": "delivered",
+        "work_item_id": "86409256-c95c-4d2a-92ac-ceeff4381aee"
+      },
+      {
+        "assignment_id": "f65cff60-dacd-454a-8c7e-8943cc13e19c",
+        "attempt": 1,
+        "created_at": "2026-07-24T22:47:06.597630Z",
+        "destination_role": "lilies",
+        "detail": "Lilies independently reran the check in a broker snapshot.",
+        "dispatch_id": "53eaf7c5-d2be-53b1-a85f-407b4d5f4d45",
+        "evidence_refs": [
+          "sha256:c02c50665bd6c51090016e9dd4216098a646885bfe3d0598aa63aa04fa8b308e",
+          "sha256:b1383b17afa2001e7eee515220df53a32e798de2e80812e29b2e1bd962403c8d",
+          "sha256:b3ec6b59939f6ff25ffaa5add5d3a371ecdc3e35e3c8d61467a4c1ba08ccd4a1"
+        ],
+        "execution_mode": "autonomous",
+        "grant_digest": "sha256:9e4f2e5a1e3a55ad8418ace97f8bcb9bd5db69990384b88c9bcbb51f465abeb3",
+        "invocation_fence_id": "bd6021b8-ee63-53bd-96c4-7b655547ea8f",
+        "outbox_id": "9ae9ee44-38fa-5fb7-bcc2-2c52abb69b59",
+        "outbox_kind": "lilies_review",
+        "schema_version": "1.0",
+        "status": "delivered",
+        "work_item_id": "86409256-c95c-4d2a-92ac-ceeff4381aee"
+      },
+      {
+        "assignment_id": "f65cff60-dacd-454a-8c7e-8943cc13e19c",
+        "attempt": 1,
+        "created_at": "2026-07-24T22:47:06.680737Z",
+        "destination_role": "codex",
+        "detail": "Codex submitted one fenced result from the exact role grant.",
+        "dispatch_id": "cc52db74-09eb-5eae-90bb-97996e48ec5e",
+        "evidence_refs": [
+          "sha256:fd811d17cb310649f89ad0f760067ae98592bd427f22fb62df09429d2f4dc942",
+          "sha256:953cf53bd41574df49767908b8c88f18691232432b9f2c276c1f41bda9f874fc",
+          "sha256:eadb6c511e574df8ca19d1b205a972ea31770dc39c5056fb00c939557bdb72e1"
+        ],
+        "execution_mode": "autonomous",
+        "grant_digest": "sha256:00531197305db5e210de7be10726ee451d4824be46a95f806e877b20d12054ed",
+        "invocation_fence_id": "141fbe02-bbda-5925-83e5-5ccb5e84953b",
+        "outbox_id": "31eaeea7-531f-596f-808e-467d93e17a48",
+        "outbox_kind": "work_dispatch",
+        "schema_version": "1.0",
+        "status": "delivered",
+        "work_item_id": "86409256-c95c-4d2a-92ac-ceeff4381aee"
+      },
+      {
+        "assignment_id": "f65cff60-dacd-454a-8c7e-8943cc13e19c",
+        "attempt": 1,
+        "created_at": "2026-07-24T22:47:06.910787Z",
+        "destination_role": "lilies",
+        "detail": "Lilies independently reran the check in a broker snapshot.",
+        "dispatch_id": "fa7afbe4-0d0d-5720-a9fa-f9b5de8e49a4",
+        "evidence_refs": [
+          "sha256:c17c825f1f1c805a9af740359a903e302a64ee430bf0ae286bba769c2b81894b",
+          "sha256:fd811d17cb310649f89ad0f760067ae98592bd427f22fb62df09429d2f4dc942",
+          "sha256:eadb6c511e574df8ca19d1b205a972ea31770dc39c5056fb00c939557bdb72e1"
+        ],
+        "execution_mode": "autonomous",
+        "grant_digest": "sha256:9e4f2e5a1e3a55ad8418ace97f8bcb9bd5db69990384b88c9bcbb51f465abeb3",
+        "invocation_fence_id": "2f02f858-2402-5fac-8766-ea6341364fcb",
+        "outbox_id": "19197904-c81e-5e76-a06d-41f8ed30ea19",
+        "outbox_kind": "lilies_review",
+        "schema_version": "1.0",
+        "status": "delivered",
+        "work_item_id": "86409256-c95c-4d2a-92ac-ceeff4381aee"
+      }
+    ],
+    "history_digest": "sha256:aca29f709b69dde6b1fa04a198d0168cd4f389b73d890f9ffd9e55e572a8d85f",
+    "original_grants_unchanged": true,
+    "restart_history_equal": true,
+    "restart_store_history_equal": true,
+    "restart_tool_usage_equal": true,
+    "result_ids": [
+      "8277b57c-be51-48b6-8ec1-cc39cb9f57aa",
+      "0e116a0a-9bcb-4a06-b998-dd0ea5c9418b"
+    ],
+    "review_ids": [
+      "cc42fd6e-c43a-44df-8286-df490969bc4e",
+      "f6a3ae2e-a0cf-41e9-a1ff-1f9b968900ef"
+    ],
+    "source_repository_unchanged": true,
+    "source_revision": "sha256:7d6828833b9ab553969f09f5467160459e4699a738870a386e45a798b290e4fc",
+    "status": "passed",
+    "store_event_history": [
+      {
+        "actor_role": "user",
+        "aggregate_revision": 1,
+        "event_type": "assignment.created",
+        "record_digest": "sha256:8125d25cf84b5d746535a94ecbde5581def5f17714e051b9523ecbd9f4228b40",
+        "seq": 1
+      },
+      {
+        "actor_role": "user",
+        "aggregate_revision": 1,
+        "event_type": "work_item.created",
+        "record_digest": "sha256:2e3c9d25f73bcaca48df96b293ca7f00669fb880acd5b3bd0e47edf965862b53",
+        "seq": 2
+      },
+      {
+        "actor_role": "platform",
+        "aggregate_revision": 2,
+        "event_type": "work_item.awaiting_dispatch",
+        "record_digest": "sha256:6eebb5925f1fb160b6a6231cbfd58e0fe0219d505131957af1a227ffc4de6252",
+        "seq": 3
+      },
+      {
+        "actor_role": "codex",
+        "aggregate_revision": 3,
+        "event_type": "work_item.leased",
+        "record_digest": "sha256:783aac34f3c3cb5f5d385704fbf423ec996da268745a2ae61668b80b5d5d148d",
+        "seq": 4
+      },
+      {
+        "actor_role": "codex",
+        "aggregate_revision": 4,
+        "event_type": "work_item.working",
+        "record_digest": "sha256:502cdb9db9ef2e2cdfcba9afb50f7901cc86be96cbd0a454ea87803254cba795",
+        "seq": 5
+      },
+      {
+        "actor_role": "codex",
+        "aggregate_revision": 5,
+        "event_type": "work_item.result_submitted",
+        "record_digest": "sha256:81dbbeff6768a5779cc713771dfac3c6336d5cc71150baf9b3635e8ab7121997",
+        "seq": 6
+      },
+      {
+        "actor_role": "lilies",
+        "aggregate_revision": 6,
+        "event_type": "work_item.rework",
+        "record_digest": "sha256:f9956a54370da8d5db7da4e39f3a17757e3c6ca2021f01e5990a10f043ca3725",
+        "seq": 7
+      },
+      {
+        "actor_role": "platform",
+        "aggregate_revision": 7,
+        "event_type": "work_item.awaiting_dispatch",
+        "record_digest": "sha256:385e721fda80f3ffc8698ffc9f9efa62079268ab6a8b7840ac8ff6164d60b6ff",
+        "seq": 8
+      },
+      {
+        "actor_role": "codex",
+        "aggregate_revision": 8,
+        "event_type": "work_item.leased",
+        "record_digest": "sha256:2deffee2976b3dcd0653bc5f30cda2ddadb19d56a37e020bc595dcd1a3ebc581",
+        "seq": 9
+      },
+      {
+        "actor_role": "codex",
+        "aggregate_revision": 9,
+        "event_type": "work_item.working",
+        "record_digest": "sha256:a7950aa79a99b82d162e281d7a6b1aa0990a40281df6f1465c6245ea20d82ae0",
+        "seq": 10
+      },
+      {
+        "actor_role": "codex",
+        "aggregate_revision": 10,
+        "event_type": "work_item.result_submitted",
+        "record_digest": "sha256:547e26a11c527049f851446773c33d1ba117b939267933c185ec190ab0889930",
+        "seq": 11
+      },
+      {
+        "actor_role": "lilies",
+        "aggregate_revision": 11,
+        "event_type": "work_item.accepted",
+        "record_digest": "sha256:b84f18bcfa0db34c91027739ad8c63a4169f035d2661074279fed18be0cce410",
+        "seq": 12
+      },
+      {
+        "actor_role": "user",
+        "aggregate_revision": 12,
+        "event_type": "work_item.closed",
+        "record_digest": "sha256:ec3d50b55100954f5401e6c057ad2c8b1bd3c870fa746d27e4d1c6b1e0a99c51",
+        "seq": 13
+      },
+      {
+        "actor_role": "user",
+        "aggregate_revision": 2,
+        "event_type": "assignment.stopped",
+        "record_digest": "sha256:693578a4dd238805d7d8c2b229531bf1804b10b1bc5be7446a9c67e44eb0dd73",
+        "seq": 14
+      },
+      {
+        "actor_role": "user",
+        "aggregate_revision": 3,
+        "event_type": "assignment.archived",
+        "record_digest": "sha256:ff3a7b5c15fcc6f6f984d06cf2f2a46b208a69236693383320fbc2d09ae14a01",
+        "seq": 15
+      }
+    ],
+    "store_history_digest": "sha256:aafa8f353ff532a0bb63b16fddbb90542f7b05e534fa53f9b684a2786bd48ba4",
+    "tool_usage_digest": "sha256:d93b5fb53e4e045a2085a71048a86ab6dc161be5dd56295fdd5a6998267d5fed",
+    "tool_usage_history": [
+      {
+        "actor_role": "codex",
+        "command_cwd": "tests",
+        "commands": 1,
+        "consumer_id": "8277b57c-be51-48b6-8ec1-cc39cb9f57aa",
+        "consumer_type": "result",
+        "output_digest": "sha256:b3ec6b59939f6ff25ffaa5add5d3a371ecdc3e35e3c8d61467a4c1ba08ccd4a1",
+        "request_digest": "sha256:f83150b65d260902ca9c3c261faeeb48af0ca94843baaff669b73534a6ff7a14",
+        "reservation_id": "61e5ccb4-97f6-5eea-97e8-19f7ebd58df6",
+        "response_digest": "sha256:6fe18e5431003067f55943472fe222f358294b72cd4df1246dc441e82473b00c",
+        "status": "completed",
+        "tool_calls": 1,
+        "tool_name": "process_run",
+        "usage_id": "result:86409256-c95c-4d2a-92ac-ceeff4381aee:66ec4396-782e-5441-8479-7b4d5d438bc3:process-run"
+      },
+      {
+        "actor_role": "codex",
+        "command_cwd": "src",
+        "commands": 1,
+        "consumer_id": null,
+        "consumer_type": null,
+        "output_digest": "sha256:eecc646b8ff1a22a4eade4e83f906ccf4d47c5a34ace14421bd2d05f2459ca72",
+        "request_digest": "sha256:7f6f0075bfa0d357c0541c57a27be5510a04e79f709138c7b147086207594a35",
+        "reservation_id": "fdb1b479-7522-540f-8ddf-0b990f9347ce",
+        "response_digest": "sha256:abad09e39b9aa91eb64403daaffd29444d60a98e5d8d90e68424db37ccb0d48d",
+        "status": "completed",
+        "tool_calls": 1,
+        "tool_name": "git_diff",
+        "usage_id": "result:86409256-c95c-4d2a-92ac-ceeff4381aee:66ec4396-782e-5441-8479-7b4d5d438bc3:git-diff"
+      },
+      {
+        "actor_role": "lilies",
+        "command_cwd": "tests",
+        "commands": 1,
+        "consumer_id": "cc42fd6e-c43a-44df-8286-df490969bc4e",
+        "consumer_type": "review",
+        "output_digest": "sha256:b3ec6b59939f6ff25ffaa5add5d3a371ecdc3e35e3c8d61467a4c1ba08ccd4a1",
+        "request_digest": "sha256:bda60f29e30adf248bfd472785e14d42b17d2459797c0fefcf482356aa9c75be",
+        "reservation_id": "3610030a-5f72-5a57-a921-6661c78b09fe",
+        "response_digest": "sha256:6fe18e5431003067f55943472fe222f358294b72cd4df1246dc441e82473b00c",
+        "status": "completed",
+        "tool_calls": 1,
+        "tool_name": "process_run",
+        "usage_id": "review:8277b57c-be51-48b6-8ec1-cc39cb9f57aa:process-run"
+      },
+      {
+        "actor_role": "codex",
+        "command_cwd": null,
+        "commands": 0,
+        "consumer_id": null,
+        "consumer_type": null,
+        "output_digest": "sha256:63098273a7aaa630762d6f145dfcf9c61c8c9b290c6ebeb2a05fea5854ccb476",
+        "request_digest": "sha256:2ebb790dd1516d1a76776a2ee7e2b25fa4645f8654fc9b0b9a9c7fb2e026b65c",
+        "reservation_id": "f40182d3-2bec-599d-881e-805684ad0ea5",
+        "response_digest": "sha256:a2bf1b5c49e95c9f585c7477d67d1f62c6ae588ca6f44039e8747ccb8036ca1b",
+        "status": "completed",
+        "tool_calls": 1,
+        "tool_name": "workspace_patch",
+        "usage_id": "result:86409256-c95c-4d2a-92ac-ceeff4381aee:6545928d-3734-5b6b-9c49-7e1f03a961cc:workspace-patch"
+      },
+      {
+        "actor_role": "codex",
+        "command_cwd": "tests",
+        "commands": 1,
+        "consumer_id": "0e116a0a-9bcb-4a06-b998-dd0ea5c9418b",
+        "consumer_type": "result",
+        "output_digest": "sha256:eadb6c511e574df8ca19d1b205a972ea31770dc39c5056fb00c939557bdb72e1",
+        "request_digest": "sha256:f83150b65d260902ca9c3c261faeeb48af0ca94843baaff669b73534a6ff7a14",
+        "reservation_id": "add5f069-4f9f-56c6-ae27-7d869ecd67b7",
+        "response_digest": "sha256:3c0b1e3ecb4afd609a3132071b60d582f7fcd6d854b9b2c5d49aad3a581bd87d",
+        "status": "completed",
+        "tool_calls": 1,
+        "tool_name": "process_run",
+        "usage_id": "result:86409256-c95c-4d2a-92ac-ceeff4381aee:6545928d-3734-5b6b-9c49-7e1f03a961cc:process-run"
+      },
+      {
+        "actor_role": "codex",
+        "command_cwd": "src",
+        "commands": 1,
+        "consumer_id": null,
+        "consumer_type": null,
+        "output_digest": "sha256:953cf53bd41574df49767908b8c88f18691232432b9f2c276c1f41bda9f874fc",
+        "request_digest": "sha256:7f6f0075bfa0d357c0541c57a27be5510a04e79f709138c7b147086207594a35",
+        "reservation_id": "e064317f-748e-505f-b1bb-11b88c5aa85e",
+        "response_digest": "sha256:f71a9f4f2c9dd1bddf64a22b176f1a4b8bdb39d72e3cef415c137fd0d2b548b6",
+        "status": "completed",
+        "tool_calls": 1,
+        "tool_name": "git_diff",
+        "usage_id": "result:86409256-c95c-4d2a-92ac-ceeff4381aee:6545928d-3734-5b6b-9c49-7e1f03a961cc:git-diff"
+      },
+      {
+        "actor_role": "lilies",
+        "command_cwd": "tests",
+        "commands": 1,
+        "consumer_id": "f6a3ae2e-a0cf-41e9-a1ff-1f9b968900ef",
+        "consumer_type": "review",
+        "output_digest": "sha256:eadb6c511e574df8ca19d1b205a972ea31770dc39c5056fb00c939557bdb72e1",
+        "request_digest": "sha256:5554d927a83df80e97576329177762e99e2416038d274627118ea1547b2a88a1",
+        "reservation_id": "1b83b592-0d60-5252-b8c6-bfb7553980f2",
+        "response_digest": "sha256:3c0b1e3ecb4afd609a3132071b60d582f7fcd6d854b9b2c5d49aad3a581bd87d",
+        "status": "completed",
+        "tool_calls": 1,
+        "tool_name": "process_run",
+        "usage_id": "review:0e116a0a-9bcb-4a06-b998-dd0ea5c9418b:process-run"
+      }
+    ]
+  },
+  "source_revision": "sha256:7d6828833b9ab553969f09f5467160459e4699a738870a386e45a798b290e4fc",
+  "stage_task_id": "V04-13-T01G",
+  "status": "passed"
+}

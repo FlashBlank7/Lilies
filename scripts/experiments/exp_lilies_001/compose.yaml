@@ -1,0 +1,132 @@
+name: exp-lilies-001-r4
+
+services:
+  paperless-broker:
+    image: docker.io/library/redis@sha256:c88d347edef6249a6d2293f926f1eeb48bd40c57cbcd02c07f52e7f1fd2cb46b
+    command: ["redis-server", "--save", "60", "1", "--loglevel", "warning"]
+    restart: unless-stopped
+    volumes:
+      - paperless-redis:/data
+
+  paperless-db:
+    image: docker.io/library/postgres@sha256:3a82e1f56c8f0f5616a11103ac3d47e632c3938698946a7ad26da0df1334744a
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: paperless
+      POSTGRES_USER: paperless
+      POSTGRES_PASSWORD: ${EXP_LILIES_PAPERLESS_DB_PASSWORD:?required}
+    volumes:
+      - paperless-db:/var/lib/postgresql
+
+  paperless:
+    image: ghcr.io/paperless-ngx/paperless-ngx@sha256:6c86cad803970ea782683a8e80e7403444c5bf3cf70de63b4d3c8e87500db92f
+    restart: unless-stopped
+    depends_on:
+      - paperless-broker
+      - paperless-db
+    ports:
+      - "127.0.0.1:18000:8000"
+    environment:
+      PAPERLESS_REDIS: redis://paperless-broker:6379
+      PAPERLESS_DBHOST: paperless-db
+      PAPERLESS_DBNAME: paperless
+      PAPERLESS_DBUSER: paperless
+      PAPERLESS_DBPASS: ${EXP_LILIES_PAPERLESS_DB_PASSWORD:?required}
+      PAPERLESS_SECRET_KEY: ${EXP_LILIES_PAPERLESS_SECRET_KEY:?required}
+      PAPERLESS_ADMIN_USER: exp_lilies_admin
+      PAPERLESS_ADMIN_PASSWORD: ${EXP_LILIES_PAPERLESS_ADMIN_PASSWORD:?required}
+      PAPERLESS_ADMIN_MAIL: exp-lilies@example.invalid
+      PAPERLESS_OCR_LANGUAGE: eng
+      PAPERLESS_TIME_ZONE: UTC
+      PAPERLESS_URL: http://127.0.0.1:18000
+    volumes:
+      - paperless-data:/usr/src/paperless/data
+      - paperless-media:/usr/src/paperless/media
+
+  inventree-db:
+    image: docker.io/library/postgres@sha256:a426e44bac0b759c95894d68e1a0ac03ecc20b619f498a91aae373bf06d8508d
+    restart: unless-stopped
+    environment:
+      PGDATA: /var/lib/postgresql/data/pgdb
+      POSTGRES_DB: inventree
+      POSTGRES_USER: inventree
+      POSTGRES_PASSWORD: ${EXP_LILIES_INVENTREE_DB_PASSWORD:?required}
+    volumes:
+      - inventree-db:/var/lib/postgresql/data
+
+  inventree-cache:
+    image: docker.io/library/redis@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
+    restart: unless-stopped
+    volumes:
+      - inventree-redis:/data
+
+  inventree:
+    image: docker.io/inventree/inventree@sha256:061ff0252e65077577cb86494c93b0b5b8c120f5a8011493fe0d502bc76ef42c
+    restart: unless-stopped
+    depends_on:
+      - inventree-db
+      - inventree-cache
+    ports:
+      - "127.0.0.1:18001:8000"
+    environment:
+      INVENTREE_SITE_URL: http://127.0.0.1:18001
+      INVENTREE_WEB_PORT: "8000"
+      INVENTREE_LOG_LEVEL: WARNING
+      INVENTREE_AUTO_UPDATE: "True"
+      INVENTREE_PLUGINS_ENABLED: "False"
+      INVENTREE_ADMIN_USER: exp_lilies_admin
+      INVENTREE_ADMIN_PASSWORD: ${EXP_LILIES_INVENTREE_ADMIN_PASSWORD:?required}
+      INVENTREE_ADMIN_EMAIL: exp-lilies@example.invalid
+      INVENTREE_DB_ENGINE: postgresql
+      INVENTREE_DB_NAME: inventree
+      INVENTREE_DB_HOST: inventree-db
+      INVENTREE_DB_PORT: "5432"
+      INVENTREE_DB_USER: inventree
+      INVENTREE_DB_PASSWORD: ${EXP_LILIES_INVENTREE_DB_PASSWORD:?required}
+      INVENTREE_CACHE_ENABLED: "True"
+      INVENTREE_CACHE_HOST: inventree-cache
+      INVENTREE_CACHE_PORT: "6379"
+      INVENTREE_SECRET_KEY: ${EXP_LILIES_INVENTREE_SECRET_KEY:?required}
+    volumes:
+      - inventree-data:/home/inventree/data
+    networks:
+      default:
+        aliases:
+          - inventree.local
+
+  inventree-worker:
+    image: docker.io/inventree/inventree@sha256:061ff0252e65077577cb86494c93b0b5b8c120f5a8011493fe0d502bc76ef42c
+    command: ["invoke", "worker"]
+    restart: unless-stopped
+    depends_on:
+      - inventree
+    environment:
+      INVENTREE_SITE_URL: http://inventree.local:8000
+      INVENTREE_LOG_LEVEL: WARNING
+      INVENTREE_AUTO_UPDATE: "True"
+      INVENTREE_PLUGINS_ENABLED: "False"
+      INVENTREE_DB_ENGINE: postgresql
+      INVENTREE_DB_NAME: inventree
+      INVENTREE_DB_HOST: inventree-db
+      INVENTREE_DB_PORT: "5432"
+      INVENTREE_DB_USER: inventree
+      INVENTREE_DB_PASSWORD: ${EXP_LILIES_INVENTREE_DB_PASSWORD:?required}
+      INVENTREE_CACHE_ENABLED: "True"
+      INVENTREE_CACHE_HOST: inventree-cache
+      INVENTREE_CACHE_PORT: "6379"
+      INVENTREE_SECRET_KEY: ${EXP_LILIES_INVENTREE_SECRET_KEY:?required}
+    volumes:
+      - inventree-data:/home/inventree/data
+
+networks:
+  default:
+    name: exp-lilies-001-r4
+
+volumes:
+  paperless-redis:
+  paperless-db:
+  paperless-data:
+  paperless-media:
+  inventree-db:
+  inventree-redis:
+  inventree-data:

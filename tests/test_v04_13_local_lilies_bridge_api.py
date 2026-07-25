@@ -10,6 +10,7 @@ from typing import Any
 from unittest.mock import AsyncMock
 from uuid import UUID, uuid4
 
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from agent_platform.api import create_app
@@ -25,7 +26,10 @@ from agent_platform.local_lilies_bridge import (
     LocalLiliesRelayEvent,
     LocalLiliesRelayResult,
 )
-from agent_platform.local_lilies_bridge_api import _assignment_event_stream
+from agent_platform.local_lilies_bridge_api import (
+    _assignment_event_stream,
+    install_local_lilies_bridge_api,
+)
 from agent_platform.platform_blackbox_auth import (
     PlatformBlackboxScope,
     TaskCredentialGrant,
@@ -197,6 +201,67 @@ def test_validation_errors_never_echo_pairing_codes_or_tokens(
     serialized = response.text + caplog.text
     assert pairing_secret not in serialized
     assert bearer_secret not in serialized
+
+
+def test_independent_verification_route_requires_completion_and_calls_provider() -> None:
+    connection_id = uuid4()
+    application_id = uuid4()
+    assignment_id = uuid4()
+    assignment = _assignment(
+        connection_id=connection_id,
+        application_id=application_id,
+        assignment_id=assignment_id,
+    )
+
+    class FakeBridge:
+        def require_enabled(self) -> None:
+            return
+
+        async def get_assignment(self, _assignment_id: UUID) -> LocalLiliesAssignment:
+            return assignment
+
+    provider = AsyncMock(
+        return_value={
+            "schema_version": "1.0",
+            "assignment_id": str(assignment_id),
+            "claim_status": "independently_verified",
+        }
+    )
+
+    async def require_token() -> None:
+        return
+
+    app = FastAPI()
+    install_local_lilies_bridge_api(
+        app,
+        FakeBridge(),  # type: ignore[arg-type]
+        require_token=require_token,
+        formal_verification_provider=provider,
+    )
+    with TestClient(app) as client:
+        incomplete = client.post(
+            f"/api/v1/local-lilies/assignments/{assignment_id}/"
+            "independent-verification"
+        )
+        assert incomplete.status_code == 409
+        assert incomplete.json()["detail"]["code"] == (
+            "formal_assignment_not_completed"
+        )
+
+        assignment = assignment.model_copy(
+            update={
+                "phase": BridgeAssignmentPhase.completed,
+                "status": "verification_pending",
+            }
+        )
+        completed = client.post(
+            f"/api/v1/local-lilies/assignments/{assignment_id}/"
+            "independent-verification"
+        )
+
+    assert completed.status_code == 200
+    assert completed.json()["claim_status"] == "independently_verified"
+    provider.assert_awaited_once_with(assignment_id)
 
 
 def test_default_route_flag_is_wired_only_when_local_agent_is_enabled(tmp_path: Path) -> None:

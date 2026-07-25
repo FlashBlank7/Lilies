@@ -27,10 +27,12 @@ from agent_platform.collaboration_storage import (
     CollaborationUnauthorized,
 )
 from agent_platform.formal_run_archiver import FormalRunArchivePreparationRequest
+from agent_platform.collaboration_qualification import command_specs_by_id
 from agent_platform.lilies_models import (
     AssignmentMode,
     CollaborationScope,
 )
+from agent_platform.qualification_fault_recorder import record_fault_iteration
 
 
 NOW = datetime(2026, 7, 23, 1, 2, 3, tzinfo=timezone.utc)
@@ -392,6 +394,25 @@ async def test_one_hundred_identical_replays_are_one_durable_result_and_conflict
 
     assert all(result == results[0] for result in results)
     assert results[0]["seq"] == 2
+    for iteration, result in enumerate(results, start=1):
+        record_fault_iteration(
+            lane="idempotency",
+            iteration=iteration,
+            command_id="q11-q12-idempotency-100",
+            command=command_specs_by_id()["q11-q12-idempotency-100"].argv,
+            counters={
+                "attempted_iterations": 1,
+                "stable_replays": 1,
+                "duplicate_side_effects": 0,
+                "payload_drift_mutations": 0,
+            },
+            output={
+                "message_id": result["message_id"],
+                "seq": result["seq"],
+                "call_index": iteration,
+                "stable_result": result == results[0],
+            },
+        )
     with sqlite3.connect(database) as connection:
         assert connection.execute(
             "SELECT COUNT(*) FROM collaboration_messages"

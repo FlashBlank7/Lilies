@@ -1,0 +1,1444 @@
+{
+  "authority_dimensions": [
+    "workspace_paths",
+    "argv",
+    "network_hosts",
+    "side_effects",
+    "secret_refs",
+    "budgets"
+  ],
+  "autonomous": {
+    "assignment_id": "f65cff60-dacd-454a-8c7e-8943cc13e19c",
+    "baseline_commit": "7175f233880aad6125b78f9b93ae3ba989e28f9a",
+    "builder_required": false,
+    "checkpoints": [
+      {
+        "revision": 2,
+        "status": "awaiting_dispatch",
+        "step": "work_item"
+      },
+      {
+        "dispatch_id": "e520d3ff-472b-5f4f-8e37-309e6abdc966",
+        "revision": 5,
+        "status": "ready_for_lilies_review",
+        "step": "result"
+      },
+      {
+        "delivery": "durable_autonomous_dispatch",
+        "dispatch_id": "53eaf7c5-d2be-53b1-a85f-407b4d5f4d45",
+        "snapshot_receipt_digest": "sha256:c02c50665bd6c51090016e9dd4216098a646885bfe3d0598aa63aa04fa8b308e",
+        "step": "independent_lilies_review",
+        "verdict": "rework"
+      },
+      {
+        "revision": 7,
+        "status": "awaiting_dispatch",
+        "step": "rework"
+      },
+      {
+        "attempt": 2,
+        "dispatch_id": "cc52db74-09eb-5eae-90bb-97996e48ec5e",
+        "revision": 10,
+        "status": "ready_for_lilies_review",
+        "step": "result"
+      },
+      {
+        "attempt": 2,
+        "delivery": "durable_autonomous_dispatch",
+        "dispatch_id": "fa7afbe4-0d0d-5720-a9fa-f9b5de8e49a4",
+        "snapshot_receipt_digest": "sha256:c17c825f1f1c805a9af740359a903e302a64ee430bf0ae286bba769c2b81894b",
+        "step": "independent_lilies_review",
+        "verdict": "accepted"
+      },
+      {
+        "revision": 11,
+        "status": "accepted",
+        "step": "accept"
+      },
+      {
+        "revision": 12,
+        "status": "closed",
+        "step": "close"
+      },
+      {
+        "revision": 2,
+        "status": "stopped",
+        "step": "stop"
+      },
+      {
+        "revision": 3,
+        "status": "archived",
+        "step": "archive"
+      }
+    ],
+    "dispatch_history": [
+      {
+        "assignment_id": "f65cff60-dacd-454a-8c7e-8943cc13e19c",
+        "attempt": 1,
+        "created_at": "2026-07-24T22:47:06.449542Z",
+        "destination_role": "codex",
+        "detail": "Codex submitted one fenced result from the exact role grant.",
+        "dispatch_id": "e520d3ff-472b-5f4f-8e37-309e6abdc966",
+        "evidence_refs": [
+          "sha256:b1383b17afa2001e7eee515220df53a32e798de2e80812e29b2e1bd962403c8d",
+          "sha256:eecc646b8ff1a22a4eade4e83f906ccf4d47c5a34ace14421bd2d05f2459ca72",
+          "sha256:b3ec6b59939f6ff25ffaa5add5d3a371ecdc3e35e3c8d61467a4c1ba08ccd4a1"
+        ],
+        "execution_mode": "autonomous",
+        "grant_digest": "sha256:00531197305db5e210de7be10726ee451d4824be46a95f806e877b20d12054ed",
+        "invocation_fence_id": "65eeaf62-6caf-5f91-b868-312f3385f5fa",
+        "outbox_id": "1090cde4-04b2-5c1e-8be2-7028838f2ddc",
+        "outbox_kind": "work_dispatch",
+        "schema_version": "1.0",
+        "status": "delivered",
+        "work_item_id": "86409256-c95c-4d2a-92ac-ceeff4381aee"
+      },
+      {
+        "assignment_id": "f65cff60-dacd-454a-8c7e-8943cc13e19c",
+        "attempt": 1,
+        "created_at": "2026-07-24T22:47:06.597630Z",
+        "destination_role": "lilies",
+        "detail": "Lilies independently reran the check in a broker snapshot.",
+        "dispatch_id": "53eaf7c5-d2be-53b1-a85f-407b4d5f4d45",
+        "evidence_refs": [
+          "sha256:c02c50665bd6c51090016e9dd4216098a646885bfe3d0598aa63aa04fa8b308e",
+          "sha256:b1383b17afa2001e7eee515220df53a32e798de2e80812e29b2e1bd962403c8d",
+          "sha256:b3ec6b59939f6ff25ffaa5add5d3a371ecdc3e35e3c8d61467a4c1ba08ccd4a1"
+        ],
+        "execution_mode": "autonomous",
+        "grant_digest": "sha256:9e4f2e5a1e3a55ad8418ace97f8bcb9bd5db69990384b88c9bcbb51f465abeb3",
+        "invocation_fence_id": "bd6021b8-ee63-53bd-96c4-7b655547ea8f",
+        "outbox_id": "9ae9ee44-38fa-5fb7-bcc2-2c52abb69b59",
+        "outbox_kind": "lilies_review",
+        "schema_version": "1.0",
+        "status": "delivered",
+        "work_item_id": "86409256-c95c-4d2a-92ac-ceeff4381aee"
+      },
+      {
+        "assignment_id": "f65cff60-dacd-454a-8c7e-8943cc13e19c",
+        "attempt": 1,
+        "created_at": "2026-07-24T22:47:06.680737Z",
+        "destination_role": "codex",
+        "detail": "Codex submitted one fenced result from the exact role grant.",
+        "dispatch_id": "cc52db74-09eb-5eae-90bb-97996e48ec5e",
+        "evidence_refs": [
+          "sha256:fd811d17cb310649f89ad0f760067ae98592bd427f22fb62df09429d2f4dc942",
+          "sha256:953cf53bd41574df49767908b8c88f18691232432b9f2c276c1f41bda9f874fc",
+          "sha256:eadb6c511e574df8ca19d1b205a972ea31770dc39c5056fb00c939557bdb72e1"
+        ],
+        "execution_mode": "autonomous",
+        "grant_digest": "sha256:00531197305db5e210de7be10726ee451d4824be46a95f806e877b20d12054ed",
+        "invocation_fence_id": "141fbe02-bbda-5925-83e5-5ccb5e84953b",
+        "outbox_id": "31eaeea7-531f-596f-808e-467d93e17a48",
+        "outbox_kind": "work_dispatch",
+        "schema_version": "1.0",
+        "status": "delivered",
+        "work_item_id": "86409256-c95c-4d2a-92ac-ceeff4381aee"
+      },
+      {
+        "assignment_id": "f65cff60-dacd-454a-8c7e-8943cc13e19c",
+        "attempt": 1,
+        "created_at": "2026-07-24T22:47:06.910787Z",
+        "destination_role": "lilies",
+        "detail": "Lilies independently reran the check in a broker snapshot.",
+        "dispatch_id": "fa7afbe4-0d0d-5720-a9fa-f9b5de8e49a4",
+        "evidence_refs": [
+          "sha256:c17c825f1f1c805a9af740359a903e302a64ee430bf0ae286bba769c2b81894b",
+          "sha256:fd811d17cb310649f89ad0f760067ae98592bd427f22fb62df09429d2f4dc942",
+          "sha256:eadb6c511e574df8ca19d1b205a972ea31770dc39c5056fb00c939557bdb72e1"
+        ],
+        "execution_mode": "autonomous",
+        "grant_digest": "sha256:9e4f2e5a1e3a55ad8418ace97f8bcb9bd5db69990384b88c9bcbb51f465abeb3",
+        "invocation_fence_id": "2f02f858-2402-5fac-8766-ea6341364fcb",
+        "outbox_id": "19197904-c81e-5e76-a06d-41f8ed30ea19",
+        "outbox_kind": "lilies_review",
+        "schema_version": "1.0",
+        "status": "delivered",
+        "work_item_id": "86409256-c95c-4d2a-92ac-ceeff4381aee"
+      }
+    ],
+    "enterprise_denominator": false,
+    "executed_lifecycle": [
+      "work_item",
+      "result",
+      "rework",
+      "independent_lilies_review",
+      "accept",
+      "close",
+      "stop",
+      "archive"
+    ],
+    "final_assignment_status": "archived",
+    "final_work_item_status": "closed",
+    "independent_review_snapshots": [
+      {
+        "baseline_commit": "7175f233880aad6125b78f9b93ae3ba989e28f9a",
+        "changed_paths": [],
+        "diff_digest": "sha256:b1383b17afa2001e7eee515220df53a32e798de2e80812e29b2e1bd962403c8d",
+        "promotion_state": "review_snapshot_only",
+        "receipt_digest": "sha256:c02c50665bd6c51090016e9dd4216098a646885bfe3d0598aa63aa04fa8b308e",
+        "receipt_id": "c9d14da2-eab8-54ec-890c-25b2bf5ac26d",
+        "result_id": "8277b57c-be51-48b6-8ec1-cc39cb9f57aa",
+        "review_snapshot_id": "eea3ebee-0bb1-5594-b710-4341aac6210d",
+        "snapshot_digest": "sha256:30bbf8adb6ea45702c3d0ec03923168bcd1ebabcb1f0a43a82c976febcebccd1",
+        "source_repository_unchanged": true
+      },
+      {
+        "baseline_commit": "7175f233880aad6125b78f9b93ae3ba989e28f9a",
+        "changed_paths": [
+          "src/mathlib.py"
+        ],
+        "diff_digest": "sha256:fd811d17cb310649f89ad0f760067ae98592bd427f22fb62df09429d2f4dc942",
+        "promotion_state": "review_snapshot_only",
+        "receipt_digest": "sha256:c17c825f1f1c805a9af740359a903e302a64ee430bf0ae286bba769c2b81894b",
+        "receipt_id": "1f3b9928-9a57-5549-b44d-a53ff4b9a251",
+        "result_id": "0e116a0a-9bcb-4a06-b998-dd0ea5c9418b",
+        "review_snapshot_id": "f3237764-368d-5fdb-b3f3-de047e99d893",
+        "snapshot_digest": "sha256:1b247ae72817333059b1a7ed524f2b4f947b7c02d0c397608ed1f20e5b77d58f",
+        "source_repository_unchanged": true
+      }
+    ],
+    "manual_waited_after_rework": false,
+    "manual_waited_before_dispatch": false,
+    "manual_waited_for_review": false,
+    "mode": "autonomous",
+    "oracle_required": false,
+    "original_grant_digests": {
+      "codex": "sha256:00531197305db5e210de7be10726ee451d4824be46a95f806e877b20d12054ed",
+      "lilies": "sha256:9e4f2e5a1e3a55ad8418ace97f8bcb9bd5db69990384b88c9bcbb51f465abeb3"
+    },
+    "original_grants_unchanged": true,
+    "restart_dispatch_history_equal": true,
+    "restart_store_history_equal": true,
+    "restart_tool_usage_equal": true,
+    "results": [
+      {
+        "diff_digest": "sha256:b1383b17afa2001e7eee515220df53a32e798de2e80812e29b2e1bd962403c8d",
+        "exit_code": 1,
+        "output_digest": "sha256:b3ec6b59939f6ff25ffaa5add5d3a371ecdc3e35e3c8d61467a4c1ba08ccd4a1",
+        "passed": false,
+        "result_id": "8277b57c-be51-48b6-8ec1-cc39cb9f57aa"
+      },
+      {
+        "diff_digest": "sha256:fd811d17cb310649f89ad0f760067ae98592bd427f22fb62df09429d2f4dc942",
+        "exit_code": 0,
+        "output_digest": "sha256:eadb6c511e574df8ca19d1b205a972ea31770dc39c5056fb00c939557bdb72e1",
+        "passed": true,
+        "result_id": "0e116a0a-9bcb-4a06-b998-dd0ea5c9418b"
+      }
+    ],
+    "review_ids": [
+      "cc42fd6e-c43a-44df-8286-df490969bc4e",
+      "f6a3ae2e-a0cf-41e9-a1ff-1f9b968900ef"
+    ],
+    "review_verdicts": [
+      "rework",
+      "accepted"
+    ],
+    "software_id": "plain-python-library-autonomous",
+    "source_repository_unchanged": true,
+    "status": "passed",
+    "store_event_history": [
+      {
+        "actor_role": "user",
+        "aggregate_revision": 1,
+        "event_type": "assignment.created",
+        "record_digest": "sha256:8125d25cf84b5d746535a94ecbde5581def5f17714e051b9523ecbd9f4228b40",
+        "seq": 1
+      },
+      {
+        "actor_role": "user",
+        "aggregate_revision": 1,
+        "event_type": "work_item.created",
+        "record_digest": "sha256:2e3c9d25f73bcaca48df96b293ca7f00669fb880acd5b3bd0e47edf965862b53",
+        "seq": 2
+      },
+      {
+        "actor_role": "platform",
+        "aggregate_revision": 2,
+        "event_type": "work_item.awaiting_dispatch",
+        "record_digest": "sha256:6eebb5925f1fb160b6a6231cbfd58e0fe0219d505131957af1a227ffc4de6252",
+        "seq": 3
+      },
+      {
+        "actor_role": "codex",
+        "aggregate_revision": 3,
+        "event_type": "work_item.leased",
+        "record_digest": "sha256:783aac34f3c3cb5f5d385704fbf423ec996da268745a2ae61668b80b5d5d148d",
+        "seq": 4
+      },
+      {
+        "actor_role": "codex",
+        "aggregate_revision": 4,
+        "event_type": "work_item.working",
+        "record_digest": "sha256:502cdb9db9ef2e2cdfcba9afb50f7901cc86be96cbd0a454ea87803254cba795",
+        "seq": 5
+      },
+      {
+        "actor_role": "codex",
+        "aggregate_revision": 5,
+        "event_type": "work_item.result_submitted",
+        "record_digest": "sha256:81dbbeff6768a5779cc713771dfac3c6336d5cc71150baf9b3635e8ab7121997",
+        "seq": 6
+      },
+      {
+        "actor_role": "lilies",
+        "aggregate_revision": 6,
+        "event_type": "work_item.rework",
+        "record_digest": "sha256:f9956a54370da8d5db7da4e39f3a17757e3c6ca2021f01e5990a10f043ca3725",
+        "seq": 7
+      },
+      {
+        "actor_role": "platform",
+        "aggregate_revision": 7,
+        "event_type": "work_item.awaiting_dispatch",
+        "record_digest": "sha256:385e721fda80f3ffc8698ffc9f9efa62079268ab6a8b7840ac8ff6164d60b6ff",
+        "seq": 8
+      },
+      {
+        "actor_role": "codex",
+        "aggregate_revision": 8,
+        "event_type": "work_item.leased",
+        "record_digest": "sha256:2deffee2976b3dcd0653bc5f30cda2ddadb19d56a37e020bc595dcd1a3ebc581",
+        "seq": 9
+      },
+      {
+        "actor_role": "codex",
+        "aggregate_revision": 9,
+        "event_type": "work_item.working",
+        "record_digest": "sha256:a7950aa79a99b82d162e281d7a6b1aa0990a40281df6f1465c6245ea20d82ae0",
+        "seq": 10
+      },
+      {
+        "actor_role": "codex",
+        "aggregate_revision": 10,
+        "event_type": "work_item.result_submitted",
+        "record_digest": "sha256:547e26a11c527049f851446773c33d1ba117b939267933c185ec190ab0889930",
+        "seq": 11
+      },
+      {
+        "actor_role": "lilies",
+        "aggregate_revision": 11,
+        "event_type": "work_item.accepted",
+        "record_digest": "sha256:b84f18bcfa0db34c91027739ad8c63a4169f035d2661074279fed18be0cce410",
+        "seq": 12
+      },
+      {
+        "actor_role": "user",
+        "aggregate_revision": 12,
+        "event_type": "work_item.closed",
+        "record_digest": "sha256:ec3d50b55100954f5401e6c057ad2c8b1bd3c870fa746d27e4d1c6b1e0a99c51",
+        "seq": 13
+      },
+      {
+        "actor_role": "user",
+        "aggregate_revision": 2,
+        "event_type": "assignment.stopped",
+        "record_digest": "sha256:693578a4dd238805d7d8c2b229531bf1804b10b1bc5be7446a9c67e44eb0dd73",
+        "seq": 14
+      },
+      {
+        "actor_role": "user",
+        "aggregate_revision": 3,
+        "event_type": "assignment.archived",
+        "record_digest": "sha256:ff3a7b5c15fcc6f6f984d06cf2f2a46b208a69236693383320fbc2d09ae14a01",
+        "seq": 15
+      }
+    ],
+    "task_package_required": false,
+    "tool_usage_history": [
+      {
+        "actor_role": "codex",
+        "command_cwd": "tests",
+        "commands": 1,
+        "consumer_id": "8277b57c-be51-48b6-8ec1-cc39cb9f57aa",
+        "consumer_type": "result",
+        "output_digest": "sha256:b3ec6b59939f6ff25ffaa5add5d3a371ecdc3e35e3c8d61467a4c1ba08ccd4a1",
+        "request_digest": "sha256:f83150b65d260902ca9c3c261faeeb48af0ca94843baaff669b73534a6ff7a14",
+        "reservation_id": "61e5ccb4-97f6-5eea-97e8-19f7ebd58df6",
+        "response_digest": "sha256:6fe18e5431003067f55943472fe222f358294b72cd4df1246dc441e82473b00c",
+        "status": "completed",
+        "tool_calls": 1,
+        "tool_name": "process_run",
+        "usage_id": "result:86409256-c95c-4d2a-92ac-ceeff4381aee:66ec4396-782e-5441-8479-7b4d5d438bc3:process-run"
+      },
+      {
+        "actor_role": "codex",
+        "command_cwd": "src",
+        "commands": 1,
+        "consumer_id": null,
+        "consumer_type": null,
+        "output_digest": "sha256:eecc646b8ff1a22a4eade4e83f906ccf4d47c5a34ace14421bd2d05f2459ca72",
+        "request_digest": "sha256:7f6f0075bfa0d357c0541c57a27be5510a04e79f709138c7b147086207594a35",
+        "reservation_id": "fdb1b479-7522-540f-8ddf-0b990f9347ce",
+        "response_digest": "sha256:abad09e39b9aa91eb64403daaffd29444d60a98e5d8d90e68424db37ccb0d48d",
+        "status": "completed",
+        "tool_calls": 1,
+        "tool_name": "git_diff",
+        "usage_id": "result:86409256-c95c-4d2a-92ac-ceeff4381aee:66ec4396-782e-5441-8479-7b4d5d438bc3:git-diff"
+      },
+      {
+        "actor_role": "lilies",
+        "command_cwd": "tests",
+        "commands": 1,
+        "consumer_id": "cc42fd6e-c43a-44df-8286-df490969bc4e",
+        "consumer_type": "review",
+        "output_digest": "sha256:b3ec6b59939f6ff25ffaa5add5d3a371ecdc3e35e3c8d61467a4c1ba08ccd4a1",
+        "request_digest": "sha256:bda60f29e30adf248bfd472785e14d42b17d2459797c0fefcf482356aa9c75be",
+        "reservation_id": "3610030a-5f72-5a57-a921-6661c78b09fe",
+        "response_digest": "sha256:6fe18e5431003067f55943472fe222f358294b72cd4df1246dc441e82473b00c",
+        "status": "completed",
+        "tool_calls": 1,
+        "tool_name": "process_run",
+        "usage_id": "review:8277b57c-be51-48b6-8ec1-cc39cb9f57aa:process-run"
+      },
+      {
+        "actor_role": "codex",
+        "command_cwd": null,
+        "commands": 0,
+        "consumer_id": null,
+        "consumer_type": null,
+        "output_digest": "sha256:63098273a7aaa630762d6f145dfcf9c61c8c9b290c6ebeb2a05fea5854ccb476",
+        "request_digest": "sha256:2ebb790dd1516d1a76776a2ee7e2b25fa4645f8654fc9b0b9a9c7fb2e026b65c",
+        "reservation_id": "f40182d3-2bec-599d-881e-805684ad0ea5",
+        "response_digest": "sha256:a2bf1b5c49e95c9f585c7477d67d1f62c6ae588ca6f44039e8747ccb8036ca1b",
+        "status": "completed",
+        "tool_calls": 1,
+        "tool_name": "workspace_patch",
+        "usage_id": "result:86409256-c95c-4d2a-92ac-ceeff4381aee:6545928d-3734-5b6b-9c49-7e1f03a961cc:workspace-patch"
+      },
+      {
+        "actor_role": "codex",
+        "command_cwd": "tests",
+        "commands": 1,
+        "consumer_id": "0e116a0a-9bcb-4a06-b998-dd0ea5c9418b",
+        "consumer_type": "result",
+        "output_digest": "sha256:eadb6c511e574df8ca19d1b205a972ea31770dc39c5056fb00c939557bdb72e1",
+        "request_digest": "sha256:f83150b65d260902ca9c3c261faeeb48af0ca94843baaff669b73534a6ff7a14",
+        "reservation_id": "add5f069-4f9f-56c6-ae27-7d869ecd67b7",
+        "response_digest": "sha256:3c0b1e3ecb4afd609a3132071b60d582f7fcd6d854b9b2c5d49aad3a581bd87d",
+        "status": "completed",
+        "tool_calls": 1,
+        "tool_name": "process_run",
+        "usage_id": "result:86409256-c95c-4d2a-92ac-ceeff4381aee:6545928d-3734-5b6b-9c49-7e1f03a961cc:process-run"
+      },
+      {
+        "actor_role": "codex",
+        "command_cwd": "src",
+        "commands": 1,
+        "consumer_id": null,
+        "consumer_type": null,
+        "output_digest": "sha256:953cf53bd41574df49767908b8c88f18691232432b9f2c276c1f41bda9f874fc",
+        "request_digest": "sha256:7f6f0075bfa0d357c0541c57a27be5510a04e79f709138c7b147086207594a35",
+        "reservation_id": "e064317f-748e-505f-b1bb-11b88c5aa85e",
+        "response_digest": "sha256:f71a9f4f2c9dd1bddf64a22b176f1a4b8bdb39d72e3cef415c137fd0d2b548b6",
+        "status": "completed",
+        "tool_calls": 1,
+        "tool_name": "git_diff",
+        "usage_id": "result:86409256-c95c-4d2a-92ac-ceeff4381aee:6545928d-3734-5b6b-9c49-7e1f03a961cc:git-diff"
+      },
+      {
+        "actor_role": "lilies",
+        "command_cwd": "tests",
+        "commands": 1,
+        "consumer_id": "f6a3ae2e-a0cf-41e9-a1ff-1f9b968900ef",
+        "consumer_type": "review",
+        "output_digest": "sha256:eadb6c511e574df8ca19d1b205a972ea31770dc39c5056fb00c939557bdb72e1",
+        "request_digest": "sha256:5554d927a83df80e97576329177762e99e2416038d274627118ea1547b2a88a1",
+        "reservation_id": "1b83b592-0d60-5252-b8c6-bfb7553980f2",
+        "response_digest": "sha256:3c0b1e3ecb4afd609a3132071b60d582f7fcd6d854b9b2c5d49aad3a581bd87d",
+        "status": "completed",
+        "tool_calls": 1,
+        "tool_name": "process_run",
+        "usage_id": "review:0e116a0a-9bcb-4a06-b998-dd0ea5c9418b:process-run"
+      }
+    ],
+    "workflow_application_required": false
+  },
+  "builder_required": false,
+  "enterprise_denominator": false,
+  "evidence_digest": "sha256:aa0d964c01a96ca22f7a6fc04f62e8737525befafc9ba35d9353847780ca1d75",
+  "executed_lifecycle": [
+    "work_item",
+    "result",
+    "rework",
+    "independent_lilies_review",
+    "accept",
+    "close",
+    "stop",
+    "archive"
+  ],
+  "kind": "reusable_collaborative_development",
+  "lifecycle": [
+    "work_item",
+    "result",
+    "rework",
+    "independent_lilies_review",
+    "accept",
+    "close",
+    "archive"
+  ],
+  "manual": {
+    "assignment_id": "04f77e73-b0db-45fc-b800-6d1408fbc129",
+    "baseline_commit": "5cb57e626dec022a407ba0db5d755b4ddb833260",
+    "builder_required": false,
+    "checkpoints": [
+      {
+        "revision": 1,
+        "status": "proposed",
+        "step": "work_item"
+      },
+      {
+        "revision": 2,
+        "status": "awaiting_dispatch",
+        "step": "manual_dispatch"
+      },
+      {
+        "dispatch_id": "ac4991f9-d98a-552f-9add-ff0c0b063512",
+        "revision": 5,
+        "status": "ready_for_lilies_review",
+        "step": "result"
+      },
+      {
+        "delivery": "manual_reviewer_submission",
+        "dispatch_id": null,
+        "snapshot_receipt_digest": "sha256:22f51f990dbf97708c7d99a91c8123a4772193594b0e04d07f42b18417f8700e",
+        "step": "independent_lilies_review",
+        "verdict": "rework"
+      },
+      {
+        "revision": 7,
+        "status": "awaiting_dispatch",
+        "step": "rework"
+      },
+      {
+        "revision": 8,
+        "status": "awaiting_dispatch",
+        "step": "manual_rework_dispatch"
+      },
+      {
+        "attempt": 2,
+        "dispatch_id": "946e5909-45d2-5914-9d3c-6ea8c5941c76",
+        "revision": 11,
+        "status": "ready_for_lilies_review",
+        "step": "result"
+      },
+      {
+        "attempt": 2,
+        "delivery": "manual_reviewer_submission",
+        "dispatch_id": null,
+        "snapshot_receipt_digest": "sha256:7bf7bd76bf698f0c5e1a5420c312262024d06b84477d28ea4df868c56269ef33",
+        "step": "independent_lilies_review",
+        "verdict": "accepted"
+      },
+      {
+        "revision": 12,
+        "status": "accepted",
+        "step": "accept"
+      },
+      {
+        "revision": 13,
+        "status": "closed",
+        "step": "close"
+      },
+      {
+        "revision": 2,
+        "status": "stopped",
+        "step": "stop"
+      },
+      {
+        "revision": 3,
+        "status": "archived",
+        "step": "archive"
+      }
+    ],
+    "dispatch_history": [
+      {
+        "assignment_id": "04f77e73-b0db-45fc-b800-6d1408fbc129",
+        "attempt": 1,
+        "created_at": "2026-07-24T22:47:05.766243Z",
+        "destination_role": "codex",
+        "detail": "Codex submitted one fenced result from the exact role grant.",
+        "dispatch_id": "ac4991f9-d98a-552f-9add-ff0c0b063512",
+        "evidence_refs": [
+          "sha256:d3de74a72f4b39f3eec6488f0be62288e01034e1261d48131f5293a466f42710",
+          "sha256:8a10f6d8ec57a346d0782bb4bb2f40cb55010bd573ccfb3b75a72f8ea4b5b9f7",
+          "sha256:b3ec6b59939f6ff25ffaa5add5d3a371ecdc3e35e3c8d61467a4c1ba08ccd4a1"
+        ],
+        "execution_mode": "manual_dispatch",
+        "grant_digest": "sha256:74ab52faf781f0fc789e2f60d216c86247ffe1912445000e1572b655fd73965a",
+        "invocation_fence_id": "a833475c-d2c4-509e-bdf1-c65ea292611d",
+        "outbox_id": "3783cb5b-f28f-5c01-b292-784fa58eb007",
+        "outbox_kind": "work_dispatch",
+        "schema_version": "1.0",
+        "status": "delivered",
+        "work_item_id": "385f3000-93f1-40cf-873f-50196e5bd13a"
+      },
+      {
+        "assignment_id": "04f77e73-b0db-45fc-b800-6d1408fbc129",
+        "attempt": 1,
+        "created_at": "2026-07-24T22:47:05.976947Z",
+        "destination_role": "codex",
+        "detail": "Codex submitted one fenced result from the exact role grant.",
+        "dispatch_id": "946e5909-45d2-5914-9d3c-6ea8c5941c76",
+        "evidence_refs": [
+          "sha256:a15fd42080d085e64ce58002f55e5066b491bb17b2ae55c8968c0e326b2e4f76",
+          "sha256:4c54776346ea019112d2e277b4cfd1972e4cfe5909f02113f87876983e71f3d6",
+          "sha256:eadb6c511e574df8ca19d1b205a972ea31770dc39c5056fb00c939557bdb72e1"
+        ],
+        "execution_mode": "manual_dispatch",
+        "grant_digest": "sha256:74ab52faf781f0fc789e2f60d216c86247ffe1912445000e1572b655fd73965a",
+        "invocation_fence_id": "45dff70d-0b1e-5a9d-bb60-83ce83dce811",
+        "outbox_id": "8467f794-3514-5d7e-80dc-df1eb9a822c1",
+        "outbox_kind": "work_dispatch",
+        "schema_version": "1.0",
+        "status": "delivered",
+        "work_item_id": "385f3000-93f1-40cf-873f-50196e5bd13a"
+      }
+    ],
+    "enterprise_denominator": false,
+    "executed_lifecycle": [
+      "work_item",
+      "result",
+      "rework",
+      "independent_lilies_review",
+      "accept",
+      "close",
+      "stop",
+      "archive"
+    ],
+    "final_assignment_status": "archived",
+    "final_work_item_status": "closed",
+    "independent_review_snapshots": [
+      {
+        "baseline_commit": "5cb57e626dec022a407ba0db5d755b4ddb833260",
+        "changed_paths": [],
+        "diff_digest": "sha256:d3de74a72f4b39f3eec6488f0be62288e01034e1261d48131f5293a466f42710",
+        "promotion_state": "review_snapshot_only",
+        "receipt_digest": "sha256:22f51f990dbf97708c7d99a91c8123a4772193594b0e04d07f42b18417f8700e",
+        "receipt_id": "7d1b7768-ff6f-568d-9c0d-64be6957eed5",
+        "result_id": "fbcb6e6b-84a5-4694-8233-3f45b4c133f4",
+        "review_snapshot_id": "1c9ca6ca-2d9e-5fd7-973c-27db63204bd7",
+        "snapshot_digest": "sha256:7d9982cccb616565b763ac0dc109ef01f52e3eb54b8c8b2522a647679c30b79f",
+        "source_repository_unchanged": true
+      },
+      {
+        "baseline_commit": "5cb57e626dec022a407ba0db5d755b4ddb833260",
+        "changed_paths": [
+          "src/mathlib.py"
+        ],
+        "diff_digest": "sha256:a15fd42080d085e64ce58002f55e5066b491bb17b2ae55c8968c0e326b2e4f76",
+        "promotion_state": "review_snapshot_only",
+        "receipt_digest": "sha256:7bf7bd76bf698f0c5e1a5420c312262024d06b84477d28ea4df868c56269ef33",
+        "receipt_id": "232cc176-7538-5d04-adcb-1f294fb3c59e",
+        "result_id": "6fda220e-1278-4aa6-822a-b2953efb5695",
+        "review_snapshot_id": "7ec05446-3802-50cb-b585-0e5229215bde",
+        "snapshot_digest": "sha256:e332f505d3010faf22e68d310d1a20586c940c5037e50f0f4d650a945f99ac52",
+        "source_repository_unchanged": true
+      }
+    ],
+    "manual_waited_after_rework": true,
+    "manual_waited_before_dispatch": true,
+    "manual_waited_for_review": true,
+    "mode": "manual_dispatch",
+    "oracle_required": false,
+    "original_grant_digests": {
+      "codex": "sha256:74ab52faf781f0fc789e2f60d216c86247ffe1912445000e1572b655fd73965a",
+      "lilies": "sha256:b1816ab51857a2713a97165903b780e9ae711a825369f2b94224ab695a5c15b6"
+    },
+    "original_grants_unchanged": true,
+    "restart_dispatch_history_equal": true,
+    "restart_store_history_equal": true,
+    "restart_tool_usage_equal": true,
+    "results": [
+      {
+        "diff_digest": "sha256:d3de74a72f4b39f3eec6488f0be62288e01034e1261d48131f5293a466f42710",
+        "exit_code": 1,
+        "output_digest": "sha256:b3ec6b59939f6ff25ffaa5add5d3a371ecdc3e35e3c8d61467a4c1ba08ccd4a1",
+        "passed": false,
+        "result_id": "fbcb6e6b-84a5-4694-8233-3f45b4c133f4"
+      },
+      {
+        "diff_digest": "sha256:a15fd42080d085e64ce58002f55e5066b491bb17b2ae55c8968c0e326b2e4f76",
+        "exit_code": 0,
+        "output_digest": "sha256:eadb6c511e574df8ca19d1b205a972ea31770dc39c5056fb00c939557bdb72e1",
+        "passed": true,
+        "result_id": "6fda220e-1278-4aa6-822a-b2953efb5695"
+      }
+    ],
+    "review_ids": [
+      "bb12a128-51b1-43f1-89b5-b30b0049d352",
+      "1877713d-854d-4f9e-baa4-57250a7c7cea"
+    ],
+    "review_verdicts": [
+      "rework",
+      "accepted"
+    ],
+    "software_id": "plain-python-library-manual",
+    "source_repository_unchanged": true,
+    "status": "passed",
+    "store_event_history": [
+      {
+        "actor_role": "user",
+        "aggregate_revision": 1,
+        "event_type": "assignment.created",
+        "record_digest": "sha256:d3f485db6cd750a14cc83655aa7735159290528ecc1d0cff114fbe32402ef5c6",
+        "seq": 1
+      },
+      {
+        "actor_role": "user",
+        "aggregate_revision": 1,
+        "event_type": "work_item.created",
+        "record_digest": "sha256:34e31b6196e18ad0051e35ea311f08f03be3db0c4ee5c096347f43d518ed1c93",
+        "seq": 2
+      },
+      {
+        "actor_role": "user",
+        "aggregate_revision": 2,
+        "event_type": "work_item.awaiting_dispatch",
+        "record_digest": "sha256:72379adfb49dc7820f5055825544a653bff314a4014d2533726914826599951f",
+        "seq": 3
+      },
+      {
+        "actor_role": "codex",
+        "aggregate_revision": 3,
+        "event_type": "work_item.leased",
+        "record_digest": "sha256:e88c0bca5a60b821129aad83b75cff56453e208422f0e42204929b3fe6a7163d",
+        "seq": 4
+      },
+      {
+        "actor_role": "codex",
+        "aggregate_revision": 4,
+        "event_type": "work_item.working",
+        "record_digest": "sha256:85c2b6fe784c9e901fc76d80fc7496dd42969ccd4558268cec3c22f52b1a128f",
+        "seq": 5
+      },
+      {
+        "actor_role": "codex",
+        "aggregate_revision": 5,
+        "event_type": "work_item.result_submitted",
+        "record_digest": "sha256:b35556254763eaedf1d82e169d0439ae60c72d60eae99d253a6f13f6b918a22a",
+        "seq": 6
+      },
+      {
+        "actor_role": "lilies",
+        "aggregate_revision": 6,
+        "event_type": "work_item.rework",
+        "record_digest": "sha256:50459d452e1a47d1d545729e9fb42a86ae7be147ed1c7eaa9efe65f8116aac6a",
+        "seq": 7
+      },
+      {
+        "actor_role": "platform",
+        "aggregate_revision": 7,
+        "event_type": "work_item.awaiting_dispatch",
+        "record_digest": "sha256:0dec3769bbc08fdd6d0403a5211f393b68aa64404e9b9962031e0ab7e5720a64",
+        "seq": 8
+      },
+      {
+        "actor_role": "user",
+        "aggregate_revision": 8,
+        "event_type": "work_item.awaiting_dispatch",
+        "record_digest": "sha256:c4c4c886142afebd53fd48b80fc51ba3f5d4efa1d293fdd2e6a81aa95076d38d",
+        "seq": 9
+      },
+      {
+        "actor_role": "codex",
+        "aggregate_revision": 9,
+        "event_type": "work_item.leased",
+        "record_digest": "sha256:5ba67182fca454551afa7918ac37aea1fd5c332739a3b4484e5124e4c3c2806f",
+        "seq": 10
+      },
+      {
+        "actor_role": "codex",
+        "aggregate_revision": 10,
+        "event_type": "work_item.working",
+        "record_digest": "sha256:1bb2473656e1abf4a7d25cec336d5f57499c469497150df0eda790a9d88ff0f7",
+        "seq": 11
+      },
+      {
+        "actor_role": "codex",
+        "aggregate_revision": 11,
+        "event_type": "work_item.result_submitted",
+        "record_digest": "sha256:c449eae71e85750a150847621eb326ab893a1d0b22db8d489f822f4fb9b8ffb5",
+        "seq": 12
+      },
+      {
+        "actor_role": "lilies",
+        "aggregate_revision": 12,
+        "event_type": "work_item.accepted",
+        "record_digest": "sha256:6c4d262dce722e2764132e14dee2d63a4739c5de73e85dfb1844d642dae67297",
+        "seq": 13
+      },
+      {
+        "actor_role": "user",
+        "aggregate_revision": 13,
+        "event_type": "work_item.closed",
+        "record_digest": "sha256:2d77a3b24386db53e3d373b72acd7ae636c445ddf2f886071e9b85d73abd14c0",
+        "seq": 14
+      },
+      {
+        "actor_role": "user",
+        "aggregate_revision": 2,
+        "event_type": "assignment.stopped",
+        "record_digest": "sha256:aa07c3f327bcf3f398c1bdb2e7441627a93c2c1b79281f86d09d77355d97a334",
+        "seq": 15
+      },
+      {
+        "actor_role": "user",
+        "aggregate_revision": 3,
+        "event_type": "assignment.archived",
+        "record_digest": "sha256:03975a593fce3ad38bf40c0c94b56cf728216f7bd359009b6600499b2acb6def",
+        "seq": 16
+      }
+    ],
+    "task_package_required": false,
+    "tool_usage_history": [
+      {
+        "actor_role": "codex",
+        "command_cwd": "tests",
+        "commands": 1,
+        "consumer_id": "fbcb6e6b-84a5-4694-8233-3f45b4c133f4",
+        "consumer_type": "result",
+        "output_digest": "sha256:b3ec6b59939f6ff25ffaa5add5d3a371ecdc3e35e3c8d61467a4c1ba08ccd4a1",
+        "request_digest": "sha256:080813a11f1e91eb2d8c6b502cfa30de45fd46ca3cacec9114789b8cbc3e604a",
+        "reservation_id": "9aef0095-de6d-51bf-b40a-54542c62841a",
+        "response_digest": "sha256:6fe18e5431003067f55943472fe222f358294b72cd4df1246dc441e82473b00c",
+        "status": "completed",
+        "tool_calls": 1,
+        "tool_name": "process_run",
+        "usage_id": "result:385f3000-93f1-40cf-873f-50196e5bd13a:f4eb7bc0-ac0c-5050-8095-a7d233cc1a62:process-run"
+      },
+      {
+        "actor_role": "codex",
+        "command_cwd": "src",
+        "commands": 1,
+        "consumer_id": null,
+        "consumer_type": null,
+        "output_digest": "sha256:8a10f6d8ec57a346d0782bb4bb2f40cb55010bd573ccfb3b75a72f8ea4b5b9f7",
+        "request_digest": "sha256:b9ce04588ff081fbd4275755d1e674c296ceef9e8caa29b2ec01b7398fb13815",
+        "reservation_id": "106f666f-ec00-5ffd-ba80-e2c8264900d8",
+        "response_digest": "sha256:71ee074d5c8718d8a98db695cc0dd1b2a398d8cf681da143cbd33734761a5afd",
+        "status": "completed",
+        "tool_calls": 1,
+        "tool_name": "git_diff",
+        "usage_id": "result:385f3000-93f1-40cf-873f-50196e5bd13a:f4eb7bc0-ac0c-5050-8095-a7d233cc1a62:git-diff"
+      },
+      {
+        "actor_role": "lilies",
+        "command_cwd": "tests",
+        "commands": 1,
+        "consumer_id": "bb12a128-51b1-43f1-89b5-b30b0049d352",
+        "consumer_type": "review",
+        "output_digest": "sha256:b3ec6b59939f6ff25ffaa5add5d3a371ecdc3e35e3c8d61467a4c1ba08ccd4a1",
+        "request_digest": "sha256:8a69c9d96d71911c2cbab2739fbf346ac64c485e8644aa74e4ae0d5c3942148f",
+        "reservation_id": "d009ac7b-977f-5fd1-b33f-ba390a889fd2",
+        "response_digest": "sha256:6fe18e5431003067f55943472fe222f358294b72cd4df1246dc441e82473b00c",
+        "status": "completed",
+        "tool_calls": 1,
+        "tool_name": "process_run",
+        "usage_id": "review:fbcb6e6b-84a5-4694-8233-3f45b4c133f4:process-run"
+      },
+      {
+        "actor_role": "codex",
+        "command_cwd": null,
+        "commands": 0,
+        "consumer_id": null,
+        "consumer_type": null,
+        "output_digest": "sha256:63098273a7aaa630762d6f145dfcf9c61c8c9b290c6ebeb2a05fea5854ccb476",
+        "request_digest": "sha256:871ff9aaaa5895cf02ffc082a2a2f7ac095de378d906811a7d284f3bb0acb69a",
+        "reservation_id": "003459cf-7b75-5f92-958d-51012f510c75",
+        "response_digest": "sha256:a2bf1b5c49e95c9f585c7477d67d1f62c6ae588ca6f44039e8747ccb8036ca1b",
+        "status": "completed",
+        "tool_calls": 1,
+        "tool_name": "workspace_patch",
+        "usage_id": "result:385f3000-93f1-40cf-873f-50196e5bd13a:4e9455f3-253b-565c-8bb1-a6a895482767:workspace-patch"
+      },
+      {
+        "actor_role": "codex",
+        "command_cwd": "tests",
+        "commands": 1,
+        "consumer_id": "6fda220e-1278-4aa6-822a-b2953efb5695",
+        "consumer_type": "result",
+        "output_digest": "sha256:eadb6c511e574df8ca19d1b205a972ea31770dc39c5056fb00c939557bdb72e1",
+        "request_digest": "sha256:080813a11f1e91eb2d8c6b502cfa30de45fd46ca3cacec9114789b8cbc3e604a",
+        "reservation_id": "a83b9b63-f644-5d83-8659-a120403e4729",
+        "response_digest": "sha256:3c0b1e3ecb4afd609a3132071b60d582f7fcd6d854b9b2c5d49aad3a581bd87d",
+        "status": "completed",
+        "tool_calls": 1,
+        "tool_name": "process_run",
+        "usage_id": "result:385f3000-93f1-40cf-873f-50196e5bd13a:4e9455f3-253b-565c-8bb1-a6a895482767:process-run"
+      },
+      {
+        "actor_role": "codex",
+        "command_cwd": "src",
+        "commands": 1,
+        "consumer_id": null,
+        "consumer_type": null,
+        "output_digest": "sha256:4c54776346ea019112d2e277b4cfd1972e4cfe5909f02113f87876983e71f3d6",
+        "request_digest": "sha256:b9ce04588ff081fbd4275755d1e674c296ceef9e8caa29b2ec01b7398fb13815",
+        "reservation_id": "b57aea57-b694-5f5d-9180-e810be203f63",
+        "response_digest": "sha256:a50d513736ebac9c4f8987b3b14d0b4cf91977ac07ef9d1cbff9497b49ed0fa8",
+        "status": "completed",
+        "tool_calls": 1,
+        "tool_name": "git_diff",
+        "usage_id": "result:385f3000-93f1-40cf-873f-50196e5bd13a:4e9455f3-253b-565c-8bb1-a6a895482767:git-diff"
+      },
+      {
+        "actor_role": "lilies",
+        "command_cwd": "tests",
+        "commands": 1,
+        "consumer_id": "1877713d-854d-4f9e-baa4-57250a7c7cea",
+        "consumer_type": "review",
+        "output_digest": "sha256:eadb6c511e574df8ca19d1b205a972ea31770dc39c5056fb00c939557bdb72e1",
+        "request_digest": "sha256:05e6fb5191cdb553f5a66217e66356eb1ee9da1320436f952dd0f1abbecd938b",
+        "reservation_id": "e22d90ca-a781-55d2-8a48-d4df64d6d1fb",
+        "response_digest": "sha256:3c0b1e3ecb4afd609a3132071b60d582f7fcd6d854b9b2c5d49aad3a581bd87d",
+        "status": "completed",
+        "tool_calls": 1,
+        "tool_name": "process_run",
+        "usage_id": "review:6fda220e-1278-4aa6-822a-b2953efb5695:process-run"
+      }
+    ],
+    "workflow_application_required": false
+  },
+  "original_grants_unchanged": true,
+  "production_components": [
+    "DevelopmentAssignment",
+    "CollaborativeDevelopmentStore",
+    "CollaborativeDevelopmentService",
+    "AutonomousDevelopmentLifecycleBridge",
+    "run_dispatch_worker",
+    "DevelopmentWorkspaceBroker"
+  ],
+  "roles": [
+    "lilies",
+    "codex"
+  ],
+  "source_revision": "sha256:7d6828833b9ab553969f09f5467160459e4699a738870a386e45a798b290e4fc",
+  "stage_task_id": "V04-13-T01G",
+  "standalone_api_cli": {
+    "cli_operations": [
+      {
+        "command": "create",
+        "exit_code": 0,
+        "process_boundary": "new_cli_subprocess",
+        "response_digest": "sha256:b8c3b81deb037ea14cdc6e7f61f42201a4cda2a47ce7c425d6dfb411c105cb41",
+        "semantic_response": {
+          "assignment_id": "e451a446-2057-4007-803b-4dfe8584a39f",
+          "enterprise_denominator": false,
+          "role_tokens_issued": true,
+          "software_id": "plain-python-library-api-cli",
+          "status": "active"
+        }
+      },
+      {
+        "command": "status",
+        "exit_code": 0,
+        "process_boundary": "new_cli_subprocess",
+        "response_digest": "sha256:573fa738d695a6153e9e738d94b3f6557ce54536afb663bbd2590365dca69347",
+        "semantic_response": {
+          "assignment_id": "e451a446-2057-4007-803b-4dfe8584a39f",
+          "enterprise_denominator": false,
+          "status": "active",
+          "work_items": 0
+        }
+      },
+      {
+        "command": "work-create",
+        "exit_code": 0,
+        "process_boundary": "new_cli_subprocess",
+        "response_digest": "sha256:e847362a387d310174a9cea3d30a826dd28fb4bf62f91c17cc05f32d5ed08249",
+        "semantic_response": {
+          "assignment_id": "e451a446-2057-4007-803b-4dfe8584a39f",
+          "revision": 1,
+          "status": "proposed",
+          "work_item_id": "98192455-bb96-4f92-9d1f-10910f0be4e5"
+        }
+      },
+      {
+        "command": "dispatch",
+        "exit_code": 0,
+        "process_boundary": "new_cli_subprocess",
+        "response_digest": "sha256:e7f18dfa634011174f3c53545b31249922f4036ad2e132648450457379de4008",
+        "semantic_response": {
+          "revision": 2,
+          "status": "awaiting_dispatch",
+          "work_item_id": "98192455-bb96-4f92-9d1f-10910f0be4e5"
+        }
+      },
+      {
+        "command": "lease",
+        "exit_code": 0,
+        "process_boundary": "new_cli_subprocess",
+        "response_digest": "sha256:70912215127bb7439225c703263ecfbbc407714d39d289de89e355cbdb01673d",
+        "semantic_response": {
+          "assignment_id": "e451a446-2057-4007-803b-4dfe8584a39f",
+          "fence": 1,
+          "lease_id": "5a9a3eb3-c3c4-5894-839d-4ed8faa3b3f5",
+          "owner_role": "codex",
+          "work_item_id": "98192455-bb96-4f92-9d1f-10910f0be4e5",
+          "work_item_revision": 3
+        }
+      },
+      {
+        "command": "start",
+        "exit_code": 0,
+        "process_boundary": "new_cli_subprocess",
+        "response_digest": "sha256:7ea9ed8d760ee9bcbb774f6d74b73e138b1e1de96faf5560d2a651da53ed73da",
+        "semantic_response": {
+          "lease_revision": 1,
+          "revision": 4,
+          "status": "working",
+          "work_item_id": "98192455-bb96-4f92-9d1f-10910f0be4e5"
+        }
+      },
+      {
+        "command": "result",
+        "exit_code": 0,
+        "process_boundary": "new_cli_subprocess",
+        "response_digest": "sha256:5795309e4c701e36a62b81553e5257ab0501a56d8c17f7f9953367c15d39b4f5",
+        "semantic_response": {
+          "revision": 5,
+          "status": "ready_for_lilies_review",
+          "work_item_id": "98192455-bb96-4f92-9d1f-10910f0be4e5"
+        }
+      },
+      {
+        "command": "result-show",
+        "exit_code": 0,
+        "process_boundary": "new_cli_subprocess",
+        "response_digest": "sha256:11b215bee6065b665e56cdc87f3302abcb5f20eed54101dc5d416ae06bbae616",
+        "semantic_response": {
+          "agent_role": "codex",
+          "assignment_id": "e451a446-2057-4007-803b-4dfe8584a39f",
+          "diff_digest": "sha256:716ccb50111c0cd8a8196542596f6d009cb6e286839f5162d1ded868f25eb001",
+          "enterprise_denominator": false,
+          "result_id": "a83d4442-e117-4a52-95de-277b963949cf",
+          "test_passed": false,
+          "work_item_id": "98192455-bb96-4f92-9d1f-10910f0be4e5"
+        }
+      },
+      {
+        "command": "review-prepare",
+        "exit_code": 0,
+        "process_boundary": "new_cli_subprocess",
+        "response_digest": "sha256:fec9ed7f05828c538f367defcb8b597651fb4f0ccea3772735a5fe89c1248962",
+        "semantic_response": {
+          "baseline_commit": "2cd4bbd1383e97e427ba96747bca5cb3e3f8dc77",
+          "changed_paths": [],
+          "diff_digest": "sha256:716ccb50111c0cd8a8196542596f6d009cb6e286839f5162d1ded868f25eb001",
+          "promotion_state": "review_snapshot_only",
+          "receipt_digest": "sha256:f4733c5e55cadde1846003476e17d66e37639e1f9babae677ee10181a3931110",
+          "receipt_id": "6d6e7d58-aabe-5230-81ba-5e9c164e47c6",
+          "result_id": "a83d4442-e117-4a52-95de-277b963949cf",
+          "review_snapshot_id": "92199c18-c0de-50fc-8efa-2f6bdf2f20db",
+          "snapshot_digest": "sha256:25de734953894ba23cb11da4aee15eafd0a2107ac3bd09494f07a12a6637ab03",
+          "source_repository_unchanged": true
+        }
+      },
+      {
+        "command": "review-prepare",
+        "exit_code": 0,
+        "process_boundary": "new_cli_subprocess",
+        "response_digest": "sha256:fec9ed7f05828c538f367defcb8b597651fb4f0ccea3772735a5fe89c1248962",
+        "semantic_response": {
+          "baseline_commit": "2cd4bbd1383e97e427ba96747bca5cb3e3f8dc77",
+          "changed_paths": [],
+          "diff_digest": "sha256:716ccb50111c0cd8a8196542596f6d009cb6e286839f5162d1ded868f25eb001",
+          "promotion_state": "review_snapshot_only",
+          "receipt_digest": "sha256:f4733c5e55cadde1846003476e17d66e37639e1f9babae677ee10181a3931110",
+          "receipt_id": "6d6e7d58-aabe-5230-81ba-5e9c164e47c6",
+          "result_id": "a83d4442-e117-4a52-95de-277b963949cf",
+          "review_snapshot_id": "92199c18-c0de-50fc-8efa-2f6bdf2f20db",
+          "snapshot_digest": "sha256:25de734953894ba23cb11da4aee15eafd0a2107ac3bd09494f07a12a6637ab03",
+          "source_repository_unchanged": true
+        }
+      },
+      {
+        "command": "review",
+        "exit_code": 0,
+        "process_boundary": "new_cli_subprocess",
+        "response_digest": "sha256:02e8635a65242c1410c60180fc08a2a6fc7e4773d2acf015b92cf8f8ab65d4fb",
+        "semantic_response": {
+          "revision": 7,
+          "status": "awaiting_dispatch",
+          "verdict": "rework",
+          "work_item_id": "98192455-bb96-4f92-9d1f-10910f0be4e5"
+        }
+      },
+      {
+        "command": "dispatch",
+        "exit_code": 0,
+        "process_boundary": "new_cli_subprocess",
+        "response_digest": "sha256:b5978ad7104a96a7efe422c8dae815e2eb44ef6ab4a4b8ba9506c3e4d1662bc6",
+        "semantic_response": {
+          "revision": 8,
+          "status": "awaiting_dispatch",
+          "work_item_id": "98192455-bb96-4f92-9d1f-10910f0be4e5"
+        }
+      },
+      {
+        "command": "lease",
+        "exit_code": 0,
+        "process_boundary": "new_cli_subprocess",
+        "response_digest": "sha256:ca0ebe544805b8f2a473a25ed62a95c634c8381ca36f895ff58031741a1086ec",
+        "semantic_response": {
+          "assignment_id": "e451a446-2057-4007-803b-4dfe8584a39f",
+          "fence": 2,
+          "lease_id": "435e6eb2-7817-518b-a3f4-4dd528f736c9",
+          "owner_role": "codex",
+          "work_item_id": "98192455-bb96-4f92-9d1f-10910f0be4e5",
+          "work_item_revision": 9
+        }
+      },
+      {
+        "command": "start",
+        "exit_code": 0,
+        "process_boundary": "new_cli_subprocess",
+        "response_digest": "sha256:b4845a01e731f587608467c16359c653b5d2330d5ee775c9ca216ce35aed6975",
+        "semantic_response": {
+          "lease_revision": 2,
+          "revision": 10,
+          "status": "working",
+          "work_item_id": "98192455-bb96-4f92-9d1f-10910f0be4e5"
+        }
+      },
+      {
+        "command": "result",
+        "exit_code": 0,
+        "process_boundary": "new_cli_subprocess",
+        "response_digest": "sha256:7374fac43c12b600c76c5d27ea6f8afd2ab7886eb4d3b6273d8ab9f52be1b13c",
+        "semantic_response": {
+          "revision": 11,
+          "status": "ready_for_lilies_review",
+          "work_item_id": "98192455-bb96-4f92-9d1f-10910f0be4e5"
+        }
+      },
+      {
+        "command": "result-show",
+        "exit_code": 0,
+        "process_boundary": "new_cli_subprocess",
+        "response_digest": "sha256:f53a2835d3c859ab1d7bc58b94453476bc9e73ed5d0e9ef7fdf87b5654538736",
+        "semantic_response": {
+          "agent_role": "codex",
+          "assignment_id": "e451a446-2057-4007-803b-4dfe8584a39f",
+          "diff_digest": "sha256:2ac92642046ab71072c83d528e9dec7643eef391d54eb072295ee66b323eed5b",
+          "enterprise_denominator": false,
+          "result_id": "dbaeea63-05a8-441e-b968-71332e940109",
+          "test_passed": true,
+          "work_item_id": "98192455-bb96-4f92-9d1f-10910f0be4e5"
+        }
+      },
+      {
+        "command": "review-prepare",
+        "exit_code": 0,
+        "process_boundary": "new_cli_subprocess",
+        "response_digest": "sha256:98ca8d306013d8cf62727e50d70ae5d3a68e8d6279bf7cac403569d3c33e7a53",
+        "semantic_response": {
+          "baseline_commit": "2cd4bbd1383e97e427ba96747bca5cb3e3f8dc77",
+          "changed_paths": [
+            "src/mathlib.py"
+          ],
+          "diff_digest": "sha256:2ac92642046ab71072c83d528e9dec7643eef391d54eb072295ee66b323eed5b",
+          "promotion_state": "review_snapshot_only",
+          "receipt_digest": "sha256:aea3bc05cb739185ad3b37f9545beeb86fc75c3b8a7ec1fdda86b81c5300ecc6",
+          "receipt_id": "25139f32-3487-5b67-b98f-21b0e0764273",
+          "result_id": "dbaeea63-05a8-441e-b968-71332e940109",
+          "review_snapshot_id": "0adf89fd-bbc5-5af0-ba4e-7d56e1cea04e",
+          "snapshot_digest": "sha256:face815afe9cede1b663b15bf747a7f39e780754cb11f12b22c955dad1349ab0",
+          "source_repository_unchanged": true
+        }
+      },
+      {
+        "command": "review-prepare",
+        "exit_code": 0,
+        "process_boundary": "new_cli_subprocess",
+        "response_digest": "sha256:98ca8d306013d8cf62727e50d70ae5d3a68e8d6279bf7cac403569d3c33e7a53",
+        "semantic_response": {
+          "baseline_commit": "2cd4bbd1383e97e427ba96747bca5cb3e3f8dc77",
+          "changed_paths": [
+            "src/mathlib.py"
+          ],
+          "diff_digest": "sha256:2ac92642046ab71072c83d528e9dec7643eef391d54eb072295ee66b323eed5b",
+          "promotion_state": "review_snapshot_only",
+          "receipt_digest": "sha256:aea3bc05cb739185ad3b37f9545beeb86fc75c3b8a7ec1fdda86b81c5300ecc6",
+          "receipt_id": "25139f32-3487-5b67-b98f-21b0e0764273",
+          "result_id": "dbaeea63-05a8-441e-b968-71332e940109",
+          "review_snapshot_id": "0adf89fd-bbc5-5af0-ba4e-7d56e1cea04e",
+          "snapshot_digest": "sha256:face815afe9cede1b663b15bf747a7f39e780754cb11f12b22c955dad1349ab0",
+          "source_repository_unchanged": true
+        }
+      },
+      {
+        "command": "review",
+        "exit_code": 0,
+        "process_boundary": "new_cli_subprocess",
+        "response_digest": "sha256:32c959c2f10951bcc52683148ae2120c9bdd44e5a198525a5d1e51189ae9cce2",
+        "semantic_response": {
+          "revision": 12,
+          "status": "accepted",
+          "verdict": "accepted",
+          "work_item_id": "98192455-bb96-4f92-9d1f-10910f0be4e5"
+        }
+      },
+      {
+        "command": "close",
+        "exit_code": 0,
+        "process_boundary": "new_cli_subprocess",
+        "response_digest": "sha256:71077da09dc63668d16222003e02c513da6665be5ba53ae41a8011b8a63067fc",
+        "semantic_response": {
+          "revision": 13,
+          "status": "closed",
+          "work_item_id": "98192455-bb96-4f92-9d1f-10910f0be4e5"
+        }
+      },
+      {
+        "command": "stop",
+        "exit_code": 0,
+        "process_boundary": "new_cli_subprocess",
+        "response_digest": "sha256:a0541f30bc1dd26e4bad36f479c98383229e7249e3f93288568fad832f8d2428",
+        "semantic_response": {
+          "assignment_id": "e451a446-2057-4007-803b-4dfe8584a39f",
+          "revision": 2,
+          "status": "stopped"
+        }
+      },
+      {
+        "command": "archive",
+        "exit_code": 0,
+        "process_boundary": "new_cli_subprocess",
+        "response_digest": "sha256:8e531eb65d0f22cb60d9fe5d4c55a2849454fd5169c5783a2aaa2885976115ef",
+        "semantic_response": {
+          "assignment_id": "e451a446-2057-4007-803b-4dfe8584a39f",
+          "revision": 3,
+          "status": "archived"
+        }
+      },
+      {
+        "command": "status",
+        "exit_code": 0,
+        "process_boundary": "new_cli_subprocess",
+        "response_digest": "sha256:b12844a9fded4c460a7f1bc1f9e810c861cfdfdda9869aa09394f1bce29f7979",
+        "semantic_response": {
+          "assignment_id": "e451a446-2057-4007-803b-4dfe8584a39f",
+          "enterprise_denominator": false,
+          "status": "archived",
+          "work_item_counts": {
+            "accepted": 0,
+            "awaiting_dispatch": 0,
+            "cancelled": 0,
+            "closed": 1,
+            "leased": 0,
+            "proposed": 0,
+            "ready_for_lilies_review": 0,
+            "rework": 0,
+            "working": 0
+          }
+        }
+      },
+      {
+        "command": "events",
+        "exit_code": 0,
+        "process_boundary": "new_cli_subprocess",
+        "response_digest": "sha256:781db61c5f5179bd7c2f676c89ff953cd0daef1dfffeff21e1edac5f852e0ccd",
+        "semantic_response": {
+          "assignment_id": "e451a446-2057-4007-803b-4dfe8584a39f",
+          "event_types": [
+            "assignment.created",
+            "work_item.created",
+            "work_item.awaiting_dispatch",
+            "work_item.leased",
+            "work_item.working",
+            "work_item.result_submitted",
+            "work_item.rework",
+            "work_item.awaiting_dispatch",
+            "work_item.awaiting_dispatch",
+            "work_item.leased",
+            "work_item.working",
+            "work_item.result_submitted",
+            "work_item.accepted",
+            "work_item.closed",
+            "assignment.stopped",
+            "assignment.archived"
+          ],
+          "next_cursor": 16
+        }
+      }
+    ],
+    "cli_process_count": 24,
+    "credential_transport": "separate_ephemeral_mode_0600_token_files",
+    "direct_api_operations": [
+      {
+        "http_status": 200,
+        "method": "GET",
+        "resource": "assignment_status",
+        "response_digest": "sha256:9711199deaa3dd0975977b86480876542fc418756715e5973337e16cacdeb69e",
+        "semantic_response": {
+          "assignment_id": "e451a446-2057-4007-803b-4dfe8584a39f",
+          "enterprise_denominator": false,
+          "status": "active",
+          "work_item_counts": {
+            "accepted": 0,
+            "awaiting_dispatch": 0,
+            "cancelled": 0,
+            "closed": 1,
+            "leased": 0,
+            "proposed": 0,
+            "ready_for_lilies_review": 0,
+            "rework": 0,
+            "working": 0
+          }
+        }
+      },
+      {
+        "event_types": [
+          "assignment.created",
+          "work_item.created",
+          "work_item.awaiting_dispatch",
+          "work_item.leased",
+          "work_item.working",
+          "work_item.result_submitted",
+          "work_item.rework",
+          "work_item.awaiting_dispatch",
+          "work_item.awaiting_dispatch",
+          "work_item.leased",
+          "work_item.working",
+          "work_item.result_submitted",
+          "work_item.accepted",
+          "work_item.closed",
+          "assignment.stopped",
+          "assignment.archived"
+        ],
+        "http_status": 200,
+        "method": "GET",
+        "next_cursor": 16,
+        "resource": "durable_assignment_events",
+        "response_digest": "sha256:ccd21d7b3fa9ff752c923f3fe7d2c01bdd2752ef9a5ff63e33d4e74ba06a1385"
+      },
+      {
+        "http_status": 200,
+        "method": "GET",
+        "resource": "archived_assignment_status",
+        "response_digest": "sha256:b12844a9fded4c460a7f1bc1f9e810c861cfdfdda9869aa09394f1bce29f7979",
+        "semantic_response": {
+          "assignment_id": "e451a446-2057-4007-803b-4dfe8584a39f",
+          "enterprise_denominator": false,
+          "status": "archived",
+          "work_item_counts": {
+            "accepted": 0,
+            "awaiting_dispatch": 0,
+            "cancelled": 0,
+            "closed": 1,
+            "leased": 0,
+            "proposed": 0,
+            "ready_for_lilies_review": 0,
+            "rework": 0,
+            "working": 0
+          }
+        }
+      }
+    ],
+    "executed_lifecycle": [
+      "work_item",
+      "result",
+      "rework",
+      "independent_lilies_review",
+      "accept",
+      "close",
+      "stop",
+      "archive"
+    ],
+    "final_assignment_status": "archived",
+    "final_work_item_status": "closed",
+    "result_handoffs": [
+      {
+        "read_by_lilies_cli": true,
+        "result_id": "a83d4442-e117-4a52-95de-277b963949cf",
+        "review_prepare_replayed": true,
+        "review_snapshot": {
+          "baseline_commit": "2cd4bbd1383e97e427ba96747bca5cb3e3f8dc77",
+          "changed_paths": [],
+          "diff_digest": "sha256:716ccb50111c0cd8a8196542596f6d009cb6e286839f5162d1ded868f25eb001",
+          "promotion_state": "review_snapshot_only",
+          "receipt_digest": "sha256:f4733c5e55cadde1846003476e17d66e37639e1f9babae677ee10181a3931110",
+          "receipt_id": "6d6e7d58-aabe-5230-81ba-5e9c164e47c6",
+          "result_id": "a83d4442-e117-4a52-95de-277b963949cf",
+          "review_snapshot_id": "92199c18-c0de-50fc-8efa-2f6bdf2f20db",
+          "snapshot_digest": "sha256:25de734953894ba23cb11da4aee15eafd0a2107ac3bd09494f07a12a6637ab03",
+          "source_repository_unchanged": true
+        },
+        "verdict": "rework"
+      },
+      {
+        "read_by_lilies_cli": true,
+        "result_id": "dbaeea63-05a8-441e-b968-71332e940109",
+        "review_prepare_replayed": true,
+        "review_snapshot": {
+          "baseline_commit": "2cd4bbd1383e97e427ba96747bca5cb3e3f8dc77",
+          "changed_paths": [
+            "src/mathlib.py"
+          ],
+          "diff_digest": "sha256:2ac92642046ab71072c83d528e9dec7643eef391d54eb072295ee66b323eed5b",
+          "promotion_state": "review_snapshot_only",
+          "receipt_digest": "sha256:aea3bc05cb739185ad3b37f9545beeb86fc75c3b8a7ec1fdda86b81c5300ecc6",
+          "receipt_id": "25139f32-3487-5b67-b98f-21b0e0764273",
+          "result_id": "dbaeea63-05a8-441e-b968-71332e940109",
+          "review_snapshot_id": "0adf89fd-bbc5-5af0-ba4e-7d56e1cea04e",
+          "snapshot_digest": "sha256:face815afe9cede1b663b15bf747a7f39e780754cb11f12b22c955dad1349ab0",
+          "source_repository_unchanged": true
+        },
+        "verdict": "accepted"
+      }
+    ],
+    "result_test_passes": [
+      false,
+      true
+    ],
+    "review_verdicts": [
+      "rework",
+      "accepted"
+    ],
+    "role_evidence_generation": "production_workspace_tools_in_qualification_orchestrator",
+    "server": {
+      "enterprise_denominator": false,
+      "health_http_status": 200,
+      "service": "collaborative-development",
+      "workflow_platform_required": false
+    },
+    "server_log_digest": "sha256:3162ba80fd79bf46f641f4ddb7d3f9cbcb19c06815b403c236113e5635a579cf",
+    "source_repository_unchanged": true,
+    "state_transition_service_substitution": false,
+    "state_transition_transport": "independent_cli_processes_over_loopback_http",
+    "status": "passed",
+    "successful_cli_commands": [
+      "create",
+      "status",
+      "work-create",
+      "dispatch",
+      "lease",
+      "start",
+      "result",
+      "result-show",
+      "review-prepare",
+      "review-prepare",
+      "review",
+      "dispatch",
+      "lease",
+      "start",
+      "result",
+      "result-show",
+      "review-prepare",
+      "review-prepare",
+      "review",
+      "close",
+      "stop",
+      "archive",
+      "status",
+      "events"
+    ],
+    "token_material_persisted": false
+  },
+  "standalone_api_cli_digest": "sha256:02fb23042151c553c573bd11133fb020ff4e16e8c2db9b3289630b8c332f5010",
+  "status": "passed",
+  "workflow_application_required": false
+}

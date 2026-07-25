@@ -1,0 +1,91 @@
+V04-13-T01G deterministic verification
+Date: 2026-07-25
+Stage task: V04-13-T01G
+Enterprise denominator: false
+
+1. Focused T01G backend, API, CLI, worker, storage, broker, security, and
+   qualification regression:
+
+   uv run --frozen python -m pytest -q <19 focused T01G test files>
+
+   Result: 208 passed, 2 warnings in 35.48s
+
+2. SQLite sidecar-disappearance and atomic-budget concurrency repair:
+
+   The deterministic sidecar-disappearance regression and atomic-budget test
+   passed together. The atomic-budget test then passed 100 consecutive
+   isolated process iterations after Audit 1 had reproduced the pre-fix race.
+
+   Result: 100/100 iterations passed; 0 raw filesystem errors; every
+           iteration produced 3 reservations plus 17 BudgetExceeded results.
+
+3. Fixed PIPE-Q01 through PIPE-Q28 machine qualification:
+
+   uv run --frozen python scripts/run_v04_13_pipeline_qualification.py \
+     --output docs/evidence/v0.4.13/t01g/pipeline-qualification.json \
+     --api-result docs/evidence/v0.4.13/t01g/formal-api-surface.json \
+     --browser-result docs/evidence/v0.4.13/t01g/formal-browser-surface.json \
+     --development-api-result \
+       docs/evidence/v0.4.13/t01g/standalone-development-api-cli.json \
+     --reusable-evidence \
+       docs/evidence/v0.4.13/t01g/reusable-collaborative-development.json \
+     --live-handoff \
+       docs/evidence/v0.4.13/t01g/live-development-handoff.json \
+     --dispatch-history \
+       docs/evidence/v0.4.13/t01g/durable-autonomous-dispatch-history.json
+
+   Result: passed
+   Cases: 28 mandatory, 28 passed, 0 failed, 0 not_run,
+          0 blocked_by_environment, 0 mandatory_xfail
+   Fault injection: reconnect, idempotency, lease, and concurrency each
+                    recorded 100 actual iterations with zero prohibited
+                    loss, duplicate side effect, or stale-owner mutation.
+   Bundle digest:
+     sha256:c56efcd7b3907f639501d1eab3f33f815d6bd6c6a99c662852bf44e51e0a966b
+
+4. Bounded live Lilies-Codex handoff:
+
+   uv run --frozen python \
+     scripts/run_v04_13_live_development_handoff.py \
+     --output docs/evidence/v0.4.13/t01g/live-development-handoff.json \
+     --timeout-seconds 600
+
+   Result: passed
+   Evidence digest:
+     sha256:1a0d47eda141f7e7ac081999fd08e8bc34d23d2c9ead281d0e77aeeec0dfbc7a
+
+5. T01G changed-scope Ruff:
+
+   uv run --frozen ruff check <44 T01G changed Python files>
+
+   Result: All checks passed.
+
+   Full-scope Ruff was also run. It reported 27 pre-existing findings in
+   unrelated legacy modules and tests. No T01G changed file was among those
+   findings, so the truthful full-scope status is baseline-failed rather than
+   passed.
+
+6. Full repository regression with the missing document-test dependency
+   supplied ephemerally:
+
+   uv run --frozen --with python-docx python -m pytest -q
+
+   Result: 1832 passed, 85 xfailed, 2 warnings in 581.43s
+   Current failures: 0
+
+7. Evolution control:
+
+   uv run --frozen python scripts/validate_evolution_control.py
+
+   Result: evolution control validation passed
+
+Environment note:
+The checked-in .venv/bin/pytest launcher has a stale shebang pointing to a
+removed repository path. All retained results use the working
+.venv/bin/python through uv. Browser runtime remained unavailable; the
+structured browser evidence debt is retained separately and is not presented
+as a browser pass.
+
+Final source revision bound by the reusable, dispatch, live-handoff, and
+pipeline qualification evidence:
+  sha256:7d6828833b9ab553969f09f5467160459e4699a738870a386e45a798b290e4fc

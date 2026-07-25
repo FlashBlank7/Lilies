@@ -70,10 +70,19 @@ class OracleCheck(_FrozenContract):
         "json_equals",
         "json_absent",
         "json_length",
+        "xlsx_sheet_exists",
+        "xlsx_headers",
+        "xlsx_row_count",
+        "xlsx_cell_equals",
     ]
     archive_path: SafeRelativePath | None = None
     evidence_selector: OracleEvidenceSelector | None = None
     json_pointer: str | None = Field(default=None, max_length=1_000)
+    sheet_name: str | None = Field(default=None, min_length=1, max_length=160)
+    cell_reference: str | None = Field(
+        default=None,
+        pattern=r"^[A-Z]{1,3}[1-9][0-9]{0,6}$",
+    )
     expected: Any = None
     expected_digest: Digest | None = None
 
@@ -99,6 +108,50 @@ class OracleCheck(_FrozenContract):
             raise ValueError(
                 "oracle checks require exactly one archive path or evidence selector"
             )
+        if self.kind.startswith("xlsx_"):
+            if (
+                self.sheet_name is None
+                or self.json_pointer is not None
+                or self.expected_digest is not None
+            ):
+                raise ValueError(
+                    "XLSX checks require a sheet name and no JSON pointer or digest"
+                )
+            if self.kind == "xlsx_sheet_exists":
+                if self.cell_reference is not None or self.expected is not None:
+                    raise ValueError(
+                        "xlsx_sheet_exists accepts only a sheet name"
+                    )
+            elif self.kind == "xlsx_headers":
+                if (
+                    self.cell_reference is not None
+                    or not isinstance(self.expected, list)
+                    or not self.expected
+                    or any(
+                        not isinstance(item, str) or not item
+                        for item in self.expected
+                    )
+                ):
+                    raise ValueError(
+                        "xlsx_headers requires a non-empty string list"
+                    )
+            elif self.kind == "xlsx_row_count":
+                if (
+                    self.cell_reference is not None
+                    or isinstance(self.expected, bool)
+                    or not isinstance(self.expected, int)
+                    or self.expected < 0
+                ):
+                    raise ValueError(
+                        "xlsx_row_count requires a non-negative integer"
+                    )
+            elif self.cell_reference is None:
+                raise ValueError(
+                    "xlsx_cell_equals requires a cell reference"
+                )
+            return self
+        if self.sheet_name is not None or self.cell_reference is not None:
+            raise ValueError("non-XLSX checks cannot name a sheet or cell")
         if self.kind == "file_exists":
             if (
                 self.json_pointer is not None

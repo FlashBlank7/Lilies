@@ -4,6 +4,7 @@
 *.tsx linguist-language=TypeScript
 *.json linguist-detectable=false
 *.md linguist-detectable=false
+*.pdf binary
 
 # Auto-generated
 platform/frontend/package-lock.json linguist-generated=true

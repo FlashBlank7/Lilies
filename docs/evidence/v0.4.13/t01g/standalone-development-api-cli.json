@@ -1,0 +1,530 @@
+{
+  "digest": "sha256:02fb23042151c553c573bd11133fb020ff4e16e8c2db9b3289630b8c332f5010",
+  "observations": [
+    {
+      "cli_operations": [
+        {
+          "command": "create",
+          "exit_code": 0,
+          "process_boundary": "new_cli_subprocess",
+          "response_digest": "sha256:b8c3b81deb037ea14cdc6e7f61f42201a4cda2a47ce7c425d6dfb411c105cb41",
+          "semantic_response": {
+            "assignment_id": "e451a446-2057-4007-803b-4dfe8584a39f",
+            "enterprise_denominator": false,
+            "role_tokens_issued": true,
+            "software_id": "plain-python-library-api-cli",
+            "status": "active"
+          }
+        },
+        {
+          "command": "status",
+          "exit_code": 0,
+          "process_boundary": "new_cli_subprocess",
+          "response_digest": "sha256:573fa738d695a6153e9e738d94b3f6557ce54536afb663bbd2590365dca69347",
+          "semantic_response": {
+            "assignment_id": "e451a446-2057-4007-803b-4dfe8584a39f",
+            "enterprise_denominator": false,
+            "status": "active",
+            "work_items": 0
+          }
+        },
+        {
+          "command": "work-create",
+          "exit_code": 0,
+          "process_boundary": "new_cli_subprocess",
+          "response_digest": "sha256:e847362a387d310174a9cea3d30a826dd28fb4bf62f91c17cc05f32d5ed08249",
+          "semantic_response": {
+            "assignment_id": "e451a446-2057-4007-803b-4dfe8584a39f",
+            "revision": 1,
+            "status": "proposed",
+            "work_item_id": "98192455-bb96-4f92-9d1f-10910f0be4e5"
+          }
+        },
+        {
+          "command": "dispatch",
+          "exit_code": 0,
+          "process_boundary": "new_cli_subprocess",
+          "response_digest": "sha256:e7f18dfa634011174f3c53545b31249922f4036ad2e132648450457379de4008",
+          "semantic_response": {
+            "revision": 2,
+            "status": "awaiting_dispatch",
+            "work_item_id": "98192455-bb96-4f92-9d1f-10910f0be4e5"
+          }
+        },
+        {
+          "command": "lease",
+          "exit_code": 0,
+          "process_boundary": "new_cli_subprocess",
+          "response_digest": "sha256:70912215127bb7439225c703263ecfbbc407714d39d289de89e355cbdb01673d",
+          "semantic_response": {
+            "assignment_id": "e451a446-2057-4007-803b-4dfe8584a39f",
+            "fence": 1,
+            "lease_id": "5a9a3eb3-c3c4-5894-839d-4ed8faa3b3f5",
+            "owner_role": "codex",
+            "work_item_id": "98192455-bb96-4f92-9d1f-10910f0be4e5",
+            "work_item_revision": 3
+          }
+        },
+        {
+          "command": "start",
+          "exit_code": 0,
+          "process_boundary": "new_cli_subprocess",
+          "response_digest": "sha256:7ea9ed8d760ee9bcbb774f6d74b73e138b1e1de96faf5560d2a651da53ed73da",
+          "semantic_response": {
+            "lease_revision": 1,
+            "revision": 4,
+            "status": "working",
+            "work_item_id": "98192455-bb96-4f92-9d1f-10910f0be4e5"
+          }
+        },
+        {
+          "command": "result",
+          "exit_code": 0,
+          "process_boundary": "new_cli_subprocess",
+          "response_digest": "sha256:5795309e4c701e36a62b81553e5257ab0501a56d8c17f7f9953367c15d39b4f5",
+          "semantic_response": {
+            "revision": 5,
+            "status": "ready_for_lilies_review",
+            "work_item_id": "98192455-bb96-4f92-9d1f-10910f0be4e5"
+          }
+        },
+        {
+          "command": "result-show",
+          "exit_code": 0,
+          "process_boundary": "new_cli_subprocess",
+          "response_digest": "sha256:11b215bee6065b665e56cdc87f3302abcb5f20eed54101dc5d416ae06bbae616",
+          "semantic_response": {
+            "agent_role": "codex",
+            "assignment_id": "e451a446-2057-4007-803b-4dfe8584a39f",
+            "diff_digest": "sha256:716ccb50111c0cd8a8196542596f6d009cb6e286839f5162d1ded868f25eb001",
+            "enterprise_denominator": false,
+            "result_id": "a83d4442-e117-4a52-95de-277b963949cf",
+            "test_passed": false,
+            "work_item_id": "98192455-bb96-4f92-9d1f-10910f0be4e5"
+          }
+        },
+        {
+          "command": "review-prepare",
+          "exit_code": 0,
+          "process_boundary": "new_cli_subprocess",
+          "response_digest": "sha256:fec9ed7f05828c538f367defcb8b597651fb4f0ccea3772735a5fe89c1248962",
+          "semantic_response": {
+            "baseline_commit": "2cd4bbd1383e97e427ba96747bca5cb3e3f8dc77",
+            "changed_paths": [],
+            "diff_digest": "sha256:716ccb50111c0cd8a8196542596f6d009cb6e286839f5162d1ded868f25eb001",
+            "promotion_state": "review_snapshot_only",
+            "receipt_digest": "sha256:f4733c5e55cadde1846003476e17d66e37639e1f9babae677ee10181a3931110",
+            "receipt_id": "6d6e7d58-aabe-5230-81ba-5e9c164e47c6",
+            "result_id": "a83d4442-e117-4a52-95de-277b963949cf",
+            "review_snapshot_id": "92199c18-c0de-50fc-8efa-2f6bdf2f20db",
+            "snapshot_digest": "sha256:25de734953894ba23cb11da4aee15eafd0a2107ac3bd09494f07a12a6637ab03",
+            "source_repository_unchanged": true
+          }
+        },
+        {
+          "command": "review-prepare",
+          "exit_code": 0,
+          "process_boundary": "new_cli_subprocess",
+          "response_digest": "sha256:fec9ed7f05828c538f367defcb8b597651fb4f0ccea3772735a5fe89c1248962",
+          "semantic_response": {
+            "baseline_commit": "2cd4bbd1383e97e427ba96747bca5cb3e3f8dc77",
+            "changed_paths": [],
+            "diff_digest": "sha256:716ccb50111c0cd8a8196542596f6d009cb6e286839f5162d1ded868f25eb001",
+            "promotion_state": "review_snapshot_only",
+            "receipt_digest": "sha256:f4733c5e55cadde1846003476e17d66e37639e1f9babae677ee10181a3931110",
+            "receipt_id": "6d6e7d58-aabe-5230-81ba-5e9c164e47c6",
+            "result_id": "a83d4442-e117-4a52-95de-277b963949cf",
+            "review_snapshot_id": "92199c18-c0de-50fc-8efa-2f6bdf2f20db",
+            "snapshot_digest": "sha256:25de734953894ba23cb11da4aee15eafd0a2107ac3bd09494f07a12a6637ab03",
+            "source_repository_unchanged": true
+          }
+        },
+        {
+          "command": "review",
+          "exit_code": 0,
+          "process_boundary": "new_cli_subprocess",
+          "response_digest": "sha256:02e8635a65242c1410c60180fc08a2a6fc7e4773d2acf015b92cf8f8ab65d4fb",
+          "semantic_response": {
+            "revision": 7,
+            "status": "awaiting_dispatch",
+            "verdict": "rework",
+            "work_item_id": "98192455-bb96-4f92-9d1f-10910f0be4e5"
+          }
+        },
+        {
+          "command": "dispatch",
+          "exit_code": 0,
+          "process_boundary": "new_cli_subprocess",
+          "response_digest": "sha256:b5978ad7104a96a7efe422c8dae815e2eb44ef6ab4a4b8ba9506c3e4d1662bc6",
+          "semantic_response": {
+            "revision": 8,
+            "status": "awaiting_dispatch",
+            "work_item_id": "98192455-bb96-4f92-9d1f-10910f0be4e5"
+          }
+        },
+        {
+          "command": "lease",
+          "exit_code": 0,
+          "process_boundary": "new_cli_subprocess",
+          "response_digest": "sha256:ca0ebe544805b8f2a473a25ed62a95c634c8381ca36f895ff58031741a1086ec",
+          "semantic_response": {
+            "assignment_id": "e451a446-2057-4007-803b-4dfe8584a39f",
+            "fence": 2,
+            "lease_id": "435e6eb2-7817-518b-a3f4-4dd528f736c9",
+            "owner_role": "codex",
+            "work_item_id": "98192455-bb96-4f92-9d1f-10910f0be4e5",
+            "work_item_revision": 9
+          }
+        },
+        {
+          "command": "start",
+          "exit_code": 0,
+          "process_boundary": "new_cli_subprocess",
+          "response_digest": "sha256:b4845a01e731f587608467c16359c653b5d2330d5ee775c9ca216ce35aed6975",
+          "semantic_response": {
+            "lease_revision": 2,
+            "revision": 10,
+            "status": "working",
+            "work_item_id": "98192455-bb96-4f92-9d1f-10910f0be4e5"
+          }
+        },
+        {
+          "command": "result",
+          "exit_code": 0,
+          "process_boundary": "new_cli_subprocess",
+          "response_digest": "sha256:7374fac43c12b600c76c5d27ea6f8afd2ab7886eb4d3b6273d8ab9f52be1b13c",
+          "semantic_response": {
+            "revision": 11,
+            "status": "ready_for_lilies_review",
+            "work_item_id": "98192455-bb96-4f92-9d1f-10910f0be4e5"
+          }
+        },
+        {
+          "command": "result-show",
+          "exit_code": 0,
+          "process_boundary": "new_cli_subprocess",
+          "response_digest": "sha256:f53a2835d3c859ab1d7bc58b94453476bc9e73ed5d0e9ef7fdf87b5654538736",
+          "semantic_response": {
+            "agent_role": "codex",
+            "assignment_id": "e451a446-2057-4007-803b-4dfe8584a39f",
+            "diff_digest": "sha256:2ac92642046ab71072c83d528e9dec7643eef391d54eb072295ee66b323eed5b",
+            "enterprise_denominator": false,
+            "result_id": "dbaeea63-05a8-441e-b968-71332e940109",
+            "test_passed": true,
+            "work_item_id": "98192455-bb96-4f92-9d1f-10910f0be4e5"
+          }
+        },
+        {
+          "command": "review-prepare",
+          "exit_code": 0,
+          "process_boundary": "new_cli_subprocess",
+          "response_digest": "sha256:98ca8d306013d8cf62727e50d70ae5d3a68e8d6279bf7cac403569d3c33e7a53",
+          "semantic_response": {
+            "baseline_commit": "2cd4bbd1383e97e427ba96747bca5cb3e3f8dc77",
+            "changed_paths": [
+              "src/mathlib.py"
+            ],
+            "diff_digest": "sha256:2ac92642046ab71072c83d528e9dec7643eef391d54eb072295ee66b323eed5b",
+            "promotion_state": "review_snapshot_only",
+            "receipt_digest": "sha256:aea3bc05cb739185ad3b37f9545beeb86fc75c3b8a7ec1fdda86b81c5300ecc6",
+            "receipt_id": "25139f32-3487-5b67-b98f-21b0e0764273",
+            "result_id": "dbaeea63-05a8-441e-b968-71332e940109",
+            "review_snapshot_id": "0adf89fd-bbc5-5af0-ba4e-7d56e1cea04e",
+            "snapshot_digest": "sha256:face815afe9cede1b663b15bf747a7f39e780754cb11f12b22c955dad1349ab0",
+            "source_repository_unchanged": true
+          }
+        },
+        {
+          "command": "review-prepare",
+          "exit_code": 0,
+          "process_boundary": "new_cli_subprocess",
+          "response_digest": "sha256:98ca8d306013d8cf62727e50d70ae5d3a68e8d6279bf7cac403569d3c33e7a53",
+          "semantic_response": {
+            "baseline_commit": "2cd4bbd1383e97e427ba96747bca5cb3e3f8dc77",
+            "changed_paths": [
+              "src/mathlib.py"
+            ],
+            "diff_digest": "sha256:2ac92642046ab71072c83d528e9dec7643eef391d54eb072295ee66b323eed5b",
+            "promotion_state": "review_snapshot_only",
+            "receipt_digest": "sha256:aea3bc05cb739185ad3b37f9545beeb86fc75c3b8a7ec1fdda86b81c5300ecc6",
+            "receipt_id": "25139f32-3487-5b67-b98f-21b0e0764273",
+            "result_id": "dbaeea63-05a8-441e-b968-71332e940109",
+            "review_snapshot_id": "0adf89fd-bbc5-5af0-ba4e-7d56e1cea04e",
+            "snapshot_digest": "sha256:face815afe9cede1b663b15bf747a7f39e780754cb11f12b22c955dad1349ab0",
+            "source_repository_unchanged": true
+          }
+        },
+        {
+          "command": "review",
+          "exit_code": 0,
+          "process_boundary": "new_cli_subprocess",
+          "response_digest": "sha256:32c959c2f10951bcc52683148ae2120c9bdd44e5a198525a5d1e51189ae9cce2",
+          "semantic_response": {
+            "revision": 12,
+            "status": "accepted",
+            "verdict": "accepted",
+            "work_item_id": "98192455-bb96-4f92-9d1f-10910f0be4e5"
+          }
+        },
+        {
+          "command": "close",
+          "exit_code": 0,
+          "process_boundary": "new_cli_subprocess",
+          "response_digest": "sha256:71077da09dc63668d16222003e02c513da6665be5ba53ae41a8011b8a63067fc",
+          "semantic_response": {
+            "revision": 13,
+            "status": "closed",
+            "work_item_id": "98192455-bb96-4f92-9d1f-10910f0be4e5"
+          }
+        },
+        {
+          "command": "stop",
+          "exit_code": 0,
+          "process_boundary": "new_cli_subprocess",
+          "response_digest": "sha256:a0541f30bc1dd26e4bad36f479c98383229e7249e3f93288568fad832f8d2428",
+          "semantic_response": {
+            "assignment_id": "e451a446-2057-4007-803b-4dfe8584a39f",
+            "revision": 2,
+            "status": "stopped"
+          }
+        },
+        {
+          "command": "archive",
+          "exit_code": 0,
+          "process_boundary": "new_cli_subprocess",
+          "response_digest": "sha256:8e531eb65d0f22cb60d9fe5d4c55a2849454fd5169c5783a2aaa2885976115ef",
+          "semantic_response": {
+            "assignment_id": "e451a446-2057-4007-803b-4dfe8584a39f",
+            "revision": 3,
+            "status": "archived"
+          }
+        },
+        {
+          "command": "status",
+          "exit_code": 0,
+          "process_boundary": "new_cli_subprocess",
+          "response_digest": "sha256:b12844a9fded4c460a7f1bc1f9e810c861cfdfdda9869aa09394f1bce29f7979",
+          "semantic_response": {
+            "assignment_id": "e451a446-2057-4007-803b-4dfe8584a39f",
+            "enterprise_denominator": false,
+            "status": "archived",
+            "work_item_counts": {
+              "accepted": 0,
+              "awaiting_dispatch": 0,
+              "cancelled": 0,
+              "closed": 1,
+              "leased": 0,
+              "proposed": 0,
+              "ready_for_lilies_review": 0,
+              "rework": 0,
+              "working": 0
+            }
+          }
+        },
+        {
+          "command": "events",
+          "exit_code": 0,
+          "process_boundary": "new_cli_subprocess",
+          "response_digest": "sha256:781db61c5f5179bd7c2f676c89ff953cd0daef1dfffeff21e1edac5f852e0ccd",
+          "semantic_response": {
+            "assignment_id": "e451a446-2057-4007-803b-4dfe8584a39f",
+            "event_types": [
+              "assignment.created",
+              "work_item.created",
+              "work_item.awaiting_dispatch",
+              "work_item.leased",
+              "work_item.working",
+              "work_item.result_submitted",
+              "work_item.rework",
+              "work_item.awaiting_dispatch",
+              "work_item.awaiting_dispatch",
+              "work_item.leased",
+              "work_item.working",
+              "work_item.result_submitted",
+              "work_item.accepted",
+              "work_item.closed",
+              "assignment.stopped",
+              "assignment.archived"
+            ],
+            "next_cursor": 16
+          }
+        }
+      ],
+      "cli_process_count": 24,
+      "credential_transport": "separate_ephemeral_mode_0600_token_files",
+      "direct_api_operations": [
+        {
+          "http_status": 200,
+          "method": "GET",
+          "resource": "assignment_status",
+          "response_digest": "sha256:9711199deaa3dd0975977b86480876542fc418756715e5973337e16cacdeb69e",
+          "semantic_response": {
+            "assignment_id": "e451a446-2057-4007-803b-4dfe8584a39f",
+            "enterprise_denominator": false,
+            "status": "active",
+            "work_item_counts": {
+              "accepted": 0,
+              "awaiting_dispatch": 0,
+              "cancelled": 0,
+              "closed": 1,
+              "leased": 0,
+              "proposed": 0,
+              "ready_for_lilies_review": 0,
+              "rework": 0,
+              "working": 0
+            }
+          }
+        },
+        {
+          "event_types": [
+            "assignment.created",
+            "work_item.created",
+            "work_item.awaiting_dispatch",
+            "work_item.leased",
+            "work_item.working",
+            "work_item.result_submitted",
+            "work_item.rework",
+            "work_item.awaiting_dispatch",
+            "work_item.awaiting_dispatch",
+            "work_item.leased",
+            "work_item.working",
+            "work_item.result_submitted",
+            "work_item.accepted",
+            "work_item.closed",
+            "assignment.stopped",
+            "assignment.archived"
+          ],
+          "http_status": 200,
+          "method": "GET",
+          "next_cursor": 16,
+          "resource": "durable_assignment_events",
+          "response_digest": "sha256:ccd21d7b3fa9ff752c923f3fe7d2c01bdd2752ef9a5ff63e33d4e74ba06a1385"
+        },
+        {
+          "http_status": 200,
+          "method": "GET",
+          "resource": "archived_assignment_status",
+          "response_digest": "sha256:b12844a9fded4c460a7f1bc1f9e810c861cfdfdda9869aa09394f1bce29f7979",
+          "semantic_response": {
+            "assignment_id": "e451a446-2057-4007-803b-4dfe8584a39f",
+            "enterprise_denominator": false,
+            "status": "archived",
+            "work_item_counts": {
+              "accepted": 0,
+              "awaiting_dispatch": 0,
+              "cancelled": 0,
+              "closed": 1,
+              "leased": 0,
+              "proposed": 0,
+              "ready_for_lilies_review": 0,
+              "rework": 0,
+              "working": 0
+            }
+          }
+        }
+      ],
+      "executed_lifecycle": [
+        "work_item",
+        "result",
+        "rework",
+        "independent_lilies_review",
+        "accept",
+        "close",
+        "stop",
+        "archive"
+      ],
+      "final_assignment_status": "archived",
+      "final_work_item_status": "closed",
+      "result_handoffs": [
+        {
+          "read_by_lilies_cli": true,
+          "result_id": "a83d4442-e117-4a52-95de-277b963949cf",
+          "review_prepare_replayed": true,
+          "review_snapshot": {
+            "baseline_commit": "2cd4bbd1383e97e427ba96747bca5cb3e3f8dc77",
+            "changed_paths": [],
+            "diff_digest": "sha256:716ccb50111c0cd8a8196542596f6d009cb6e286839f5162d1ded868f25eb001",
+            "promotion_state": "review_snapshot_only",
+            "receipt_digest": "sha256:f4733c5e55cadde1846003476e17d66e37639e1f9babae677ee10181a3931110",
+            "receipt_id": "6d6e7d58-aabe-5230-81ba-5e9c164e47c6",
+            "result_id": "a83d4442-e117-4a52-95de-277b963949cf",
+            "review_snapshot_id": "92199c18-c0de-50fc-8efa-2f6bdf2f20db",
+            "snapshot_digest": "sha256:25de734953894ba23cb11da4aee15eafd0a2107ac3bd09494f07a12a6637ab03",
+            "source_repository_unchanged": true
+          },
+          "verdict": "rework"
+        },
+        {
+          "read_by_lilies_cli": true,
+          "result_id": "dbaeea63-05a8-441e-b968-71332e940109",
+          "review_prepare_replayed": true,
+          "review_snapshot": {
+            "baseline_commit": "2cd4bbd1383e97e427ba96747bca5cb3e3f8dc77",
+            "changed_paths": [
+              "src/mathlib.py"
+            ],
+            "diff_digest": "sha256:2ac92642046ab71072c83d528e9dec7643eef391d54eb072295ee66b323eed5b",
+            "promotion_state": "review_snapshot_only",
+            "receipt_digest": "sha256:aea3bc05cb739185ad3b37f9545beeb86fc75c3b8a7ec1fdda86b81c5300ecc6",
+            "receipt_id": "25139f32-3487-5b67-b98f-21b0e0764273",
+            "result_id": "dbaeea63-05a8-441e-b968-71332e940109",
+            "review_snapshot_id": "0adf89fd-bbc5-5af0-ba4e-7d56e1cea04e",
+            "snapshot_digest": "sha256:face815afe9cede1b663b15bf747a7f39e780754cb11f12b22c955dad1349ab0",
+            "source_repository_unchanged": true
+          },
+          "verdict": "accepted"
+        }
+      ],
+      "result_test_passes": [
+        false,
+        true
+      ],
+      "review_verdicts": [
+        "rework",
+        "accepted"
+      ],
+      "role_evidence_generation": "production_workspace_tools_in_qualification_orchestrator",
+      "server": {
+        "enterprise_denominator": false,
+        "health_http_status": 200,
+        "service": "collaborative-development",
+        "workflow_platform_required": false
+      },
+      "server_log_digest": "sha256:3162ba80fd79bf46f641f4ddb7d3f9cbcb19c06815b403c236113e5635a579cf",
+      "source_repository_unchanged": true,
+      "state_transition_service_substitution": false,
+      "state_transition_transport": "independent_cli_processes_over_loopback_http",
+      "status": "passed",
+      "successful_cli_commands": [
+        "create",
+        "status",
+        "work-create",
+        "dispatch",
+        "lease",
+        "start",
+        "result",
+        "result-show",
+        "review-prepare",
+        "review-prepare",
+        "review",
+        "dispatch",
+        "lease",
+        "start",
+        "result",
+        "result-show",
+        "review-prepare",
+        "review-prepare",
+        "review",
+        "close",
+        "stop",
+        "archive",
+        "status",
+        "events"
+      ],
+      "token_material_persisted": false
+    }
+  ],
+  "source": "standalone-collaborative-development:actual-loopback-api-and-cli",
+  "status": "passed",
+  "summary": "Independent CLI processes over the real loopback API completed result, rework, a second result, accepted review, close, stop, and archive without workflow-platform substitution."
+}

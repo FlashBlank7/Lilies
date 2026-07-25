@@ -154,6 +154,49 @@ def _binding(
     )
 
 
+def test_developer_projection_excludes_all_dotenv_variants(
+    tmp_path: Path,
+) -> None:
+    repository = _repository(tmp_path)
+    _write(
+        repository / "platform/frontend/app/page.tsx",
+        "export default function Page() { return null }\n",
+    )
+    _write(
+        repository / "platform/frontend/.env.example",
+        "PUBLIC_EXAMPLE=not-authority\n",
+    )
+    _write(
+        repository / "platform/frontend/.env.local",
+        "PRIVATE_TOKEN=must-not-project\n",
+    )
+    _git(repository, "add", "--all")
+    _git(repository, "commit", "-m", "frontend source and dotenv variants")
+    assignment_id = uuid4()
+    channel_id = uuid4()
+    coordinator = FormalSourceProvenanceCoordinator(
+        repository_root=repository,
+        state_root=tmp_path / "source-provenance-state",
+    )
+
+    projection = coordinator.freeze_workspace_projection(
+        task_id="EXP-LILIES-001",
+        task_revision=3,
+        run_id="formal-run:dotenv-projection",
+        assignment_id=assignment_id,
+        channel_id=channel_id,
+        captured_at=NOW,
+        destination=tmp_path / "projection",
+    )
+    projected_paths = {entry.path for entry in projection.entries}
+
+    assert "platform/frontend/app/page.tsx" in projected_paths
+    assert "platform/frontend/.env.example" not in projected_paths
+    assert "platform/frontend/.env.local" not in projected_paths
+    assert not (tmp_path / "projection/platform/frontend/.env.example").exists()
+    assert not (tmp_path / "projection/platform/frontend/.env.local").exists()
+
+
 def _commit(repository: Path, relative: str, payload: str | bytes, message: str) -> str:
     _write(repository / relative, payload)
     _git(repository, "add", "--all")

@@ -1,0 +1,27 @@
+{
+  "schema_version": "1.0",
+  "stage_task_id": "V04-13-T01G",
+  "status": "passed",
+  "enterprise_denominator": false,
+  "source_revision": "sha256:7d6828833b9ab553969f09f5467160459e4699a738870a386e45a798b290e4fc",
+  "pipeline_bundle_digest": "sha256:c56efcd7b3907f639501d1eab3f33f815d6bd6c6a99c662852bf44e51e0a966b",
+  "closure_audit": {
+    "first_verdict": "failed",
+    "final_verdict": "passed",
+    "repair": "SQLite WAL/SHM sidecar permission tightening now uses race-safe opened descriptors"
+  },
+  "claim_ceiling": "Reusable collaborative-development qualification in a controlled local macOS environment. This is not an enterprise workflow, browser, production sandbox, persona, or release-closure result.",
+  "files": {
+    "closure-audit-1-fail.md": "sha256:69f6e44ac99d29b1b1f95812d9788c0d247dd51484dc81bbf4d3f67c40c76ea5",
+    "closure-audit-2-pass.md": "sha256:998cd7e9ae7cbe5f792ac3f75f167c218651dff74285df1841416ee2884c2935",
+    "deterministic-tests.txt": "sha256:4ef3b6e5c1c0db4617bf841fa2161558425ccd69b31dd96cd4286d0f0f9bd58f",
+    "durable-autonomous-dispatch-history.json": "sha256:16fd1e603d156907ebfaefa43ced754fe0362ae367c10a525bba134f20fd7e64",
+    "formal-api-surface.json": "sha256:4d10bf043f05f19efd650459166bd5554797c6a8d53ba0ebcfb5aead58f24b32",
+    "formal-browser-surface.json": "sha256:4ac4a63689a67e74d87b7794a643be00980541dfbe83a96bf8a0b71bbb4fa83b",
+    "live-development-handoff.json": "sha256:f6dd8f00d8def499fbffb4b692637668eb8b96fdfd3e2c11f7ad64574bdb678e",
+    "pipeline-qualification.json": "sha256:e7c35861e1e7083f5cebab313d41f7ac69099eb7fb5c64c139c9e634badbc57e",
+    "reusable-collaborative-development.json": "sha256:8e6b0f69da7593c410204089ec9e9e03fba367f16d77160158bd7e549e51378b",
+    "security-and-claim-summary.md": "sha256:431b66739ec798a5406a7e392c9fff21b0025ceade20f60c12d452fb1d8ab723",
+    "standalone-development-api-cli.json": "sha256:e905ef50ebb1e7eb498a095c91ad1a1dadf61e5857de0088f58fb67a998ce82a"
+  }
+}

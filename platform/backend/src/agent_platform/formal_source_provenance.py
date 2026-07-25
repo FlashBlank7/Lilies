@@ -361,6 +361,13 @@ def _strict_json(payload: bytes) -> Any:
         ) from error
 
 
+def _contains_dotenv_segment(value: str) -> bool:
+    return any(
+        part == ".env" or part.startswith(".env.")
+        for part in (segment.casefold() for segment in PurePosixPath(value).parts)
+    )
+
+
 def _safe_source_path(value: str) -> str:
     if (
         "\x00" in value
@@ -554,7 +561,10 @@ class DeveloperSourceProjectionManifest(_FrozenModel):
 
     def permits_new_path(self, path: str) -> bool:
         normalized = _safe_source_path(path)
-        if normalized in DEVELOPER_TRUST_ROOT_PATHS:
+        if (
+            normalized in DEVELOPER_TRUST_ROOT_PATHS
+            or _contains_dotenv_segment(normalized)
+        ):
             return False
         return normalized in self.allowed_new_files or any(
             normalized.startswith(f"{prefix.rstrip('/')}/")
@@ -2014,7 +2024,10 @@ def _parse_raw_tree(
 
 def _is_projected_source_path(path: str) -> bool:
     normalized = _safe_source_path(path)
-    if normalized in DEVELOPER_TRUST_ROOT_PATHS:
+    if (
+        normalized in DEVELOPER_TRUST_ROOT_PATHS
+        or _contains_dotenv_segment(normalized)
+    ):
         return False
     if any(
         part.casefold() in _DEVELOPER_PROJECTION_DENIED_SEGMENTS

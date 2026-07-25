@@ -31,7 +31,9 @@ from agent_platform.collaboration_storage import (
     CollaborationStore,
     CollaborationUnauthorized,
 )
+from agent_platform.collaboration_qualification import command_specs_by_id
 from agent_platform.lilies_models import CollaborationScope
+from agent_platform.qualification_fault_recorder import record_fault_iteration
 from tests.test_v04_13_collaboration_sqlite_integration import (
     DIGEST_B,
     _control_message,
@@ -152,6 +154,24 @@ async def test_one_hundred_subscriber_overflows_reconnect_from_durable_cursor(
         assert [event["seq"] for event in recovered] == [iteration + 1]
         assert recovered[0]["message_id"] == persisted["message_id"]
         recovered_ids.append(recovered[0]["message_id"])
+        record_fault_iteration(
+            lane="reconnect",
+            iteration=iteration,
+            command_id="q09-reconnect-100",
+            command=command_specs_by_id()["q09-reconnect-100"].argv,
+            counters={
+                "attempted_iterations": 1,
+                "recovered_connections": 1,
+                "lost_messages": 0,
+                "duplicate_deliveries": 0,
+            },
+            output={
+                "persisted_message_id": persisted["message_id"],
+                "persisted_seq": persisted["seq"],
+                "recovered_message_id": recovered[0]["message_id"],
+                "resume_after": resume_after,
+            },
+        )
         cursor = await reconnected.ack_events(
             principal=user,
             channel_id=channel_id,
@@ -311,6 +331,23 @@ async def test_one_hundred_lease_fault_retry_expiry_cycles_reject_stale_owners(
         assert (available["status"], available["revision"]) == (
             "approved_for_codex",
             expected_report_revision,
+        )
+        record_fault_iteration(
+            lane="lease",
+            iteration=iteration + 1,
+            command_id="q13-lease-100",
+            command=command_specs_by_id()["q13-lease-100"].argv,
+            counters={
+                "attempted_iterations": 1,
+                "recovered_expired_leases": 1,
+                "lost_messages": 0,
+                "stale_owner_mutations": 0,
+            },
+            output={
+                "expired_lease_id": leased["lease_id"],
+                "recovery_lease_id": recovered["lease_id"],
+                "report_revision": expected_report_revision,
+            },
         )
 
     assert await store.get_active_lease(report_id) is None

@@ -40,6 +40,7 @@ from tests.test_v04_13_collaboration_sqlite_integration import (
 API_TOKEN = "platform-collaboration-api-token"
 DEVELOPER_TOKEN = "collaboration-developer-token"
 VERIFIER_TOKEN = "collaboration-verifier-token"
+DEVELOPMENT_SIGNING_KEY = "development-signing-key-" + "s" * 32
 ZERO_DIGEST = "sha256:" + "0" * 64
 
 
@@ -96,6 +97,30 @@ def test_enabled_collaboration_requires_distinct_role_tokens(
         }
     )
     with pytest.raises(ValueError, match="role tokens|all three"):
+        create_app(configured, ScriptedProvider())
+
+
+@pytest.mark.parametrize(
+    "signing_key",
+    (
+        "",
+        "too-short",
+        API_TOKEN,
+        DEVELOPER_TOKEN,
+        VERIFIER_TOKEN,
+    ),
+)
+def test_enabled_collaborative_development_requires_a_distinct_signing_key(
+    tmp_path: Path,
+    signing_key: str,
+) -> None:
+    configured = settings(tmp_path, enabled=True).model_copy(
+        update={
+            "lilies_collaborative_development_enabled": True,
+            "lilies_collaborative_development_signing_key": signing_key,
+        }
+    )
+    with pytest.raises(ValueError, match="signing key"):
         create_app(configured, ScriptedProvider())
 
 
@@ -645,14 +670,33 @@ def test_platform_wires_configured_secrets_into_collaboration_redaction(
 def test_ordinary_blackbox_contract_never_lists_collaboration_routes(
     tmp_path: Path,
 ) -> None:
-    app = create_app(settings(tmp_path, enabled=True), ScriptedProvider())
+    configured = settings(tmp_path, enabled=True).model_copy(
+        update={
+            "lilies_collaborative_development_enabled": True,
+            "lilies_collaborative_development_signing_key": (
+                DEVELOPMENT_SIGNING_KEY
+            ),
+        }
+    )
+    app = create_app(configured, ScriptedProvider())
 
     with TestClient(app) as client:
         openapi = client.get("/openapi.json")
         assert openapi.status_code == 200
+        paths = openapi.json()["paths"]
+        assert not any(
+            path.startswith("/api/v1/collaborative-development/")
+            for path in paths
+        )
         assert "collaboration" not in json.dumps(
             openapi.json(), ensure_ascii=False, sort_keys=True
         ).casefold()
+        hidden_development = client.get(
+            "/api/v1/collaborative-development/assignments/"
+            f"{uuid4()}"
+        )
+        assert hidden_development.status_code == 404
+        assert hidden_development.text == "Not Found"
         assignment_id = uuid4()
         session_id = uuid4()
         issued = client.portal.call(

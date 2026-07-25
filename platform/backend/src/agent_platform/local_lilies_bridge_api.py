@@ -31,6 +31,7 @@ _SSE_EVENT_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,199}$")
 _MAX_EVENT_CURSOR = 2**63 - 1
 _Result = TypeVar("_Result")
 AuthDependency = Callable[..., Awaitable[None]]
+FormalVerificationProvider = Callable[[UUID], Awaitable[Any]]
 
 
 class _StrictRequest(BaseModel):
@@ -221,6 +222,7 @@ def install_local_lilies_bridge_api(
     bridge: LocalLiliesBridge,
     *,
     require_token: AuthDependency,
+    formal_verification_provider: FormalVerificationProvider | None = None,
 ) -> None:
     """Install thin, platform-token-only routes over ``LocalLiliesBridge``."""
 
@@ -327,6 +329,46 @@ def install_local_lilies_bridge_api(
     )
     async def get_local_lilies_assignment(assignment_id: UUID) -> Any:
         return await _bridge_call(bridge.get_assignment(assignment_id))
+
+    @app.post(
+        "/api/v1/local-lilies/assignments/{assignment_id}/independent-verification",
+        dependencies=dependencies,
+    )
+    async def independently_verify_local_lilies_assignment(
+        assignment_id: UUID,
+    ) -> Any:
+        assignment = await _bridge_call(bridge.get_assignment(assignment_id))
+        if assignment.phase != "completed":
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "formal_assignment_not_completed",
+                    "message": (
+                        "independent verification requires a completed formal "
+                        "assignment"
+                    ),
+                },
+            )
+        if formal_verification_provider is None:
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "code": "formal_verifier_unavailable",
+                    "message": "formal independent verification is unavailable",
+                },
+            )
+        try:
+            return await formal_verification_provider(assignment_id)
+        except Exception as error:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "formal_verification_rejected",
+                    "message": (
+                        "the frozen formal claim could not be independently verified"
+                    ),
+                },
+            ) from error
 
     @app.get("/api/v1/local-lilies/builds/{build_id}", dependencies=dependencies)
     async def get_local_lilies_assignment_by_build(build_id: UUID) -> Any:

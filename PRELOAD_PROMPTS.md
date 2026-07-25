@@ -175,7 +175,28 @@ docs/MANUAL_EDITOR_TEST_PLAN.md
 
 Claude/Codex 类任务用于验证莉莉丝的智能体架构时必须单独报告。即使莉莉丝完成真实代码任务，也不能据此声明平台生成的工作流已经解决传统企业 AI 化问题。
 
-## 7. 验证 Prompt
+## 7. 莉莉丝—Codex 协同开发 Prompt
+
+莉莉丝和 Codex 都是按 assignment 授权的通用智能体。Builder 或正式黑箱
+实验中的受限能力来自当前角色，不是莉莉丝永久只能使用平台 API。
+
+需要两位智能体改进平台或其他软件时，使用独立
+`DevelopmentAssignment`，不要把协作硬编码进 Workflow application：
+
+1. 冻结软件、Git baseline、目标和验收。
+2. 为莉莉丝和 Codex 创建互不包含的独立工作区。
+3. 分别声明允许路径、精确 argv、主机、秘密引用、副作用、预算和 deadline。
+4. `manual_dispatch` 逐条交接；`autonomous` 自动交接和复验。切换模式不改变授权。
+5. 扩权先暂停并形成独立授权请求；批准必须精确替换 grant revision，不能直接修改旧 grant。
+6. Codex 的结果必须经过 broker diff/测试和莉莉丝独立 review snapshot，不能直接提升。
+7. 停止要撤销租约、凭证和未投递任务并终止外部进程；历史保留只读。
+8. 代码协作证据固定 `enterprise_denominator=false`，不能冒充企业工作流成功。
+
+平台适配使用 `lilies develop`；不启动工作流平台时使用独立
+`lilies-collab serve`、`worker` 和角色化 CLI。普通 customer/formal session
+的工具目录、OpenAPI 和错误信息不得暴露协同开发入口。
+
+## 8. 验证 Prompt
 
 修改后至少运行：
 

@@ -5,7 +5,10 @@ import json
 import os
 import subprocess
 import sys
+import zipfile
 from dataclasses import dataclass
+from datetime import datetime, timezone
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
@@ -23,9 +26,11 @@ from agent_platform.collaboration_models import (
 from agent_platform import independent_verifier as verifier_module
 from agent_platform.independent_verifier import (
     IndependentVerificationRejected,
+    _evaluate_check,
     _json_values_equal,
     verify_frozen_claim,
 )
+from agent_platform.formal_verification_contracts import OracleCheck
 from agent_platform.task_packages import (
     ArchiveClaimBinding,
     ArchiveStatus,
@@ -70,6 +75,67 @@ def _json_bytes(value: Any) -> bytes:
 
 def _digest_bytes(value: bytes) -> str:
     return f"sha256:{hashlib.sha256(value).hexdigest()}"
+
+
+def _xlsx_bytes(*, formula: bool = False) -> bytes:
+    second_value = (
+        "<f>1+1</f><v>2</v>"
+        if formula
+        else '<is><t>matched</t></is>'
+    )
+    second_type = "" if formula else ' t="inlineStr"'
+    sheet = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<worksheet xmlns="http://schemas.openxmlformats.org/'
+        'spreadsheetml/2006/main"><sheetData>'
+        '<row r="1">'
+        '<c r="A1" t="inlineStr"><is><t>document_id</t></is></c>'
+        '<c r="B1" t="inlineStr"><is><t>decision</t></is></c>'
+        '</row><row r="2">'
+        '<c r="A2" t="inlineStr"><is><t>DOC-001</t></is></c>'
+        f'<c r="B2"{second_type}>{second_value}</c>'
+        '</row><row r="3">'
+        '<c r="A3" t="inlineStr"><is><t>DOC-002</t></is></c>'
+        '<c r="B3" t="inlineStr"><is><t>human_review</t></is></c>'
+        '</row></sheetData></worksheet>'
+    ).encode()
+    workbook = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<workbook xmlns="http://schemas.openxmlformats.org/'
+        'spreadsheetml/2006/main" '
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/'
+        '2006/relationships"><sheets>'
+        '<sheet name="Reconciliation" sheetId="1" r:id="rId1"/>'
+        '</sheets></workbook>'
+    ).encode()
+    relationships = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/'
+        'package/2006/relationships">'
+        '<Relationship Id="rId1" '
+        'Type="http://schemas.openxmlformats.org/officeDocument/'
+        '2006/relationships/worksheet" '
+        'Target="worksheets/sheet1.xml"/>'
+        '</Relationships>'
+    ).encode()
+    content_types = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<Types xmlns="http://schemas.openxmlformats.org/'
+        'package/2006/content-types">'
+        '<Default Extension="xml" ContentType="application/xml"/>'
+        '</Types>'
+    ).encode()
+    output = BytesIO()
+    with zipfile.ZipFile(
+        output,
+        "w",
+        compression=zipfile.ZIP_DEFLATED,
+    ) as archive:
+        archive.writestr("[Content_Types].xml", content_types)
+        archive.writestr("xl/workbook.xml", workbook)
+        archive.writestr("xl/_rels/workbook.xml.rels", relationships)
+        archive.writestr("xl/worksheets/sheet1.xml", sheet)
+    return output.getvalue()
 
 
 def _write(path: Path, payload: bytes) -> None:
@@ -689,6 +755,87 @@ def test_oracle_json_equality_does_not_coerce_boolean_and_number(
     expected: Any,
 ) -> None:
     assert _json_values_equal(actual, expected) is False
+
+
+@pytest.mark.parametrize(
+    ("kind", "expected", "cell_reference"),
+    [
+        (
+            "xlsx_headers",
+            ["document_id", "decision"],
+            None,
+        ),
+        ("xlsx_row_count", 2, None),
+        ("xlsx_cell_equals", "human_review", "B3"),
+    ],
+)
+def test_independent_oracle_parses_xlsx_business_artifacts(
+    tmp_path: Path,
+    kind: str,
+    expected: Any,
+    cell_reference: str | None,
+) -> None:
+    payload = _xlsx_bytes()
+    archive_root = tmp_path / "archive"
+    target = archive_root / "artifacts" / "reconciliation.xlsx"
+    target.parent.mkdir(parents=True)
+    target.write_bytes(payload)
+    check_payload: dict[str, Any] = {
+        "check_id": f"workbook-{kind}",
+        "kind": kind,
+        "archive_path": "artifacts/reconciliation.xlsx",
+        "sheet_name": "Reconciliation",
+        "expected": expected,
+    }
+    if cell_reference is not None:
+        check_payload["cell_reference"] = cell_reference
+    check = OracleCheck.model_validate(check_payload)
+
+    difference, evidence = _evaluate_check(
+        archive_root,
+        check,
+        archive_path="artifacts/reconciliation.xlsx",
+        captured_at=datetime(2026, 7, 25, tzinfo=timezone.utc),
+        public_check_id="oracle-check:xlsx",
+        manifest_digest=_digest_bytes(payload),
+        manifest_size=len(payload),
+        protected_markers=[],
+    )
+
+    assert difference is None
+    assert evidence.digest == _digest_bytes(payload)
+
+
+def test_independent_oracle_rejects_xlsx_formula_as_business_evidence(
+    tmp_path: Path,
+) -> None:
+    payload = _xlsx_bytes(formula=True)
+    archive_root = tmp_path / "archive"
+    target = archive_root / "artifacts" / "reconciliation.xlsx"
+    target.parent.mkdir(parents=True)
+    target.write_bytes(payload)
+    check = OracleCheck(
+        check_id="workbook-cell",
+        kind="xlsx_cell_equals",
+        archive_path="artifacts/reconciliation.xlsx",
+        sheet_name="Reconciliation",
+        cell_reference="B2",
+        expected=2,
+    )
+
+    difference, _ = _evaluate_check(
+        archive_root,
+        check,
+        archive_path="artifacts/reconciliation.xlsx",
+        captured_at=datetime(2026, 7, 25, tzinfo=timezone.utc),
+        public_check_id="oracle-check:xlsx-formula",
+        manifest_digest=_digest_bytes(payload),
+        manifest_size=len(payload),
+        protected_markers=[],
+    )
+
+    assert difference is not None
+    assert difference.actual == "invalid XLSX"
 
 
 def test_oracle_bytes_must_match_the_frozen_package_record(

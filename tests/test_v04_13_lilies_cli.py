@@ -36,6 +36,53 @@ def test_parser_exposes_the_standalone_command_surface() -> None:
     assert parser.parse_args(["sessions"]).command == "sessions"
     assert parser.parse_args(["attach", "session-1"]).session_id == "session-1"
     assert parser.parse_args(["status"]).command == "status"
+    create_development = parser.parse_args(
+        [
+            "develop",
+            "--assignment-file",
+            "assignment.json",
+            "--idempotency-key",
+            "create-development-0001",
+        ]
+    )
+    assert create_development.command == "develop"
+    assert create_development.develop_command is None
+    assert (
+        parser.parse_args(
+            ["develop", "status", "11111111-1111-4111-8111-111111111111"]
+        ).develop_command
+        == "status"
+    )
+    assert (
+        parser.parse_args(
+            [
+                "develop",
+                "approve",
+                "11111111-1111-4111-8111-111111111111",
+                "--authority-request",
+                "22222222-2222-4222-8222-222222222222",
+                "--reason",
+                "user reviewed the bounded request",
+                "--idempotency-key",
+                "authority-decision-0001",
+            ]
+        ).develop_command
+        == "approve"
+    )
+    assert (
+        parser.parse_args(
+            [
+                "develop",
+                "stop",
+                "11111111-1111-4111-8111-111111111111",
+                "--expected-revision",
+                "1",
+                "--idempotency-key",
+                "stop-development-0001",
+            ]
+        ).develop_command
+        == "stop"
+    )
     assert parser.parse_args(["pair"]).command == "pair"
     assert parser.parse_args(
         [
@@ -49,6 +96,42 @@ def test_parser_exposes_the_standalone_command_surface() -> None:
     with pytest.raises(SystemExit):
         parser.parse_args(["pair", "--scope", "unknown.scope"])
     assert parser.parse_args(["stop"]).command == "stop"
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    (
+        "http://example.com",
+        "http://192.0.2.10:8780",
+        "http://collaboration.internal:8780",
+    ),
+)
+def test_development_cli_never_sends_bearer_over_remote_plaintext(
+    base_url: str,
+) -> None:
+    with pytest.raises(
+        lilies_cli.LiliesDevelopmentCliError,
+        match="plaintext development HTTP",
+    ):
+        lilies_cli._DevelopmentClient(
+            base_url=base_url,
+            access_token="owner-token-" + "x" * 32,
+        )
+
+    assert (
+        lilies_cli._DevelopmentClient(
+            base_url="http://127.0.0.1:8780",
+            access_token="owner-token-" + "x" * 32,
+        ).base_url
+        == "http://127.0.0.1:8780"
+    )
+    assert (
+        lilies_cli._DevelopmentClient(
+            base_url="https://collaboration.example",
+            access_token="owner-token-" + "x" * 32,
+        ).base_url
+        == "https://collaboration.example"
+    )
 
 
 def test_serve_refuses_non_loopback_without_explicit_ack(tmp_path: Path) -> None:

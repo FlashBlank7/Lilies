@@ -62,6 +62,12 @@ if [[ "${1:-}" == "--check-env" ]]; then
       && echo "LILIES_COLLABORATION_VERIFIER_TOKEN ok" \
       || echo "LILIES_COLLABORATION_VERIFIER_TOKEN missing/short"
   fi
+  if [[ "${LILIES_COLLABORATIVE_DEVELOPMENT_ENABLED:-false}" == "true" ]]; then
+    development_signing_key="${LILIES_COLLABORATIVE_DEVELOPMENT_SIGNING_KEY:-}"
+    [[ ${#development_signing_key} -ge 32 ]] \
+      && echo "LILIES_COLLABORATIVE_DEVELOPMENT_SIGNING_KEY ok" \
+      || echo "LILIES_COLLABORATIVE_DEVELOPMENT_SIGNING_KEY missing/short"
+  fi
   exit 0
 fi
 
@@ -92,6 +98,20 @@ if [[ "${LILIES_COLLABORATION_ENABLED:-false}" == "true" ]]; then
      || "$collaboration_verifier_token" == "$API_TOKEN" \
      || "$collaboration_developer_token" == "$collaboration_verifier_token" ]]; then
     echo "Collaboration user, developer, and verifier credentials must be distinct." >&2
+    exit 1
+  fi
+fi
+
+if [[ "${LILIES_COLLABORATIVE_DEVELOPMENT_ENABLED:-false}" == "true" ]]; then
+  development_signing_key="${LILIES_COLLABORATIVE_DEVELOPMENT_SIGNING_KEY:-}"
+  if [[ ${#development_signing_key} -lt 32 ]]; then
+    echo "LILIES_COLLABORATIVE_DEVELOPMENT_SIGNING_KEY must be at least 32 characters." >&2
+    exit 1
+  fi
+  if [[ "$development_signing_key" == "$API_TOKEN" \
+     || "$development_signing_key" == "${LILIES_COLLABORATION_DEVELOPER_TOKEN:-}" \
+     || "$development_signing_key" == "${LILIES_COLLABORATION_VERIFIER_TOKEN:-}" ]]; then
+    echo "Collaborative-development signing key must be distinct from access tokens." >&2
     exit 1
   fi
 fi

@@ -1,0 +1,84 @@
+{
+  "status": "passed",
+  "source": "live-http:http://127.0.0.1:8021",
+  "summary": "7 retained live HTTP observations exercised health, ordinary OpenAPI non-disclosure, unauthenticated route hiding, the authenticated formal user list, standalone development routing, and Local Lilies status; 7 matched their expected status.",
+  "observations": [
+    {
+      "probe_id": "health",
+      "method": "GET",
+      "path": "/health",
+      "authentication": "none",
+      "expected_status": 200,
+      "actual_status": 200,
+      "content_type": "application/json",
+      "body_digest": "sha256:a2a8f1fb035307b06eb81104229d79d0bac87c32352219a14cbe0669457c3b68"
+    },
+    {
+      "probe_id": "ordinary-public-openapi-hides-private-collaboration",
+      "method": "GET",
+      "path": "/openapi.json",
+      "authentication": "bounded_test_bearer",
+      "expected_status": 200,
+      "actual_status": 200,
+      "content_type": "application/json",
+      "body_digest": "sha256:e1caf86f69c3f831bbbafd73ecae238cb3436a163057192230f81656e2fa4777",
+      "public_path_count": 201,
+      "collaborative_development_path_count": 0,
+      "formal_private_path_count": 0,
+      "formal_private_route_absent": true,
+      "openapi_schema_parsed": true,
+      "semantic_match": true
+    },
+    {
+      "probe_id": "formal-undiscoverable-without-bearer",
+      "method": "GET",
+      "path": "/api/v1/studio/collaboration/channels",
+      "authentication": "none",
+      "expected_status": 404,
+      "actual_status": 404,
+      "content_type": "application/json",
+      "body_digest": "sha256:37ec4665a8102d115ffd1ac20dae94c98b4dac64b0c1a68228aa2a531caeb35d"
+    },
+    {
+      "probe_id": "development-undiscoverable-without-bearer",
+      "method": "GET",
+      "path": "/api/v1/collaborative-development/assignments/ffffffff-ffff-4fff-8fff-ffffffffffff",
+      "authentication": "none",
+      "expected_status": 404,
+      "actual_status": 404,
+      "content_type": "text/plain; charset=utf-8",
+      "body_digest": "sha256:0019dfc4b32d63c1392aa264aed2253c1e0c2fb09216f8e2cc269bbfb8bb49b5"
+    },
+    {
+      "probe_id": "formal-user-surface",
+      "method": "GET",
+      "path": "/api/v1/studio/collaboration/channels",
+      "authentication": "bounded_test_bearer",
+      "expected_status": 200,
+      "actual_status": 200,
+      "content_type": "application/json",
+      "body_digest": "sha256:afed3a130a208a1c58ed1794e85cdbf7b4a5be173873557d7589d04d71eb32b3"
+    },
+    {
+      "probe_id": "development-assignment-bound-not-found",
+      "method": "GET",
+      "path": "/api/v1/collaborative-development/assignments/ffffffff-ffff-4fff-8fff-ffffffffffff",
+      "authentication": "bounded_test_bearer",
+      "expected_status": 404,
+      "actual_status": 404,
+      "content_type": "application/json",
+      "body_digest": "sha256:7df57e9f85d9b46d8d86d565368cd4a366c7df7fb8de9688d5bfe72a126acdf7"
+    },
+    {
+      "probe_id": "local-lilies-status",
+      "method": "GET",
+      "path": "/api/v1/local-lilies/status",
+      "authentication": "bounded_test_bearer",
+      "expected_status": 200,
+      "actual_status": 200,
+      "content_type": "application/json",
+      "body_digest": "sha256:a1200adf4b035441f21e20bf3ed1c013b7aa302b587708d975906a5ac0e2d485"
+    }
+  ],
+  "digest": "sha256:63cea00f3bb7b1ac1b557040bc6a479117f4fb71b7233d219ccda475d3e3bc59"
+}

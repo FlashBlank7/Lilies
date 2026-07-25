@@ -448,7 +448,9 @@ class Services:
     platform_contract_versions: PlatformContractVersionStore
     local_lilies_bridge: LocalLiliesBridge
     collaboration: CollaborationService
+    collaborative_development: Any
     formal_run_archiver: Any | None
+    formal_independent_verification: Any | None
     worker_supervisor: Any | None
     worker_process_manager: Any | None
     background_tasks: set[asyncio.Task[Any]]
@@ -2172,8 +2174,32 @@ def _validate_collaboration_role_tokens(settings: Settings) -> None:
         raise ValueError("collaboration role tokens must differ")
 
 
+def _validate_collaborative_development_settings(settings: Settings) -> None:
+    if not settings.lilies_collaborative_development_enabled:
+        return
+    signing_key = settings.lilies_collaborative_development_signing_key
+    if len(signing_key.encode("utf-8")) < 32:
+        raise ValueError(
+            "enabled collaborative development requires a signing key of at least 32 bytes"
+        )
+    if hmac.compare_digest(signing_key, settings.api_token):
+        raise ValueError(
+            "collaborative development signing key must differ from the user API token"
+        )
+    for label, token in (
+        ("formal developer", settings.lilies_collaboration_developer_token),
+        ("formal verifier", settings.lilies_collaboration_verifier_token),
+    ):
+        if token and hmac.compare_digest(signing_key, token):
+            raise ValueError(
+                "collaborative development signing key must differ from the "
+                f"{label} token"
+            )
+
+
 def build_services(settings: Settings, provider: ModelProvider | None = None) -> Services:
     _validate_collaboration_role_tokens(settings)
+    _validate_collaborative_development_settings(settings)
     agent_core = build_agent_runtime_core(settings, provider)
     storage = agent_core.storage
     tools = agent_core.tools
@@ -2337,6 +2363,20 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         registered_secret_fields=collaboration_secret_fields,
         registered_secret_values=collaboration_secret_values,
     )
+    from .collaborative_development_service import (
+        CollaborativeDevelopmentService,
+    )
+    from .collaborative_development_storage import (
+        CollaborativeDevelopmentStore,
+    )
+
+    collaborative_development = CollaborativeDevelopmentService(
+        store=CollaborativeDevelopmentStore(
+            settings.data_dir / "collaborative-development.db"
+        ),
+        enabled=settings.lilies_collaborative_development_enabled,
+        autonomous_enabled=settings.lilies_autonomous_collaboration_enabled,
+    )
 
     def frozen_verification_required(_channel: CollaborationChannel) -> bool:
         # Collaboration channels are created only for formal assignments.
@@ -2391,6 +2431,7 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
     formal_assignment_runtime = None
     formal_developer_worker_broker = None
     formal_run_archiver = None
+    formal_independent_verification = None
     formal_source_provenance = None
     local_lilies_bridge: LocalLiliesBridge | None = None
 
@@ -2717,6 +2758,17 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
             connector_service=connectors,
             source_provenance=formal_source_provenance,
         )
+        from .formal_independent_verification import (
+            FormalIndependentVerificationService,
+        )
+
+        formal_independent_verification = FormalIndependentVerificationService(
+            collaboration=collaboration,
+            state_root=settings.data_dir / "task-packages",
+            broker_root=settings.data_dir / "verifier-broker",
+            verifier_token=settings.lilies_collaboration_verifier_token,
+            hidden_seed_key=settings.lilies_formal_hidden_seed_key,
+        )
 
     async def archive_formal_terminal(assignment_id: Any) -> Any:
         archiver = formal_run_archiver
@@ -2882,7 +2934,9 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         platform_contract_versions=platform_contract_versions,
         local_lilies_bridge=local_lilies_bridge,
         collaboration=collaboration,
+        collaborative_development=collaborative_development,
         formal_run_archiver=formal_run_archiver,
+        formal_independent_verification=formal_independent_verification,
         worker_supervisor=None,
         worker_process_manager=None,
         background_tasks=set(),
@@ -2934,6 +2988,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         )
         await services.local_lilies_bridge.initialize()
         await services.collaboration.initialize()
+        await services.collaborative_development.initialize()
         await services.durable_jobs.initialize()
         await services.connectors.initialize()
         await services.openapi_connectors.initialize()
@@ -6313,6 +6368,11 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         app,
         services.local_lilies_bridge,
         require_token=require_local_lilies_token,
+        formal_verification_provider=(
+            services.formal_independent_verification.verify_assignment
+            if services.formal_independent_verification is not None
+            else None
+        ),
     )
 
     from .collaboration_api import (  # pylint: disable=import-outside-toplevel
@@ -6323,6 +6383,29 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         app,
         services.collaboration,
         require_user_token=require_local_lilies_token,
+    )
+
+    from .collaborative_development_api import (
+        install_collaborative_development_api,
+    )
+    from .collaborative_development_auth import (
+        DevelopmentCredentialIssuer,
+    )
+
+    development_signing_key = (
+        settings.lilies_collaborative_development_signing_key
+        or "disabled-collaborative-development-signing-key-v1"
+    )
+
+    def validate_collaborative_development_user_token(supplied: str) -> bool:
+        return hmac.compare_digest(supplied, settings.api_token)
+
+    install_collaborative_development_api(
+        app,
+        services.collaborative_development,
+        credential_issuer=DevelopmentCredentialIssuer(development_signing_key),
+        user_token_validator=validate_collaborative_development_user_token,
+        include_in_schema=False,
     )
 
     return app
