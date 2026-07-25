@@ -43,8 +43,8 @@
     "intervention_boundary": true
   },
   "task_package_root": "docs/experiments/lilies-collaboration/EXP-LILIES-001",
-  "latest_revision": 15,
-  "revision_semantics": "Revisions 1 through 15 are iterations of this project only.",
-  "current_blocker": "Revision 15 is a preserved customer failure: after 10 model calls and 624,339 tokens, the daemon durably created one pending workspace_write for work/cbc.json, but the runner had relayed only through tool.requested event 472 while permission.requested was event 478. It observed waiting_permission and queried the Studio projection before synchronizing the later events, then incorrectly terminated with no automatic permission decision. Host requests, artifacts, receipts, reports, archive validation, and oracle runs all remained zero.",
-  "next_action": "Preserve revision 15, verify a generic post-wait relay synchronization barrier, and freeze a child revision only if the task, permissions, budget, hosts, oracle, CAP gate, and acceptance remain unchanged."
+  "latest_revision": 16,
+  "revision_semantics": "Revisions 1 through 16 are iterations of this project only.",
+  "current_blocker": "Revision 15 is a preserved customer failure: after 10 model calls and 624,339 tokens, the daemon durably created one pending workspace_write for work/cbc.json, but the runner had relayed only through tool.requested event 472 while permission.requested was event 478. It observed waiting_permission and queried the Studio projection before synchronizing the later events, then incorrectly terminated with no automatic permission decision. Host requests, artifacts, receipts, reports, archive validation, and oracle runs all remained zero. Revision 16 freezes only the generic post-wait relay synchronization repair.",
+  "next_action": "Run revision 16 seed 101 from fresh state with the existing explicit model-egress gate and token monitor; preserve the attempt result, and create no CAP entry unless Lilies submits a complete routed project report."
 }

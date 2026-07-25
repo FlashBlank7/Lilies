@@ -2,8 +2,8 @@
   "schema_version": "v0.4.13-t01h-runtime-environment-1",
   "stage_task_id": "V04-13-T01H",
   "experiment_task_id": "EXP-LILIES-001",
-  "revision": 15,
-  "observed_at": "2026-07-25T16:37:03Z",
+  "revision": 16,
+  "observed_at": "2026-07-25T17:14:16Z",
   "environment": {
     "status": "ready",
     "docker_daemon_probe": "passed",
@@ -21,16 +21,16 @@
     },
     "task_author_preflight": {
       "status": "passed",
-      "candidate_revision": 15,
+      "candidate_revision": 16,
       "runner_preparation": "passed",
-      "runner_source_digest": "sha256:02fd8a212e5f686a8c202078c73160f7b878cbad7538de46d3a7d9ab10353d7a",
-      "package_public_summary_digest": "sha256:36d8d08ffbec96e4cc9014ed8b6908c01087f080feda56dbff15a4c41431351e",
-      "package_sealed_digest": "sha256:7ef0296e8aaf4eff5bd289648933be37779423f779ef6bffb6474755d99d7a21",
+      "runner_source_digest": "sha256:44a0034375fd79e9b3843682b97a9b1f2a3f514553d6ea4c2558347e3f84d6e5",
+      "package_public_summary_digest": "sha256:d6f30f1c390670fa04370332b63a6271a711fba23e365870c9635ce1a3f5ae24",
+      "package_sealed_digest": "sha256:14276d126785a47649bbd8595964f8be56de31b1f0ac81a24bf5b8969b580d82",
       "inherited_pinned_image_count": 6,
-      "focused_regression": "Formal archiver, production platform wiring, collaboration tools, Lilies completion, local bridge, revision-15 package/runner, and six-project portfolio regressions passed 169 tests. The create_app wiring regression proves the constructed LocalLiliesBridge holds and calls the current FormalRunArchiveCoordinator validator; isolated archive-intent, reserve-before-failure, durable recheck, and same-turn 409 repair coverage also passed.",
+      "focused_regression": "Revision-16 package/runner, Studio permission projection, production platform wiring, collaboration tools, Lilies completion, and formal local bridge regressions passed 150 tests. The exact 472/478 event-order test proves a second relay occurs only after the assignment exposes waiting_permission; a separate regression proves a security-boundary error during that synchronization makes no permission decision.",
       "broad_regression": "Not rerun before the revision 12 seed-101 attempt; prior baselines remain evidence only and cannot substitute for T01J.",
-      "independent_review": "A read-only reviewer passed the production assembly repair after tracing coordinator construction, constructor injection into the same running bridge, bridge-lock validation before reserve, and the create_app regression. It reported only a nonblocking absence of a single production-app end-to-end provider-to-reserve test; the bridge integration suite separately covers failure-before-reserve.",
-      "reason": "Revision 15 is an immutable child of revision 14. It preserves the enterprise requirement, unattended task-local permission policy, fixtures, oracle, budgets, model-egress gate, token monitoring, and acceptance. Revision 14 exposed that api.py attempted validator injection while local_lilies_bridge was still None, so the production bridge retained no pre-reservation validator. The validator is now passed into the bridge constructor in the actual create_app assembly path."
+      "independent_review": "A read-only reviewer passed the post-wait relay barrier after confirming daemon permission row, waiting status, and permission event are committed in one SQLite transaction; the second relay still uses the platform boundary and every decision still comes solely from the redacted Studio projection. It found no permission expansion or fail-open behavior. Its suggested direct security-error regression was added and passed.",
+      "reason": "Revision 16 is an immutable child of revision 15. It preserves the enterprise requirement, unattended task-local permission policy, fixtures, oracle, budgets, host boundary, model-egress gate, token monitoring, CAP admission, and acceptance. Revision 15 exposed a generic relay/status race: the first relay ended at event 472, assignment status then exposed waiting_permission, and event 478 had not yet reached Studio. The runner now synchronizes the same assignment relay once after that durable waiting observation before reading the existing redacted permission projection."
     },
     "previous_revision_preflight": {
       "status": "failed",
@@ -199,6 +199,11 @@
         "revision": 15,
         "outcome": "unattended_permission_event_projection_race",
         "reason": "The fresh revision 15 seed-101 run reached 10 model calls, 624,339 tokens, and $0.08855756 before requesting workspace_write for work/cbc.json. The first platform relay ended at tool.requested event 472 while the daemon subsequently committed waiting_permission and permission.requested event 478. The runner observed the waiting status but queried the Studio projection before synchronizing the later event, incorrectly terminating with zero automatic permission decisions. Baseline and final host snapshots each retained 36 records and zero requests; no artifact, host receipt, report, archive preflight, claim, or oracle was produced."
+      },
+      {
+        "revision": 16,
+        "outcome": "post_wait_permission_relay_barrier_child_frozen",
+        "reason": "After an exact formal assignment exposes waiting_permission, the generic runner now synchronizes that same assignment relay once before reading the redacted Studio permission timeline. It still allows only exact workspace_write or workspace_patch requests under work/ or artifacts/, preserves canonical-path and denied-segment checks, and makes no decision on relay, projection, digest, receipt, or security-boundary failure. No business requirement, fixture, oracle, budget, host action, model egress, CAP gate, or acceptance changed."
       }
     ],
     "model_authority": {
@@ -228,7 +233,7 @@
       "required": 3
     },
     "blocked_by": null,
-    "recheck_trigger": "Verify the generic post-wait relay synchronization barrier and freeze revision 16 only if the enterprise task, permissions, budget, host boundary, oracle, CAP gate, and acceptance remain unchanged."
+    "recheck_trigger": "Run frozen revision 16 seed 101 from fresh state with explicit model egress and token monitoring. Preserve the result; only a complete Lilies-submitted routed project report may enter CAP-LILIES."
   },
   "enterprise_denominator": {
     "required_runs": 3,
@@ -238,5 +243,5 @@
     "failed_runs": 13,
     "not_run_runs": 2
   },
-  "claim_ceiling": "Frozen revision 15 package preparation and the production archive-intent validator assembly repair are deterministically tested and independently reviewed. Revision 15 is the latest customer failure: it stopped at a permission-event projection race before any host request, artifact, receipt, report, archive preflight, claim, or oracle. The run does not prove the production archive preflight. Control-plane repair is not customer capability or success. No 36/36 oracle pass or stable-seed result is claimed."
+  "claim_ceiling": "Frozen revision 16 package preparation and the generic post-wait permission relay barrier are deterministically tested and independently reviewed. Revision 15 remains the latest customer failure: it stopped at a permission-event projection race before any host request, artifact, receipt, report, archive preflight, claim, or oracle. The run does not prove the production archive preflight. Control-plane repair is not customer capability or success. No 36/36 oracle pass or stable-seed result is claimed."
 }

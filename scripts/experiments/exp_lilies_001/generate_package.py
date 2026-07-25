@@ -13,7 +13,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[3]
 TASK_ID = "EXP-LILIES-001"
-REVISION = 15
+REVISION = 16
 CREATED_AT = "2026-07-25T07:15:00Z"
 DEFAULT_OUTPUT = (
     ROOT
@@ -964,18 +964,19 @@ def generate(output: Path) -> None:
             "collaboration_enabled": True,
             "author": "codex-task-author",
             "created_at": CREATED_AT,
-            "parent_revision": 14,
+            "parent_revision": 15,
             "amendment_reason": (
-                "Revision 14 proved the generic archive-intent validator in isolation, but "
-                "the production application assembled LocalLiliesBridge only after the "
-                "attempted validator injection, so the running bridge retained no validator "
-                "and accepted an empty immutable intent. Revision 15 preserves "
+                "Revision 15 observed waiting_permission after the first platform relay "
+                "ended at tool.requested event 472, while the daemon had subsequently "
+                "committed permission.requested event 478. The runner queried the Studio "
+                "projection before synchronizing that later event and incorrectly rejected "
+                "the unattended task-local request. Revision 16 preserves "
                 "the business requirement, fixtures, oracle, budgets, permissions, "
-                "collaboration authority, model-egress gate, and acceptance from revision "
-                "14. Only production dependency assembly changes: the generic validator is "
-                "passed into the bridge constructor so public current-run, required-"
-                "deliverable, registered-artifact, and host-write receipt gaps fail before "
-                "the immutable archive intent is reserved."
+                "collaboration authority, model-egress gate, CAP admission, and acceptance "
+                "from revision 15. Only the generic runner changes: after observing "
+                "waiting_permission it relays the same assignment once more, then continues "
+                "to decide solely from the redacted Studio event under the existing "
+                "fail-closed workspace policy."
             ),
         },
     )
@@ -983,7 +984,7 @@ def generate(output: Path) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Generate immutable EXP-LILIES-001 revision-fifteen source files."
+        description="Generate immutable EXP-LILIES-001 revision-sixteen source files."
     )
     parser.add_argument(
         "--output",
