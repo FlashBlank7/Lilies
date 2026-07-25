@@ -20,6 +20,8 @@ from agent_platform.collaboration_service import (
     CollaborationService,
 )
 from agent_platform.collaboration_studio_context import (
+    _safe_mapping,
+    _safe_permission_mapping,
     build_collaboration_studio_context,
 )
 from agent_platform.local_lilies_bridge import LocalLiliesRelayEvent
@@ -91,6 +93,47 @@ class _Bridge:
 class _MissingWorkflowStorage:
     async def get_application(self, _: str) -> dict[str, Any]:
         raise KeyError("not needed by this context projection test")
+
+
+def test_oversized_permission_projection_keeps_only_exact_bounded_path() -> None:
+    bulk = "x" * 9_000
+    digest_only = {
+        "digest_only": True,
+        "summary": "redacted input is too large for the monitor",
+    }
+
+    assert _safe_permission_mapping(
+        {"content": bulk, "path": "work/records.json"}
+    ) == {
+        **digest_only,
+        "path": "work/records.json",
+    }
+    exact_limit_path = f"work/{'a' * 995}"
+    assert len(exact_limit_path) == 1_000
+    assert _safe_permission_mapping(
+        {"content": bulk, "path": exact_limit_path}
+    ) == {
+        **digest_only,
+        "path": exact_limit_path,
+    }
+    assert _safe_permission_mapping(
+        {"content": bulk, "path": f"work/{'a' * 1_001}"}
+    ) == digest_only
+    assert _safe_permission_mapping(
+        {
+            "content": bulk,
+            "path": (
+                "work/data?api_key="
+                "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+            ),
+        }
+    ) == digest_only
+    assert _safe_permission_mapping(
+        {"content": bulk, "path": ["work/records.json"]}
+    ) == digest_only
+    assert _safe_mapping(
+        {"content": bulk, "path": "work/records.json"}
+    ) == digest_only
 
 
 def _relay_event(
@@ -241,7 +284,9 @@ async def test_studio_context_projects_formal_task_compaction_tools_and_permissi
                     "tool_name": "connector.execute",
                     "input_digest": DIGEST_A,
                     "redacted_input": {
+                        "content": "bulk customer payload " * 600,
                         "customer_id": "customer-1042",
+                        "path": "work/debug-records.json",
                         "thinking": "private permission thought",
                     },
                 }
@@ -305,6 +350,11 @@ async def test_studio_context_projects_formal_task_compaction_tools_and_permissi
     assert observable[2]["kind"] == "permission"
     assert observable[2]["permission_request"]["request_id"] == str(permission_id)
     assert observable[2]["status"] == "pending"
+    assert observable[2]["permission_request"]["redacted_input"] == {
+        "digest_only": True,
+        "path": "work/debug-records.json",
+        "summary": "redacted input is too large for the monitor",
+    }
     assert observable[3]["kind"] == "permission"
     assert observable[3]["status"] == "allow"
     assert observable[3]["permission_request_id"] == str(permission_id)
@@ -319,6 +369,7 @@ async def test_studio_context_projects_formal_task_compaction_tools_and_permissi
         "private result thought",
         "private chain of thought",
         "private permission thought",
+        "bulk customer payload",
     ):
         assert private_material not in encoded
 

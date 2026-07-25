@@ -229,6 +229,27 @@ def _safe_mapping(value: Any) -> dict[str, Any]:
     }
 
 
+def _safe_permission_mapping(value: Any) -> dict[str, Any]:
+    projected = _safe_mapping(value)
+    if projected.get("digest_only") is not True or not isinstance(value, Mapping):
+        return projected
+    sanitized = sanitize_collaboration_payload(
+        _without_private_observation_fields(value)
+    )
+    if not isinstance(sanitized, dict):
+        return projected
+    original_path = value.get("path")
+    path = sanitized.get("path")
+    if (
+        isinstance(original_path, str)
+        and isinstance(path, str)
+        and path == original_path
+        and len(path) <= 1_000
+    ):
+        projected["path"] = path
+    return projected
+
+
 def _message_text(data: Mapping[str, Any]) -> tuple[str, str]:
     role = str(data.get("role") or "agent")
     fragments: list[str] = []
@@ -321,7 +342,7 @@ def _observable_event(raw: Any) -> StudioObservableEvent | None:
                 request_id=request.get("request_id"),
                 tool_name=request.get("tool_name") or request.get("tool"),
                 input_digest=request.get("input_digest"),
-                redacted_input=_safe_mapping(
+                redacted_input=_safe_permission_mapping(
                     request.get("redacted_input") or request.get("input_summary")
                 ),
             )
