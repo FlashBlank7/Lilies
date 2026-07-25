@@ -20,8 +20,16 @@
   },
   "cohort_policy": {
     "primary_target": "traditional_enterprise",
-    "enterprise_projects": ["EXP-LILIES-001", "EXP-LILIES-002", "EXP-LILIES-004", "EXP-LILIES-006"],
-    "separately_reported_generalization_projects": ["EXP-LILIES-003", "EXP-LILIES-005"],
+    "enterprise_projects": [
+      "EXP-LILIES-001",
+      "EXP-LILIES-002",
+      "EXP-LILIES-004",
+      "EXP-LILIES-006"
+    ],
+    "separately_reported_generalization_projects": [
+      "EXP-LILIES-003",
+      "EXP-LILIES-005"
+    ],
     "mixed_denominator_forbidden": true
   },
   "protocol_sequence": [
@@ -61,14 +69,14 @@
     "SCENARIO-010",
     "SCENARIO-011"
   ],
-  "member_manifest_set_sha256": "cdfecfe7c2d15d8fb43025066b81e1206c7e080e3e9654a50e8a77bfcafb774d",
+  "member_manifest_set_sha256": "b79f3d2e08e6fd31602fdd3441cc1176a04631d27c802d5dee5a9f40daaae766",
   "projects": [
     {
       "project_id": "EXP-LILIES-001",
       "sequence": 1,
       "manifest": "docs/experiments/lilies-collaboration/EXP-LILIES-001/project.json",
-      "manifest_sha256": "60a77e1fe47b2edbb27715c8ab7c81231a4f60ca7e8a68daa6146f18a0b22f3f",
-      "latest_revision": 17,
+      "manifest_sha256": "4a8b42184b2716a914d817a2cbdb8a504c8fa0d0f43c051fb879128c0d285cfc",
+      "latest_revision": 18,
       "status": "active"
     },
     {

@@ -13,8 +13,8 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[3]
 TASK_ID = "EXP-LILIES-001"
-REVISION = 17
-CREATED_AT = "2026-07-25T17:46:01Z"
+REVISION = 18
+CREATED_AT = "2026-07-25T18:30:11Z"
 DEFAULT_OUTPUT = (
     ROOT
     / "docs"
@@ -964,19 +964,16 @@ def generate(output: Path) -> None:
             "collaboration_enabled": True,
             "author": "codex-task-author",
             "created_at": CREATED_AT,
-            "parent_revision": 16,
+            "parent_revision": 17,
             "amendment_reason": (
-                "Revision 16 proved the post-wait relay barrier and one exact task-local "
-                "permission, then requested workspace_write with a 12,873-byte public "
-                "payload. Studio's generic 8 KB monitor projection replaced the entire "
-                "redacted input with digest-only metadata and discarded the safe top-level "
-                "path, so the runner correctly failed closed. Revision 17 preserves the "
-                "business requirement, fixtures, oracle, budgets, permissions, collaboration "
-                "authority, model-egress gate, CAP admission, and acceptance from revision "
-                "16. Only the generic Studio permission projection changes: oversized "
-                "inputs keep an exact sanitized top-level path of at most 1,000 characters "
-                "while all bulk content remains digest-only; the runner's existing "
-                "canonical path and frozen-prefix checks remain fail-closed."
+                "Revision 17 reached 58 model calls before a daemon SQLite read failed "
+                "because generic storage transactions committed or rolled back without "
+                "closing their connections. Revision 18 preserves the business requirement, "
+                "fixtures, oracle, budgets, permissions, collaboration authority, model-egress "
+                "gate, CAP admission, and acceptance from revision 17. Only the generic "
+                "LiliesStorage connection lifecycle changes: every transaction closes after "
+                "commit or rollback, setup failures also close, and a secondary close error "
+                "cannot mask the original setup or transaction failure."
             ),
         },
     )
@@ -984,7 +981,7 @@ def generate(output: Path) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Generate immutable EXP-LILIES-001 revision-seventeen source files."
+        description="Generate immutable EXP-LILIES-001 revision-eighteen source files."
     )
     parser.add_argument(
         "--output",

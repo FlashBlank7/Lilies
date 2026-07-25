@@ -17,23 +17,56 @@
       "name": "paperless-ngx",
       "repository": "https://github.com/paperless-ngx/paperless-ngx",
       "release": "v2.20.15",
-      "official_interfaces": ["versioned REST API", "document workflows"]
+      "official_interfaces": [
+        "versioned REST API",
+        "document workflows"
+      ]
     },
     {
       "name": "InvenTree",
       "repository": "https://github.com/inventree/InvenTree",
       "release": "1.4.2",
-      "official_interfaces": ["OpenAPI", "authenticated REST API"]
+      "official_interfaces": [
+        "OpenAPI",
+        "authenticated REST API"
+      ]
     }
   ],
-  "inputs": ["supplier invoice PDFs", "quality-certificate scans", "purchase orders", "supplier-part records"],
-  "models": ["OCR and document extraction selected by the generated workflow"],
-  "external_systems": ["Paperless-ngx", "InvenTree"],
-  "human_decisions": ["conflict and low-confidence review", "approval before governed writeback"],
-  "deliverables": ["typed reconciliation JSON", "validated XLSX workbook", "host write receipts"],
+  "inputs": [
+    "supplier invoice PDFs",
+    "quality-certificate scans",
+    "purchase orders",
+    "supplier-part records"
+  ],
+  "models": [
+    "OCR and document extraction selected by the generated workflow"
+  ],
+  "external_systems": [
+    "Paperless-ngx",
+    "InvenTree"
+  ],
+  "human_decisions": [
+    "conflict and low-confidence review",
+    "approval before governed writeback"
+  ],
+  "deliverables": [
+    "typed reconciliation JSON",
+    "validated XLSX workbook",
+    "host write receipts"
+  ],
   "workflow_result": "A generated workflow performs intake, extraction, validation, reconciliation, review routing, exactly-once writeback, and workbook delivery.",
   "independent_oracle": "Three hidden seeds each verify 36 records, workbook cells and formulas, host final state, permissions, fault recovery, duplicate suppression, and write receipts.",
-  "source_intent_ids": ["EVAL-003", "PRODUCT-001", "PRODUCT-011", "PRODUCT-014", "PRODUCT-015", "PRODUCT-016", "PRODUCT-017", "SCENARIO-008", "SCENARIO-011"],
+  "source_intent_ids": [
+    "EVAL-003",
+    "PRODUCT-001",
+    "PRODUCT-011",
+    "PRODUCT-014",
+    "PRODUCT-015",
+    "PRODUCT-016",
+    "PRODUCT-017",
+    "SCENARIO-008",
+    "SCENARIO-011"
+  ],
   "selection_gates": {
     "real_user_and_problem": true,
     "full_workflow_elements": true,
@@ -43,8 +76,8 @@
     "intervention_boundary": true
   },
   "task_package_root": "docs/experiments/lilies-collaboration/EXP-LILIES-001",
-  "latest_revision": 17,
-  "revision_semantics": "Revisions 1 through 17 are iterations of this project only.",
-  "current_blocker": "Revision 16 is a preserved customer failure: after 31 model calls and 4,207,838 tokens, the post-wait relay repair had synchronized and automatically allowed one exact task-local write. A second workspace_write for work/debug-records.json carried the 12,873-byte public debug dataset; Studio replaced the entire oversized redacted input with digest-only metadata and discarded the safe top-level path, so the runner correctly failed closed. Host requests, artifacts, receipts, reports, archive validation, and oracle runs all remained zero.",
-  "next_action": "Run revision 17 seed 101 from fresh state with the existing explicit model-egress gate and token monitor; preserve the attempt result, and create no CAP entry unless Lilies submits a complete routed project report."
+  "latest_revision": 18,
+  "revision_semantics": "Revisions 1 through 18 are iterations of this project only.",
+  "current_blocker": "Revision 17 is a preserved customer failure: after 58 model calls and 9,662,104 tokens, local Lilies get_session raised sqlite3.OperationalError: disk I/O error because generic storage transaction contexts did not close connections. The platform failed closed at relay/ack cursor 1451. Both 36-record host snapshots retained zero requests; permissions, artifacts, receipts, reports, archive validation, and oracle runs all remained zero.",
+  "next_action": "Run revision 18 seed 101 from fresh state with the existing explicit model-egress gate and official token monitor; preserve the attempt result, avoid external live-WAL inspection, and create no CAP entry unless Lilies submits a complete routed project report."
 }
