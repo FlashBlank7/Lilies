@@ -623,7 +623,7 @@ def main() -> int:
         return 1
     print("real-project portfolio validation: PASS")
     print("- projects: 6")
-    print("- active: EXP-LILIES-001 revision 11")
+    print("- active: EXP-LILIES-001 revision 12")
     print("- capability lane enterprise denominator: false")
     print("- provider egress default: disabled")
     return 0

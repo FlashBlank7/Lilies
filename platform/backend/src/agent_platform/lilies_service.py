@@ -92,6 +92,16 @@ _REDACTED_COLLABORATION_PAYLOAD = "[REDACTED]"
 _REJECTED_COLLABORATION_INPUT = {
     "sensitive_payload": _REDACTED_COLLABORATION_PAYLOAD,
 }
+_FORMAL_COMPLETION_CONTINUATION_TEXT = (
+    "Platform-generated formal-protocol continuation. This is not a new user "
+    "instruction or authorization and does not change the assigned work, "
+    "permissions, budget, or acceptance criteria. The server has not accepted "
+    "durable completion evidence for this turn. Continue from public persisted "
+    "evidence and the available tool contract. Do not infer hidden criteria, "
+    "invent evidence, or treat prose as completion. Stop only after the server "
+    "accepts completion or after entering a durable wait for a real permission, "
+    "collaboration, or environment dependency."
+)
 
 
 @dataclass(slots=True)
@@ -344,6 +354,90 @@ class LocalLiliesService:
             messages,
             turn_id=turn_id,
         )
+
+    async def _append_formal_completion_continuation(
+        self,
+        session_id: str,
+        turn_id: str,
+        *,
+        session: dict[str, Any] | None = None,
+    ) -> bool:
+        """Persist the sole same-turn protocol continuation for a formal run."""
+
+        current = session or await self.storage.get_session(session_id)
+        assignment = current.get("assignment")
+        if (
+            not isinstance(assignment, dict)
+            or assignment.get("mode") != "formal_experiment"
+        ):
+            return False
+        if (
+            await self._platform_assignment_completion_evidence(
+                session_id,
+                turn_id,
+                session=current,
+            )
+            is not None
+        ):
+            return False
+
+        message_id = str(
+            uuid5(
+                NAMESPACE_URL,
+                f"lilies:formal-completion-continuation:{turn_id}:1",
+            )
+        )
+        messages = await self.storage.list_messages_for_compaction(session_id)
+        expected_content = [
+            {"type": "text", "text": _FORMAL_COMPLETION_CONTINUATION_TEXT}
+        ]
+
+        def exact_replay(message: dict[str, Any]) -> bool:
+            return (
+                str(message.get("id")) == message_id
+                and str(message.get("turn_id")) == turn_id
+                and message.get("role") == "user"
+                and message.get("content") == expected_content
+            )
+
+        existing = next(
+            (
+                message
+                for message in messages
+                if str(message.get("id")) == message_id
+            ),
+            None,
+        )
+        if existing is not None:
+            if exact_replay(existing):
+                return False
+            raise LiliesConflictError(
+                "formal completion continuation identity conflicts"
+            )
+        try:
+            await self.storage.add_message(
+                session_id,
+                "user",
+                expected_content,
+                turn_id=turn_id,
+                message_id=message_id,
+            )
+        except LiliesConflictError:
+            replayed_messages = (
+                await self.storage.list_messages_for_compaction(session_id)
+            )
+            replayed = next(
+                (
+                    message
+                    for message in replayed_messages
+                    if str(message.get("id")) == message_id
+                ),
+                None,
+            )
+            if replayed is not None and exact_replay(replayed):
+                return False
+            raise
+        return True
 
     @staticmethod
     def _platform_assignment_completion_from_messages(
@@ -1910,6 +2004,21 @@ class LocalLiliesService:
             )
             self._enforce_limits(config, deadline, baseline, metrics)
             if not tool_calls:
+                if await self._append_formal_completion_continuation(
+                    session_id,
+                    turn_id,
+                    session=session,
+                ):
+                    await self._checkpoint(
+                        turn_id,
+                        "formal_completion_continuation",
+                        metrics,
+                        {
+                            "kind": "formal_completion_continuation",
+                            "attempt": 1,
+                        },
+                    )
+                    continue
                 return
             wait_target: _CollaborationWaitTarget | None = None
             draft_apply_chain: _DraftApplyBatchChain | None = None

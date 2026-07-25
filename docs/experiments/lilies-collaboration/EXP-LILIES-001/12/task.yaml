@@ -1,0 +1,46 @@
+schema_version: '1.0'
+task_id: EXP-LILIES-001
+revision: 12
+title: 供应商文档入库、采购匹配与库存系统交接
+cohort: enterprise
+customer_role: 制造企业采购运营人员和质量文件审核员
+business_goal: 自动处理供应商发票与质检证明，匹配采购和物料，安全分流异常，执行受治理写回并生成可审计 Excel 对账单。
+source_projects:
+- name: paperless-ngx
+  repository_url: https://github.com/paperless-ngx/paperless-ngx
+  release: v2.20.15
+  commit_sha: 05e48b23166df7c7afe6f329b460b0511a89496c
+  image_digest: sha256:6c86cad803970ea782683a8e80e7403444c5bf3cf70de63b4d3c8e87500db92f
+  license: GPL-3.0
+- name: InvenTree
+  repository_url: https://github.com/inventree/InvenTree
+  release: 1.4.2
+  commit_sha: 0cd4b669931feaba2cc6f780b70b7a471e332a59
+  image_digest: sha256:061ff0252e65077577cb86494c93b0b5b8c120f5a8011493fe0d502bc76ef42c
+  license: MIT
+requirement_file: requirement.md
+environment_lock_digest: sha256:412cf9416ae48385e9f77ce75cf0779ed7392ead8d9bc43f4ee40b8ef012aba4
+fixture_manifest_digest: sha256:579b28028a3fa2629f25095bd25b4d23e31380b7c87d68f3370a662e6e720cc3
+allowed_actions_file: allowed-actions.json
+budget_file: budget.json
+deliverables:
+- name: enterprise-result
+  description: 每条记录的来源、决策、人工决定、回执和错误状态。
+  media_type: application/json
+- name: reconciliation-workbook
+  description: 可打开且与真实宿主最终状态一致的 Excel 对账单。
+  media_type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+acceptance_summary: 全部输入均有可追溯结果；明确匹配安全写回，低置信度和冲突暂停，重复不产生副作用，临时错误有界恢复，权限错误明确；Excel
+  与宿主状态一致。
+no_substitute_validation: true
+collaboration_enabled: true
+author: codex-task-author
+created_at: '2026-07-25T07:15:00Z'
+parent_revision: 11
+amendment_reason: 'Revision 11 ended its model loop with prose before the server accepted
+  durable formal completion evidence. Revision 12 preserves the business requirement,
+  fixtures, oracle, budgets, permissions, collaboration authority, model-egress gate,
+  and acceptance from revision 11. Only the generic daemon process changes: a formal
+  turn without accepted completion evidence receives one persistent, same-turn protocol
+  continuation that adds no authority and remains subject to the original cumulative
+  limits.'

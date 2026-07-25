@@ -7,7 +7,8 @@ from collections.abc import AsyncIterator
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
-from uuid import uuid4
+from unittest.mock import AsyncMock
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
 import pytest
 
@@ -20,7 +21,11 @@ from agent_platform.lilies_models import (
     SessionResumeRequest,
     SessionStatus,
 )
-from agent_platform.lilies_service import LiliesBudgetExceeded, LocalLiliesService
+from agent_platform.lilies_service import (
+    LiliesBudgetExceeded,
+    LocalLiliesService,
+    TurnMetrics,
+)
 from agent_platform.lilies_storage import LiliesConflictError
 from agent_platform.lilies_platform_client import (
     ZERO_CONTRACT_DIGEST,
@@ -33,7 +38,13 @@ from agent_platform.lilies_tools import (
     LiliesToolResult,
     StrictToolInput,
 )
-from agent_platform.models import ChatMessage, ContentBlock, StreamEvent, ToolDefinition
+from agent_platform.models import (
+    ChatMessage,
+    ContentBlock,
+    StreamEvent,
+    ToolDefinition,
+    Usage,
+)
 from agent_platform.providers.base import ModelProvider, ProviderCapabilities
 
 
@@ -694,6 +705,283 @@ async def seed_platform_assignment_completion_transcript(
         turn_id=turn_id,
     )
     return session_id, turn_id
+
+
+async def seed_model_loop_assignment(
+    service: LocalLiliesService,
+    *,
+    mode: str = "formal_experiment",
+    max_model_calls: int = 10,
+) -> tuple[str, str]:
+    session_id = str(uuid4())
+    assignment_id = str(uuid4())
+    application_id = str(uuid4())
+    config = {
+        "kind": "platform",
+        "max_model_calls": max_model_calls,
+        "max_turns": max_model_calls,
+        "max_tokens": 100_000,
+        "max_tool_calls": 100,
+        "max_budget_usd": 10.0,
+        "deadline_seconds": 300,
+    }
+    await service.storage.create_session(session_id=session_id, config=config)
+    receipt = await service.storage.accept_assignment(
+        session_id,
+        {
+            "assignment_id": assignment_id,
+            "idempotency_key": f"assignment:{assignment_id}",
+            "mode": mode,
+            "target": {
+                "mode": "existing",
+                "application_id": application_id,
+            },
+            "platform": {"contract_digest": ZERO_CONTRACT_DIGEST},
+        },
+        session_config=config,
+        start_message_id=str(uuid4()),
+        start_message_content=[
+            {"type": "text", "text": "Continue the assigned work."}
+        ],
+        start_turn_id=str(uuid4()),
+        turn_checkpoint={
+            "metrics": {
+                "usage": {},
+                "model_calls": 0,
+                "usage_backed_model_calls": 0,
+                "tool_calls": 0,
+            }
+        },
+    )
+
+    async def local_tools(
+        session_id: str,
+        *,
+        session: dict[str, Any] | None = None,
+    ) -> Any:
+        del session_id, session
+        return service.tools
+
+    service.tool_registry_for_session = local_tools  # type: ignore[method-assign]
+    return session_id, str(receipt["turn_id"])
+
+
+@pytest.mark.asyncio
+async def test_formal_model_loop_adds_one_same_turn_completion_continuation(
+    tmp_path: Path,
+) -> None:
+    provider = ScriptedLocalProvider()
+    service = LocalLiliesService(
+        LiliesSettings(data_dir=tmp_path / "lilies", model="test-model"),
+        provider=provider,
+    )
+    await service.initialize()
+    session_id, turn_id = await seed_model_loop_assignment(service)
+
+    await service._run_model_loop(session_id, turn_id, TurnMetrics(Usage()))
+
+    messages = await service.storage.list_messages_for_compaction(session_id)
+    continuation_id = str(
+        uuid5(
+            NAMESPACE_URL,
+            f"lilies:formal-completion-continuation:{turn_id}:1",
+        )
+    )
+    continuations = [item for item in messages if item["id"] == continuation_id]
+    assert provider.calls == 2
+    assert len(continuations) == 1
+    assert continuations[0]["role"] == "user"
+    assert continuations[0]["turn_id"] == turn_id
+    text = continuations[0]["content"][0]["text"].lower()
+    assert "platform-generated" in text
+    assert "not a new user instruction or authorization" in text
+    assert "does not change" in text
+    assert "permissions, budget, or acceptance" in text
+    assert "durable completion evidence" in text
+    assert "public persisted evidence" in text
+    assert "hidden criteria" in text
+    assert "treat prose as completion" in text
+    assert "durable wait" in text
+    for forbidden in (
+        "report",
+        "artifact",
+        "claim",
+        "host",
+        "task",
+        "scenario",
+        "network",
+        "secret",
+    ):
+        assert forbidden not in text
+
+
+@pytest.mark.asyncio
+async def test_formal_completion_continuation_is_idempotent_across_reentry(
+    tmp_path: Path,
+) -> None:
+    provider = ScriptedLocalProvider()
+    service = LocalLiliesService(
+        LiliesSettings(data_dir=tmp_path / "lilies", model="test-model"),
+        provider=provider,
+    )
+    await service.initialize()
+    session_id, turn_id = await seed_model_loop_assignment(service)
+    assert await service._append_formal_completion_continuation(
+        session_id,
+        turn_id,
+    )
+    assert not await service._append_formal_completion_continuation(
+        session_id,
+        turn_id,
+    )
+
+    await service._run_model_loop(session_id, turn_id, TurnMetrics(Usage()))
+
+    messages = await service.storage.list_messages_for_compaction(session_id)
+    continuation_id = str(
+        uuid5(
+            NAMESPACE_URL,
+            f"lilies:formal-completion-continuation:{turn_id}:1",
+        )
+    )
+    assert provider.calls == 1
+    assert sum(item["id"] == continuation_id for item in messages) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("role", "content"),
+    [
+        (
+            "assistant",
+            [
+                {
+                    "type": "text",
+                    "text": "Platform-generated formal-protocol continuation.",
+                }
+            ],
+        ),
+        ("user", [{"type": "text", "text": "conflicting continuation"}]),
+    ],
+)
+async def test_formal_completion_continuation_identity_conflict_fails_closed(
+    tmp_path: Path,
+    role: str,
+    content: list[dict[str, str]],
+) -> None:
+    service = LocalLiliesService(
+        LiliesSettings(data_dir=tmp_path / "lilies", model="test-model"),
+        provider=ScriptedLocalProvider(),
+    )
+    await service.initialize()
+    session_id, turn_id = await seed_model_loop_assignment(service)
+    continuation_id = str(
+        uuid5(
+            NAMESPACE_URL,
+            f"lilies:formal-completion-continuation:{turn_id}:1",
+        )
+    )
+    await service.storage.add_message(
+        session_id,
+        role,
+        content,
+        turn_id=turn_id,
+        message_id=continuation_id,
+    )
+
+    with pytest.raises(
+        LiliesConflictError,
+        match="formal completion continuation identity conflicts",
+    ):
+        await service._append_formal_completion_continuation(
+            session_id,
+            turn_id,
+        )
+
+
+@pytest.mark.asyncio
+async def test_customer_model_loop_does_not_add_formal_completion_continuation(
+    tmp_path: Path,
+) -> None:
+    provider = ScriptedLocalProvider()
+    service = LocalLiliesService(
+        LiliesSettings(data_dir=tmp_path / "lilies", model="test-model"),
+        provider=provider,
+    )
+    await service.initialize()
+    session_id, turn_id = await seed_model_loop_assignment(
+        service,
+        mode="customer",
+    )
+
+    await service._run_model_loop(session_id, turn_id, TurnMetrics(Usage()))
+
+    messages = await service.storage.list_messages_for_compaction(session_id)
+    continuation_id = str(
+        uuid5(
+            NAMESPACE_URL,
+            f"lilies:formal-completion-continuation:{turn_id}:1",
+        )
+    )
+    assert provider.calls == 1
+    assert all(item["id"] != continuation_id for item in messages)
+
+
+@pytest.mark.asyncio
+async def test_accepted_completion_does_not_add_formal_completion_continuation(
+    tmp_path: Path,
+) -> None:
+    provider = ScriptedLocalProvider()
+    service = LocalLiliesService(
+        LiliesSettings(data_dir=tmp_path / "lilies", model="test-model"),
+        provider=provider,
+    )
+    await service.initialize()
+    session_id, turn_id = await seed_model_loop_assignment(service)
+    service._platform_assignment_completion_evidence = AsyncMock(  # type: ignore[method-assign]
+        return_value=object()
+    )
+
+    await service._run_model_loop(session_id, turn_id, TurnMetrics(Usage()))
+
+    assert provider.calls == 1
+    assert not await service._append_formal_completion_continuation(
+        session_id,
+        turn_id,
+    )
+
+
+@pytest.mark.asyncio
+async def test_formal_completion_continuation_uses_same_model_call_budget(
+    tmp_path: Path,
+) -> None:
+    provider = ScriptedLocalProvider()
+    service = LocalLiliesService(
+        LiliesSettings(data_dir=tmp_path / "lilies", model="test-model"),
+        provider=provider,
+    )
+    await service.initialize()
+    session_id, turn_id = await seed_model_loop_assignment(
+        service,
+        max_model_calls=1,
+    )
+
+    with pytest.raises(LiliesBudgetExceeded, match="maximum model turns exceeded"):
+        await service._run_model_loop(
+            session_id,
+            turn_id,
+            TurnMetrics(Usage()),
+        )
+
+    continuation_id = str(
+        uuid5(
+            NAMESPACE_URL,
+            f"lilies:formal-completion-continuation:{turn_id}:1",
+        )
+    )
+    messages = await service.storage.list_messages_for_compaction(session_id)
+    assert provider.calls == 1
+    assert sum(item["id"] == continuation_id for item in messages) == 1
 
 
 @pytest.mark.asyncio

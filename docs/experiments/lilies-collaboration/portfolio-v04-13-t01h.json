@@ -61,14 +61,14 @@
     "SCENARIO-010",
     "SCENARIO-011"
   ],
-  "member_manifest_set_sha256": "a4b9df9c15a6163fa4d1af80bd82182e1d1830ba92b81599dcc71acfdbf03399",
+  "member_manifest_set_sha256": "d110e07521fc670824f4ebbe4bc28da6c6b605846c8e7ca8740ad849fe48b448",
   "projects": [
     {
       "project_id": "EXP-LILIES-001",
       "sequence": 1,
       "manifest": "docs/experiments/lilies-collaboration/EXP-LILIES-001/project.json",
-      "manifest_sha256": "7190964456d8d37b97665a9716bdd68e7637e607feb348ff945423d868660e5f",
-      "latest_revision": 11,
+      "manifest_sha256": "90d1226bef11cbf3be6da36a1e730e009310d26c94ef2ce9c8054c84a5dc6404",
+      "latest_revision": 12,
       "status": "active"
     },
     {

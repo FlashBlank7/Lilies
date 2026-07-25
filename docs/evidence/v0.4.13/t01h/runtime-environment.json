@@ -2,8 +2,8 @@
   "schema_version": "v0.4.13-t01h-runtime-environment-1",
   "stage_task_id": "V04-13-T01H",
   "experiment_task_id": "EXP-LILIES-001",
-  "revision": 11,
-  "observed_at": "2026-07-25T14:00:31Z",
+  "revision": 12,
+  "observed_at": "2026-07-25T14:36:57Z",
   "environment": {
     "status": "ready",
     "docker_daemon_probe": "passed",
@@ -21,16 +21,16 @@
     },
     "task_author_preflight": {
       "status": "passed",
-      "candidate_revision": 11,
+      "candidate_revision": 12,
       "runner_preparation": "passed",
-      "runner_source_digest": "sha256:e95a8c5c86995c7ce6c780c8ed2bea9039e272786ea79c271533c298d58d6168",
-      "package_public_summary_digest": "sha256:328120528ee0953f091c2a9d03b47ec5f8e352afefbe5292fb9beaa08da150ac",
-      "package_sealed_digest": "sha256:2a7fe56cdf9bb33fd25c804e06b49faf1d393d5050480136d65da43fc86c93b1",
+      "runner_source_digest": "sha256:bf515c1fc6bfaf822a58711ba1e4afcf9a039def47af9434c7f82582135461ae",
+      "package_public_summary_digest": "sha256:9ac62b4bf7ea28e225a6b45619c54dbc578884d542d645524defb29f9a0f68d8",
+      "package_sealed_digest": "sha256:ed650c5682409b6452e1bb8cdbd8c44b0e0a206568c0c90efeaeb1dc5663cb75",
       "inherited_pinned_image_count": 6,
-      "focused_regression": "43 collaboration-path tests and 18 package/portfolio tests passed; Ruff passed on all affected Python files",
-      "broad_regression": "Not rerun before the revision 11 seed-101 attempt; the prior revision 10 broad baseline remains evidence only and cannot substitute for T01J.",
-      "independent_review": "Two read-only reviewers agreed that the bounded validation diagnostic is a generic T01D pipeline repair, that no valid capability report exists, and that behavior-changing source requires parent revision 10 to freeze revision 11.",
-      "reason": "Revision 11 is an immutable child of revision 10. It preserves the enterprise requirement, unattended task-local permission policy, fixtures, oracle, budgets, model-egress gate, token monitoring, and acceptance. Two revision 10 real-model attempts exposed opaque local collaboration validation diagnostics; the generic report tool now returns bounded public path, type, and message details without inputs, secrets, context, or URLs. No customer capability implementation or expected-gap hint was added."
+      "focused_regression": "45 local-service tests passed, including one-shot same-turn formal continuation, exact replay idempotency, conflicting-identity fail-closed behavior, customer isolation, accepted-evidence bypass, and cumulative model-call budget coverage; the combined formal daemon/bridge suite passed 77 tests, task-package/portfolio passed 51 tests, and evolution control, Ruff, and diff checks passed.",
+      "broad_regression": "Not rerun before the revision 12 seed-101 attempt; prior baselines remain evidence only and cannot substitute for T01J.",
+      "independent_review": "A fresh read-only reviewer passed the actual diff after verifying exact deterministic replay, conflicting role/content failure, same-turn one-shot behavior, customer and accepted-evidence isolation, cumulative limits, generic authority-neutral wording, and a requirement byte-identical to revision 11.",
+      "reason": "Revision 12 is an immutable child of revision 11. It preserves the enterprise requirement, unattended task-local permission policy, fixtures, oracle, budgets, model-egress gate, token monitoring, and acceptance. Revision 11 ended in prose before durable formal completion evidence was accepted. The generic daemon now adds at most one persistent same-turn protocol continuation without revealing a task-specific gap or expanding authority."
     },
     "previous_revision_preflight": {
       "status": "failed",
@@ -154,6 +154,16 @@
         "revision": 11,
         "outcome": "generic_report_validation_diagnostic_child_frozen",
         "reason": "The formal report tool now exposes bounded public validation paths, types, and messages so Lilies can correct a report without seeing inputs, secrets, validation context, or URLs. The enterprise requirement, fixtures, oracle, budgets, and acceptance are unchanged; no CAP-LILIES entry exists until a project run submits and routes a complete reusable capability report."
+      },
+      {
+        "revision": 11,
+        "outcome": "builder_ready_without_completion_claim",
+        "reason": "The fresh revision 11 run completed 59 model calls, 8,081,074 tokens, draft revision 27, and seven workflow runs, but embedded public debug labels and fabricated success strings in a three-node workflow and treated one structural test as business completion. Baseline and final host snapshots each retained 36 records and zero requests. No registered artifact, host receipt, formal report, claim, archive, or oracle result was produced."
+      },
+      {
+        "revision": 12,
+        "outcome": "generic_same_turn_completion_continuation_child_frozen",
+        "reason": "A formal model loop that ends without accepted durable completion evidence now receives exactly one persistent, deterministic, same-turn protocol continuation. It adds no authorization, does not change the task or acceptance, consumes the original cumulative budget and deadline, does not affect customer-mode sessions, and does not reveal any project-specific expected gap."
       }
     ],
     "model_authority": {
@@ -165,33 +175,33 @@
       "usable": true
     },
     "real_host_services_started": true,
-    "real_host_runs": 8,
+    "real_host_runs": 9,
     "formal_attempts": {
-      "total": 21,
+      "total": 22,
       "passed": 0,
-      "failed": 16,
+      "failed": 17,
       "waiting_permission_checkpoints": 5,
-      "seed_101_failed": 16,
+      "seed_101_failed": 17,
       "seed_101_waiting_permission_checkpoints": 5,
       "seed_202_not_run": 1,
       "seed_303_not_run": 1,
       "immutable_attempt_evidence": true,
-      "latest_failure": "Revision 10 second real-host run made zero host requests and no XLSX or receipts; all three report submissions failed local validation and the durable platform rejected the false and incomplete formal archive."
+      "latest_failure": "Revision 11 produced a false prose completion after 59 model calls and 8,081,074 tokens, while both host snapshots recorded zero requests and no formal report, artifact, claim, archive, or oracle result existed."
     },
     "stable_hidden_runs": {
       "completed": 0,
       "required": 3
     },
     "blocked_by": null,
-    "recheck_trigger": "Run revision 11 seed 101 from a fresh state root; any complete routed capability report must precede CAP-LILIES work."
+    "recheck_trigger": "Run revision 12 seed 101 from a fresh state root; any complete routed capability report must precede CAP-LILIES work."
   },
   "enterprise_denominator": {
     "required_runs": 3,
     "required_hidden_records_per_run": 36,
-    "completed_runs": 8,
+    "completed_runs": 9,
     "passed_runs": 0,
-    "failed_runs": 8,
+    "failed_runs": 9,
     "not_run_runs": 2
   },
-  "claim_ceiling": "Frozen revision 11 package preparation, a fail-closed provider-egress route, read-only token monitoring, and all prior failed attempts are evidenced. Revision 10 proved the provider usable but both post-recharge real-host runs preserved 36-record zero-write baseline/final snapshots and produced no XLSX, host receipts, formal claim, or oracle result. The generic report diagnostic repair is independently reviewed and does not count as customer capability or success. No 36/36 oracle pass or stable-seed result is claimed."
+  "claim_ceiling": "Frozen revision 12 package preparation, a fail-closed provider-egress route, read-only token monitoring, and all prior failed attempts are evidenced. Revision 11 preserved 36-record zero-write baseline/final snapshots and produced no registered artifact, host receipt, formal report, claim, archive, or oracle result. The generic same-turn completion continuation is independently reviewed and does not count as customer capability or success. No 36/36 oracle pass or stable-seed result is claimed."
 }

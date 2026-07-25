@@ -11,7 +11,7 @@ from typing import Any
 
 MAX_INPUT_BYTES = 128 * 1024 * 1024
 TASK_ID = "EXP-LILIES-001"
-REVISION = 11
+REVISION = 12
 
 
 class HostSnapshotVerificationError(RuntimeError):

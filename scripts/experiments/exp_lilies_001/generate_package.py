@@ -13,7 +13,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[3]
 TASK_ID = "EXP-LILIES-001"
-REVISION = 11
+REVISION = 12
 CREATED_AT = "2026-07-25T07:15:00Z"
 DEFAULT_OUTPUT = (
     ROOT
@@ -964,17 +964,15 @@ def generate(output: Path) -> None:
             "collaboration_enabled": True,
             "author": "codex-task-author",
             "created_at": CREATED_AT,
-            "parent_revision": 10,
+            "parent_revision": 11,
             "amendment_reason": (
-                "Two revision 10 real-model attempts exposed that local collaboration "
-                "request validation collapsed safe field-level errors into an opaque 422, "
-                "preventing Lilies from correcting and routing a complete formal report. "
-                "The generic T01D report tool now returns bounded public validation paths, "
-                "types, and messages without inputs, secrets, context, or URLs. Revision "
-                "11 preserves the enterprise requirement, fixtures, oracle, budgets, "
-                "collaboration authority, model-egress gate, token monitoring, and "
-                "acceptance from revision 10; only the frozen formal-pipeline source and "
-                "process evidence changes."
+                "Revision 11 ended its model loop with prose before the server accepted "
+                "durable formal completion evidence. Revision 12 preserves the business "
+                "requirement, fixtures, oracle, budgets, permissions, collaboration "
+                "authority, model-egress gate, and acceptance from revision 11. Only the "
+                "generic daemon process changes: a formal turn without accepted completion "
+                "evidence receives one persistent, same-turn protocol continuation that "
+                "adds no authority and remains subject to the original cumulative limits."
             ),
         },
     )
@@ -982,7 +980,7 @@ def generate(output: Path) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Generate immutable EXP-LILIES-001 revision-eleven source files."
+        description="Generate immutable EXP-LILIES-001 revision-twelve source files."
     )
     parser.add_argument(
         "--output",
