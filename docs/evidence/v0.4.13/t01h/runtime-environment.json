@@ -3,7 +3,7 @@
   "stage_task_id": "V04-13-T01H",
   "experiment_task_id": "EXP-LILIES-001",
   "revision": 16,
-  "observed_at": "2026-07-25T17:14:16Z",
+  "observed_at": "2026-07-25T17:31:19Z",
   "environment": {
     "status": "ready",
     "docker_daemon_probe": "passed",
@@ -204,6 +204,11 @@
         "revision": 16,
         "outcome": "post_wait_permission_relay_barrier_child_frozen",
         "reason": "After an exact formal assignment exposes waiting_permission, the generic runner now synchronizes that same assignment relay once before reading the redacted Studio permission timeline. It still allows only exact workspace_write or workspace_patch requests under work/ or artifacts/, preserves canonical-path and denied-segment checks, and makes no decision on relay, projection, digest, receipt, or security-boundary failure. No business requirement, fixture, oracle, budget, host action, model egress, CAP gate, or acceptance changed."
+      },
+      {
+        "revision": 16,
+        "outcome": "large_permission_input_projection_loss",
+        "reason": "The fresh revision 16 seed-101 run proved the post-wait relay barrier and automatically allowed workspace_write for work/test-input.json. After 31 model calls, 4,207,838 tokens, and $0.59269924, a second workspace_write for work/debug-records.json carried the 12,873-byte public debug dataset. Studio's 8 KB monitor projection replaced the entire input with digest-only metadata and discarded the safe top-level path, so the runner correctly failed closed. Baseline and final host snapshots each retained 36 records and zero requests; no artifact, host receipt, report, archive preflight, claim, or oracle was produced."
       }
     ],
     "model_authority": {
@@ -215,33 +220,33 @@
       "usable": true
     },
     "real_host_services_started": true,
-    "real_host_runs": 13,
+    "real_host_runs": 14,
     "formal_attempts": {
-      "total": 26,
+      "total": 27,
       "passed": 0,
-      "failed": 21,
-      "waiting_permission_checkpoints": 6,
-      "seed_101_failed": 21,
-      "seed_101_waiting_permission_checkpoints": 6,
+      "failed": 22,
+      "waiting_permission_checkpoints": 7,
+      "seed_101_failed": 22,
+      "seed_101_waiting_permission_checkpoints": 7,
       "seed_202_not_run": 1,
       "seed_303_not_run": 1,
       "immutable_attempt_evidence": true,
-      "latest_failure": "Revision 15 used 10 model calls, 624,339 tokens, and $0.08855756 before a workspace_write permission. The daemon durably recorded permission.requested event 478 after the platform's relay stopped at event 472; the runner observed waiting_permission but queried Studio before a second relay, then incorrectly terminated with no automatic decision. Both 36-record host snapshots had zero requests, and no artifact, receipt, report, archive preflight, claim, or oracle existed."
+      "latest_failure": "Revision 16 used 31 model calls, 4,207,838 tokens, and $0.59269924. Its post-wait relay synchronized and allowed one exact task-local write, then relayed a second workspace_write through event 991. Because the 12,873-byte public payload exceeded Studio's 8 KB projection limit, the entire redacted input became digest-only and lost path work/debug-records.json; the runner correctly failed closed. Both 36-record host snapshots had zero requests, and no artifact, receipt, report, archive preflight, claim, or oracle existed."
     },
     "stable_hidden_runs": {
       "completed": 0,
       "required": 3
     },
     "blocked_by": null,
-    "recheck_trigger": "Run frozen revision 16 seed 101 from fresh state with explicit model egress and token monitoring. Preserve the result; only a complete Lilies-submitted routed project report may enter CAP-LILIES."
+    "recheck_trigger": "Preserve revision 16, repair the generic oversized-permission projection without widening authority, freeze an acceptance-identical child revision, and rerun seed 101 from fresh state. Only a complete Lilies-submitted routed project report may enter CAP-LILIES."
   },
   "enterprise_denominator": {
     "required_runs": 3,
     "required_hidden_records_per_run": 36,
-    "completed_runs": 13,
+    "completed_runs": 14,
     "passed_runs": 0,
-    "failed_runs": 13,
+    "failed_runs": 14,
     "not_run_runs": 2
   },
-  "claim_ceiling": "Frozen revision 16 package preparation and the generic post-wait permission relay barrier are deterministically tested and independently reviewed. Revision 15 remains the latest customer failure: it stopped at a permission-event projection race before any host request, artifact, receipt, report, archive preflight, claim, or oracle. The run does not prove the production archive preflight. Control-plane repair is not customer capability or success. No 36/36 oracle pass or stable-seed result is claimed."
+  "claim_ceiling": "Revision 16 is a preserved customer failure. Its real Builder run proves the post-wait relay barrier and one exact automatic task-local permission, but the second oversized permission projection lost the path and failed closed before any host request, artifact, receipt, report, archive preflight, claim, or oracle. Control-plane repair is not customer capability or success. No 36/36 oracle pass or stable-seed result is claimed."
 }
