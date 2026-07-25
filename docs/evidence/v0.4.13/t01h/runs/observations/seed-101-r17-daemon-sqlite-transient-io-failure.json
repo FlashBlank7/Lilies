@@ -1,0 +1,33 @@
+{
+  "schema_version": "v0.4.13-t01h-observation-1",
+  "stage_task_id": "V04-13-T01H",
+  "project_id": "EXP-LILIES-001",
+  "revision": 17,
+  "seed": "101",
+  "attempt_id": "sha256:9502e65e707ca9887f79081e8d2eecc92320ba4608c6b9c09866a13c98559957",
+  "classification": "generic_daemon_sqlite_transient_io_failure",
+  "enterprise_denominator": true,
+  "customer_result": "failed",
+  "facts": {
+    "model_calls": 58,
+    "tokens": 9662104,
+    "cost_usd": 1.3562770199999998,
+    "platform_relay_cursor": 1451,
+    "platform_ack_cursor": 1451,
+    "daemon_status_before_rejection": "running",
+    "daemon_error_type": "sqlite3.OperationalError",
+    "daemon_error_message": "disk I/O error",
+    "failed_operation": "get_session",
+    "failed_query": "SELECT * FROM clients WHERE id=?",
+    "runner_auto_permission_count": 0,
+    "host_request_count": 0,
+    "artifact_count": 0,
+    "host_receipt_count": 0,
+    "formal_report_count": 0,
+    "archive_preflight_count": 0,
+    "oracle_run_count": 0
+  },
+  "cause": "After 58 Builder model calls and 33 draft revisions, the next relay caused the local Lilies get_session endpoint to raise sqlite3.OperationalError: disk I/O error while reading the clients table. The platform received HTTP 502 from the exact daemon operation and durably failed the assignment as daemon_rejected. The database remained readable after shutdown and the volume retained 169 GiB free, so this is classified as a transient daemon storage-path failure pending the retained root-cause repair.",
+  "claim_boundary": "Revision 17 did not reach an operational permission, real host request, customer artifact, host receipt, formal report, archive preflight, claim, or oracle run. It proves neither the revision-17 permission projection repair under a real oversized request nor customer workflow delivery and remains a failed customer attempt in the project denominator.",
+  "retained_fix_route": "Identify and remove the generic concurrent SQLite access condition or add a bounded safe retry at the storage boundary without converting persistent or corrupt-database failures into success. Freeze a child revision only after focused concurrency and failure-preservation regressions pass."
+}
