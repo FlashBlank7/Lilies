@@ -43,8 +43,8 @@
     "intervention_boundary": true
   },
   "task_package_root": "docs/experiments/lilies-collaboration/EXP-LILIES-001",
-  "latest_revision": 13,
-  "revision_semantics": "Revisions 1 through 13 are iterations of this project only.",
-  "current_blocker": "Revision 13 proved the bounded unattended permission path, but Lilies built a static placeholder workflow, made zero host requests, registered no artifact or host receipt, and froze an incomplete archive intent that was accepted only as awaiting daemon completion before durable platform evidence rejected it after the turn could no longer repair.",
-  "next_action": "Preserve the revision 13 failure, repair only the generic fail-late formal archive intent boundary so obviously incomplete public evidence is rejected while the Builder can still repair or submit a complete routed capability report, then freeze a child revision and rerun seed 101."
+  "latest_revision": 14,
+  "revision_semantics": "Revisions 1 through 14 are iterations of this project only.",
+  "current_blocker": "Revision 13 remains a preserved customer failure. The generic fail-late archive-intent defect is repaired and independently reviewed: complete current business runs, required deliverables, registered evidence, and host-write receipts now fail before immutable reservation when incomplete. Revision 14 is frozen but has not yet produced a customer run result.",
+  "next_action": "Run revision 14 seed 101 from fresh state with the existing explicit model-egress gate and token monitor; preserve the attempt result, and create no CAP entry unless Lilies submits a complete routed project report."
 }

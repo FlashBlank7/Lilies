@@ -1984,6 +1984,10 @@ FormalSuccessArchiveProvider = Callable[
     [UUID, FormalRunArchivePreparationRequest],
     Awaitable[Any] | Any,
 ]
+FormalArchiveIntentValidator = Callable[
+    [UUID, FormalRunArchivePreparationRequest],
+    Awaitable[None] | None,
+]
 FormalVerificationClaimProvider = Callable[
     [
         UUID,
@@ -2019,6 +2023,7 @@ class LocalLiliesBridge:
         formal_channel_close_provider: FormalChannelCloseProvider | None = None,
         formal_terminal_archive_provider: FormalTerminalArchiveProvider | None = None,
         formal_success_archive_provider: FormalSuccessArchiveProvider | None = None,
+        formal_archive_intent_validator: FormalArchiveIntentValidator | None = None,
         formal_verification_claim_provider: FormalVerificationClaimProvider | None = None,
         fault_hook: FaultHook | None = None,
         default_deadline_seconds: int = 3_600,
@@ -2037,6 +2042,7 @@ class LocalLiliesBridge:
         self.formal_channel_close_provider = formal_channel_close_provider
         self.formal_terminal_archive_provider = formal_terminal_archive_provider
         self.formal_success_archive_provider = formal_success_archive_provider
+        self.formal_archive_intent_validator = formal_archive_intent_validator
         self.formal_verification_claim_provider = formal_verification_claim_provider
         self.fault_hook = fault_hook
         self.default_deadline_seconds = max(60, default_deadline_seconds)
@@ -3917,6 +3923,11 @@ class LocalLiliesBridge:
                     "formal archive intent changed its frozen assignment binding",
                     details=self._safe_assignment_ids(row),
                 )
+            validator = self.formal_archive_intent_validator
+            if validator is not None:
+                validation = validator(channel.channel_id, request)
+                if inspect.isawaitable(validation):
+                    await validation
             intent = {
                 "schema_version": "1.0",
                 "assignment_id": str(assignment.assignment_id),

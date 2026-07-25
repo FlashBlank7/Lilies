@@ -58,7 +58,11 @@ from .complexity_router import (
     runtime_activation_rollout_metrics,
     validate_operator_override,
 )
-from .collaboration_service import CollaborationPrincipal, CollaborationService
+from .collaboration_service import (
+    CollaborationConflict,
+    CollaborationPrincipal,
+    CollaborationService,
+)
 from .collaboration_storage import CollaborationStore
 from .customer_runtime_projection import (
     project_runtime_application,
@@ -2556,13 +2560,19 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         actor_id: str,
     ) -> Any:
         bridge = local_lilies_bridge
-        if bridge is None:
+        archiver = formal_run_archiver
+        if bridge is None or archiver is None:
             raise TaskPackageError("formal archive intent bridge is unavailable")
-        return await bridge.freeze_formal_run_archive_intent(
-            channel=channel,
-            request=request,
-            actor_id=actor_id,
-        )
+        from .formal_run_archiver import FormalRunArchiveIntentInvalid
+
+        try:
+            return await bridge.freeze_formal_run_archive_intent(
+                channel=channel,
+                request=request,
+                actor_id=actor_id,
+            )
+        except FormalRunArchiveIntentInvalid as error:
+            raise CollaborationConflict(error.code, str(error)) from error
 
     async def record_formal_source_response(
         channel_id: UUID,
@@ -2758,6 +2768,15 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
             connector_service=connectors,
             source_provenance=formal_source_provenance,
         )
+        if local_lilies_bridge is not None:
+            local_lilies_bridge.formal_archive_intent_validator = (
+                lambda channel_id, request: (
+                    formal_run_archiver.validate_success_archive_intent(
+                        channel_id=channel_id,
+                        request=request,
+                    )
+                )
+            )
         from .formal_independent_verification import (
             FormalIndependentVerificationService,
         )

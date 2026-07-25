@@ -5,6 +5,7 @@ import base64
 import hashlib
 import hmac
 import json
+from collections import Counter
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
 from pathlib import Path
@@ -81,6 +82,14 @@ class FormalRunArchiveError(RuntimeError):
 
 class FormalRunArchiveUnavailable(FormalRunArchiveError):
     """A trusted archive projection may succeed after transient state settles."""
+
+
+class FormalRunArchiveIntentInvalid(FormalRunArchiveError):
+    """A public, repairable archive-intent defect detected before intent freeze."""
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
 
 
 class _FrozenModel(BaseModel):
@@ -1356,6 +1365,350 @@ class FormalRunArchiveCoordinator:
             )
         return files, refs, index_entries
 
+    async def _assert_complete_business_evidence(
+        self,
+        *,
+        request: FormalRunArchivePreparationRequest,
+        assignment: BuildAssignment,
+        session_id: UUID,
+        business_run_ids: set[str],
+        connector_budget_export: Mapping[str, Any],
+    ) -> None:
+        """Bind the caller selection to the complete current business inventory."""
+
+        try:
+            inventory = await self._artifact_store.export_assignment_inventory(
+                assignment_id=assignment.assignment_id,
+                session_id=session_id,
+                application_id=UUID(str(assignment.target.application_id)),
+            )
+        except Exception as error:
+            raise FormalRunArchiveUnavailable(
+                "formal business evidence inventory is unavailable"
+            ) from error
+        records = inventory.get("records")
+        if (
+            inventory.get("complete") is not True
+            or str(inventory.get("assignment_id")) != str(assignment.assignment_id)
+            or str(inventory.get("session_id")) != str(session_id)
+            or str(inventory.get("application_id"))
+            != str(assignment.target.application_id)
+            or not isinstance(records, list)
+            or inventory.get("count") != len(records)
+        ):
+            raise FormalRunArchiveError(
+                "formal business evidence inventory is incomplete"
+            )
+        business_artifacts: list[Mapping[str, Any]] = []
+        business_receipts: list[Mapping[str, Any]] = []
+        seen_ids: set[UUID] = set()
+        for item in records:
+            if not isinstance(item, Mapping):
+                raise FormalRunArchiveError(
+                    "formal business evidence inventory is invalid"
+                )
+            try:
+                artifact_id = UUID(str(item.get("artifact_id")))
+            except ValueError as error:
+                raise FormalRunArchiveError(
+                    "formal business evidence inventory has an invalid identity"
+                ) from error
+            if artifact_id in seen_ids:
+                raise FormalRunArchiveError(
+                    "formal business evidence inventory has duplicate identities"
+                )
+            seen_ids.add(artifact_id)
+            if (
+                str(item.get("assignment_id")) != str(assignment.assignment_id)
+                or str(item.get("session_id")) != str(session_id)
+                or str(item.get("application_id"))
+                != str(assignment.target.application_id)
+            ):
+                raise FormalRunArchiveError(
+                    "formal business evidence inventory crossed assignment boundaries"
+                )
+            if str(item.get("run_id")) not in business_run_ids:
+                continue
+            kind = str(item.get("evidence_kind") or "")
+            provenance = item.get("provenance")
+            if not isinstance(provenance, Mapping):
+                raise FormalRunArchiveError(
+                    "formal business evidence inventory has no provenance"
+                )
+            if kind == EvidenceKind.artifact.value:
+                business_artifacts.append(item)
+            elif kind == EvidenceKind.host_receipt.value:
+                business_receipts.append(item)
+            else:
+                raise FormalRunArchiveError(
+                    "formal business evidence inventory has an invalid kind"
+                )
+        inventory_artifact_ids = {
+            UUID(str(item["artifact_id"])) for item in business_artifacts
+        }
+        inventory_receipt_ids = {
+            UUID(str(item["artifact_id"])) for item in business_receipts
+        }
+        selected_artifact_ids = set(request.artifact_ids)
+        selected_receipt_ids = set(request.host_receipt_ids)
+        selected_artifacts = [
+            item
+            for item in business_artifacts
+            if UUID(str(item["artifact_id"])) in selected_artifact_ids
+        ]
+        required_media = Counter(
+            deliverable.media_type
+            for deliverable in assignment.deliverables
+            if deliverable.required
+        )
+        artifact_media = Counter(
+            str(item.get("media_type") or "") for item in selected_artifacts
+        )
+        if any(
+            artifact_media[media_type] < count
+            for media_type, count in required_media.items()
+        ):
+            raise FormalRunArchiveIntentInvalid(
+                "formal_archive_required_artifact_missing",
+                "formal archive must include current-business-run evidence for every "
+                "required deliverable media type",
+            )
+        if selected_artifact_ids != inventory_artifact_ids:
+            raise FormalRunArchiveIntentInvalid(
+                "formal_archive_evidence_inventory_incomplete",
+                "formal archive must select the complete registered artifact "
+                "inventory for the current business runs",
+            )
+        try:
+            connector_budget = ConnectorAssignmentBudgetReceipt.model_validate(
+                connector_budget_export
+            )
+        except ValueError as error:
+            raise FormalRunArchiveError(
+                "formal connector side-effect denominator is invalid"
+            ) from error
+        expected_receipts = {
+            str(write.execution_id): str(write.operation_id)
+            for write in connector_budget.writes
+        }
+        registered_receipts: dict[str, str] = {}
+        for item in business_receipts:
+            provenance = item["provenance"]
+            receipt_id = str(provenance.get("receipt_id") or "")
+            operation = str(provenance.get("operation") or "")
+            if (
+                provenance.get("source") != "platform_host_write"
+                or not receipt_id
+                or not operation
+                or operation not in assignment.constraints.writable_host_operations
+                or receipt_id in registered_receipts
+            ):
+                raise FormalRunArchiveIntentInvalid(
+                    "formal_archive_host_receipt_invalid",
+                    "formal archive host receipts must uniquely bind platform-owned "
+                    "authorized host writes",
+                )
+            registered_receipts[receipt_id] = operation
+        if registered_receipts != expected_receipts:
+            code = (
+                "formal_archive_host_receipt_missing"
+                if expected_receipts.keys() - registered_receipts.keys()
+                else "formal_archive_host_receipt_denominator_mismatch"
+            )
+            raise FormalRunArchiveIntentInvalid(
+                code,
+                "formal archive host receipts must match the complete platform-owned "
+                "host-write denominator",
+            )
+        if expected_receipts and not selected_receipt_ids:
+            raise FormalRunArchiveIntentInvalid(
+                "formal_archive_host_receipt_missing",
+                "formal archive must select the platform-owned host receipts for "
+                "the current business runs",
+            )
+        constraints = assignment.constraints
+        if (
+            constraints.writable_host_operations
+            and (constraints.max_write_count or 0) > 0
+            and not business_receipts
+        ):
+            raise FormalRunArchiveIntentInvalid(
+                "formal_archive_host_receipt_missing",
+                "formal archive requires platform-owned host-write evidence for an "
+                "assignment that authorizes host writes",
+            )
+        if selected_receipt_ids != inventory_receipt_ids:
+            raise FormalRunArchiveIntentInvalid(
+                "formal_archive_evidence_inventory_incomplete",
+                "formal archive must select the complete registered host-receipt "
+                "inventory for the current business runs",
+            )
+
+    async def validate_success_archive_intent(
+        self,
+        *,
+        channel_id: UUID,
+        request: FormalRunArchivePreparationRequest,
+    ) -> None:
+        """Reject repairable public evidence gaps before freezing an intent.
+
+        The durable success projection still repeats every check after daemon
+        completion.  This preflight deliberately reads only assignment-visible
+        platform evidence so that a running Builder can repair its own selection
+        without learning the hidden oracle or terminal verification result.
+        """
+
+        export = await self._collaboration_store.export_channel(channel_id)
+        exported_channel = CollaborationChannel.model_validate(export.get("channel"))
+        bridge_export = await self._bridge_store.export_assignment(
+            exported_channel.assignment_id
+        )
+        row = bridge_export["assignment"]
+        assignment = self._assignment_from_row(row)
+        if set(request.test_run_ids) & set(request.business_run_ids):
+            raise FormalRunArchiveIntentInvalid(
+                "formal_archive_run_set_invalid",
+                "test and business run identities must be disjoint",
+            )
+        if set(request.artifact_ids) & set(request.host_receipt_ids):
+            raise FormalRunArchiveIntentInvalid(
+                "formal_archive_evidence_selection_invalid",
+                "artifact and host-receipt identities must be disjoint",
+            )
+        session_id = UUID(str(row["session_id"]))
+        channel, _, reports = self._assert_channel(
+            assignment,
+            session_id,
+            export,
+            expected_revision=request.expected_channel_revision,
+        )
+        if channel.status is not ChannelStatus.active:
+            raise FormalRunArchiveError(
+                "successful archive requires an active claim channel"
+            )
+        if any(
+            report.status not in _RESOLVED_REPORT_STATUSES[report.category]
+            for report in reports
+        ):
+            raise FormalRunArchiveError(
+                "successful archive cannot account for an unresolved report"
+            )
+        try:
+            workflow_export = await self._workflow.export_formal_run_snapshot(
+                str(assignment.target.application_id),
+                assignment_id=str(assignment.assignment_id),
+                session_id=str(session_id),
+            )
+        except (KeyError, TypeError, ValueError) as error:
+            raise FormalRunArchiveUnavailable(
+                "formal archive workflow snapshot is unavailable"
+            ) from error
+        if self._auth_store is None:
+            raise FormalRunArchiveError(
+                "formal forbidden-assistance scanner has no blackbox audit source"
+            )
+        try:
+            blackbox_auth_export = await self._auth_store.export_assignment_snapshot(
+                assignment_id=assignment.assignment_id,
+                session_id=session_id,
+            )
+        except Exception as error:
+            raise FormalRunArchiveUnavailable(
+                "formal blackbox request snapshot is unavailable"
+            ) from error
+        self._assert_blackbox_credential_policy(
+            blackbox_auth_export=blackbox_auth_export,
+            assignment=assignment,
+            session_id=session_id,
+        )
+        connector_budget_export = await self._export_connector_budget(
+            assignment
+        )
+        blackbox_test_run_ids, blackbox_business_run_ids = (
+            self._blackbox_run_operation_ids(
+                blackbox_auth_export=blackbox_auth_export,
+                assignment=assignment,
+                session_id=session_id,
+            )
+        )
+        draft = workflow_export["draft"]
+        application = workflow_export["application"]
+        snapshot = ApplicationSnapshot.model_validate(draft.get("snapshot"))
+        draft_revision = int(draft["revision"])
+        content_hash = _content_hash(draft["content_hash"])
+        if not hmac.compare_digest(
+            content_hash,
+            f"sha256:{snapshot.content_hash()}",
+        ):
+            raise FormalRunArchiveError("current draft content hash is inconsistent")
+        published_version: int | None = None
+        active_version = application.get("active_version")
+        if active_version is not None:
+            version = workflow_export.get("published_version")
+            if not isinstance(version, Mapping):
+                raise FormalRunArchiveError(
+                    "published version projection is unavailable"
+                )
+            if hmac.compare_digest(
+                _content_hash(version["content_hash"]),
+                content_hash,
+            ):
+                published_version = int(active_version)
+        reported_test_run_ids = self._reported_test_run_ids(
+            draft=draft,
+            content_hash=content_hash,
+        )
+        test_run_rows, business_run_rows = self._classified_runs(
+            run_rows=workflow_export["runs"],
+            reported_test_run_ids=reported_test_run_ids,
+            blackbox_test_run_ids=blackbox_test_run_ids,
+            blackbox_business_run_ids=blackbox_business_run_ids,
+            assignment=assignment,
+            session_id=session_id,
+            draft_revision=draft_revision,
+            content_hash=content_hash,
+            published_version=published_version,
+        )
+        test_run_ids = [str(item["id"]) for item in test_run_rows]
+        business_run_ids = [str(item["id"]) for item in business_run_rows]
+        if set(request.test_run_ids) != set(test_run_ids) or set(
+            request.business_run_ids
+        ) != set(business_run_ids):
+            raise FormalRunArchiveIntentInvalid(
+                "formal_archive_current_run_set_incomplete",
+                "formal archive must select the complete current-draft test and "
+                "business run sets",
+            )
+        await self._assert_complete_business_evidence(
+            request=request,
+            assignment=assignment,
+            session_id=session_id,
+            business_run_ids=set(business_run_ids),
+            connector_budget_export=connector_budget_export,
+        )
+        allowed_run_ids = {*test_run_ids, *business_run_ids}
+        try:
+            await self._evidence_files(
+                artifact_ids=request.artifact_ids,
+                kind=EvidenceKind.artifact,
+                assignment=assignment,
+                session_id=session_id,
+                allowed_run_ids=allowed_run_ids,
+            )
+            await self._evidence_files(
+                artifact_ids=request.host_receipt_ids,
+                kind=EvidenceKind.host_receipt,
+                assignment=assignment,
+                session_id=session_id,
+                allowed_run_ids=allowed_run_ids,
+            )
+        except FormalRunArchiveError as error:
+            raise FormalRunArchiveIntentInvalid(
+                "formal_archive_evidence_selection_invalid",
+                "formal archive evidence must be registered to a selected "
+                "current-draft run with matching platform provenance",
+            ) from error
+
     def _platform_records(
         self,
         *,
@@ -1562,6 +1915,13 @@ class FormalRunArchiveCoordinator:
                     "formal archive run sets do not match the complete platform-owned "
                     "test and business run sets"
                 )
+            await self._assert_complete_business_evidence(
+                request=request,
+                assignment=assignment,
+                session_id=session_id,
+                business_run_ids=set(business_run_ids),
+                connector_budget_export=connector_budget_export,
+            )
             allowed_run_ids = {*test_run_ids, *business_run_ids}
             artifact_files, artifact_refs, artifact_index_entries = await self._evidence_files(
                 artifact_ids=request.artifact_ids,

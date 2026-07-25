@@ -26,6 +26,7 @@ from agent_platform.collaboration_storage import CollaborationStore
 from agent_platform.formal_run_archiver import (
     FormalRunArchiveCoordinator,
     FormalRunArchiveError,
+    FormalRunArchiveIntentInvalid,
     FormalRunArchiveInvalid,
     FormalRunArchivePreparationRequest,
     FormalRunArchivePreparationResult,
@@ -47,7 +48,11 @@ from agent_platform.local_lilies_bridge import (
     PairLocalLiliesRequest,
     StartFormalLocalLiliesBuildRequest,
 )
-from agent_platform.lilies_models import BuildAssignment, CollaborationScope
+from agent_platform.lilies_models import (
+    BuildAssignment,
+    CollaborationScope,
+    DeliverableSpec,
+)
 from agent_platform.platform_blackbox_artifacts import (
     ArtifactBinding,
     ArtifactRegistrationRequest,
@@ -434,6 +439,34 @@ class _ConnectorBudgetAudit:
         self._policies: dict[str, dict[str, Any]] = {}
         self.export_counts: dict[str, int] = {}
         self._include_write_after_count: dict[str, int] = {}
+        self._writes: dict[str, list[dict[str, Any]]] = {}
+
+    def record_write(
+        self,
+        assignment_id: UUID,
+        *,
+        execution_id: str,
+        operation_id: str,
+    ) -> None:
+        self._writes.setdefault(str(assignment_id), []).append(
+            {
+                "execution_id": execution_id,
+                "connector_id": "fixture.connector",
+                "connector_version": 1,
+                "tenant_id": "tenant:formal",
+                "profile_id": "profile:test",
+                "operation_id": operation_id,
+                "operation_kind": "write",
+                "idempotency_key": f"connector-write:{execution_id}",
+                "payload_hash": "sha256:" + "9" * 64,
+                "status": "succeeded",
+                "side_effect_state": "applied",
+                "authorization_ref_digest": None,
+                "adapter_called": True,
+                "created_at": "2026-07-24T00:00:00Z",
+                "updated_at": "2026-07-24T00:00:01Z",
+            }
+        )
 
     def drift_on_next_recheck(self, assignment_id: UUID) -> None:
         key = str(assignment_id)
@@ -476,11 +509,11 @@ class _ConnectorBudgetAudit:
         self.export_counts[assignment_id] = (
             self.export_counts.get(assignment_id, 0) + 1
         )
-        writes = []
+        writes = list(self._writes.get(assignment_id, []))
         if self.export_counts[assignment_id] >= (
             self._include_write_after_count.get(assignment_id, 1_000_000)
         ):
-            writes = [
+            writes.append(
                 {
                     "execution_id": "connector-execution:toctou",
                     "connector_id": "fixture.connector",
@@ -498,7 +531,17 @@ class _ConnectorBudgetAudit:
                     "created_at": "2026-07-24T00:00:00Z",
                     "updated_at": "2026-07-24T00:00:01Z",
                 }
-            ]
+            )
+        writes.sort(
+            key=lambda item: (
+                item["connector_id"],
+                item["connector_version"],
+                item["tenant_id"],
+                item["operation_id"],
+                item["idempotency_key"],
+                item["execution_id"],
+            )
+        )
         document = {
             "schema_version": "1.0",
             "assignment_id": assignment_id,
@@ -949,9 +992,25 @@ async def test_platform_owned_success_export_prepares_replayable_claim_archive(
             relative_path="receipt.json",
             media_type="application/json",
             receipt_id="host-write-receipt-0001",
-            operation="inventree.part.update",
+            operation="paperless.metadata.update",
         ),
         artifact_root=business_workspace,
+    )
+    (test_workspace / "test-only.json").write_bytes(
+        b'{"test_only":true}\n'
+    )
+    test_only_artifact = await artifacts.register_artifact(
+        ArtifactRegistrationRequest(
+            binding=ArtifactBinding(
+                assignment_id=request.assignment_id,
+                session_id=request.session_id,
+                application_id=application_id,
+                run_id=test_run_id,
+            ),
+            relative_path="test-only.json",
+            media_type="application/json",
+        ),
+        artifact_root=test_workspace,
     )
     source_provenance = _clean_source_provenance(
         tmp_path,
@@ -974,6 +1033,11 @@ async def test_platform_owned_success_export_prepares_replayable_claim_archive(
         business_run_ids=[business_run_id],
     )
     connector_budget_audit = _ConnectorBudgetAudit()
+    connector_budget_audit.record_write(
+        prepared.assignment.assignment_id,
+        execution_id="host-write-receipt-0001",
+        operation_id="paperless.metadata.update",
+    )
     coordinator = FormalRunArchiveCoordinator(
         task_state_root=tmp_path / "sealed-task-state",
         public_workspace_root=tmp_path / "formal-public-workspaces",
@@ -1000,6 +1064,157 @@ async def test_platform_owned_success_export_prepares_replayable_claim_archive(
         idempotency_key="formal-archive-success-0001",
     )
 
+    connector_budget_export = await connector_budget_audit.freeze_assignment_budget(
+        assignment_id=str(prepared.assignment.assignment_id),
+        allowed_network_hosts=list(
+            prepared.assignment.constraints.allowed_hosts
+        ),
+        allowed_compensation_operations=list(
+            prepared.assignment.constraints.compensation_actions
+        ),
+        max_write_count=prepared.assignment.constraints.max_write_count,
+        max_payload_bytes=prepared.assignment.constraints.max_payload_bytes,
+    )
+    assignment_with_two_required_deliverables = (
+        prepared.assignment.model_copy(
+            update={
+                "deliverables": [
+                    *prepared.assignment.deliverables,
+                    DeliverableSpec(
+                        name="required-workbook",
+                        description="A required business workbook.",
+                        media_type=(
+                            "application/vnd.openxmlformats-officedocument."
+                            "spreadsheetml.sheet"
+                        ),
+                    ),
+                ]
+            }
+        )
+    )
+    with pytest.raises(FormalRunArchiveIntentInvalid) as partial_deliverables:
+        await coordinator._assert_complete_business_evidence(  # noqa: SLF001
+            request=archive_request,
+            assignment=assignment_with_two_required_deliverables,
+            session_id=request.session_id,
+            business_run_ids={business_run_id},
+            connector_budget_export=connector_budget_export,
+        )
+    assert (
+        partial_deliverables.value.code
+        == "formal_archive_required_artifact_missing"
+    )
+    with pytest.raises(FormalRunArchiveIntentInvalid) as test_artifact_selected:
+        await coordinator._assert_complete_business_evidence(  # noqa: SLF001
+            request=archive_request.model_copy(
+                update={
+                    "artifact_ids": [
+                        *archive_request.artifact_ids,
+                        test_only_artifact.artifact.artifact_id,
+                    ]
+                }
+            ),
+            assignment=prepared.assignment,
+            session_id=request.session_id,
+            business_run_ids={business_run_id},
+            connector_budget_export=connector_budget_export,
+        )
+    assert (
+        test_artifact_selected.value.code
+        == "formal_archive_evidence_inventory_incomplete"
+    )
+    pair_mismatch_audit = _ConnectorBudgetAudit()
+    pair_mismatch_audit.record_write(
+        prepared.assignment.assignment_id,
+        execution_id="host-write-receipt-0001",
+        operation_id="paperless.other.authorized.update",
+    )
+    pair_mismatch_export = await pair_mismatch_audit.freeze_assignment_budget(
+        assignment_id=str(prepared.assignment.assignment_id),
+        allowed_network_hosts=list(
+            prepared.assignment.constraints.allowed_hosts
+        ),
+        allowed_compensation_operations=list(
+            prepared.assignment.constraints.compensation_actions
+        ),
+        max_write_count=prepared.assignment.constraints.max_write_count,
+        max_payload_bytes=prepared.assignment.constraints.max_payload_bytes,
+    )
+    pair_mismatch_assignment = prepared.assignment.model_copy(
+        update={
+            "constraints": prepared.assignment.constraints.model_copy(
+                update={
+                    "writable_host_operations": [
+                        *prepared.assignment.constraints.writable_host_operations,
+                        "paperless.other.authorized.update",
+                    ]
+                }
+            )
+        }
+    )
+    with pytest.raises(FormalRunArchiveIntentInvalid) as mismatched_pair:
+        await coordinator._assert_complete_business_evidence(  # noqa: SLF001
+            request=archive_request,
+            assignment=pair_mismatch_assignment,
+            session_id=request.session_id,
+            business_run_ids={business_run_id},
+            connector_budget_export=pair_mismatch_export,
+        )
+    assert (
+        mismatched_pair.value.code
+        == "formal_archive_host_receipt_denominator_mismatch"
+    )
+
+    with pytest.raises(FormalRunArchiveIntentInvalid) as incomplete_runs:
+        await coordinator.validate_success_archive_intent(
+            channel_id=access.channel_id,
+            request=archive_request.model_copy(
+                update={"test_run_ids": [test_run_id]}
+            ),
+        )
+    assert (
+        incomplete_runs.value.code
+        == "formal_archive_current_run_set_incomplete"
+    )
+    with pytest.raises(FormalRunArchiveIntentInvalid) as missing_artifact:
+        await coordinator.validate_success_archive_intent(
+            channel_id=access.channel_id,
+            request=archive_request.model_copy(update={"artifact_ids": []}),
+        )
+    assert (
+        missing_artifact.value.code
+        == "formal_archive_required_artifact_missing"
+    )
+    with pytest.raises(FormalRunArchiveIntentInvalid) as missing_receipt:
+        await coordinator.validate_success_archive_intent(
+            channel_id=access.channel_id,
+            request=archive_request.model_copy(update={"host_receipt_ids": []}),
+        )
+    assert (
+        missing_receipt.value.code
+        == "formal_archive_host_receipt_missing"
+    )
+    with pytest.raises(FormalRunArchiveIntentInvalid) as invalid_receipt:
+        await coordinator.validate_success_archive_intent(
+            channel_id=access.channel_id,
+            request=archive_request.model_copy(
+                update={
+                    "artifact_ids": [artifact.artifact.artifact_id],
+                    "host_receipt_ids": [
+                        forged_receipt.artifact.artifact_id
+                    ],
+                }
+            ),
+        )
+    assert (
+        invalid_receipt.value.code
+        == "formal_archive_evidence_inventory_incomplete"
+    )
+    await coordinator.validate_success_archive_intent(
+        channel_id=access.channel_id,
+        request=archive_request,
+    )
+
     with pytest.raises(FormalRunArchiveError, match="complete platform-owned"):
         await coordinator.prepare_success_archive(
             channel_id=access.channel_id,
@@ -1015,7 +1230,7 @@ async def test_platform_owned_success_export_prepares_replayable_claim_archive(
                 }
             ),
         )
-    with pytest.raises(FormalRunArchiveError, match="platform provenance"):
+    with pytest.raises(FormalRunArchiveError, match="complete registered"):
         await coordinator.prepare_success_archive(
             channel_id=access.channel_id,
             request=archive_request.model_copy(
@@ -1071,6 +1286,12 @@ async def test_platform_owned_success_export_prepares_replayable_claim_archive(
         tmp_path / "sealed-task-state",
         invalid_task_state,
     )
+    invalid_connector_budget_audit = _ConnectorBudgetAudit()
+    invalid_connector_budget_audit.record_write(
+        prepared.assignment.assignment_id,
+        execution_id="host-write-receipt-0001",
+        operation_id="paperless.metadata.update",
+    )
     invalid_coordinator = FormalRunArchiveCoordinator(
         task_state_root=invalid_task_state,
         public_workspace_root=tmp_path / "formal-public-workspaces",
@@ -1079,7 +1300,7 @@ async def test_platform_owned_success_export_prepares_replayable_claim_archive(
         workflow_storage=workflow,
         artifact_store=artifacts,
         auth_store=coordinator._auth_store,  # noqa: SLF001
-        connector_service=_ConnectorBudgetAudit(),
+        connector_service=invalid_connector_budget_audit,
         source_provenance=source_provenance,
     )
     original_scan = formal_run_archiver_module.scan_forbidden_assistance
@@ -1647,6 +1868,24 @@ async def test_real_formal_intent_completion_archives_and_freezes_claim_automati
         ),
         artifact_root=business_workspace,
     )
+    (business_workspace / "host-receipt.json").write_bytes(
+        b'{"receipt":"real-success-host-write"}\n'
+    )
+    business_receipt = await artifacts.register_host_receipt(
+        HostReceiptRegistrationRequest(
+            binding=ArtifactBinding(
+                assignment_id=running.assignment_id,
+                session_id=running.session_id,
+                application_id=application_id,
+                run_id=business_run_id,
+            ),
+            relative_path="host-receipt.json",
+            media_type="application/json",
+            receipt_id="real-success-host-write-receipt",
+            operation="paperless.metadata.update",
+        ),
+        artifact_root=business_workspace,
+    )
     source_provenance = _clean_source_provenance(
         tmp_path,
         assignment_id=assignment.assignment_id,
@@ -1664,8 +1903,23 @@ async def test_real_formal_intent_completion_archives_and_freezes_claim_automati
         workflow_storage=workflow,
         artifact_store=artifacts,
         auth_store=auth,
-        connector_service=_ConnectorBudgetAudit(),
+        connector_service=(
+            connector_budget_audit := _ConnectorBudgetAudit()
+        ),
         source_provenance=source_provenance,
+    )
+    connector_budget_audit.record_write(
+        assignment.assignment_id,
+        execution_id="real-success-host-write-receipt",
+        operation_id="paperless.metadata.update",
+    )
+    bridge.formal_archive_intent_validator = (
+        lambda channel_id, requested: (
+            coordinator.validate_success_archive_intent(
+                channel_id=channel_id,
+                request=requested,
+            )
+        )
     )
     archive_errors: list[str] = []
 
@@ -1727,10 +1981,27 @@ async def test_real_formal_intent_completion_archives_and_freezes_claim_automati
         test_run_ids=[test_run_id],
         business_run_ids=[business_run_id],
         artifact_ids=[business_artifact.artifact.artifact_id],
+        host_receipt_ids=[business_receipt.artifact.artifact_id],
         remaining_limits=["controlled local fixture only"],
         summary="The platform archives and freezes this claim after terminal drain.",
         idempotency_key="formal-real-success-intent-0001",
     )
+    with pytest.raises(FormalRunArchiveIntentInvalid) as incomplete_intent:
+        await bridge.freeze_formal_run_archive_intent(
+            channel=channel,
+            request=archive_request.model_copy(
+                update={"artifact_ids": []}
+            ),
+            actor_id="frozen-lilies-actor",
+        )
+    assert (
+        incomplete_intent.value.code
+        == "formal_archive_required_artifact_missing"
+    )
+    before_valid_intent = await bridge.store.get_assignment(
+        assignment.assignment_id
+    )
+    assert before_valid_intent["formal_archive_intent_digest"] is None
     intent = await collaboration.prepare_formal_run_archive(
         principal=principal,
         channel_id=channel.channel_id,

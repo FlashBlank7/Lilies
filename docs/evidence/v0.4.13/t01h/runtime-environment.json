@@ -2,8 +2,8 @@
   "schema_version": "v0.4.13-t01h-runtime-environment-1",
   "stage_task_id": "V04-13-T01H",
   "experiment_task_id": "EXP-LILIES-001",
-  "revision": 13,
-  "observed_at": "2026-07-25T15:00:17Z",
+  "revision": 14,
+  "observed_at": "2026-07-25T16:03:54Z",
   "environment": {
     "status": "ready",
     "docker_daemon_probe": "passed",
@@ -21,16 +21,16 @@
     },
     "task_author_preflight": {
       "status": "passed",
-      "candidate_revision": 13,
+      "candidate_revision": 14,
       "runner_preparation": "passed",
-      "runner_source_digest": "sha256:8e0fe96a9134f71d26744bfe44acd470c0a4706d4265701934a1d77656ae2bae",
-      "package_public_summary_digest": "sha256:5a79f638c94f3003ea9cf6ab0b0e97c9522ebed691afe03ccdd352418f0a69dc",
-      "package_sealed_digest": "sha256:555ca15fdc58cd3e638c80de46ed5051559a304fea711533523b0bcca7bcc7b3",
+      "runner_source_digest": "sha256:99b5e63b00174a820c96ef1db887254f04826478b1cbc52d2a0b323ebe49ad7c",
+      "package_public_summary_digest": "sha256:4d4b0ad0bb8b3f28396962d7f0a99cb3e3a67fc7015abfc57caab752f702b384",
+      "package_sealed_digest": "sha256:a34362edd84d1ca0ad2883c151e3f1cb5f45cfbe36bdfdce2ba83b872e84659e",
       "inherited_pinned_image_count": 6,
-      "focused_regression": "The full enterprise runner suite passed 38 tests, including bounded deterministic permission-key public-schema validation and all six binding mutations; task-package/portfolio passed 51 tests, and evolution control, Ruff, and diff checks passed.",
+      "focused_regression": "Formal archiver, platform wiring, collaboration tool, Lilies completion, and local bridge regressions passed 113 tests. The archive preflight covers complete current-draft run sets, current-business artifact and receipt inventory, required-deliverable media-type multiplicity, test-run exclusion, connector write execution and operation pairing, reserve-before-failure behavior, and same-turn HTTP 409 repair. Task-package, runner, and portfolio suites passed after revision-14 expectations were updated.",
       "broad_regression": "Not rerun before the revision 12 seed-101 attempt; prior baselines remain evidence only and cannot substitute for T01J.",
-      "independent_review": "A fresh read-only reviewer passed the actual bounded-idempotency diff after verifying the 86-character public-schema-valid key, deterministic canonical six-field binding, field sensitivity, unchanged task-local tool/path/digest boundaries, and absence of CAP or customer-answer leakage.",
-      "reason": "Revision 13 is an immutable child of revision 12. It preserves the enterprise requirement, unattended task-local permission policy, fixtures, oracle, budgets, model-egress gate, token monitoring, and acceptance. Revision 12 exposed that the runner's raw concatenated permission key exceeded the public bridge schema. The generic runner now canonically hashes all existing task, revision, assignment, session, request, and input-digest bindings into a bounded deterministic key."
+      "independent_review": "A fresh read-only reviewer initially rejected the empty-only evidence gate, then passed the corrected diff after verifying exact current-business inventory, per-deliverable coverage, connector receipt pairing, bridge-lock preflight before immutable reservation, same-turn public 409 repair, durable recheck, and no hidden oracle, CAP, or project-answer leakage.",
+      "reason": "Revision 14 is an immutable child of revision 13. It preserves the enterprise requirement, unattended task-local permission policy, fixtures, oracle, budgets, model-egress gate, token monitoring, and acceptance. Revision 13 exposed that public run and evidence incompleteness was rejected only after daemon completion. The generic control plane now rejects incomplete current-draft runs, required business deliverables, registered evidence inventory, and host-write receipts inside the bridge assignment lock before immutable intent reservation."
     },
     "previous_revision_preflight": {
       "status": "failed",
@@ -179,6 +179,11 @@
         "revision": 13,
         "outcome": "builder_placeholder_workflow_formal_archive_rejected",
         "reason": "The fresh revision 13 seed-101 run proved both unattended permission decisions with public API 200 responses, then completed 71 model calls, 80 local tool calls, 8 workflow-model calls, 8 succeeded workflow runs, 8,893,085 tokens, and $1.24962838. Its final revision-27 workflow still returned static placeholder strings, made zero host requests, registered no artifacts or host receipts, published no version, and persisted no capability report or verification claim. Lilies acknowledged the missing host connection and real outputs but froze an archive intent over historical-draft run IDs; durable platform evidence correctly rejected the formal archive after daemon completion. Baseline and final host snapshots each retained 36 records and zero requests, so no oracle was run."
+      },
+      {
+        "revision": 14,
+        "outcome": "generic_formal_archive_intent_preflight_child_frozen",
+        "reason": "The platform now derives the complete current-draft test and business run sets, exact current-business artifact and host-receipt inventory, required-deliverable media-type multiplicity, and connector write execution-operation denominator before reserving an immutable archive intent. Repairable public gaps return stable 409 diagnostics in the same Builder turn; the durable post-completion checks repeat the same boundary. No project answer, adapter, oracle, CAP entry, permission, budget, or acceptance changed."
       }
     ],
     "model_authority": {
@@ -208,7 +213,7 @@
       "required": 3
     },
     "blocked_by": null,
-    "recheck_trigger": "Preserve revision 13, diagnose the generic fail-late formal archive intent boundary, and freeze a child revision only if a general correction can reject obviously incomplete evidence while the Builder turn can still repair or route a complete capability report. Any complete routed capability report must precede CAP-LILIES work."
+    "recheck_trigger": "Run frozen revision 14 seed 101 from fresh state with explicit model egress and token monitoring. Preserve the result; only a complete Lilies-submitted routed project report may enter CAP-LILIES."
   },
   "enterprise_denominator": {
     "required_runs": 3,
@@ -218,5 +223,5 @@
     "failed_runs": 11,
     "not_run_runs": 2
   },
-  "claim_ceiling": "Frozen revision 13 package preparation, a fail-closed provider-egress route, read-only token monitoring, two successful bounded unattended permission decisions, and all prior failed attempts are evidenced. Revision 13 ended with a three-node placeholder workflow, zero host requests, no registered artifact or host receipt, no publication, no routed report, no persisted claim, and a correctly rejected formal archive. The bounded-key repair and eight structurally succeeded runs are not customer capability or success. No 36/36 oracle pass or stable-seed result is claimed."
+  "claim_ceiling": "Frozen revision 14 package preparation and the generic pre-reservation archive-intent repair are deterministically tested and independently reviewed. Revision 13 remains the latest customer run result: a three-node placeholder workflow, zero host requests, no registered artifact or host receipt, no publication, no routed report, no persisted claim, and a correctly rejected formal archive. Control-plane repair and structural runs are not customer capability or success. No 36/36 oracle pass or stable-seed result is claimed."
 }

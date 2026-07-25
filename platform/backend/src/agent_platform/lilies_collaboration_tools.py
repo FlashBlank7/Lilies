@@ -178,9 +178,13 @@ _DESCRIPTIONS = {
     ),
     "collaboration_formal_run_archive": (
         "Freeze the final formal-run evidence intent while this daemon turn is still "
-        "running. The receipt is not success or a verifier pass. After authenticated "
-        "daemon completion and a complete event-tail drain, the platform automatically "
-        "archives the run and atomically freezes its server-computed v1.1 claim."
+        "running. Select the complete current-draft test and business run sets, "
+        "registered required-deliverable evidence, and host-write receipts when writes are "
+        "authorized. Public selection or provenance gaps fail before the immutable "
+        "intent is reserved so they can be repaired in this turn. The receipt is not "
+        "success or a verifier pass. After authenticated daemon completion and a "
+        "complete event-tail drain, the platform automatically archives the run and "
+        "atomically freezes its server-computed v1.1 claim."
     ),
 }
 

@@ -796,6 +796,107 @@ async def test_formal_archive_tool_calls_the_intent_endpoint_with_current_channe
 
 
 @pytest.mark.asyncio
+async def test_formal_archive_tool_preserves_repairable_409_and_can_retry_in_same_turn(
+    tmp_path: Path,
+) -> None:
+    channel_id = uuid4()
+    claim_id = uuid4()
+    assignment_id = uuid4()
+    post_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal post_count
+        if request.method == "GET":
+            return httpx.Response(
+                200,
+                request=request,
+                json={"channel_id": str(channel_id), "revision": 9},
+            )
+        post_count += 1
+        if post_count == 1:
+            return httpx.Response(
+                409,
+                request=request,
+                json={
+                    "detail": {
+                        "code": "formal_archive_required_artifact_missing",
+                        "message": (
+                            "formal archive must include current-business-run "
+                            "evidence for every required deliverable media type"
+                        ),
+                    }
+                },
+            )
+        return httpx.Response(
+            201,
+            request=request,
+            json={
+                "schema_version": "1.0",
+                "task_id": "EXP-LILIES-TOOLS-001",
+                "revision": 1,
+                "run_id": "run:formal-tools-0001",
+                "assignment_id": str(assignment_id),
+                "channel_id": str(channel_id),
+                "claim_id": str(claim_id),
+                "intent_digest": CONTRACT_DIGEST,
+                "state": "awaiting_daemon_completion",
+                "accepted_at": "2026-07-24T00:00:00Z",
+                "replayed": False,
+            },
+        )
+
+    client = LiliesCollaborationClient(
+        base_url="http://127.0.0.1:8001",
+        access_token=COLLABORATION_TOKEN,
+        channel_id=channel_id,
+        transport=httpx.MockTransport(handler),
+    )
+    tool = register_lilies_collaboration_tools(
+        LiliesToolRegistry(),
+        client,
+    ).get("collaboration_formal_run_archive")
+    context = LiliesToolContext(
+        session_id=str(uuid4()),
+        workspace=tmp_path,
+        turn_id=str(uuid4()),
+        tool_call_id=str(uuid4()),
+    )
+    payload = {
+        "idempotency_key": "formal-archive-tool-repair-0001",
+        "claim_id": str(claim_id),
+        "test_run_ids": ["test-run:formal-tools-0001"],
+        "business_run_ids": ["business-run:formal-tools-0001"],
+        "artifact_ids": [],
+        "host_receipt_ids": [],
+        "remaining_limits": ["controlled local evidence only"],
+        "summary": "Freeze the complete formal evidence selection.",
+    }
+
+    rejected = await tool.execute(payload, context)
+    repaired = await tool.execute(
+        {
+            **payload,
+            "idempotency_key": "formal-archive-tool-repair-0002",
+            "artifact_ids": [str(uuid4())],
+        },
+        context,
+    )
+
+    assert rejected.is_error is True
+    rejected_body = json.loads(rejected.content)
+    assert rejected_body["status_code"] == 409
+    assert (
+        rejected_body["error"]["code"]
+        == "formal_archive_required_artifact_missing"
+    )
+    assert repaired.is_error is False
+    assert json.loads(repaired.content)["data"]["state"] == (
+        "awaiting_daemon_completion"
+    )
+    assert post_count == 2
+
+
+@pytest.mark.asyncio
 async def test_collaboration_http_tools_use_header_only_credentials_and_never_leak(
     tmp_path: Path,
 ) -> None:

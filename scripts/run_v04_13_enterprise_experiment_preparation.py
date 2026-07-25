@@ -16,7 +16,7 @@ from agent_platform.task_packages import TaskPackageManager
 
 
 ROOT = Path(__file__).resolve().parents[1]
-REVISION = 13
+REVISION = 14
 TASK_ROOT = (
     ROOT
     / "docs"
@@ -54,7 +54,10 @@ SOURCE_PATHS = (
     "platform/backend/src/agent_platform/formal_source_provenance.py",
     "platform/backend/src/agent_platform/formal_verification_contracts.py",
     "platform/backend/src/agent_platform/formal_independent_verification.py",
+    "platform/backend/src/agent_platform/formal_run_archiver.py",
     "platform/backend/src/agent_platform/independent_verifier.py",
+    "platform/backend/src/agent_platform/lilies_collaboration_tools.py",
+    "platform/backend/src/agent_platform/local_lilies_bridge.py",
     "platform/backend/src/agent_platform/local_lilies_bridge_api.py",
     "scripts/experiments/exp_lilies_001/attestation_server.py",
     "scripts/experiments/exp_lilies_001/compose.yaml",

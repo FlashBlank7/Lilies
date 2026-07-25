@@ -7,6 +7,7 @@ import subprocess
 from datetime import datetime, timedelta, timezone
 from functools import partial
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import UUID, uuid4
 
@@ -19,8 +20,10 @@ from agent_platform.collaboration_models import (
     VerificationClaimPayload,
     frozen_claim_context_digest,
 )
+from agent_platform.collaboration_service import CollaborationConflict
 from agent_platform.config import Settings
 from agent_platform.formal_run_archiver import (
+    FormalRunArchiveIntentInvalid,
     FormalRunArchivePreparationRequest,
     FormalRunArchivePreparationResult,
 )
@@ -268,19 +271,56 @@ async def test_platform_formal_archive_intent_callback_targets_the_running_bridg
     services = app.state.services
     provider = services.collaboration._formal_archive_provider
     assert provider is not None
-    channel = object()
+    channel = SimpleNamespace(channel_id=uuid4())
     request = object()
+    services.formal_run_archiver.validate_success_archive_intent = AsyncMock(
+        return_value=None
+    )
+
+    async def freeze_with_preflight(
+        *,
+        channel: object,
+        request: object,
+        actor_id: str,
+    ) -> dict[str, str]:
+        await services.formal_run_archiver.validate_success_archive_intent(
+            channel_id=channel.channel_id,
+            request=request,
+        )
+        return {"state": "awaiting_daemon_completion"}
+
     services.local_lilies_bridge.freeze_formal_run_archive_intent = AsyncMock(
-        return_value={"state": "awaiting_daemon_completion"}
+        side_effect=freeze_with_preflight
     )
 
     result = await provider(channel, request, "authenticated-lilies-actor")
 
     assert result == {"state": "awaiting_daemon_completion"}
+    services.formal_run_archiver.validate_success_archive_intent.assert_awaited_once_with(
+        channel_id=channel.channel_id,
+        request=request,
+    )
     services.local_lilies_bridge.freeze_formal_run_archive_intent.assert_awaited_once_with(
         channel=channel,
         request=request,
         actor_id="authenticated-lilies-actor",
+    )
+    services.formal_run_archiver.validate_success_archive_intent = AsyncMock(
+        side_effect=FormalRunArchiveIntentInvalid(
+            "formal_archive_required_artifact_missing",
+            "formal archive must select registered evidence for required deliverables",
+        )
+    )
+    with pytest.raises(CollaborationConflict) as rejected:
+        await provider(channel, request, "authenticated-lilies-actor")
+    assert rejected.value.code == "formal_archive_required_artifact_missing"
+    assert (
+        str(rejected.value)
+        == "formal archive must select registered evidence for required deliverables"
+    )
+    assert (
+        services.local_lilies_bridge.freeze_formal_run_archive_intent.await_count
+        == 2
     )
     assert services.formal_run_archiver is not None
     services.formal_run_archiver.prepare_success_archive = AsyncMock(
