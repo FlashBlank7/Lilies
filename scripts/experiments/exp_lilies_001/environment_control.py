@@ -18,7 +18,7 @@ from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parents[3]
 TASK_ID = "EXP-LILIES-001"
-REVISION = 10
+REVISION = 11
 COMPOSE_PATH = Path(__file__).with_name("compose.yaml")
 ACCOUNT_PROVISION_SCRIPT = Path(__file__).with_name(
     "provision_scoped_account.py"

@@ -13,7 +13,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[3]
 TASK_ID = "EXP-LILIES-001"
-REVISION = 10
+REVISION = 11
 CREATED_AT = "2026-07-25T07:15:00Z"
 DEFAULT_OUTPUT = (
     ROOT
@@ -964,15 +964,17 @@ def generate(output: Path) -> None:
             "collaboration_enabled": True,
             "author": "codex-task-author",
             "created_at": CREATED_AT,
-            "parent_revision": 9,
+            "parent_revision": 10,
             "amendment_reason": (
-                "Before replenishing provider balance, the user required proof that no "
-                "background workflow could consume tokens and requested live stage-level "
-                "token monitoring. Revision 10 preserves the enterprise requirement, "
-                "fixtures, oracle, budgets, collaboration authority, and acceptance from "
-                "revision 9 while adding a fail-closed provider-egress gate and read-only "
-                "token/cost snapshots to the task-author runner. Real model HTTP now "
-                "requires an explicit per-invocation enable flag."
+                "Two revision 10 real-model attempts exposed that local collaboration "
+                "request validation collapsed safe field-level errors into an opaque 422, "
+                "preventing Lilies from correcting and routing a complete formal report. "
+                "The generic T01D report tool now returns bounded public validation paths, "
+                "types, and messages without inputs, secrets, context, or URLs. Revision "
+                "11 preserves the enterprise requirement, fixtures, oracle, budgets, "
+                "collaboration authority, model-egress gate, token monitoring, and "
+                "acceptance from revision 10; only the frozen formal-pipeline source and "
+                "process evidence changes."
             ),
         },
     )
@@ -980,7 +982,7 @@ def generate(output: Path) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Generate immutable EXP-LILIES-001 revision-ten source files."
+        description="Generate immutable EXP-LILIES-001 revision-eleven source files."
     )
     parser.add_argument(
         "--output",

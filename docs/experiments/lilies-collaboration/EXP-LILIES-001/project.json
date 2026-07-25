@@ -5,7 +5,7 @@
   "project_id": "EXP-LILIES-001",
   "sequence": 1,
   "title": "Supplier document intake, procurement reconciliation, and governed handoff",
-  "status": "active_blocked_by_environment",
+  "status": "active",
   "cohort": "enterprise",
   "enterprise_denominator": true,
   "capability_family": "document_ocr_procurement_excel_writeback",
@@ -43,9 +43,8 @@
     "intervention_boundary": true
   },
   "task_package_root": "docs/experiments/lilies-collaboration/EXP-LILIES-001",
-  "latest_revision": 10,
-  "revision_semantics": "Revisions 1 through 10 are iterations of this project only.",
-  "current_blocker": "DeepSeek returned HTTP 402 Insufficient Balance; provider egress remains disabled.",
-  "next_action": "After balance or an authorized provider changes, explicitly run revision 10 seed 101 without modifying the package."
+  "latest_revision": 11,
+  "revision_semantics": "Revisions 1 through 11 are iterations of this project only.",
+  "current_blocker": "Revision 10 failed without host writes or verification; its malformed collaboration reports exposed opaque local validation diagnostics. The generic report diagnostic is repaired, so the frozen project must rerun from seed 101 under revision 11.",
+  "next_action": "Prepare revision 11, independently review the generic report diagnostic repair, then run seed 101 without pre-hinting any expected platform capability gap."
 }
-

@@ -79,7 +79,7 @@ def test_current_real_project_portfolio_is_valid() -> None:
     assert module.validate_portfolio() == []
 
 
-def test_ten_legacy_revisions_are_one_project_not_ten_projects() -> None:
+def test_eleven_revisions_are_one_project_not_eleven_projects() -> None:
     portfolio = json.loads(
         (
             ROOT
@@ -91,7 +91,7 @@ def test_ten_legacy_revisions_are_one_project_not_ten_projects() -> None:
     assert portfolio["required_project_count"] == 6
     assert len(portfolio["projects"]) == 6
     assert first["project_id"] == "EXP-LILIES-001"
-    assert first["latest_revision"] == 10
+    assert first["latest_revision"] == 11
     assert [item["project_id"] for item in portfolio["projects"]] == [
         f"EXP-LILIES-{number:03d}" for number in range(1, 7)
     ]
