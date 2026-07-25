@@ -1244,6 +1244,153 @@ def test_poll_allows_one_exact_task_local_workspace_permission_and_continues(
     ]
 
 
+def test_poll_synchronizes_permission_event_after_waiting_status_race(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assignment_id = "fe6d38a5-cdae-4ef2-be70-b796c871ea4e"
+    session_id = "e88af94b-2a0e-42fe-80c4-0a61ed105617"
+    request_id = "c44b3387-d780-4986-b3d6-dc112851983b"
+    input_digest = "sha256:" + "a" * 64
+    relay_count = 0
+    assignment_reads = iter(
+        (
+            {
+                "assignment_id": assignment_id,
+                "session_id": session_id,
+                "phase": "waiting",
+                "status": "waiting",
+                "daemon_status": "waiting_permission",
+                "relay_cursor": 472,
+            },
+            {
+                "assignment_id": assignment_id,
+                "session_id": session_id,
+                "phase": "completed",
+                "status": "completed",
+                "daemon_status": "completed",
+                "relay_cursor": 481,
+            },
+        )
+    )
+
+    def fake_request(_url: str, path: str, **_kwargs: Any) -> dict[str, Any]:
+        nonlocal relay_count
+        if path.endswith("/relay"):
+            relay_count += 1
+            return {"relay_cursor": 472 if relay_count == 1 else 478}
+        if path == f"/api/v1/local-lilies/assignments/{assignment_id}":
+            return dict(next(assignment_reads))
+        if path.startswith("/api/v1/studio/collaboration/channels?"):
+            return {
+                "channels": [
+                    {
+                        "assignment_id": assignment_id,
+                        "channel_id": "channel-12345678",
+                    }
+                ]
+            }
+        if path.endswith("/channel-12345678"):
+            assert relay_count >= 2
+            return {
+                "context": {
+                    "assignment": {
+                        "task_id": runner.TASK_ID,
+                        "task_revision": runner.REVISION,
+                        "assignment_id": assignment_id,
+                        "session_id": session_id,
+                        "daemon_status": "waiting_permission",
+                    },
+                    "observable_events": [
+                        {
+                            "seq": 478,
+                            "permission_request": {
+                                "request_id": request_id,
+                                "tool_name": "workspace_write",
+                                "input_digest": input_digest,
+                                "redacted_input": {"path": "work/cbc.json"},
+                                "status": "pending",
+                            },
+                        }
+                    ],
+                }
+            }
+        if path.endswith(f"/permissions/{request_id}"):
+            return {
+                "permission": {
+                    "request_id": request_id,
+                    "status": "allowed",
+                    "input_digest": input_digest,
+                }
+            }
+        raise AssertionError(path)
+
+    monkeypatch.setattr(runner, "_request_json", fake_request)
+    monkeypatch.setattr(runner.time, "sleep", lambda _seconds: None)
+
+    result = runner._poll_assignment(
+        "http://platform.invalid",
+        "platform-token",
+        assignment_id=assignment_id,
+        deadline_seconds=60,
+        operational_permission_policy="task_local_workspace",
+    )
+
+    assert relay_count == 3
+    assert result["phase"] == "completed"
+    assert result["runner_auto_permissions"] == [
+        {
+            "request_id": request_id,
+            "tool_name": "workspace_write",
+            "input_digest": input_digest,
+            "path": "work/cbc.json",
+            "status": "allowed",
+        }
+    ]
+
+
+def test_poll_rejects_security_violation_during_post_wait_permission_sync(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assignment_id = "fe6d38a5-cdae-4ef2-be70-b796c871ea4e"
+    relay_count = 0
+
+    def fake_request(_url: str, path: str, **_kwargs: Any) -> dict[str, Any]:
+        nonlocal relay_count
+        if path.endswith("/relay"):
+            relay_count += 1
+            if relay_count == 2:
+                raise runner.EnterpriseExperimentError(
+                    "platform request failed: security_boundary_violation: "
+                    "daemon relay event contained a plaintext credential"
+                )
+            return {"relay_cursor": 472}
+        if path == f"/api/v1/local-lilies/assignments/{assignment_id}":
+            return {
+                "assignment_id": assignment_id,
+                "session_id": "e88af94b-2a0e-42fe-80c4-0a61ed105617",
+                "phase": "waiting",
+                "status": "waiting",
+                "daemon_status": "waiting_permission",
+                "relay_cursor": 472,
+            }
+        raise AssertionError(f"security rejection must precede Studio read: {path}")
+
+    monkeypatch.setattr(runner, "_request_json", fake_request)
+
+    result = runner._poll_assignment(
+        "http://platform.invalid",
+        "platform-token",
+        assignment_id=assignment_id,
+        deadline_seconds=60,
+        operational_permission_policy="task_local_workspace",
+    )
+
+    assert relay_count == 2
+    assert result["runner_terminal"] == "relay_security_boundary_rejected"
+    assert result["runner_auto_permissions"] == []
+    assert "security_boundary_violation" in result["runner_terminal_detail"]
+
+
 def test_unattended_permission_rejects_non_workspace_tool_without_deciding(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

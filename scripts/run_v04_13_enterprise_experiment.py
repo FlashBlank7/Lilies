@@ -954,6 +954,42 @@ def _poll_assignment_inner(
                 operational_permission_policy == "task_local_workspace"
                 and value.get("daemon_status") == "waiting_permission"
             ):
+                # The relay immediately before the assignment read may finish
+                # while the model's tool request is still being committed.  A
+                # waiting_permission session proves the permission row and its
+                # event now exist, so synchronize once more before consulting
+                # the Studio projection.  This keeps the decision bound to the
+                # durable, redacted collaboration event instead of reaching
+                # around the platform boundary to query the daemon directly.
+                try:
+                    _request_json(
+                        platform_url,
+                        (
+                            "/api/v1/local-lilies/assignments/"
+                            f"{assignment_id}/relay"
+                        ),
+                        method="POST",
+                        token=platform_token,
+                        value={"max_events": 1000},
+                        timeout=30.0,
+                    )
+                except EnterpriseExperimentError as error:
+                    if "security_boundary_violation" in str(error):
+                        return {
+                            **value,
+                            "runner_auto_permissions": permission_receipts,
+                            "runner_terminal": "relay_security_boundary_rejected",
+                            "runner_terminal_detail": str(error),
+                        }
+                    return {
+                        **value,
+                        "runner_auto_permissions": permission_receipts,
+                        "runner_terminal": "unattended_permission_rejected",
+                        "runner_terminal_detail": (
+                            "pending permission synchronization failed: "
+                            f"{error}"
+                        ),
+                    }
                 try:
                     receipt = _resolve_task_local_workspace_permission(
                         platform_url,
