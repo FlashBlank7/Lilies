@@ -1,0 +1,58 @@
+{
+  "schema_version": "v0.4.13-t01h-run-observation-1",
+  "stage_task_id": "V04-13-T01H",
+  "experiment_task_id": "EXP-LILIES-001",
+  "revision": 9,
+  "seed": "101",
+  "attempt_id": "sha256:20334753135bec89d72d05497d3d892308226a738a98ddec1bb88b6d412c0fd8",
+  "assignment_id": "db3b811a-9207-5c22-ba7d-10ff9599dadc",
+  "session_id": "b5edaaed-b518-5c06-b250-c575dd2f85e6",
+  "application_id": "d9a17718-8512-4106-9171-c2213dde6ad5",
+  "observed_at": "2026-07-25T07:45:24.544523Z",
+  "formal_relay": {
+    "relay_cursor": 1418,
+    "ack_cursor": 1418,
+    "status": "complete_through_terminal_event",
+    "security_boundary_rejection": false
+  },
+  "builder_execution": {
+    "model_call_count": 49,
+    "tool_call_count": 68,
+    "token_count": 3809328,
+    "model_cost_usd": 0.53676098,
+    "draft_revision": 28,
+    "workflow_run_count": 8,
+    "workflow_run_status_counts": {
+      "failed": 8
+    },
+    "operational_permission_request_count": 0,
+    "automatic_permission_allow_count": 0
+  },
+  "host_state": {
+    "baseline_record_count": 36,
+    "baseline_request_log_count": 0,
+    "baseline_snapshot_digest": "sha256:95f3449a89c9531107087e3b7c3800599109d0e6522f3e864d49b459cecee254",
+    "final_record_count": 36,
+    "final_request_log_count": 0,
+    "final_snapshot_digest": "sha256:6f3b59f82fbd8a8a898aa2e1d13afcc25a616d8927a96e4e05f2e8885d71ac55"
+  },
+  "terminal_failure": {
+    "owner": "external_model_provider",
+    "provider": "deepseek",
+    "http_status": 402,
+    "code": "invalid_request_error",
+    "message": "Insufficient Balance",
+    "retryable_without_external_state_change": false
+  },
+  "absent_results": [
+    "completed Builder assignment",
+    "formal capability report",
+    "completion claim",
+    "independent archive oracle verdict",
+    "independent host oracle verdict",
+    "stable hidden-seed pass"
+  ],
+  "blocked_by_environment": "The configured DeepSeek account has insufficient balance. The same real-model run must not be retried until provider balance or model authority changes.",
+  "recheck_trigger": "A verified DeepSeek balance top-up or a user-authorized replacement real-model credential/provider.",
+  "claim_ceiling": "This is a real-host, real-model failed execution with a fully relayed terminal event and zero host writes. It does not validate the revision 9 automatic permission path because no operational permission was requested before the provider stopped."
+}
