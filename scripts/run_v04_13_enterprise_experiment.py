@@ -28,7 +28,7 @@ from agent_platform.task_packages import BudgetSpec, TaskPackageManager
 
 ROOT = Path(__file__).resolve().parents[1]
 TASK_ID = "EXP-LILIES-001"
-REVISION = 7
+REVISION = 8
 TASK_ROOT = (
     ROOT
     / "docs"
@@ -662,6 +662,15 @@ def _poll_assignment(
             return value
         if phase == "waiting":
             return value
+        if (
+            phase == "running"
+            and value.get("status") == "ready"
+            and value.get("daemon_status") == "ready"
+        ):
+            return {
+                **value,
+                "runner_terminal": "builder_ready_without_completion_claim",
+            }
         time.sleep(1.0)
     if last is None:
         raise EnterpriseExperimentError("formal assignment produced no durable status")
@@ -685,6 +694,7 @@ def _safe_assignment_projection(value: Mapping[str, Any]) -> dict[str, Any]:
         "created_at",
         "updated_at",
         "runner_timeout",
+        "runner_terminal",
     }
     return {key: value[key] for key in sorted(allowed) if key in value}
 
@@ -1265,6 +1275,9 @@ def run_seed(args: argparse.Namespace) -> int:
             if phase == "completed" and independently_verified
             else "assignment_completed_verification_failed"
             if phase == "completed"
+            else "assignment_builder_incomplete"
+            if assignment.get("runner_terminal")
+            == "builder_ready_without_completion_claim"
             else "assignment_waiting_user"
             if phase == "waiting"
             else "assignment_failed"
@@ -1483,6 +1496,9 @@ def resume_seed(args: argparse.Namespace) -> int:
             if phase == "completed" and independently_verified
             else "assignment_completed_verification_failed"
             if phase == "completed"
+            else "assignment_builder_incomplete"
+            if assignment.get("runner_terminal")
+            == "builder_ready_without_completion_claim"
             else "assignment_waiting_user"
             if phase == "waiting"
             else "assignment_failed"

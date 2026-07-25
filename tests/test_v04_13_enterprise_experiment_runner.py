@@ -1019,6 +1019,50 @@ def test_runner_prepare_freezes_the_real_revision_without_starting_hosts(
     assert not (tmp_path / "environment").exists()
 
 
+def test_poll_treats_ready_builder_without_completion_claim_as_incomplete_terminal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assignment = {
+        "assignment_id": "assignment-12345678",
+        "phase": "running",
+        "status": "ready",
+        "daemon_status": "ready",
+    }
+    requests: list[tuple[str, dict[str, Any]]] = []
+
+    def fake_request(url: str, path: str, **kwargs: Any) -> dict[str, Any]:
+        requests.append((path, kwargs))
+        if path.endswith("/relay"):
+            return {"assignment": assignment}
+        return dict(assignment)
+
+    monkeypatch.setattr(runner, "_request_json", fake_request)
+    monkeypatch.setattr(
+        runner.time,
+        "sleep",
+        lambda _seconds: pytest.fail("ready Builder terminal must not sleep"),
+    )
+
+    result = runner._poll_assignment(
+        "http://platform.invalid",
+        "platform-token",
+        assignment_id=assignment["assignment_id"],
+        deadline_seconds=60,
+    )
+
+    assert result == {
+        **assignment,
+        "runner_terminal": "builder_ready_without_completion_claim",
+    }
+    assert [path for path, _ in requests] == [
+        "/api/v1/local-lilies/assignments/assignment-12345678/relay",
+        "/api/v1/local-lilies/assignments/assignment-12345678",
+    ]
+    assert runner._safe_assignment_projection(result)["runner_terminal"] == (
+        "builder_ready_without_completion_claim"
+    )
+
+
 def test_runner_rejects_reusing_state_after_frozen_source_drift(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

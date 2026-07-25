@@ -13,8 +13,8 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[3]
 TASK_ID = "EXP-LILIES-001"
-REVISION = 7
-CREATED_AT = "2026-07-25T05:23:00Z"
+REVISION = 8
+CREATED_AT = "2026-07-25T06:24:00Z"
 DEFAULT_OUTPUT = (
     ROOT
     / "docs"
@@ -964,12 +964,12 @@ def generate(output: Path) -> None:
             "collaboration_enabled": True,
             "author": "codex-task-author",
             "created_at": CREATED_AT,
-            "parent_revision": 6,
+            "parent_revision": 7,
             "amendment_reason": (
-                "Revision 6 reached Builder execution, draft revision 48, and six "
-                "workflow runs, but the task-author runner launched the daemon "
-                "with its default thirty-turn token ceiling instead of projecting "
-                "the frozen 120-turn task budget before session creation."
+                "A clean-state revision 7 retry ended its Builder turn ready without "
+                "a completion claim after generating incomplete JSON and CSV outputs. "
+                "The task-author runner treated running/ready as non-terminal and would "
+                "poll until the deadline instead of recording a truthful incomplete result."
             ),
         },
     )
@@ -977,7 +977,7 @@ def generate(output: Path) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Generate immutable EXP-LILIES-001 revision-seven source files."
+        description="Generate immutable EXP-LILIES-001 revision-eight source files."
     )
     parser.add_argument(
         "--output",
