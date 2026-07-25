@@ -32,7 +32,7 @@ from agent_platform.token_monitoring import (
 
 ROOT = Path(__file__).resolve().parents[1]
 TASK_ID = "EXP-LILIES-001"
-REVISION = 12
+REVISION = 13
 TASK_ROOT = (
     ROOT
     / "docs"
@@ -686,6 +686,45 @@ def _task_local_workspace_path(value: Any) -> str:
     return canonical
 
 
+def _task_local_permission_idempotency_key(
+    *,
+    task_id: str,
+    task_revision: int,
+    assignment_id: str,
+    session_id: str,
+    request_id: str,
+    input_digest: str,
+) -> str:
+    bindings = {
+        "task_id": task_id,
+        "task_revision": task_revision,
+        "assignment_id": assignment_id,
+        "session_id": session_id,
+        "permission_request_id": request_id,
+        "input_digest": input_digest,
+    }
+    if (
+        not all(
+            isinstance(bindings[field], str) and bool(bindings[field])
+            for field in (
+                "task_id",
+                "assignment_id",
+                "session_id",
+                "permission_request_id",
+                "input_digest",
+            )
+        )
+        or isinstance(task_revision, bool)
+        or not isinstance(task_revision, int)
+        or task_revision < 1
+    ):
+        raise EnterpriseExperimentError(
+            "task-local permission idempotency bindings are invalid"
+        )
+    digest = hashlib.sha256(_canonical_json(bindings)).hexdigest()
+    return f"task-local-permission:{digest}"
+
+
 def _pending_studio_permission(
     platform_url: str,
     platform_token: str,
@@ -795,6 +834,7 @@ def _resolve_task_local_workspace_permission(
         )
     path = _task_local_workspace_path(redacted_input.get("path"))
     assignment_id = str(assignment["assignment_id"])
+    session_id = str(assignment["session_id"])
     decision = _request_json(
         platform_url,
         (
@@ -804,9 +844,13 @@ def _resolve_task_local_workspace_permission(
         method="POST",
         token=platform_token,
         value={
-            "idempotency_key": (
-                f"{TASK_ID.lower()}.task-local-permission."
-                f"{request_id}.{input_digest.removeprefix('sha256:')}"
+            "idempotency_key": _task_local_permission_idempotency_key(
+                task_id=TASK_ID,
+                task_revision=REVISION,
+                assignment_id=assignment_id,
+                session_id=session_id,
+                request_id=request_id,
+                input_digest=input_digest,
             ),
             "behavior": "allow",
             "expected_input_digest": input_digest,

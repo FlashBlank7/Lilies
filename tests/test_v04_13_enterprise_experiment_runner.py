@@ -11,7 +11,7 @@ from typing import Any
 
 import pytest
 
-from agent_platform.lilies_models import LocalScope
+from agent_platform.lilies_models import LocalScope, PermissionDecisionRequest
 from scripts.experiments.exp_lilies_001 import attestation_server
 from scripts.experiments.exp_lilies_001 import environment_control
 from scripts.experiments.exp_lilies_001 import verify_host_snapshot
@@ -1093,6 +1093,46 @@ def test_unattended_workspace_permission_path_is_frozen_and_canonical(
             runner._task_local_workspace_path(path)
 
 
+def test_task_local_permission_idempotency_key_is_bounded_and_fully_bound() -> None:
+    bindings: dict[str, Any] = {
+        "task_id": runner.TASK_ID,
+        "task_revision": runner.REVISION,
+        "assignment_id": "fe6d38a5-cdae-4ef2-be70-b796c871ea4e",
+        "session_id": "e88af94b-2a0e-42fe-80c4-0a61ed105617",
+        "request_id": "c44b3387-d780-4986-b3d6-dc112851983b",
+        "input_digest": "sha256:" + "a" * 64,
+    }
+
+    key = runner._task_local_permission_idempotency_key(**bindings)
+
+    assert key == runner._task_local_permission_idempotency_key(**bindings)
+    assert 16 <= len(key) <= 128
+    PermissionDecisionRequest.model_validate(
+        {
+            "idempotency_key": key,
+            "behavior": "allow",
+            "expected_input_digest": bindings["input_digest"],
+            "message": "Exact unattended task-local workspace decision.",
+        }
+    )
+    mutations = {
+        "task_id": "EXP-LILIES-999",
+        "task_revision": int(bindings["task_revision"]) + 1,
+        "assignment_id": "c0bc886a-e86c-46e9-98b7-ee2be72d88ca",
+        "session_id": "dcff7107-ceec-4f84-a8c9-f5a022c49933",
+        "request_id": "b5af9203-a51c-44b4-b284-a2453529948d",
+        "input_digest": "sha256:" + "b" * 64,
+    }
+    changed_keys = {
+        runner._task_local_permission_idempotency_key(
+            **{**bindings, field: value}
+        )
+        for field, value in mutations.items()
+    }
+    assert len(changed_keys) == len(mutations)
+    assert key not in changed_keys
+
+
 def test_poll_allows_one_exact_task_local_workspace_permission_and_continues(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1161,6 +1201,16 @@ def test_poll_allows_one_exact_task_local_workspace_permission_and_continues(
             assert kwargs["method"] == "POST"
             assert kwargs["value"]["behavior"] == "allow"
             assert kwargs["value"]["expected_input_digest"] == input_digest
+            expected_key = runner._task_local_permission_idempotency_key(
+                task_id=runner.TASK_ID,
+                task_revision=runner.REVISION,
+                assignment_id=assignment_id,
+                session_id=session_id,
+                request_id=request_id,
+                input_digest=input_digest,
+            )
+            assert kwargs["value"]["idempotency_key"] == expected_key
+            PermissionDecisionRequest.model_validate(kwargs["value"])
             assert "updated_input" not in kwargs["value"]
             return {
                 "permission": {

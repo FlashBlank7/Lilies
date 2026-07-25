@@ -2,8 +2,8 @@
   "schema_version": "v0.4.13-t01h-runtime-environment-1",
   "stage_task_id": "V04-13-T01H",
   "experiment_task_id": "EXP-LILIES-001",
-  "revision": 12,
-  "observed_at": "2026-07-25T14:54:27Z",
+  "revision": 13,
+  "observed_at": "2026-07-25T15:00:17Z",
   "environment": {
     "status": "ready",
     "docker_daemon_probe": "passed",
@@ -21,16 +21,16 @@
     },
     "task_author_preflight": {
       "status": "passed",
-      "candidate_revision": 12,
+      "candidate_revision": 13,
       "runner_preparation": "passed",
-      "runner_source_digest": "sha256:bf515c1fc6bfaf822a58711ba1e4afcf9a039def47af9434c7f82582135461ae",
-      "package_public_summary_digest": "sha256:9ac62b4bf7ea28e225a6b45619c54dbc578884d542d645524defb29f9a0f68d8",
-      "package_sealed_digest": "sha256:ed650c5682409b6452e1bb8cdbd8c44b0e0a206568c0c90efeaeb1dc5663cb75",
+      "runner_source_digest": "sha256:8e0fe96a9134f71d26744bfe44acd470c0a4706d4265701934a1d77656ae2bae",
+      "package_public_summary_digest": "sha256:5a79f638c94f3003ea9cf6ab0b0e97c9522ebed691afe03ccdd352418f0a69dc",
+      "package_sealed_digest": "sha256:555ca15fdc58cd3e638c80de46ed5051559a304fea711533523b0bcca7bcc7b3",
       "inherited_pinned_image_count": 6,
-      "focused_regression": "45 local-service tests passed, including one-shot same-turn formal continuation, exact replay idempotency, conflicting-identity fail-closed behavior, customer isolation, accepted-evidence bypass, and cumulative model-call budget coverage; the combined formal daemon/bridge suite passed 77 tests, task-package/portfolio passed 51 tests, and evolution control, Ruff, and diff checks passed.",
+      "focused_regression": "The full enterprise runner suite passed 38 tests, including bounded deterministic permission-key public-schema validation and all six binding mutations; task-package/portfolio passed 51 tests, and evolution control, Ruff, and diff checks passed.",
       "broad_regression": "Not rerun before the revision 12 seed-101 attempt; prior baselines remain evidence only and cannot substitute for T01J.",
-      "independent_review": "A fresh read-only reviewer passed the actual diff after verifying exact deterministic replay, conflicting role/content failure, same-turn one-shot behavior, customer and accepted-evidence isolation, cumulative limits, generic authority-neutral wording, and a requirement byte-identical to revision 11.",
-      "reason": "Revision 12 is an immutable child of revision 11. It preserves the enterprise requirement, unattended task-local permission policy, fixtures, oracle, budgets, model-egress gate, token monitoring, and acceptance. Revision 11 ended in prose before durable formal completion evidence was accepted. The generic daemon now adds at most one persistent same-turn protocol continuation without revealing a task-specific gap or expanding authority."
+      "independent_review": "A fresh read-only reviewer passed the actual bounded-idempotency diff after verifying the 86-character public-schema-valid key, deterministic canonical six-field binding, field sensitivity, unchanged task-local tool/path/digest boundaries, and absence of CAP or customer-answer leakage.",
+      "reason": "Revision 13 is an immutable child of revision 12. It preserves the enterprise requirement, unattended task-local permission policy, fixtures, oracle, budgets, model-egress gate, token monitoring, and acceptance. Revision 12 exposed that the runner's raw concatenated permission key exceeded the public bridge schema. The generic runner now canonically hashes all existing task, revision, assignment, session, request, and input-digest bindings into a bounded deterministic key."
     },
     "previous_revision_preflight": {
       "status": "failed",
@@ -169,6 +169,11 @@
         "revision": 12,
         "outcome": "unattended_task_local_permission_idempotency_rejected",
         "reason": "The fresh revision 12 seed-101 run reached 19 model calls, 41 tool calls, and 1,930,525 tokens before requesting an authorized workspace_write. The runner's deterministic permission idempotency key concatenated the task ID, request UUID, and full input digest into more than the bridge schema's 128-character maximum, so the platform correctly rejected the automatic decision with 422. Baseline and final host snapshots each retained 36 records and zero requests; no report, artifact, claim, archive, or oracle result was produced."
+      },
+      {
+        "revision": 13,
+        "outcome": "bounded_task_local_permission_idempotency_child_frozen",
+        "reason": "The runner now constructs the existing authorized permission-decision idempotency key from a canonical SHA-256 binding of task ID, task revision, assignment ID, session ID, permission request ID, and input digest. The result is deterministic, public-schema-valid, and bounded below 128 characters; workspace prefixes, allowed tools, authorization, budget, acceptance, and every fail-closed boundary remain unchanged."
       }
     ],
     "model_authority": {
@@ -198,7 +203,7 @@
       "required": 3
     },
     "blocked_by": null,
-    "recheck_trigger": "Freeze revision 13 with a bounded deterministic task-local permission idempotency key, independently review it, then run seed 101 from a fresh state root. Any complete routed capability report must precede CAP-LILIES work."
+    "recheck_trigger": "Run revision 13 seed 101 from a fresh state root after independent review and focused validation pass. Any complete routed capability report must precede CAP-LILIES work."
   },
   "enterprise_denominator": {
     "required_runs": 3,
@@ -208,5 +213,5 @@
     "failed_runs": 10,
     "not_run_runs": 2
   },
-  "claim_ceiling": "Frozen revision 12 package preparation, a fail-closed provider-egress route, read-only token monitoring, and all prior failed attempts are evidenced. Revision 12 stopped at a schema-validity rejection of an overlong runner idempotency key; both 36-record host snapshots had zero requests and no registered artifact, host receipt, formal report, claim, archive, or oracle result existed. This runner defect is not a customer capability or success. No 36/36 oracle pass or stable-seed result is claimed."
+  "claim_ceiling": "Frozen revision 13 package preparation, a fail-closed provider-egress route, read-only token monitoring, and all prior failed attempts are evidenced. Revision 12 stopped at a schema-validity rejection of an overlong runner idempotency key; both 36-record host snapshots had zero requests and no registered artifact, host receipt, formal report, claim, archive, or oracle result existed. The generic bounded-key repair is not a customer capability or success. No 36/36 oracle pass or stable-seed result is claimed."
 }

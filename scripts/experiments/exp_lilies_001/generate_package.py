@@ -13,7 +13,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[3]
 TASK_ID = "EXP-LILIES-001"
-REVISION = 12
+REVISION = 13
 CREATED_AT = "2026-07-25T07:15:00Z"
 DEFAULT_OUTPUT = (
     ROOT
@@ -964,15 +964,16 @@ def generate(output: Path) -> None:
             "collaboration_enabled": True,
             "author": "codex-task-author",
             "created_at": CREATED_AT,
-            "parent_revision": 11,
+            "parent_revision": 12,
             "amendment_reason": (
-                "Revision 11 ended its model loop with prose before the server accepted "
-                "durable formal completion evidence. Revision 12 preserves the business "
-                "requirement, fixtures, oracle, budgets, permissions, collaboration "
-                "authority, model-egress gate, and acceptance from revision 11. Only the "
-                "generic daemon process changes: a formal turn without accepted completion "
-                "evidence receives one persistent, same-turn protocol continuation that "
-                "adds no authority and remains subject to the original cumulative limits."
+                "Revision 12 reached an authorized task-local workspace permission, but "
+                "the runner concatenated the task ID, request UUID, and complete input "
+                "digest into an idempotency key longer than the public bridge schema "
+                "allows. Revision 13 preserves the business requirement, fixtures, oracle, "
+                "budgets, permissions, collaboration authority, model-egress gate, and "
+                "acceptance from revision 12. Only the generic runner process changes: the "
+                "existing task, revision, assignment, session, request, and input-digest "
+                "bindings are canonically hashed into a bounded deterministic key."
             ),
         },
     )
@@ -980,7 +981,7 @@ def generate(output: Path) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Generate immutable EXP-LILIES-001 revision-twelve source files."
+        description="Generate immutable EXP-LILIES-001 revision-thirteen source files."
     )
     parser.add_argument(
         "--output",
