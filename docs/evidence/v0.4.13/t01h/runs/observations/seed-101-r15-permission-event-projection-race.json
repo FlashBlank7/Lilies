@@ -1,0 +1,33 @@
+{
+  "schema_version": "v0.4.13-t01h-observation-1",
+  "stage_task_id": "V04-13-T01H",
+  "project_id": "EXP-LILIES-001",
+  "revision": 15,
+  "seed": "101",
+  "attempt_id": "sha256:a7ce91f7d10081e53d9a5b1520d7b49eb9029806cefcc3323b658fa2e0b7afe7",
+  "classification": "generic_runner_permission_projection_race",
+  "enterprise_denominator": true,
+  "customer_result": "failed",
+  "facts": {
+    "model_calls": 10,
+    "tokens": 624339,
+    "cost_usd": 0.08855756,
+    "platform_relay_cursor": 472,
+    "platform_ack_cursor": 472,
+    "last_relayed_event": "tool.requested",
+    "daemon_permission_event_seq": 478,
+    "daemon_permission_status": "pending",
+    "daemon_status": "waiting_permission",
+    "permission_tool": "workspace_write",
+    "permission_path": "work/cbc.json",
+    "runner_auto_permission_count": 0,
+    "host_request_count": 0,
+    "artifact_count": 0,
+    "host_receipt_count": 0,
+    "formal_report_count": 0,
+    "oracle_run_count": 0
+  },
+  "cause": "The poll iteration relayed through daemon event 472 and then read the assignment. While that relay response was completing, the daemon committed events 473 through 478, including the pending permission and waiting_permission status. The assignment read observed waiting_permission, but the runner immediately queried the Studio collaboration projection without a second relay, so the durable permission event was not yet visible there.",
+  "claim_boundary": "Revision 15 did not reach formal archive-intent validation. The attempt proves neither the production archive preflight nor customer workflow delivery. It remains a failed customer attempt in the project denominator.",
+  "retained_fix_route": "After observing a waiting_permission assignment, synchronize the same assignment relay once more before reading the redacted Studio permission projection. Continue to decide only the exact task-local workspace request and keep every other permission class fail-closed."
+}

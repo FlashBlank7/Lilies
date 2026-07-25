@@ -194,6 +194,11 @@
         "revision": 15,
         "outcome": "production_archive_intent_validator_wiring_child_frozen",
         "reason": "The generic archive-intent validator is now injected through the production LocalLiliesBridge constructor after the FormalRunArchiveCoordinator exists. A create_app wiring regression and read-only independent review prove the live bridge holds the current coordinator callback; the business task, fixtures, oracle, budget, permissions, model egress, token monitoring, CAP gate, and acceptance are unchanged."
+      },
+      {
+        "revision": 15,
+        "outcome": "unattended_permission_event_projection_race",
+        "reason": "The fresh revision 15 seed-101 run reached 10 model calls, 624,339 tokens, and $0.08855756 before requesting workspace_write for work/cbc.json. The first platform relay ended at tool.requested event 472 while the daemon subsequently committed waiting_permission and permission.requested event 478. The runner observed the waiting status but queried the Studio projection before synchronizing the later event, incorrectly terminating with zero automatic permission decisions. Baseline and final host snapshots each retained 36 records and zero requests; no artifact, host receipt, report, archive preflight, claim, or oracle was produced."
       }
     ],
     "model_authority": {
@@ -205,33 +210,33 @@
       "usable": true
     },
     "real_host_services_started": true,
-    "real_host_runs": 12,
+    "real_host_runs": 13,
     "formal_attempts": {
-      "total": 25,
+      "total": 26,
       "passed": 0,
-      "failed": 20,
-      "waiting_permission_checkpoints": 5,
-      "seed_101_failed": 20,
-      "seed_101_waiting_permission_checkpoints": 5,
+      "failed": 21,
+      "waiting_permission_checkpoints": 6,
+      "seed_101_failed": 21,
+      "seed_101_waiting_permission_checkpoints": 6,
       "seed_202_not_run": 1,
       "seed_303_not_run": 1,
       "immutable_attempt_evidence": true,
-      "latest_failure": "Revision 14 used 92 model calls, 13,741,955 tokens, eleven workflow runs, and final draft revision 30, but ran only a seven-record subset, made zero host requests, registered no artifact or receipt, published no version, and produced no report or oracle. Production dependency assembly left the pre-reservation validator unwired, so an empty immutable archive intent was retained and Lilies stopped in a false durable wait."
+      "latest_failure": "Revision 15 used 10 model calls, 624,339 tokens, and $0.08855756 before a workspace_write permission. The daemon durably recorded permission.requested event 478 after the platform's relay stopped at event 472; the runner observed waiting_permission but queried Studio before a second relay, then incorrectly terminated with no automatic decision. Both 36-record host snapshots had zero requests, and no artifact, receipt, report, archive preflight, claim, or oracle existed."
     },
     "stable_hidden_runs": {
       "completed": 0,
       "required": 3
     },
     "blocked_by": null,
-    "recheck_trigger": "Run frozen revision 15 seed 101 from fresh state with explicit model egress and token monitoring. Preserve the result; only a complete Lilies-submitted routed project report may enter CAP-LILIES."
+    "recheck_trigger": "Verify the generic post-wait relay synchronization barrier and freeze revision 16 only if the enterprise task, permissions, budget, host boundary, oracle, CAP gate, and acceptance remain unchanged."
   },
   "enterprise_denominator": {
     "required_runs": 3,
     "required_hidden_records_per_run": 36,
-    "completed_runs": 12,
+    "completed_runs": 13,
     "passed_runs": 0,
-    "failed_runs": 12,
+    "failed_runs": 13,
     "not_run_runs": 2
   },
-  "claim_ceiling": "Frozen revision 15 package preparation and the production archive-intent validator assembly repair are deterministically tested and independently reviewed. Revision 14 remains the latest customer run result: a subset-only workflow, zero host requests, no registered artifact or host receipt, no publication, no routed report, no oracle, and a false durable wait over an empty immutable intent. Control-plane repair and structural runs are not customer capability or success. No 36/36 oracle pass or stable-seed result is claimed."
+  "claim_ceiling": "Frozen revision 15 package preparation and the production archive-intent validator assembly repair are deterministically tested and independently reviewed. Revision 15 is the latest customer failure: it stopped at a permission-event projection race before any host request, artifact, receipt, report, archive preflight, claim, or oracle. The run does not prove the production archive preflight. Control-plane repair is not customer capability or success. No 36/36 oracle pass or stable-seed result is claimed."
 }
