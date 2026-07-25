@@ -2,8 +2,8 @@
   "schema_version": "v0.4.13-t01h-runtime-environment-1",
   "stage_task_id": "V04-13-T01H",
   "experiment_task_id": "EXP-LILIES-001",
-  "revision": 8,
-  "observed_at": "2026-07-25T06:50:00Z",
+  "revision": 9,
+  "observed_at": "2026-07-25T07:26:23Z",
   "environment": {
     "status": "ready",
     "docker_daemon_probe": "passed",
@@ -20,15 +20,20 @@
       "missing_digests": []
     },
     "task_author_preflight": {
-      "status": "failed",
-      "candidate_revision": 8,
+      "status": "passed",
+      "candidate_revision": 9,
       "runner_preparation": "passed",
+      "runner_source_digest": "sha256:b277df953c4a018b15fa8200f92ea7df3a0203ea6c12da73ce12f6aa7c87bc9b",
+      "package_public_summary_digest": "sha256:f0688340f405566a9108ed9b14b3006cb0ff5daf03d8d73758fc47f3bc8f65af",
+      "package_sealed_digest": "sha256:a4a902dae61b473b4fd309c23eb5a9e33b319a2ad4c64457dfc34213dda2dbfd",
       "inherited_pinned_image_count": 6,
-      "reason": "Revision 8 froze the ready-without-completion-claim runner terminal and passed package preparation plus a 36-record zero-write real-host baseline, but stale revision 7 platform and daemon processes left by the interrupted runner still occupied ports 18100/18101. The revision 8 health probe reached the old platform, which correctly rejected the new task-local API token before application or assignment creation."
+      "focused_regression": "37 passed",
+      "broad_regression": "200 passed with one existing deprecation warning",
+      "reason": "Revision 9 is an immutable child of revision 8. It preserves the frozen enterprise task and adds a user-authorized unattended resolver that can allow only exact workspace_write/workspace_patch requests bound to the current task, revision, assignment, session, request ID, input digest, and the frozen work/artifacts prefixes. Non-workspace, non-canonical, denied-segment, identity-mismatched, and relay-security-boundary cases remain fail-closed. Package preparation and deterministic source reproduction passed; the real seed run has not started."
     },
     "previous_revision_preflight": {
-      "status": "passed",
-      "candidate_revision": 7,
+      "status": "failed",
+      "candidate_revision": 8,
       "runner_preparation": "passed",
       "container_count": 7,
       "stable_container_count": 7,
@@ -36,8 +41,8 @@
       "inventree_version": "1.4.2",
       "hidden_record_count": 36,
       "baseline_snapshot_mode": "0600",
-      "baseline_snapshot_digest": "sha256:292d70a614868240faa6bd61abcf71bb1c17c5aefcc2a802cb3f4d5c56532d07",
-      "final_snapshot_digest": "sha256:a4bdcb52668c854aba546555d480f4da98c1158fe560845ac865585be9c11d50",
+      "baseline_snapshot_digest": "sha256:176c6dd3b227d1daddad8bee8d464cd769d4b8504d6668882f524206ba5ac703",
+      "final_snapshot_digest": null,
       "baseline_request_log_count": 0,
       "baseline_forbidden_write_count": 0,
       "baseline_duplicate_effect_count": 0,
@@ -47,18 +52,15 @@
       ],
       "environment_attestation": "verified",
       "formal_assignment": {
-        "assignment_id": "4c3d3c57-dc3e-550b-b912-4200bc027dc6",
-        "session_id": "44cab6a7-c522-5384-9b88-ba0bb6eda740",
+        "assignment_id": "f32c110d-efd3-573a-9d1f-6bcb38d1a339",
+        "session_id": "d3534d66-f530-5a4b-8c9b-6b270eecad9d",
         "status": "failed",
-        "phase": "failed",
-        "draft_revision": 37,
-        "workflow_run_count": 11,
-        "tool_call_count": 139,
-        "model_call_count": 103,
-        "token_count": 15500762,
-        "model_cost_usd": 2.1755132,
-        "failure": "maximum token budget exceeded (15360000)",
-        "self_reported_remaining": "Only 8 of 24 public records embedded; scenario logic, real XLSX content, validation tests, publication, and acceptance remained incomplete."
+        "phase": "running_at_platform_cursor_706",
+        "local_daemon_status": "waiting_permission",
+        "pending_tool": "workspace_write",
+        "pending_path": "work/enterprise-result.json",
+        "failure": "security_boundary_violation: daemon relay event contained a plaintext credential",
+        "self_reported_remaining": "The platform could not receive event 707 or any later event, so no completion report, claim, or oracle result was available."
       },
       "services_stopped_after_failure": true
     },
@@ -106,6 +108,21 @@
         "revision": 8,
         "outcome": "formal_pre_assignment_failed_stale_task_processes",
         "reason": "Revision 8 package preparation and real-host zero-write baseline passed. Before application creation, the task-local secret provisioning request reached stale revision 7 processes still bound to ports 18100/18101 and failed with invalid API token. The exact stale environment, platform, daemon, proxy, and attestation process groups were terminated; no host write, application, assignment, report, claim, or oracle was produced."
+      },
+      {
+        "revision": 8,
+        "outcome": "formal_assignment_resume_failed_after_permissions",
+        "reason": "A fresh revision 8 assignment entered Builder execution and requested three exact task-local workspace writes. Two were allowed before the interrupted runner lifecycle exposed connection refresh races and a malformed daemon SQLite database on resume. The immutable waiting, assignment-failed, and resume-failed receipts remain in the attempt chain; no host write, formal report, claim, or oracle result was produced."
+      },
+      {
+        "revision": 8,
+        "outcome": "formal_relay_security_boundary_rejected",
+        "reason": "Another clean-state revision 8 run built a real draft and reached a task-local write request, but the platform rejected daemon event 707 after durable cursor 706 because the event payload contained a credential-shaped field. The platform assignment therefore remained stale while the local daemon waited on an unrelayed workspace_write for work/enterprise-result.json. The run was stopped instead of bypassing the formal relay or waiting three hours."
+      },
+      {
+        "revision": 9,
+        "outcome": "unattended_task_local_permission_child_frozen",
+        "reason": "The latest user instruction authorizes unattended agent collaboration for the supplementation task. Revision 9 records that authority without expanding the frozen task: only exact workspace_write/workspace_patch requests inside work/artifacts can be automatically allowed; business Human Input, host 403 behavior, connectors, network, secrets, budget, oracle, and all other side-effect boundaries remain unchanged and fail-closed."
       }
     ],
     "model_authority": {
@@ -114,33 +131,33 @@
       "present": true
     },
     "real_host_services_started": true,
-    "real_host_runs": 3,
+    "real_host_runs": 5,
     "formal_attempts": {
-      "total": 11,
+      "total": 16,
       "passed": 0,
-      "failed": 8,
-      "waiting_permission_checkpoints": 3,
-      "seed_101_failed": 8,
-      "seed_101_waiting_permission_checkpoints": 3,
+      "failed": 11,
+      "waiting_permission_checkpoints": 5,
+      "seed_101_failed": 11,
+      "seed_101_waiting_permission_checkpoints": 5,
       "seed_202_not_run": 1,
       "seed_303_not_run": 1,
       "immutable_attempt_evidence": true,
-      "latest_failure": "Revision 8 package preparation and real-host baseline passed, but stale revision 7 task processes on the fixed platform and daemon ports rejected the new task-local API token before application or assignment creation"
+      "latest_failure": "Revision 8 reached real Builder execution and a task-local workspace permission, but the formal platform rejected daemon relay event 707 after durable cursor 706 with security_boundary_violation; bypassing the formal relay was forbidden"
     },
     "stable_hidden_runs": {
       "completed": 0,
       "required": 3
     },
     "blocked_by": null,
-    "recheck_trigger": "Preserve and commit the revision 8 pre-assignment failure, then rerun the same immutable revision from a fresh state root after the exact stale task process groups have been terminated."
+    "recheck_trigger": "Commit the immutable revision 9 child and its deterministic evidence, then run seed 101 from a fresh state root with auto_forward plus the task-local unattended permission policy."
   },
   "enterprise_denominator": {
     "required_runs": 3,
     "required_hidden_records_per_run": 36,
-    "completed_runs": 3,
+    "completed_runs": 5,
     "passed_runs": 0,
-    "failed_runs": 3,
+    "failed_runs": 5,
     "not_run_runs": 2
   },
-  "claim_ceiling": "Frozen revision 8 package preparation and zero-write real-host baseline plus the prior three failed Builder executions. The first revision 8 attempt failed before application or assignment creation because stale revision 7 task processes occupied the fixed ports and rejected the new API token. No completed workflow, host writeback, hidden 36/36 oracle pass, or stable-seed result is claimed."
+  "claim_ceiling": "Frozen revision 9 package preparation, 37 focused and 200 broad passing regressions, and five failed real-host Builder executions are evidenced. The latest revision 8 run preserved a 36-record zero-write baseline and a formal relay security rejection at cursor 706; no relay bypass, completed workflow, host writeback, hidden 36/36 oracle pass, or stable-seed result is claimed."
 }

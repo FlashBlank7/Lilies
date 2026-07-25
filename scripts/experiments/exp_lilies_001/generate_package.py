@@ -13,8 +13,8 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[3]
 TASK_ID = "EXP-LILIES-001"
-REVISION = 8
-CREATED_AT = "2026-07-25T06:24:00Z"
+REVISION = 9
+CREATED_AT = "2026-07-25T07:15:00Z"
 DEFAULT_OUTPUT = (
     ROOT
     / "docs"
@@ -964,12 +964,15 @@ def generate(output: Path) -> None:
             "collaboration_enabled": True,
             "author": "codex-task-author",
             "created_at": CREATED_AT,
-            "parent_revision": 7,
+            "parent_revision": 8,
             "amendment_reason": (
-                "A clean-state revision 7 retry ended its Builder turn ready without "
-                "a completion claim after generating incomplete JSON and CSV outputs. "
-                "The task-author runner treated running/ready as non-terminal and would "
-                "poll until the deadline instead of recording a truthful incomplete result."
+                "The user explicitly authorized unattended agent collaboration for the "
+                "current supplementation task. Revision 8 still returned on every "
+                "operational permission and shut down the local services, which made "
+                "task-local workspace writes depend on a human button and exposed resume "
+                "lifecycle failures. The child revision deterministically allows only "
+                "exact workspace_write/workspace_patch requests bound to this formal "
+                "assignment, session, input digest, and the frozen work/artifacts prefixes."
             ),
         },
     )
@@ -977,7 +980,7 @@ def generate(output: Path) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Generate immutable EXP-LILIES-001 revision-eight source files."
+        description="Generate immutable EXP-LILIES-001 revision-nine source files."
     )
     parser.add_argument(
         "--output",

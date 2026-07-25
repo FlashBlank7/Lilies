@@ -16,7 +16,7 @@ from agent_platform.task_packages import TaskPackageManager
 
 
 ROOT = Path(__file__).resolve().parents[1]
-REVISION = 8
+REVISION = 9
 TASK_ROOT = (
     ROOT
     / "docs"
@@ -104,17 +104,27 @@ def _scenario_counts(records: list[dict[str, Any]]) -> dict[str, int]:
 def _runtime_environment() -> dict[str, Any]:
     if not RUNTIME_ENVIRONMENT_PATH.exists():
         return {
-            "status": "blocked_by_environment",
-            "docker_daemon_probe": "not_run",
-            "real_host_runs": 0,
-            "stable_hidden_runs": {
-                "completed": 0,
-                "required": 3,
+            "environment": {
+                "status": "blocked_by_environment",
+                "docker_daemon_probe": "not_run",
+                "real_host_runs": 0,
+                "stable_hidden_runs": {
+                    "completed": 0,
+                    "required": 3,
+                },
+                "blocked_by": "No runtime-environment evidence has been recorded.",
+                "recheck_trigger": (
+                    "Record an authenticated Docker and model-authority preflight."
+                ),
             },
-            "blocked_by": "No runtime-environment evidence has been recorded.",
-            "recheck_trigger": (
-                "Record an authenticated Docker and model-authority preflight."
-            ),
+            "enterprise_denominator": {
+                "required_hidden_records_per_run": 36,
+                "required_runs": 3,
+                "completed_runs": 0,
+                "passed_runs": 0,
+                "failed_runs": 0,
+                "not_run_runs": 3,
+            },
         }
     value = json.loads(RUNTIME_ENVIRONMENT_PATH.read_bytes())
     environment = value.get("environment") if isinstance(value, dict) else None
@@ -127,10 +137,16 @@ def _runtime_environment() -> dict[str, Any]:
         or not isinstance(environment, dict)
         or environment.get("status")
         not in {"ready", "blocked_by_environment"}
-        or environment.get("real_host_runs") != 0
+        or isinstance(environment.get("real_host_runs"), bool)
+        or not isinstance(environment.get("real_host_runs"), int)
+        or environment.get("real_host_runs") < 0
+        or not isinstance(value.get("enterprise_denominator"), dict)
     ):
         raise RuntimeError("runtime-environment evidence is invalid")
-    return environment
+    return {
+        "environment": environment,
+        "enterprise_denominator": value["enterprise_denominator"],
+    }
 
 
 def _make_writable(root: Path) -> None:
@@ -224,12 +240,13 @@ def build_evidence() -> dict[str, Any]:
             }
             for project in package.task.source_projects
         ]
+        runtime = _runtime_environment()
         return {
             "schema_version": "v0.4.13-t01h-preparation-1",
             "stage_task_id": "V04-13-T01H",
             "experiment_task_id": "EXP-LILIES-001",
             "revision": REVISION,
-            "status": "preparation_passed_environment_not_run",
+            "status": "preparation_passed_runtime_in_progress",
             "source_revision": _source_revision(),
             "package": {
                 "public_summary_digest": package.record.public_summary_digest,
@@ -279,23 +296,16 @@ def build_evidence() -> dict[str, Any]:
                     check.kind.startswith("xlsx_") for check in oracle.checks
                 ),
             },
-            "environment": _runtime_environment(),
+            "environment": runtime["environment"],
             "claim_ceiling": (
                 "Frozen EXP-LILIES-001 package, deterministic dataset/oracle, "
                 "compose configuration, fault proxy, environment attestation, "
                 "formal assignment verifier orchestration, verifier-only host "
-                "snapshot checks, and XLSX verification preparation only. No "
-                "Paperless/InvenTree enterprise run, 36/36 oracle pass, or "
+                "snapshot checks, and XLSX verification preparation plus the "
+                "runtime evidence embedded below. No 36/36 oracle pass or "
                 "stable-seed result is claimed."
             ),
-            "enterprise_denominator": {
-                "required_hidden_records_per_run": 36,
-                "required_runs": 3,
-                "completed_runs": 0,
-                "passed_runs": 0,
-                "failed_runs": 0,
-                "not_run_runs": 3,
-            },
+            "enterprise_denominator": runtime["enterprise_denominator"],
         }
     finally:
         _make_writable(temporary)

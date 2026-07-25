@@ -683,6 +683,7 @@ def test_active_run_receipt_preserves_exact_resume_identity_without_secrets(
         tmp_path,
         seed="202",
         collaboration_policy="manual",
+        operational_permission_policy="task_local_workspace",
         platform_port=18100,
         daemon_port=18101,
         application={"id": "c44b3387-d780-4986-b3d6-dc112851983b"},
@@ -700,6 +701,7 @@ def test_active_run_receipt_preserves_exact_resume_identity_without_secrets(
     assert active["task_id"] == runner.TASK_ID
     assert active["seed"] == "202"
     assert active["collaboration_policy"] == "manual"
+    assert active["operational_permission_policy"] == "task_local_workspace"
     assert active["assignment_id"] == "fe6d38a5-cdae-4ef2-be70-b796c871ea4e"
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
     assert not any("token" in key or "secret" in key for key in active)
@@ -1053,6 +1055,7 @@ def test_poll_treats_ready_builder_without_completion_claim_as_incomplete_termin
     assert result == {
         **assignment,
         "runner_terminal": "builder_ready_without_completion_claim",
+        "runner_auto_permissions": [],
     }
     assert [path for path, _ in requests] == [
         "/api/v1/local-lilies/assignments/assignment-12345678/relay",
@@ -1061,6 +1064,242 @@ def test_poll_treats_ready_builder_without_completion_claim_as_incomplete_termin
     assert runner._safe_assignment_projection(result)["runner_terminal"] == (
         "builder_ready_without_completion_claim"
     )
+
+
+@pytest.mark.parametrize(
+    ("path", "accepted"),
+    [
+        ("work/model-config.json", True),
+        ("artifacts/reconciliation.xlsx", True),
+        ("work/nested/output.json", True),
+        ("work/../protected/oracle.json", False),
+        ("work/.git/config", False),
+        ("protected/oracle.json", False),
+        ("/tmp/output.json", False),
+        ("work\\output.json", False),
+        ("work//output.json", False),
+    ],
+)
+def test_unattended_workspace_permission_path_is_frozen_and_canonical(
+    path: str,
+    accepted: bool,
+) -> None:
+    if accepted:
+        assert runner._task_local_workspace_path(path) == path
+    else:
+        with pytest.raises(runner.EnterpriseExperimentError):
+            runner._task_local_workspace_path(path)
+
+
+def test_poll_allows_one_exact_task_local_workspace_permission_and_continues(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assignment_id = "fe6d38a5-cdae-4ef2-be70-b796c871ea4e"
+    session_id = "e88af94b-2a0e-42fe-80c4-0a61ed105617"
+    request_id = "c44b3387-d780-4986-b3d6-dc112851983b"
+    input_digest = "sha256:" + "a" * 64
+    waiting = {
+        "assignment_id": assignment_id,
+        "session_id": session_id,
+        "phase": "waiting",
+        "status": "waiting",
+        "daemon_status": "waiting_permission",
+    }
+    completed = {
+        **waiting,
+        "phase": "completed",
+        "status": "completed",
+        "daemon_status": "completed",
+    }
+    assignment_reads = iter((waiting, completed))
+    requests: list[tuple[str, dict[str, Any]]] = []
+
+    def fake_request(_url: str, path: str, **kwargs: Any) -> dict[str, Any]:
+        requests.append((path, kwargs))
+        if path.endswith("/relay"):
+            return {}
+        if path == f"/api/v1/local-lilies/assignments/{assignment_id}":
+            return dict(next(assignment_reads))
+        if path.startswith("/api/v1/studio/collaboration/channels?"):
+            return {
+                "channels": [
+                    {
+                        "assignment_id": assignment_id,
+                        "channel_id": "channel-12345678",
+                    }
+                ]
+            }
+        if path.endswith("/channel-12345678"):
+            return {
+                "context": {
+                    "assignment": {
+                        "task_id": runner.TASK_ID,
+                        "task_revision": runner.REVISION,
+                        "assignment_id": assignment_id,
+                        "session_id": session_id,
+                        "daemon_status": "waiting_permission",
+                    },
+                    "observable_events": [
+                        {
+                            "seq": 9,
+                            "permission_request": {
+                                "request_id": request_id,
+                                "tool_name": "workspace_write",
+                                "input_digest": input_digest,
+                                "redacted_input": {
+                                    "path": "work/model-config.json",
+                                },
+                                "status": "pending",
+                            },
+                        }
+                    ],
+                }
+            }
+        if path.endswith(f"/permissions/{request_id}"):
+            assert kwargs["method"] == "POST"
+            assert kwargs["value"]["behavior"] == "allow"
+            assert kwargs["value"]["expected_input_digest"] == input_digest
+            assert "updated_input" not in kwargs["value"]
+            return {
+                "permission": {
+                    "request_id": request_id,
+                    "status": "allowed",
+                    "input_digest": input_digest,
+                }
+            }
+        raise AssertionError(path)
+
+    monkeypatch.setattr(runner, "_request_json", fake_request)
+    monkeypatch.setattr(runner.time, "sleep", lambda _seconds: None)
+
+    result = runner._poll_assignment(
+        "http://platform.invalid",
+        "platform-token",
+        assignment_id=assignment_id,
+        deadline_seconds=60,
+        operational_permission_policy="task_local_workspace",
+    )
+
+    assert result["phase"] == "completed"
+    assert result["runner_auto_permissions"] == [
+        {
+            "request_id": request_id,
+            "tool_name": "workspace_write",
+            "input_digest": input_digest,
+            "path": "work/model-config.json",
+            "status": "allowed",
+        }
+    ]
+
+
+def test_unattended_permission_rejects_non_workspace_tool_without_deciding(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assignment_id = "fe6d38a5-cdae-4ef2-be70-b796c871ea4e"
+    session_id = "e88af94b-2a0e-42fe-80c4-0a61ed105617"
+    request_id = "c44b3387-d780-4986-b3d6-dc112851983b"
+    input_digest = "sha256:" + "a" * 64
+
+    def fake_request(_url: str, path: str, **_kwargs: Any) -> dict[str, Any]:
+        if path.endswith("/relay"):
+            return {}
+        if path == f"/api/v1/local-lilies/assignments/{assignment_id}":
+            return {
+                "assignment_id": assignment_id,
+                "session_id": session_id,
+                "phase": "waiting",
+                "status": "waiting",
+                "daemon_status": "waiting_permission",
+            }
+        if path.startswith("/api/v1/studio/collaboration/channels?"):
+            return {
+                "channels": [
+                    {
+                        "assignment_id": assignment_id,
+                        "channel_id": "channel-12345678",
+                    }
+                ]
+            }
+        if path.endswith("/channel-12345678"):
+            return {
+                "context": {
+                    "assignment": {
+                        "task_id": runner.TASK_ID,
+                        "task_revision": runner.REVISION,
+                        "assignment_id": assignment_id,
+                        "session_id": session_id,
+                        "daemon_status": "waiting_permission",
+                    },
+                    "observable_events": [
+                        {
+                            "seq": 9,
+                            "permission_request": {
+                                "request_id": request_id,
+                                "tool_name": "connector.execute",
+                                "input_digest": input_digest,
+                                "redacted_input": {"action": "external-write"},
+                                "status": "pending",
+                            },
+                        }
+                    ],
+                }
+            }
+        raise AssertionError(f"unexpected decision request: {path}")
+
+    monkeypatch.setattr(runner, "_request_json", fake_request)
+
+    result = runner._poll_assignment(
+        "http://platform.invalid",
+        "platform-token",
+        assignment_id=assignment_id,
+        deadline_seconds=60,
+        operational_permission_policy="task_local_workspace",
+    )
+
+    assert result["runner_terminal"] == "unattended_permission_rejected"
+    assert result["runner_auto_permissions"] == []
+    assert "outside the task-local workspace policy" in result[
+        "runner_terminal_detail"
+    ]
+
+
+def test_poll_terminates_a_durable_relay_security_boundary_rejection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assignment = {
+        "assignment_id": "assignment-12345678",
+        "phase": "running",
+        "status": "running",
+        "daemon_status": "running",
+        "relay_cursor": 706,
+    }
+
+    def fake_request(_url: str, path: str, **_kwargs: Any) -> dict[str, Any]:
+        if path.endswith("/relay"):
+            raise runner.EnterpriseExperimentError(
+                "platform request failed: security_boundary_violation: "
+                "daemon relay event contained a plaintext credential"
+            )
+        return dict(assignment)
+
+    monkeypatch.setattr(runner, "_request_json", fake_request)
+    monkeypatch.setattr(
+        runner.time,
+        "sleep",
+        lambda _seconds: pytest.fail("durable relay rejection must not sleep"),
+    )
+
+    result = runner._poll_assignment(
+        "http://platform.invalid",
+        "platform-token",
+        assignment_id=assignment["assignment_id"],
+        deadline_seconds=60,
+        operational_permission_policy="task_local_workspace",
+    )
+
+    assert result["runner_terminal"] == "relay_security_boundary_rejected"
+    assert result["runner_auto_permissions"] == []
+    assert "security_boundary_violation" in result["runner_terminal_detail"]
 
 
 def test_runner_rejects_reusing_state_after_frozen_source_drift(

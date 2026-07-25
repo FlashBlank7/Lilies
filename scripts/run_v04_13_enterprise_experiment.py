@@ -16,7 +16,7 @@ import tempfile
 from collections.abc import Mapping, Sequence
 from contextlib import ExitStack
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -28,7 +28,7 @@ from agent_platform.task_packages import BudgetSpec, TaskPackageManager
 
 ROOT = Path(__file__).resolve().parents[1]
 TASK_ID = "EXP-LILIES-001"
-REVISION = 8
+REVISION = 9
 TASK_ROOT = (
     ROOT
     / "docs"
@@ -61,6 +61,24 @@ PLATFORM_BRIDGE_SCOPES = (
     LocalScope.session_write.value,
     LocalScope.permission_resolve.value,
     LocalScope.credential_write.value,
+)
+OPERATIONAL_PERMISSION_POLICIES = ("manual", "task_local_workspace")
+TASK_LOCAL_PERMISSION_TOOLS = frozenset({"workspace_write", "workspace_patch"})
+TASK_LOCAL_WRITABLE_PREFIXES = frozenset({"work", "artifacts"})
+TASK_LOCAL_DENIED_SEGMENTS = frozenset(
+    {
+        ".git",
+        ".hg",
+        ".lilies-mount-manifest.json",
+        ".lilies-workspace-policy.json",
+        ".svn",
+        "__pycache__",
+        "expected-state",
+        "oracle",
+        "platform-data",
+        "platform_data",
+        "protected",
+    }
 )
 
 
@@ -626,16 +644,198 @@ def _set_auto_forward(
     )
 
 
+def _task_local_workspace_path(value: Any) -> str:
+    if not isinstance(value, str) or not value or "\x00" in value or "\\" in value:
+        raise EnterpriseExperimentError(
+            "unattended workspace permission path is not canonical"
+        )
+    path = PurePosixPath(value)
+    if path.is_absolute():
+        raise EnterpriseExperimentError(
+            "unattended workspace permission path is not canonical"
+        )
+    parts = tuple(part for part in path.parts if part != ".")
+    if not parts or any(part in {"", ".."} for part in parts):
+        raise EnterpriseExperimentError(
+            "unattended workspace permission path is not canonical"
+        )
+    denied = {item.casefold() for item in TASK_LOCAL_DENIED_SEGMENTS}
+    if any(part.casefold() in denied for part in parts):
+        raise EnterpriseExperimentError(
+            "unattended workspace permission targets a denied segment"
+        )
+    canonical = PurePosixPath(*parts).as_posix()
+    if canonical != value or parts[0] not in TASK_LOCAL_WRITABLE_PREFIXES:
+        raise EnterpriseExperimentError(
+            "unattended workspace permission exceeds the frozen writable prefixes"
+        )
+    return canonical
+
+
+def _pending_studio_permission(
+    platform_url: str,
+    platform_token: str,
+    *,
+    assignment: Mapping[str, Any],
+) -> dict[str, Any]:
+    assignment_id = str(assignment.get("assignment_id") or "")
+    session_id = str(assignment.get("session_id") or "")
+    inventory = _request_json(
+        platform_url,
+        "/api/v1/studio/collaboration/channels?limit=500",
+        token=platform_token,
+    )
+    channels = inventory.get("channels") if isinstance(inventory, dict) else None
+    if not isinstance(channels, list):
+        raise EnterpriseExperimentError(
+            "formal collaboration channel inventory is invalid"
+        )
+    matching = [
+        item
+        for item in channels
+        if isinstance(item, dict) and item.get("assignment_id") == assignment_id
+    ]
+    if len(matching) != 1 or not isinstance(matching[0].get("channel_id"), str):
+        raise EnterpriseExperimentError(
+            "formal collaboration channel is not uniquely visible"
+        )
+    detail = _request_json(
+        platform_url,
+        (
+            "/api/v1/studio/collaboration/channels/"
+            f"{matching[0]['channel_id']}"
+        ),
+        token=platform_token,
+    )
+    context = detail.get("context") if isinstance(detail, dict) else None
+    context_assignment = (
+        context.get("assignment") if isinstance(context, dict) else None
+    )
+    if (
+        not isinstance(context_assignment, dict)
+        or context_assignment.get("task_id") != TASK_ID
+        or context_assignment.get("task_revision") != REVISION
+        or context_assignment.get("assignment_id") != assignment_id
+        or context_assignment.get("session_id") != session_id
+        or context_assignment.get("daemon_status") != "waiting_permission"
+    ):
+        raise EnterpriseExperimentError(
+            "pending permission is not bound to the frozen formal assignment"
+        )
+    events = context.get("observable_events")
+    if not isinstance(events, list):
+        raise EnterpriseExperimentError(
+            "formal collaboration permission timeline is invalid"
+        )
+    resolved: set[str] = set()
+    pending: list[tuple[int, dict[str, Any]]] = []
+    for event in events:
+        if not isinstance(event, dict):
+            continue
+        request_id = event.get("permission_request_id")
+        if isinstance(request_id, str) and request_id:
+            resolved.add(request_id)
+        request = event.get("permission_request")
+        if (
+            isinstance(request, dict)
+            and request.get("status") == "pending"
+            and isinstance(request.get("request_id"), str)
+            and request["request_id"] not in resolved
+        ):
+            pending.append((int(event.get("seq") or 0), request))
+    unresolved = [
+        (seq, request)
+        for seq, request in pending
+        if request["request_id"] not in resolved
+    ]
+    if len(unresolved) != 1:
+        raise EnterpriseExperimentError(
+            "formal assignment does not expose one exact pending permission"
+        )
+    return dict(max(unresolved, key=lambda item: item[0])[1])
+
+
+def _resolve_task_local_workspace_permission(
+    platform_url: str,
+    platform_token: str,
+    *,
+    assignment: Mapping[str, Any],
+) -> dict[str, Any]:
+    permission = _pending_studio_permission(
+        platform_url,
+        platform_token,
+        assignment=assignment,
+    )
+    tool_name = permission.get("tool_name")
+    request_id = permission.get("request_id")
+    input_digest = permission.get("input_digest")
+    redacted_input = permission.get("redacted_input")
+    if (
+        tool_name not in TASK_LOCAL_PERMISSION_TOOLS
+        or not isinstance(request_id, str)
+        or not isinstance(input_digest, str)
+        or not isinstance(redacted_input, dict)
+    ):
+        raise EnterpriseExperimentError(
+            "unattended permission is outside the task-local workspace policy"
+        )
+    path = _task_local_workspace_path(redacted_input.get("path"))
+    assignment_id = str(assignment["assignment_id"])
+    decision = _request_json(
+        platform_url,
+        (
+            f"/api/v1/local-lilies/assignments/{assignment_id}/"
+            f"permissions/{request_id}"
+        ),
+        method="POST",
+        token=platform_token,
+        value={
+            "idempotency_key": (
+                f"{TASK_ID.lower()}.task-local-permission."
+                f"{request_id}.{input_digest.removeprefix('sha256:')}"
+            ),
+            "behavior": "allow",
+            "expected_input_digest": input_digest,
+            "message": (
+                "Allowed by the user-authorized unattended task-local workspace "
+                "policy for this exact request and input digest."
+            ),
+        },
+    )
+    receipt = decision.get("permission") if isinstance(decision, dict) else None
+    if (
+        not isinstance(receipt, dict)
+        or receipt.get("request_id") != request_id
+        or receipt.get("status") != "allowed"
+        or receipt.get("input_digest") != input_digest
+    ):
+        raise EnterpriseExperimentError(
+            "daemon returned an invalid unattended permission receipt"
+        )
+    return {
+        "request_id": request_id,
+        "tool_name": tool_name,
+        "input_digest": input_digest,
+        "path": path,
+        "status": "allowed",
+    }
+
+
 def _poll_assignment(
     platform_url: str,
     platform_token: str,
     *,
     assignment_id: str,
     deadline_seconds: float,
+    operational_permission_policy: str = "manual",
 ) -> dict[str, Any]:
+    if operational_permission_policy not in OPERATIONAL_PERMISSION_POLICIES:
+        raise EnterpriseExperimentError("operational permission policy is invalid")
     deadline = time.monotonic() + deadline_seconds
     last: dict[str, Any] | None = None
+    permission_receipts: list[dict[str, Any]] = []
     while time.monotonic() < deadline:
+        relay_error: EnterpriseExperimentError | None = None
         try:
             _request_json(
                 platform_url,
@@ -645,10 +845,10 @@ def _poll_assignment(
                 value={"max_events": 1000},
                 timeout=30.0,
             )
-        except EnterpriseExperimentError:
+        except EnterpriseExperimentError as error:
             # The following exact assignment read determines whether this was
             # a transient relay loss or a durable terminal failure.
-            pass
+            relay_error = error
         value = _request_json(
             platform_url,
             f"/api/v1/local-lilies/assignments/{assignment_id}",
@@ -657,11 +857,50 @@ def _poll_assignment(
         if not isinstance(value, dict):
             raise EnterpriseExperimentError("formal assignment status is invalid")
         last = value
+        if (
+            relay_error is not None
+            and "security_boundary_violation" in str(relay_error)
+        ):
+            return {
+                **value,
+                "runner_auto_permissions": permission_receipts,
+                "runner_terminal": "relay_security_boundary_rejected",
+                "runner_terminal_detail": str(relay_error),
+            }
         phase = str(value.get("phase") or "")
         if phase in TERMINAL_PHASES:
-            return value
+            return {
+                **value,
+                "runner_auto_permissions": permission_receipts,
+            }
         if phase == "waiting":
-            return value
+            if (
+                operational_permission_policy == "task_local_workspace"
+                and value.get("daemon_status") == "waiting_permission"
+            ):
+                try:
+                    receipt = _resolve_task_local_workspace_permission(
+                        platform_url,
+                        platform_token,
+                        assignment=value,
+                    )
+                except EnterpriseExperimentError as error:
+                    return {
+                        **value,
+                        "runner_auto_permissions": permission_receipts,
+                        "runner_terminal": "unattended_permission_rejected",
+                        "runner_terminal_detail": str(error),
+                    }
+                if receipt["request_id"] not in {
+                    item["request_id"] for item in permission_receipts
+                }:
+                    permission_receipts.append(receipt)
+                time.sleep(1.0)
+                continue
+            return {
+                **value,
+                "runner_auto_permissions": permission_receipts,
+            }
         if (
             phase == "running"
             and value.get("status") == "ready"
@@ -670,11 +909,16 @@ def _poll_assignment(
             return {
                 **value,
                 "runner_terminal": "builder_ready_without_completion_claim",
+                "runner_auto_permissions": permission_receipts,
             }
         time.sleep(1.0)
     if last is None:
         raise EnterpriseExperimentError("formal assignment produced no durable status")
-    return {**last, "runner_timeout": True}
+    return {
+        **last,
+        "runner_timeout": True,
+        "runner_auto_permissions": permission_receipts,
+    }
 
 
 def _safe_assignment_projection(value: Mapping[str, Any]) -> dict[str, Any]:
@@ -695,6 +939,8 @@ def _safe_assignment_projection(value: Mapping[str, Any]) -> dict[str, Any]:
         "updated_at",
         "runner_timeout",
         "runner_terminal",
+        "runner_terminal_detail",
+        "runner_auto_permissions",
     }
     return {key: value[key] for key in sorted(allowed) if key in value}
 
@@ -874,6 +1120,7 @@ def _write_active_run(
     *,
     seed: str,
     collaboration_policy: str,
+    operational_permission_policy: str,
     platform_port: int,
     daemon_port: int,
     application: Mapping[str, Any],
@@ -883,11 +1130,12 @@ def _write_active_run(
     _atomic_private_json(
         _active_run_path(state_root, seed),
         {
-            "schema_version": "1.0",
+            "schema_version": "1.1",
             "task_id": TASK_ID,
             "revision": REVISION,
             "seed": seed,
             "collaboration_policy": collaboration_policy,
+            "operational_permission_policy": operational_permission_policy,
             "platform_port": platform_port,
             "daemon_port": daemon_port,
             "application_id": application.get("id"),
@@ -1064,6 +1312,11 @@ def _write_run_evidence(
 def run_seed(args: argparse.Namespace) -> int:
     state_root = args.state_root.resolve()
     evidence_root = args.evidence_root.resolve()
+    operational_permission_policy = str(
+        getattr(args, "operational_permission_policy", "task_local_workspace")
+    )
+    if operational_permission_policy not in OPERATIONAL_PERMISSION_POLICIES:
+        raise EnterpriseExperimentError("operational permission policy is invalid")
     state_root.mkdir(parents=True, exist_ok=True, mode=0o700)
     started_at = _now()
     runner_secrets = _runner_secrets(state_root, create=True)
@@ -1207,6 +1460,7 @@ def run_seed(args: argparse.Namespace) -> int:
                 state_root,
                 seed=args.seed,
                 collaboration_policy=args.collaboration_policy,
+                operational_permission_policy=operational_permission_policy,
                 platform_port=args.platform_port,
                 daemon_port=args.daemon_port,
                 application=application,
@@ -1224,11 +1478,13 @@ def run_seed(args: argparse.Namespace) -> int:
                 runner_secrets["platform_api_token"],
                 assignment_id=str(assignment["assignment_id"]),
                 deadline_seconds=args.deadline_seconds,
+                operational_permission_policy=operational_permission_policy,
             )
             _write_active_run(
                 state_root,
                 seed=args.seed,
                 collaboration_policy=args.collaboration_policy,
+                operational_permission_policy=operational_permission_policy,
                 platform_port=args.platform_port,
                 daemon_port=args.daemon_port,
                 application=application,
@@ -1278,6 +1534,12 @@ def run_seed(args: argparse.Namespace) -> int:
             else "assignment_builder_incomplete"
             if assignment.get("runner_terminal")
             == "builder_ready_without_completion_claim"
+            else "assignment_unattended_permission_rejected"
+            if assignment.get("runner_terminal")
+            == "unattended_permission_rejected"
+            else "assignment_relay_security_rejected"
+            if assignment.get("runner_terminal")
+            == "relay_security_boundary_rejected"
             else "assignment_waiting_user"
             if phase == "waiting"
             else "assignment_failed"
@@ -1327,7 +1589,7 @@ def resume_seed(args: argparse.Namespace) -> int:
     evidence_root = args.evidence_root.resolve()
     active = _read_private_json(_active_run_path(state_root, args.seed))
     if (
-        active.get("schema_version") != "1.0"
+        active.get("schema_version") != "1.1"
         or active.get("task_id") != TASK_ID
         or active.get("revision") != REVISION
         or active.get("seed") != args.seed
@@ -1336,11 +1598,16 @@ def resume_seed(args: argparse.Namespace) -> int:
     platform_port = int(active["platform_port"])
     daemon_port = int(active["daemon_port"])
     collaboration_policy = str(active["collaboration_policy"])
+    operational_permission_policy = str(active["operational_permission_policy"])
     assignment_id = str(active["assignment_id"])
     application_id = str(active["application_id"])
     connection_id = str(active["connection_id"])
     if collaboration_policy not in {"manual", "auto_forward"}:
         raise EnterpriseExperimentError("active run has an invalid collaboration policy")
+    if operational_permission_policy not in OPERATIONAL_PERMISSION_POLICIES:
+        raise EnterpriseExperimentError(
+            "active run has an invalid operational permission policy"
+        )
     if not os.environ.get("DEEPSEEK_API_KEY"):
         raise EnterpriseExperimentError(
             "DEEPSEEK_API_KEY is required to resume the real Lilies model run"
@@ -1439,6 +1706,7 @@ def resume_seed(args: argparse.Namespace) -> int:
                 runner_secrets["platform_api_token"],
                 assignment_id=assignment_id,
                 deadline_seconds=args.deadline_seconds,
+                operational_permission_policy=operational_permission_policy,
             )
             _environment_command(
                 state_root,
@@ -1477,6 +1745,7 @@ def resume_seed(args: argparse.Namespace) -> int:
             state_root,
             seed=args.seed,
             collaboration_policy=collaboration_policy,
+            operational_permission_policy=operational_permission_policy,
             platform_port=platform_port,
             daemon_port=daemon_port,
             application=application,
@@ -1499,6 +1768,12 @@ def resume_seed(args: argparse.Namespace) -> int:
             else "assignment_builder_incomplete"
             if assignment.get("runner_terminal")
             == "builder_ready_without_completion_claim"
+            else "assignment_unattended_permission_rejected"
+            if assignment.get("runner_terminal")
+            == "unattended_permission_rejected"
+            else "assignment_relay_security_rejected"
+            if assignment.get("runner_terminal")
+            == "relay_security_boundary_rejected"
             else "assignment_waiting_user"
             if phase == "waiting"
             else "assignment_failed"
@@ -1585,6 +1860,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--collaboration-policy",
         choices=("manual", "auto_forward"),
         default="manual",
+    )
+    run.add_argument(
+        "--operational-permission-policy",
+        choices=OPERATIONAL_PERMISSION_POLICIES,
+        default="task_local_workspace",
+        help=(
+            "Resolve exact task-local workspace writes without human supervision; "
+            "all other permission classes remain fail-closed."
+        ),
     )
     run.add_argument("--platform-port", type=int, default=DEFAULT_PLATFORM_PORT)
     run.add_argument("--daemon-port", type=int, default=DEFAULT_DAEMON_PORT)

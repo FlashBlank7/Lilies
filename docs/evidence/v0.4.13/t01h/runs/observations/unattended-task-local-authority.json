@@ -1,0 +1,54 @@
+{
+  "schema_version": "v0.4.13-t01h-user-authority-1",
+  "stage_task_id": "V04-13-T01H",
+  "experiment_task_id": "EXP-LILIES-001",
+  "recorded_at": "2026-07-25T07:26:23Z",
+  "authority": {
+    "source": "latest_explicit_user_instruction",
+    "instruction": "当前补能任务没有人类监控；关闭人类监管，由智能体间自行协作解决。",
+    "scope": "current supplementation task only",
+    "operational_permission_policy": "task_local_workspace",
+    "collaboration_policy": "auto_forward"
+  },
+  "automatic_allow_boundary": {
+    "tools": [
+      "workspace_patch",
+      "workspace_write"
+    ],
+    "writable_prefixes": [
+      "artifacts",
+      "work"
+    ],
+    "required_bindings": [
+      "task_id",
+      "task_revision",
+      "assignment_id",
+      "session_id",
+      "permission_request_id",
+      "input_digest"
+    ],
+    "decision_behavior": "allow exact original input once",
+    "updated_input": null
+  },
+  "unchanged_fail_closed_boundaries": [
+    "business Human Input",
+    "host permission_denied and HTTP 403 behavior",
+    "non-workspace tools",
+    "non-canonical or denied workspace paths",
+    "customer-system connector grants",
+    "network access",
+    "secret access",
+    "task budget",
+    "protected oracle",
+    "unregistered side effects",
+    "formal relay security boundary"
+  ],
+  "formal_collaboration_semantics": {
+    "capability_report_approval": "auto_forward",
+    "report_delivery": "developer_inbox",
+    "formal_execution_mode_switch": "not_available",
+    "development_assignment_substitution": "forbidden",
+    "adapter_mapping_or_final_graph_prewrite": "forbidden"
+  },
+  "claim_ceiling": "This authority removes human button waits only for exact task-local workspace mutations. It does not authorize bypassing the formal collaboration report chain or expanding any task, host, network, secret, oracle, budget, or side-effect boundary."
+}
