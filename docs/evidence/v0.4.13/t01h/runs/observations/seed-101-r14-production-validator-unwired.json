@@ -1,0 +1,67 @@
+{
+  "schema_version": "v0.4.13-t01h-observation-1",
+  "stage_task_id": "V04-13-T01H",
+  "experiment_task_id": "EXP-LILIES-001",
+  "revision": 14,
+  "seed": "101",
+  "attempt_id": "sha256:a21f18d7f76b09eb372f75a71f14a7911532b3e4e5905d7a989e200ee92af725",
+  "observed_at": "2026-07-25T16:37:03Z",
+  "observation_source": "Read-only exports from the stopped task-local platform and bridge stores after the runner preserved the immutable attempt.",
+  "assignment": {
+    "assignment_id": "3a45e062-18aa-5dd0-95ad-c2081b1f62b7",
+    "session_id": "dcb6be13-e12e-5f60-948a-2e6fdf58e4e4",
+    "application_id": "5a7b1961-f262-4ecb-9a34-303c1b048aa2",
+    "status": "ready",
+    "phase": "running",
+    "runner_terminal": "builder_ready_without_completion_claim"
+  },
+  "builder_usage": {
+    "model_calls": 92,
+    "tokens": 13741955,
+    "cost_usd": 1.93030362
+  },
+  "workflow": {
+    "current_draft_revision": 30,
+    "current_content_hash": "sha256:1ecff4195a479b8edbd2e827866a85d952a917cbe9e20d4a74e9c02041321fc1",
+    "workflow_run_count": 11,
+    "selected_test_run_id": "ce310065-ce1e-4149-a838-66357ef59e87",
+    "selected_business_run_id": "9b8b5898-0292-4f63-b107-af4759392c96",
+    "selected_business_record_count": 7
+  },
+  "business_evidence": {
+    "registered_artifact_count": 0,
+    "registered_host_receipt_count": 0,
+    "connector_execution_count": 0,
+    "host_request_log_count": 0,
+    "published_version": null,
+    "routed_report_count": 0,
+    "oracle_verdict": null
+  },
+  "frozen_archive_intent": {
+    "intent_digest": "sha256:beec0336f4262a2f6dc1fc0534abe722dd2828a1401417a6a06d008b7fa64fa3",
+    "artifact_ids": [],
+    "host_receipt_ids": [],
+    "formal_archive_result": null,
+    "formal_claim_result": null,
+    "formal_archive_completed_at": null
+  },
+  "host_snapshots": {
+    "baseline_digest": "sha256:925f888237ea3cd9b79748299d7d8c149ec510b6fa50c900c09256a0fc89996f",
+    "final_digest": "sha256:1fc4defcae9ccb318b0bcd973251477496fb01c59b8c4b5fdccdc87af194c81f",
+    "baseline_record_count": 36,
+    "final_record_count": 36,
+    "baseline_request_log_count": 0,
+    "final_request_log_count": 0
+  },
+  "root_cause": {
+    "classification": "production_dependency_assembly_defect",
+    "detail": "create_app attempted to set formal_archive_intent_validator before constructing LocalLiliesBridge. The object was still null, so the production bridge retained no validator even though isolated coordinator and bridge tests passed.",
+    "repair_revision": 15,
+    "repair": "Inject the current FormalRunArchiveCoordinator callback through the LocalLiliesBridge constructor and assert the production create_app wiring directly."
+  },
+  "independent_review": {
+    "verdict": "PASS",
+    "scope": "Production coordinator construction, constructor injection, callback binding, bridge-lock validation before reserve, and create_app regression."
+  },
+  "claim_ceiling": "This observation proves a production assembly defect and a failed customer attempt only. It does not prove host writeback, required artifacts, formal archive completion, independent oracle success, CAP-LILIES admission, or project pass."
+}

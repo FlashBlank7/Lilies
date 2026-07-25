@@ -16,7 +16,7 @@ from agent_platform.task_packages import TaskPackageManager
 
 
 ROOT = Path(__file__).resolve().parents[1]
-REVISION = 14
+REVISION = 15
 TASK_ROOT = (
     ROOT
     / "docs"

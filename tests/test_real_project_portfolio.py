@@ -91,7 +91,7 @@ def test_fourteen_revisions_are_one_project_not_fourteen_projects() -> None:
     assert portfolio["required_project_count"] == 6
     assert len(portfolio["projects"]) == 6
     assert first["project_id"] == "EXP-LILIES-001"
-    assert first["latest_revision"] == 14
+    assert first["latest_revision"] == 15
     assert [item["project_id"] for item in portfolio["projects"]] == [
         f"EXP-LILIES-{number:03d}" for number in range(1, 7)
     ]

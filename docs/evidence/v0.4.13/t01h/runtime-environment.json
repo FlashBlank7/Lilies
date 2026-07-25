@@ -2,8 +2,8 @@
   "schema_version": "v0.4.13-t01h-runtime-environment-1",
   "stage_task_id": "V04-13-T01H",
   "experiment_task_id": "EXP-LILIES-001",
-  "revision": 14,
-  "observed_at": "2026-07-25T16:03:54Z",
+  "revision": 15,
+  "observed_at": "2026-07-25T16:37:03Z",
   "environment": {
     "status": "ready",
     "docker_daemon_probe": "passed",
@@ -21,16 +21,16 @@
     },
     "task_author_preflight": {
       "status": "passed",
-      "candidate_revision": 14,
+      "candidate_revision": 15,
       "runner_preparation": "passed",
-      "runner_source_digest": "sha256:99b5e63b00174a820c96ef1db887254f04826478b1cbc52d2a0b323ebe49ad7c",
-      "package_public_summary_digest": "sha256:4d4b0ad0bb8b3f28396962d7f0a99cb3e3a67fc7015abfc57caab752f702b384",
-      "package_sealed_digest": "sha256:a34362edd84d1ca0ad2883c151e3f1cb5f45cfbe36bdfdce2ba83b872e84659e",
+      "runner_source_digest": "sha256:02fd8a212e5f686a8c202078c73160f7b878cbad7538de46d3a7d9ab10353d7a",
+      "package_public_summary_digest": "sha256:36d8d08ffbec96e4cc9014ed8b6908c01087f080feda56dbff15a4c41431351e",
+      "package_sealed_digest": "sha256:7ef0296e8aaf4eff5bd289648933be37779423f779ef6bffb6474755d99d7a21",
       "inherited_pinned_image_count": 6,
-      "focused_regression": "Formal archiver, platform wiring, collaboration tool, Lilies completion, and local bridge regressions passed 113 tests. The archive preflight covers complete current-draft run sets, current-business artifact and receipt inventory, required-deliverable media-type multiplicity, test-run exclusion, connector write execution and operation pairing, reserve-before-failure behavior, and same-turn HTTP 409 repair. Task-package, runner, and portfolio suites passed after revision-14 expectations were updated.",
+      "focused_regression": "Formal archiver, production platform wiring, collaboration tools, Lilies completion, local bridge, revision-15 package/runner, and six-project portfolio regressions passed 169 tests. The create_app wiring regression proves the constructed LocalLiliesBridge holds and calls the current FormalRunArchiveCoordinator validator; isolated archive-intent, reserve-before-failure, durable recheck, and same-turn 409 repair coverage also passed.",
       "broad_regression": "Not rerun before the revision 12 seed-101 attempt; prior baselines remain evidence only and cannot substitute for T01J.",
-      "independent_review": "A fresh read-only reviewer initially rejected the empty-only evidence gate, then passed the corrected diff after verifying exact current-business inventory, per-deliverable coverage, connector receipt pairing, bridge-lock preflight before immutable reservation, same-turn public 409 repair, durable recheck, and no hidden oracle, CAP, or project-answer leakage.",
-      "reason": "Revision 14 is an immutable child of revision 13. It preserves the enterprise requirement, unattended task-local permission policy, fixtures, oracle, budgets, model-egress gate, token monitoring, and acceptance. Revision 13 exposed that public run and evidence incompleteness was rejected only after daemon completion. The generic control plane now rejects incomplete current-draft runs, required business deliverables, registered evidence inventory, and host-write receipts inside the bridge assignment lock before immutable intent reservation."
+      "independent_review": "A read-only reviewer passed the production assembly repair after tracing coordinator construction, constructor injection into the same running bridge, bridge-lock validation before reserve, and the create_app regression. It reported only a nonblocking absence of a single production-app end-to-end provider-to-reserve test; the bridge integration suite separately covers failure-before-reserve.",
+      "reason": "Revision 15 is an immutable child of revision 14. It preserves the enterprise requirement, unattended task-local permission policy, fixtures, oracle, budgets, model-egress gate, token monitoring, and acceptance. Revision 14 exposed that api.py attempted validator injection while local_lilies_bridge was still None, so the production bridge retained no pre-reservation validator. The validator is now passed into the bridge constructor in the actual create_app assembly path."
     },
     "previous_revision_preflight": {
       "status": "failed",
@@ -184,6 +184,16 @@
         "revision": 14,
         "outcome": "generic_formal_archive_intent_preflight_child_frozen",
         "reason": "The platform now derives the complete current-draft test and business run sets, exact current-business artifact and host-receipt inventory, required-deliverable media-type multiplicity, and connector write execution-operation denominator before reserving an immutable archive intent. Repairable public gaps return stable 409 diagnostics in the same Builder turn; the durable post-completion checks repeat the same boundary. No project answer, adapter, oracle, CAP entry, permission, budget, or acceptance changed."
+      },
+      {
+        "revision": 14,
+        "outcome": "builder_false_durable_wait_production_validator_unwired",
+        "reason": "The fresh revision 14 seed-101 run completed 92 model calls, 13,741,955 tokens, eleven workflow runs, and $1.93030362. It reduced the task to a seven-record subset business run, made zero host requests, registered no artifact or host receipt, published no version, and produced no report or oracle. Because production create_app attempted to inject the new validator before constructing LocalLiliesBridge, the running bridge retained no validator and froze an empty archive intent. Lilies then ended in a false durable wait; the runner preserved the attempt as assignment_builder_incomplete."
+      },
+      {
+        "revision": 15,
+        "outcome": "production_archive_intent_validator_wiring_child_frozen",
+        "reason": "The generic archive-intent validator is now injected through the production LocalLiliesBridge constructor after the FormalRunArchiveCoordinator exists. A create_app wiring regression and read-only independent review prove the live bridge holds the current coordinator callback; the business task, fixtures, oracle, budget, permissions, model egress, token monitoring, CAP gate, and acceptance are unchanged."
       }
     ],
     "model_authority": {
@@ -195,33 +205,33 @@
       "usable": true
     },
     "real_host_services_started": true,
-    "real_host_runs": 11,
+    "real_host_runs": 12,
     "formal_attempts": {
-      "total": 24,
+      "total": 25,
       "passed": 0,
-      "failed": 19,
+      "failed": 20,
       "waiting_permission_checkpoints": 5,
-      "seed_101_failed": 19,
+      "seed_101_failed": 20,
       "seed_101_waiting_permission_checkpoints": 5,
       "seed_202_not_run": 1,
       "seed_303_not_run": 1,
       "immutable_attempt_evidence": true,
-      "latest_failure": "Revision 13 proved two bounded unattended permission decisions, then used 71 model calls, 8,893,085 tokens, 80 local tools, 10 workflow runs, and final draft revision 27. Eight runs succeeded only over a three-node placeholder workflow; baseline and final host snapshots each recorded 36 records and zero requests. No registered artifact, host receipt, publication, formal report, persisted claim, archive, or oracle result existed, and the platform correctly rejected the incomplete formal archive after daemon completion."
+      "latest_failure": "Revision 14 used 92 model calls, 13,741,955 tokens, eleven workflow runs, and final draft revision 30, but ran only a seven-record subset, made zero host requests, registered no artifact or receipt, published no version, and produced no report or oracle. Production dependency assembly left the pre-reservation validator unwired, so an empty immutable archive intent was retained and Lilies stopped in a false durable wait."
     },
     "stable_hidden_runs": {
       "completed": 0,
       "required": 3
     },
     "blocked_by": null,
-    "recheck_trigger": "Run frozen revision 14 seed 101 from fresh state with explicit model egress and token monitoring. Preserve the result; only a complete Lilies-submitted routed project report may enter CAP-LILIES."
+    "recheck_trigger": "Run frozen revision 15 seed 101 from fresh state with explicit model egress and token monitoring. Preserve the result; only a complete Lilies-submitted routed project report may enter CAP-LILIES."
   },
   "enterprise_denominator": {
     "required_runs": 3,
     "required_hidden_records_per_run": 36,
-    "completed_runs": 11,
+    "completed_runs": 12,
     "passed_runs": 0,
-    "failed_runs": 11,
+    "failed_runs": 12,
     "not_run_runs": 2
   },
-  "claim_ceiling": "Frozen revision 14 package preparation and the generic pre-reservation archive-intent repair are deterministically tested and independently reviewed. Revision 13 remains the latest customer run result: a three-node placeholder workflow, zero host requests, no registered artifact or host receipt, no publication, no routed report, no persisted claim, and a correctly rejected formal archive. Control-plane repair and structural runs are not customer capability or success. No 36/36 oracle pass or stable-seed result is claimed."
+  "claim_ceiling": "Frozen revision 15 package preparation and the production archive-intent validator assembly repair are deterministically tested and independently reviewed. Revision 14 remains the latest customer run result: a subset-only workflow, zero host requests, no registered artifact or host receipt, no publication, no routed report, no oracle, and a false durable wait over an empty immutable intent. Control-plane repair and structural runs are not customer capability or success. No 36/36 oracle pass or stable-seed result is claimed."
 }

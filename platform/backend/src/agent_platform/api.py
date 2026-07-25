@@ -2768,15 +2768,6 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
             connector_service=connectors,
             source_provenance=formal_source_provenance,
         )
-        if local_lilies_bridge is not None:
-            local_lilies_bridge.formal_archive_intent_validator = (
-                lambda channel_id, request: (
-                    formal_run_archiver.validate_success_archive_intent(
-                        channel_id=channel_id,
-                        request=request,
-                    )
-                )
-            )
         from .formal_independent_verification import (
             FormalIndependentVerificationService,
         )
@@ -2862,6 +2853,18 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         ),
         formal_success_archive_provider=(
             archive_formal_success if formal_run_archiver is not None else None
+        ),
+        formal_archive_intent_validator=(
+            (
+                lambda channel_id, request: (
+                    formal_run_archiver.validate_success_archive_intent(
+                        channel_id=channel_id,
+                        request=request,
+                    )
+                )
+            )
+            if formal_run_archiver is not None
+            else None
         ),
         formal_verification_claim_provider=(
             freeze_formal_verification_claim

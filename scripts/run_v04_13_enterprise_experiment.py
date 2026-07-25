@@ -32,7 +32,7 @@ from agent_platform.token_monitoring import (
 
 ROOT = Path(__file__).resolve().parents[1]
 TASK_ID = "EXP-LILIES-001"
-REVISION = 14
+REVISION = 15
 TASK_ROOT = (
     ROOT
     / "docs"

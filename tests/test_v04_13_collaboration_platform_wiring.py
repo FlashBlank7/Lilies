@@ -271,11 +271,22 @@ async def test_platform_formal_archive_intent_callback_targets_the_running_bridg
     services = app.state.services
     provider = services.collaboration._formal_archive_provider
     assert provider is not None
+    intent_validator = (
+        services.local_lilies_bridge.formal_archive_intent_validator
+    )
+    assert intent_validator is not None
     channel = SimpleNamespace(channel_id=uuid4())
     request = object()
     services.formal_run_archiver.validate_success_archive_intent = AsyncMock(
         return_value=None
     )
+
+    await intent_validator(channel.channel_id, request)
+    services.formal_run_archiver.validate_success_archive_intent.assert_awaited_once_with(
+        channel_id=channel.channel_id,
+        request=request,
+    )
+    services.formal_run_archiver.validate_success_archive_intent.reset_mock()
 
     async def freeze_with_preflight(
         *,

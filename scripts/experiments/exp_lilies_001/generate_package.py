@@ -13,7 +13,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[3]
 TASK_ID = "EXP-LILIES-001"
-REVISION = 14
+REVISION = 15
 CREATED_AT = "2026-07-25T07:15:00Z"
 DEFAULT_OUTPUT = (
     ROOT
@@ -964,16 +964,18 @@ def generate(output: Path) -> None:
             "collaboration_enabled": True,
             "author": "codex-task-author",
             "created_at": CREATED_AT,
-            "parent_revision": 13,
+            "parent_revision": 14,
             "amendment_reason": (
-                "Revision 13 proved bounded task-local permission decisions, but the "
-                "formal archive accepted an immutable intent before checking the complete "
-                "current-draft run and business-evidence denominator. Revision 14 preserves "
+                "Revision 14 proved the generic archive-intent validator in isolation, but "
+                "the production application assembled LocalLiliesBridge only after the "
+                "attempted validator injection, so the running bridge retained no validator "
+                "and accepted an empty immutable intent. Revision 15 preserves "
                 "the business requirement, fixtures, oracle, budgets, permissions, "
                 "collaboration authority, model-egress gate, and acceptance from revision "
-                "13. Only the generic formal control plane changes: public current-run, "
-                "required-deliverable, registered-artifact, and host-write receipt gaps "
-                "fail before the immutable archive intent is reserved."
+                "14. Only production dependency assembly changes: the generic validator is "
+                "passed into the bridge constructor so public current-run, required-"
+                "deliverable, registered-artifact, and host-write receipt gaps fail before "
+                "the immutable archive intent is reserved."
             ),
         },
     )
@@ -981,7 +983,7 @@ def generate(output: Path) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Generate immutable EXP-LILIES-001 revision-fourteen source files."
+        description="Generate immutable EXP-LILIES-001 revision-fifteen source files."
     )
     parser.add_argument(
         "--output",
