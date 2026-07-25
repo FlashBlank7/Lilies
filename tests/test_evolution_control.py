@@ -103,6 +103,33 @@ def test_current_contract_lock_is_frozen_in_its_first_git_commit() -> None:
     assert errors == []
 
 
+def test_v04_13_revision_3_contract_lock_is_frozen_in_its_first_git_commit() -> None:
+    module = load_validator()
+    report = (
+        ROOT
+        / "docs/stage-reports/v0.4.13_lilies_local_agent_and_collaboration_pipeline.md"
+    )
+    text = report.read_text(encoding="utf-8")
+    source = module.parse_first_table(
+        module.section_text(text, "Source Task Set", ["Stage Contract"])
+    )
+    contract = module.section_text(text, "Stage Contract", ["Stage Objective"])
+    mandatory, optional = module.contract_tables(contract)
+
+    errors = module.validate_contract_lock(
+        root=ROOT,
+        report_path=report,
+        version="v0.4.13",
+        contract=contract,
+        source_rows=module.non_none_rows(source, "Task ID"),
+        mandatory_rows=module.non_none_rows(mandatory, "Task ID"),
+        optional_rows=module.non_none_rows(optional, "Task ID"),
+        require_git_baseline=True,
+    )
+
+    assert errors == []
+
+
 def test_program_charter_is_frozen_and_uses_registry_intent_ids() -> None:
     module = load_validator()
     registry = module.load_registry()
