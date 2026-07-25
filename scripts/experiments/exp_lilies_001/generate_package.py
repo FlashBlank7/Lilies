@@ -13,8 +13,8 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[3]
 TASK_ID = "EXP-LILIES-001"
-REVISION = 18
-CREATED_AT = "2026-07-25T18:30:11Z"
+REVISION = 19
+CREATED_AT = "2026-07-25T19:18:32Z"
 DEFAULT_OUTPUT = (
     ROOT
     / "docs"
@@ -964,16 +964,17 @@ def generate(output: Path) -> None:
             "collaboration_enabled": True,
             "author": "codex-task-author",
             "created_at": CREATED_AT,
-            "parent_revision": 17,
+            "parent_revision": 18,
             "amendment_reason": (
-                "Revision 17 reached 58 model calls before a daemon SQLite read failed "
-                "because generic storage transactions committed or rolled back without "
-                "closing their connections. Revision 18 preserves the business requirement, "
-                "fixtures, oracle, budgets, permissions, collaboration authority, model-egress "
-                "gate, CAP admission, and acceptance from revision 17. Only the generic "
-                "LiliesStorage connection lifecycle changes: every transaction closes after "
-                "commit or rollback, setup failures also close, and a secondary close error "
-                "cannot mask the original setup or transaction failure."
+                "Revision 18 exhausted its frozen model budget after an incomplete capability "
+                "report repeatedly lost required evidence fields because successful report "
+                "responses exposed needs_more_evidence without the deterministic missing field "
+                "names already computed by the platform. Revision 19 preserves the business "
+                "requirement, fixtures, oracle, budgets, permissions, collaboration authority, "
+                "model-egress gate, host boundary, CAP admission, and acceptance from revision "
+                "18. Only the generic collaboration report response changes: successful create "
+                "and revise responses expose stable missing field names, while complete reports "
+                "return an empty list and no field values or protected context are added."
             ),
         },
     )
@@ -981,7 +982,7 @@ def generate(output: Path) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Generate immutable EXP-LILIES-001 revision-eighteen source files."
+        description="Generate immutable EXP-LILIES-001 revision-nineteen source files."
     )
     parser.add_argument(
         "--output",

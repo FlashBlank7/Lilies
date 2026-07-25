@@ -16,7 +16,7 @@ from agent_platform.task_packages import TaskPackageManager
 
 
 ROOT = Path(__file__).resolve().parents[1]
-REVISION = 18
+REVISION = 19
 TASK_ROOT = (
     ROOT
     / "docs"
@@ -51,6 +51,7 @@ RUNTIME_ENVIRONMENT_PATH = (
 SOURCE_PATHS = (
     "platform/backend/src/agent_platform/api.py",
     "platform/backend/src/agent_platform/config.py",
+    "platform/backend/src/agent_platform/collaboration_service.py",
     "platform/backend/src/agent_platform/formal_source_provenance.py",
     "platform/backend/src/agent_platform/formal_verification_contracts.py",
     "platform/backend/src/agent_platform/formal_independent_verification.py",
