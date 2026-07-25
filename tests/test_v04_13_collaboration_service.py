@@ -603,6 +603,18 @@ async def test_platform_report_routing_is_schema_and_task_setting_driven(
     )
     assert result["route"] == expected_route
     assert result["status"] == expected_status
+    assert result["completeness_issues"] == (
+        []
+        if complete
+        else [
+            "attempted_routes",
+            "expected",
+            "actual",
+            "evidence_refs",
+            "platform_contract_digest",
+            "manuals_checked",
+        ]
+    )
 
 
 @pytest.mark.asyncio

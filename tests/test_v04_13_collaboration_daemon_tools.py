@@ -1178,6 +1178,57 @@ async def test_mutating_tool_fails_closed_when_channel_cas_state_is_unavailable(
 
 
 @pytest.mark.asyncio
+async def test_report_tool_preserves_server_semantic_completeness_diagnostic(
+    tmp_path: Path,
+) -> None:
+    channel_id = uuid4()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(
+                200,
+                request=request,
+                json={"channel_id": str(channel_id), "revision": 4},
+            )
+        return httpx.Response(
+            201,
+            request=request,
+            json={
+                "report_id": str(uuid4()),
+                "status": "needs_more_evidence",
+                "completeness_issues": [
+                    "expected",
+                    "manuals_checked",
+                    "missing_contract",
+                ],
+            },
+        )
+
+    client = LiliesCollaborationClient(
+        base_url="http://127.0.0.1:8001/",
+        access_token=COLLABORATION_TOKEN,
+        channel_id=channel_id,
+        transport=httpx.MockTransport(handler),
+    )
+    registry = register_lilies_collaboration_tools(LiliesToolRegistry(), client)
+    result = await registry.get("collaboration_report_submit").execute(
+        {
+            "operation": "submit",
+            "idempotency_key": "collaboration-report-semantic-diagnostic-0001",
+            "report": collaboration_report_payload(),
+        },
+        LiliesToolContext(session_id=str(uuid4()), workspace=tmp_path),
+    )
+
+    assert result.is_error is False
+    assert json.loads(result.content)["data"]["completeness_issues"] == [
+        "expected",
+        "manuals_checked",
+        "missing_contract",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_invalid_collaboration_tool_input_returns_bounded_public_paths(
     tmp_path: Path,
 ) -> None:

@@ -550,6 +550,7 @@ def test_http_formal_developer_response_fails_closed_when_local_agent_is_off(
         )
         assert submitted.status_code == 201, submitted.text
         assert submitted.json()["status"] == "awaiting_user_review"
+        assert submitted.json()["completeness_issues"] == []
         approved = client.post(
             f"/api/v1/studio/collaboration/reports/{report_id}/decision",
             headers=auth(API_TOKEN),

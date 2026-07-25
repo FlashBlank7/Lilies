@@ -25,6 +25,7 @@ from .collaboration_models import (
     CollaborationChannel,
     CollaborationMessageEnvelope,
     CollaborationReport,
+    CollaborationReportPayload,
     ControlKind,
     ControlMessage,
     DeveloperLease,
@@ -440,6 +441,12 @@ def _replay_receipt_after_conflict(
                     client_request_digest=client_request_digest,
                 )
                 if replay is not None:
+                    report = getattr(request, "report", None)
+                    if (
+                        receipt_operation in {"report.create", "report.revise"}
+                        and report is not None
+                    ):
+                        return _with_report_completeness(replay, report)
                     return replay
                 raise
 
@@ -511,6 +518,15 @@ def _as_dict(value: Any) -> dict[str, Any]:
     if isinstance(value, Mapping):
         return {str(key): item for key, item in value.items()}
     raise TypeError("collaboration storage returned a non-object record")
+
+
+def _with_report_completeness(
+    value: Any,
+    report: CollaborationReportPayload,
+) -> dict[str, Any]:
+    result = _as_dict(value)
+    result["completeness_issues"] = list(report.completeness_issues())
+    return result
 
 
 def _as_list(value: Any) -> list[Any]:
@@ -1693,7 +1709,7 @@ class CollaborationService:
             client_request_digest=client_request_digest,
         )
         if operation_replay is not None:
-            return operation_replay
+            return _with_report_completeness(operation_replay, request.report)
         replay = await self._message_replay(
             channel_id=channel_id,
             actor=actor,
@@ -1703,7 +1719,10 @@ class CollaborationService:
             client_request_digest=client_request_digest,
         )
         if replay is not None:
-            return _as_dict(await self.store.get_report(request.report.report_id))
+            return _with_report_completeness(
+                await self.store.get_report(request.report.report_id),
+                request.report,
+            )
         channel = await self._channel(channel_id, principal=actor)
         self._require_open(channel)
         if request.expected_channel_revision != channel.revision:
@@ -1858,7 +1877,7 @@ class CollaborationService:
             }
         stored = await self.store.create_report(storage_record, message)
         self._notify_events(channel_id)
-        return _as_dict(stored)
+        return _with_report_completeness(stored, request.report)
 
     @_replay_receipt_after_conflict(
         receipt_operation="report.revise",
@@ -1898,7 +1917,7 @@ class CollaborationService:
                     operation_replay,
                     report_id=report_id,
                 )
-            return operation_replay
+            return _with_report_completeness(operation_replay, request.report)
         replay = await self._message_replay(
             channel_id=channel_id,
             actor=actor,
@@ -1908,7 +1927,10 @@ class CollaborationService:
             client_request_digest=client_request_digest,
         )
         if replay is not None:
-            return _as_dict(await self.store.get_report(report_id))
+            return _with_report_completeness(
+                await self.store.get_report(report_id),
+                request.report,
+            )
         channel = await self._channel(channel_id, principal=actor)
         self._require_open(channel)
         current = CollaborationReport.model_validate(await self.store.get_report(report_id))
@@ -2087,7 +2109,7 @@ class CollaborationService:
                 report_id=report_id,
             )
         self._notify_events(channel_id)
-        return _as_dict(stored)
+        return _with_report_completeness(stored, request.report)
 
     @_replay_receipt_after_conflict(
         receipt_operation="report.revise",

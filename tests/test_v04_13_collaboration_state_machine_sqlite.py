@@ -24,6 +24,7 @@ from agent_platform.collaboration_models import (
     LeaseRenewRequest,
     LiliesReprobeResultPayload,
     LiliesReprobeResultRequest,
+    ReportRevisionRequest,
     ReportSubmitRequest,
     ReportWithdrawalRequest,
     SenderRole,
@@ -257,6 +258,91 @@ async def test_lilies_withdrawal_is_terminal_causal_and_idempotent(
         record["event_type"] == "collaboration.report_withdrawn"
         for record in exported["export"]["audit"]
     )
+
+
+@pytest.mark.asyncio
+async def test_report_responses_expose_only_stable_semantic_completeness_issues(
+    tmp_path: Path,
+) -> None:
+    service, _, channel, lilies, _, _ = await _harness(tmp_path)
+    channel_id = UUID(channel["channel_id"])
+    report_id = uuid4()
+    incomplete_input = _report_payload(report_id)
+    incomplete_input["attempted_routes"] = []
+    incomplete_input["manuals_checked"] = []
+    incomplete_input.pop("expected")
+    incomplete_input.pop("missing_contract")
+    incomplete = CollaborationReportPayload.model_validate(incomplete_input)
+
+    submitted = await service.submit_report(
+        principal=lilies,
+        channel_id=channel_id,
+        request=ReportSubmitRequest(
+            idempotency_key="report-semantic-diagnostic-submit-0001",
+            expected_channel_revision=1,
+            report=incomplete,
+        ),
+    )
+    assert submitted["status"] == "needs_more_evidence"
+    assert submitted["completeness_issues"] == [
+        "attempted_routes",
+        "expected",
+        "manuals_checked",
+        "missing_contract",
+    ]
+
+    partial_input = _report_payload(report_id)
+    partial_input["attempted_routes"] = []
+    partial = CollaborationReportPayload.model_validate(partial_input)
+    partial_request = ReportRevisionRequest(
+        idempotency_key="report-semantic-diagnostic-revise-0001",
+        expected_report_revision=submitted["revision"],
+        report=partial,
+    )
+    revised = await service.revise_report(
+        principal=lilies,
+        channel_id=channel_id,
+        report_id=report_id,
+        request=partial_request,
+    )
+    assert revised["status"] == "needs_more_evidence"
+    assert revised["completeness_issues"] == ["attempted_routes"]
+    assert (
+        await service.revise_report(
+            principal=lilies,
+            channel_id=channel_id,
+            report_id=report_id,
+            request=partial_request,
+        )
+        == revised
+    )
+
+    complete = CollaborationReportPayload.model_validate(_report_payload(report_id))
+    complete_request = ReportRevisionRequest(
+        idempotency_key="report-semantic-diagnostic-revise-0002",
+        expected_report_revision=revised["revision"],
+        report=complete,
+    )
+    completed = await service.revise_report(
+        principal=lilies,
+        channel_id=channel_id,
+        report_id=report_id,
+        request=complete_request,
+    )
+    assert completed["status"] == "awaiting_user_review"
+    assert completed["completeness_issues"] == []
+
+    diagnostic_surface = json.dumps(
+        {
+            "submitted": submitted["completeness_issues"],
+            "revised": revised["completeness_issues"],
+            "completed": completed["completeness_issues"],
+        },
+        sort_keys=True,
+    )
+    assert "https://" not in diagnostic_surface
+    assert "provider_api_key" not in diagnostic_surface
+    assert incomplete.actual not in diagnostic_surface
 
 
 @pytest.mark.asyncio
