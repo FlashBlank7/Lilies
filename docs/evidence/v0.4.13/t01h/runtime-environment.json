@@ -3,7 +3,7 @@
   "stage_task_id": "V04-13-T01H",
   "experiment_task_id": "EXP-LILIES-001",
   "revision": 7,
-  "observed_at": "2026-07-25T05:21:47Z",
+  "observed_at": "2026-07-25T05:53:09Z",
   "environment": {
     "status": "ready",
     "docker_daemon_probe": "passed",
@@ -20,15 +20,15 @@
       "missing_digests": []
     },
     "task_author_preflight": {
-      "status": "pending",
+      "status": "passed",
       "candidate_revision": 7,
       "runner_preparation": "passed",
       "inherited_pinned_image_count": 6,
-      "reason": "Revision 7 was generated after revision 6 reached Builder execution but the task-author runner failed to project the frozen 120-turn task budget into the daemon before session creation; revision 7 has not yet started a real-host preflight."
+      "reason": "Revision 7 projected the frozen 120-turn task budget before session creation and passed its seven-container, 36-record, zero-write baseline, fault-proxy, version, and HMAC identity preflight."
     },
     "previous_revision_preflight": {
       "status": "passed",
-      "candidate_revision": 6,
+      "candidate_revision": 7,
       "runner_preparation": "passed",
       "container_count": 7,
       "stable_container_count": 7,
@@ -36,8 +36,8 @@
       "inventree_version": "1.4.2",
       "hidden_record_count": 36,
       "baseline_snapshot_mode": "0600",
-      "baseline_snapshot_digest": "sha256:f72a87fb268effda8131ce03112889f77d393e4598bd22a18aff48abd8ecf7ee",
-      "final_snapshot_digest": "sha256:10d55657370f7347e8b47ea3c97859be13b2070ccc575d9e2a65854d85ad0ee4",
+      "baseline_snapshot_digest": "sha256:292d70a614868240faa6bd61abcf71bb1c17c5aefcc2a802cb3f4d5c56532d07",
+      "final_snapshot_digest": "sha256:a4bdcb52668c854aba546555d480f4da98c1158fe560845ac865585be9c11d50",
       "baseline_request_log_count": 0,
       "baseline_forbidden_write_count": 0,
       "baseline_duplicate_effect_count": 0,
@@ -47,17 +47,18 @@
       ],
       "environment_attestation": "verified",
       "formal_assignment": {
-        "assignment_id": "4dcc8cbe-de36-5f5c-99a0-7fc8bcdeccaa",
-        "session_id": "fea285a8-5b87-513f-9b75-7051a0947ddf",
+        "assignment_id": "4c3d3c57-dc3e-550b-b912-4200bc027dc6",
+        "session_id": "44cab6a7-c522-5384-9b88-ba0bb6eda740",
         "status": "failed",
         "phase": "failed",
-        "draft_revision": 48,
-        "workflow_run_count": 6,
-        "tool_call_count": 92,
-        "model_call_count": 33,
-        "token_count": 3904057,
-        "model_cost_usd": 0.55062518,
-        "failure": "maximum token budget exceeded (3840000)"
+        "draft_revision": 37,
+        "workflow_run_count": 11,
+        "tool_call_count": 139,
+        "model_call_count": 103,
+        "token_count": 15500762,
+        "model_cost_usd": 2.1755132,
+        "failure": "maximum token budget exceeded (15360000)",
+        "self_reported_remaining": "Only 8 of 24 public records embedded; scenario logic, real XLSX content, validation tests, publication, and acceptance remained incomplete."
       },
       "services_stopped_after_failure": true
     },
@@ -93,8 +94,8 @@
       },
       {
         "revision": 7,
-        "outcome": "task_author_preflight_pending",
-        "reason": "Revision 6 preserved the failed attempt and revision 7 projects the frozen max_build_repair_turns value into the task-local daemon environment before any session is created."
+        "outcome": "builder_incomplete_at_frozen_budget",
+        "reason": "Revision 7 passed task-author preflight and correctly projected 120 turns, then consumed 103 model calls, 139 tools, 15,500,762 tokens, and eleven workflow runs before explicitly reporting that only 8/24 public records and an incomplete dry-run workflow existed; no capability report, host write, claim, or oracle result was produced."
       }
     ],
     "model_authority": {
@@ -103,31 +104,31 @@
       "present": true
     },
     "real_host_services_started": true,
-    "real_host_runs": 0,
+    "real_host_runs": 2,
     "formal_attempts": {
-      "total": 6,
+      "total": 7,
       "passed": 0,
-      "failed": 6,
-      "seed_101_failed": 6,
+      "failed": 7,
+      "seed_101_failed": 7,
       "seed_202_not_run": 1,
       "seed_303_not_run": 1,
       "immutable_attempt_evidence": true,
-      "latest_failure": "Revision 6 reached Builder execution, draft revision 48, and six workflow runs before the task-author runner's unprojected thirty-turn daemon token ceiling ended the session"
+      "latest_failure": "Revision 7 consumed the correctly projected frozen budget, then self-reported an incomplete 8/24 public-record dry-run workflow without host writes, capability report, claim, or oracle result"
     },
     "stable_hidden_runs": {
       "completed": 0,
       "required": 3
     },
     "blocked_by": null,
-    "recheck_trigger": "Commit the revision 7 task-budget projection and execute its real-host preflight and seed 101 through the same formal boundary."
+    "recheck_trigger": "Preserve and commit the first revision 7 Builder failure, then rerun the same immutable revision and seed in a fresh state root through the same formal boundary."
   },
   "enterprise_denominator": {
     "required_runs": 3,
     "required_hidden_records_per_run": 36,
-    "completed_runs": 1,
+    "completed_runs": 2,
     "passed_runs": 0,
-    "failed_runs": 1,
+    "failed_runs": 2,
     "not_run_runs": 2
   },
-  "claim_ceiling": "Frozen revision 7 package preparation plus revision 6 real-host preflight, Builder execution through draft revision 48 and six workflow runs, and six preserved failed attempts. The revision 6 budget failure remains in the enterprise denominator; no completed workflow, host write, hidden 36/36 oracle pass, or stable-seed result is claimed."
+  "claim_ceiling": "Frozen revision 7 package and real-host preflight plus two preserved Builder executions: revision 6 reached draft 48/six runs before an under-projected runner ceiling, and revision 7 reached draft 37/eleven runs at the correct frozen budget but self-reported only 8/24 public records and incomplete deliverables. Both budget failures remain in the enterprise denominator; no completed workflow, host write, hidden 36/36 oracle pass, or stable-seed result is claimed."
 }
