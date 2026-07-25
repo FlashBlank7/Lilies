@@ -23,12 +23,12 @@ from urllib.request import Request, urlopen
 from agent_platform.lilies_client import LiliesClient
 from agent_platform.lilies_config import LiliesSettings
 from agent_platform.lilies_models import LocalScope
-from agent_platform.task_packages import TaskPackageManager
+from agent_platform.task_packages import BudgetSpec, TaskPackageManager
 
 
 ROOT = Path(__file__).resolve().parents[1]
 TASK_ID = "EXP-LILIES-001"
-REVISION = 6
+REVISION = 7
 TASK_ROOT = (
     ROOT
     / "docs"
@@ -368,6 +368,18 @@ def _platform_environment(
     return environment
 
 
+def _task_max_turns() -> int:
+    try:
+        budget = BudgetSpec.model_validate_json((TASK_ROOT / "budget.json").read_bytes())
+    except (OSError, ValueError) as error:
+        raise EnterpriseExperimentError(
+            "frozen task budget is unavailable or invalid"
+        ) from error
+    if budget.task_id != TASK_ID or budget.revision != REVISION:
+        raise EnterpriseExperimentError("frozen task budget identity is invalid")
+    return budget.max_build_repair_turns
+
+
 def _daemon_environment(state_root: Path, *, port: int) -> dict[str, str]:
     environment = os.environ.copy()
     environment.update(
@@ -376,6 +388,7 @@ def _daemon_environment(state_root: Path, *, port: int) -> dict[str, str]:
             "LILIES_WORKSPACE_ROOT": str(state_root / "lilies-workspaces"),
             "LILIES_HOST": "127.0.0.1",
             "LILIES_PORT": str(port),
+            "LILIES_DEFAULT_MAX_TURNS": str(_task_max_turns()),
         }
     )
     return environment

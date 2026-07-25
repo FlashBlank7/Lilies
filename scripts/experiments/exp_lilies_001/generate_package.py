@@ -13,8 +13,8 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[3]
 TASK_ID = "EXP-LILIES-001"
-REVISION = 6
-CREATED_AT = "2026-07-25T04:57:00Z"
+REVISION = 7
+CREATED_AT = "2026-07-25T05:23:00Z"
 DEFAULT_OUTPUT = (
     ROOT
     / "docs"
@@ -718,7 +718,7 @@ def generate(output: Path) -> None:
                 "port": 18011,
             },
         ],
-        "network_name": "exp-lilies-001-r6",
+        "network_name": "exp-lilies-001-r7",
         "volumes": [
             "paperless-redis",
             "paperless-db",
@@ -782,7 +782,7 @@ def generate(output: Path) -> None:
                 "url": "http://127.0.0.1:18002/identity",
                 "expected_status": 200,
                 "expected_body_digest": _digest(
-                    b'{"identity":"exp-lilies-001-r6-real-hosts"}'
+                    b'{"identity":"exp-lilies-001-r7-real-hosts"}'
                 ),
                 "timeout_seconds": 5.0,
                 "mandatory": True,
@@ -964,12 +964,12 @@ def generate(output: Path) -> None:
             "collaboration_enabled": True,
             "author": "codex-task-author",
             "created_at": CREATED_AT,
-            "parent_revision": 5,
+            "parent_revision": 6,
             "amendment_reason": (
-                "Revision 5 created and started the formal assignment, but the "
-                "task-author runner treated the Studio collaboration-channel "
-                "inventory response envelope as a raw list and therefore could "
-                "not enable the user-authorized auto-forward policy."
+                "Revision 6 reached Builder execution, draft revision 48, and six "
+                "workflow runs, but the task-author runner launched the daemon "
+                "with its default thirty-turn token ceiling instead of projecting "
+                "the frozen 120-turn task budget before session creation."
             ),
         },
     )
@@ -977,7 +977,7 @@ def generate(output: Path) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Generate immutable EXP-LILIES-001 revision-six source files."
+        description="Generate immutable EXP-LILIES-001 revision-seven source files."
     )
     parser.add_argument(
         "--output",

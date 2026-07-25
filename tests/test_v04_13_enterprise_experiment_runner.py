@@ -581,6 +581,19 @@ def test_runner_secret_state_is_private_stable_and_contains_no_model_key(
     )
 
 
+def test_daemon_environment_projects_the_frozen_task_turn_budget(
+    tmp_path: Path,
+) -> None:
+    environment = runner._daemon_environment(tmp_path, port=18101)
+
+    assert runner._task_max_turns() == 120
+    assert environment["LILIES_DEFAULT_MAX_TURNS"] == "120"
+    assert environment["LILIES_DATA_DIR"] == str(tmp_path / "lilies-data")
+    assert environment["LILIES_WORKSPACE_ROOT"] == str(
+        tmp_path / "lilies-workspaces"
+    )
+
+
 def test_runner_secret_state_migrates_existing_v1_without_rotating_authority(
     tmp_path: Path,
 ) -> None:

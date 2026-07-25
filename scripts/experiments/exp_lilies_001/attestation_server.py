@@ -12,7 +12,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 
-IDENTITY = b'{"identity":"exp-lilies-001-r6-real-hosts"}'
+IDENTITY = b'{"identity":"exp-lilies-001-r7-real-hosts"}'
 PAPERLESS_VERSION = "2.20.15"
 INVENTREE_VERSION = "1.4.2"
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
