@@ -360,10 +360,20 @@ def test_process_detection_and_delta() -> None:
     rows = [
         "123 1 00:10 python -m agent_platform.lilies_cli serve --port 8765",
         "124 1 00:10 node next dev",
+        (
+            "125 1 00:05 python scripts/run_v04_13_codex_builder.py "
+            "--state-root /private/tmp/exp bootstrap --launch-codex"
+        ),
+        (
+            "126 125 00:04 python scripts/run_v04_13_codex_builder_child.py "
+            "--handoff /private/tmp/exp/handoff.json"
+        ),
     ]
     processes = discover_model_capable_processes(rows)
     assert [(item["pid"], item["kind"]) for item in processes] == [
-        (123, "local_lilies_daemon")
+        (123, "local_lilies_daemon"),
+        (125, "external_codex_builder"),
+        (126, "external_codex_builder"),
     ]
 
     previous = {

@@ -26,6 +26,10 @@ _TERMINAL_ASSIGNMENT_STATUSES = {
 _MODEL_PROCESS_PATTERNS = (
     ("enterprise_experiment", re.compile(r"run_v04_13_enterprise_experiment\.py")),
     (
+        "external_codex_builder",
+        re.compile(r"run_v04_13_codex_builder(?:_child)?\.py"),
+    ),
+    (
         "live_model_experiment",
         re.compile(
             r"(?:e02_readable_testframe_review_experiment|"
