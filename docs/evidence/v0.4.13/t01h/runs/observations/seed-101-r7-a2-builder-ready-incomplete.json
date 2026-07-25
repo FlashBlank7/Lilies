@@ -1,0 +1,69 @@
+{
+  "schema_version": "v0.4.13-t01h-task-author-observation-1",
+  "task_id": "EXP-LILIES-001",
+  "revision": 7,
+  "seed": "101",
+  "observed_at": "2026-07-25T06:21:53Z",
+  "observation_authority": "task_author_read_only_runtime_state",
+  "assignment_id": "463d18e5-14f9-55f1-a449-ea6233946417",
+  "session_id": "5b1bada6-0f8d-5f13-9194-7e6c4a9dd071",
+  "builder_terminal_observation": {
+    "session_status_before_task_author_cancellation": "ready",
+    "active_turn_count": 0,
+    "model_call_count": 58,
+    "tool_call_count": 73,
+    "token_count": 8063010,
+    "model_cost_usd": 1.13427398,
+    "draft_revision": 19,
+    "workflow_runs": {
+      "total": 4,
+      "succeeded": 3,
+      "paused": 1
+    },
+    "workspace_artifacts": [
+      "work/enterprise-result.json",
+      "work/reconciliation-data.json",
+      "work/reconciliation.csv"
+    ],
+    "public_records_reported": 24,
+    "missing_acceptance": [
+      "real reconciliation.xlsx",
+      "real Paperless and InvenTree host writes",
+      "registered workflow artifacts",
+      "published accepted application",
+      "formal capability report",
+      "completion claim",
+      "independent host oracle"
+    ],
+    "completion_claim_present": false,
+    "capability_report_present": false,
+    "host_write_present": false
+  },
+  "permission_checkpoints": {
+    "total": 3,
+    "allowed": 3,
+    "pending": 0,
+    "scope": "three exact workspace_write inputs under work/",
+    "host_or_repository_authority_granted": false,
+    "immutable_attempt_ids": [
+      "sha256:f77f3510f3e4e7427ac464a15bdaa7ddb218d72c13ea915f25d1f17be511e480",
+      "sha256:1c38dad7c44f29ae7e59f147c6c23633baad5b911a234e3e66e8e9932fe4f063",
+      "sha256:9ec72d59a2e279a70319244e08312c609f95c6f20dacc0e88755e99143643f0b"
+    ]
+  },
+  "host_snapshots": {
+    "baseline_digest": "sha256:e3ba1ece715bccc434a718a6c8e5c567d017a34c5dc0038250668bbf60b9634e",
+    "final_digest": "sha256:5a4d2804e661c61cdc3c906a7334c22a92a2018e183c237da8883cacfea37bc1",
+    "record_count": 36,
+    "request_log_count": 0
+  },
+  "task_author_terminal_action": {
+    "reason": "The Builder ended its turn with an explicit incomplete progress summary while the formal assignment remained in running/ready without a completion claim.",
+    "daemon_session_status": "cancelled",
+    "platform_assignment_status": "unavailable",
+    "platform_last_error_code": "formal_collaboration_close_pending",
+    "runner_exit": "interrupted_after_repeated_unchanged_close_pending",
+    "enterprise_result": "failed"
+  },
+  "claim_ceiling": "This is a failed real-host Builder run. It proves only the listed Builder activity, isolated workspace artifacts, permission decisions, and zero-write host snapshots. It does not prove a completed workflow, real XLSX delivery, host writeback, capability report, claim, oracle pass, or stable seed."
+}

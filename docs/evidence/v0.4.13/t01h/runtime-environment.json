@@ -3,7 +3,7 @@
   "stage_task_id": "V04-13-T01H",
   "experiment_task_id": "EXP-LILIES-001",
   "revision": 7,
-  "observed_at": "2026-07-25T05:53:09Z",
+  "observed_at": "2026-07-25T06:21:53Z",
   "environment": {
     "status": "ready",
     "docker_daemon_probe": "passed",
@@ -96,6 +96,11 @@
         "revision": 7,
         "outcome": "builder_incomplete_at_frozen_budget",
         "reason": "Revision 7 passed task-author preflight and correctly projected 120 turns, then consumed 103 model calls, 139 tools, 15,500,762 tokens, and eleven workflow runs before explicitly reporting that only 8/24 public records and an incomplete dry-run workflow existed; no capability report, host write, claim, or oracle result was produced."
+      },
+      {
+        "revision": 7,
+        "outcome": "builder_ready_without_completion_claim",
+        "reason": "A fresh-state retry of the same immutable revision reached 58 model calls, 73 tools, draft revision 19, three succeeded and one paused workflow runs, generated JSON and CSV artifacts for 24 public records, then ended its Builder turn while real XLSX, host writes, registered artifacts, publication, acceptance, capability report, claim, and oracle remained absent. Three exact workspace-write permissions were independently allowed. The daemon session was cancelled after the incomplete final summary, but formal collaboration authority closure remained pending and the empty runner poll was interrupted."
       }
     ],
     "model_authority": {
@@ -104,31 +109,33 @@
       "present": true
     },
     "real_host_services_started": true,
-    "real_host_runs": 2,
+    "real_host_runs": 3,
     "formal_attempts": {
-      "total": 7,
+      "total": 10,
       "passed": 0,
       "failed": 7,
+      "waiting_permission_checkpoints": 3,
       "seed_101_failed": 7,
+      "seed_101_waiting_permission_checkpoints": 3,
       "seed_202_not_run": 1,
       "seed_303_not_run": 1,
       "immutable_attempt_evidence": true,
-      "latest_failure": "Revision 7 consumed the correctly projected frozen budget, then self-reported an incomplete 8/24 public-record dry-run workflow without host writes, capability report, claim, or oracle result"
+      "latest_failure": "The fresh-state revision 7 retry generated JSON and CSV for 24 public records but ended ready without real XLSX, host writes, publication, capability report, claim, or oracle; task-author cancellation then exposed a formal collaboration-close pending state"
     },
     "stable_hidden_runs": {
       "completed": 0,
       "required": 3
     },
     "blocked_by": null,
-    "recheck_trigger": "Preserve and commit the first revision 7 Builder failure, then rerun the same immutable revision and seed in a fresh state root through the same formal boundary."
+    "recheck_trigger": "Preserve and commit the fresh-state revision 7 permission checkpoints and failed Builder observation, then freeze a child revision that treats a ready Builder turn without a completion claim as a truthful incomplete terminal instead of polling until the deadline."
   },
   "enterprise_denominator": {
     "required_runs": 3,
     "required_hidden_records_per_run": 36,
-    "completed_runs": 2,
+    "completed_runs": 3,
     "passed_runs": 0,
-    "failed_runs": 2,
+    "failed_runs": 3,
     "not_run_runs": 2
   },
-  "claim_ceiling": "Frozen revision 7 package and real-host preflight plus two preserved Builder executions: revision 6 reached draft 48/six runs before an under-projected runner ceiling, and revision 7 reached draft 37/eleven runs at the correct frozen budget but self-reported only 8/24 public records and incomplete deliverables. Both budget failures remain in the enterprise denominator; no completed workflow, host write, hidden 36/36 oracle pass, or stable-seed result is claimed."
+  "claim_ceiling": "Frozen revision 7 package and real-host preflight plus three failed Builder executions: revision 6 reached draft 48/six runs before an under-projected runner ceiling; the first revision 7 run reached draft 37/eleven runs at the correct frozen budget but self-reported only 8/24 public records; the fresh-state revision 7 retry reached draft 19/four runs and isolated JSON/CSV for 24 public records but ended ready without real XLSX, host writes, publication, capability report, claim, or oracle. All failures remain in the enterprise denominator; no completed workflow, hidden 36/36 oracle pass, or stable-seed result is claimed."
 }
