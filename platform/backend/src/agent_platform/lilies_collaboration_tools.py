@@ -5,7 +5,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import Field, model_validator
+from pydantic import Field, ValidationError, model_validator
 
 from .collaboration_models import (
     CollaborationReportPayload,
@@ -220,15 +220,31 @@ class _CollaborationHttpTool(LiliesTool):
                 args.model_dump(mode="json", exclude_none=True), context=context
             )
         except (TypeError, ValueError) as error:
+            public_error: dict[str, Any] = {
+                "code": "invalid_collaboration_request",
+                "message": "collaboration tool input did not match its public schema",
+                "retryable": False,
+                "error_type": type(error).__name__,
+            }
+            if isinstance(error, ValidationError):
+                issues = error.errors(
+                    include_url=False,
+                    include_context=False,
+                    include_input=False,
+                )
+                public_error["validation_error_count"] = len(issues)
+                public_error["validation_errors"] = [
+                    {
+                        "path": ".".join(str(part) for part in issue["loc"]),
+                        "type": str(issue["type"])[:160],
+                        "message": str(issue["msg"])[:500],
+                    }
+                    for issue in issues[:20]
+                ]
             result = CollaborationHttpResult(
                 ok=False,
                 status_code=422,
-                error={
-                    "code": "invalid_collaboration_request",
-                    "message": "collaboration tool input did not match its public schema",
-                    "retryable": False,
-                    "error_type": type(error).__name__,
-                },
+                error=public_error,
             )
         serialized = json.dumps(
             result.model_dump(mode="json", exclude_none=True),

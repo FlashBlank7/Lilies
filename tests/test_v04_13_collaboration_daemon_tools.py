@@ -1077,6 +1077,114 @@ async def test_mutating_tool_fails_closed_when_channel_cas_state_is_unavailable(
 
 
 @pytest.mark.asyncio
+async def test_invalid_collaboration_tool_input_returns_bounded_public_paths(
+    tmp_path: Path,
+) -> None:
+    client = LiliesCollaborationClient(
+        base_url="http://127.0.0.1:8001/",
+        access_token=COLLABORATION_TOKEN,
+        channel_id=uuid4(),
+        transport=httpx.MockTransport(
+            lambda request: pytest.fail(f"validation must precede HTTP: {request.url}")
+        ),
+    )
+    registry = register_lilies_collaboration_tools(LiliesToolRegistry(), client)
+
+    result = await registry.get("collaboration_report_submit").execute(
+        {
+            "operation": "submit",
+            "idempotency_key": "collaboration-report-invalid-diagnostic-0001",
+            "report": {
+                "category": "task_spec_gap",
+                "phase": "acceptance",
+                "severity": "minor",
+                "summary": "Output binding did not resolve.",
+            },
+        },
+        LiliesToolContext(session_id=str(uuid4()), workspace=tmp_path),
+    )
+
+    assert result.is_error is True
+    body = json.loads(result.content)
+    assert body["error"]["code"] == "invalid_collaboration_request"
+    assert body["error"]["validation_error_count"] > 0
+    paths = {item["path"] for item in body["error"]["validation_errors"]}
+    assert {
+        "report.report_id",
+        "report.original_goal",
+        "report.requirement_digest",
+        "report.blocking_scope",
+        "report.workaround_considered",
+        "report.workaround_loss",
+        "report.requested_outcome",
+        "report.confidence",
+        "report.secret_redactions",
+    } <= paths
+    assert all(
+        set(item) == {"path", "type", "message"}
+        for item in body["error"]["validation_errors"]
+    )
+    assert "collaboration-report-invalid-diagnostic-0001" not in result.content
+
+
+@pytest.mark.asyncio
+async def test_invalid_direct_report_explains_missing_common_evidence_without_http(
+    tmp_path: Path,
+) -> None:
+    client = LiliesCollaborationClient(
+        base_url="http://127.0.0.1:8001/",
+        access_token=COLLABORATION_TOKEN,
+        channel_id=uuid4(),
+        transport=httpx.MockTransport(
+            lambda request: pytest.fail(f"validation must precede HTTP: {request.url}")
+        ),
+    )
+    registry = register_lilies_collaboration_tools(LiliesToolRegistry(), client)
+
+    result = await registry.get("collaboration_report_submit").execute(
+        {
+            "operation": "submit",
+            "idempotency_key": "collaboration-report-common-evidence-0001",
+            "report": {
+                "report_id": str(uuid4()),
+                "category": "task_spec_gap",
+                "phase": "acceptance",
+                "severity": "minor",
+                "summary": "Output binding did not resolve.",
+                "original_goal": "Produce a verified reconciliation workflow.",
+                "requirement_digest": CONTRACT_DIGEST,
+                "blocking_scope": "The formal run cannot be archived as complete.",
+                "workaround_considered": ["Retain the failed run without a claim."],
+                "workaround_loss": "The enterprise outcome remains unverified.",
+                "requested_outcome": "Clarify the required report evidence.",
+                "confidence": 0.9,
+                "secret_redactions": [],
+            },
+        },
+        LiliesToolContext(session_id=str(uuid4()), workspace=tmp_path),
+    )
+
+    assert result.is_error is True
+    body = json.loads(result.content)
+    issues = body["error"]["validation_errors"]
+    assert any(
+        issue["path"] == "report"
+        and issue["type"] == "value_error"
+        and all(
+            field in issue["message"]
+            for field in (
+                "attempted_routes",
+                "expected",
+                "actual",
+                "evidence_refs",
+            )
+        )
+        for issue in issues
+    )
+    assert "collaboration-report-common-evidence-0001" not in result.content
+
+
+@pytest.mark.asyncio
 async def test_reprobe_requires_contract_fetch_after_delivered_response_cursor(
     tmp_path: Path,
 ) -> None:
