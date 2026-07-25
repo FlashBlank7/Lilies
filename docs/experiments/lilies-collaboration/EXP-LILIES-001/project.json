@@ -45,6 +45,6 @@
   "task_package_root": "docs/experiments/lilies-collaboration/EXP-LILIES-001",
   "latest_revision": 13,
   "revision_semantics": "Revisions 1 through 13 are iterations of this project only.",
-  "current_blocker": "Revision 12 reached an authorized task-local workspace permission, but the runner generated an idempotency key longer than the bridge schema's 128-character maximum and the decision was correctly rejected with 422; host requests, artifacts, reports, claims, and oracle results remained zero.",
-  "next_action": "Run revision 13 seed 101 with the bounded deterministic permission-decision idempotency key, then classify only durable customer evidence or a complete routed capability report."
+  "current_blocker": "Revision 13 proved the bounded unattended permission path, but Lilies built a static placeholder workflow, made zero host requests, registered no artifact or host receipt, and froze an incomplete archive intent that was accepted only as awaiting daemon completion before durable platform evidence rejected it after the turn could no longer repair.",
+  "next_action": "Preserve the revision 13 failure, repair only the generic fail-late formal archive intent boundary so obviously incomplete public evidence is rejected while the Builder can still repair or submit a complete routed capability report, then freeze a child revision and rerun seed 101."
 }

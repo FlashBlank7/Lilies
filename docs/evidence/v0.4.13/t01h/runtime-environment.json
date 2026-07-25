@@ -174,6 +174,11 @@
         "revision": 13,
         "outcome": "bounded_task_local_permission_idempotency_child_frozen",
         "reason": "The runner now constructs the existing authorized permission-decision idempotency key from a canonical SHA-256 binding of task ID, task revision, assignment ID, session ID, permission request ID, and input digest. The result is deterministic, public-schema-valid, and bounded below 128 characters; workspace prefixes, allowed tools, authorization, budget, acceptance, and every fail-closed boundary remain unchanged."
+      },
+      {
+        "revision": 13,
+        "outcome": "builder_placeholder_workflow_formal_archive_rejected",
+        "reason": "The fresh revision 13 seed-101 run proved both unattended permission decisions with public API 200 responses, then completed 71 model calls, 80 local tool calls, 8 workflow-model calls, 8 succeeded workflow runs, 8,893,085 tokens, and $1.24962838. Its final revision-27 workflow still returned static placeholder strings, made zero host requests, registered no artifacts or host receipts, published no version, and persisted no capability report or verification claim. Lilies acknowledged the missing host connection and real outputs but froze an archive intent over historical-draft run IDs; durable platform evidence correctly rejected the formal archive after daemon completion. Baseline and final host snapshots each retained 36 records and zero requests, so no oracle was run."
       }
     ],
     "model_authority": {
@@ -185,33 +190,33 @@
       "usable": true
     },
     "real_host_services_started": true,
-    "real_host_runs": 10,
+    "real_host_runs": 11,
     "formal_attempts": {
-      "total": 23,
+      "total": 24,
       "passed": 0,
-      "failed": 18,
+      "failed": 19,
       "waiting_permission_checkpoints": 5,
-      "seed_101_failed": 18,
+      "seed_101_failed": 19,
       "seed_101_waiting_permission_checkpoints": 5,
       "seed_202_not_run": 1,
       "seed_303_not_run": 1,
       "immutable_attempt_evidence": true,
-      "latest_failure": "Revision 12 reached an authorized task-local workspace permission after 19 model calls and 1,930,525 tokens, but the runner's deterministic decision idempotency key exceeded the bridge schema's 128-character maximum and was correctly rejected with 422. Both host snapshots recorded zero requests and no formal report, artifact, claim, archive, or oracle result existed."
+      "latest_failure": "Revision 13 proved two bounded unattended permission decisions, then used 71 model calls, 8,893,085 tokens, 80 local tools, 10 workflow runs, and final draft revision 27. Eight runs succeeded only over a three-node placeholder workflow; baseline and final host snapshots each recorded 36 records and zero requests. No registered artifact, host receipt, publication, formal report, persisted claim, archive, or oracle result existed, and the platform correctly rejected the incomplete formal archive after daemon completion."
     },
     "stable_hidden_runs": {
       "completed": 0,
       "required": 3
     },
     "blocked_by": null,
-    "recheck_trigger": "Run revision 13 seed 101 from a fresh state root after independent review and focused validation pass. Any complete routed capability report must precede CAP-LILIES work."
+    "recheck_trigger": "Preserve revision 13, diagnose the generic fail-late formal archive intent boundary, and freeze a child revision only if a general correction can reject obviously incomplete evidence while the Builder turn can still repair or route a complete capability report. Any complete routed capability report must precede CAP-LILIES work."
   },
   "enterprise_denominator": {
     "required_runs": 3,
     "required_hidden_records_per_run": 36,
-    "completed_runs": 10,
+    "completed_runs": 11,
     "passed_runs": 0,
-    "failed_runs": 10,
+    "failed_runs": 11,
     "not_run_runs": 2
   },
-  "claim_ceiling": "Frozen revision 13 package preparation, a fail-closed provider-egress route, read-only token monitoring, and all prior failed attempts are evidenced. Revision 12 stopped at a schema-validity rejection of an overlong runner idempotency key; both 36-record host snapshots had zero requests and no registered artifact, host receipt, formal report, claim, archive, or oracle result existed. The generic bounded-key repair is not a customer capability or success. No 36/36 oracle pass or stable-seed result is claimed."
+  "claim_ceiling": "Frozen revision 13 package preparation, a fail-closed provider-egress route, read-only token monitoring, two successful bounded unattended permission decisions, and all prior failed attempts are evidenced. Revision 13 ended with a three-node placeholder workflow, zero host requests, no registered artifact or host receipt, no publication, no routed report, no persisted claim, and a correctly rejected formal archive. The bounded-key repair and eight structurally succeeded runs are not customer capability or success. No 36/36 oracle pass or stable-seed result is claimed."
 }
