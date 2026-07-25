@@ -946,6 +946,48 @@ def test_run_evidence_preserves_every_failed_attempt_and_updates_latest(
     assert latest["previous_attempt_id"] == first["attempt_id"]
 
 
+def test_run_evidence_preserves_previous_revision_attempt(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    evidence_root = tmp_path / "evidence"
+    common = {
+        "seed": "101",
+        "package": None,
+        "application": None,
+        "connection": None,
+        "assignment": None,
+        "secret_receipts": (),
+        "host_snapshots": (),
+        "platform_verification": None,
+        "host_verification": None,
+    }
+    monkeypatch.setattr(runner, "REVISION", 3)
+    runner._write_run_evidence(
+        evidence_root,
+        started_at="2026-07-25T00:00:00+00:00",
+        status="run_failed",
+        error="revision three failure",
+        **common,
+    )
+    first = json.loads((evidence_root / "seed-101.json").read_bytes())
+
+    monkeypatch.setattr(runner, "REVISION", 4)
+    runner._write_run_evidence(
+        evidence_root,
+        started_at="2026-07-25T00:01:00+00:00",
+        status="run_failed",
+        error="revision four failure",
+        **common,
+    )
+    latest = json.loads((evidence_root / "seed-101.json").read_bytes())
+
+    assert first["revision"] == 3
+    assert latest["revision"] == 4
+    assert latest["previous_attempt_id"] == first["attempt_id"]
+    assert len(list((evidence_root / "attempts" / "seed-101").glob("*.json"))) == 2
+
+
 def test_runner_prepare_freezes_the_real_revision_without_starting_hosts(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],

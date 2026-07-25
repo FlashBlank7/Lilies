@@ -28,7 +28,7 @@ from agent_platform.task_packages import TaskPackageManager
 
 ROOT = Path(__file__).resolve().parents[1]
 TASK_ID = "EXP-LILIES-001"
-REVISION = 4
+REVISION = 5
 TASK_ROOT = (
     ROOT
     / "docs"
@@ -870,12 +870,24 @@ def _write_active_run(
     )
 
 
-def _run_attempt_id(seed: str, started_at: str) -> str:
+def _run_attempt_id(
+    seed: str,
+    started_at: str,
+    *,
+    revision: int | None = None,
+) -> str:
+    effective_revision = REVISION if revision is None else revision
+    if (
+        isinstance(effective_revision, bool)
+        or not isinstance(effective_revision, int)
+        or effective_revision < 1
+    ):
+        raise EnterpriseExperimentError("run attempt revision is invalid")
     return _digest(
         _canonical_json(
             {
                 "task_id": TASK_ID,
-                "revision": REVISION,
+                "revision": effective_revision,
                 "seed": seed,
                 "started_at": started_at,
             }
@@ -903,10 +915,14 @@ def _archive_latest_run_evidence(
         raise EnterpriseExperimentError(
             f"existing seed evidence is invalid: {latest_path}"
         ) from error
+    existing_revision = existing.get("revision") if isinstance(existing, dict) else None
     if (
         not isinstance(existing, dict)
         or existing.get("experiment_task_id") != TASK_ID
-        or existing.get("revision") != REVISION
+        or isinstance(existing_revision, bool)
+        or not isinstance(existing_revision, int)
+        or existing_revision < 1
+        or existing_revision > REVISION
         or existing.get("seed") != seed
         or not isinstance(existing.get("started_at"), str)
     ):
@@ -915,7 +931,20 @@ def _archive_latest_run_evidence(
         )
     attempt_id = existing.get("attempt_id")
     if not isinstance(attempt_id, str):
-        attempt_id = _run_attempt_id(seed, existing["started_at"])
+        attempt_id = _run_attempt_id(
+            seed,
+            existing["started_at"],
+            revision=existing_revision,
+        )
+    expected_attempt_id = _run_attempt_id(
+        seed,
+        existing["started_at"],
+        revision=existing_revision,
+    )
+    if not secrets.compare_digest(attempt_id, expected_attempt_id):
+        raise EnterpriseExperimentError(
+            f"existing seed evidence attempt identity is invalid: {latest_path}"
+        )
     archive_path = _run_attempt_path(evidence_root, seed, attempt_id)
     archive_path.parent.mkdir(parents=True, exist_ok=True)
     if archive_path.exists():
@@ -943,6 +972,7 @@ def _write_run_evidence(
     platform_verification: Mapping[str, Any] | None,
     host_verification: Mapping[str, Any] | None,
     error: str | None,
+    finished_at: str | None = None,
 ) -> Path:
     evidence_root.mkdir(parents=True, exist_ok=True)
     path = evidence_root / f"seed-{seed}.json"
@@ -962,7 +992,7 @@ def _write_run_evidence(
         "previous_attempt_id": previous_attempt_id,
         "status": status,
         "started_at": started_at,
-        "finished_at": _now(),
+        "finished_at": finished_at or _now(),
         "package": package,
         "application_id": None if application is None else application.get("id"),
         "connection": (

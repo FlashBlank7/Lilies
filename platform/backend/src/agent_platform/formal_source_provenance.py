@@ -368,7 +368,7 @@ def _contains_dotenv_segment(value: str) -> bool:
     )
 
 
-def _safe_source_path(value: str) -> str:
+def _safe_repository_path(value: str) -> str:
     if (
         "\x00" in value
         or "\\" in value
@@ -381,16 +381,22 @@ def _safe_source_path(value: str) -> str:
         part in {"", ".", ".."} for part in path.parts
     ):
         raise ValueError("developer source path escapes the repository")
+    return path.as_posix()
+
+
+def _safe_source_path(value: str) -> str:
+    normalized = _safe_repository_path(value)
+    path = PurePosixPath(normalized)
     folded_parts = tuple(part.casefold() for part in path.parts)
     if any(part in _FORBIDDEN_SOURCE_SEGMENTS for part in folded_parts):
         raise ValueError("developer source path enters reserved runtime or protected state")
-    folded = path.as_posix().casefold()
+    folded = normalized.casefold()
     if any(
         folded == prefix or folded.startswith(f"{prefix}/")
         for prefix in _FORBIDDEN_SOURCE_PREFIXES
     ):
         raise ValueError("developer source path enters reserved runtime or protected state")
-    return path.as_posix()
+    return normalized
 
 
 def _safe_archive_path(value: str) -> str:
@@ -2253,13 +2259,13 @@ def _tree_object_closure(
         ):
             full_path = f"{prefix}/{entry.name}" if prefix else entry.name
             try:
-                _safe_source_path(full_path)
+                normalized = _safe_repository_path(full_path)
             except ValueError as error:
                 raise FormalSourceProvenanceSecurityError(
-                    "Git source tree enters reserved runtime or protected state"
+                    "Git source tree contains an unsafe repository path"
                 ) from error
             if entry.object_type == "tree":
-                pending.append((entry.oid, full_path))
+                pending.append((entry.oid, normalized))
     return (
         [descriptors[oid] for oid in sorted(descriptors)],
         files,
@@ -6321,10 +6327,10 @@ def _offline_tree_snapshots(
             for entry in reversed(entries):
                 full_path = f"{prefix}/{entry.name}" if prefix else entry.name
                 try:
-                    normalized = _safe_source_path(full_path)
+                    normalized = _safe_repository_path(full_path)
                 except ValueError as error:
                     raise FormalSourceProvenanceSecurityError(
-                        "archived Git tree enters reserved runtime or protected state"
+                        "archived Git tree contains an unsafe repository path"
                     ) from error
                 if entry.object_type == "tree":
                     pending.append((entry.oid, normalized, next_ancestors))

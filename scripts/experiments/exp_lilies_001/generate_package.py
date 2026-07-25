@@ -13,8 +13,8 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[3]
 TASK_ID = "EXP-LILIES-001"
-REVISION = 4
-CREATED_AT = "2026-07-25T04:30:00Z"
+REVISION = 5
+CREATED_AT = "2026-07-25T05:10:00Z"
 DEFAULT_OUTPUT = (
     ROOT
     / "docs"
@@ -718,7 +718,7 @@ def generate(output: Path) -> None:
                 "port": 18011,
             },
         ],
-        "network_name": "exp-lilies-001-r4",
+        "network_name": "exp-lilies-001-r5",
         "volumes": [
             "paperless-redis",
             "paperless-db",
@@ -782,7 +782,7 @@ def generate(output: Path) -> None:
                 "url": "http://127.0.0.1:18002/identity",
                 "expected_status": 200,
                 "expected_body_digest": _digest(
-                    b'{"identity":"exp-lilies-001-r4-real-hosts"}'
+                    b'{"identity":"exp-lilies-001-r5-real-hosts"}'
                 ),
                 "timeout_seconds": 5.0,
                 "mandatory": True,
@@ -964,13 +964,13 @@ def generate(output: Path) -> None:
             "collaboration_enabled": True,
             "author": "codex-task-author",
             "created_at": CREATED_AT,
-            "parent_revision": 3,
+            "parent_revision": 4,
             "amendment_reason": (
-                "Revision 3 formal-run pre-assignment attempts found that the "
-                "Git-addressed developer projection disclosed .env.example "
-                "while the independently materialized developer workspace "
-                "correctly excluded every dotenv variant path, so the two trusted "
-                "source manifests could not match."
+                "Revision 4 passed real-host setup but its formal source baseline "
+                "archiver applied developer-visible reserved-segment policy to the "
+                "unprojected full Git tree after the frozen task package introduced "
+                "protected paths; the attempt-chain rollover also rejected a valid "
+                "latest record from its parent revision."
             ),
         },
     )
@@ -978,7 +978,7 @@ def generate(output: Path) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Generate immutable EXP-LILIES-001 revision-four source files."
+        description="Generate immutable EXP-LILIES-001 revision-five source files."
     )
     parser.add_argument(
         "--output",

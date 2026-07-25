@@ -197,6 +197,40 @@ def test_developer_projection_excludes_all_dotenv_variants(
     assert not (tmp_path / "projection/platform/frontend/.env.local").exists()
 
 
+def test_baseline_may_contain_sealed_task_paths_outside_developer_projection(
+    tmp_path: Path,
+) -> None:
+    repository = _repository(tmp_path)
+    _write(
+        repository
+        / "docs/experiments/lilies-collaboration/EXP-LILIES-001/4/protected/oracle.json",
+        '{"sealed":"not-developer-visible"}\n',
+    )
+    _git(repository, "add", "--all")
+    _git(repository, "commit", "-m", "freeze sealed task package")
+    assignment_id = uuid4()
+    channel_id = uuid4()
+    coordinator = FormalSourceProvenanceCoordinator(
+        repository_root=repository,
+        state_root=tmp_path / "source-provenance-state",
+    )
+
+    projection = coordinator.freeze_workspace_projection(
+        task_id="EXP-LILIES-001",
+        task_revision=4,
+        run_id="formal-run:sealed-baseline",
+        assignment_id=assignment_id,
+        channel_id=channel_id,
+        captured_at=NOW,
+        destination=tmp_path / "projection",
+    )
+    projected_paths = {entry.path for entry in projection.entries}
+
+    assert "platform/backend/src/agent_platform/generic.py" in projected_paths
+    assert not any("protected" in path for path in projected_paths)
+    assert not (tmp_path / "projection/docs").exists()
+
+
 def _commit(repository: Path, relative: str, payload: str | bytes, message: str) -> str:
     _write(repository / relative, payload)
     _git(repository, "add", "--all")
