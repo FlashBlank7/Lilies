@@ -3,7 +3,7 @@
   "stage_task_id": "V04-13-T01H",
   "experiment_task_id": "EXP-LILIES-001",
   "revision": 12,
-  "observed_at": "2026-07-25T14:36:57Z",
+  "observed_at": "2026-07-25T14:54:27Z",
   "environment": {
     "status": "ready",
     "docker_daemon_probe": "passed",
@@ -164,6 +164,11 @@
         "revision": 12,
         "outcome": "generic_same_turn_completion_continuation_child_frozen",
         "reason": "A formal model loop that ends without accepted durable completion evidence now receives exactly one persistent, deterministic, same-turn protocol continuation. It adds no authorization, does not change the task or acceptance, consumes the original cumulative budget and deadline, does not affect customer-mode sessions, and does not reveal any project-specific expected gap."
+      },
+      {
+        "revision": 12,
+        "outcome": "unattended_task_local_permission_idempotency_rejected",
+        "reason": "The fresh revision 12 seed-101 run reached 19 model calls, 41 tool calls, and 1,930,525 tokens before requesting an authorized workspace_write. The runner's deterministic permission idempotency key concatenated the task ID, request UUID, and full input digest into more than the bridge schema's 128-character maximum, so the platform correctly rejected the automatic decision with 422. Baseline and final host snapshots each retained 36 records and zero requests; no report, artifact, claim, archive, or oracle result was produced."
       }
     ],
     "model_authority": {
@@ -175,33 +180,33 @@
       "usable": true
     },
     "real_host_services_started": true,
-    "real_host_runs": 9,
+    "real_host_runs": 10,
     "formal_attempts": {
-      "total": 22,
+      "total": 23,
       "passed": 0,
-      "failed": 17,
+      "failed": 18,
       "waiting_permission_checkpoints": 5,
-      "seed_101_failed": 17,
+      "seed_101_failed": 18,
       "seed_101_waiting_permission_checkpoints": 5,
       "seed_202_not_run": 1,
       "seed_303_not_run": 1,
       "immutable_attempt_evidence": true,
-      "latest_failure": "Revision 11 produced a false prose completion after 59 model calls and 8,081,074 tokens, while both host snapshots recorded zero requests and no formal report, artifact, claim, archive, or oracle result existed."
+      "latest_failure": "Revision 12 reached an authorized task-local workspace permission after 19 model calls and 1,930,525 tokens, but the runner's deterministic decision idempotency key exceeded the bridge schema's 128-character maximum and was correctly rejected with 422. Both host snapshots recorded zero requests and no formal report, artifact, claim, archive, or oracle result existed."
     },
     "stable_hidden_runs": {
       "completed": 0,
       "required": 3
     },
     "blocked_by": null,
-    "recheck_trigger": "Run revision 12 seed 101 from a fresh state root; any complete routed capability report must precede CAP-LILIES work."
+    "recheck_trigger": "Freeze revision 13 with a bounded deterministic task-local permission idempotency key, independently review it, then run seed 101 from a fresh state root. Any complete routed capability report must precede CAP-LILIES work."
   },
   "enterprise_denominator": {
     "required_runs": 3,
     "required_hidden_records_per_run": 36,
-    "completed_runs": 9,
+    "completed_runs": 10,
     "passed_runs": 0,
-    "failed_runs": 9,
+    "failed_runs": 10,
     "not_run_runs": 2
   },
-  "claim_ceiling": "Frozen revision 12 package preparation, a fail-closed provider-egress route, read-only token monitoring, and all prior failed attempts are evidenced. Revision 11 preserved 36-record zero-write baseline/final snapshots and produced no registered artifact, host receipt, formal report, claim, archive, or oracle result. The generic same-turn completion continuation is independently reviewed and does not count as customer capability or success. No 36/36 oracle pass or stable-seed result is claimed."
+  "claim_ceiling": "Frozen revision 12 package preparation, a fail-closed provider-egress route, read-only token monitoring, and all prior failed attempts are evidenced. Revision 12 stopped at a schema-validity rejection of an overlong runner idempotency key; both 36-record host snapshots had zero requests and no registered artifact, host receipt, formal report, claim, archive, or oracle result existed. This runner defect is not a customer capability or success. No 36/36 oracle pass or stable-seed result is claimed."
 }

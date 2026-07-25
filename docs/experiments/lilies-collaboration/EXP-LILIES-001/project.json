@@ -45,6 +45,6 @@
   "task_package_root": "docs/experiments/lilies-collaboration/EXP-LILIES-001",
   "latest_revision": 12,
   "revision_semantics": "Revisions 1 through 12 are iterations of this project only.",
-  "current_blocker": "Revision 11 ended its model loop with prose before the server accepted durable formal completion evidence; host requests, artifacts, reports, claims, and oracle results remained zero.",
-  "next_action": "Run revision 12 seed 101 with the unchanged business acceptance and one generic, same-turn formal-protocol continuation; do not pre-hint any expected platform capability gap."
+  "current_blocker": "Revision 12 reached an authorized task-local workspace permission, but the runner generated an idempotency key longer than the bridge schema's 128-character maximum and the decision was correctly rejected with 422; host requests, artifacts, reports, claims, and oracle results remained zero.",
+  "next_action": "Freeze revision 13 with a bounded deterministic permission-decision idempotency key, independently review the generic runner repair, then rerun seed 101 without pre-hinting any expected platform capability gap."
 }
