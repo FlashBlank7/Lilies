@@ -31,7 +31,7 @@ import threading
 import time
 from datetime import timedelta
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -148,46 +148,104 @@ class LiveAcceptanceCheck(_StrictModel):
 class _AllowlistedConnectProxy:
     """A loopback CONNECT proxy that records and enforces exact TLS hosts."""
 
-    def __init__(self, allowed_hosts: tuple[str, ...]) -> None:
+    def __init__(
+        self,
+        allowed_hosts: tuple[str, ...],
+        *,
+        upstream_connector: (
+            Callable[[tuple[str, int], float], socket.socket] | None
+        ) = None,
+    ) -> None:
         self.allowed_hosts = frozenset(
             host.strip().casefold() for host in allowed_hosts
         )
+        self._upstream_connector = upstream_connector or (
+            lambda address, timeout: socket.create_connection(
+                address,
+                timeout=timeout,
+            )
+        )
         self._records: list[dict[str, Any]] = []
         self._lock = threading.Lock()
+        self._lifecycle_lock = threading.Lock()
+        self._activity = threading.Condition(threading.Lock())
+        self._stop_event = threading.Event()
+        self._active_clients: set[socket.socket] = set()
+        self._active_upstreams: set[socket.socket] = set()
+        self._active_handlers: set[threading.Thread] = set()
         self._server: socketserver.ThreadingTCPServer | None = None
         self._thread: threading.Thread | None = None
 
     def __enter__(self) -> _AllowlistedConnectProxy:
-        owner = self
+        with self._lifecycle_lock:
+            if self._server is not None or self._thread is not None:
+                raise RuntimeError("provider proxy is already running")
+            self._stop_event.clear()
+            owner = self
 
-        class Handler(socketserver.StreamRequestHandler):
-            def handle(self) -> None:
-                owner._handle(self)
+            class Handler(socketserver.StreamRequestHandler):
+                _owner_registered = False
 
-        class Server(socketserver.ThreadingTCPServer):
-            allow_reuse_address = True
-            daemon_threads = True
+                def setup(self) -> None:
+                    super().setup()
+                    self._owner_registered = owner._handler_started(self)
 
-        server = Server(("127.0.0.1", 0), Handler)
-        self._server = server
-        self._thread = threading.Thread(
-            target=server.serve_forever,
-            name="t01g-codex-provider-proxy",
-            daemon=True,
-        )
-        self._thread.start()
+                def handle(self) -> None:
+                    if self._owner_registered:
+                        owner._handle(self)
+
+                def finish(self) -> None:
+                    try:
+                        super().finish()
+                    finally:
+                        if self._owner_registered:
+                            owner._handler_finished(self)
+
+            class Server(socketserver.ThreadingTCPServer):
+                allow_reuse_address = True
+                daemon_threads = True
+                block_on_close = False
+
+            server = Server(("127.0.0.1", 0), Handler)
+            thread = threading.Thread(
+                target=server.serve_forever,
+                name="t01g-codex-provider-proxy",
+                daemon=True,
+            )
+            self._server = server
+            self._thread = thread
+            thread.start()
         return self
 
     def __exit__(self, *_: object) -> None:
-        server = self._server
-        if server is not None:
-            server.shutdown()
-            server.server_close()
-        thread = self._thread
-        if thread is not None:
-            thread.join(timeout=5)
-        self._server = None
-        self._thread = None
+        with self._lifecycle_lock:
+            server = self._server
+            thread = self._thread
+            self._stop_event.set()
+            try:
+                # Closing both halves before joining is the hard egress
+                # boundary: ThreadingTCPServer.server_close() only closes the
+                # listener and does not revoke established CONNECT tunnels.
+                self._close_active_tunnels()
+                if server is not None:
+                    try:
+                        server.shutdown()
+                    finally:
+                        server.server_close()
+            finally:
+                # A request may have been accepted immediately before
+                # shutdown. Its registration either observes stop_event and
+                # closes itself or is included in this second sweep.
+                self._close_active_tunnels()
+                self._join_active_handlers(timeout=5)
+                self._close_active_tunnels()
+                if (
+                    thread is not None
+                    and thread is not threading.current_thread()
+                ):
+                    thread.join(timeout=5)
+                self._server = None
+                self._thread = None
 
     @property
     def port(self) -> int:
@@ -204,6 +262,82 @@ class _AllowlistedConnectProxy:
             self._records.append(record)
 
     @staticmethod
+    def _shutdown_socket(value: socket.socket) -> None:
+        try:
+            value.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+        try:
+            value.close()
+        except OSError:
+            pass
+
+    def _handler_started(
+        self,
+        handler: socketserver.StreamRequestHandler,
+    ) -> bool:
+        client = handler.connection
+        current = threading.current_thread()
+        with self._activity:
+            stopped = self._stop_event.is_set()
+            if not stopped:
+                self._active_handlers.add(current)
+                self._active_clients.add(client)
+            self._activity.notify_all()
+        if stopped:
+            self._shutdown_socket(client)
+            return False
+        return True
+
+    def _handler_finished(
+        self,
+        handler: socketserver.StreamRequestHandler,
+    ) -> None:
+        with self._activity:
+            self._active_clients.discard(handler.connection)
+            self._active_handlers.discard(threading.current_thread())
+            self._activity.notify_all()
+
+    def _upstream_started(self, upstream: socket.socket) -> bool:
+        with self._activity:
+            if self._stop_event.is_set():
+                return False
+            self._active_upstreams.add(upstream)
+            self._activity.notify_all()
+            return True
+
+    def _upstream_finished(self, upstream: socket.socket) -> None:
+        with self._activity:
+            self._active_upstreams.discard(upstream)
+            self._activity.notify_all()
+
+    def _close_active_tunnels(self) -> None:
+        with self._activity:
+            sockets = tuple(
+                self._active_clients | self._active_upstreams
+            )
+        for value in sockets:
+            self._shutdown_socket(value)
+
+    def _join_active_handlers(self, *, timeout: float) -> None:
+        deadline = time.monotonic() + timeout
+        current = threading.current_thread()
+        while True:
+            with self._activity:
+                handlers = tuple(
+                    handler
+                    for handler in self._active_handlers
+                    if handler is not current
+                )
+            if not handlers:
+                return
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return
+            for handler in handlers:
+                handler.join(timeout=max(0.0, remaining / len(handlers)))
+
+    @staticmethod
     def _reject(
         handler: socketserver.StreamRequestHandler,
         status: bytes,
@@ -212,6 +346,8 @@ class _AllowlistedConnectProxy:
         handler.wfile.flush()
 
     def _handle(self, handler: socketserver.StreamRequestHandler) -> None:
+        if self._stop_event.is_set():
+            return
         handler.connection.settimeout(30)
         request_line = handler.rfile.readline(8_193)
         if len(request_line) > 8_192:
@@ -262,12 +398,21 @@ class _AllowlistedConnectProxy:
             self._record(record)
             self._reject(handler, b"HTTP/1.1 403 Forbidden")
             return
+        if self._stop_event.is_set():
+            record["proxy_stopped"] = True
+            self._record(record)
+            return
         try:
-            upstream = socket.create_connection((host, port), timeout=20)
+            upstream = self._upstream_connector((host, port), 20)
         except OSError:
             record["upstream_connected"] = False
             self._record(record)
             self._reject(handler, b"HTTP/1.1 502 Bad Gateway")
+            return
+        if not self._upstream_started(upstream):
+            self._shutdown_socket(upstream)
+            record["proxy_stopped"] = True
+            self._record(record)
             return
         record["upstream_connected"] = True
         handler.wfile.write(b"HTTP/1.1 200 Connection Established\r\n\r\n")
@@ -278,7 +423,10 @@ class _AllowlistedConnectProxy:
         sockets = (client, upstream)
         idle_deadline = time.monotonic() + 120
         try:
-            while time.monotonic() < idle_deadline:
+            while (
+                not self._stop_event.is_set()
+                and time.monotonic() < idle_deadline
+            ):
                 readable, _, exceptional = select.select(
                     sockets,
                     (),
@@ -309,7 +457,8 @@ class _AllowlistedConnectProxy:
                     record[counter] += len(chunk)
                     idle_deadline = time.monotonic() + 120
         finally:
-            upstream.close()
+            self._shutdown_socket(upstream)
+            self._upstream_finished(upstream)
             self._record(record)
 
 

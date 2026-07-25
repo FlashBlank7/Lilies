@@ -76,8 +76,8 @@
     "intervention_boundary": true
   },
   "task_package_root": "docs/experiments/lilies-collaboration/EXP-LILIES-001",
-  "latest_revision": 19,
-  "revision_semantics": "Revisions 1 through 19 are iterations of this project only.",
-  "current_blocker": "Revision 18 is a preserved customer failure: after 120 model calls and 15,396,646 tokens, SQLite remained stable and eight exact task-local writes were automatically allowed, including a 13,540-byte permission input whose work/enterprise-result.json path was safely projected. Lilies completed 14 workflow runs, submitted one five-revision capability report, and reached production archive preflight twice, but host requests, connector executions, registered artifacts, receipts, claims, and oracle runs remained zero. The report stayed needs_more_evidence because required semantic fields were missing, so both archive attempts correctly returned 409 and the incomplete report did not enter CAP-LILIES.",
-  "next_action": "Run immutable revision 19 seed 101 from fresh state with explicit model egress and the official token monitor. Preserve the attempt result and create no CAP entry unless Lilies submits a complete automatically routed report."
+  "latest_revision": 20,
+  "revision_semantics": "Revisions 1 through 20 are iterations of this project only.",
+  "current_blocker": "Historical Lilies revisions remain failed with zero stable business passes. Revision 20 freezes the public API manual without changing the business task. Two independent launch reviews first rejected and then approved exactly one controlled Codex public-interface debug attempt after process cleanup, active CONNECT tunnel revocation, trustworthy unknown-usage accounting, a persisted cross-invocation remaining-token budget, immutable manual binding, resumable context checks, Seatbelt negative evidence, and causal-ledger reference checks were completed. No revision 20 Codex model attempt or customer result exists yet.",
+  "next_action": "Run exactly one actor-stamped revision 20 public debug attempt in a fresh state root and port with the official token monitor. Preserve any complete automatically routed Builder report before generic platform supplementation and a same-project rerun; never convert process completion into project success."
 }

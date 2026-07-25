@@ -527,6 +527,28 @@ def test_developer_response_cannot_be_bare_ok_or_unverified_commit() -> None:
         DeveloperResponse.model_validate(no_commit)
 
 
+def test_developer_response_preserves_diff_and_generality_as_one_pair() -> None:
+    response = developer_response_payload()
+    response["implementation_diff_digest"] = DIGEST_A
+    response["generality_rationale"] = (
+        "The change extends the typed platform contract for every connector "
+        "implementation and contains no project or host-specific branch."
+    )
+    parsed = DeveloperResponse.model_validate(response)
+    assert parsed.implementation_diff_digest == DIGEST_A
+    assert parsed.generality_rationale is not None
+
+    missing_rationale = developer_response_payload()
+    missing_rationale["implementation_diff_digest"] = DIGEST_A
+    with pytest.raises(ValidationError, match="must be supplied together"):
+        DeveloperResponse.model_validate(missing_rationale)
+
+    missing_diff = developer_response_payload()
+    missing_diff["generality_rationale"] = "Generic across platform contracts."
+    with pytest.raises(ValidationError, match="must be supplied together"):
+        DeveloperResponse.model_validate(missing_diff)
+
+
 def claim_payload(*, status: str = "frozen") -> dict[str, object]:
     return {
         "claim_id": str(uuid4()),

@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import random
+import sys
 import zlib
 from pathlib import Path
 from typing import Any
@@ -12,9 +13,15 @@ import yaml
 
 
 ROOT = Path(__file__).resolve().parents[3]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from scripts.run_v04_13_codex_builder_child import _public_api_manual  # noqa: E402
+
+
 TASK_ID = "EXP-LILIES-001"
-REVISION = 19
-CREATED_AT = "2026-07-25T19:18:32Z"
+REVISION = 20
+CREATED_AT = "2026-07-25T22:34:31Z"
 DEFAULT_OUTPUT = (
     ROOT
     / "docs"
@@ -919,6 +926,10 @@ def generate(output: Path) -> None:
         ),
         encoding="utf-8",
     )
+    _write_json(
+        output / "BUILDER_API_MANUAL.json",
+        _public_api_manual(),
+    )
     _write_yaml(
         output / "task.yaml",
         {
@@ -964,17 +975,14 @@ def generate(output: Path) -> None:
             "collaboration_enabled": True,
             "author": "codex-task-author",
             "created_at": CREATED_AT,
-            "parent_revision": 18,
+            "parent_revision": 19,
             "amendment_reason": (
-                "Revision 18 exhausted its frozen model budget after an incomplete capability "
-                "report repeatedly lost required evidence fields because successful report "
-                "responses exposed needs_more_evidence without the deterministic missing field "
-                "names already computed by the platform. Revision 19 preserves the business "
-                "requirement, fixtures, oracle, budgets, permissions, collaboration authority, "
-                "model-egress gate, host boundary, CAP admission, and acceptance from revision "
-                "18. Only the generic collaboration report response changes: successful create "
-                "and revise responses expose stable missing field names, while complete reports "
-                "return an empty list and no field values or protected context are added."
+                "Revision 20 changes only the external Builder evidence boundary. It freezes the "
+                "versioned public platform and collaboration API manual into the immutable task "
+                "workspace so a fresh Codex Builder does not depend on an unbound runtime file. "
+                "The business requirement, fixtures, hidden inputs, oracle, budget, allowed "
+                "actions, host environment, auto-forward policy, CAP admission, and acceptance "
+                "remain identical to revision 19."
             ),
         },
     )
@@ -982,7 +990,7 @@ def generate(output: Path) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Generate immutable EXP-LILIES-001 revision-nineteen source files."
+        description="Generate immutable EXP-LILIES-001 revision-twenty source files."
     )
     parser.add_argument(
         "--output",

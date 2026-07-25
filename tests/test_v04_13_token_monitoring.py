@@ -357,6 +357,14 @@ def test_missing_required_ledger_makes_safety_unknown(tmp_path: Path) -> None:
 
 
 def test_process_detection_and_delta() -> None:
+    invocation = "t01h-" + "a" * 32
+    runtime_digest = "b" * 64
+    workspace_digest = "c" * 64
+    binding = (
+        f'-c lilies.external_builder_invocation="{invocation}" '
+        f'-c lilies.external_builder_runtime_sha256="{runtime_digest}" '
+        f'-c lilies.external_builder_workspace_sha256="{workspace_digest}"'
+    )
     rows = [
         "123 1 00:10 python -m agent_platform.lilies_cli serve --port 8765",
         "124 1 00:10 node next dev",
@@ -368,13 +376,33 @@ def test_process_detection_and_delta() -> None:
             "126 125 00:04 python scripts/run_v04_13_codex_builder_child.py "
             "--handoff /private/tmp/exp/handoff.json"
         ),
+        (
+            "127 1 00:03 python scripts/run_v04_13_codex_builder.py "
+            "--state-root /private/tmp/observe bootstrap"
+        ),
+        f"128 126 00:02 /opt/codex {binding} exec --json -",
+        (
+            "129 126 00:01 /usr/bin/sandbox-exec -p (version 1) -- "
+            f"/opt/codex {binding} exec --json -"
+        ),
+        "130 1 00:01 /opt/codex exec --json -",
+        (
+            "131 1 00:01 /opt/codex "
+            f'-c lilies.external_builder_invocation="{invocation}" exec -'
+        ),
+        f"132 1 00:01 /bin/echo /opt/codex {binding}",
+        "133 1 00:01 /usr/bin/sandbox-exec -p '(version 1)' -- /bin/sleep 10",
     ]
     processes = discover_model_capable_processes(rows)
     assert [(item["pid"], item["kind"]) for item in processes] == [
         (123, "local_lilies_daemon"),
         (125, "external_codex_builder"),
         (126, "external_codex_builder"),
+        (128, "external_codex_builder"),
+        (129, "external_codex_builder"),
     ]
+    raw = [item for item in processes if item["pid"] in {128, 129}]
+    assert all(item["invocation_id"] == invocation for item in raw)
 
     previous = {
         "usage": {

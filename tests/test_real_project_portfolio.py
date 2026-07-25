@@ -91,7 +91,7 @@ def test_project_revisions_remain_one_project_not_separate_projects() -> None:
     assert portfolio["required_project_count"] == 6
     assert len(portfolio["projects"]) == 6
     assert first["project_id"] == "EXP-LILIES-001"
-    assert first["latest_revision"] == 19
+    assert first["latest_revision"] == 20
     assert [item["project_id"] for item in portfolio["projects"]] == [
         f"EXP-LILIES-{number:03d}" for number in range(1, 7)
     ]

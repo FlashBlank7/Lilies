@@ -197,6 +197,173 @@ def test_codex_provider_boundary_denies_unknown_host_and_binds_usage(
         assert executed.returncode == 0, executed.stderr
 
 
+def test_codex_provider_proxy_exit_revokes_established_tunnel() -> None:
+    proxy_upstream, provider_peer = socket.socketpair()
+    connector_calls: list[tuple[tuple[str, int], float]] = []
+
+    def connect_locally(
+        address: tuple[str, int],
+        timeout: float,
+    ) -> socket.socket:
+        connector_calls.append((address, timeout))
+        return proxy_upstream
+
+    proxy = _AllowlistedConnectProxy(
+        ("allowed.example",),
+        upstream_connector=connect_locally,
+    )
+    client: socket.socket | None = None
+    try:
+        with pytest.raises(RuntimeError, match="force context cleanup"):
+            with proxy:
+                client = socket.create_connection(
+                    ("127.0.0.1", proxy.port),
+                    timeout=2,
+                )
+                client.settimeout(2)
+                provider_peer.settimeout(2)
+                client.sendall(
+                    b"CONNECT allowed.example:443 HTTP/1.1\r\n"
+                    b"Host: allowed.example:443\r\n\r\n"
+                )
+                response = b""
+                while b"\r\n\r\n" not in response:
+                    chunk = client.recv(4_096)
+                    assert chunk
+                    response += chunk
+                assert b"200 Connection Established" in response
+                assert connector_calls == [(("allowed.example", 443), 20)]
+
+                client.sendall(b"client-before-exit")
+                assert provider_peer.recv(4_096) == b"client-before-exit"
+                provider_peer.sendall(b"provider-before-exit")
+                assert client.recv(4_096) == b"provider-before-exit"
+                raise RuntimeError("force context cleanup")
+
+        def assert_closed(endpoint: socket.socket) -> None:
+            try:
+                received = endpoint.recv(1)
+            except TimeoutError:
+                pytest.fail("proxy exit left an established tunnel open")
+            except OSError:
+                return
+            assert received == b""
+
+        assert_closed(client)
+        assert_closed(provider_peer)
+
+        for sender, receiver, payload in (
+            (client, provider_peer, b"client-after-exit"),
+            (provider_peer, client, b"provider-after-exit"),
+        ):
+            try:
+                sender.sendall(payload)
+            except OSError:
+                pass
+            assert_closed(receiver)
+
+        assert proxy._active_clients == set()
+        assert proxy._active_upstreams == set()
+        assert proxy._active_handlers == set()
+        # A later repeated exit is also a no-op.
+        proxy.__exit__(None, None, None)
+    finally:
+        proxy.__exit__(None, None, None)
+        if client is not None:
+            client.close()
+        provider_peer.close()
+        proxy_upstream.close()
+
+
+def test_codex_provider_proxy_rejects_late_blocking_connect_on_exit() -> None:
+    proxy_upstream, provider_peer = socket.socketpair()
+    connector_started = threading.Event()
+    release_connector = threading.Event()
+
+    def connect_after_stop(
+        _address: tuple[str, int],
+        _timeout: float,
+    ) -> socket.socket:
+        connector_started.set()
+        if not release_connector.wait(timeout=5):
+            raise OSError("local connector was not released")
+        return proxy_upstream
+
+    proxy = _AllowlistedConnectProxy(
+        ("allowed.example",),
+        upstream_connector=connect_after_stop,
+    )
+    client: socket.socket | None = None
+    try:
+        proxy.__enter__()
+        client = socket.create_connection(
+            ("127.0.0.1", proxy.port),
+            timeout=2,
+        )
+        client.settimeout(2)
+        provider_peer.settimeout(2)
+        client.sendall(
+            b"CONNECT allowed.example:443 HTTP/1.1\r\n"
+            b"Host: allowed.example:443\r\n\r\n"
+        )
+        assert connector_started.wait(timeout=2)
+
+        barrier = threading.Barrier(3)
+        exit_errors: list[BaseException] = []
+        exit_errors_lock = threading.Lock()
+
+        def exit_proxy() -> None:
+            barrier.wait()
+            try:
+                proxy.__exit__(None, None, None)
+            except BaseException as exc:  # pragma: no cover - assertion aid
+                with exit_errors_lock:
+                    exit_errors.append(exc)
+
+        exit_threads = [
+            threading.Thread(target=exit_proxy),
+            threading.Thread(target=exit_proxy),
+        ]
+        for exit_thread in exit_threads:
+            exit_thread.start()
+        barrier.wait()
+        assert proxy._stop_event.wait(timeout=2)
+        release_connector.set()
+        for exit_thread in exit_threads:
+            exit_thread.join(timeout=10)
+
+        assert all(not exit_thread.is_alive() for exit_thread in exit_threads)
+        assert exit_errors == []
+        try:
+            response = client.recv(4_096)
+        except OSError:
+            response = b""
+        assert b"200 Connection Established" not in response
+        assert provider_peer.recv(1) == b""
+        assert proxy.observations() == [
+            {
+                "method": "CONNECT",
+                "host": "allowed.example",
+                "port": 443,
+                "allowed": True,
+                "client_to_provider_bytes": 0,
+                "provider_to_client_bytes": 0,
+                "proxy_stopped": True,
+            }
+        ]
+        assert proxy._active_clients == set()
+        assert proxy._active_upstreams == set()
+        assert proxy._active_handlers == set()
+        proxy.__exit__(None, None, None)
+    finally:
+        release_connector.set()
+        proxy.__exit__(None, None, None)
+        if client is not None:
+            client.close()
+        provider_peer.close()
+        proxy_upstream.close()
+
+
 def test_codex_identity_requires_private_chatgpt_subscription_auth(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

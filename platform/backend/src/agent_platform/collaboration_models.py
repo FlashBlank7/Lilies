@@ -918,7 +918,13 @@ class DeveloperResponsePayload(SafePayloadModel):
     response_id: UUID
     outcome: DeveloperOutcome
     commit_sha: CommitSha | None = None
+    implementation_diff_digest: Digest | None = None
     generic_capability_changes: list[str] = Field(min_length=1, max_length=100)
+    generality_rationale: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=10_000,
+    )
     new_contract_digest: Digest | None = None
     tests_run: list[TestRunEvidence] = Field(min_length=1, max_length=200)
     browser_or_live_evidence: list[EvidenceRef] = Field(default_factory=list, max_length=500)
@@ -944,6 +950,12 @@ class DeveloperResponsePayload(SafePayloadModel):
                 raise ValueError("implemented response requires all declared tests to pass")
         elif self.commit_sha is not None:
             raise ValueError("non-implemented response must not claim an implementation commit")
+        if (self.implementation_diff_digest is None) != (
+            self.generality_rationale is None
+        ):
+            raise ValueError(
+                "implementation diff digest and generality rationale must be supplied together"
+            )
         return self
 
 

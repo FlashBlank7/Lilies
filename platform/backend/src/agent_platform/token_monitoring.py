@@ -27,7 +27,10 @@ _MODEL_PROCESS_PATTERNS = (
     ("enterprise_experiment", re.compile(r"run_v04_13_enterprise_experiment\.py")),
     (
         "external_codex_builder",
-        re.compile(r"run_v04_13_codex_builder(?:_child)?\.py"),
+        re.compile(
+            r"(?:run_v04_13_codex_builder_child\.py|"
+            r"run_v04_13_codex_builder\.py.*(?:^|\s)--launch-codex(?:\s|$))"
+        ),
     ),
     (
         "live_model_experiment",
@@ -46,6 +49,24 @@ _MODEL_PROCESS_PATTERNS = (
         "collaborative_development_worker",
         re.compile(r"agent_platform\.(?:collaborative_development_worker|worker_runner)"),
     ),
+)
+_EXTERNAL_CODEX_EXECUTABLE = re.compile(
+    r"^\s*(?:(?:\S*/)?codex|/usr/bin/sandbox-exec)(?:\s|$)"
+)
+_EXTERNAL_CODEX_INVOCATION = re.compile(
+    r"""lilies\.external_builder_invocation=["']?"""
+    r"(t01h-[0-9a-f]{32})"
+    r"""["']?(?:\s|$)"""
+)
+_EXTERNAL_CODEX_RUNTIME = re.compile(
+    r"""lilies\.external_builder_runtime_sha256=["']?"""
+    r"[0-9a-f]{64}"
+    r"""["']?(?:\s|$)"""
+)
+_EXTERNAL_CODEX_WORKSPACE = re.compile(
+    r"""lilies\.external_builder_workspace_sha256=["']?"""
+    r"[0-9a-f]{64}"
+    r"""["']?(?:\s|$)"""
 )
 
 
@@ -608,6 +629,24 @@ def discover_model_capable_processes(
             continue
         pid, parent_pid, elapsed, command = match.groups()
         if int(pid) == os.getpid() or "token_monitoring" in command:
+            continue
+        invocation_match = _EXTERNAL_CODEX_INVOCATION.search(command)
+        if (
+            _EXTERNAL_CODEX_EXECUTABLE.search(command)
+            and invocation_match is not None
+            and _EXTERNAL_CODEX_RUNTIME.search(command)
+            and _EXTERNAL_CODEX_WORKSPACE.search(command)
+        ):
+            processes.append(
+                {
+                    "kind": "external_codex_builder",
+                    "pid": int(pid),
+                    "parent_pid": int(parent_pid),
+                    "elapsed": elapsed,
+                    "executable": Path(command.split(maxsplit=1)[0]).name,
+                    "invocation_id": invocation_match.group(1),
+                }
+            )
             continue
         for kind, pattern in _MODEL_PROCESS_PATTERNS:
             if pattern.search(command):

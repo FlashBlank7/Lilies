@@ -8,6 +8,7 @@ import importlib.metadata
 import json
 import os
 import platform
+import re
 import secrets
 import shutil
 import socket
@@ -81,6 +82,7 @@ MAX_ARCHIVE_FILE_BYTES = 128 * 1024 * 1024
 VERIFICATION_POLICY_MANIFEST_FILE = "verification-policy.json"
 WORKSPACE_POLICY_FILE = ".lilies-workspace-policy.json"
 WORKSPACE_MANIFEST_FILE = ".lilies-mount-manifest.json"
+BUILDER_API_MANUAL_FILE = "BUILDER_API_MANUAL.json"
 _IMMUTABLE_TOP_LEVEL_FILES = frozenset(
     {
         "task.yaml",
@@ -90,6 +92,7 @@ _IMMUTABLE_TOP_LEVEL_FILES = frozenset(
         "budget.json",
     }
 )
+_OPTIONAL_IMMUTABLE_TOP_LEVEL_FILES = frozenset({BUILDER_API_MANUAL_FILE})
 _IMMUTABLE_TOP_LEVEL_DIRECTORIES = frozenset({"fixtures", "protected"})
 _GENERATED_TOP_LEVEL = frozenset({"archive-manifest.json", "runs"})
 _ARCHIVE_LOCK_FILE = ".archive-index.lock"
@@ -2525,7 +2528,11 @@ class TaskPackageManager:
         if not source_root.is_dir():
             raise TaskPackageError("task package source is not a directory")
         names = {item.name for item in source_root.iterdir()}
-        unknown = names - (_IMMUTABLE_TOP_LEVEL_FILES | _IMMUTABLE_TOP_LEVEL_DIRECTORIES)
+        unknown = names - (
+            _IMMUTABLE_TOP_LEVEL_FILES
+            | _OPTIONAL_IMMUTABLE_TOP_LEVEL_FILES
+            | _IMMUTABLE_TOP_LEVEL_DIRECTORIES
+        )
         if unknown:
             raise TaskPackageError(f"unknown package root entries: {sorted(unknown)}")
         missing = _IMMUTABLE_TOP_LEVEL_FILES - names
@@ -2567,6 +2574,42 @@ class TaskPackageManager:
         requirement = _read_bytes(source_root / "requirement.md")
         if not requirement.strip():
             raise TaskPackageError("requirement.md cannot be empty")
+        if BUILDER_API_MANUAL_FILE in names:
+            manual_payload = _read_bytes(
+                source_root / BUILDER_API_MANUAL_FILE,
+                limit=MAX_CONTROL_FILE_BYTES,
+            )
+            try:
+                manual = _strict_json_loads(manual_payload)
+            except (
+                UnicodeDecodeError,
+                json.JSONDecodeError,
+                ValueError,
+                TypeError,
+            ) as error:
+                raise TaskPackageError(
+                    "Builder API manual is not strict JSON"
+                ) from error
+            if (
+                not isinstance(manual, dict)
+                or manual.get("schema_version")
+                != "v0.4.13-t01h-external-builder-api-manual-1"
+                or not hmac.compare_digest(
+                    manual_payload,
+                    _canonical_json(manual),
+                )
+            ):
+                raise TaskPackageError(
+                    "Builder API manual is not the canonical versioned projection"
+                )
+            decoded_manual = manual_payload.decode("utf-8")
+            if re.search(
+                r"\b(?:lpt|lcc)_[0-9a-f]{32}_[A-Za-z0-9_-]{32,}\b",
+                decoded_manual,
+            ):
+                raise TaskPackageSecurityError(
+                    "Builder API manual contains a live credential"
+                )
         all_files = _iter_tree_files(source_root)
         immutable_files: list[FileDigestEntry] = []
         seen_identities: set[str] = set()
