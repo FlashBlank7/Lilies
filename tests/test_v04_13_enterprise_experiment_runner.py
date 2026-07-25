@@ -571,6 +571,7 @@ def test_runner_secret_state_is_private_stable_and_contains_no_model_key(
         port=18100,
         collaboration_policy="manual",
     )
+    assert environment["MODEL_EGRESS_ENABLED"] == "false"
     assert (
         environment["LILIES_FORMAL_HIDDEN_SEED_KEY"]
         == first["formal_hidden_seed_key"]
@@ -592,6 +593,7 @@ def test_daemon_environment_projects_the_frozen_task_turn_budget(
     assert environment["LILIES_WORKSPACE_ROOT"] == str(
         tmp_path / "lilies-workspaces"
     )
+    assert environment["LILIES_MODEL_EGRESS_ENABLED"] == "false"
 
 
 def test_runner_secret_state_migrates_existing_v1_without_rotating_authority(

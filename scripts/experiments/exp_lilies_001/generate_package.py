@@ -13,7 +13,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[3]
 TASK_ID = "EXP-LILIES-001"
-REVISION = 9
+REVISION = 10
 CREATED_AT = "2026-07-25T07:15:00Z"
 DEFAULT_OUTPUT = (
     ROOT
@@ -964,15 +964,15 @@ def generate(output: Path) -> None:
             "collaboration_enabled": True,
             "author": "codex-task-author",
             "created_at": CREATED_AT,
-            "parent_revision": 8,
+            "parent_revision": 9,
             "amendment_reason": (
-                "The user explicitly authorized unattended agent collaboration for the "
-                "current supplementation task. Revision 8 still returned on every "
-                "operational permission and shut down the local services, which made "
-                "task-local workspace writes depend on a human button and exposed resume "
-                "lifecycle failures. The child revision deterministically allows only "
-                "exact workspace_write/workspace_patch requests bound to this formal "
-                "assignment, session, input digest, and the frozen work/artifacts prefixes."
+                "Before replenishing provider balance, the user required proof that no "
+                "background workflow could consume tokens and requested live stage-level "
+                "token monitoring. Revision 10 preserves the enterprise requirement, "
+                "fixtures, oracle, budgets, collaboration authority, and acceptance from "
+                "revision 9 while adding a fail-closed provider-egress gate and read-only "
+                "token/cost snapshots to the task-author runner. Real model HTTP now "
+                "requires an explicit per-invocation enable flag."
             ),
         },
     )
@@ -980,7 +980,7 @@ def generate(output: Path) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Generate immutable EXP-LILIES-001 revision-nine source files."
+        description="Generate immutable EXP-LILIES-001 revision-ten source files."
     )
     parser.add_argument(
         "--output",

@@ -2,8 +2,8 @@
   "schema_version": "v0.4.13-t01h-runtime-environment-1",
   "stage_task_id": "V04-13-T01H",
   "experiment_task_id": "EXP-LILIES-001",
-  "revision": 9,
-  "observed_at": "2026-07-25T07:45:24Z",
+  "revision": 10,
+  "observed_at": "2026-07-25T10:54:46Z",
   "environment": {
     "status": "blocked_by_environment",
     "docker_daemon_probe": "passed",
@@ -21,15 +21,15 @@
     },
     "task_author_preflight": {
       "status": "passed",
-      "candidate_revision": 9,
+      "candidate_revision": 10,
       "runner_preparation": "passed",
-      "runner_source_digest": "sha256:b277df953c4a018b15fa8200f92ea7df3a0203ea6c12da73ce12f6aa7c87bc9b",
-      "package_public_summary_digest": "sha256:f0688340f405566a9108ed9b14b3006cb0ff5daf03d8d73758fc47f3bc8f65af",
-      "package_sealed_digest": "sha256:a4a902dae61b473b4fd309c23eb5a9e33b319a2ad4c64457dfc34213dda2dbfd",
+      "runner_source_digest": "sha256:1a5738cf0ddba3500b16ac5fe516b714c2abc2aae8abec3df3c6f28a5770068a",
+      "package_public_summary_digest": "sha256:67fe6544ecfed440ec654680eba88f59f1b6043da948265bf8a6461497622760",
+      "package_sealed_digest": "sha256:4054b7e167b19d1a88e21468000e93042a36707a016483d086e10631b44445af",
       "inherited_pinned_image_count": 6,
-      "focused_regression": "37 passed",
-      "broad_regression": "200 passed with one existing deprecation warning",
-      "reason": "Revision 9 is an immutable child of revision 8. It preserves the frozen enterprise task and adds a user-authorized unattended resolver that can allow only exact workspace_write/workspace_patch requests bound to the current task, revision, assignment, session, request ID, input digest, and the frozen work/artifacts prefixes. Non-workspace, non-canonical, denied-segment, identity-mismatched, and relay-security-boundary cases remain fail-closed. Package preparation, deterministic source reproduction, and the real-host seed-101 preflight passed. The Builder then completed 49 model calls, 68 tool calls, draft revision 28, and eight failed workflow runs before the external DeepSeek provider returned HTTP 402 Insufficient Balance; no operational permission had yet been requested."
+      "focused_regression": "115 passed with one existing deprecation warning",
+      "broad_regression": "1053 passed before one stale strict-health response assertion; the assertion was updated for model_egress_enabled and the final affected 115-test suite then passed",
+      "reason": "Revision 10 is an immutable child of revision 9. It preserves the frozen enterprise task, unattended task-local permission policy, fixtures, oracle, budgets, and acceptance. The task-author runner now requires an explicit --enable-model-egress flag, projects the provider circuit breaker only into that authorized child process group, and persists read-only stage-level token snapshots. The last real-model evidence remains the revision 9 HTTP 402 Insufficient Balance result; revision 10 has not made a provider request."
     },
     "previous_revision_preflight": {
       "status": "failed",
@@ -128,6 +128,11 @@
         "revision": 9,
         "outcome": "builder_failed_external_provider_insufficient_balance",
         "reason": "The fresh revision 9 run relayed and acknowledged all 1,418 daemon events, reached 49 model calls, 68 tools, 3,809,328 tokens, draft revision 28, and eight failed workflow runs, then terminated when DeepSeek returned HTTP 402 Insufficient Balance. Baseline and final host snapshots both contained 36 records and zero write requests. No operational permission was requested, so the unattended resolver remains deterministically verified but not yet exercised by a real Builder run."
+      },
+      {
+        "revision": 10,
+        "outcome": "provider_egress_and_token_monitoring_child_frozen",
+        "reason": "Before replenishing provider balance, the user requested proof that no background workflow was consuming tokens and stage-level token monitoring. Revision 10 keeps real model egress fail-closed by default, requires an explicit per-run flag, and records read-only token/cost snapshots without changing the enterprise requirement or acceptance."
       }
     ],
     "model_authority": {
@@ -156,7 +161,7 @@
       "completed": 0,
       "required": 3
     },
-    "blocked_by": "blocked_by_environment: the configured DeepSeek account returned HTTP 402 Insufficient Balance. Retrying the unchanged external state is forbidden.",
+    "blocked_by": "blocked_by_environment: the configured DeepSeek account last returned HTTP 402 Insufficient Balance. Revision 10 preparation and monitoring make no provider request; retrying remains forbidden until the balance changes.",
     "recheck_trigger": "A verified DeepSeek balance top-up or a user-authorized replacement real-model credential/provider."
   },
   "enterprise_denominator": {
@@ -167,5 +172,5 @@
     "failed_runs": 6,
     "not_run_runs": 2
   },
-  "claim_ceiling": "Frozen revision 9 package preparation, 37 focused and 200 broad passing regressions, and six failed real-host Builder executions are evidenced. The latest revision 9 run fully relayed 1,418 events and preserved 36-record zero-write baseline/final snapshots before the external provider returned HTTP 402 Insufficient Balance. No real Builder operational permission exercised the new resolver, and no completed workflow, host writeback, hidden 36/36 oracle pass, or stable-seed result is claimed."
+  "claim_ceiling": "Frozen revision 10 package preparation, a fail-closed provider-egress route, read-only stage-level token monitoring, and six prior failed real-host Builder executions are evidenced. The latest real run remains revision 9: it fully relayed 1,418 events and preserved 36-record zero-write baseline/final snapshots before the external provider returned HTTP 402 Insufficient Balance. Revision 10 has not made a provider request; no completed workflow, host writeback, hidden 36/36 oracle pass, or stable-seed result is claimed."
 }

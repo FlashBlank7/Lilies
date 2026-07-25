@@ -56,6 +56,19 @@ references/<project-name>/
 ```text
 DEEPSEEK_API_KEY ok
 API_TOKEN ok
+MODEL_EGRESS_ENABLED disabled (provider calls blocked)
+```
+
+`MODEL_EGRESS_ENABLED=false` 是真实模型 HTTP 的总断路器。查看余额、队列或
+历史 token 时保持关闭；只有明确授权的真实运行才临时设为 `true`。T01H
+runner 还要求命令行显式传入 `--enable-model-egress`，并只对子进程开放。
+
+只读 token/费用监控不会调用模型：
+
+```bash
+python3 scripts/monitor_lilies_tokens.py
+python3 scripts/monitor_lilies_tokens.py --watch 5
+python3 scripts/monitor_lilies_tokens.py --state-root /path/to/experiment-state --watch 5
 ```
 
 启用 `LILIES_LOCAL_AGENT_ENABLED=true` 时，脚本还会显示 Local Lilies

@@ -5,6 +5,7 @@ import pytest
 
 from agent_platform.models import ChatMessage, ContentBlock, ToolDefinition
 from agent_platform.providers.deepseek import DeepSeekProvider
+from agent_platform.providers.base import ProviderError
 
 
 @pytest.mark.asyncio
@@ -38,6 +39,7 @@ async def test_deepseek_stream_and_reasoning_tool_roundtrip() -> None:
         "test-key",
         "https://api.deepseek.test/anthropic",
         transport=httpx.MockTransport(handler),
+        egress_enabled=True,
     )
     messages = [
         ChatMessage(
@@ -78,3 +80,74 @@ async def test_deepseek_stream_and_reasoning_tool_roundtrip() -> None:
         "signature": "sig",
     }
     assert captured["messages"][1]["content"][0]["tool_use_id"] == "call-1"
+
+
+@pytest.mark.asyncio
+async def test_deepseek_egress_guard_fails_before_transport() -> None:
+    called = False
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal called
+        called = True
+        return httpx.Response(500)
+
+    provider = DeepSeekProvider(
+        "test-key",
+        "https://api.deepseek.test/anthropic",
+        transport=httpx.MockTransport(handler),
+        egress_enabled=False,
+    )
+
+    with pytest.raises(ProviderError, match="model egress is disabled"):
+        _ = [
+            event
+            async for event in provider.stream(
+                model="deepseek-v4-flash",
+                system="system",
+                messages=[],
+                tools=[],
+                max_output_tokens=1000,
+                thinking_enabled=False,
+                effort="low",
+            )
+        ]
+    assert called is False
+
+
+@pytest.mark.asyncio
+async def test_deepseek_egress_guard_is_closed_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("MODEL_EGRESS_ENABLED", raising=False)
+    monkeypatch.delenv("LILIES_MODEL_EGRESS_ENABLED", raising=False)
+    provider = DeepSeekProvider(
+        "test-key",
+        "https://api.deepseek.test/anthropic",
+        transport=httpx.MockTransport(lambda _request: httpx.Response(200)),
+    )
+
+    with pytest.raises(ProviderError, match="model egress is disabled"):
+        _ = [
+            event
+            async for event in provider.stream(
+                model="deepseek-v4-flash",
+                system="system",
+                messages=[],
+                tools=[],
+                max_output_tokens=1000,
+                thinking_enabled=False,
+                effort="low",
+            )
+        ]
+
+
+def test_deepseek_egress_guard_can_be_enabled_by_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("MODEL_EGRESS_ENABLED", "true")
+    provider = DeepSeekProvider(
+        "test-key",
+        "https://api.deepseek.test/anthropic",
+    )
+
+    assert provider.egress_enabled is True

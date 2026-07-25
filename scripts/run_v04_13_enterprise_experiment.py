@@ -24,11 +24,15 @@ from agent_platform.lilies_client import LiliesClient
 from agent_platform.lilies_config import LiliesSettings
 from agent_platform.lilies_models import LocalScope
 from agent_platform.task_packages import BudgetSpec, TaskPackageManager
+from agent_platform.token_monitoring import (
+    collect_token_monitor_snapshot,
+    snapshot_delta,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
 TASK_ID = "EXP-LILIES-001"
-REVISION = 9
+REVISION = 10
 TASK_ROOT = (
     ROOT
     / "docs"
@@ -350,6 +354,7 @@ def _platform_environment(
     *,
     port: int,
     collaboration_policy: str,
+    enable_model_egress: bool = False,
 ) -> dict[str, str]:
     environment = os.environ.copy()
     environment.update(
@@ -359,6 +364,7 @@ def _platform_environment(
             "PORT": str(port),
             "DATA_DIR": str(state_root / "platform-data"),
             "WORKSPACE_ROOT": str(state_root / "platform-workspaces"),
+            "MODEL_EGRESS_ENABLED": "true" if enable_model_egress else "false",
             "PLATFORM_HARNESS_SECRET_ENVELOPE_KEY": secrets_state[
                 "platform_envelope_key"
             ],
@@ -398,7 +404,12 @@ def _task_max_turns() -> int:
     return budget.max_build_repair_turns
 
 
-def _daemon_environment(state_root: Path, *, port: int) -> dict[str, str]:
+def _daemon_environment(
+    state_root: Path,
+    *,
+    port: int,
+    enable_model_egress: bool = False,
+) -> dict[str, str]:
     environment = os.environ.copy()
     environment.update(
         {
@@ -407,6 +418,9 @@ def _daemon_environment(state_root: Path, *, port: int) -> dict[str, str]:
             "LILIES_HOST": "127.0.0.1",
             "LILIES_PORT": str(port),
             "LILIES_DEFAULT_MAX_TURNS": str(_task_max_turns()),
+            "LILIES_MODEL_EGRESS_ENABLED": (
+                "true" if enable_model_egress else "false"
+            ),
         }
     )
     return environment
@@ -821,20 +835,38 @@ def _resolve_task_local_workspace_permission(
     }
 
 
-def _poll_assignment(
+def _poll_assignment_inner(
     platform_url: str,
     platform_token: str,
     *,
     assignment_id: str,
     deadline_seconds: float,
     operational_permission_policy: str = "manual",
+    token_state_root: Path | None = None,
+    token_monitor_interval: float = 5.0,
 ) -> dict[str, Any]:
     if operational_permission_policy not in OPERATIONAL_PERMISSION_POLICIES:
         raise EnterpriseExperimentError("operational permission policy is invalid")
     deadline = time.monotonic() + deadline_seconds
     last: dict[str, Any] | None = None
     permission_receipts: list[dict[str, Any]] = []
+    previous_token_snapshot: dict[str, Any] | None = None
+    previous_token_at = time.monotonic()
+    next_token_snapshot_at = 0.0
     while time.monotonic() < deadline:
+        now_monotonic = time.monotonic()
+        if (
+            token_state_root is not None
+            and token_monitor_interval > 0
+            and now_monotonic >= next_token_snapshot_at
+        ):
+            previous_token_snapshot, previous_token_at = _record_token_monitor_snapshot(
+                token_state_root,
+                previous=previous_token_snapshot,
+                previous_at=previous_token_at,
+                observed_at=now_monotonic,
+            )
+            next_token_snapshot_at = now_monotonic + token_monitor_interval
         relay_error: EnterpriseExperimentError | None = None
         try:
             _request_json(
@@ -919,6 +951,112 @@ def _poll_assignment(
         "runner_timeout": True,
         "runner_auto_permissions": permission_receipts,
     }
+
+
+def _poll_assignment(
+    platform_url: str,
+    platform_token: str,
+    *,
+    assignment_id: str,
+    deadline_seconds: float,
+    operational_permission_policy: str = "manual",
+    token_state_root: Path | None = None,
+    token_monitor_interval: float = 5.0,
+) -> dict[str, Any]:
+    try:
+        return _poll_assignment_inner(
+            platform_url,
+            platform_token,
+            assignment_id=assignment_id,
+            deadline_seconds=deadline_seconds,
+            operational_permission_policy=operational_permission_policy,
+            token_state_root=token_state_root,
+            token_monitor_interval=token_monitor_interval,
+        )
+    finally:
+        if token_state_root is not None and token_monitor_interval > 0:
+            observed_at = time.monotonic()
+            _record_token_monitor_snapshot(
+                token_state_root,
+                previous=None,
+                previous_at=observed_at,
+                observed_at=observed_at,
+            )
+
+
+def _record_token_monitor_snapshot(
+    state_root: Path,
+    *,
+    previous: dict[str, Any] | None,
+    previous_at: float,
+    observed_at: float,
+) -> tuple[dict[str, Any], float]:
+    snapshot = collect_token_monitor_snapshot(
+        platform_db=state_root / "platform-data" / "agent_platform.db",
+        lilies_db=state_root / "lilies-data" / "lilies.db",
+        bridge_db=state_root / "platform-data" / "local-lilies-bridge.db",
+        development_db=(
+            state_root / "platform-data" / "collaborative-development.db"
+        ),
+        required_sources=("platform", "local_lilies", "bridge"),
+        model_egress_enabled=True,
+    )
+    delta = (
+        snapshot_delta(
+            previous,
+            snapshot,
+            elapsed_seconds=max(0.001, observed_at - previous_at),
+        )
+        if previous is not None
+        else None
+    )
+    projection = {
+        "schema_version": "v0.4.13-t01h-token-monitor-1",
+        "observed_at": snapshot["generated_at"],
+        "safety": snapshot["safety"],
+        "totals": snapshot["usage"]["totals"],
+        "by_stage": snapshot["usage"]["by_stage"],
+        "by_model": snapshot["usage"]["by_model"],
+        "delta": delta,
+        "active": {
+            "processes": snapshot["processes"],
+            "platform_tasks": snapshot["sources"]["platform"]["active_tasks"],
+            "local_sessions": snapshot["sources"]["local_lilies"]["active_sessions"],
+            "recoverable_assignments": snapshot["sources"]["bridge"][
+                "recoverable_assignments"
+            ],
+            "development_assignments": snapshot["sources"][
+                "collaborative_development"
+            ]["active_assignments"],
+        },
+    }
+    monitor_root = state_root / "monitoring"
+    _atomic_private_json(monitor_root / "token-monitor.latest.json", projection)
+    line = _canonical_json(projection) + b"\n"
+    history_path = monitor_root / "token-monitor.jsonl"
+    descriptor = os.open(
+        history_path,
+        os.O_WRONLY | os.O_CREAT | os.O_APPEND | getattr(os, "O_NOFOLLOW", 0),
+        0o600,
+    )
+    try:
+        os.fchmod(descriptor, 0o600)
+        os.write(descriptor, line)
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+    totals = projection["totals"]
+    delta_tokens = int(delta["tokens"]) if delta is not None else 0
+    print(
+        "[token-monitor] "
+        f"tokens={int(totals['tokens']):,} "
+        f"delta={delta_tokens:+,} "
+        f"calls={int(totals['model_calls']):,} "
+        f"cost_usd={float(totals['cost_usd']):.6f}",
+        file=sys.stderr,
+        flush=True,
+    )
+    return snapshot, observed_at
 
 
 def _safe_assignment_projection(value: Mapping[str, Any]) -> dict[str, Any]:
@@ -1249,6 +1387,8 @@ def _write_run_evidence(
     host_verification: Mapping[str, Any] | None,
     error: str | None,
     finished_at: str | None = None,
+    model_egress_authorized: bool = False,
+    token_monitor: Mapping[str, Any] | None = None,
 ) -> Path:
     evidence_root.mkdir(parents=True, exist_ok=True)
     path = evidence_root / f"seed-{seed}.json"
@@ -1288,6 +1428,8 @@ def _write_run_evidence(
         "host_snapshots": list(host_snapshots),
         "platform_verification": platform_verification,
         "host_verification": host_verification,
+        "model_egress_authorized": model_egress_authorized,
+        "token_monitor": token_monitor,
         "error": error,
         "claim_ceiling": (
             "Real-host run metadata only. A completed assignment is not an "
@@ -1307,6 +1449,43 @@ def _write_run_evidence(
         attempt_path.write_bytes(encoded)
     path.write_bytes(encoded)
     return path
+
+
+def _token_monitor_evidence(
+    state_root: Path,
+    *,
+    interval_seconds: float,
+) -> dict[str, Any]:
+    latest = state_root / "monitoring" / "token-monitor.latest.json"
+    if not latest.is_file():
+        return {
+            "status": "missing",
+            "interval_seconds": interval_seconds,
+            "latest_digest": None,
+        }
+    payload = latest.read_bytes()
+    try:
+        value = json.loads(payload)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return {
+            "status": "invalid",
+            "interval_seconds": interval_seconds,
+            "latest_digest": _digest(payload),
+        }
+    if not isinstance(value, dict):
+        return {
+            "status": "invalid",
+            "interval_seconds": interval_seconds,
+            "latest_digest": _digest(payload),
+        }
+    return {
+        "status": "recorded",
+        "interval_seconds": interval_seconds,
+        "latest_digest": _digest(payload),
+        "observed_at": value.get("observed_at"),
+        "totals": value.get("totals"),
+        "safety": value.get("safety"),
+    }
 
 
 def run_seed(args: argparse.Namespace) -> int:
@@ -1333,6 +1512,15 @@ def run_seed(args: argparse.Namespace) -> int:
         if not os.environ.get("DEEPSEEK_API_KEY"):
             raise EnterpriseExperimentError(
                 "DEEPSEEK_API_KEY is required for a real Lilies model run"
+            )
+        if not getattr(args, "enable_model_egress", False):
+            raise EnterpriseExperimentError(
+                "real model egress remains disabled; pass --enable-model-egress "
+                "for this authorized run"
+            )
+        if args.token_monitor_interval <= 0:
+            raise EnterpriseExperimentError(
+                "a paid formal run requires --token-monitor-interval greater than zero"
             )
         _environment_command(
             state_root,
@@ -1385,10 +1573,12 @@ def run_seed(args: argparse.Namespace) -> int:
             runner_secrets,
             port=args.platform_port,
             collaboration_policy=args.collaboration_policy,
+            enable_model_egress=True,
         )
         daemon_environment = _daemon_environment(
             state_root,
             port=args.daemon_port,
+            enable_model_egress=True,
         )
         platform_url = f"http://127.0.0.1:{args.platform_port}"
         daemon_url = f"http://127.0.0.1:{args.daemon_port}"
@@ -1479,6 +1669,8 @@ def run_seed(args: argparse.Namespace) -> int:
                 assignment_id=str(assignment["assignment_id"]),
                 deadline_seconds=args.deadline_seconds,
                 operational_permission_policy=operational_permission_policy,
+                token_state_root=state_root,
+                token_monitor_interval=args.token_monitor_interval,
             )
             _write_active_run(
                 state_root,
@@ -1560,6 +1752,15 @@ def run_seed(args: argparse.Namespace) -> int:
             platform_verification=platform_verification,
             host_verification=host_verification,
             error=None,
+            model_egress_authorized=bool(
+                getattr(args, "enable_model_egress", False)
+            ),
+            token_monitor=_token_monitor_evidence(
+                state_root,
+                interval_seconds=float(
+                    getattr(args, "token_monitor_interval", 5.0)
+                ),
+            ),
         )
         print(path)
         return 0 if status == "enterprise_run_passed" else 3
@@ -1578,6 +1779,15 @@ def run_seed(args: argparse.Namespace) -> int:
             platform_verification=platform_verification,
             host_verification=host_verification,
             error=f"{type(error).__name__}: {error}",
+            model_egress_authorized=bool(
+                getattr(args, "enable_model_egress", False)
+            ),
+            token_monitor=_token_monitor_evidence(
+                state_root,
+                interval_seconds=float(
+                    getattr(args, "token_monitor_interval", 5.0)
+                ),
+            ),
         )
         print(path, file=sys.stderr)
         print(str(error), file=sys.stderr)
@@ -1612,6 +1822,15 @@ def resume_seed(args: argparse.Namespace) -> int:
         raise EnterpriseExperimentError(
             "DEEPSEEK_API_KEY is required to resume the real Lilies model run"
         )
+    if not getattr(args, "enable_model_egress", False):
+        raise EnterpriseExperimentError(
+            "real model egress remains disabled; pass --enable-model-egress "
+            "for this authorized resume"
+        )
+    if args.token_monitor_interval <= 0:
+        raise EnterpriseExperimentError(
+            "a paid formal resume requires --token-monitor-interval greater than zero"
+        )
     runner_secrets = _runner_secrets(state_root, create=False)
     inherited_environment = os.environ.copy()
     _environment_command(
@@ -1624,8 +1843,13 @@ def resume_seed(args: argparse.Namespace) -> int:
         runner_secrets,
         port=platform_port,
         collaboration_policy=collaboration_policy,
+        enable_model_egress=True,
     )
-    daemon_environment = _daemon_environment(state_root, port=daemon_port)
+    daemon_environment = _daemon_environment(
+        state_root,
+        port=daemon_port,
+        enable_model_egress=True,
+    )
     package = _freeze_package(Path(platform_environment["DATA_DIR"]))
     platform_url = f"http://127.0.0.1:{platform_port}"
     daemon_url = f"http://127.0.0.1:{daemon_port}"
@@ -1707,6 +1931,8 @@ def resume_seed(args: argparse.Namespace) -> int:
                 assignment_id=assignment_id,
                 deadline_seconds=args.deadline_seconds,
                 operational_permission_policy=operational_permission_policy,
+                token_state_root=state_root,
+                token_monitor_interval=args.token_monitor_interval,
             )
             _environment_command(
                 state_root,
@@ -1794,6 +2020,15 @@ def resume_seed(args: argparse.Namespace) -> int:
             platform_verification=platform_verification,
             host_verification=host_verification,
             error=None,
+            model_egress_authorized=bool(
+                getattr(args, "enable_model_egress", False)
+            ),
+            token_monitor=_token_monitor_evidence(
+                state_root,
+                interval_seconds=float(
+                    getattr(args, "token_monitor_interval", 5.0)
+                ),
+            ),
         )
         print(path)
         return 0 if status == "enterprise_run_passed" else 3
@@ -1815,6 +2050,15 @@ def resume_seed(args: argparse.Namespace) -> int:
             platform_verification=platform_verification,
             host_verification=host_verification,
             error=f"{type(error).__name__}: {error}",
+            model_egress_authorized=bool(
+                getattr(args, "enable_model_egress", False)
+            ),
+            token_monitor=_token_monitor_evidence(
+                state_root,
+                interval_seconds=float(
+                    getattr(args, "token_monitor_interval", 5.0)
+                ),
+            ),
         )
         print(path, file=sys.stderr)
         print(str(error), file=sys.stderr)
@@ -1873,9 +2117,31 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--platform-port", type=int, default=DEFAULT_PLATFORM_PORT)
     run.add_argument("--daemon-port", type=int, default=DEFAULT_DAEMON_PORT)
     run.add_argument("--deadline-seconds", type=float, default=10_800)
+    run.add_argument(
+        "--token-monitor-interval",
+        type=float,
+        default=5.0,
+        help="Persist read-only token/cost snapshots every N seconds; zero disables.",
+    )
+    run.add_argument(
+        "--enable-model-egress",
+        action="store_true",
+        help="Allow real provider HTTP only for this explicit experiment invocation.",
+    )
     resume = subparsers.add_parser("resume")
     resume.add_argument("--seed", choices=("debug", "101", "202", "303"), required=True)
     resume.add_argument("--deadline-seconds", type=float, default=10_800)
+    resume.add_argument(
+        "--token-monitor-interval",
+        type=float,
+        default=5.0,
+        help="Persist read-only token/cost snapshots every N seconds; zero disables.",
+    )
+    resume.add_argument(
+        "--enable-model-egress",
+        action="store_true",
+        help="Allow real provider HTTP only for this explicit resume invocation.",
+    )
     return parser
 
 

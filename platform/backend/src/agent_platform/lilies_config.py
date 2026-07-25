@@ -87,6 +87,13 @@ class LiliesSettings(BaseSettings):
         default="https://api.deepseek.com/anthropic",
         validation_alias=AliasChoices("LILIES_DEEPSEEK_BASE_URL", "DEEPSEEK_BASE_URL"),
     )
+    model_egress_enabled: bool = Field(
+        default=False,
+        validation_alias=AliasChoices(
+            "LILIES_MODEL_EGRESS_ENABLED",
+            "MODEL_EGRESS_ENABLED",
+        ),
+    )
     model_timeout_seconds: float = Field(default=600.0, gt=0, le=3600)
     max_output_tokens: int = Field(default=16_384, ge=256, le=384_000)
     context_window: int = Field(default=128_000, ge=8_000)

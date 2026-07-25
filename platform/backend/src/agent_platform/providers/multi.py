@@ -34,11 +34,17 @@ class OpenAIProvider(ModelProvider):
         api_key: str,
         base_url: str = "https://api.openai.com/v1",
         timeout_seconds: float = 600.0,
+        egress_enabled: bool | None = None,
     ) -> None:
         self._api_key = api_key
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout_seconds
-        self._deepseek = DeepSeekProvider(api_key, f"{self._base_url}/anthropic", timeout_seconds)
+        self._deepseek = DeepSeekProvider(
+            api_key,
+            f"{self._base_url}/anthropic",
+            timeout_seconds,
+            egress_enabled=egress_enabled,
+        )
 
     def capabilities(self, model: str) -> ProviderCapabilities:
         return ProviderCapabilities(
@@ -63,11 +69,17 @@ class AnthropicProvider(ModelProvider):
         api_key: str,
         base_url: str = "https://api.anthropic.com",
         timeout_seconds: float = 600.0,
+        egress_enabled: bool | None = None,
     ) -> None:
         self._api_key = api_key
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout_seconds
-        self._deepseek = DeepSeekProvider(api_key, f"{self._base_url}/v1/messages", timeout_seconds)
+        self._deepseek = DeepSeekProvider(
+            api_key,
+            f"{self._base_url}/v1/messages",
+            timeout_seconds,
+            egress_enabled=egress_enabled,
+        )
 
     def capabilities(self, model: str) -> ProviderCapabilities:
         return ProviderCapabilities(
@@ -129,21 +141,32 @@ class MultiProvider(ModelProvider):
         openai_base_url: str = "https://api.openai.com/v1",
         anthropic_base_url: str = "https://api.anthropic.com",
         timeout_seconds: float = 600.0,
+        egress_enabled: bool | None = None,
     ) -> None:
         self._providers: dict[str, ModelProvider] = {}
         self._timeout = timeout_seconds
+        self._egress_enabled = egress_enabled
 
         if deepseek_api_key:
             self._providers["deepseek"] = DeepSeekProvider(
-                deepseek_api_key, deepseek_base_url, timeout_seconds,
+                deepseek_api_key,
+                deepseek_base_url,
+                timeout_seconds,
+                egress_enabled=self._egress_enabled,
             )
         if openai_api_key:
             self._providers["openai"] = OpenAIProvider(
-                openai_api_key, openai_base_url, timeout_seconds,
+                openai_api_key,
+                openai_base_url,
+                timeout_seconds,
+                egress_enabled=self._egress_enabled,
             )
         if anthropic_api_key:
             self._providers["anthropic"] = AnthropicProvider(
-                anthropic_api_key, anthropic_base_url, timeout_seconds,
+                anthropic_api_key,
+                anthropic_base_url,
+                timeout_seconds,
+                egress_enabled=self._egress_enabled,
             )
         if not self._providers:
             # Graceful degradation — health endpoint still works, API calls fail

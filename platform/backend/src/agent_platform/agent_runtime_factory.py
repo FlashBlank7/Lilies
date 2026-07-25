@@ -47,6 +47,7 @@ def build_agent_runtime_core(
         deepseek_api_key=settings.deepseek_api_key,
         deepseek_base_url=settings.deepseek_base_url,
         timeout_seconds=settings.deepseek_timeout_seconds,
+        egress_enabled=settings.model_egress_enabled,
     )
     secret_kms_provider = build_secret_kms_provider(
         provider=settings.platform_harness_secret_kms_provider,

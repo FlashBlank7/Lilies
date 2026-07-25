@@ -334,6 +334,7 @@ def create_lilies_app(
             "service": "lilies",
             "status": "ok",
             "daemon_version": settings.agent_version,
+            "model_egress_enabled": settings.model_egress_enabled,
         }
 
     @app.post("/local/v1/pairings/code", response_model=PairingCodeResult)
@@ -402,6 +403,7 @@ def create_lilies_app(
             "client_expires_at": client.get("expires_at"),
             "provider": service_status["provider"],
             "model": service_status["model"],
+            "model_egress_enabled": settings.model_egress_enabled,
             "paired_client_count": service_status["paired_client_count"],
             "platform_paired": service_status["platform_paired"],
             "active_session_count": service_status["active_session_count"],

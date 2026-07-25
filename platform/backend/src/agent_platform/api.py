@@ -3108,6 +3108,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                 "current_code_ready": all(routes.values()),
             },
             "deepseek_configured": bool(settings.deepseek_api_key),
+            "model_egress_enabled": settings.model_egress_enabled,
             "docker_available": shutil.which("docker") is not None,
             "provider": services.provider.name,
             "tools": services.tools.names(),
@@ -3124,6 +3125,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             "configured_models": getattr(services.provider, "configured_models", []),
             "generator_model": settings.deepseek_generator_model,
             "runtime_model": settings.deepseek_runtime_model,
+            "model_egress_enabled": settings.model_egress_enabled,
             "capabilities": asdict(services.provider.capabilities(settings.deepseek_runtime_model)),
         }
 

@@ -1,0 +1,95 @@
+{
+  "schema_version": "v0.4.13-t01h-token-consumption-audit-1",
+  "stage_task_id": "V04-13-T01H",
+  "observed_at": "2026-07-25T11:25:46Z",
+  "model_request_performed": false,
+  "result": {
+    "background_token_consumption_detected": false,
+    "model_capable_process_count": 0,
+    "startup_auto_consumer_count": 0,
+    "model_egress_enabled": false,
+    "safe_now": true,
+    "safe_on_platform_or_daemon_start": true
+  },
+  "checks": {
+    "process_table": "No platform API, Local Lilies daemon, formal runner, collaborative-development worker, or known live-model experiment process was running.",
+    "listening_ports": "No listener was present on the Local Lilies, platform API, or Studio ports checked during the audit.",
+    "operating_system_schedulers": "No Lilies project cron, LaunchAgent, or LaunchDaemon entry was found.",
+    "platform_scheduler": "No published schedule_trigger and no due queued/running/retry_wait durable job was found.",
+    "local_lilies": "No running or waiting session/turn was found; the daemon metadata PID was stale.",
+    "platform_bridge": "No recoverable Local Lilies assignment was found.",
+    "collaborative_development": "No active autonomous development assignment or unsettled provider-cost reservation was found.",
+    "provider_guard": "MODEL_EGRESS_ENABLED resolved to false. Provider construction is fail-closed unless an explicit environment setting or runtime argument enables it; the T01H runner additionally requires --enable-model-egress."
+  },
+  "historical_usage": {
+    "input_tokens": 23245898,
+    "output_tokens": 706240,
+    "cached_input_tokens": 9495936,
+    "reasoning_tokens": 0,
+    "total_tokens": 23952138,
+    "model_calls": 1235,
+    "usage_records": 930,
+    "unknown_usage_model_calls": 312,
+    "estimated_cost_usd": 8.207053,
+    "cost_claim": "Configured price estimate, not a provider invoice."
+  },
+  "by_stage": [
+    {
+      "stage": "builder_team",
+      "tokens": 15765929,
+      "model_calls": 558,
+      "unknown_usage_model_calls": 0,
+      "estimated_cost_usd": 7.011434
+    },
+    {
+      "stage": "local_lilies_platform_builder",
+      "tokens": 7450980,
+      "model_calls": 123,
+      "unknown_usage_model_calls": 123,
+      "estimated_cost_usd": 1.049932
+    },
+    {
+      "stage": "requirement_intake",
+      "tokens": 354240,
+      "model_calls": 64,
+      "unknown_usage_model_calls": 9,
+      "estimated_cost_usd": 0.065393
+    },
+    {
+      "stage": "workflow_model_text",
+      "tokens": 265627,
+      "model_calls": 293,
+      "unknown_usage_model_calls": 0,
+      "estimated_cost_usd": 0.063774
+    },
+    {
+      "stage": "whole_workflow_edit_preview",
+      "tokens": 85049,
+      "model_calls": 8,
+      "unknown_usage_model_calls": 0,
+      "estimated_cost_usd": 0.012198
+    },
+    {
+      "stage": "workflow_model_tool_turn",
+      "tokens": 30313,
+      "model_calls": 9,
+      "unknown_usage_model_calls": 0,
+      "estimated_cost_usd": 0.004322
+    },
+    {
+      "stage": "workflow_run",
+      "tokens": 0,
+      "model_calls": 85,
+      "unknown_usage_model_calls": 85,
+      "estimated_cost_usd": 0.0
+    },
+    {
+      "stage": "builder_build",
+      "tokens": 0,
+      "model_calls": 95,
+      "unknown_usage_model_calls": 95,
+      "estimated_cost_usd": 0.0
+    }
+  ],
+  "claim_boundary": "The audit proves the inspected local machine and required Lilies ledgers had no detected automatic consumer at the observation time. It does not prove that an unrelated external machine, provider account user, container, or unclassified process cannot use the same credential. Historical aggregate token totals come from persisted usage, but 312 model attempts lack per-attempt usage receipts: they are reported as unknown, never as confirmed zero-token calls. New Local Lilies checkpoints persist usage-backed call counts for exact future reconciliation."
+}

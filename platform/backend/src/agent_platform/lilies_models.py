@@ -473,6 +473,7 @@ class DaemonHealth(StrictModel):
     service: Literal["lilies"] = "lilies"
     status: Literal["ok"] = "ok"
     daemon_version: str = Field(min_length=1, max_length=80)
+    model_egress_enabled: bool = False
 
 
 class DaemonStatus(StrictModel):
@@ -486,6 +487,7 @@ class DaemonStatus(StrictModel):
     client_expires_at: datetime | None = None
     provider: str = Field(min_length=1, max_length=120)
     model: str = Field(min_length=1, max_length=200)
+    model_egress_enabled: bool = False
     paired_client_count: int = Field(ge=0)
     platform_paired: bool = False
     active_session_count: int = Field(ge=0)

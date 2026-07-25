@@ -107,6 +107,7 @@
 # 1. 配置 API Key
 cp .env.example .env
 # 编辑 .env，设置 DEEPSEEK_API_KEY（从 https://platform.deepseek.com 获取）
+# 默认 MODEL_EGRESS_ENABLED=false；确认监控和队列后，只有真实运行时才设为 true
 
 # 2. 一键启动（首次 3-5 分钟构建镜像）
 ./scripts/docker-up.sh
@@ -129,6 +130,7 @@ cp .env.example .env
 # 1. 配置
 cp .env.example .env
 # 编辑 .env，设置 DEEPSEEK_API_KEY 和 API_TOKEN
+# 保持 MODEL_EGRESS_ENABLED=false 可启动只读/确定性功能但禁止真实模型 HTTP
 
 # 2. 构建沙盒镜像
 docker build --build-arg SANDBOX_UID=$(id -u) --build-arg SANDBOX_GID=$(id -g) \
@@ -147,6 +149,28 @@ pip install -e ".[dev]"
 ```
 
 本地开发请优先使用 `./scripts/dev_platform.sh` 同时启动 API 和 Studio。该脚本会把 Studio 代理和 Local Lilies assignment 回调都指向实际的 API host/port（默认 `http://127.0.0.1:8001`）；显式设置 `LILIES_PLATFORM_BASE_URL` 时则保留该值。不要手动把后端启动在另一个端口后再打开 Studio，否则前端代理或本地 daemon 回调会连到错误端口。
+
+### 模型出口与 token 监控
+
+真实 provider HTTP 默认由 `MODEL_EGRESS_ENABLED=false` 阻断。充值、核对余额或
+检查历史 usage 不需要打开它。确认要执行模型任务时再临时设置
+`MODEL_EGRESS_ENABLED=true`；T01H 正式 runner 还要求
+`--enable-model-egress`，因此单纯启动平台、daemon 或恢复旧进程不会越过断路器。
+
+监控直接只读 SQLite 账本和进程表，不会发出网络或模型调用：
+
+```bash
+python3 scripts/monitor_lilies_tokens.py
+python3 scripts/monitor_lilies_tokens.py --watch 5
+python3 scripts/monitor_lilies_tokens.py --state-root /path/to/experiment-state --watch 5
+python3 scripts/monitor_lilies_tokens.py --fail-on-risk
+```
+
+输出按平台 Builder、Local Lilies Builder、工作流模型节点、需求补全、协作开发等
+阶段拆分 input/output/cache/reasoning token、模型调用次数和估算费用，同时检查
+模型进程、定时工作流、durable retry、可恢复 assignment 与 autonomous 开发任务。
+账本缺失时安全结论显示 `unknown` 并让 `--fail-on-risk` 非零退出；没有 usage
+回执的失败/重试调用单独计为 `unknown-usage-calls`，不会伪装成零 Token。
 
 ### 莉莉丝与 Codex 的跨软件协同开发
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -21,11 +22,19 @@ class DeepSeekProvider(ModelProvider):
         base_url: str,
         timeout_seconds: float = 600.0,
         transport: httpx.AsyncBaseTransport | None = None,
+        egress_enabled: bool | None = None,
     ):
         self.api_key = api_key
         self.base_url = base_url.rstrip("/")
         self.timeout = httpx.Timeout(timeout_seconds, connect=30.0)
         self.transport = transport
+        if egress_enabled is None:
+            configured = os.getenv(
+                "LILIES_MODEL_EGRESS_ENABLED",
+                os.getenv("MODEL_EGRESS_ENABLED", "false"),
+            )
+            egress_enabled = configured.strip().lower() in {"1", "true", "yes", "on"}
+        self.egress_enabled = bool(egress_enabled)
 
     def capabilities(self, model: str) -> ProviderCapabilities:
         return ProviderCapabilities(
@@ -51,6 +60,11 @@ class DeepSeekProvider(ModelProvider):
         tool_choice: dict[str, str] | None = None,
         user_id: str | None = None,
     ) -> AsyncIterator[StreamEvent]:
+        if not self.egress_enabled:
+            raise ProviderError(
+                "model egress is disabled; set MODEL_EGRESS_ENABLED=true only for an "
+                "authorized model run"
+            )
         if not self.api_key:
             raise ProviderError("DEEPSEEK_API_KEY is not configured")
 

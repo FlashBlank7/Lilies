@@ -36,21 +36,33 @@ def test_preparation_uses_only_validated_runtime_environment_evidence(
         "docker_daemon_probe": "passed",
         "real_host_runs": 0,
     }
+    denominator = {
+        "required_hidden_records_per_run": 36,
+        "required_runs": 3,
+        "completed_runs": 0,
+        "passed_runs": 0,
+        "failed_runs": 0,
+        "not_run_runs": 3,
+    }
     path.write_text(
         json.dumps(
             {
                 "schema_version": "v0.4.13-t01h-runtime-environment-1",
                 "stage_task_id": "V04-13-T01H",
                 "experiment_task_id": TASK_ID,
-                "revision": preparation.REVISION,
-                "environment": environment,
-            }
-        ),
+                    "revision": preparation.REVISION,
+                    "environment": environment,
+                    "enterprise_denominator": denominator,
+                }
+            ),
         encoding="utf-8",
     )
     monkeypatch.setattr(preparation, "RUNTIME_ENVIRONMENT_PATH", path)
 
-    assert preparation._runtime_environment() == environment
+    assert preparation._runtime_environment() == {
+        "environment": environment,
+        "enterprise_denominator": denominator,
+    }
 
     path.write_text("{}", encoding="utf-8")
     with pytest.raises(RuntimeError, match="runtime-environment evidence is invalid"):

@@ -507,6 +507,16 @@ def test_governance_aggregates_beyond_task_and_sample_page_limits(tmp_path: Path
         assert usage["dimensions"]["model"][0]["tokens"] == 54
         assert usage["dimensions"]["model"][0]["cached_input_tokens"] == 15
         assert usage["dimensions"]["model"][0]["reasoning_tokens"] == 15
+        assert usage["dimensions"]["phase"] == [
+            {
+                "phase": "not_recorded",
+                "calls": 3,
+                "tokens": 54,
+                "cached_input_tokens": 15,
+                "reasoning_tokens": 15,
+                "cost_usd": 0.75,
+            }
+        ]
 
         unrelated = client.get(
             "/api/v1/governance/usage",

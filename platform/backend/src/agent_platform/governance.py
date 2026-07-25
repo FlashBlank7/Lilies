@@ -415,7 +415,17 @@ class GovernanceService:
             bucket["cached_input_tokens"] += int(sample.get("cache_read_input_tokens") or 0)
             bucket["cached_input_tokens"] += int(sample.get("cache_creation_input_tokens") or 0)
         dimensions: dict[str, list[dict[str, Any]]] = {}
-        for dimension in ("model", "provider", "application_id", "workflow_id", "owner_id"):
+        for dimension in (
+            "phase",
+            "task_kind",
+            "actor",
+            "node_id",
+            "model",
+            "provider",
+            "application_id",
+            "workflow_id",
+            "owner_id",
+        ):
             grouped: dict[str, dict[str, Any]] = {}
             for sample in all_samples:
                 key = str(sample.get(dimension) or "not_recorded")

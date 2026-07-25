@@ -98,6 +98,7 @@ _REJECTED_COLLABORATION_INPUT = {
 class TurnMetrics:
     usage: Usage
     model_calls: int = 0
+    usage_backed_model_calls: int = 0
     tool_calls: int = 0
 
     @classmethod
@@ -106,6 +107,13 @@ class TurnMetrics:
         return cls(
             usage=Usage.model_validate(raw.get("usage", {})),
             model_calls=max(0, int(raw.get("model_calls", 0))),
+            usage_backed_model_calls=max(
+                0,
+                min(
+                    int(raw.get("model_calls", 0)),
+                    int(raw.get("usage_backed_model_calls", 0)),
+                ),
+            ),
             tool_calls=max(0, int(raw.get("tool_calls", 0))),
         )
 
@@ -113,6 +121,7 @@ class TurnMetrics:
         return {
             "usage": self.usage.model_dump(mode="json"),
             "model_calls": self.model_calls,
+            "usage_backed_model_calls": self.usage_backed_model_calls,
             "tool_calls": self.tool_calls,
         }
 
@@ -218,6 +227,7 @@ class LocalLiliesService:
             settings.deepseek_api_key,
             settings.deepseek_base_url,
             settings.model_timeout_seconds,
+            egress_enabled=settings.model_egress_enabled,
         )
         self.tools = tools or build_lilies_core_registry()
         self._formal_assignment_authorizer = formal_assignment_authorizer
@@ -1890,6 +1900,7 @@ class LocalLiliesService:
             )
             assistant_message_id = str(assistant_message["id"])
             add_usage(metrics.usage, response.usage)
+            metrics.usage_backed_model_calls += 1
             tool_calls = [block for block in visible_blocks if block.type == "tool_use"]
             await self._checkpoint(
                 turn_id,

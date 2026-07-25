@@ -91,6 +91,7 @@ def test_health_is_loopback_public_minimal_and_strict_requests(local_client: Tes
         "service": "lilies",
         "status": "ok",
         "daemon_version": "0.4.13",
+        "model_egress_enabled": False,
     }
     serialized = response.text.casefold()
     assert all(

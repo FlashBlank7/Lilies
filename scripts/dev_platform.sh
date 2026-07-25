@@ -49,6 +49,14 @@ export LILIES_PLATFORM_BASE_URL="${LILIES_PLATFORM_BASE_URL:-$API_CONNECT_URL}"
 if [[ "${1:-}" == "--check-env" ]]; then
   [[ -n "${DEEPSEEK_API_KEY:-}" ]] && echo "DEEPSEEK_API_KEY ok" || echo "DEEPSEEK_API_KEY missing"
   [[ -n "${API_TOKEN:-}" ]] && echo "API_TOKEN ok" || echo "API_TOKEN missing"
+  case "${MODEL_EGRESS_ENABLED:-false}" in
+    1|true|TRUE|True|yes|YES|Yes|on|ON|On)
+      echo "MODEL_EGRESS_ENABLED enabled (real provider calls allowed)"
+      ;;
+    *)
+      echo "MODEL_EGRESS_ENABLED disabled (provider calls blocked)"
+      ;;
+  esac
   if [[ "${LILIES_LOCAL_AGENT_ENABLED:-false}" == "true" ]]; then
     echo "Local Lilies callback $LILIES_PLATFORM_BASE_URL"
   fi
