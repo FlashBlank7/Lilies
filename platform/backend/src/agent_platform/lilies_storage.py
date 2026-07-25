@@ -8,7 +8,8 @@ import os
 import secrets
 import sqlite3
 import uuid
-from collections.abc import AsyncIterator, Mapping, Sequence
+from collections.abc import AsyncIterator, Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -222,16 +223,46 @@ class LiliesStorage:
     def _connect(self) -> sqlite3.Connection:
         self._prepare_paths()
         conn = sqlite3.connect(self.db_path, timeout=30.0)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA foreign_keys=ON")
-        conn.execute("PRAGMA busy_timeout=30000")
-        conn.execute("PRAGMA synchronous=FULL")
-        self._secure_database_files()
+        try:
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA foreign_keys=ON")
+            conn.execute("PRAGMA busy_timeout=30000")
+            conn.execute("PRAGMA synchronous=FULL")
+            self._secure_database_files()
+        except BaseException as error:
+            try:
+                conn.close()
+            except BaseException as close_error:
+                error.add_note(
+                    f"SQLite close also failed during connection setup: {close_error!r}"
+                )
+            raise
         return conn
 
+    @contextmanager
+    def _connection(self) -> Iterator[sqlite3.Connection]:
+        """Run one SQLite transaction and always release its file descriptors."""
+        conn = self._connect()
+        transaction_error: BaseException | None = None
+        try:
+            with conn:
+                yield conn
+        except BaseException as error:
+            transaction_error = error
+            raise
+        finally:
+            try:
+                conn.close()
+            except BaseException as close_error:
+                if transaction_error is None:
+                    raise
+                transaction_error.add_note(
+                    f"SQLite close also failed after transaction error: {close_error!r}"
+                )
+
     def _initialize_sync(self) -> dict[str, int]:
-        with self._connect() as conn:
+        with self._connection() as conn:
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -814,7 +845,7 @@ class LiliesStorage:
     ) -> dict[str, Any]:
         session_id = session_id or str(uuid.uuid4())
         now = utc_now()
-        with self._connect() as conn:
+        with self._connection() as conn:
             if client_id is not None:
                 self._require_client_conn(conn, client_id)
             try:
@@ -868,7 +899,7 @@ class LiliesStorage:
         return await asyncio.to_thread(self._get_session_sync, session_id, client_id)
 
     def _get_session_sync(self, session_id: str, client_id: str | None) -> dict[str, Any]:
-        with self._connect() as conn:
+        with self._connection() as conn:
             if client_id is not None:
                 self._require_session_access_conn(conn, client_id, session_id)
             return self._session_from_row(self._require_session_conn(conn, session_id))
@@ -877,7 +908,7 @@ class LiliesStorage:
         return await asyncio.to_thread(self._list_sessions_sync, client_id)
 
     def _list_sessions_sync(self, client_id: str | None) -> list[dict[str, Any]]:
-        with self._connect() as conn:
+        with self._connection() as conn:
             if client_id is None:
                 rows = conn.execute("SELECT * FROM sessions ORDER BY updated_at DESC, id").fetchall()
             else:
@@ -912,7 +943,7 @@ class LiliesStorage:
         reason: str | None,
         expected_status: str | None,
     ) -> dict[str, Any]:
-        with self._connect() as conn:
+        with self._connection() as conn:
             self._transition_session_conn(
                 conn,
                 session_id,
@@ -945,7 +976,7 @@ class LiliesStorage:
         turn_id: str,
         reason: str,
     ) -> dict[str, Any]:
-        with self._connect() as conn:
+        with self._connection() as conn:
             conn.execute("BEGIN IMMEDIATE")
             session = self._require_session_conn(conn, session_id)
             config = _json_load(session["config_json"], {})
@@ -1124,7 +1155,7 @@ class LiliesStorage:
             column = column_names.get(field, field)
             assignments.append(f"{column}=?")
             values.append(_json_dump(value) if field in json_fields and value is not None else value)
-        with self._connect() as conn:
+        with self._connection() as conn:
             self._require_session_conn(conn, session_id)
             if assignments:
                 now = utc_now()
@@ -1167,7 +1198,7 @@ class LiliesStorage:
         assignment: dict[str, Any],
         client_id: str | None,
     ) -> dict[str, Any] | None:
-        with self._connect() as conn:
+        with self._connection() as conn:
             if client_id is not None:
                 self._require_session_access_conn(conn, client_id, session_id)
             row = self._match_assignment_request_conn(conn, session_id, assignment)
@@ -1221,7 +1252,7 @@ class LiliesStorage:
         )
         payload_hash = _payload_hash(assignment)
         accepted_at = utc_now()
-        with self._connect() as conn:
+        with self._connection() as conn:
             conn.execute("BEGIN IMMEDIATE")
             if client_id is not None:
                 self._require_session_access_conn(conn, client_id, session_id)
@@ -1392,7 +1423,7 @@ class LiliesStorage:
         return await asyncio.to_thread(self._get_assignment_sync, assignment_id)
 
     def _get_assignment_sync(self, assignment_id: str) -> dict[str, Any]:
-        with self._connect() as conn:
+        with self._connection() as conn:
             row = conn.execute(
                 "SELECT * FROM assignments WHERE id=?",
                 (assignment_id,),
@@ -1429,7 +1460,7 @@ class LiliesStorage:
             raise ValueError(f"unknown message role: {role}")
         message_id = message_id or str(uuid.uuid4())
         now = utc_now()
-        with self._connect() as conn:
+        with self._connection() as conn:
             self._require_session_conn(conn, session_id)
             if turn_id is not None:
                 self._require_turn_conn(conn, turn_id, session_id=session_id)
@@ -1484,7 +1515,7 @@ class LiliesStorage:
         limit: int,
         client_id: str | None,
     ) -> list[dict[str, Any]]:
-        with self._connect() as conn:
+        with self._connection() as conn:
             self._require_session_conn(conn, session_id)
             if client_id is not None:
                 self._require_session_access_conn(conn, client_id, session_id)
@@ -1515,7 +1546,7 @@ class LiliesStorage:
         self,
         session_id: str,
     ) -> list[dict[str, Any]]:
-        with self._connect() as conn:
+        with self._connection() as conn:
             self._require_session_conn(conn, session_id)
             rows = conn.execute(
                 """
@@ -1542,7 +1573,7 @@ class LiliesStorage:
         limit: int,
         client_id: str | None,
     ) -> list[dict[str, Any]]:
-        with self._connect() as conn:
+        with self._connection() as conn:
             self._require_session_conn(conn, session_id)
             if client_id is not None:
                 self._require_session_access_conn(conn, client_id, session_id)
@@ -1626,7 +1657,7 @@ class LiliesStorage:
         resume_interrupted: bool,
     ) -> dict[str, Any]:
         turn_id = turn_id or str(uuid.uuid4())
-        with self._connect() as conn:
+        with self._connection() as conn:
             session = self._require_session_conn(conn, session_id)
             replay = conn.execute(
                 "SELECT * FROM turns WHERE session_id=? AND idempotency_key=?",
@@ -1717,7 +1748,7 @@ class LiliesStorage:
         side_effect_state: str | None,
     ) -> dict[str, Any]:
         now = utc_now()
-        with self._connect() as conn:
+        with self._connection() as conn:
             row = self._require_turn_conn(conn, turn_id)
             if row["status"] not in {"running", "waiting_permission", "waiting_collaboration"}:
                 raise LiliesConflictError(f"cannot checkpoint finished turn {turn_id}")
@@ -1776,7 +1807,7 @@ class LiliesStorage:
         tool_result_message_id: str | None,
     ) -> dict[str, Any]:
         now = utc_now()
-        with self._connect() as conn:
+        with self._connection() as conn:
             conn.execute("BEGIN IMMEDIATE")
             turn = self._require_turn_conn(conn, turn_id)
             session = self._require_session_conn(conn, turn["session_id"])
@@ -1913,7 +1944,7 @@ class LiliesStorage:
     ) -> dict[str, Any]:
         now = utc_now()
         encoded_content = _json_dump(content)
-        with self._connect() as conn:
+        with self._connection() as conn:
             conn.execute("BEGIN IMMEDIATE")
             turn = self._require_turn_conn(conn, turn_id)
             session = self._require_session_conn(conn, turn["session_id"])
@@ -2050,7 +2081,7 @@ class LiliesStorage:
         }[status]
         target_status = session_status or default_session_status
         now = utc_now()
-        with self._connect() as conn:
+        with self._connection() as conn:
             turn = self._require_turn_conn(conn, turn_id)
             if turn["status"] not in {"running", "waiting_permission", "waiting_collaboration"}:
                 raise LiliesConflictError(f"turn already finished: {turn_id}")
@@ -2178,7 +2209,7 @@ class LiliesStorage:
         model_call_count: int | None,
     ) -> dict[str, Any]:
         now = utc_now()
-        with self._connect() as conn:
+        with self._connection() as conn:
             turn = self._require_turn_conn(conn, turn_id)
             session = self._require_session_conn(conn, turn["session_id"])
             if turn["status"] == "cancelled" and session["status"] == target_session_status:
@@ -2341,14 +2372,14 @@ class LiliesStorage:
         return await asyncio.to_thread(self._get_turn_sync, turn_id)
 
     def _get_turn_sync(self, turn_id: str) -> dict[str, Any]:
-        with self._connect() as conn:
+        with self._connection() as conn:
             return self._turn_from_row(self._require_turn_conn(conn, turn_id))
 
     async def list_turns(self, session_id: str) -> list[dict[str, Any]]:
         return await asyncio.to_thread(self._list_turns_sync, session_id)
 
     def _list_turns_sync(self, session_id: str) -> list[dict[str, Any]]:
-        with self._connect() as conn:
+        with self._connection() as conn:
             self._require_session_conn(conn, session_id)
             rows = conn.execute(
                 "SELECT * FROM turns WHERE session_id=? ORDER BY created_at,id", (session_id,)
@@ -2404,7 +2435,7 @@ class LiliesStorage:
                 "permission input digest does not bind the canonical tool input"
             )
         now = utc_now()
-        with self._connect() as conn:
+        with self._connection() as conn:
             session = self._require_session_conn(conn, session_id)
             turn = self._require_turn_conn(conn, turn_id, session_id=session_id)
             existing = conn.execute(
@@ -2531,7 +2562,7 @@ class LiliesStorage:
             _json_dump(decision_payload).encode("utf-8")
         ).hexdigest()
         now = utc_now()
-        with self._connect() as conn:
+        with self._connection() as conn:
             if client_id is not None:
                 client = self._require_client_conn(conn, client_id)
                 scopes = set(_json_load(client["scopes_json"], []))
@@ -2643,7 +2674,7 @@ class LiliesStorage:
         return await asyncio.to_thread(self._get_permission_request_sync, request_id)
 
     def _get_permission_request_sync(self, request_id: str) -> dict[str, Any]:
-        with self._connect() as conn:
+        with self._connection() as conn:
             row = conn.execute(
                 "SELECT * FROM permission_requests WHERE id=?", (request_id,)
             ).fetchone()
@@ -2659,7 +2690,7 @@ class LiliesStorage:
     def _list_pending_permissions_sync(
         self, session_id: str | None
     ) -> list[dict[str, Any]]:
-        with self._connect() as conn:
+        with self._connection() as conn:
             if session_id is None:
                 rows = conn.execute(
                     "SELECT * FROM permission_requests WHERE status='pending' ORDER BY created_at,id"
@@ -2706,7 +2737,7 @@ class LiliesStorage:
         salt = secrets.token_bytes(16)
         created_at = datetime.now(timezone.utc)
         expires_at = created_at + timedelta(seconds=ttl_seconds)
-        with self._connect() as conn:
+        with self._connection() as conn:
             conn.execute(
                 """
                 INSERT INTO pairing_codes(
@@ -2815,7 +2846,7 @@ class LiliesStorage:
             raise ValueError("client token ttl must be positive")
         now = datetime.now(timezone.utc)
         now_text = now.isoformat()
-        with self._connect() as conn:
+        with self._connection() as conn:
             conn.execute("BEGIN IMMEDIATE")
             row = conn.execute("SELECT * FROM pairing_codes WHERE id=?", (code_id,)).fetchone()
             if row is None:
@@ -3133,7 +3164,7 @@ class LiliesStorage:
     def _record_pairing_rejection(
         self, reason: str, details: Mapping[str, Any] | None = None
     ) -> None:
-        with self._connect() as conn:
+        with self._connection() as conn:
             self._security_event_conn(
                 conn,
                 "pairing.exchange_rejected",
@@ -3155,7 +3186,7 @@ class LiliesStorage:
             client_id, _ = access_token.split(".", 1)
         except ValueError as exc:
             raise LiliesAuthenticationError("invalid client token") from exc
-        with self._connect() as conn:
+        with self._connection() as conn:
             row = conn.execute("SELECT * FROM clients WHERE id=?", (client_id,)).fetchone()
             if row is None:
                 raise LiliesAuthenticationError("invalid client token")
@@ -3188,7 +3219,7 @@ class LiliesStorage:
 
     def _revoke_client_sync(self, client_id: str) -> dict[str, Any]:
         now = utc_now()
-        with self._connect() as conn:
+        with self._connection() as conn:
             row = self._require_client_conn(conn, client_id)
             if row["revoked_at"] is None:
                 conn.execute("UPDATE clients SET revoked_at=? WHERE id=?", (now, client_id))
@@ -3201,14 +3232,14 @@ class LiliesStorage:
         return await asyncio.to_thread(self._get_client_sync, client_id)
 
     def _get_client_sync(self, client_id: str) -> dict[str, Any]:
-        with self._connect() as conn:
+        with self._connection() as conn:
             return self._client_from_row(self._require_client_conn(conn, client_id))
 
     async def list_clients(self) -> list[dict[str, Any]]:
         return await asyncio.to_thread(self._list_clients_sync)
 
     def _list_clients_sync(self) -> list[dict[str, Any]]:
-        with self._connect() as conn:
+        with self._connection() as conn:
             rows = conn.execute("SELECT * FROM clients ORDER BY created_at,id").fetchall()
         return [self._client_from_row(row) for row in rows]
 
@@ -3217,7 +3248,7 @@ class LiliesStorage:
             await asyncio.to_thread(self._grant_session_access_sync, client_id, session_id)
 
     def _grant_session_access_sync(self, client_id: str, session_id: str) -> None:
-        with self._connect() as conn:
+        with self._connection() as conn:
             self._require_client_conn(conn, client_id)
             self._require_session_conn(conn, session_id)
             conn.execute(
@@ -3233,7 +3264,7 @@ class LiliesStorage:
             await asyncio.to_thread(self._revoke_session_access_sync, client_id, session_id)
 
     def _revoke_session_access_sync(self, client_id: str, session_id: str) -> None:
-        with self._connect() as conn:
+        with self._connection() as conn:
             conn.execute(
                 "DELETE FROM client_session_acl WHERE client_id=? AND session_id=?",
                 (client_id, session_id),
@@ -3243,7 +3274,7 @@ class LiliesStorage:
         return await asyncio.to_thread(self._client_can_access_sync, client_id, session_id)
 
     def _client_can_access_sync(self, client_id: str, session_id: str) -> bool:
-        with self._connect() as conn:
+        with self._connection() as conn:
             row = conn.execute(
                 "SELECT 1 FROM client_session_acl WHERE client_id=? AND session_id=?",
                 (client_id, session_id),
@@ -3265,7 +3296,7 @@ class LiliesStorage:
     def _append_event_sync(
         self, session_id: str, event_type: str, data: dict[str, Any]
     ) -> dict[str, Any]:
-        with self._connect() as conn:
+        with self._connection() as conn:
             self._require_session_conn(conn, session_id)
             seq = self._append_event_conn(conn, session_id, event_type, data)
             row = conn.execute(
@@ -3292,7 +3323,7 @@ class LiliesStorage:
         limit: int,
         client_id: str | None,
     ) -> list[dict[str, Any]]:
-        with self._connect() as conn:
+        with self._connection() as conn:
             self._require_session_conn(conn, session_id)
             if client_id is not None:
                 self._require_session_access_conn(conn, client_id, session_id)
@@ -3339,7 +3370,7 @@ class LiliesStorage:
         self, client_id: str, session_id: str, cursor: int
     ) -> dict[str, Any]:
         now = utc_now()
-        with self._connect() as conn:
+        with self._connection() as conn:
             self._require_session_access_conn(conn, client_id, session_id)
             highest = int(
                 conn.execute(
@@ -3370,7 +3401,7 @@ class LiliesStorage:
         return await asyncio.to_thread(self._get_ack_sync, client_id, session_id)
 
     def _get_ack_sync(self, client_id: str, session_id: str) -> dict[str, Any]:
-        with self._connect() as conn:
+        with self._connection() as conn:
             self._require_session_access_conn(conn, client_id, session_id)
             row = conn.execute(
                 "SELECT * FROM reader_acks WHERE client_id=? AND session_id=?",
@@ -3435,7 +3466,7 @@ class LiliesStorage:
             }
         )
         now = utc_now()
-        with self._connect() as conn:
+        with self._connection() as conn:
             if client_id is not None:
                 self._require_client_conn(conn, client_id)
             if idempotency_key is not None:
@@ -3506,7 +3537,7 @@ class LiliesStorage:
     def _get_credential_sync(
         self, credential_ref: str, assignment_id: str | None
     ) -> dict[str, Any]:
-        with self._connect() as conn:
+        with self._connection() as conn:
             row = conn.execute(
                 "SELECT * FROM credentials WHERE ref=?", (credential_ref,)
             ).fetchone()
@@ -3528,7 +3559,7 @@ class LiliesStorage:
         return await asyncio.to_thread(self._list_credentials_sync)
 
     def _list_credentials_sync(self) -> list[dict[str, Any]]:
-        with self._connect() as conn:
+        with self._connection() as conn:
             rows = conn.execute("SELECT * FROM credentials ORDER BY created_at,ref").fetchall()
         return [self._credential_metadata(row) for row in rows]
 
@@ -3560,7 +3591,7 @@ class LiliesStorage:
                 "reason": reason,
             }
         )
-        with self._connect() as conn:
+        with self._connection() as conn:
             row = conn.execute(
                 "SELECT * FROM credentials WHERE ref=?", (credential_ref,)
             ).fetchone()
@@ -3636,7 +3667,7 @@ class LiliesStorage:
         details: dict[str, Any],
         client_id: str | None,
     ) -> None:
-        with self._connect() as conn:
+        with self._connection() as conn:
             if client_id is not None:
                 self._require_client_conn(conn, client_id)
             self._security_event_conn(
@@ -3647,7 +3678,7 @@ class LiliesStorage:
             )
 
     def _list_security_events_sync(self) -> list[dict[str, Any]]:
-        with self._connect() as conn:
+        with self._connection() as conn:
             rows = conn.execute("SELECT * FROM security_events ORDER BY seq").fetchall()
         return [
             {

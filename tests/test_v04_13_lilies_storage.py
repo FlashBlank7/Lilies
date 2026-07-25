@@ -33,6 +33,140 @@ async def _paired_client(
     )
 
 
+@pytest.mark.asyncio
+async def test_storage_closes_every_sqlite_connection_after_public_operations(
+    tmp_path, monkeypatch
+) -> None:
+    storage = LiliesStorage(tmp_path / "data")
+    await storage.initialize()
+    session = await storage.create_session()
+    original_connect = sqlite3.connect
+    counters = {"opened": 0, "closed": 0}
+
+    class TrackingConnection(sqlite3.Connection):
+        def __init__(self, *args, **kwargs) -> None:
+            counters["opened"] += 1
+            super().__init__(*args, **kwargs)
+
+        def close(self) -> None:
+            counters["closed"] += 1
+            super().close()
+
+    def tracked_connect(*args, **kwargs):
+        return original_connect(*args, factory=TrackingConnection, **kwargs)
+
+    monkeypatch.setattr("agent_platform.lilies_storage.sqlite3.connect", tracked_connect)
+
+    for _ in range(128):
+        assert (await storage.get_session(session["id"]))["id"] == session["id"]
+
+    assert counters == {"opened": 128, "closed": 128}
+
+
+def test_storage_connection_closes_after_body_and_commit_failures(
+    tmp_path, monkeypatch
+) -> None:
+    storage = LiliesStorage(tmp_path / "data")
+
+    class FakeConnection:
+        def __init__(
+            self, *, commit_error: bool = False, close_error: bool = False
+        ) -> None:
+            self.commit_error = commit_error
+            self.close_error = close_error
+            self.closed = False
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            if self.commit_error and exc_type is None:
+                raise sqlite3.OperationalError("commit failed")
+            return False
+
+        def close(self) -> None:
+            self.closed = True
+            if self.close_error:
+                raise sqlite3.OperationalError("close failed")
+
+    body_failure = FakeConnection()
+    monkeypatch.setattr(storage, "_connect", lambda: body_failure)
+    with pytest.raises(RuntimeError, match="body failed"):
+        with storage._connection():
+            raise RuntimeError("body failed")
+    assert body_failure.closed is True
+
+    commit_failure = FakeConnection(commit_error=True)
+    monkeypatch.setattr(storage, "_connect", lambda: commit_failure)
+    with pytest.raises(sqlite3.OperationalError, match="commit failed"):
+        with storage._connection():
+            pass
+    assert commit_failure.closed is True
+
+    body_and_close_failure = FakeConnection(close_error=True)
+    monkeypatch.setattr(storage, "_connect", lambda: body_and_close_failure)
+    with pytest.raises(RuntimeError, match="body failed") as body_error:
+        with storage._connection():
+            raise RuntimeError("body failed")
+    assert body_and_close_failure.closed is True
+    assert body_error.value.__notes__ == [
+        "SQLite close also failed after transaction error: "
+        "OperationalError('close failed')"
+    ]
+
+    commit_and_close_failure = FakeConnection(commit_error=True, close_error=True)
+    monkeypatch.setattr(storage, "_connect", lambda: commit_and_close_failure)
+    with pytest.raises(sqlite3.OperationalError, match="commit failed") as commit_error:
+        with storage._connection():
+            pass
+    assert commit_and_close_failure.closed is True
+    assert commit_error.value.__notes__ == [
+        "SQLite close also failed after transaction error: "
+        "OperationalError('close failed')"
+    ]
+
+
+def test_storage_connect_closes_after_configuration_failure(tmp_path, monkeypatch) -> None:
+    storage = LiliesStorage(tmp_path / "data")
+
+    class SetupFailureConnection:
+        row_factory = None
+
+        def __init__(self, *, close_error: bool = False) -> None:
+            self.close_error = close_error
+            self.closed = False
+
+        def execute(self, statement: str) -> None:
+            raise sqlite3.OperationalError(f"configuration failed: {statement}")
+
+        def close(self) -> None:
+            self.closed = True
+            if self.close_error:
+                raise sqlite3.OperationalError("close failed")
+
+    setup_failure = SetupFailureConnection()
+    monkeypatch.setattr(
+        "agent_platform.lilies_storage.sqlite3.connect",
+        lambda *args, **kwargs: setup_failure,
+    )
+    with pytest.raises(sqlite3.OperationalError, match="configuration failed"):
+        storage._connect()
+    assert setup_failure.closed is True
+
+    setup_and_close_failure = SetupFailureConnection(close_error=True)
+    monkeypatch.setattr(
+        "agent_platform.lilies_storage.sqlite3.connect",
+        lambda *args, **kwargs: setup_and_close_failure,
+    )
+    with pytest.raises(sqlite3.OperationalError, match="configuration failed") as error:
+        storage._connect()
+    assert setup_and_close_failure.closed is True
+    assert error.value.__notes__ == [
+        "SQLite close also failed during connection setup: "
+        "OperationalError('close failed')"
+    ]
+
+
 def _digest_json(value: object) -> str:
     payload = json.dumps(
         value,
