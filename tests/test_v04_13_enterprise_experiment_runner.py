@@ -1637,6 +1637,8 @@ def test_pairing_requests_the_exact_platform_bridge_scope_set(
         "lilies.permission:resolve",
         "--scope",
         "lilies.credential:write",
+        "--scope",
+        "lilies.observability:read",
     ]
     subprocess_options = captured["subprocess"]
     assert subprocess_options["cwd"] == runner.STANDALONE_LILIES_ROOT
