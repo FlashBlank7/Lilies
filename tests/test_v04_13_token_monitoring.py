@@ -866,6 +866,11 @@ def test_process_detection_and_delta() -> None:
         ("138 1 00:01 scripts/run_v04_13_codex_builder.py bootstrap --launch-codex"),
         "139 1 00:01 python -m lilies_agent.cli serve --host 127.0.0.1 --port 8765",
         "140 1 00:01 python -I -m uvicorn agent_platform.api:app --host 127.0.0.1",
+        (
+            "141 1 00:01 python -c 'import agent_platform.api as api;"
+            " import uvicorn; uvicorn.run(api.app)'"
+        ),
+        "142 1 00:01 python -c 'print(\"agent_platform.api uvicorn\")'",
     ]
     processes = discover_model_capable_processes(rows)
     assert [(item["pid"], item["kind"]) for item in processes] == [
@@ -877,6 +882,7 @@ def test_process_detection_and_delta() -> None:
         (138, "external_codex_builder"),
         (139, "local_lilies_daemon"),
         (140, "platform_api"),
+        (141, "platform_api"),
     ]
     raw = [item for item in processes if item["pid"] in {128, 129}]
     assert all(item["invocation_id"] == invocation for item in raw)

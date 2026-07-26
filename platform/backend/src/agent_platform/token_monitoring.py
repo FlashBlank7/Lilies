@@ -1805,6 +1805,10 @@ def _python_entrypoint(
             if index + 1 >= len(argv):
                 return None
             return "module", argv[index + 1], list(argv[index + 2 :])
+        if argument == "-c":
+            if index + 1 >= len(argv):
+                return None
+            return "command", argv[index + 1], list(argv[index + 2 :])
         if argument.startswith("-"):
             return None
         return "script", Path(argument).name, list(argv[index + 1 :])
@@ -1864,6 +1868,13 @@ def _known_model_process_kind(argv: Sequence[str]) -> str | None:
         entrypoint = ("script", Path(argv[0]).name, list(argv[1:]))
     if entrypoint is not None:
         entrypoint_kind, entrypoint_name, arguments = entrypoint
+        if entrypoint_kind == "command":
+            inline_source = entrypoint_name.replace("\\012", "\n")
+            if (
+                "agent_platform.api" in inline_source
+                and "uvicorn.run" in inline_source
+            ):
+                return "platform_api"
         if entrypoint_kind == "script":
             if entrypoint_name == "run_v04_13_enterprise_experiment.py":
                 return "enterprise_experiment"
