@@ -7,6 +7,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Literal
+from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
 from fastapi import FastAPI, Query, Request
@@ -24,6 +25,7 @@ from .lilies_platform_contract import (
     build_platform_contract,
     public_block_catalog,
     public_block_manual,
+    public_digest,
     public_runtime_tool_catalog,
 )
 from .platform_blackbox_auth import (
@@ -653,6 +655,243 @@ async def _published_workflow_tools(
     return result
 
 
+def _connector_policy_match(
+    connector_id: str,
+    operation_id: str,
+    values: list[str],
+) -> bool:
+    candidates = {
+        operation_id,
+        f"{connector_id}.{operation_id}",
+        f"{connector_id}:{operation_id}",
+    }
+    return len(candidates.intersection(values)) == 1
+
+
+def _connector_object_json_schema(value: Any) -> dict[str, Any]:
+    if value.json_schema is not None:
+        return json.loads(json.dumps(value.json_schema))
+    properties: dict[str, Any] = {}
+    required: list[str] = []
+    for field in value.fields:
+        field_schema: dict[str, Any] = {"type": field.value_type}
+        if field.enum:
+            field_schema["enum"] = list(field.enum)
+        if field.item_type is not None:
+            field_schema["items"] = {"type": field.item_type}
+        if field.max_length is not None:
+            if field.value_type == "string":
+                field_schema["maxLength"] = field.max_length
+            elif field.value_type == "array":
+                field_schema["maxItems"] = field.max_length
+            elif field.value_type == "object":
+                field_schema["maxProperties"] = field.max_length
+        properties[field.name] = field_schema
+        if field.required:
+            required.append(field.name)
+    return {
+        "type": "object",
+        "properties": properties,
+        "required": required,
+        "additionalProperties": value.additional_properties,
+    }
+
+
+async def _task_scoped_connector_tools(
+    services: Any,
+    credential: TaskCredentialRecord,
+) -> list[dict[str, Any]]:
+    """Project registered connectors through the exact task authority.
+
+    The projection deliberately omits deployment URLs, secret references,
+    external tenant identities, authentication material and source
+    provenance.  Connector execution repeats every binding and policy check.
+    """
+
+    if not credential.connector_access:
+        return []
+    application_ids = {str(value) for value in credential.application_ids}
+    allowed_hosts = {
+        value.casefold().rstrip(".")
+        for value in credential.allowed_network_hosts
+        if value.strip()
+    }
+    bindings: dict[tuple[str, int, str], Any] = {}
+    for application_id in sorted(application_ids):
+        for binding in await services.connectors.list_bindings(
+            application_id=application_id
+        ):
+            bindings[
+                (
+                    binding.connector_id,
+                    binding.connector_version,
+                    binding.tenant_id,
+                )
+            ] = binding
+
+    result: list[dict[str, Any]] = []
+    for key in sorted(bindings):
+        binding = bindings[key]
+        if not binding.enabled or len(binding.subjects) != 1:
+            continue
+        scoped_applications = sorted(
+            application_ids.intersection(binding.application_ids)
+        )
+        if not scoped_applications:
+            continue
+        try:
+            manifest = await services.connectors.get_manifest(
+                binding.connector_id,
+                binding.connector_version,
+            )
+            policy = await services.connectors.get_policy(
+                binding.connector_id,
+                binding.connector_version,
+                binding.tenant_id,
+            )
+            profile = manifest.profile(binding.profile_id)
+        except (KeyError, ValueError):
+            continue
+        endpoint_host = (
+            urlsplit(profile.base_url).hostname or ""
+        ).casefold().rstrip(".")
+        if (
+            not profile.available
+            or endpoint_host not in allowed_hosts
+            or profile.id not in policy.allowed_profiles
+            or policy.domain != manifest.domain
+        ):
+            continue
+        subject = binding.subjects[0]
+        subject_roles = set(subject.roles)
+        for operation in sorted(manifest.operations, key=lambda item: item.id):
+            if (
+                operation.id not in binding.allowed_operations
+                or operation.id not in policy.allowed_operations
+            ):
+                continue
+            if operation.kind == "read":
+                lane = credential.readable_host_objects
+            elif operation.kind == "write":
+                lane = credential.writable_host_operations
+            else:
+                lane = credential.compensation_actions
+            if not _connector_policy_match(
+                manifest.connector_id,
+                operation.id,
+                lane,
+            ):
+                continue
+            required_roles = set(policy.required_roles).union(
+                operation.required_roles
+            )
+            if required_roles and not required_roles.intersection(subject_roles):
+                continue
+            if (
+                policy.emergency_stop
+                and operation.mutating
+                and not (
+                    operation.kind == "compensate"
+                    and policy.allow_compensation_during_stop
+                )
+            ):
+                continue
+            execution_modes = ["execute"]
+            if policy.allow_dry_run:
+                execution_modes.insert(0, "dry_run")
+            authorization_required = (
+                operation.mutating
+                and (
+                    policy.mutation_preauthorization_required
+                    or _connector_policy_match(
+                        manifest.connector_id,
+                        operation.id,
+                        credential.permission_required_actions,
+                    )
+                )
+            )
+            connector_contract: dict[str, Any] = {
+                "schema_version": "1.0",
+                "connector_id": manifest.connector_id,
+                "connector_version": manifest.version,
+                "operation_id": operation.id,
+                "operation_kind": operation.kind,
+                "execution_context": {
+                    "tenant_id": binding.tenant_id,
+                    "actor_id": subject.actor_id,
+                    "actor_roles": sorted(subject.roles),
+                    "profile_id": profile.id,
+                    "application_ids": scoped_applications,
+                },
+                "execution_modes": execution_modes,
+                "authorization_required": authorization_required,
+                "available": True,
+                "environment": profile.environment,
+                "claim_ceiling": profile.claim_ceiling,
+                "excluded_claims": sorted(profile.excluded_claims),
+                "max_payload_bytes": min(
+                    policy.max_payload_bytes,
+                    credential.max_payload_bytes,
+                ),
+            }
+            payload_schema = _connector_object_json_schema(
+                operation.request_schema
+            )
+            output_schema = (
+                json.loads(json.dumps(operation.response_json_schema))
+                if operation.response_json_schema is not None
+                else _connector_object_json_schema(operation.response_schema)
+            )
+            input_schema: dict[str, Any] = {
+                "type": "object",
+                "properties": {
+                    "payload": payload_schema,
+                    "idempotency_key": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 300,
+                    },
+                    "execution_mode": {
+                        "type": "string",
+                        "enum": execution_modes,
+                    },
+                    "authorization_id": {"type": "string"},
+                },
+                "required": [
+                    "payload",
+                    "idempotency_key",
+                    "execution_mode",
+                ],
+                "additionalProperties": False,
+                "x-lilies-connector": connector_contract,
+            }
+            connector_contract["descriptor_digest"] = public_digest(
+                {
+                    "connector_contract": connector_contract,
+                    "payload_schema": payload_schema,
+                    "output_schema": output_schema,
+                }
+            )
+            descriptor: dict[str, Any] = {
+                "name": (
+                    f"connector:{manifest.connector_id}:{manifest.version}:"
+                    f"{operation.id}"
+                ),
+                "type": "core",
+                "published": True,
+                "description": (
+                    f"{manifest.title}: {operation.title}. Configure a "
+                    "connector_action block with the constants in "
+                    "input_schema.x-lilies-connector; raw host and secret "
+                    "material remain platform-internal."
+                ),
+                "input_schema": input_schema,
+                "output_schema": output_schema,
+            }
+            result.append(descriptor)
+    return sorted(result, key=lambda item: item["name"])
+
+
 async def _current_contract(services: Any, credential: TaskCredentialRecord) -> dict[str, Any]:
     contract_version = getattr(services.settings, "lilies_platform_contract_version", 1)
     await services.platform_contract_versions.observe(
@@ -666,6 +905,10 @@ async def _current_contract(services: Any, credential: TaskCredentialRecord) -> 
         published_workflow_tools=await _published_workflow_tools(
             services,
             application_ids={str(value) for value in credential.application_ids},
+        ),
+        published_connector_tools=await _task_scoped_connector_tools(
+            services,
+            credential,
         ),
         contract_version=contract_version,
         allowed_runtime_tool_names=BLACKBOX_RUNTIME_TOOL_ALLOWLIST,
@@ -1480,6 +1723,7 @@ def install_lilies_platform_api(app: FastAPI, services: Any) -> None:
                         application_ids={str(value) for value in credential.application_ids},
                     )
                 ),
+                *(await _task_scoped_connector_tools(services, credential)),
             ]
 
         return await _invoke(

@@ -107,6 +107,22 @@ class ConnectorObjectSchema(BaseModel):
         *,
         label: str,
     ) -> None:
+        one_of = schema.get("oneOf")
+        if isinstance(one_of, list):
+            matches = 0
+            for candidate in one_of:
+                if not isinstance(candidate, dict):
+                    continue
+                try:
+                    cls._validate_json_schema(value, candidate, label=label)
+                except ValueError:
+                    continue
+                matches += 1
+            if matches != 1:
+                raise ValueError(
+                    f"{label} must match exactly one declared response shape"
+                )
+            return
         nullable = bool(schema.get("nullable")) or "null" in schema.get("type", [])
         if value is None:
             if nullable:

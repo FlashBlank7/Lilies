@@ -1322,6 +1322,13 @@ class WorkflowRuntime:
                 config,
                 self._connector_operation_allowlists.get(run_id),
             )
+            connector_manifest = await self.connector_service.get_manifest(
+                config.connector_id,
+                config.connector_version,
+            )
+            connector_operation = connector_manifest.operation(
+                config.operation_id
+            )
             tenant_id = str(self._resolve(config.tenant_id, context))
             actor_id = str(self._resolve(config.actor_id, context))
             actor_roles = self._resolve(config.actor_roles, context)
@@ -1369,15 +1376,31 @@ class WorkflowRuntime:
                     run_id,
                     frozenset(),
                 )
-                if execution_mode == "execute" and operation not in {
-                    *writable,
-                    *compensations,
-                }:
-                    raise WorkflowRuntimeConnectorScopeDenied(
-                        "connector write is outside the assigned host operation policy"
-                    )
+                if execution_mode == "execute":
+                    if (
+                        connector_operation.kind == "read"
+                        and operation in {*writable, *compensations}
+                    ):
+                        raise WorkflowRuntimeConnectorScopeDenied(
+                            "connector read is assigned to a mutating operation lane"
+                        )
+                    if (
+                        connector_operation.kind == "write"
+                        and operation not in writable
+                    ):
+                        raise WorkflowRuntimeConnectorScopeDenied(
+                            "connector write is outside the assigned host operation policy"
+                        )
+                    if (
+                        connector_operation.kind == "compensate"
+                        and operation not in compensations
+                    ):
+                        raise WorkflowRuntimeConnectorScopeDenied(
+                            "connector compensation is outside the assigned host operation policy"
+                        )
                 if (
                     execution_mode == "execute"
+                    and connector_operation.mutating
                     and operation
                     in self._permission_connector_operations.get(
                         run_id,
@@ -1388,7 +1411,11 @@ class WorkflowRuntime:
                     raise WorkflowRuntimePermissionScopeDenied(
                         "connector write requires an authorization receipt"
                     )
-                if execution_mode == "execute" and state is not None:
+                if (
+                    execution_mode == "execute"
+                    and connector_operation.mutating
+                    and state is not None
+                ):
                     limit = state.max_connector_write_count
                     if idempotency_key not in state.connector_write_keys:
                         if (
@@ -1445,6 +1472,7 @@ class WorkflowRuntime:
                     ),
                     permission_required=(
                         execution_mode == "execute"
+                        and connector_operation.mutating
                         and operation
                         in self._permission_connector_operations.get(
                             run_id,

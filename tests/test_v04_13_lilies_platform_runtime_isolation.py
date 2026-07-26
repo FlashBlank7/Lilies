@@ -655,6 +655,18 @@ def test_connector_permission_and_write_limit_are_enforced_inside_the_run(
         }
         execute = AsyncMock(return_value=execution)
         services.workflow_runtime.connector_service.execute = execute
+        manifest = MagicMock()
+
+        def connector_operation(operation_id: str):
+            value = MagicMock()
+            value.kind = "read" if operation_id == "documents" else "write"
+            value.mutating = value.kind != "read"
+            return value
+
+        manifest.operation.side_effect = connector_operation
+        services.workflow_runtime.connector_service.get_manifest = AsyncMock(
+            return_value=manifest
+        )
 
         async def terminal_run(run_id: str) -> dict:
             for _ in range(200):
@@ -743,6 +755,47 @@ def test_connector_permission_and_write_limit_are_enforced_inside_the_run(
                     )
                 )
             return operations
+
+        read_app = _create_internal_application(
+            client,
+            "Connector read execution",
+        )
+        read_headers, _, _, _, _ = _issue(
+            client,
+            application_ids=[UUID(read_app)],
+            grant_policy={
+                "connector_access": True,
+                "readable_host_objects": ["paperless.documents"],
+                "max_write_count": 0,
+            },
+        )
+        read_operations = connector_operations([""])
+        read_node = next(
+            data["node"]
+            for operation, data in read_operations
+            if operation == "add_node"
+            and data.get("node", {}).get("type") == "connector_action"
+        )
+        read_node["config"]["operation_id"] = "documents"
+        read_node["config"]["payload"] = {}
+        _apply_operations(client, read_app, read_operations)
+        read_response = _request(
+            client,
+            "POST",
+            f"/api/v1/lilies/applications/{read_app}/runs",
+            read_headers,
+            key="connector-read-execute-run-0001",
+            json={"inputs": {}, "use_draft": True},
+        )
+        assert read_response.status_code == 202, read_response.text
+        read_run = client.portal.call(
+            terminal_run,
+            read_response.json()["data"]["run_id"],
+        )
+        assert read_run["status"] == "succeeded"
+        assert read_run["state"].connector_write_count == 0
+        assert execute.await_count == 1
+        execute.reset_mock()
 
         policy = {
             "connector_access": True,

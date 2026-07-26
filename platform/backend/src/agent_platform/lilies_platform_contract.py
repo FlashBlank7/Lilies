@@ -1542,6 +1542,7 @@ def build_platform_contract(
     *,
     scopes: Iterable[PlatformScope | str],
     published_workflow_tools: Iterable[dict[str, Any]] = (),
+    published_connector_tools: Iterable[dict[str, Any]] = (),
     generated_at: datetime | None = None,
     contract_version: int = PLATFORM_CONTRACT_VERSION,
     allowed_runtime_tool_names: Iterable[str] | None = None,
@@ -1555,6 +1556,7 @@ def build_platform_contract(
         allowed_runtime_tool_names=allowed_runtime_tool_names,
     )
     tool_catalog.extend(dict(item) for item in published_workflow_tools)
+    tool_catalog.extend(dict(item) for item in published_connector_tools)
     operations = [
         copy.deepcopy(operation)
         for operation in PUBLIC_OPERATION_SPECS

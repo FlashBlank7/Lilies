@@ -31,6 +31,11 @@ for import_root in (ROOT, BACKEND_SRC):
         sys.path.insert(0, str(import_root))
 
 from agent_platform.config import Settings
+from agent_platform.connector_sdk import (
+    ConnectorDomainPolicy,
+    ConnectorIdentitySubject,
+    ConnectorTenantBinding,
+)
 from agent_platform.external_builder_bootstrap import (
     ExternalBuilderBootstrapError,
     ExternalBuilderBootstrapRequest,
@@ -42,6 +47,9 @@ from agent_platform.providers.base import (
     ModelProvider,
     ProviderCapabilities,
     ProviderError,
+)
+from agent_platform.standard_connector_catalog import (
+    standard_connector_manifests,
 )
 from scripts import run_v04_13_enterprise_experiment as enterprise_runner
 
@@ -354,8 +362,161 @@ def _platform_settings(
         lilies_autonomous_collaboration_enabled=True,
         lilies_local_builder_default=False,
         lilies_platform_base_url=environment["LILIES_PLATFORM_BASE_URL"],
+        lilies_platform_contract_version=1,
         adaptive_monitoring_refresh_interval_seconds=0,
     )
+
+
+def _connector_semantic_projection(value: Any) -> dict[str, Any]:
+    projection = value.model_dump(mode="json")
+    for field in ("revision", "created_at", "updated_at"):
+        projection.pop(field, None)
+    return projection
+
+
+def _connector_projection_digest(value: Any) -> str:
+    encoded = json.dumps(
+        _connector_semantic_projection(value),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
+
+
+async def _provision_standard_connectors(
+    services: Any,
+    *,
+    application_id: str,
+) -> list[dict[str, Any]]:
+    """Install reusable connector contracts and exact task-owned bindings.
+
+    Registration is semantically idempotent.  A version or binding collision
+    with different content fails closed instead of silently broadening the
+    Builder's connector authority.
+    """
+
+    connector_service = services.connectors
+    tenant_id = "formal-environment"
+    manifests = standard_connector_manifests(
+        paperless_base_url="http://127.0.0.1:18010",
+        inventree_base_url="http://127.0.0.1:18011",
+    )
+    result: list[dict[str, Any]] = []
+    for manifest in manifests:
+        try:
+            current_manifest = await connector_service.get_manifest(
+                manifest.connector_id,
+                manifest.version,
+            )
+        except KeyError:
+            current_manifest = await connector_service.register_manifest(manifest)
+        if (
+            current_manifest.model_dump(mode="json")
+            != manifest.model_dump(mode="json")
+        ):
+            raise CodexBuilderRunnerError(
+                "standard connector manifest collision: "
+                f"{manifest.connector_id}@{manifest.version}"
+            )
+
+        operation_ids = sorted(item.id for item in manifest.operations)
+        profile_id = manifest.deployment_profiles[0].id
+        binding = ConnectorTenantBinding(
+            connector_id=manifest.connector_id,
+            connector_version=manifest.version,
+            tenant_id=tenant_id,
+            external_tenant_id="exp-lilies-001",
+            profile_id=profile_id,
+            secret_ref=(
+                "secret://formal-environment/"
+                f"exp-lilies-001-{manifest.connector_id}-builder-token"
+            ),
+            application_ids=[application_id],
+            allowed_operations=operation_ids,
+            subjects=[
+                ConnectorIdentitySubject(
+                    external_subject="codex-builder",
+                    actor_id="codex-builder",
+                    roles=["operator"],
+                )
+            ],
+            enabled=True,
+        )
+        current_bindings = [
+            item
+            for item in await connector_service.list_bindings(
+                manifest.connector_id,
+                tenant_id=tenant_id,
+            )
+            if item.connector_version == manifest.version
+        ]
+        if not current_bindings:
+            saved_binding = await connector_service.upsert_binding(
+                binding,
+                expected_revision=0,
+            )
+        elif len(current_bindings) == 1:
+            saved_binding = current_bindings[0]
+            if (
+                _connector_semantic_projection(saved_binding)
+                != _connector_semantic_projection(binding)
+            ):
+                raise CodexBuilderRunnerError(
+                    "standard connector binding collision: "
+                    f"{manifest.connector_id}@{manifest.version}/{tenant_id}"
+                )
+        else:
+            raise CodexBuilderRunnerError(
+                "standard connector binding is not unique: "
+                f"{manifest.connector_id}@{manifest.version}/{tenant_id}"
+            )
+
+        policy = ConnectorDomainPolicy(
+            connector_id=manifest.connector_id,
+            connector_version=manifest.version,
+            tenant_id=tenant_id,
+            domain=manifest.domain,
+            allowed_profiles=[profile_id],
+            allowed_operations=operation_ids,
+            required_roles=["operator"],
+            max_payload_bytes=4 * 1024 * 1024,
+            mutation_preauthorization_required=True,
+            allow_dry_run=True,
+            allow_compensation_during_stop=True,
+        )
+        try:
+            saved_policy = await connector_service.get_policy(
+                manifest.connector_id,
+                manifest.version,
+                tenant_id,
+            )
+        except KeyError:
+            saved_policy = await connector_service.set_policy(
+                policy,
+                expected_revision=0,
+            )
+        if (
+            _connector_semantic_projection(saved_policy)
+            != _connector_semantic_projection(policy)
+        ):
+            raise CodexBuilderRunnerError(
+                "standard connector policy collision: "
+                f"{manifest.connector_id}@{manifest.version}/{tenant_id}"
+            )
+
+        result.append(
+            {
+                "connector_id": manifest.connector_id,
+                "connector_version": manifest.version,
+                "profile_id": profile_id,
+                "operation_ids": operation_ids,
+                "manifest_digest": _connector_projection_digest(manifest),
+                "binding_digest": _connector_projection_digest(saved_binding),
+                "policy_digest": _connector_projection_digest(saved_policy),
+            }
+        )
+    return sorted(result, key=lambda item: item["connector_id"])
 
 
 def _model_off_platform_environment(
@@ -2090,6 +2251,7 @@ async def _serve_and_bootstrap(args: argparse.Namespace) -> int:
             if not receipts:
                 raise CodexBuilderRunnerError("controlled host secrets were not installed")
             state_path = state_root / f"codex-builder-seed-{args.seed}.json"
+            connector_provisioning: list[dict[str, Any]]
             if handoff_exists:
                 existing_state = enterprise_runner._read_private_json(state_path)
                 existing_bootstrap = existing_state.get("bootstrap")
@@ -2104,6 +2266,10 @@ async def _serve_and_bootstrap(args: argparse.Namespace) -> int:
                         "existing external Builder state is not resumable"
                     )
                 safe_receipt = _safe_bootstrap_projection(existing_bootstrap)
+                connector_provisioning = await _provision_standard_connectors(
+                    app.state.services,
+                    application_id=str(safe_receipt["application_id"]),
+                )
                 owner_urls = _owner_observation_urls(
                     platform_url=platform_url,
                     owner_ui_url=args.owner_ui_url,
@@ -2125,6 +2291,10 @@ async def _serve_and_bootstrap(args: argparse.Namespace) -> int:
                     platform_url,
                     secrets_state["platform_api_token"],
                     seed=args.seed,
+                )
+                connector_provisioning = await _provision_standard_connectors(
+                    app.state.services,
+                    application_id=str(application["id"]),
                 )
                 request = _bootstrap_request(
                     state_root=state_root,
@@ -2181,6 +2351,7 @@ async def _serve_and_bootstrap(args: argparse.Namespace) -> int:
             owner_state["permission_auto_expansion_enabled"] = False
             owner_state["external_codex_launch_authorized"] = bool(args.launch_codex)
             owner_state["owner_observation_urls"] = owner_urls
+            owner_state["standard_connector_provisioning"] = connector_provisioning
             owner_state["updated_at"] = enterprise_runner._now()
             enterprise_runner._atomic_private_json(state_path, owner_state)
             print(
