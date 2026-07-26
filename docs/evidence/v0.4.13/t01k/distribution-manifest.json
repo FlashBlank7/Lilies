@@ -1,0 +1,103 @@
+{
+  "schema_version": "1.0",
+  "stage_task_id": "V04-13-T01K",
+  "captured_at": "2026-07-26T10:54:00Z",
+  "standalone_repository": {
+    "path": "../LiliesAgent",
+    "commit": "2272704aad2b319099fa21bbae51685b922e1aa2",
+    "worktree": "clean",
+    "distribution_name": "lilies-local-agent",
+    "version": "0.1.1",
+    "runtime_imports_agent_platform": false,
+    "shares_platform_database": false,
+    "shares_platform_api_token": false,
+    "platform_boundary": "versioned authenticated loopback HTTP only"
+  },
+  "artifacts": [
+    {
+      "path": "../LiliesAgent/dist/lilies_local_agent-0.1.1-py3-none-any.whl",
+      "sha256": "61c6c3488f859bc43a4c27f16476bfc21744bce141fb69226b88ec86153ed040",
+      "reproducible_double_build": true,
+      "isolated_install_and_real_daemon": "passed"
+    },
+    {
+      "path": "../LiliesAgent/dist/lilies_local_agent-0.1.1.tar.gz",
+      "sha256": "9084fc81e1fa14d45f63b86dd84e04038815234db83054c7cdf3b71e0f6eb090",
+      "reproducible_double_build": true
+    },
+    {
+      "path": "../LiliesAgent/macos/dist/LiliesWork-macOS-0.1.1.zip",
+      "sha256": "00695e1db9a547a26ab230fe552281568941d223a64d27327e99f5c3dca1362b",
+      "reproducible_double_build": true,
+      "archive_test": "passed",
+      "signature": "local ad-hoc",
+      "strict_codesign_verify": "passed",
+      "developer_id": false,
+      "notarized": false,
+      "gatekeeper_distribution_claim": false
+    }
+  ],
+  "macos_bundle": {
+    "path": "../LiliesAgent/macos/dist/LiliesWork.app",
+    "binary_sha256": "0d9b3d16754cf6beb064bf04b0f06b6e81c9bfdac26f06e276d5e4bc09019790",
+    "info_plist_sha256": "e2c99542b73ff26c00dbbb54c2704dd3aa97142b63e1674135bb1f7de796a932",
+    "code_resources_sha256": "6686de10a28a2fe11b36cbb86dcbacc827cfc4ea116b4dabf1845e5aee629e9b",
+    "desktop_pid_at_verification": 31026,
+    "desktop_executable": "../LiliesAgent/macos/dist/LiliesWork.app/Contents/MacOS/LiliesWork"
+  },
+  "standalone_runtime": {
+    "daemon_pid_at_verification": 4906,
+    "listener": "127.0.0.1:8765",
+    "distribution_id": "lilies-agent-standalone",
+    "model_egress_enabled": false,
+    "provider_credential_loaded": false,
+    "state_directory_mode": "0700",
+    "discovery_record_mode": "0600"
+  },
+  "isolated_wheel_verification": {
+    "python": "3.13.13",
+    "module_path": "/private/tmp/liliesagent-final-install.WISzWa/venv/lib/python3.13/site-packages/lilies_agent/__init__.py",
+    "daemon_pid": 30776,
+    "listener": "127.0.0.1:18765",
+    "model_egress_enabled": false,
+    "provider_credential_loaded": false,
+    "active_session_count": 0,
+    "active_assignment_count": 0,
+    "usage_scope": "client_acl",
+    "usage_items": 0,
+    "private_file_modes": {
+      "daemon.key": "0600",
+      "bootstrap.token": "0600",
+      "cli-client.json": "0600"
+    },
+    "graceful_stop": true,
+    "discovery_removed": true,
+    "listener_released": true
+  },
+  "platform_repository": {
+    "path": ".",
+    "head": "33f5a14c8636fdbe07e8f54d2dbfcccfa738abb4",
+    "contract_lock_commit": "2d16ec934d510e5230fa834c9b124cedc6233d87",
+    "t01k_commits": [
+      "ed28dbaaf967740cdb4b5c085c15e67545b4d4e9",
+      "c3a5a0c4053f0df1242f672e5cd920c88095efb8",
+      "1cd7d64e17dc3f529f81267a72668e7d718b4bdc",
+      "7deeb9fdc6c0a6c01a08a0c1653b0bfbe962bd55",
+      "0e429586aba165368aab3641dc46e4724413fcf7",
+      "1a9bfd9f7681cd115e9d24b9446d7da356325a2c",
+      "6cb03496bd0803bc5938ae81901ad582a1e7f8f1",
+      "33f5a14c8636fdbe07e8f54d2dbfcccfa738abb4"
+    ],
+    "t01k_implementation_commit_bound": true,
+    "unrelated_worktree_changes_present": true,
+    "claim": "T01K code is bound to the listed commits; unrelated user changes remain outside this manifest"
+  },
+  "secrets": {
+    "included_in_manifest": false,
+    "bootstrap_value_recorded": false,
+    "pairing_code_recorded": false,
+    "bearer_value_recorded": false,
+    "provider_credential_recorded": false,
+    "envelope_key_recorded": false
+  }
+}

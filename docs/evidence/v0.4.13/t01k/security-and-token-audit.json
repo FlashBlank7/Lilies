@@ -1,0 +1,138 @@
+{
+  "schema_version": "1.0",
+  "stage_task_id": "V04-13-T01K",
+  "captured_at": "2026-07-26T10:54:00Z",
+  "verdict": "pass_with_bounded_claims",
+  "repository_boundaries": {
+    "standalone_repository": "../LiliesAgent",
+    "standalone_commit": "2272704aad2b319099fa21bbae51685b922e1aa2",
+    "platform_commit": "33f5a14c8636fdbe07e8f54d2dbfcccfa738abb4",
+    "standalone_imports_agent_platform": false,
+    "standalone_reads_platform_database": false,
+    "standalone_uses_platform_api_token": false,
+    "communication_boundary": "authenticated loopback HTTP"
+  },
+  "discovery": {
+    "record": "~/.lilies/daemon.json",
+    "same_user_required": true,
+    "directory_mode": "0700",
+    "record_mode": "0600",
+    "regular_file_required": true,
+    "nofollow": true,
+    "directory_descriptor_anchored": true,
+    "inode_and_parent_identity_rechecked": true,
+    "literal_loopback_http_origin_required": true,
+    "listener_pid_checked": true,
+    "health_distribution_id_checked": true,
+    "health_fingerprint_checked": true,
+    "discovery_grants_authority": false
+  },
+  "pairing": {
+    "explicit_one_time_code_required": true,
+    "requested_scope_set_exact": true,
+    "scopes": [
+      "lilies.session:read",
+      "lilies.session:write",
+      "lilies.permission:resolve",
+      "lilies.credential:write",
+      "lilies.observability:read"
+    ],
+    "bootstrap_read_by_platform": false,
+    "bearer_encrypted_at_rest_by_platform": true,
+    "client_id_and_token_digest_match_persisted_daemon_record": true,
+    "authentication_rejection_observed": false,
+    "secret_values_in_evidence": false
+  },
+  "model_access": {
+    "default_egress_enabled": false,
+    "runtime_egress_enabled": false,
+    "provider_credential_loaded": false,
+    "enable_requires_daemon_control": true,
+    "enable_requires_credential_write": true,
+    "enable_requires_explicit_paid_confirmation": true,
+    "startup_automatic_resume_policy": "explicit_request_only",
+    "startup_automatic_model_resume_count": 0
+  },
+  "global_observability": {
+    "endpoint": "GET /local/v1/observability/snapshot",
+    "scope_required": "lilies.observability:read",
+    "cache_control": "no-store",
+    "coverage_complete": true,
+    "global_receipt_stable_across_acl_pagination": true,
+    "activity_revision": 128,
+    "ledger_cursor": 124,
+    "attempted_calls": 124,
+    "recorded_calls": 1,
+    "unknown_calls": 123,
+    "input_tokens": 54,
+    "output_tokens": 90,
+    "total_tokens": 144,
+    "cost_usd": 0.000032760000000000005,
+    "unknown_usage_estimated": false
+  },
+  "legacy_upgrade": {
+    "historical_settled_turns": 7,
+    "historical_persisted_model_call_count": 123,
+    "migration_result": "123 deterministic unknown ledger entries",
+    "usage_or_cost_estimated": false,
+    "strictly_pre_coverage_epoch_only": true,
+    "equal_to_epoch_excluded": true,
+    "post_epoch_excluded": true,
+    "event_and_aggregate_flags_independent": true,
+    "per_turn_call_cap": 10000,
+    "per_startup_call_cap": 10000,
+    "per_startup_turn_cap": 10000,
+    "resumable_when_budget_exhausted": true,
+    "snapshot_unavailable_while_incomplete": true,
+    "savepoint_per_ledger_pair": true,
+    "idempotent": true,
+    "completed_migration_does_not_silently_repair_later_ledger_deletion": true,
+    "independent_security_review": "PASS"
+  },
+  "current_background_safety": {
+    "idle_window_seconds": 5.709114208002575,
+    "token_delta": 0,
+    "model_call_delta": 0,
+    "cost_delta_usd": 0.0,
+    "runtime_counters": {
+      "active_sessions": 0,
+      "active_model_turns": 0,
+      "active_provider_calls": 0,
+      "active_development_model_calls": 0
+    },
+    "startup_auto_consumer_count": 0,
+    "safe_now": true,
+    "safe_on_platform_or_daemon_start": true,
+    "background_consumption_observed": false,
+    "evidence_complete": true,
+    "missing_required_sources": []
+  },
+  "process_monitoring": {
+    "strict_ps_inspection": true,
+    "standard_python_module_entrypoints_detected": true,
+    "python_inline_platform_entrypoints_detected": true,
+    "ps_lost_inline_argument_boundary_recovered_conservatively": true,
+    "built_in_processes_require_pid_bound_egress_attestation": true,
+    "external_codex_builder_requires_bound_invocation_and_runtime_digests": true,
+    "generic_codex_app_usage_claimed": false,
+    "claim_boundary": "The safety verdict covers required Lilies ledgers and inspected built-in runtimes at capture time. It is not an OpenAI/Codex account billing monitor and does not attest unrelated conversations or machines."
+  },
+  "negative_and_fail_closed_coverage": [
+    "missing or unsafe state directory",
+    "missing, symlinked, renamed, oversized, wrong-owner, or wrong-mode private files",
+    "discovery record replacement and listener PID mismatch",
+    "DNS, remote, credential-bearing, redirected, or ambiguous daemon origins",
+    "pairing expiry, reuse, scope mismatch, fingerprint mismatch, and authentication rejection",
+    "oversized, malformed, duplicate-dimension, cross-field-invalid, or changing usage receipts",
+    "incomplete observability migration, ledger mismatch, lock timeout, and invalid startup receipt",
+    "process inspection failure and missing PID-bound egress attestation"
+  ],
+  "secret_redaction": {
+    "platform_api_token_recorded": false,
+    "daemon_bearer_recorded": false,
+    "bootstrap_value_recorded": false,
+    "pairing_code_recorded": false,
+    "provider_key_recorded": false,
+    "envelope_key_recorded": false
+  }
+}

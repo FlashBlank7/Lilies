@@ -1,0 +1,201 @@
+{
+  "schema_version": "1.0",
+  "stage_task_id": "V04-13-T01K",
+  "captured_at": "2026-07-26T10:49:17.855826+00:00",
+  "platform_runtime_commit_at_capture": "6cb03496bd0803bc5938ae81901ad582a1e7f8f1",
+  "platform_final_head": "33f5a14c8636fdbe07e8f54d2dbfcccfa738abb4",
+  "standalone_runtime_commit_at_capture": "0d25b40754b0ac7702a0d6cfabb7f5d32458a30a",
+  "standalone_final_head": "2272704aad2b319099fa21bbae51685b922e1aa2",
+  "post_capture_changes": [
+    "The platform final commit only makes Python -c process reconstruction conservative when ps loses argv boundaries.",
+    "The standalone final commit only applies Ruff formatting; full Python and native verification was rerun afterward."
+  ],
+  "connection": {
+    "connection_id": "0567aaed-a346-51fd-80b8-de8b1d516ac9",
+    "status": "connected",
+    "daemon_fingerprint": "sha256:efeb2d29678a7b7dff9a9e02bde131a367175be88e430d09a98fa09daaefa037",
+    "granted_scopes": [
+      "lilies.session:read",
+      "lilies.session:write",
+      "lilies.permission:resolve",
+      "lilies.credential:write",
+      "lilies.observability:read"
+    ],
+    "explicit_one_time_pairing": true,
+    "discovery_grants_authority": false,
+    "platform_reads_bootstrap": false,
+    "direct_observability_http_status": 200,
+    "cache_control": "no-store",
+    "scope": "daemon_global"
+  },
+  "stable_global_receipt": {
+    "daemon_instance_id": "fb086c02-eb8b-4e42-9cea-148ad4e41532",
+    "activity_revision": 128,
+    "coverage_complete": true,
+    "model_egress_enabled": false,
+    "usage": {
+      "ledger_cursor": 124,
+      "attempted_calls": 124,
+      "recorded_calls": 1,
+      "unknown_calls": 123,
+      "input_tokens": 54,
+      "output_tokens": 90,
+      "total_tokens": 144,
+      "cost_usd": 0.000032760000000000005
+    },
+    "runtime": {
+      "active_sessions": 0,
+      "active_model_turns": 0,
+      "active_provider_calls": 0,
+      "active_development_model_calls": 0
+    },
+    "startup": {
+      "recovery_completed": true,
+      "automatic_resume_policy": "explicit_request_only",
+      "automatic_model_resume_count": 0,
+      "explicit_resume_candidate_count": 4,
+      "interrupted_sessions": 0,
+      "interrupted_turns": 0,
+      "interrupted_development_assignments": 0,
+      "reconciliation_required_development_invocations": 0
+    }
+  },
+  "paired_client_acl_detail": {
+    "group_by": [
+      "session",
+      "stage",
+      "model"
+    ],
+    "complete_paginated_merge": true,
+    "items": [],
+    "total_items": 0,
+    "truncated": false,
+    "interpretation": "The authenticated global receipt is authoritative. The paired client had no attributable detail rows, so the historical balance is retained as a global unattributed remainder."
+  },
+  "idle_window": {
+    "seconds": 5.709114208002575,
+    "first_receipt_at": "2026-07-26T10:49:10.485333Z",
+    "last_receipt_at": "2026-07-26T10:49:16.698786Z",
+    "same_daemon_fingerprint": true,
+    "same_daemon_instance_id": true,
+    "same_activity_revision": true,
+    "same_ledger_cursor": true,
+    "same_usage_counters": true,
+    "same_runtime_counters": true,
+    "delta": {
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "cached_input_tokens": 0,
+      "reasoning_tokens": 0,
+      "unattributed_tokens": 0,
+      "tokens": 0,
+      "tokens_per_minute": 0.0,
+      "model_calls": 0,
+      "usage_records": 0,
+      "unknown_usage_model_calls": 0,
+      "reconciled_unknown_usage_model_calls": 0,
+      "cost_usd": 0.0
+    }
+  },
+  "monitor": {
+    "totals": {
+      "input_tokens": 54,
+      "output_tokens": 90,
+      "cached_input_tokens": 0,
+      "reasoning_tokens": 0,
+      "unattributed_tokens": 144,
+      "tokens": 144,
+      "cost_usd": 0.000032760000000000005,
+      "model_calls": 124,
+      "usage_records": 1,
+      "unknown_usage_model_calls": 123
+    },
+    "by_stage": [
+      {
+        "name": "standalone_global_unattributed_remainder",
+        "tokens": 144,
+        "model_calls": 124,
+        "usage_records": 1,
+        "unknown_usage_model_calls": 123
+      }
+    ],
+    "by_model": [
+      {
+        "name": "not_recorded",
+        "tokens": 144,
+        "model_calls": 124,
+        "usage_records": 1,
+        "unknown_usage_model_calls": 123
+      }
+    ],
+    "by_session": [
+      {
+        "name": "not_recorded",
+        "tokens": 144,
+        "model_calls": 124,
+        "usage_records": 1,
+        "unknown_usage_model_calls": 123
+      }
+    ],
+    "historical_attribution_limit": "The seven upgraded legacy turns persisted only aggregate model_call_count. Their 123 calls are counted as unknown and cannot be retroactively assigned to a real stage, model, session, token count, or cost.",
+    "new_call_behavior": "Every new provider attempt reserves a call_id and records session, stage, and model dimensions; absent provider usage remains unknown rather than estimated."
+  },
+  "safety": {
+    "safe_now": true,
+    "safe_on_platform_or_daemon_start": true,
+    "background_consumption_observed": false,
+    "evidence_complete": true,
+    "ledger_evidence_complete": true,
+    "startup_ledger_evidence_complete": true,
+    "process_inspection_complete": true,
+    "process_attestation_complete": true,
+    "missing_required_sources": [],
+    "model_capable_processes_active": 2,
+    "unblocked_model_processes_active": 0,
+    "unknown_model_processes_active": 0,
+    "startup_auto_consumer_count": 0,
+    "startup_auto_consumers": {
+      "published_schedule_nodes": 0,
+      "due_durable_jobs": 0,
+      "recoverable_local_assignments": 0,
+      "startup_resumable_lilies_turns": 0,
+      "startup_resumable_standalone_lilies_turns": 0,
+      "active_autonomous_development_assignments": 0
+    },
+    "processes": [
+      {
+        "kind": "local_lilies_daemon",
+        "distribution": "standalone",
+        "pid": 4906,
+        "egress_attestation": false,
+        "safety_status": "egress_disabled_attested"
+      },
+      {
+        "kind": "platform_api",
+        "pid": 29100,
+        "entrypoint": "python -m agent_platform.cli",
+        "egress_attestation": false,
+        "safety_status": "egress_disabled_attested"
+      }
+    ],
+    "source_activity": {
+      "platform_active_tasks": 0,
+      "published_schedule_nodes": 0,
+      "due_durable_jobs": 0,
+      "bridge_recoverable_assignments": 0,
+      "collaborative_development_active_assignments": 0,
+      "collaborative_development_reserved_provider_costs": 0,
+      "standalone_active_sessions": 0,
+      "standalone_startup_resumable_turns": 0
+    },
+    "external_codex_spend_disabled": false,
+    "claim_boundary": "This proves the inspected Lilies platform, bridge, collaborative-development ledger, standalone daemon, and PID-bound built-in runtimes at capture time. It does not attest unrelated Codex application conversations, other machines, credentials, containers, or unclassified programs."
+  },
+  "secrets": {
+    "platform_api_token_recorded": false,
+    "daemon_bearer_recorded": false,
+    "pairing_code_recorded": false,
+    "bootstrap_recorded": false,
+    "envelope_key_recorded": false
+  }
+}

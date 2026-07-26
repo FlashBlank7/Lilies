@@ -1,0 +1,27 @@
+{
+  "schema_version": "1.0",
+  "stage_task_id": "V04-13-T01K",
+  "status": "passed_at_scoped_evidence_floor",
+  "enterprise_denominator": false,
+  "platform_commit": "33f5a14c8636fdbe07e8f54d2dbfcccfa738abb4",
+  "standalone_commit": "2272704aad2b319099fa21bbae51685b922e1aa2",
+  "closure_audit": {
+    "first_verdict": "partial",
+    "final_verdict": "pass",
+    "mandatory_blockers": 0,
+    "evidence_debt": [
+      "V0413-ED-004",
+      "V0413-T01K-DIST-001"
+    ]
+  },
+  "claim_ceiling": "Standalone sibling distribution, secure discovery and pairing, authenticated loopback bridge and replay, provider-default-off and global Token observability, deterministic native macOS behavior, local build, ad-hoc sign and exact launch. No visual, human-interaction, keyboard, accessibility, Developer ID, notarization, public Gatekeeper, account-wide Codex billing, T01L-N, T01H customer-success or production claim.",
+  "files": {
+    "deterministic-tests.txt": "sha256:904cbbe8007bec00f4f752aa4e1ea5328a38ab327ed9cd2a8c1b76c083a96c20",
+    "distribution-manifest.json": "sha256:414a32f3d022f9c37f5fac2f1501c5b3f4aa300cfbbd60c583fa340b91d2bb35",
+    "environment-and-claim-ceiling.json": "sha256:27788ee0afe528553d7645ae6bc4b84723d9aaa473f8fc9fcf2402736c335bfc",
+    "independent-audit.md": "sha256:96005666424288f741ec762927654394469c1d0a8704802569d89a4f74dbee5c",
+    "runtime-bridge-and-observability.json": "sha256:d9be68231034a71a998da69b46bc11e77f793b60ba2bfb96deea6a8a02bc0c93",
+    "security-and-token-audit.json": "sha256:1642bd6a44235d9aee39da478490646a019b0476a1726f7a3f53ccdaf9d2f6ea",
+    "summary.md": "sha256:6d20e2b566af4d89159f10f88b7eaca4ce732366a31564a93d844d9a07755851"
+  }
+}

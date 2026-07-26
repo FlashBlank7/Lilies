@@ -1,0 +1,88 @@
+{
+  "schema_version": "1.0",
+  "stage_task_id": "V04-13-T01K",
+  "status": "passed_at_scoped_evidence_floor",
+  "enterprise_denominator": false,
+  "achieved_evidence_level": "commit_bound_implementation_full_deterministic_regression_reproducible_distribution_isolated_real_daemon_authenticated_real_bridge_global_token_observability_native_macos_build_launch",
+  "closure_audit": {
+    "verdict": "PASS",
+    "mandatory_blockers": 0,
+    "evidence_floor": "scoped"
+  },
+  "supported_claims": [
+    "Lilies is a clean standalone sibling repository and independently installable Python distribution",
+    "the standalone daemon, CLI, private POSIX state, model boundary, tests, and macOS application are owned by the sibling repository",
+    "the platform discovers only a same-user 0600 non-symlink loopback record and still requires explicit one-time pairing",
+    "the platform does not read the daemon bootstrap secret and communicates through authenticated loopback HTTP",
+    "provider egress defaults off and both inspected model-capable runtimes had PID-bound disabled attestations",
+    "authenticated daemon-global observability and ACL detail are stable, fail closed, and never estimate unknown usage",
+    "the token monitor reports totals and session, stage, and model dimensions, while retaining legacy unattributed history honestly",
+    "the inspected 5.709-second idle window had zero token, call, cost, usage-record, and unknown-call delta",
+    "no startup schedule, durable job, bridge recovery, autonomous development assignment, or automatic model resume was active",
+    "the native macOS application builds, passes Swift tests, is ad-hoc signed, and launches from the packaged bundle"
+  ],
+  "resolved_previous_gaps": [
+    {
+      "target": "authenticated global idle and startup observability",
+      "resolution": "daemon-global no-store receipt, stable before/after ACL pagination, complete startup receipt, global-authoritative aggregation, and zero-delta dual capture",
+      "evidence": "runtime-bridge-and-observability.json"
+    },
+    {
+      "target": "commit-bound platform T01K implementation",
+      "resolution": "all T01K platform implementation and follow-up compatibility/process-detection repairs are bound to eight listed commits",
+      "evidence": "distribution-manifest.json"
+    }
+  ],
+  "deviations": [
+    {
+      "id": "V0413-DEV-020",
+      "type": "evidence_route_only",
+      "task_id": "V04-13-T01K",
+      "reason": "The native UI automation provider failed twice with the same startup error and no browser/computer surface was available.",
+      "route": "Close at the deterministic, native build/sign/launch and exact-process scoped evidence floor, retain visual evidence debt, and do not claim visual behavior.",
+      "acceptance_goal_changed": false,
+      "product_boundary_changed": false,
+      "precedent": "V04-13-T01C and V04-13-T01E scoped evidence-floor closure with unavailable external UI provider"
+    }
+  ],
+  "evidence_debt": [
+    {
+      "id": "V0413-ED-004",
+      "task_id": "V04-13-T01K",
+      "status": "blocked_by_environment",
+      "target": "exact packaged native macOS visual, interaction, keyboard, and accessibility inspection",
+      "achieved": "Swift 93/93, fresh build, strict codesign, exact bundle verification, and exact packaged process launch",
+      "unavailable_dependency": "Codex Computer Use native pipe",
+      "observed_failure": "Sky Computer Use native pipe startup failed",
+      "unchanged_probes": 2,
+      "retry_policy": "Do not retry the unchanged external blocker.",
+      "claim_ceiling": "No visual layout, interaction quality, keyboard, accessibility, or native UX pass is claimed.",
+      "owner": "V04-13-T01J",
+      "recheck_trigger": "Computer Use native pipe becomes available or the user supplies explicit visual confirmation",
+      "screenshots": []
+    },
+    {
+      "id": "V0413-T01K-DIST-001",
+      "task_id": "V04-13-T01K",
+      "status": "higher_level_distribution_evidence_not_claimed",
+      "target": "public macOS trust and cross-machine distribution",
+      "achieved": "byte-identical local ZIPs and strict ad-hoc signature verification",
+      "unavailable_dependency": "Developer ID identity and notarization authorization",
+      "claim_ceiling": "No Developer ID, notarization, Gatekeeper-ready public release, or cross-machine reproducibility claim.",
+      "recheck_trigger": "Developer ID credentials and an explicitly authorized notarization workflow are provided"
+    }
+  ],
+  "explicitly_not_claimed": [
+    "visual UI quality or human interaction pass",
+    "Developer ID or notarized public macOS distribution",
+    "OpenAI or Codex account-wide token safety",
+    "unrelated conversations, other machines, credentials, containers, or unclassified programs",
+    "retroactive stage, model, session, token, or cost attribution for the 123 legacy unknown calls",
+    "T01L autonomous DevelopmentAssignment completion",
+    "T01M Android project completion",
+    "T01N Windows project completion",
+    "T01H six-project customer-success completion",
+    "customer production, multi-tenant IAM, cross-device synchronization, or enterprise deployment"
+  ],
+  "claim_ceiling": "T01K is closed only at the scoped evidence floor after a fresh read-only PASS: commit-bound standalone and platform implementation, complete deterministic and real loopback evidence, authenticated global token/startup safety, and native macOS build/sign/launch. V0413-ED-004 prevents every visual or human-interaction claim and remains assigned to T01J."
+}

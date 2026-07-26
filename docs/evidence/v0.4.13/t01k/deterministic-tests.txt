@@ -1,0 +1,225 @@
+V04-13-T01K deterministic and runtime verification
+Captured: 2026-07-26
+
+Final source identities
+=======================
+
+Platform repository:
+  /Users/zhonghaoyang/Code/agent/Lilies
+  HEAD 33f5a14c8636fdbe07e8f54d2dbfcccfa738abb4
+
+Standalone repository:
+  /Users/zhonghaoyang/Code/agent/LiliesAgent
+  HEAD 2272704aad2b319099fa21bbae51685b922e1aa2
+  git status --short: empty
+
+Standalone Python distribution
+==============================
+
+Command:
+  cd ../LiliesAgent
+  .venv/bin/python -m pytest -q
+
+Result:
+  231 passed, 9 skipped, 1 warning in 47.22s
+  The warning is the known Starlette TestClient/httpx deprecation warning.
+
+Static and generated-contract checks:
+  .venv/bin/python -m ruff check --no-cache .
+    All checks passed.
+  .venv/bin/python -m ruff format --check --no-cache .
+    42 files already formatted.
+  PYTHONPATH=src .venv/bin/python scripts/generate_client_contract.py --check
+    passed
+  git diff --check
+    passed
+
+The legacy aggregate migration was exercised by 25 focused tests and an
+independent read-only security review. The final full suite above covers the
+same implementation. It converts seven historical settled turns with a
+persisted aggregate model_call_count of 123 into exactly 123 unknown call
+ledger entries. It never estimates tokens, cost, model, stage, or session;
+uses independent event/aggregate completion flags; applies only before the
+coverage epoch; is capped, resumable, savepoint-protected, and idempotent.
+
+Standalone macOS application
+============================
+
+Commands:
+  cd ../LiliesAgent/macos
+  swift test
+  ../script/build_and_run.sh --verify
+
+Results:
+  Swift: 93 tests passed, including a real Python daemon restart integration.
+  Build: passed.
+  Packaged executable: verified exactly.
+  codesign --verify --deep --strict: passed.
+  Signature: local ad-hoc only.
+  Exact packaged process launched:
+    PID 31026
+    ../LiliesAgent/macos/dist/LiliesWork.app/Contents/MacOS/LiliesWork
+  Exact standalone daemon was ready:
+    PID 4906
+    127.0.0.1:8765
+
+No visual, keyboard, accessibility, Developer ID, notarization, public
+Gatekeeper, or cross-machine distribution result is inferred from those
+checks.
+
+Reproducible local artifacts
+============================
+
+Two independent offline Python builds were byte-identical:
+  wheel
+    61c6c3488f859bc43a4c27f16476bfc21744bce141fb69226b88ec86153ed040
+  sdist
+    9084fc81e1fa14d45f63b86dd84e04038815234db83054c7cdf3b71e0f6eb090
+
+Two independently rebuilt local application ZIPs were byte-identical and
+both passed unzip -t:
+  00695e1db9a547a26ab230fe552281568941d223a64d27327e99f5c3dca1362b
+
+Final application components:
+  executable
+    0d9b3d16754cf6beb064bf04b0f06b6e81c9bfdac26f06e276d5e4bc09019790
+  Info.plist
+    e2c99542b73ff26c00dbbb54c2704dd3aa97142b63e1674135bb1f7de796a932
+  CodeResources
+    6686de10a28a2fe11b36cbb86dcbacc827cfc4ea116b4dabf1845e5aee629e9b
+
+Final wheel isolated-install smoke
+==================================
+
+Temporary root:
+  /private/tmp/liliesagent-final-install.WISzWa
+
+Result:
+  Python 3.13.13
+  Installed module loaded from site-packages, not the source tree.
+  Real daemon PID 30776 listened on 127.0.0.1:18765.
+  distribution_id=lilies-agent-standalone
+  model_egress_enabled=false
+  provider_credential_loaded=false
+  active_session_count=0
+  active_assignment_count=0
+  Explicit CLI pairing and usage query passed.
+  daemon.key, bootstrap.token, and cli-client.json were all mode 0600.
+  Graceful stop removed discovery and released the listener; exit status 0.
+
+Platform bridge, monitor, and security regression
+=================================================
+
+Exact final command:
+  .venv/bin/python -m pytest -q -p no:cacheprovider \
+    tests/test_v04_13_assignment_bridge.py \
+    tests/test_v04_13_assignment_bridge_frontend.py \
+    tests/test_v04_13_lilies_api.py \
+    tests/test_v04_13_lilies_cli.py \
+    tests/test_v04_13_lilies_models.py \
+    tests/test_v04_13_local_lilies_bridge_api.py \
+    tests/test_v04_13_local_lilies_client_security.py \
+    tests/test_v04_13_local_lilies_discovery.py \
+    tests/test_v04_13_local_lilies_observability_api.py \
+    tests/test_v04_13_standalone_lilies_process_bridge.py \
+    tests/test_v04_13_enterprise_experiment_runner.py \
+    tests/test_v04_13_token_monitoring.py
+
+Result:
+  352 passed, 2 warnings in 242.62s (0:04:02)
+
+Warnings:
+  Known Starlette TestClient/httpx deprecation warning.
+  One duplicate OpenAPI operation ID for the intentionally generic unmapped
+  platform operation.
+
+Additional final checks:
+  T01K 26-file Ruff scope: All checks passed.
+  git diff --check: passed.
+  Final token-monitor file after conservative Python -c argv recovery:
+    49 passed.
+  Exact observability pairing scope plus runner/monitor files:
+    123 passed in 122.02s.
+
+Authenticated real bridge and idle-token observation
+====================================================
+
+The real platform paired to the real standalone daemon through the public
+0600 discovery record and a one-time pairing code. The daemon-global
+no-store snapshot was read before and after the complete ACL pagination
+sequence. The same fingerprint, daemon instance, activity revision, ledger
+cursor, usage counters, runtime counters, and startup counters were observed.
+
+Idle observation:
+  duration=5.709114208002575 seconds
+  token_delta=0
+  model_call_delta=0
+  usage_record_delta=0
+  unknown_call_delta=0
+  cost_delta_usd=0.0
+  background_consumption_observed=false
+  safe_now=true
+  safe_on_platform_or_daemon_start=true
+
+Authoritative standalone totals at capture:
+  attempted_calls=124
+  recorded_calls=1
+  unknown_calls=123
+  input_tokens=54
+  output_tokens=90
+  total_tokens=144
+  cost_usd=0.000032760000000000005
+
+The 123 upgraded historical calls remain a global unattributed remainder.
+New calls persist the real session, stage, and model dimensions and retain
+missing provider usage as unknown rather than estimating it.
+
+The process-bound observation covered the inspected platform runtime and
+standalone daemon only. It does not claim OpenAI/Codex account-wide billing
+coverage, unrelated conversations, other machines, containers, credentials,
+or unclassified programs.
+
+Unavailable visual evidence
+===========================
+
+The native Computer Use pipe failed to start twice with the same external
+environment error. The unchanged provider was not retried. T01K therefore
+closes, if the fresh read-only audit agrees, only at the scoped evidence
+floor: exact source/artifacts, deterministic tests, native build/sign/launch,
+real loopback bridge, and token/startup audit. V0413-ED-004 retains all exact
+packaged UI visual, interaction, keyboard, and accessibility evidence for
+T01J.
+
+Current handoff runtime after audit
+===================================
+
+The standard platform was restarted after the read-only audit with model
+egress disabled:
+  platform PID=49172, listener=127.0.0.1:18122
+  standalone daemon PID=4906, listener=127.0.0.1:8765
+  packaged desktop PID=31026
+
+An authenticated platform status read returned:
+  enabled=true
+  discovery.status=available
+  connection_count=1
+  connection.status=connected
+  connection.base_url=http://127.0.0.1:8765
+
+The authenticated no-store daemon-global snapshot after platform restart
+again returned:
+  coverage_complete=true
+  model_egress_enabled=false
+  attempted_calls=124
+  recorded_calls=1
+  unknown_calls=123
+  total_tokens=144
+  active_sessions=0
+  active_model_turns=0
+  active_provider_calls=0
+  active_development_model_calls=0
+  automatic_resume_policy=explicit_request_only
+  automatic_model_resume_count=0
+
+This post-audit check confirms the current handoff runtime but does not expand
+the earlier time-bounded idle-window or account-wide claim.
