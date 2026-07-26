@@ -15,7 +15,14 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    TypeAdapter,
+    field_validator,
+    model_validator,
+)
 
 from .blocks import IterationConfig, LoopConfig
 from .capability_contracts import CapabilityBuildContract
@@ -143,12 +150,12 @@ def _governed_host_actions(credential: TaskCredentialRecord) -> bool:
         credential.allowed_actions_digest is not None
         and credential.budget_digest is not None
     )
+
+
 _EMBEDDED_WINDOWS_PATH_RE = re.compile(
     r"(?<![A-Za-z0-9])(?:[A-Za-z]:[\\/][^\s\"'<>\[\]{}(),;]+)"
 )
-_EMBEDDED_POSIX_PATH_RE = re.compile(
-    r"(?<![A-Za-z0-9/:])/(?:[^\s\"'<>\[\]{}(),;]+)"
-)
+_EMBEDDED_POSIX_PATH_RE = re.compile(r"(?<![A-Za-z0-9/:])/(?:[^\s\"'<>\[\]{}(),;]+)")
 _TASK_CONTRACT_ROUTES = (
     ("GET", re.compile(r"^/api/v1/lilies/platform-contract$")),
     ("GET", re.compile(r"^/api/v1/lilies/blocks$")),
@@ -177,6 +184,14 @@ class _CorrelatedBody(_StrictModel):
     idempotency_key: str | None = Field(default=None, min_length=16, max_length=128)
 
 
+class _ApplicationPathBody(_CorrelatedBody):
+    application_id: UUID | None = None
+
+
+class _RunPathBody(_CorrelatedBody):
+    run_id: UUID | None = None
+
+
 class ApplicationCreateBody(_CorrelatedBody):
     name: str = Field(min_length=1, max_length=100)
     description: str = Field(default="", max_length=1_000)
@@ -202,7 +217,9 @@ class _UpdateNodeData(_StrictModel):
         if unknown:
             raise ValueError(f"unknown NodeSpec fields: {sorted(unknown)}")
         return {
-            field: TypeAdapter(NodeSpec.model_fields[field].annotation).validate_python(item)
+            field: TypeAdapter(NodeSpec.model_fields[field].annotation).validate_python(
+                item
+            )
             for field, item in value.items()
         }
 
@@ -276,7 +293,7 @@ _DRAFT_DATA_MODELS: dict[str, type[_StrictModel]] = {
 }
 
 
-class DraftApplyBody(_CorrelatedBody):
+class DraftApplyBody(_ApplicationPathBody):
     expected_revision: int = Field(ge=0)
     op: Literal[
         "add_node",
@@ -299,11 +316,11 @@ class DraftApplyBody(_CorrelatedBody):
         return self
 
 
-class TestsRunBody(_CorrelatedBody):
+class TestsRunBody(_ApplicationPathBody):
     pass
 
 
-class RunStartBody(_CorrelatedBody):
+class RunStartBody(_ApplicationPathBody):
     inputs: dict[str, Any] = Field(default_factory=dict)
     version: int | None = Field(default=None, ge=1)
     use_draft: bool = False
@@ -314,7 +331,7 @@ class RunStartBody(_CorrelatedBody):
         return _public_run_inputs(value)
 
 
-class RunResumeBody(_CorrelatedBody):
+class RunResumeBody(_RunPathBody):
     values: dict[str, Any]
 
     @field_validator("values")
@@ -323,11 +340,11 @@ class RunResumeBody(_CorrelatedBody):
         return _public_run_inputs(value)
 
 
-class RunCancelBody(_CorrelatedBody):
+class RunCancelBody(_RunPathBody):
     pass
 
 
-class PublishBody(_CorrelatedBody):
+class PublishBody(_ApplicationPathBody):
     acknowledge_warnings: bool = False
 
 
@@ -368,6 +385,36 @@ def _public_run_inputs(value: dict[str, Any]) -> dict[str, Any]:
     if reserved:
         raise ValueError(f"reserved runtime input keys are not public: {reserved}")
     return value
+
+
+def _path_body_payload(
+    field: Literal["application_id", "run_id"],
+    path_value: str,
+    body: _ApplicationPathBody | _RunPathBody,
+) -> dict[str, Any]:
+    return {
+        field: path_value,
+        **body.model_dump(mode="json", exclude={field}),
+    }
+
+
+def _require_path_body_identity(
+    body: _CorrelatedBody | None,
+    *,
+    field: Literal["application_id", "run_id"],
+    path_value: UUID,
+) -> None:
+    supplied = getattr(body, field, None)
+    if supplied is None or supplied == path_value:
+        return
+    raise _FacadeFailure(
+        "invalid_request",
+        f"{field} in the request body must match the path parameter",
+        status_code=422,
+        failure_owner="task_author",
+        expected=str(path_value),
+        actual=str(supplied),
+    )
 
 
 def _validate_public_node_tree(
@@ -431,7 +478,11 @@ def _require_blackbox_run(
 
 
 def _operation(value: str | PlatformBlackboxOperation) -> PlatformBlackboxOperation:
-    return value if isinstance(value, PlatformBlackboxOperation) else PlatformBlackboxOperation(value)
+    return (
+        value
+        if isinstance(value, PlatformBlackboxOperation)
+        else PlatformBlackboxOperation(value)
+    )
 
 
 def _is_contract_route(method: str, path: str) -> bool:
@@ -460,7 +511,9 @@ def _error_payload(
         "operation": operation,
         "request_id": str(request_id),
         "status_code": status_code,
-        "contract_digest": contract_digest if _DIGEST_RE.fullmatch(contract_digest) else _ZERO_DIGEST,
+        "contract_digest": contract_digest
+        if _DIGEST_RE.fullmatch(contract_digest)
+        else _ZERO_DIGEST,
         "data": {},
         "error": {
             "code": code,
@@ -577,7 +630,11 @@ def _correlation(
     header_tool_call = request.headers.get("x-lilies-tool-call-id")
     header_idempotency = request.headers.get("x-lilies-idempotency-key")
     body_idempotency = body.idempotency_key if body is not None else None
-    if header_idempotency and body_idempotency and header_idempotency != body_idempotency:
+    if (
+        header_idempotency
+        and body_idempotency
+        and header_idempotency != body_idempotency
+    ):
         raise _FacadeFailure(
             "correlation_conflict",
             "idempotency_key body value does not match X-Lilies-Idempotency-Key",
@@ -627,7 +684,9 @@ def _correlation(
     )
 
 
-async def _credential_for_token(services: Any, access_token: str) -> TaskCredentialRecord:
+async def _credential_for_token(
+    services: Any, access_token: str
+) -> TaskCredentialRecord:
     return await services.platform_blackbox_auth.authenticate_credential(access_token)
 
 
@@ -753,8 +812,8 @@ async def _task_scoped_connector_tools(
         except (KeyError, ValueError):
             continue
         endpoint_host = (
-            urlsplit(profile.base_url).hostname or ""
-        ).casefold().rstrip(".")
+            (urlsplit(profile.base_url).hostname or "").casefold().rstrip(".")
+        )
         if (
             not profile.available
             or endpoint_host not in allowed_hosts
@@ -782,9 +841,7 @@ async def _task_scoped_connector_tools(
                 lane,
             ):
                 continue
-            required_roles = set(policy.required_roles).union(
-                operation.required_roles
-            )
+            required_roles = set(policy.required_roles).union(operation.required_roles)
             if required_roles and not required_roles.intersection(subject_roles):
                 continue
             if (
@@ -799,15 +856,12 @@ async def _task_scoped_connector_tools(
             execution_modes = ["execute"]
             if policy.allow_dry_run:
                 execution_modes.insert(0, "dry_run")
-            authorization_required = (
-                operation.mutating
-                and (
-                    policy.mutation_preauthorization_required
-                    or _connector_policy_match(
-                        manifest.connector_id,
-                        operation.id,
-                        credential.permission_required_actions,
-                    )
+            authorization_required = operation.mutating and (
+                policy.mutation_preauthorization_required
+                or _connector_policy_match(
+                    manifest.connector_id,
+                    operation.id,
+                    credential.permission_required_actions,
                 )
             )
             connector_contract: dict[str, Any] = {
@@ -834,9 +888,7 @@ async def _task_scoped_connector_tools(
                     credential.max_payload_bytes,
                 ),
             }
-            payload_schema = _connector_object_json_schema(
-                operation.request_schema
-            )
+            payload_schema = _connector_object_json_schema(operation.request_schema)
             output_schema = (
                 json.loads(json.dumps(operation.response_json_schema))
                 if operation.response_json_schema is not None
@@ -892,7 +944,9 @@ async def _task_scoped_connector_tools(
     return sorted(result, key=lambda item: item["name"])
 
 
-async def _current_contract(services: Any, credential: TaskCredentialRecord) -> dict[str, Any]:
+async def _current_contract(
+    services: Any, credential: TaskCredentialRecord
+) -> dict[str, Any]:
     contract_version = getattr(services.settings, "lilies_platform_contract_version", 1)
     await services.platform_contract_versions.observe(
         contract_version=contract_version,
@@ -1045,7 +1099,9 @@ def _operation_failure(error: Exception) -> _FacadeFailure:
             failure_owner="lilies",
         )
     if isinstance(error, PlatformBlackboxArtifactNotFound):
-        return _FacadeFailure("not_found", _public_error_message(error), status_code=404)
+        return _FacadeFailure(
+            "not_found", _public_error_message(error), status_code=404
+        )
     if isinstance(error, PlatformBlackboxArtifactPathUnsafe):
         return _FacadeFailure(
             "artifact_path_unsafe",
@@ -1068,13 +1124,17 @@ def _operation_failure(error: Exception) -> _FacadeFailure:
             failure_owner="task_author",
         )
     if isinstance(error, PlatformBlackboxArtifactTooLarge):
-        return _FacadeFailure("artifact_too_large", _public_error_message(error), status_code=413)
+        return _FacadeFailure(
+            "artifact_too_large", _public_error_message(error), status_code=413
+        )
     if isinstance(error, PlatformBlackboxArtifactIntegrityError):
         return _FacadeFailure(
             "artifact_integrity_failed", _public_error_message(error), status_code=409
         )
     if isinstance(error, PlatformBlackboxArtifactConflict):
-        return _FacadeFailure("artifact_conflict", _public_error_message(error), status_code=409)
+        return _FacadeFailure(
+            "artifact_conflict", _public_error_message(error), status_code=409
+        )
     if isinstance(error, PlatformBlackboxArtifactStoreError):
         return _FacadeFailure(
             "artifact_store_unavailable",
@@ -1084,9 +1144,13 @@ def _operation_failure(error: Exception) -> _FacadeFailure:
             failure_owner="platform",
         )
     if isinstance(error, PlatformBlackboxArtifactError):
-        return _FacadeFailure("artifact_error", _public_error_message(error), status_code=422)
+        return _FacadeFailure(
+            "artifact_error", _public_error_message(error), status_code=422
+        )
     if isinstance(error, RevisionConflict):
-        return _FacadeFailure("revision_conflict", _public_error_message(error), status_code=409)
+        return _FacadeFailure(
+            "revision_conflict", _public_error_message(error), status_code=409
+        )
     if isinstance(error, PublishGateError):
         return _FacadeFailure(
             "publish_gate_failed",
@@ -1096,7 +1160,9 @@ def _operation_failure(error: Exception) -> _FacadeFailure:
             actual=_redact(jsonable_encoder(error.decision)),
         )
     if isinstance(error, KeyError):
-        return _FacadeFailure("not_found", _public_error_message(error), status_code=404)
+        return _FacadeFailure(
+            "not_found", _public_error_message(error), status_code=404
+        )
     if isinstance(error, SandboxError):
         return _FacadeFailure(
             "artifact_path_unsafe",
@@ -1105,7 +1171,9 @@ def _operation_failure(error: Exception) -> _FacadeFailure:
             failure_owner="task_author",
         )
     if isinstance(error, RuntimeError):
-        return _FacadeFailure("invalid_state", _public_error_message(error), status_code=409)
+        return _FacadeFailure(
+            "invalid_state", _public_error_message(error), status_code=409
+        )
     if isinstance(error, ValueError):
         return _FacadeFailure(
             "invalid_request",
@@ -1225,11 +1293,16 @@ def _trace_data_projection(event_type: str, data: dict[str, Any]) -> dict[str, A
         "type",
     }
     if ".tool." in event_type:
-        allowed &= {"duration_ms", "error_type", "node_id", "status", "tool", "tool_name"}
+        allowed &= {
+            "duration_ms",
+            "error_type",
+            "node_id",
+            "status",
+            "tool",
+            "tool_name",
+        }
     return {
-        key: _redact(value, key=key)
-        for key, value in data.items()
-        if key in allowed
+        key: _redact(value, key=key) for key, value in data.items() if key in allowed
     }
 
 
@@ -1323,7 +1396,9 @@ async def _register_run_artifacts(
             continue
         if not candidate.is_file():
             continue
-        media_type = mimetypes.guess_type(candidate.name)[0] or "application/octet-stream"
+        media_type = (
+            mimetypes.guess_type(candidate.name)[0] or "application/octet-stream"
+        )
         registration = await services.platform_blackbox_artifacts.register_artifact(
             ArtifactRegistrationRequest(
                 binding=binding,
@@ -1377,9 +1452,14 @@ async def _invoke(
                     expected="UUID",
                     actual="invalid",
                 ) from error
+            _require_path_body_identity(
+                body,
+                field="application_id",
+                path_value=scoped_application,
+            )
         elif resource_run_id is not None:
             try:
-                UUID(resource_run_id)
+                scoped_run_id = UUID(resource_run_id)
             except ValueError as error:
                 raise _FacadeFailure(
                     "invalid_request",
@@ -1389,6 +1469,11 @@ async def _invoke(
                     expected="UUID",
                     actual="invalid",
                 ) from error
+            _require_path_body_identity(
+                body,
+                field="run_id",
+                path_value=scoped_run_id,
+            )
             try:
                 resource_run = await services.workflow_store.get_run(resource_run_id)
                 scoped_application = UUID(str(resource_run["application_id"]))
@@ -1423,7 +1508,10 @@ async def _invoke(
         current_digest = str(contract["contract_digest"])
         replay_without_result = False
         if decision.replayed:
-            if decision.state is BlackboxRequestState.completed and decision.result is not None:
+            if (
+                decision.state is BlackboxRequestState.completed
+                and decision.result is not None
+            ):
                 return _json_response(
                     decision.result,
                     int(decision.status_code or 200),
@@ -1517,7 +1605,9 @@ async def _invoke(
             )
         except _FacadeFailure as error:
             operation_failure = error
-        except Exception as error:  # Keep implementation failures inside the public envelope.
+        except (
+            Exception
+        ) as error:  # Keep implementation failures inside the public envelope.
             operation_failure = _operation_failure(error)
         if operation_failure is None:  # pragma: no cover - callback path returns above
             raise RuntimeError("public operation ended without a result")
@@ -1576,9 +1666,15 @@ def install_lilies_platform_api(app: FastAPI, services: Any) -> None:
     """Install the task-token-only public platform boundary."""
 
     @app.middleware("http")
-    async def deny_task_tokens_on_internal_endpoints(request: Request, call_next: Any) -> Any:
+    async def deny_task_tokens_on_internal_endpoints(
+        request: Request, call_next: Any
+    ) -> Any:
         authorization = request.headers.get("authorization", "")
-        token = authorization.partition(" ")[2] if authorization.lower().startswith("bearer ") else ""
+        token = (
+            authorization.partition(" ")[2]
+            if authorization.lower().startswith("bearer ")
+            else ""
+        )
         valid_task_token = False
         if token.startswith("lpt_"):
             try:
@@ -1586,7 +1682,9 @@ def install_lilies_platform_api(app: FastAPI, services: Any) -> None:
                 valid_task_token = True
             except PlatformBlackboxAuthError:
                 valid_task_token = False
-        if valid_task_token and not _is_contract_route(request.method, request.url.path):
+        if valid_task_token and not _is_contract_route(
+            request.method, request.url.path
+        ):
             request_id = uuid4()
             try:
                 request_id = _request_id(request)
@@ -1610,7 +1708,9 @@ def install_lilies_platform_api(app: FastAPI, services: Any) -> None:
     previous_validation_handler = app.exception_handlers.get(RequestValidationError)
 
     @app.exception_handler(RequestValidationError)
-    async def lilies_validation_error(request: Request, error: RequestValidationError) -> Any:
+    async def lilies_validation_error(
+        request: Request, error: RequestValidationError
+    ) -> Any:
         if not request.url.path.startswith("/api/v1/lilies/"):
             if previous_validation_handler is not None:
                 return await previous_validation_handler(request, error)
@@ -1622,14 +1722,19 @@ def install_lilies_platform_api(app: FastAPI, services: Any) -> None:
         except _FacadeFailure:
             pass
         actual = [
-            {"location": list(item.get("loc", ())), "type": item.get("type", "validation_error")}
+            {
+                "location": list(item.get("loc", ())),
+                "type": item.get("type", "validation_error"),
+            }
             for item in error.errors()
         ]
         payload = _error_payload(
             operation=operation_name,
             request_id=request_id,
             status_code=422,
-            contract_digest=request.headers.get("x-lilies-contract-digest", _ZERO_DIGEST),
+            contract_digest=request.headers.get(
+                "x-lilies-contract-digest", _ZERO_DIGEST
+            ),
             code="invalid_request",
             message="request payload did not match the public operation schema",
             failure_owner="task_author",
@@ -1659,15 +1764,22 @@ def install_lilies_platform_api(app: FastAPI, services: Any) -> None:
         query: str = Query(default="", max_length=500),
         block_kind: str | None = Query(default=None, max_length=120),
     ) -> JSONResponse:
-        async def execute(_: _Correlation, __: TaskCredentialRecord) -> list[dict[str, Any]]:
+        async def execute(
+            _: _Correlation, __: TaskCredentialRecord
+        ) -> list[dict[str, Any]]:
             needle = query.casefold().strip()
             result = []
             for item in public_block_catalog(services.blocks):
                 if block_kind and item.get("block_kind") != block_kind:
                     continue
-                if needle and needle not in " ".join(
-                    str(item.get(key, "")) for key in ("type", "title", "description", "category")
-                ).casefold():
+                if (
+                    needle
+                    and needle
+                    not in " ".join(
+                        str(item.get(key, ""))
+                        for key in ("type", "title", "description", "category")
+                    ).casefold()
+                ):
                     continue
                 result.append(item)
             return result
@@ -1720,7 +1832,9 @@ def install_lilies_platform_api(app: FastAPI, services: Any) -> None:
                 *(
                     await _published_workflow_tools(
                         services,
-                        application_ids={str(value) for value in credential.application_ids},
+                        application_ids={
+                            str(value) for value in credential.application_ids
+                        },
                     )
                 ),
                 *(await _task_scoped_connector_tools(services, credential)),
@@ -1759,7 +1873,9 @@ def install_lilies_platform_api(app: FastAPI, services: Any) -> None:
         "/api/v1/lilies/applications/{application_id}",
         name="platform_application_get",
     )
-    async def platform_application_get(request: Request, application_id: str) -> JSONResponse:
+    async def platform_application_get(
+        request: Request, application_id: str
+    ) -> JSONResponse:
         async def execute(_: _Correlation, __: TaskCredentialRecord) -> dict[str, Any]:
             return await services.workflow_store.get_application(application_id)
 
@@ -1776,7 +1892,9 @@ def install_lilies_platform_api(app: FastAPI, services: Any) -> None:
         "/api/v1/lilies/applications/{application_id}/draft",
         name="platform_draft_inspect",
     )
-    async def platform_draft_inspect(request: Request, application_id: str) -> JSONResponse:
+    async def platform_draft_inspect(
+        request: Request, application_id: str
+    ) -> JSONResponse:
         async def execute(_: _Correlation, __: TaskCredentialRecord) -> dict[str, Any]:
             draft = await services.workflow_store.get_draft(application_id)
             return {
@@ -1802,6 +1920,8 @@ def install_lilies_platform_api(app: FastAPI, services: Any) -> None:
         application_id: str,
         body: DraftApplyBody,
     ) -> JSONResponse:
+        payload = _path_body_payload("application_id", application_id, body)
+
         async def execute(
             correlation: _Correlation,
             credential: TaskCredentialRecord,
@@ -1841,10 +1961,7 @@ def install_lilies_platform_api(app: FastAPI, services: Any) -> None:
                         "sha256:"
                         + hashlib.sha256(
                             json.dumps(
-                                {
-                                    "application_id": application_id,
-                                    **body.model_dump(mode="json"),
-                                },
+                                payload,
                                 ensure_ascii=False,
                                 allow_nan=False,
                                 separators=(",", ":"),
@@ -1859,7 +1976,7 @@ def install_lilies_platform_api(app: FastAPI, services: Any) -> None:
             services,
             request,
             PlatformBlackboxOperation.draft_apply,
-            payload={"application_id": application_id, **body.model_dump(mode="json")},
+            payload=payload,
             callback=execute,
             body=body,
             application_id=application_id,
@@ -1874,6 +1991,8 @@ def install_lilies_platform_api(app: FastAPI, services: Any) -> None:
         application_id: str,
         body: TestsRunBody,
     ) -> JSONResponse:
+        payload = _path_body_payload("application_id", application_id, body)
+
         async def execute(
             correlation: _Correlation,
             credential: TaskCredentialRecord,
@@ -1891,18 +2010,12 @@ def install_lilies_platform_api(app: FastAPI, services: Any) -> None:
                     allowed_runtime_tools=_runtime_tool_policy(credential),
                     allowed_network_hosts=_runtime_network_policy(credential),
                     model_access=credential.model_access,
-                    allowed_connector_operations=_runtime_connector_policy(
-                        credential
-                    ),
-                    writable_connector_operations=(
-                        credential.writable_host_operations
-                    ),
+                    allowed_connector_operations=_runtime_connector_policy(credential),
+                    writable_connector_operations=(credential.writable_host_operations),
                     permission_required_connector_operations=(
                         credential.permission_required_actions
                     ),
-                    compensation_connector_operations=(
-                        credential.compensation_actions
-                    ),
+                    compensation_connector_operations=(credential.compensation_actions),
                     max_connector_write_count=credential.max_write_count,
                     max_connector_payload_bytes=credential.max_payload_bytes,
                     governed_host_actions=_governed_host_actions(credential),
@@ -1915,7 +2028,7 @@ def install_lilies_platform_api(app: FastAPI, services: Any) -> None:
             services,
             request,
             PlatformBlackboxOperation.tests_run,
-            payload={"application_id": application_id, **body.model_dump(mode="json")},
+            payload=payload,
             callback=execute,
             body=body,
             application_id=application_id,
@@ -1930,6 +2043,8 @@ def install_lilies_platform_api(app: FastAPI, services: Any) -> None:
         application_id: str,
         body: RunStartBody,
     ) -> JSONResponse:
+        payload = _path_body_payload("application_id", application_id, body)
+
         async def execute(
             correlation: _Correlation,
             credential: TaskCredentialRecord,
@@ -1952,18 +2067,12 @@ def install_lilies_platform_api(app: FastAPI, services: Any) -> None:
                 allowed_runtime_tools=_runtime_tool_policy(credential),
                 allowed_network_hosts=_runtime_network_policy(credential),
                 model_access=credential.model_access,
-                allowed_connector_operations=_runtime_connector_policy(
-                    credential
-                ),
-                writable_connector_operations=(
-                    credential.writable_host_operations
-                ),
+                allowed_connector_operations=_runtime_connector_policy(credential),
+                writable_connector_operations=(credential.writable_host_operations),
                 permission_required_connector_operations=(
                     credential.permission_required_actions
                 ),
-                compensation_connector_operations=(
-                    credential.compensation_actions
-                ),
+                compensation_connector_operations=(credential.compensation_actions),
                 max_connector_write_count=credential.max_write_count,
                 max_connector_payload_bytes=credential.max_payload_bytes,
                 governed_host_actions=_governed_host_actions(credential),
@@ -1975,7 +2084,7 @@ def install_lilies_platform_api(app: FastAPI, services: Any) -> None:
             services,
             request,
             PlatformBlackboxOperation.run_start,
-            payload={"application_id": application_id, **body.model_dump(mode="json")},
+            payload=payload,
             callback=execute,
             body=body,
             application_id=application_id,
@@ -2013,6 +2122,8 @@ def install_lilies_platform_api(app: FastAPI, services: Any) -> None:
         run_id: str,
         body: RunResumeBody,
     ) -> JSONResponse:
+        payload = _path_body_payload("run_id", run_id, body)
+
         async def execute(
             correlation: _Correlation, credential: TaskCredentialRecord
         ) -> dict[str, Any]:
@@ -2031,7 +2142,7 @@ def install_lilies_platform_api(app: FastAPI, services: Any) -> None:
             services,
             request,
             PlatformBlackboxOperation.run_resume,
-            payload={"run_id": run_id, **body.model_dump(mode="json")},
+            payload=payload,
             callback=execute,
             body=body,
             resource_run_id=run_id,
@@ -2043,6 +2154,8 @@ def install_lilies_platform_api(app: FastAPI, services: Any) -> None:
         run_id: str,
         body: RunCancelBody,
     ) -> JSONResponse:
+        payload = _path_body_payload("run_id", run_id, body)
+
         async def execute(
             correlation: _Correlation, credential: TaskCredentialRecord
         ) -> dict[str, Any]:
@@ -2056,7 +2169,7 @@ def install_lilies_platform_api(app: FastAPI, services: Any) -> None:
             services,
             request,
             PlatformBlackboxOperation.run_cancel,
-            payload={"run_id": run_id, **body.model_dump(mode="json")},
+            payload=payload,
             callback=execute,
             body=body,
             resource_run_id=run_id,
@@ -2119,7 +2232,9 @@ def install_lilies_platform_api(app: FastAPI, services: Any) -> None:
             le=MAX_ARTIFACT_CHUNK_BYTES,
         ),
     ) -> JSONResponse:
-        async def execute(correlation: _Correlation, credential: TaskCredentialRecord) -> dict[str, Any]:
+        async def execute(
+            correlation: _Correlation, credential: TaskCredentialRecord
+        ) -> dict[str, Any]:
             run = await services.workflow_store.get_run(run_id)
             _require_blackbox_run(run, correlation, credential)
             artifact_root = _owned_artifact_root(services, correlation, run)
@@ -2160,12 +2275,16 @@ def install_lilies_platform_api(app: FastAPI, services: Any) -> None:
         application_id: str,
         body: PublishBody,
     ) -> JSONResponse:
+        payload = _path_body_payload("application_id", application_id, body)
+
         async def execute(
             correlation: _Correlation, credential: TaskCredentialRecord
         ) -> dict[str, Any]:
             workspace = _task_workspace(services, correlation)
             draft = await services.workflow_store.get_draft(application_id)
-            mandatory_tests = [test for test in draft["snapshot"].tests if test.mandatory]
+            mandatory_tests = [
+                test for test in draft["snapshot"].tests if test.mandatory
+            ]
             validation_report = draft.get("validation_report")
             current_acceptance = bool(
                 mandatory_tests
@@ -2204,9 +2323,7 @@ def install_lilies_platform_api(app: FastAPI, services: Any) -> None:
                 allowed_runtime_tools=_runtime_tool_policy(credential),
                 allowed_network_hosts=_runtime_network_policy(credential),
                 model_access=credential.model_access,
-                allowed_connector_operations=_runtime_connector_policy(
-                    credential
-                ),
+                allowed_connector_operations=_runtime_connector_policy(credential),
                 governed_host_actions=_governed_host_actions(credential),
                 for_publication=True,
             )
@@ -2222,7 +2339,7 @@ def install_lilies_platform_api(app: FastAPI, services: Any) -> None:
             services,
             request,
             PlatformBlackboxOperation.publish,
-            payload={"application_id": application_id, **body.model_dump(mode="json")},
+            payload=payload,
             callback=execute,
             body=body,
             application_id=application_id,
@@ -2233,12 +2350,16 @@ def install_lilies_platform_api(app: FastAPI, services: Any) -> None:
         methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         name="platform_operation_not_found",
     )
-    async def platform_operation_not_found(request: Request, unmapped_path: str) -> JSONResponse:
+    async def platform_operation_not_found(
+        request: Request, unmapped_path: str
+    ) -> JSONResponse:
         payload = _error_payload(
             operation="platform_operation_not_found",
             request_id=uuid4(),
             status_code=404,
-            contract_digest=request.headers.get("x-lilies-contract-digest", _ZERO_DIGEST),
+            contract_digest=request.headers.get(
+                "x-lilies-contract-digest", _ZERO_DIGEST
+            ),
             code="operation_not_found",
             message="the requested operation is not part of the public platform contract",
             failure_owner="task_author",

@@ -57,6 +57,7 @@ class LiliesCollaborationClient:
         self.channel_id = channel_id
         self.timeout_seconds = timeout_seconds
         self._transport = transport
+        self._developer_response_revisions: dict[UUID, dict[str, Any]] = {}
 
     async def submit_report(self, payload: dict[str, Any]) -> CollaborationHttpResult:
         return await self._request("POST", "reports", json_payload=payload)
@@ -77,11 +78,18 @@ class LiliesCollaborationClient:
         report_id: UUID,
         payload: dict[str, Any],
     ) -> CollaborationHttpResult:
-        return await self._request(
+        effective_payload, resolution = self._resolve_reprobe_revision(
+            report_id,
+            payload,
+        )
+        result = await self._request(
             "POST",
             f"reports/{report_id}/reprobes",
-            json_payload=payload,
+            json_payload=effective_payload,
         )
+        if resolution is not None and result.ok:
+            result.data["client_report_revision_resolution"] = resolution
+        return result
 
     async def withdraw_report(
         self,
@@ -109,7 +117,12 @@ class LiliesCollaborationClient:
             query["after"] = after
         if history_replay:
             query["history_replay"] = "true"
-        return await self._request("GET", "events", query=query)
+        result = await self._request("GET", "events", query=query)
+        if result.ok:
+            transitions = self._capture_developer_response_revisions(result.data)
+            if transitions:
+                result.data["client_report_revision_transitions"] = transitions
+        return result
 
     async def submit_verification_claim(
         self,
@@ -134,9 +147,7 @@ class LiliesCollaborationClient:
         json_payload: dict[str, Any] | None = None,
         query: dict[str, str | int] | None = None,
     ) -> CollaborationHttpResult:
-        channel_url = (
-            f"{self.base_url}/api/v1/collaboration/channels/{self.channel_id}"
-        )
+        channel_url = f"{self.base_url}/api/v1/collaboration/channels/{self.channel_id}"
         url = f"{channel_url}/{suffix}" if suffix else channel_url
         try:
             async with httpx.AsyncClient(
@@ -193,3 +204,105 @@ class LiliesCollaborationClient:
             status_code=response.status_code,
             error={"code": code, "message": message, "retryable": retryable},
         )
+
+    def _capture_developer_response_revisions(
+        self,
+        data: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        """Remember exact report revisions produced by visible developer responses.
+
+        A persisted ``developer_response.v1`` consumes the revision carried in
+        its payload and atomically advances that same report by exactly one
+        revision.  The payload intentionally remains bound to the consumed
+        revision, while the subsequent reprobe compare-and-set must use the
+        resulting revision.  Derivation is deliberately limited to this exact
+        event; arbitrary report revisions are never incremented.
+        """
+
+        raw_events = data.get("events")
+        if not isinstance(raw_events, list):
+            return []
+        transitions: list[dict[str, Any]] = []
+        for raw_event in raw_events:
+            transition = self._developer_response_revision(raw_event)
+            if transition is None:
+                continue
+            report_id = UUID(transition["report_id"])
+            previous = self._developer_response_revisions.get(report_id)
+            if previous is None or int(transition["source_event_seq"]) > int(
+                previous["source_event_seq"]
+            ):
+                self._developer_response_revisions[report_id] = transition
+            transitions.append(transition)
+        return transitions
+
+    def _developer_response_revision(
+        self,
+        raw_event: Any,
+    ) -> dict[str, Any] | None:
+        if (
+            not isinstance(raw_event, dict)
+            or raw_event.get("payload_schema") != "collaboration.developer_response.v1"
+            or raw_event.get("message_type") != "developer_response"
+            or raw_event.get("sender_role") != "codex"
+            or raw_event.get("channel_id") != str(self.channel_id)
+        ):
+            return None
+        payload = raw_event.get("payload")
+        if not isinstance(payload, dict) or payload.get("channel_id") != str(
+            self.channel_id
+        ):
+            return None
+        raw_revision = payload.get("report_revision")
+        raw_seq = raw_event.get("seq")
+        if (
+            isinstance(raw_revision, bool)
+            or not isinstance(raw_revision, int)
+            or raw_revision < 1
+            or isinstance(raw_seq, bool)
+            or not isinstance(raw_seq, int)
+            or raw_seq < 1
+        ):
+            return None
+        try:
+            correlation_id = UUID(str(raw_event.get("correlation_id")))
+            payload_report_id = UUID(str(payload.get("report_id")))
+            source_message_id = UUID(str(raw_event.get("message_id")))
+        except (TypeError, ValueError, AttributeError):
+            return None
+        if correlation_id != payload_report_id:
+            return None
+        resulting_revision = raw_revision + 1
+        return {
+            "schema_version": "1.0",
+            "report_id": str(correlation_id),
+            "source_message_id": str(source_message_id),
+            "source_event_seq": raw_seq,
+            "consumed_report_revision": raw_revision,
+            "resulting_report_revision": resulting_revision,
+            "reprobe_expected_report_revision": resulting_revision,
+            "derivation": "developer_response_v1_atomic_increment",
+        }
+
+    def _resolve_reprobe_revision(
+        self,
+        report_id: UUID,
+        payload: dict[str, Any],
+    ) -> tuple[dict[str, Any], dict[str, Any] | None]:
+        effective_payload = dict(payload)
+        transition = self._developer_response_revisions.get(report_id)
+        requested_revision = payload.get("expected_report_revision")
+        if (
+            transition is None
+            or isinstance(requested_revision, bool)
+            or not isinstance(requested_revision, int)
+            or requested_revision != int(transition["consumed_report_revision"])
+        ):
+            return effective_payload, None
+        resulting_revision = int(transition["resulting_report_revision"])
+        effective_payload["expected_report_revision"] = resulting_revision
+        return effective_payload, {
+            **transition,
+            "requested_report_revision": requested_revision,
+            "effective_report_revision": resulting_revision,
+        }

@@ -16,6 +16,15 @@ from fastapi.testclient import TestClient
 
 from agent_platform.api import create_app
 from agent_platform.config import Settings
+from agent_platform.lilies_platform_api import (
+    DraftApplyBody,
+    PublishBody,
+    RunCancelBody,
+    RunResumeBody,
+    RunStartBody,
+    TestsRunBody as _TestsRunBody,
+    _path_body_payload,
+)
 from agent_platform.lilies_platform_client import LiliesPlatformClient
 from agent_platform.lilies_platform_tools import build_lilies_platform_registry
 from agent_platform.lilies_tools import LiliesToolContext
@@ -169,9 +178,13 @@ def test_contract_facade_enforces_scope_assignment_idempotency_and_internal_deni
         assert correlation_conflict.status_code == 409
         assert correlation_conflict.json()["error"]["code"] == "correlation_conflict"
         create_contract = next(
-            item for item in contract["operations"] if item["name"] == "platform_application_create"
+            item
+            for item in contract["operations"]
+            if item["name"] == "platform_application_create"
         )
-        assert {"not_found", "correlation_conflict"} <= set(create_contract["error_codes"])
+        assert {"not_found", "correlation_conflict"} <= set(
+            create_contract["error_codes"]
+        )
 
         conflict = _request(
             client,
@@ -204,10 +217,13 @@ def test_contract_facade_enforces_scope_assignment_idempotency_and_internal_deni
             assert denied_path.status_code == 403, denied_path.text
             assert denied_path.json()["error"]["code"] == "internal_endpoint_denied"
         assert client.get("/api/v1/lilies/private-or-unknown").status_code == 404
-        assert client.get(
-            "/api/v1/lilies/private-or-unknown",
-            headers={"Authorization": "Bearer internal-test-token"},
-        ).status_code == 404
+        assert (
+            client.get(
+                "/api/v1/lilies/private-or-unknown",
+                headers={"Authorization": "Bearer internal-test-token"},
+            ).status_code
+            == 404
+        )
 
         other = client.post(
             "/api/v1/applications",
@@ -332,6 +348,239 @@ def test_draft_contract_drift_and_payload_aware_exact_once(tmp_path: Path) -> No
         assert all(item.session_id == session_id for item in audit)
 
 
+def test_draft_apply_accepts_contract_path_id_in_body_and_rejects_mismatch(
+    tmp_path: Path,
+) -> None:
+    app = create_app(_settings(tmp_path), ScriptedProvider())
+    with TestClient(app) as client:
+        headers, _, _, _, _ = _issue(client)
+        application_id = _create_assigned_application(client, headers)["id"]
+        contract = _request(
+            client,
+            "GET",
+            "/api/v1/lilies/platform-contract",
+            headers,
+            key="draft-body-path-contract-0001",
+        ).json()["data"]
+        draft_operation = next(
+            operation
+            for operation in contract["operations"]
+            if operation["name"] == "platform_draft_apply"
+        )
+        assert "application_id" in draft_operation["request_schema"]["required"]
+
+        contract_payload = {
+            "application_id": application_id,
+            "expected_revision": 0,
+            "op": "set_metadata",
+            "data": {"description": "Contract-shaped body accepted."},
+        }
+        applied = _request(
+            client,
+            "POST",
+            f"/api/v1/lilies/applications/{application_id}/draft",
+            headers,
+            key="draft-body-path-apply-0001",
+            json=contract_payload,
+        )
+        assert applied.status_code == 200, applied.text
+        assert applied.json()["data"]["revision"] == 1
+
+        legacy_replay = _request(
+            client,
+            "POST",
+            f"/api/v1/lilies/applications/{application_id}/draft",
+            headers,
+            key="draft-body-path-apply-0001",
+            json={
+                key: value
+                for key, value in contract_payload.items()
+                if key != "application_id"
+            },
+        )
+        assert legacy_replay.status_code == 200, legacy_replay.text
+        assert legacy_replay.json() == applied.json()
+        assert legacy_replay.headers["X-Lilies-Idempotent-Replay"] == "true"
+
+        mismatched_application_id = str(uuid4())
+        mismatch = _request(
+            client,
+            "POST",
+            f"/api/v1/lilies/applications/{application_id}/draft",
+            headers,
+            key="draft-body-path-mismatch-0001",
+            json={
+                **contract_payload,
+                "application_id": mismatched_application_id,
+                "expected_revision": 1,
+            },
+        )
+        assert mismatch.status_code == 422, mismatch.text
+        assert mismatch.json()["error"] == {
+            "code": "invalid_request",
+            "message": "application_id in the request body must match the path parameter",
+            "retryable": False,
+            "failure_owner": "task_author",
+            "expected": application_id,
+            "actual": mismatched_application_id,
+            "evidence_ref": None,
+        }
+        draft = client.portal.call(
+            client.app.state.services.workflow_store.get_draft,
+            application_id,
+        )
+        assert draft["revision"] == 1
+
+
+@pytest.mark.parametrize(
+    ("body_model", "field", "body_data"),
+    [
+        pytest.param(
+            DraftApplyBody,
+            "application_id",
+            {
+                "expected_revision": 0,
+                "op": "set_metadata",
+                "data": {"description": "Canonical draft payload."},
+            },
+            id="draft-apply",
+        ),
+        pytest.param(_TestsRunBody, "application_id", {}, id="tests-run"),
+        pytest.param(RunStartBody, "application_id", {}, id="run-start"),
+        pytest.param(PublishBody, "application_id", {}, id="publish"),
+        pytest.param(RunResumeBody, "run_id", {"values": {}}, id="run-resume"),
+        pytest.param(RunCancelBody, "run_id", {}, id="run-cancel"),
+    ],
+)
+def test_path_scoped_body_identity_is_optional_and_canonicalized_for_replay(
+    body_model: type,
+    field: str,
+    body_data: dict[str, Any],
+) -> None:
+    path_value = str(uuid4())
+    omitted = body_model.model_validate(body_data)
+    matching = body_model.model_validate({**body_data, field: path_value})
+
+    assert getattr(omitted, field) is None
+    assert str(getattr(matching, field)) == path_value
+    assert _path_body_payload(field, path_value, omitted) == _path_body_payload(
+        field,
+        path_value,
+        matching,
+    )
+
+
+@pytest.mark.parametrize(
+    ("path_template", "field", "body_data"),
+    [
+        pytest.param(
+            "/api/v1/lilies/applications/{resource_id}/draft",
+            "application_id",
+            {
+                "expected_revision": 0,
+                "op": "set_metadata",
+                "data": {"description": "Path identity validation."},
+            },
+            id="draft-apply",
+        ),
+        pytest.param(
+            "/api/v1/lilies/applications/{resource_id}/tests/run",
+            "application_id",
+            {},
+            id="tests-run",
+        ),
+        pytest.param(
+            "/api/v1/lilies/applications/{resource_id}/runs",
+            "application_id",
+            {},
+            id="run-start",
+        ),
+        pytest.param(
+            "/api/v1/lilies/applications/{resource_id}/versions",
+            "application_id",
+            {},
+            id="publish",
+        ),
+        pytest.param(
+            "/api/v1/lilies/runs/{resource_id}/resume",
+            "run_id",
+            {"values": {}},
+            id="run-resume",
+        ),
+        pytest.param(
+            "/api/v1/lilies/runs/{resource_id}/cancel",
+            "run_id",
+            {},
+            id="run-cancel",
+        ),
+    ],
+)
+def test_all_path_scoped_posts_accept_matching_or_omitted_identity_and_reject_mismatch(
+    tmp_path: Path,
+    path_template: str,
+    field: str,
+    body_data: dict[str, Any],
+) -> None:
+    app = create_app(_settings(tmp_path), ScriptedProvider())
+    resource_id = str(uuid4())
+    mismatched_id = str(uuid4())
+    path = path_template.format(resource_id=resource_id)
+    base_headers = {
+        "Authorization": "Bearer deliberately-invalid-task-token",
+        "X-Lilies-Assignment-ID": str(uuid4()),
+        "X-Lilies-Session-ID": str(uuid4()),
+        "X-Lilies-Contract-Digest": ZERO_DIGEST,
+    }
+
+    with TestClient(app) as client:
+        matching = _request(
+            client,
+            "POST",
+            path,
+            base_headers,
+            key=f"path-body-matching-{field}-0001",
+            json={**body_data, field: resource_id},
+        )
+        omitted = _request(
+            client,
+            "POST",
+            path,
+            base_headers,
+            key=f"path-body-omitted-{field}-0001",
+            json=body_data,
+        )
+        mismatch = _request(
+            client,
+            "POST",
+            path,
+            base_headers,
+            key=f"path-body-mismatch-{field}-0001",
+            json={**body_data, field: mismatched_id},
+        )
+
+        assert matching.status_code == 401, matching.text
+        assert matching.json()["error"]["code"] == "authentication_failed"
+        assert omitted.status_code == 401, omitted.text
+        assert omitted.json()["error"]["code"] == "authentication_failed"
+        assert mismatch.status_code == 422, mismatch.text
+        assert mismatch.json()["error"] == {
+            "code": "invalid_request",
+            "message": f"{field} in the request body must match the path parameter",
+            "retryable": False,
+            "failure_owner": "task_author",
+            "expected": resource_id,
+            "actual": mismatched_id,
+            "evidence_ref": None,
+        }
+        assert (
+            client.portal.call(
+                client.app.state.services.workflow_store.list_applications
+            )
+            == []
+        )
+        assert client.app.state.services.workflow_runtime.active_tasks == {}
+
+
 def test_draft_apply_enforces_each_conditional_data_branch_at_http_boundary(
     tmp_path: Path,
 ) -> None:
@@ -435,7 +684,9 @@ def test_contract_version_gate_rejects_same_version_schema_drift_at_startup(
             pass
 
 
-def test_trace_and_artifact_projection_redacts_and_contains_task_data(tmp_path: Path) -> None:
+def test_trace_and_artifact_projection_redacts_and_contains_task_data(
+    tmp_path: Path,
+) -> None:
     app = create_app(_settings(tmp_path), ScriptedProvider())
     with TestClient(app) as client:
         headers, token, assignment_id, session_id, digest = _issue(client)
@@ -651,13 +902,18 @@ def test_trace_and_artifact_projection_redacts_and_contains_task_data(tmp_path: 
         assert traversal.status_code in {404, 422}
 
 
-def test_contract_hides_publish_without_scope_and_publish_route_denies(tmp_path: Path) -> None:
+def test_contract_hides_publish_without_scope_and_publish_route_denies(
+    tmp_path: Path,
+) -> None:
     app = create_app(_settings(tmp_path), ScriptedProvider())
     with TestClient(app) as client:
         created = client.post(
             "/api/v1/applications",
             headers={"Authorization": "Bearer internal-test-token"},
-            json={"name": "Assigned without publish", "requirement": "Remain unpublished."},
+            json={
+                "name": "Assigned without publish",
+                "requirement": "Remain unpublished.",
+            },
         )
         assert created.status_code == 201, created.text
         application_id = UUID(created.json()["id"])
@@ -725,7 +981,9 @@ def test_revoked_task_credential_is_rejected_by_public_contract(tmp_path: Path) 
             key="contract-before-revoke-0001",
         )
         assert bootstrap.status_code == 200, bootstrap.text
-        headers["X-Lilies-Contract-Digest"] = bootstrap.json()["data"]["contract_digest"]
+        headers["X-Lilies-Contract-Digest"] = bootstrap.json()["data"][
+            "contract_digest"
+        ]
 
         revoked = client.portal.call(
             partial(
@@ -790,11 +1048,11 @@ def test_multi_application_run_routes_audit_the_run_application(tmp_path: Path) 
                 run_id=run_id,
                 application_id=str(target_application_id),
                 snapshot=draft["snapshot"],
-                    inputs={},
-                    workspace_path=str(workspace),
-                    waiting_node_id=waiting_node_id,
-                    assignment_id=str(assignment_id),
-                    session_id=str(session_id),
+                inputs={},
+                workspace_path=str(workspace),
+                waiting_node_id=waiting_node_id,
+                assignment_id=str(assignment_id),
+                session_id=str(session_id),
             )
 
         get_run_id = str(uuid4())
@@ -864,7 +1122,9 @@ def test_multi_application_run_routes_audit_the_run_application(tmp_path: Path) 
         )
         active_task = MagicMock()
         active_task.done.return_value = False
-        client.app.state.services.workflow_runtime.active_tasks[cancel_run_id] = active_task
+        client.app.state.services.workflow_runtime.active_tasks[cancel_run_id] = (
+            active_task
+        )
         cancelled = _request(
             client,
             "POST",
@@ -874,7 +1134,10 @@ def test_multi_application_run_routes_audit_the_run_application(tmp_path: Path) 
             json={},
         )
         assert cancelled.status_code == 200, cancelled.text
-        assert cancelled.json()["data"] == {"run_id": cancel_run_id, "status": "cancelling"}
+        assert cancelled.json()["data"] == {
+            "run_id": cancel_run_id,
+            "status": "cancelling",
+        }
         active_task.cancel.assert_called_once_with()
         client.app.state.services.workflow_runtime.active_tasks.pop(cancel_run_id, None)
 
@@ -915,16 +1178,17 @@ def test_public_draft_and_input_contract_reject_hidden_blocks_and_reserved_keys(
             key="policy-contract-inspect-0001",
         ).json()["data"]
         operations = {item["name"]: item for item in contract["operations"]}
-        assert "runtime_tool_scope_denied" in operations["platform_draft_apply"][
-            "error_codes"
-        ]
+        assert (
+            "runtime_tool_scope_denied"
+            in operations["platform_draft_apply"]["error_codes"]
+        )
         run_inputs_schema = operations["platform_run_start"]["request_schema"][
             "properties"
         ]["inputs"]
         assert run_inputs_schema["propertyNames"] == {"not": {"pattern": "^__"}}
-        draft_branches = operations["platform_draft_apply"]["request_schema"]["allOf"][0][
-            "oneOf"
-        ]
+        draft_branches = operations["platform_draft_apply"]["request_schema"]["allOf"][
+            0
+        ]["oneOf"]
         add_test_branch = next(
             branch
             for branch in draft_branches
@@ -1068,10 +1332,13 @@ def test_public_draft_and_input_contract_reject_hidden_blocks_and_reserved_keys(
             application_id,
         )
         assert draft["revision"] == 1
-        assert client.portal.call(
-            client.app.state.services.workflow_store.list_runs,
-            application_id,
-        ) == []
+        assert (
+            client.portal.call(
+                client.app.state.services.workflow_store.list_runs,
+                application_id,
+            )
+            == []
+        )
 
 
 def test_existing_reserved_test_inputs_are_rejected_by_tests_and_publish(
@@ -1082,7 +1349,10 @@ def test_existing_reserved_test_inputs_are_rejected_by_tests_and_publish(
         application_id = client.post(
             "/api/v1/applications",
             headers={"Authorization": "Bearer internal-test-token"},
-            json={"name": "Legacy reserved test", "requirement": "Reject trusted-key forgery."},
+            json={
+                "name": "Legacy reserved test",
+                "requirement": "Reject trusted-key forgery.",
+            },
         ).json()["id"]
         headers, _, _, _, _ = _issue(
             client,
@@ -1141,14 +1411,20 @@ def test_existing_reserved_test_inputs_are_rejected_by_tests_and_publish(
         )
         assert publish_response.status_code == 422, publish_response.text
         assert publish_response.json()["error"]["code"] == "invalid_request"
-        assert client.portal.call(
-            client.app.state.services.workflow_store.list_runs,
-            application_id,
-        ) == []
-        assert client.portal.call(
-            client.app.state.services.workflow_store.list_versions,
-            application_id,
-        ) == []
+        assert (
+            client.portal.call(
+                client.app.state.services.workflow_store.list_runs,
+                application_id,
+            )
+            == []
+        )
+        assert (
+            client.portal.call(
+                client.app.state.services.workflow_store.list_versions,
+                application_id,
+            )
+            == []
+        )
 
 
 def test_terminal_run_get_declares_and_returns_artifact_too_large(
@@ -1159,7 +1435,10 @@ def test_terminal_run_get_declares_and_returns_artifact_too_large(
         application_id = client.post(
             "/api/v1/applications",
             headers={"Authorization": "Bearer internal-test-token"},
-            json={"name": "Large artifact", "requirement": "Reject oversized evidence."},
+            json={
+                "name": "Large artifact",
+                "requirement": "Reject oversized evidence.",
+            },
         ).json()["id"]
         headers, _, assignment_id, session_id, _ = _issue(
             client,
@@ -1173,7 +1452,9 @@ def test_terminal_run_get_declares_and_returns_artifact_too_large(
             key="large-artifact-contract-0001",
         ).json()["data"]
         run_get_contract = next(
-            item for item in contract["operations"] if item["name"] == "platform_run_get"
+            item
+            for item in contract["operations"]
+            if item["name"] == "platform_run_get"
         )
         assert {
             "artifact_conflict",
@@ -1242,7 +1523,10 @@ def test_public_run_resources_require_exact_assignment_and_session_binding(
         application_id = client.post(
             "/api/v1/applications",
             headers={"Authorization": "Bearer internal-test-token"},
-            json={"name": "Exact run owner", "requirement": "Bind runs to one task session."},
+            json={
+                "name": "Exact run owner",
+                "requirement": "Bind runs to one task session.",
+            },
         ).json()["id"]
         owner_headers, _, assignment_id, session_id, _ = _issue(
             client,
@@ -1291,13 +1575,16 @@ def test_public_run_resources_require_exact_assignment_and_session_binding(
                 state=state,
             )
         )
-        assert _request(
-            client,
-            "GET",
-            f"/api/v1/lilies/runs/{run_id}",
-            owner_headers,
-            key="bound-owner-read-0001",
-        ).status_code == 200
+        assert (
+            _request(
+                client,
+                "GET",
+                f"/api/v1/lilies/runs/{run_id}",
+                owner_headers,
+                key="bound-owner-read-0001",
+            ).status_code
+            == 200
+        )
 
         active_task = MagicMock()
         active_task.done.return_value = False
@@ -1374,10 +1661,13 @@ def test_blackbox_publish_requires_current_tests_and_rejects_schedules(
         )
         assert no_tests.status_code == 409, no_tests.text
         assert no_tests.json()["error"]["code"] == "publish_gate_failed"
-        assert client.portal.call(
-            client.app.state.services.workflow_store.list_versions,
-            application_id,
-        ) == []
+        assert (
+            client.portal.call(
+                client.app.state.services.workflow_store.list_versions,
+                application_id,
+            )
+            == []
+        )
 
         revision = 0
         operations = [
@@ -1417,14 +1707,20 @@ def test_blackbox_publish_requires_current_tests_and_rejects_schedules(
                         "config": {
                             "outputs": {
                                 "name": {
-                                    "$ref": {"node_id": "middle", "path": ["output", "name"]}
+                                    "$ref": {
+                                        "node_id": "middle",
+                                        "path": ["output", "name"],
+                                    }
                                 }
                             }
                         },
                     }
                 },
             ),
-            ("add_edge", {"edge": {"id": "s-m", "source": "start", "target": "middle"}}),
+            (
+                "add_edge",
+                {"edge": {"id": "s-m", "source": "start", "target": "middle"}},
+            ),
             ("add_edge", {"edge": {"id": "m-e", "source": "middle", "target": "end"}}),
             (
                 "add_test",
@@ -1762,7 +2058,13 @@ def test_all_sixteen_public_response_schemas_match_real_http_success_data(
             ),
             (
                 "add_edge",
-                {"edge": {"id": "start-template", "source": "start", "target": "template"}},
+                {
+                    "edge": {
+                        "id": "start-template",
+                        "source": "start",
+                        "target": "template",
+                    }
+                },
             ),
             (
                 "add_edge",
@@ -1802,7 +2104,11 @@ def test_all_sixteen_public_response_schemas_match_real_http_success_data(
                 f"/api/v1/lilies/applications/{application_id}/draft",
                 headers,
                 key=f"response-draft-apply-{index:04d}",
-                json={"expected_revision": revision, "op": operation_name, "data": data},
+                json={
+                    "expected_revision": revision,
+                    "op": operation_name,
+                    "data": data,
+                },
             )
             assert applied.status_code == 200, applied.text
             revision = applied.json()["data"]["revision"]
@@ -1948,7 +2254,9 @@ def test_all_sixteen_public_response_schemas_match_real_http_success_data(
         )
         active_task = MagicMock()
         active_task.done.return_value = False
-        client.app.state.services.workflow_runtime.active_tasks[cancel_run_id] = active_task
+        client.app.state.services.workflow_runtime.active_tasks[cancel_run_id] = (
+            active_task
+        )
         actual["platform_run_cancel"] = _request(
             client,
             "POST",

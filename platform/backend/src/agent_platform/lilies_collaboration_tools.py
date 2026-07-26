@@ -30,7 +30,16 @@ class CollaborationReportSubmitInput(StrictToolInput):
     operation: Literal["submit", "revise", "reprobe", "withdraw"] = "submit"
     idempotency_key: IdempotencyKey
     report_id: UUID | None = None
-    expected_report_revision: int | None = Field(default=None, ge=1)
+    expected_report_revision: int | None = Field(
+        default=None,
+        ge=1,
+        description=(
+            "Current persisted report revision. For reprobe after an exact "
+            "developer_response.v1 event, that event's report_revision is the consumed "
+            "revision and its resulting reprobe revision is exactly one greater; the "
+            "client derives that transition and never increments arbitrary revisions."
+        ),
+    )
     report: CollaborationReportPayload | None = None
     result: LiliesReprobeResultPayload | None = None
     reason: str | None = Field(default=None, min_length=1, max_length=10_000)
@@ -63,7 +72,9 @@ class CollaborationReportSubmitInput(StrictToolInput):
                 or self.report is not None
                 or self.reason is not None
             ):
-                raise ValueError("reprobe requires report binding, revision, and result")
+                raise ValueError(
+                    "reprobe requires report binding, revision, and result"
+                )
         elif (
             self.report_id is None
             or self.expected_report_revision is None
@@ -113,7 +124,9 @@ class CollaborationUpdatesReadInput(StrictToolInput):
         if self.archive_field is not None or self.archive_state_digest_b64 is not None:
             raise ValueError("archive fields require archive_collection")
         if self.history_replay and self.acknowledge_through is not None:
-            raise ValueError("history replay cannot advance the durable acknowledgement")
+            raise ValueError(
+                "history replay cannot advance the durable acknowledgement"
+            )
         if (
             not self.history_replay
             and self.after is not None
@@ -162,8 +175,10 @@ class CollaborationFormalRunArchiveInput(StrictToolInput):
 _DESCRIPTIONS = {
     "collaboration_report_submit": (
         "Submit a new evidence-backed report, revise that same report after an evidence "
-        "request, or submit its black-box reprobe result. Select only the enumerated "
-        "operation; routing remains platform-determined and cannot bypass approval."
+        "request, or submit its black-box reprobe result. Update reads expose the exact "
+        "consumed and resulting report revision for a developer response, and reprobe "
+        "uses the resulting revision. Select only the enumerated operation; routing "
+        "remains platform-determined and cannot bypass approval."
     ),
     "collaboration_updates_read": (
         "Read persisted approvals, task amendments, environment responses, developer "
@@ -289,7 +304,9 @@ class _CollaborationHttpTool(LiliesTool):
             elif operation == "reprobe":
                 result = await self.client.submit_reprobe(UUID(str(report_id)), payload)
             else:
-                result = await self.client.withdraw_report(UUID(str(report_id)), payload)
+                result = await self.client.withdraw_report(
+                    UUID(str(report_id)), payload
+                )
             return await self._attach_channel_state(result)
         if self.name == "collaboration_verification_claim":
             revision = await self._current_channel_revision()

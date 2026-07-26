@@ -258,7 +258,10 @@ def _read_nofollow_regular(
             or opened.st_size < 0
             or opened.st_size > size_limit
             or (require_owner and opened.st_uid != os.getuid())
-            or (required_mode is not None and stat.S_IMODE(opened.st_mode) != required_mode)
+            or (
+                required_mode is not None
+                and stat.S_IMODE(opened.st_mode) != required_mode
+            )
         ):
             raise CodexBuilderChildError("secure file metadata is unsafe")
         raw = _read_fd_bounded(descriptor, size_limit=size_limit)
@@ -287,9 +290,7 @@ def _digest_nofollow_regular(
     try:
         descriptor = os.open(
             lexical.name,
-            os.O_RDONLY
-            | getattr(os, "O_NOFOLLOW", 0)
-            | getattr(os, "O_CLOEXEC", 0),
+            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0),
             dir_fd=parent_descriptor,
         )
     finally:
@@ -312,9 +313,7 @@ def _digest_nofollow_regular(
                 break
             consumed += len(chunk)
             if consumed > size_limit:
-                raise CodexBuilderChildError(
-                    "resume state exceeds its size limit"
-                )
+                raise CodexBuilderChildError("resume state exceeds its size limit")
             digest.update(chunk)
         finished = os.fstat(descriptor)
         if (
@@ -325,9 +324,7 @@ def _digest_nofollow_regular(
             or finished.st_ctime_ns != opened.st_ctime_ns
             or consumed != opened.st_size
         ):
-            raise CodexBuilderChildError(
-                "resume state changed while it was digested"
-            )
+            raise CodexBuilderChildError("resume state changed while it was digested")
         return f"sha256:{digest.hexdigest()}"
     finally:
         os.close(descriptor)
@@ -349,7 +346,9 @@ def _read_private_handoff(path: Path) -> dict[str, Any]:
     try:
         value = json.loads(raw)
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
-        raise CodexBuilderChildError("external Builder handoff is invalid JSON") from error
+        raise CodexBuilderChildError(
+            "external Builder handoff is invalid JSON"
+        ) from error
     if not isinstance(value, dict):
         raise CodexBuilderChildError("external Builder handoff is not an object")
     return value
@@ -401,11 +400,7 @@ def _read_workspace_entry(
     size_limit: int,
 ) -> tuple[bytes, os.stat_result]:
     parent_descriptor = _open_relative_directory(root_descriptor, relative.parts[:-1])
-    flags = (
-        os.O_RDONLY
-        | getattr(os, "O_NOFOLLOW", 0)
-        | getattr(os, "O_CLOEXEC", 0)
-    )
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
     try:
         descriptor = os.open(relative.name, flags, dir_fd=parent_descriptor)
     except OSError as error:
@@ -468,8 +463,7 @@ def _scan_workspace_tree(
             entry.name in {"", ".", ".."}
             or entry.is_symlink()
             or any(
-                part.casefold() in _REQUIRED_DENIED_SEGMENTS
-                for part in relative.parts
+                part.casefold() in _REQUIRED_DENIED_SEGMENTS for part in relative.parts
             )
         ):
             raise CodexBuilderChildError(
@@ -562,9 +556,7 @@ def _verify_public_workspace(
             or stat.S_IMODE(manifest_metadata.st_mode) & 0o222
             or stat.S_IMODE(policy_metadata.st_mode) & 0o222
         ):
-            raise CodexBuilderChildError(
-                "public workspace control binding is invalid"
-            )
+            raise CodexBuilderChildError("public workspace control binding is invalid")
         try:
             manifest = json.loads(manifest_payload)
             policy = json.loads(policy_payload)
@@ -604,16 +596,16 @@ def _verify_public_workspace(
             or policy_writable != writable_prefixes
             or not all(isinstance(item, str) for item in writable_prefixes)
         ):
-            raise CodexBuilderChildError(
-                "public workspace policy widens its manifest"
-            )
+            raise CodexBuilderChildError("public workspace policy widens its manifest")
         safe_writable = {
             _safe_manifest_path(item, label="writable prefix").as_posix()
             for item in writable_prefixes
         }
         entries = manifest.get("entries")
         if not isinstance(entries, list) or not entries or len(entries) > 100_000:
-            raise CodexBuilderChildError("public workspace manifest entries are invalid")
+            raise CodexBuilderChildError(
+                "public workspace manifest entries are invalid"
+            )
         declared: dict[str, tuple[str, int, bytes]] = {}
         for raw_entry in entries:
             if not isinstance(raw_entry, dict):
@@ -628,8 +620,7 @@ def _verify_public_workspace(
             digest = raw_entry.get("digest")
             size_bytes = raw_entry.get("size_bytes")
             if (
-                relative_value
-                in {WORKSPACE_MANIFEST_FILE, WORKSPACE_POLICY_FILE}
+                relative_value in {WORKSPACE_MANIFEST_FILE, WORKSPACE_POLICY_FILE}
                 or relative_value in declared
                 or raw_entry.get("read_only") is not True
                 or not isinstance(digest, str)
@@ -734,9 +725,8 @@ def _validate_handoff(
         raise CodexBuilderChildError("public workspace path is unavailable")
     public_workspace = _absolute_lexical_path(Path(raw_workspace))
     denied_segments = {"protected", "oracle", "platform-data", "platform_data"}
-    if (
-        not public_workspace.is_absolute()
-        or any(part.casefold() in denied_segments for part in public_workspace.parts)
+    if not public_workspace.is_absolute() or any(
+        part.casefold() in denied_segments for part in public_workspace.parts
     ):
         raise CodexBuilderChildError("public workspace escaped its filtered boundary")
     base_url = platform.get("base_url")
@@ -807,7 +797,8 @@ def _sandboxed_arguments(
         f"  (subpath {_sandbox_literal(path)})" for path in sorted(read_paths, key=str)
     )
     metadata_filters = "\n".join(
-        f"  (literal {_sandbox_literal(path)})" for path in sorted(metadata_paths, key=str)
+        f"  (literal {_sandbox_literal(path)})"
+        for path in sorted(metadata_paths, key=str)
     )
     profile = "\n".join(
         (
@@ -869,9 +860,7 @@ def _process_identity_snapshot() -> dict[int, _ProcessIdentity]:
         env={"PATH": "/usr/bin:/bin"},
     )
     if result.returncode != 0:
-        raise CodexBuilderChildError(
-            "cannot audit isolated Codex invocation processes"
-        )
+        raise CodexBuilderChildError("cannot audit isolated Codex invocation processes")
     processes: dict[int, _ProcessIdentity] = {}
     for row in result.stdout.splitlines():
         match = re.match(
@@ -1094,9 +1083,7 @@ def _terminate_process_group(
     except subprocess.TimeoutExpired:
         _signal_process_group(process_group_id, signal.SIGKILL)
         try:
-            stdout, stderr = process.communicate(
-                timeout=PROCESS_GROUP_GRACE_SECONDS
-            )
+            stdout, stderr = process.communicate(timeout=PROCESS_GROUP_GRACE_SECONDS)
         except subprocess.TimeoutExpired as error:
             raise CodexBuilderChildError(
                 "isolated Codex process group did not die after SIGKILL"
@@ -1240,13 +1227,10 @@ def _safe_runtime_directory(
         raise CodexBuilderChildError(f"{label} is unavailable or unsafe") from error
     try:
         metadata = os.fstat(descriptor)
-        if (
-            metadata.st_uid != os.getuid()
-            or (
-                stat.S_IMODE(metadata.st_mode) != exact_mode
-                if exact_mode is not None
-                else bool(stat.S_IMODE(metadata.st_mode) & 0o022)
-            )
+        if metadata.st_uid != os.getuid() or (
+            stat.S_IMODE(metadata.st_mode) != exact_mode
+            if exact_mode is not None
+            else bool(stat.S_IMODE(metadata.st_mode) & 0o022)
         ):
             raise CodexBuilderChildError(f"{label} permissions are unsafe")
     finally:
@@ -1404,9 +1388,7 @@ def _regular_nofollow_exists(path: Path) -> bool:
     try:
         descriptor = os.open(
             path.name,
-            os.O_RDONLY
-            | getattr(os, "O_NOFOLLOW", 0)
-            | getattr(os, "O_CLOEXEC", 0),
+            os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0),
             dir_fd=parent,
         )
     except OSError:
@@ -1454,7 +1436,8 @@ def _seatbelt_forbidden_probe_paths(
     protected_candidates = sorted(
         candidate
         for candidate in protected_root.rglob("*")
-        if candidate.is_file() and "oracle" not in {part.casefold() for part in candidate.parts}
+        if candidate.is_file()
+        and "oracle" not in {part.casefold() for part in candidate.parts}
     )
     oracle_candidates = sorted(
         candidate
@@ -1467,9 +1450,8 @@ def _seatbelt_forbidden_probe_paths(
         protected_candidates[0] if protected_candidates else Path(),
         oracle_candidates[0] if oracle_candidates else Path(),
     ]
-    if (
-        any(not target.is_absolute() for target in targets)
-        or not all(_regular_nofollow_exists(target) for target in targets)
+    if any(not target.is_absolute() for target in targets) or not all(
+        _regular_nofollow_exists(target) for target in targets
     ):
         raise CodexBuilderChildError(
             "Seatbelt probe requires real repository, database, protected, and oracle targets"
@@ -1488,9 +1470,7 @@ def _ensure_private_fixture(path: Path, payload: bytes) -> None:
             required_mode=0o600,
         )
     except (CodexBuilderChildError, OSError) as error:
-        raise CodexBuilderChildError(
-            "isolated runtime fixture is unsafe"
-        ) from error
+        raise CodexBuilderChildError("isolated runtime fixture is unsafe") from error
     if not hmac.compare_digest(existing, payload):
         raise CodexBuilderChildError("isolated runtime fixture changed")
 
@@ -1518,12 +1498,9 @@ def _run_seatbelt_negative_probe(
         )
     )
     if len(targets) < 4 or not all(
-        target.is_absolute() and _regular_nofollow_exists(target)
-        for target in targets
+        target.is_absolute() and _regular_nofollow_exists(target) for target in targets
     ):
-        raise CodexBuilderChildError(
-            "Seatbelt negative probe targets are incomplete"
-        )
+        raise CodexBuilderChildError("Seatbelt negative probe targets are incomplete")
     probe_shell = Path("/bin/sh")
     command = _sandboxed_arguments(
         executable=probe_shell,
@@ -1531,11 +1508,7 @@ def _run_seatbelt_negative_probe(
             str(probe_path),
             str(handoff_path),
             str(public_probe_path),
-            str(
-                _require_mapping(handoff.get("platform"), "platform").get(
-                    "base_url"
-                )
-            ),
+            str(_require_mapping(handoff.get("platform"), "platform").get("base_url")),
             str(
                 _require_mapping(handoff.get("platform"), "platform").get(
                     "contract_url"
@@ -1579,7 +1552,11 @@ def _run_seatbelt_negative_probe(
         diagnostic = _sanitize_bytes(
             stderr,
             redactions=(
-                str(_require_mapping(handoff.get("platform"), "platform").get("access_token")),
+                str(
+                    _require_mapping(handoff.get("platform"), "platform").get(
+                        "access_token"
+                    )
+                ),
                 str(
                     _require_mapping(handoff.get("collaboration"), "collaboration").get(
                         "access_token"
@@ -1686,8 +1663,28 @@ def _public_api_manual() -> dict[str, Any]:
                 "channel_id": "UUID",
                 "after": "integer >= 0",
                 "next_cursor": "integer >= after",
-                "events": ["redacted CollaborationMessageEnvelope objects in sequence order"],
+                "events": [
+                    "redacted CollaborationMessageEnvelope objects in sequence order"
+                ],
                 "history_replay": "optional true only when explicitly requested",
+            },
+            "developer_response_revision_transition": {
+                "applies_only_when": (
+                    "the latest same-report event has payload_schema="
+                    "collaboration.developer_response.v1, message_type="
+                    "developer_response, and sender_role=codex"
+                ),
+                "consumed_report_revision": "event.payload.report_revision",
+                "resulting_report_revision": (
+                    "event.payload.report_revision + 1; developer response persistence "
+                    "atomically performs exactly this one report transition"
+                ),
+                "reprobe_expected_report_revision": "resulting_report_revision",
+                "guard": (
+                    "Do not increment an arbitrary report revision, do not subtract from "
+                    "the developer response revision, and require event.correlation_id="
+                    "event.payload.report_id for the same reprobed report."
+                ),
             },
             "ack_request_schema": {
                 "additionalProperties": False,
@@ -1778,7 +1775,9 @@ def _public_api_manual() -> dict[str, Any]:
                                     "route": "3..500 characters",
                                     "input_digest": "sha256:<64 lowercase hex>",
                                     "outcome": "1..5000 characters",
-                                    "evidence_refs": ["one or more EvidenceRef objects"],
+                                    "evidence_refs": [
+                                        "one or more EvidenceRef objects"
+                                    ],
                                     "attempted_at": "UTC timestamp",
                                 }
                             ],
@@ -1922,9 +1921,10 @@ def _public_api_manual() -> dict[str, Any]:
                 "Studio owner endpoints and do not auto-approve permissions."
             ),
             "reprobe": (
-                "After a development response, use the reprobe endpoint with "
-                "idempotency_key, expected_report_revision, and a result matching "
-                "the public response schema; rerun the same frozen project."
+                "After a development response, rerun the same frozen project and use "
+                "the reprobe endpoint with idempotency_key, the resulting/current "
+                "report revision defined by developer_response_revision_transition, "
+                "and a result matching the public response schema."
             ),
             "reprobe_request_schema": {
                 "additionalProperties": False,
@@ -1935,7 +1935,11 @@ def _public_api_manual() -> dict[str, Any]:
                 ],
                 "properties": {
                     "idempotency_key": "16..128 safe characters",
-                    "expected_report_revision": "latest report revision",
+                    "expected_report_revision": (
+                        "resulting/current revision from the latest exact same-report "
+                        "developer_response transition; do not reuse its consumed "
+                        "event.payload.report_revision"
+                    ),
                     "result": {
                         "additionalProperties": False,
                         "required": [
@@ -2139,8 +2143,7 @@ def _codex_security_config_arguments(
 ) -> tuple[str, ...]:
     if rollout_token_limit < 2 or rollout_token_limit > MAX_ROLLOUT_TOKEN_LIMIT:
         raise CodexBuilderChildError(
-            "rollout token limit must be between 2 and "
-            f"{MAX_ROLLOUT_TOKEN_LIMIT}"
+            f"rollout token limit must be between 2 and {MAX_ROLLOUT_TOKEN_LIMIT}"
         )
     reminder_tokens = tuple(
         dict.fromkeys(
@@ -2275,12 +2278,13 @@ def _run(args: argparse.Namespace) -> int:
         or args.rollout_token_limit > MAX_ROLLOUT_TOKEN_LIMIT
     ):
         raise CodexBuilderChildError(
-            "rollout token limit must be between 2 and "
-            f"{MAX_ROLLOUT_TOKEN_LIMIT}"
+            f"rollout token limit must be between 2 and {MAX_ROLLOUT_TOKEN_LIMIT}"
         )
     source_handoff_path = _absolute_lexical_path(args.handoff)
     handoff = _read_private_handoff(source_handoff_path)
-    public_workspace, platform_url, platform_port, redactions = _validate_handoff(handoff)
+    public_workspace, platform_url, platform_port, redactions = _validate_handoff(
+        handoff
+    )
     workspace_verification = _verify_public_workspace(
         handoff=handoff,
         public_workspace=public_workspace,
@@ -2297,13 +2301,9 @@ def _run(args: argparse.Namespace) -> int:
         )
     else:
         if runtime_root.exists() or runtime_root.is_symlink():
-            raise CodexBuilderChildError(
-                "isolated Codex runtime root already exists"
-            )
+            raise CodexBuilderChildError("isolated Codex runtime root already exists")
         runtime_root.mkdir(parents=True, mode=0o700)
-        codex_home, user_home, billing = _prepare_isolated_codex_identity(
-            runtime_root
-        )
+        codex_home, user_home, billing = _prepare_isolated_codex_identity(runtime_root)
     temporary_directory = runtime_root / "tmp"
     if resume:
         _safe_runtime_directory(
