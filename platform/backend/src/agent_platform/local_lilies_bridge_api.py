@@ -53,6 +53,7 @@ class _ContractCredentialView:
 
     scopes: tuple[PlatformBlackboxScope, ...]
     application_ids: tuple[UUID, ...]
+    connector_access: bool = False
 
 
 async def published_platform_contract_digest(
@@ -256,9 +257,14 @@ def install_local_lilies_bridge_api(
 
     dependencies = [Depends(require_token), Depends(require_enabled)]
 
-    @app.get("/api/v1/local-lilies/status", dependencies=dependencies)
+    @app.get(
+        "/api/v1/local-lilies/status",
+        dependencies=[Depends(require_token)],
+    )
     async def local_lilies_status() -> dict[str, Any]:
-        return await _bridge_call(bridge.status())
+        if bridge.enabled:
+            return await _bridge_call(bridge.status())
+        return await _bridge_call(bridge.discovery_status())
 
     @app.post("/api/v1/local-lilies/connections", dependencies=dependencies)
     async def pair_local_lilies(body: PairLocalLiliesRequest) -> dict[str, Any]:

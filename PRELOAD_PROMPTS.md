@@ -76,6 +76,13 @@ assignment 的实际回调地址。未显式配置 `LILIES_PLATFORM_BASE_URL` �
 它必须与本次 API host/port 一致，默认是 `http://127.0.0.1:8001`，不能
 回落到应用配置中的 `8000`。
 
+独立 Lilies 项目位于平台仓库同级的 `../LiliesAgent/`。平台只能通过
+同一用户、mode `0600`、非符号链接的 `~/.lilies/daemon.json` 定位候选
+daemon，再用公开 health 指纹核对身份；不得 import 该项目源码、读取
+`daemon.key` 或静默配对。Studio 可以预填发现到的 loopback URL 和指纹，
+但必须由用户从 Lilies 软件取得一次性码后显式配对。自定义发现文件使用
+`LILIES_LOCAL_DISCOVERY_FILE`。
+
 本地开发端口：
 
 - API：`http://127.0.0.1:8001`

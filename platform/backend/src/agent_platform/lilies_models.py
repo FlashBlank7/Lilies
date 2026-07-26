@@ -473,6 +473,7 @@ class DaemonHealth(StrictModel):
     service: Literal["lilies"] = "lilies"
     status: Literal["ok"] = "ok"
     daemon_version: str = Field(min_length=1, max_length=80)
+    daemon_fingerprint: Digest
     model_egress_enabled: bool = False
 
 

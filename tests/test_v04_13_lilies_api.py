@@ -91,8 +91,10 @@ def test_health_is_loopback_public_minimal_and_strict_requests(local_client: Tes
         "service": "lilies",
         "status": "ok",
         "daemon_version": "0.4.13",
+        "daemon_fingerprint": response.json()["daemon_fingerprint"],
         "model_egress_enabled": False,
     }
+    assert response.json()["daemon_fingerprint"].startswith("sha256:")
     serialized = response.text.casefold()
     assert all(
         forbidden not in serialized

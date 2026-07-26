@@ -334,6 +334,7 @@ def create_lilies_app(
             "service": "lilies",
             "status": "ok",
             "daemon_version": settings.agent_version,
+            "daemon_fingerprint": settings.daemon_fingerprint(),
             "model_egress_enabled": settings.model_egress_enabled,
         }
 

@@ -63,6 +63,7 @@ def _settings(
         scheduler_poll_seconds=3_600,
         lilies_local_agent_enabled=enabled,
         lilies_local_builder_default=default_route,
+        lilies_local_discovery_file=tmp_path / "daemon.json",
     )
 
 
@@ -142,12 +143,16 @@ def _build_payload(connection_id: UUID, marker: str = "001") -> dict[str, Any]:
     }
 
 
-def test_feature_flag_returns_404_and_query_secrets_are_rejected(tmp_path: Path) -> None:
+def test_disabled_route_exposes_safe_discovery_status_and_rejects_query_secrets(
+    tmp_path: Path,
+) -> None:
     app = create_app(_settings(tmp_path), ScriptedProvider())
     with TestClient(app) as client:
         disabled = client.get("/api/v1/local-lilies/status", headers=_auth())
-        assert disabled.status_code == 404
-        assert disabled.json()["detail"]["code"] == "feature_disabled"
+        assert disabled.status_code == 200
+        assert disabled.json()["enabled"] is False
+        assert disabled.json()["connections"] == []
+        assert disabled.json()["discovery"]["status"] == "unavailable"
 
         malformed_still_disabled = client.post(
             "/api/v1/local-lilies/connections",
@@ -156,11 +161,19 @@ def test_feature_flag_returns_404_and_query_secrets_are_rejected(tmp_path: Path)
         )
         assert malformed_still_disabled.status_code == 404
 
-        query_secret = client.get(
-            "/api/v1/local-lilies/status?FRONTEND_TOKEN=platform-test-token"
-        )
-        assert query_secret.status_code == 400
-        assert query_secret.json()["detail"]["code"] == "query_secret_forbidden"
+        for query_key in (
+            "FRONTEND_TOKEN",
+            "pairing_code",
+            "previous_access_token",
+            "prepared_access_token",
+            "bootstrap_credential",
+        ):
+            query_secret = client.get(
+                f"/api/v1/local-lilies/status?{query_key}=QUERY-SECRET-MARKER"
+            )
+            assert query_secret.status_code == 400
+            assert query_secret.json()["detail"]["code"] == "query_secret_forbidden"
+            assert "QUERY-SECRET-MARKER" not in query_secret.text
 
 
 def test_validation_errors_never_echo_pairing_codes_or_tokens(

@@ -38,8 +38,18 @@ export function LocalLiliesConnectionPanel({ locale, onStatusChange, onConnectio
   const [error, setError] = useState('')
   const pairAttemptRef = useRef(new LocalLiliesOperationAttempt(idempotency))
   const reconnectAttemptRef = useRef(new LocalLiliesOperationAttempt(idempotency))
+  const detectedDaemonRef = useRef('')
 
   const commitStatus = useCallback((next: LocalLiliesStatus) => {
+    if (next.discovery?.status === 'available') {
+      const detectedDaemon = `${next.discovery.base_url}\n${next.discovery.daemon_fingerprint}`
+      if (detectedDaemonRef.current !== detectedDaemon) {
+        detectedDaemonRef.current = detectedDaemon
+        pairAttemptRef.current.reset()
+        setDaemonUrl(next.discovery.base_url)
+        setFingerprint(next.discovery.daemon_fingerprint)
+      }
+    }
     setStatus(next)
     setSelectedConnectionId(current => next.connections.some(item => item.connection_id === current)
       ? current
@@ -146,6 +156,9 @@ export function LocalLiliesConnectionPanel({ locale, onStatusChange, onConnectio
   }
 
   const connection = status.connections.find(item => item.connection_id === selectedConnectionId) || null
+  const discovery = status.discovery
+  const detectedDaemon = discovery?.status === 'available' ? discovery : null
+  const discoveryState = loading ? 'checking' : discovery?.status || 'unavailable'
   const enabled = status.enabled
   const connected = connection?.status === 'connected'
   const state = loading ? 'checking' : enabled ? connection?.status || 'unpaired' : 'disabled'
@@ -162,10 +175,17 @@ export function LocalLiliesConnectionPanel({ locale, onStatusChange, onConnectio
     <p>{enabled
       ? zh ? '显式配对本机 daemon 后，平台才能把新 assignment 交给 Lilies。连接失败不会回退到旧 Builder。' : 'Pair this browser flow with the local daemon before assigning work. Connection failures never fall back to the legacy Builder.'
       : zh ? '本地代理功能当前关闭（local_agent_enabled=false）。启用后仍需显式选择 Local Lilies 路线。' : 'The local agent feature is off (local_agent_enabled=false). Enabling it still requires an explicit Local Lilies launch.'}</p>
+    <p data-local-lilies-discovery-state={discoveryState} role="status">{detectedDaemon
+      ? zh
+        ? `已发现本机莉莉丝 ${detectedDaemon.base_url}（版本 ${detectedDaemon.daemon_version || '未知'}）。地址和指纹已预填；仍需在莉莉丝软件中生成一次性配对码并手工输入，平台不会自动配对。`
+        : `Local Lilies was detected at ${detectedDaemon.base_url} (version ${detectedDaemon.daemon_version || 'unknown'}). Its address and fingerprint are prefilled; pairing still requires a one-time code entered by you, and the platform never pairs automatically.`
+      : zh
+        ? `尚未发现可用的本机莉莉丝${discovery?.status === 'unavailable' ? `（${discovery.reason}）` : ''}。启动莉莉丝软件后刷新即可重试。`
+        : `No available local Lilies was detected${discovery?.status === 'unavailable' ? ` (${discovery.reason})` : ''}. Start the Lilies app and refresh to try again.`}</p>
     <dl>
       <div><dt>{zh ? '默认构建路线' : 'Default build route'}</dt><dd>{status.default_route ? 'Local Lilies' : zh ? '未设为默认' : 'Not the default'}</dd></div>
       <div><dt>Connection ID</dt><dd><code>{connection?.connection_id || '—'}</code></dd></div>
-      <div><dt>Fingerprint</dt><dd><code>{connection?.daemon_fingerprint || '—'}</code></dd></div>
+      <div><dt>Fingerprint</dt><dd><code>{connection?.daemon_fingerprint || detectedDaemon?.daemon_fingerprint || '—'}</code></dd></div>
       <div><dt>{zh ? '最后在线' : 'Last seen'}</dt><dd>{connection?.last_seen_at || '—'}</dd></div>
     </dl>
     {status.connections.length > 0 && <label className="local-lilies-connection-select">
@@ -183,8 +203,8 @@ export function LocalLiliesConnectionPanel({ locale, onStatusChange, onConnectio
     {(pairingNewConnection || !connection || !connected) && <form onSubmit={pair}>
       <label><span>Daemon URL</span><input value={daemonUrl} onChange={event => { pairAttemptRef.current.reset(); setDaemonUrl(event.target.value) }} disabled={!enabled || busy} /></label>
       <label><span>{zh ? '一次性配对码' : 'One-time pairing code'}</span><input autoComplete="off" value={pairingCode} onChange={event => setPairingCode(event.target.value)} disabled={!enabled || busy} /></label>
-      <label><span>{zh ? '已核对的指纹' : 'Verified fingerprint'}</span><input autoComplete="off" value={fingerprint} onChange={event => { pairAttemptRef.current.reset(); setFingerprint(event.target.value) }} disabled={!enabled || busy} /></label>
-      <small>{zh ? '先在本地 CLI 核对 daemon 指纹；平台不会接受未确认的身份。' : 'Verify the daemon fingerprint in the local CLI first; the platform will not infer its identity.'}</small>
+      <label><span>{zh ? '检测到的指纹（请核对）' : 'Detected fingerprint (verify)'}</span><input autoComplete="off" value={fingerprint} onChange={event => { pairAttemptRef.current.reset(); setFingerprint(event.target.value) }} disabled={!enabled || busy} /></label>
+      <small>{zh ? '地址和指纹来自本机只读发现。请在莉莉丝软件中核对指纹并生成一次性配对码；发现本身不会授予平台任何权限。' : 'The address and fingerprint come from read-only local discovery. Verify the fingerprint and generate a one-time code in the Lilies app; discovery itself grants the platform no authority.'}</small>
       <button disabled={!enabled || busy || !daemonUrl.trim() || !pairingCode.trim() || !fingerprint.trim()}>{busy ? (zh ? '配对中…' : 'Pairing…') : (zh ? '配对 daemon' : 'Pair daemon')}</button>
     </form>}
     {visibleError && <p className="error-banner" role="alert">{visibleError}</p>}

@@ -399,6 +399,7 @@ def test_pair_output_shows_one_time_code_and_fingerprint_but_never_token(
     assert PLATFORM_PAIRING_SCOPES == [
         "lilies.session:read",
         "lilies.session:write",
+        "lilies.permission:resolve",
         "lilies.credential:write",
     ]
     settings = prepared_settings(tmp_path)
@@ -427,7 +428,7 @@ def test_pair_output_shows_one_time_code_and_fingerprint_but_never_token(
     assert "JKLM-NPQR" in output
     assert fingerprint in output
     assert "lilies.daemon:control" not in output
-    assert "lilies.permission:resolve" not in output
+    assert "lilies.permission:resolve" in output
     assert "access_token" not in output
 
 

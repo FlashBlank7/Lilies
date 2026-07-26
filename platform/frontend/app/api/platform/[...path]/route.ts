@@ -60,8 +60,17 @@ function proxyApiToken(browserToken: string | null) {
 
 const LOCAL_LILIES_QUERY_SECRET_KEYS = new Set([
   'access_token',
+  'api_key',
   'api_token',
+  'authorization',
+  'bootstrap_credential',
+  'credential',
   'frontend_token',
+  'pairing_code',
+  'password',
+  'prepared_access_token',
+  'previous_access_token',
+  'secret',
   'token',
 ])
 

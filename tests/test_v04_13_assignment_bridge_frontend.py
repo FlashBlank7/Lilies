@@ -39,6 +39,11 @@ def test_frontend_client_uses_only_the_local_lilies_bridge_namespace() -> None:
     assert "enabled: boolean" in source
     assert "default_route: false" in source
     assert "connections: LocalLiliesConnection[]" in source
+    assert "export type LocalLiliesDiscoveryAvailable" in source
+    assert "export type LocalLiliesDiscoveryUnavailable" in source
+    assert "status: 'available'" in source
+    assert "status: 'unavailable'" in source
+    assert "discovery?: LocalLiliesDiscovery" in source
     assert "relay_cursor: number" in source
     assert "ack_cursor: number" in source
 
@@ -85,6 +90,17 @@ def test_home_requires_feature_enablement_pairing_and_an_explicit_route() -> Non
     assert "status.connections[0]" not in connection
     assert "Manage connection" in connection
     assert "Pair another daemon" in connection
+    assert "next.discovery?.status === 'available'" in connection
+    assert "setDaemonUrl(next.discovery.base_url)" in connection
+    assert "setFingerprint(next.discovery.daemon_fingerprint)" in connection
+    assert 'data-local-lilies-discovery-state={discoveryState}' in connection
+    assert "pairing still requires a one-time code entered by you" in connection
+    discovery_prefill = connection[
+        connection.index("const commitStatus ="):
+        connection.index("const refresh =", connection.index("const commitStatus ="))
+    ]
+    assert "setPairingCode" not in discovery_prefill
+    assert "pairLocalLilies" not in discovery_prefill
     assert "selectedLocalConnectionId" in source
     assert "setSelectedLocalConnectionId(connectionId)" in source
     assert "setBuildIntentConfirmed(false)" in source
@@ -229,7 +245,21 @@ def test_platform_proxy_preserves_sse_resume_headers_and_cancellation() -> None:
 def test_platform_proxy_rejects_local_lilies_query_secrets_before_auth_forwarding() -> None:
     source = _read("app/api/platform/[...path]/route.ts")
 
-    for key in ("access_token", "api_token", "frontend_token", "token"):
+    for key in (
+        "access_token",
+        "api_key",
+        "api_token",
+        "authorization",
+        "bootstrap_credential",
+        "credential",
+        "frontend_token",
+        "pairing_code",
+        "password",
+        "prepared_access_token",
+        "previous_access_token",
+        "secret",
+        "token",
+    ):
         assert f"'{key}'" in source
     assert "isLocalLiliesPath(path) && containsQuerySecret(searchParams)" in source
     assert "code: 'query_secret_rejected'" in source

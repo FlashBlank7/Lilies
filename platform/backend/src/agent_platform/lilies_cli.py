@@ -996,5 +996,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1
 
 
+# Migration-only command helpers remain importable for historical tests and
+# archive replay.  The executable module entry was intentionally retired in
+# T01K; production launchers must invoke the installed sibling
+# ``lilies_agent.cli`` distribution instead.
 if __name__ == "__main__":
-    raise SystemExit(main())
+    print(
+        "agent_platform.lilies_cli is retired; run the standalone "
+        "lilies-local-agent distribution instead",
+        file=sys.stderr,
+    )
+    raise SystemExit(2)

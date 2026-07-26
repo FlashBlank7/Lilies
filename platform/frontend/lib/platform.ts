@@ -1069,10 +1069,30 @@ export type LocalLiliesConnection = {
   updated_at: string
 }
 
+export type LocalLiliesDiscoveryAvailable = {
+  status: 'available'
+  base_url: string
+  daemon_fingerprint: string
+  pid: number
+  started_at: string
+  daemon_version?: string | null
+  model_egress_enabled: boolean
+}
+
+export type LocalLiliesDiscoveryUnavailable = {
+  status: 'unavailable'
+  reason: string
+}
+
+export type LocalLiliesDiscovery =
+  | LocalLiliesDiscoveryAvailable
+  | LocalLiliesDiscoveryUnavailable
+
 export type LocalLiliesStatus = {
   enabled: boolean
   default_route: false
   connections: LocalLiliesConnection[]
+  discovery?: LocalLiliesDiscovery
 }
 
 export type LocalLiliesAssignment = {

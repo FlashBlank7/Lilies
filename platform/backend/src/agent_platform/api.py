@@ -138,6 +138,7 @@ from .local_lilies_bridge import (
     LocalLiliesBridgeStore,
 )
 from .local_lilies_client import LocalLiliesHttpClient
+from .local_lilies_discovery import discover_local_lilies
 from .platform_contract_version import (
     PlatformContractVersionStore,
     platform_contract_schema_digest,
@@ -2828,13 +2829,14 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
             ),
         )
 
+    local_lilies_http_client = LocalLiliesHttpClient()
     local_lilies_bridge = LocalLiliesBridge(
         enabled=settings.lilies_local_agent_enabled,
         store=local_lilies_bridge_store,
         workflow_storage=workflow_store,
         harness=harness,
         auth_store=platform_blackbox_auth,
-        client=LocalLiliesHttpClient(),
+        client=local_lilies_http_client,
         platform_base_url=local_lilies_platform_base_url,
         contract_digest_provider=local_lilies_contract_digest,
         formal_assignment_broker=formal_assignment_runtime,
@@ -2865,6 +2867,10 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
             )
             if formal_run_archiver is not None
             else None
+        ),
+        discovery_provider=lambda: discover_local_lilies(
+            settings.lilies_local_discovery_file,
+            local_lilies_http_client,
         ),
         formal_verification_claim_provider=(
             freeze_formal_verification_claim
@@ -3101,7 +3107,21 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         request: Request,
         credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
     ) -> None:
-        forbidden_query_keys = {"token", "api_token", "access_token", "frontend_token"}
+        forbidden_query_keys = {
+            "access_token",
+            "api_key",
+            "api_token",
+            "authorization",
+            "bootstrap_credential",
+            "credential",
+            "frontend_token",
+            "pairing_code",
+            "password",
+            "prepared_access_token",
+            "previous_access_token",
+            "secret",
+            "token",
+        }
         if any(name.casefold() in forbidden_query_keys for name in request.query_params):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,

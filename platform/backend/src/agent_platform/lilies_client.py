@@ -30,6 +30,7 @@ ALL_LOCAL_SCOPES = frozenset(scope.value for scope in LocalScope)
 PLATFORM_PAIRING_SCOPES = [
     LocalScope.session_read.value,
     LocalScope.session_write.value,
+    LocalScope.permission_resolve.value,
     LocalScope.credential_write.value,
 ]
 

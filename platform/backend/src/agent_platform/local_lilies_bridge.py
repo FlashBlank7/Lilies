@@ -1997,6 +1997,7 @@ FormalVerificationClaimProvider = Callable[
     ],
     Awaitable[Any] | Any,
 ]
+LocalLiliesDiscoveryProvider = Callable[[], Awaitable[dict[str, Any]]]
 
 
 class LocalLiliesBridge:
@@ -2028,6 +2029,7 @@ class LocalLiliesBridge:
         fault_hook: FaultHook | None = None,
         default_deadline_seconds: int = 3_600,
         default_route: bool = False,
+        discovery_provider: LocalLiliesDiscoveryProvider | None = None,
     ) -> None:
         self.enabled = enabled
         self.store = store
@@ -2047,6 +2049,7 @@ class LocalLiliesBridge:
         self.fault_hook = fault_hook
         self.default_deadline_seconds = max(60, default_deadline_seconds)
         self.default_route = bool(default_route and enabled)
+        self.discovery_provider = discovery_provider
         self._assignment_locks: dict[str, asyncio.Lock] = {}
         self._connection_recovery_lock = asyncio.Lock()
 
@@ -2065,7 +2068,7 @@ class LocalLiliesBridge:
     async def status(self) -> dict[str, Any]:
         self.require_enabled()
         await self._recover_connection_outboxes()
-        return {
+        result: dict[str, Any] = {
             "enabled": True,
             "default_route": self.default_route,
             "connections": [
@@ -2073,6 +2076,23 @@ class LocalLiliesBridge:
                 for row in await self.store.list_connections()
             ],
         }
+        if self.discovery_provider is not None:
+            result["discovery"] = await self.discovery_provider()
+        return result
+
+    async def discovery_status(self) -> dict[str, Any]:
+        """Expose only a safe local candidate while the assignment route is disabled."""
+
+        if self.enabled:
+            return await self.status()
+        result: dict[str, Any] = {
+            "enabled": False,
+            "default_route": False,
+            "connections": [],
+        }
+        if self.discovery_provider is not None:
+            result["discovery"] = await self.discovery_provider()
+        return result
 
     async def pair_connection(self, request: PairLocalLiliesRequest) -> LocalLiliesConnection:
         self.require_enabled()

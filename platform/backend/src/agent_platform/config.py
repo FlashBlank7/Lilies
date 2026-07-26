@@ -84,6 +84,7 @@ class Settings(BaseSettings):
     # deterministic and browser evidence is complete; collaboration and the
     # product-wide default have later, independent gates.
     lilies_local_agent_enabled: bool = False
+    lilies_local_discovery_file: Path = Path("~/.lilies/daemon.json")
     lilies_collaboration_enabled: bool = False
     lilies_collaboration_developer_token: str = Field(default="", repr=False)
     lilies_collaboration_verifier_token: str = Field(default="", repr=False)
