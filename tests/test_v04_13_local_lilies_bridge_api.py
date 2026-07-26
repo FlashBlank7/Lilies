@@ -25,6 +25,7 @@ from agent_platform.local_lilies_bridge import (
     LocalLiliesRecoverySummary,
     LocalLiliesRelayEvent,
     LocalLiliesRelayResult,
+    LocalLiliesUsagePage,
 )
 from agent_platform.local_lilies_bridge_api import (
     _assignment_event_stream,
@@ -335,6 +336,19 @@ def test_platform_routes_cover_pairing_assignment_lookup_actions_and_safe_errors
         bridge.list_connections = AsyncMock(return_value=[connection])
         bridge.get_connection = AsyncMock(return_value=connection)
         bridge.refresh_connection = AsyncMock(return_value=connection)
+        bridge.usage = AsyncMock(
+            return_value=LocalLiliesUsagePage(
+                schema_version="1.0",
+                group_by=["session", "stage", "model"],
+                items=[],
+                page=1,
+                page_size=100,
+                returned_count=0,
+                total_items=0,
+                total_pages=0,
+                truncated=False,
+            )
+        )
         bridge.reconnect_connection = AsyncMock(return_value=connection)
         bridge.start_build = AsyncMock(return_value=assignment)
         bridge.list_assignments_for_application = AsyncMock(return_value=[assignment])
@@ -374,6 +388,27 @@ def test_platform_routes_cover_pairing_assignment_lookup_actions_and_safe_errors
         assert client.post(
             f"/api/v1/local-lilies/connections/{connection_id}/refresh", headers=_auth()
         ).status_code == 200
+        usage = client.get(
+            (
+                f"/api/v1/local-lilies/connections/{connection_id}/usage"
+                "?group_by=session&group_by=stage&group_by=model&page=1&page_size=100"
+            ),
+            headers=_auth(),
+        )
+        assert usage.status_code == 200
+        assert usage.json()["items"] == []
+        usage_schema = client.get("/openapi.json").json()["paths"][
+            "/api/v1/local-lilies/connections/{connection_id}/usage"
+        ]["get"]["responses"]["200"]["content"]["application/json"]["schema"]
+        assert usage_schema == {
+            "$ref": "#/components/schemas/LocalLiliesUsagePage",
+        }
+        bridge.usage.assert_awaited_once_with(
+            connection_id,
+            group_by=("session", "stage", "model"),
+            page=1,
+            page_size=100,
+        )
         assert client.post(
             f"/api/v1/local-lilies/connections/{connection_id}/reconnect",
             headers=_auth(),
@@ -439,6 +474,40 @@ def test_platform_routes_cover_pairing_assignment_lookup_actions_and_safe_errors
         )
         assert failed.status_code == 503
         assert failed.json()["detail"] == unavailable.public_detail()
+
+
+def test_usage_proxy_rejects_invalid_grouping_before_bridge_call(tmp_path: Path) -> None:
+    app = create_app(_settings(tmp_path, enabled=True), ScriptedProvider())
+    bridge = app.state.services.local_lilies_bridge
+    bridge.recover_pending_assignments = AsyncMock(
+        return_value=LocalLiliesRecoverySummary(
+            scanned=0,
+            recovered=0,
+            waiting=0,
+            cancelled=0,
+            unavailable=0,
+            failed=0,
+        )
+    )
+    bridge.usage = AsyncMock()
+    connection_id = uuid4()
+
+    with TestClient(app) as client:
+        duplicate = client.get(
+            (
+                f"/api/v1/local-lilies/connections/{connection_id}/usage"
+                "?group_by=session&group_by=session"
+            ),
+            headers=_auth(),
+        )
+        unsupported = client.get(
+            f"/api/v1/local-lilies/connections/{connection_id}/usage?group_by=credential",
+            headers=_auth(),
+        )
+
+    assert duplicate.status_code == 422
+    assert unsupported.status_code == 422
+    bridge.usage.assert_not_awaited()
 
 
 def test_lifespan_recovery_is_managed_and_does_not_block_startup(tmp_path: Path) -> None:

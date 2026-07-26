@@ -18,6 +18,7 @@ from .local_lilies_bridge import (
     LocalLiliesBridge,
     LocalLiliesBridgeError,
     LocalLiliesRelayEvent,
+    LocalLiliesUsagePage,
     PairLocalLiliesRequest,
     ReconnectLocalLiliesRequest,
     StartFormalLocalLiliesBuildRequest,
@@ -288,6 +289,39 @@ def install_local_lilies_bridge_api(
     )
     async def refresh_local_lilies_connection(connection_id: UUID) -> Any:
         return await _bridge_call(bridge.refresh_connection(connection_id))
+
+    @app.get(
+        "/api/v1/local-lilies/connections/{connection_id}/usage",
+        response_model=LocalLiliesUsagePage,
+        dependencies=dependencies,
+    )
+    async def local_lilies_usage(
+        connection_id: UUID,
+        group_by: list[str] = Query(default=["session", "stage", "model"]),
+        page: int = Query(default=1, ge=1, le=1_000),
+        page_size: int = Query(default=100, ge=1, le=100),
+    ) -> Any:
+        if (
+            not group_by
+            or len(group_by) > 3
+            or len(set(group_by)) != len(group_by)
+            or any(value not in {"session", "stage", "model"} for value in group_by)
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "invalid_local_lilies_request",
+                    "message": "usage group_by must contain unique session, stage, or model values",
+                },
+            )
+        return await _bridge_call(
+            bridge.usage(
+                connection_id,
+                group_by=tuple(group_by),
+                page=page,
+                page_size=page_size,
+            )
+        )
 
     @app.post(
         "/api/v1/local-lilies/connections/{connection_id}/reconnect",

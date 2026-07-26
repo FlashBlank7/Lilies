@@ -291,6 +291,88 @@ class LocalLiliesConnection(StrictBridgeModel):
     updated_at: datetime
 
 
+class LocalLiliesUsageItem(StrictBridgeModel):
+    session_id: UUID | None = None
+    stage: str | None = Field(default=None, min_length=1, max_length=120)
+    model: str | None = Field(default=None, min_length=1, max_length=200)
+    recorded_calls: int = Field(ge=0)
+    unknown_calls: int = Field(ge=0)
+    input_tokens: int = Field(ge=0)
+    output_tokens: int = Field(ge=0)
+    total_tokens: int = Field(ge=0)
+    cost_usd: float = Field(ge=0, allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def total_matches_components(self) -> LocalLiliesUsageItem:
+        if self.total_tokens != self.input_tokens + self.output_tokens:
+            raise ValueError("usage total_tokens must equal input_tokens plus output_tokens")
+        return self
+
+
+class LocalLiliesUsagePage(StrictBridgeModel):
+    schema_version: Literal["1.0"]
+    group_by: list[Literal["session", "stage", "model"]] = Field(
+        min_length=1,
+        max_length=3,
+    )
+    items: list[LocalLiliesUsageItem] = Field(default_factory=list, max_length=100)
+    page: int = Field(ge=1, le=1_000)
+    page_size: int = Field(ge=1, le=100)
+    returned_count: int = Field(ge=0, le=100)
+    total_items: int = Field(ge=0)
+    total_pages: int = Field(ge=0, le=1_000)
+    truncated: bool
+
+    @model_validator(mode="after")
+    def page_is_self_consistent(self) -> LocalLiliesUsagePage:
+        if len(set(self.group_by)) != len(self.group_by):
+            raise ValueError("usage group_by dimensions must be unique")
+        if self.returned_count != len(self.items):
+            raise ValueError("usage returned_count must match items")
+        unbounded_pages = (
+            0
+            if self.total_items == 0
+            else (self.total_items + self.page_size - 1) // self.page_size
+        )
+        expected_pages = min(unbounded_pages, 1_000)
+        if self.total_pages != expected_pages:
+            raise ValueError("usage total_pages is inconsistent")
+        if self.truncated is not (unbounded_pages > 1_000):
+            raise ValueError("usage truncated flag is inconsistent")
+        expected_count = min(
+            self.page_size,
+            max(self.total_items - (self.page - 1) * self.page_size, 0),
+        )
+        if self.returned_count != expected_count:
+            raise ValueError("usage returned_count is inconsistent with the requested page")
+        dimensions = set(self.group_by)
+        group_keys: set[tuple[object, ...]] = set()
+        for item in self.items:
+            values = {
+                "session": item.session_id,
+                "stage": item.stage,
+                "model": item.model,
+            }
+            if any((value is not None) != (name in dimensions) for name, value in values.items()):
+                raise ValueError("usage item dimensions do not match group_by")
+            group_key = tuple(values[name] for name in self.group_by)
+            if group_key in group_keys:
+                raise ValueError("usage items contain duplicate group keys")
+            group_keys.add(group_key)
+            if item.recorded_calls + item.unknown_calls < 1:
+                raise ValueError("usage item must aggregate at least one call")
+            if item.recorded_calls == 0 and any(
+                (
+                    item.input_tokens,
+                    item.output_tokens,
+                    item.total_tokens,
+                    item.cost_usd,
+                )
+            ):
+                raise ValueError("unknown-only usage item cannot include measured usage")
+        return self
+
+
 class LocalLiliesAssignment(StrictBridgeModel):
     assignment_id: UUID
     application_id: UUID
@@ -2544,6 +2626,161 @@ class LocalLiliesBridge:
             seen=True,
         )
         return self._connection_projection(row)
+
+    async def usage(
+        self,
+        connection_id: UUID | str,
+        *,
+        group_by: tuple[Literal["session", "stage", "model"], ...] = (
+            "session",
+            "stage",
+            "model",
+        ),
+        page: int = 1,
+        page_size: int = 100,
+    ) -> LocalLiliesUsagePage:
+        """Read standalone usage through the authenticated public HTTP contract.
+
+        The platform deliberately never opens the sibling daemon's SQLite
+        database or bootstrap credential.  Only the encrypted bearer created
+        by an explicit pairing exchange crosses this adapter.
+        """
+
+        self.require_enabled()
+        if (
+            not group_by
+            or len(group_by) > 3
+            or len(set(group_by)) != len(group_by)
+            or any(value not in {"session", "stage", "model"} for value in group_by)
+            or isinstance(page, bool)
+            or not 1 <= page <= 1_000
+            or isinstance(page_size, bool)
+            or not 1 <= page_size <= 100
+        ):
+            raise LocalLiliesBridgeSecurityError("local Lilies usage query is outside safe bounds")
+        canonical_group_by = tuple(
+            dimension
+            for dimension in ("session", "stage", "model")
+            if dimension in group_by
+        )
+        row = await self.store.get_connection(connection_id)
+        if row["status"] != BridgeConnectionStatus.connected.value:
+            raise LocalLiliesBridgeUnavailable(
+                "local Lilies connection is not available",
+                details={
+                    "connection_id": str(connection_id),
+                    "status": str(row["status"]),
+                },
+            )
+        token = await self._connection_token(row)
+        try:
+            payload = await self.client.usage(
+                str(row["base_url"]),
+                token,
+                group_by=canonical_group_by,
+                page=page,
+                page_size=page_size,
+            )
+        except LocalLiliesUnavailable as error:
+            await self.store.set_connection_state(
+                connection_id,
+                status=BridgeConnectionStatus.unavailable,
+                error_code="daemon_unavailable",
+                error_message="local Lilies usage endpoint is unavailable",
+            )
+            raise LocalLiliesBridgeUnavailable(
+                "local Lilies usage endpoint is unavailable",
+                details={
+                    "connection_id": str(connection_id),
+                    "status": BridgeConnectionStatus.unavailable.value,
+                },
+            ) from error
+        except LocalLiliesRemoteError as error:
+            authentication_rejected = error.status_code in {401, 403}
+            row = await self.store.set_connection_state(
+                connection_id,
+                status=BridgeConnectionStatus.unavailable,
+                error_code=(
+                    "daemon_usage_authentication_rejected"
+                    if authentication_rejected
+                    else "daemon_usage_rejected"
+                ),
+                error_message=(
+                    "local Lilies rejected usage authentication"
+                    if authentication_rejected
+                    else "local Lilies rejected the usage request"
+                ),
+            )
+            details = {
+                "connection_id": str(connection_id),
+                "status": str(row["status"]),
+            }
+            if authentication_rejected:
+                raise LocalLiliesBridgeSecurityError(
+                    "local Lilies rejected usage authentication",
+                    details=details,
+                ) from error
+            raise LocalLiliesBridgeDaemonRejected(
+                "local Lilies rejected the usage request",
+                details=details,
+            ) from error
+        except LocalLiliesClientError as error:
+            row = await self.store.set_connection_state(
+                connection_id,
+                status=BridgeConnectionStatus.unavailable,
+                error_code="daemon_usage_protocol_error",
+                error_message="local Lilies returned an invalid usage response",
+            )
+            raise LocalLiliesBridgeDaemonRejected(
+                "local Lilies returned an invalid usage response",
+                details={
+                    "connection_id": str(connection_id),
+                    "status": str(row["status"]),
+                },
+            ) from error
+        try:
+            result = LocalLiliesUsagePage.model_validate_json(
+                json.dumps(payload, allow_nan=False, separators=(",", ":")),
+                strict=True,
+            )
+        except (TypeError, ValueError) as error:
+            row = await self.store.set_connection_state(
+                connection_id,
+                status=BridgeConnectionStatus.unavailable,
+                error_code="daemon_usage_receipt_invalid",
+                error_message="local Lilies returned an invalid usage receipt",
+            )
+            raise LocalLiliesBridgeDaemonRejected(
+                "local Lilies returned an invalid authenticated usage receipt",
+                details={
+                    "connection_id": str(connection_id),
+                    "status": str(row["status"]),
+                },
+            ) from error
+        if (
+            result.group_by != list(canonical_group_by)
+            or result.page != page
+            or result.page_size != page_size
+        ):
+            row = await self.store.set_connection_state(
+                connection_id,
+                status=BridgeConnectionStatus.unavailable,
+                error_code="daemon_usage_receipt_mismatch",
+                error_message="local Lilies usage receipt did not match the request",
+            )
+            raise LocalLiliesBridgeDaemonRejected(
+                "local Lilies usage receipt does not match the requested page",
+                details={
+                    "connection_id": str(connection_id),
+                    "status": str(row["status"]),
+                },
+            )
+        await self.store.set_connection_state(
+            connection_id,
+            status=BridgeConnectionStatus.connected,
+            seen=True,
+        )
+        return result
 
     async def get_connection(self, connection_id: UUID | str) -> LocalLiliesConnection:
         self.require_enabled()

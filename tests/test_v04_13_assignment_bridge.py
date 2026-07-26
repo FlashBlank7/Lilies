@@ -25,12 +25,15 @@ from agent_platform.local_lilies_bridge import (
     LocalLiliesBridgeUnavailable,
     LocalLiliesAssignment,
     LocalLiliesRelayCursorGap,
+    LocalLiliesUsagePage,
     PairLocalLiliesRequest,
     ReconnectLocalLiliesRequest,
     StartLocalLiliesBuildRequest,
 )
 from agent_platform.local_lilies_client import (
+    LocalLiliesClientError,
     LocalLiliesHttpClient,
+    LocalLiliesProtocolError,
     LocalLiliesRemoteError,
     LocalLiliesUnavailable,
 )
@@ -110,6 +113,8 @@ class FakeDaemonClient:
         self.pause_after: str | None = None
         self.pause_entered = asyncio.Event()
         self.pause_release = asyncio.Event()
+        self.usage_payload: dict[str, Any] | None = None
+        self.usage_error: LocalLiliesClientError | None = None
 
     def _available(self) -> None:
         if self.unavailable:
@@ -172,6 +177,38 @@ class FakeDaemonClient:
             "active_session_count": len(self.sessions),
             "active_assignment_count": len(self.submission_receipts),
             "stopping": False,
+        }
+
+    async def usage(
+        self,
+        _: str,
+        access_token: str,
+        *,
+        group_by: tuple[str, ...],
+        page: int,
+        page_size: int,
+    ) -> dict[str, Any]:
+        self._available()
+        assert access_token == self.daemon_token
+        if self.usage_error is not None:
+            raise self.usage_error
+        if self.usage_payload is not None:
+            return dict(self.usage_payload)
+        canonical_group_by = [
+            dimension
+            for dimension in ("session", "stage", "model")
+            if dimension in group_by
+        ]
+        return {
+            "schema_version": "1.0",
+            "group_by": canonical_group_by,
+            "items": [],
+            "page": page,
+            "page_size": page_size,
+            "returned_count": 0,
+            "total_items": 0,
+            "total_pages": 0,
+            "truncated": False,
         }
 
     async def create_session(
@@ -884,6 +921,212 @@ async def test_refresh_fails_closed_on_expired_or_mismatched_bearer_expiry(
 
     persisted = await bridge.get_connection(connection.connection_id)
     assert persisted.status.value == expected_status
+
+
+@pytest.mark.asyncio
+async def test_usage_reads_only_authenticated_public_receipt_and_validates_totals(
+    tmp_path: Path,
+) -> None:
+    _, workflow, harness, auth = await platform_parts(tmp_path)
+    daemon = FakeDaemonClient()
+    bridge = bridge_for(tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon)
+    connection = await pair(bridge)
+
+    canonical = await bridge.usage(
+        connection.connection_id,
+        group_by=("model", "stage"),
+    )
+    assert canonical.group_by == ["stage", "model"]
+
+    daemon.usage_payload = {
+        "schema_version": "1.0",
+        "group_by": ["session", "stage", "model"],
+        "items": [
+            {
+                "session_id": str(uuid4()),
+                "stage": "builder",
+                "model": "fixture-model",
+                "recorded_calls": 2,
+                "unknown_calls": 1,
+                "input_tokens": 11,
+                "output_tokens": 7,
+                "total_tokens": 18,
+                "cost_usd": 0.02,
+            }
+        ],
+        "page": 1,
+        "page_size": 100,
+        "returned_count": 1,
+        "total_items": 1,
+        "total_pages": 1,
+        "truncated": False,
+    }
+
+    result = await bridge.usage(connection.connection_id)
+
+    assert result.items[0].total_tokens == 18
+    assert result.items[0].unknown_calls == 1
+    assert result.model_dump(mode="json")["items"][0]["stage"] == "builder"
+
+    assert daemon.usage_payload is not None
+    daemon.usage_payload["items"][0]["total_tokens"] = 19
+    with pytest.raises(LocalLiliesBridgeDaemonRejected, match="invalid authenticated usage"):
+        await bridge.usage(connection.connection_id)
+
+    persisted = await bridge.get_connection(connection.connection_id)
+    assert persisted.status.value == "unavailable"
+    assert persisted.last_error == {
+        "code": "daemon_usage_receipt_invalid",
+        "message": "local Lilies returned an invalid usage receipt",
+    }
+
+
+@pytest.mark.parametrize("invalid_page", [True, "1"])
+@pytest.mark.asyncio
+async def test_usage_rejects_dangerous_wire_type_coercion(
+    tmp_path: Path,
+    invalid_page: Any,
+) -> None:
+    _, workflow, harness, auth = await platform_parts(tmp_path)
+    daemon = FakeDaemonClient()
+    bridge = bridge_for(tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon)
+    connection = await pair(bridge)
+    daemon.usage_payload = {
+        "schema_version": "1.0",
+        "group_by": ["session", "stage", "model"],
+        "items": [],
+        "page": invalid_page,
+        "page_size": 100,
+        "returned_count": 0,
+        "total_items": 0,
+        "total_pages": 0,
+        "truncated": False,
+    }
+
+    with pytest.raises(LocalLiliesBridgeDaemonRejected, match="invalid authenticated usage"):
+        await bridge.usage(connection.connection_id)
+
+    persisted = await bridge.get_connection(connection.connection_id)
+    assert persisted.status.value == "unavailable"
+    assert persisted.last_error is not None
+    assert persisted.last_error["code"] == "daemon_usage_receipt_invalid"
+
+
+@pytest.mark.parametrize(
+    ("daemon_error", "expected_error", "expected_code"),
+    [
+        pytest.param(
+            LocalLiliesRemoteError(401, "SENSITIVE revoked bearer"),
+            LocalLiliesBridgeSecurityError,
+            "daemon_usage_authentication_rejected",
+            id="authentication-rejected",
+        ),
+        pytest.param(
+            LocalLiliesRemoteError(503, "SENSITIVE daemon detail"),
+            LocalLiliesBridgeDaemonRejected,
+            "daemon_usage_rejected",
+            id="remote-failure",
+        ),
+        pytest.param(
+            LocalLiliesProtocolError("SENSITIVE malformed response"),
+            LocalLiliesBridgeDaemonRejected,
+            "daemon_usage_protocol_error",
+            id="protocol-failure",
+        ),
+        pytest.param(
+            LocalLiliesUnavailable("SENSITIVE offline detail"),
+            LocalLiliesBridgeUnavailable,
+            "daemon_unavailable",
+            id="offline",
+        ),
+    ],
+)
+@pytest.mark.asyncio
+async def test_usage_failure_mapping_is_stateful_and_sanitized(
+    tmp_path: Path,
+    daemon_error: LocalLiliesClientError,
+    expected_error: type[Exception],
+    expected_code: str,
+) -> None:
+    _, workflow, harness, auth = await platform_parts(tmp_path)
+    daemon = FakeDaemonClient()
+    bridge = bridge_for(tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon)
+    connection = await pair(bridge)
+    daemon.usage_error = daemon_error
+
+    with pytest.raises(expected_error) as captured:
+        await bridge.usage(connection.connection_id)
+
+    assert "SENSITIVE" not in str(captured.value)
+    persisted = await bridge.get_connection(connection.connection_id)
+    assert persisted.status.value == "unavailable"
+    assert persisted.last_error is not None
+    assert persisted.last_error["code"] == expected_code
+
+
+def test_usage_page_fails_closed_on_impossible_aggregates_and_bounded_truncation() -> None:
+    payload: dict[str, Any] = {
+        "schema_version": "1.0",
+        "group_by": ["stage"],
+        "items": [
+            {
+                "session_id": None,
+                "stage": "builder",
+                "model": None,
+                "recorded_calls": 0,
+                "unknown_calls": 1,
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "total_tokens": 0,
+                "cost_usd": 0.0,
+            }
+        ],
+        "page": 1,
+        "page_size": 100,
+        "returned_count": 1,
+        "total_items": 1,
+        "total_pages": 1,
+        "truncated": False,
+    }
+
+    invalid_payloads: list[dict[str, Any]] = []
+    for changes in (
+        {"stage": None},
+        {"model": "unrequested-model"},
+        {"unknown_calls": 0},
+        {"input_tokens": 1, "total_tokens": 1},
+    ):
+        candidate = json.loads(json.dumps(payload))
+        candidate["items"][0].update(changes)
+        invalid_payloads.append(candidate)
+    duplicate = json.loads(json.dumps(payload))
+    duplicate["items"].append(dict(duplicate["items"][0]))
+    duplicate.update(returned_count=2, total_items=2)
+    invalid_payloads.append(duplicate)
+
+    for candidate in invalid_payloads:
+        with pytest.raises(ValueError):
+            LocalLiliesUsagePage.model_validate(candidate)
+
+    bounded = json.loads(json.dumps(payload))
+    bounded["items"] = [
+        {
+            **payload["items"][0],
+            "stage": f"stage-{index:03d}",
+        }
+        for index in range(100)
+    ]
+    bounded.update(
+        page=1000,
+        returned_count=100,
+        total_items=100001,
+        total_pages=1000,
+        truncated=True,
+    )
+    assert LocalLiliesUsagePage.model_validate(bounded).truncated is True
+    bounded["truncated"] = False
+    with pytest.raises(ValueError, match="truncated"):
+        LocalLiliesUsagePage.model_validate(bounded)
 
 
 @pytest.mark.asyncio
