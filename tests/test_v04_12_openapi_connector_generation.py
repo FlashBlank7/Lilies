@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import ipaddress
 import shutil
 import socket
+import sqlite3
 import subprocess
 import threading
 from collections.abc import Iterator
@@ -18,6 +21,11 @@ from fastapi.testclient import TestClient
 
 from agent_platform.api import create_app
 from agent_platform.config import Settings
+from agent_platform.connector_sdk import (
+    ConnectorObjectSchema,
+    ConnectorOperation,
+    ConnectorService,
+)
 from agent_platform.openapi_connector import (
     OpenAPIMaterialError,
     OpenAPIMaterialLoader,
@@ -125,6 +133,29 @@ class OpenAPIMaterialHandler(BaseHTTPRequestHandler):
         del format, args
 
 
+class MultipartContractHandler(BaseHTTPRequestHandler):
+    received_content_type = ""
+    received_body = b""
+
+    def do_POST(self) -> None:  # noqa: N802
+        if self.path != "/file-submissions":
+            self.send_response(404)
+            self.end_headers()
+            return
+        length = int(self.headers.get("Content-Length", "0"))
+        type(self).received_content_type = self.headers.get("Content-Type", "")
+        type(self).received_body = self.rfile.read(length)
+        payload = json.dumps({"stored": True}).encode()
+        self.send_response(201)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def log_message(self, format: str, *args: Any) -> None:
+        del format, args
+
+
 @contextmanager
 def generated_contract_server() -> Iterator[str]:
     GeneratedContractHandler.received_headers = []
@@ -135,6 +166,21 @@ def generated_contract_server() -> Iterator[str]:
     GeneratedContractHandler.received_cookies = []
     GeneratedContractHandler.received_content_types = []
     server = ThreadingHTTPServer(("127.0.0.1", 0), GeneratedContractHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_port}"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+@contextmanager
+def multipart_contract_server() -> Iterator[str]:
+    MultipartContractHandler.received_content_type = ""
+    MultipartContractHandler.received_body = b""
+    server = ThreadingHTTPServer(("127.0.0.1", 0), MultipartContractHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -891,6 +937,840 @@ def test_generated_runtime_preserves_complete_response_envelope_semantics(
                 failed = positive
                 assert failed["status"] == "failed"
                 assert expected_error in failed["actual"]
+
+
+def composed_quality_event_document() -> dict[str, Any]:
+    return {
+        "openapi": "3.1.0",
+        "info": {"title": "Quality Event API", "version": "1"},
+        "paths": {
+            "/quality-events": {
+                "post": {
+                    "operationId": "recordQualityEvent",
+                    "requestBody": {
+                        "required": True,
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "allOf": [
+                                        {
+                                            "type": "object",
+                                            "properties": {
+                                                "event_id": {
+                                                    "type": "string",
+                                                    "readOnly": True,
+                                                },
+                                                "source": {
+                                                    "allOf": [
+                                                        {
+                                                            "type": "object",
+                                                            "properties": {
+                                                                "facility": {
+                                                                    "type": "string",
+                                                                    "example": "line-a",
+                                                                }
+                                                            },
+                                                            "required": ["facility"],
+                                                        },
+                                                        {
+                                                            "type": "object",
+                                                            "properties": {
+                                                                "device": {
+                                                                    "type": "string",
+                                                                    "example": "sensor-7",
+                                                                }
+                                                            },
+                                                            "required": ["device"],
+                                                        },
+                                                    ]
+                                                },
+                                                "observation": {
+                                                    "oneOf": [
+                                                        {
+                                                            "type": "object",
+                                                            "properties": {
+                                                                "numeric": {"type": "number"}
+                                                            },
+                                                            "required": ["numeric"],
+                                                        },
+                                                        {
+                                                            "type": "object",
+                                                            "properties": {
+                                                                "note": {"type": "string"}
+                                                            },
+                                                            "required": ["note"],
+                                                        },
+                                                    ]
+                                                },
+                                                "routing": {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "object",
+                                                            "properties": {
+                                                                "queue": {"type": "string"}
+                                                            },
+                                                            "required": ["queue"],
+                                                        },
+                                                        {
+                                                            "type": "object",
+                                                            "properties": {
+                                                                "priority": {
+                                                                    "type": "integer"
+                                                                }
+                                                            },
+                                                            "required": ["priority"],
+                                                        },
+                                                    ]
+                                                },
+                                            },
+                                            "required": [
+                                                "event_id",
+                                                "source",
+                                                "observation",
+                                                "routing",
+                                            ],
+                                        },
+                                        {
+                                            "type": "object",
+                                            "properties": {
+                                                "client_reference": {
+                                                    "type": "string",
+                                                    "writeOnly": True,
+                                                    "example": "client-42",
+                                                }
+                                            },
+                                            "required": ["client_reference"],
+                                        },
+                                    ]
+                                }
+                            }
+                        },
+                    },
+                    "responses": {
+                        "202": {
+                            "description": "accepted or pending",
+                            "content": {
+                                "application/json": {
+                                    "schema": {
+                                        "oneOf": [
+                                            {
+                                                "type": "object",
+                                                "properties": {
+                                                    "result": {
+                                                        "allOf": [
+                                                            {
+                                                                "type": "object",
+                                                                "properties": {
+                                                                    "event_id": {
+                                                                        "type": "string"
+                                                                    }
+                                                                },
+                                                                "required": ["event_id"],
+                                                            },
+                                                            {
+                                                                "type": "object",
+                                                                "properties": {
+                                                                    "status": {
+                                                                        "type": "string"
+                                                                    },
+                                                                    "echoed_secret": {
+                                                                        "type": "string",
+                                                                        "writeOnly": True,
+                                                                    },
+                                                                },
+                                                                "required": [
+                                                                    "status",
+                                                                    "echoed_secret",
+                                                                ],
+                                                            },
+                                                        ]
+                                                    }
+                                                },
+                                                "required": ["result"],
+                                            },
+                                            {
+                                                "type": "object",
+                                                "properties": {
+                                                    "ticket": {"type": "integer"},
+                                                    "debug": {
+                                                        "type": "string",
+                                                        "writeOnly": True,
+                                                    },
+                                                },
+                                                "required": ["ticket", "debug"],
+                                            },
+                                        ]
+                                    }
+                                }
+                            },
+                        }
+                    },
+                }
+            }
+        },
+    }
+
+
+def test_generation_supports_nested_schema_composition_and_directional_fields(
+    tmp_path: Path,
+) -> None:
+    with TestClient(create_app(settings(tmp_path))) as client:
+        body = generation_body(
+            "https://quality-events.example",
+            composed_quality_event_document(),
+        )
+        body.update(
+            {
+                "connector_id": "quality_event_contract",
+                "domain": "quality",
+                "deployment": {
+                    **body["deployment"],
+                    "base_url": "https://quality-events.example",
+                    "allowed_hosts": ["quality-events.example"],
+                },
+            }
+        )
+        response = client.post(
+            "/api/v1/connectors/generations",
+            headers=HEADERS,
+            json=body,
+        )
+        assert response.status_code == 201, response.text
+        generated = response.json()
+        assert generated["generated_operation_count"] == 1
+        assert generated["mapped_field_count"] == generated["total_field_count"] == 10
+        assert not any(item["code"] == "IF-06" for item in generated["gaps"])
+
+        operation = generated["manifest"]["operations"][0]
+        request_body_schema = operation["request_schema"]["json_schema"]["properties"]["body"]
+        request_base = request_body_schema["allOf"][0]
+        assert "event_id" not in request_base["properties"]
+        assert "event_id" not in request_base["required"]
+        assert (
+            request_base["properties"]["source"]["allOf"][1]["properties"]["device"]["type"]
+            == "string"
+        )
+        response_schema = operation["response_json_schema"]
+        result_extension = response_schema["oneOf"][0]["properties"]["result"]["allOf"][1]
+        assert "echoed_secret" not in result_extension["properties"]
+        assert result_extension["required"] == ["status"]
+        assert "debug" not in response_schema["oneOf"][1]["properties"]
+        assert response_schema["oneOf"][1]["required"] == ["ticket"]
+        assert operation["response_root_type"] == "object"
+
+        cases = client.get(
+            f"/api/v1/connectors/generations/{generated['id']}/contract-cases",
+            headers=HEADERS,
+        ).json()
+        positive = next(item for item in cases if item["kind"] == "positive")
+        sample = positive["generated_input"]
+        assert sample == {
+            "body": {
+                "source": {"facility": "line-a", "device": "sensor-7"},
+                "observation": {"numeric": 1.0},
+                "routing": {"queue": "example"},
+                "client_reference": "client-42",
+            }
+        }
+        ConnectorObjectSchema._validate_json_schema(
+            sample,
+            operation["request_schema"]["json_schema"],
+            label="generated request",
+        )
+        ConnectorObjectSchema._validate_json_schema(
+            {"result": {"event_id": "evt-1", "status": "accepted"}},
+            response_schema,
+            label="generated response",
+        )
+        ConnectorObjectSchema._validate_json_schema(
+            {"ticket": 9},
+            response_schema,
+            label="generated response",
+        )
+        with pytest.raises(ValueError, match="exactly one"):
+            ConnectorObjectSchema._validate_json_schema(
+                {},
+                response_schema,
+                label="generated response",
+            )
+
+
+def test_json_schema_validator_enforces_all_any_and_exactly_one_composition() -> None:
+    schema = {
+        "allOf": [
+            {
+                "type": "object",
+                "properties": {"record_id": {"type": "string"}},
+                "required": ["record_id"],
+            },
+            {
+                "type": "object",
+                "properties": {
+                    "payload": {
+                        "anyOf": [
+                            {"type": "string"},
+                            {"type": "integer"},
+                        ]
+                    },
+                    "measurement": {
+                        "oneOf": [
+                            {"type": "number"},
+                            {"type": "integer"},
+                        ]
+                    },
+                },
+                "required": ["payload", "measurement"],
+            },
+        ]
+    }
+    ConnectorObjectSchema._validate_json_schema(
+        {"record_id": "r-1", "payload": 3, "measurement": 2.5},
+        schema,
+        label="composition",
+    )
+    with pytest.raises(ValueError, match="missing required"):
+        ConnectorObjectSchema._validate_json_schema(
+            {"record_id": "r-1", "payload": 3},
+            schema,
+            label="composition",
+        )
+    with pytest.raises(ValueError, match="at least one"):
+        ConnectorObjectSchema._validate_json_schema(
+            {"record_id": "r-1", "payload": True, "measurement": 2.5},
+            schema,
+            label="composition",
+        )
+    with pytest.raises(ValueError, match="exactly one"):
+        ConnectorObjectSchema._validate_json_schema(
+            {"record_id": "r-1", "payload": "ok", "measurement": 2},
+            schema,
+            label="composition",
+        )
+
+
+def test_json_schema_validator_accepts_nullable_all_of_without_weakening_branches() -> None:
+    nullable_composed_schema = {
+        "nullable": True,
+        "allOf": [
+            {
+                "type": "object",
+                "properties": {"code": {"type": "string"}},
+                "required": ["code"],
+            }
+        ],
+    }
+    ConnectorObjectSchema._validate_json_schema(
+        None,
+        nullable_composed_schema,
+        label="nullable composition",
+    )
+    ConnectorObjectSchema._validate_json_schema(
+        {"code": "A-1"},
+        nullable_composed_schema,
+        label="nullable composition",
+    )
+    with pytest.raises(ValueError, match="missing required"):
+        ConnectorObjectSchema._validate_json_schema(
+            {},
+            nullable_composed_schema,
+            label="nullable composition",
+        )
+    with pytest.raises(ValueError, match="must not be null"):
+        ConnectorObjectSchema._validate_json_schema(
+            None,
+            {
+                "allOf": [
+                    {
+                        "type": "object",
+                        "properties": {"code": {"type": "string"}},
+                    }
+                ]
+            },
+            label="non-nullable composition",
+        )
+
+
+def test_generation_supports_bounded_large_parameter_sets_and_types_excess(
+    tmp_path: Path,
+) -> None:
+    supported_parameters = [
+        {
+            "name": f"filter_{index}",
+            "in": "query",
+            "schema": {"type": "string"},
+        }
+        for index in range(128)
+    ]
+    excessive_parameters = [
+        {
+            "name": f"option_{index}",
+            "in": "query",
+            "schema": {"type": "string"},
+        }
+        for index in range(1_001)
+    ]
+    response = {
+        "200": {
+            "description": "ok",
+            "content": {
+                "application/json": {
+                    "schema": {
+                        "type": "object",
+                        "properties": {"count": {"type": "integer"}},
+                        "required": ["count"],
+                    }
+                }
+            },
+        }
+    }
+    document = {
+        "openapi": "3.1.0",
+        "info": {"title": "Search Contract API", "version": "1"},
+        "paths": {
+            "/search": {
+                "get": {
+                    "operationId": "searchRecords",
+                    "parameters": supported_parameters,
+                    "responses": response,
+                }
+            },
+            "/unbounded-search": {
+                "get": {
+                    "operationId": "unboundedSearch",
+                    "parameters": excessive_parameters,
+                    "responses": response,
+                }
+            },
+            "/conflicted-result": {
+                "get": {
+                    "operationId": "conflictedResult",
+                    "responses": {
+                        "200": {
+                            "description": "impossible result",
+                            "content": {
+                                "application/json": {
+                                    "schema": {
+                                        "allOf": [
+                                            {"type": "string"},
+                                            {"type": "object"},
+                                        ]
+                                    }
+                                }
+                            },
+                        }
+                    },
+                }
+            },
+        },
+    }
+    with TestClient(create_app(settings(tmp_path))) as client:
+        body = generation_body("https://search-contract.example", document)
+        body.update(
+            {
+                "connector_id": "search_contract",
+                "domain": "search",
+                "deployment": {
+                    **body["deployment"],
+                    "base_url": "https://search-contract.example",
+                    "allowed_hosts": ["search-contract.example"],
+                },
+            }
+        )
+        result = client.post(
+            "/api/v1/connectors/generations",
+            headers=HEADERS,
+            json=body,
+        )
+        assert result.status_code == 201, result.text
+        generated = result.json()
+        assert generated["discovered_operation_count"] == 3
+        assert generated["generated_operation_count"] == 1
+        assert len(generated["manifest"]["operations"][0]["parameters"]) == 128
+        assert any(
+            item["code"] == "IF-04" and item["capability"] == "parameter_count"
+            for item in generated["gaps"]
+        )
+        assert any(
+            item["code"] == "IF-06"
+            and item["capability"] == "schema_composition_conflict"
+            for item in generated["gaps"]
+        )
+
+
+def test_generation_identity_includes_deployment_and_migrates_legacy_rows(
+    tmp_path: Path,
+) -> None:
+    configured = settings(tmp_path)
+    first_body = generation_body("https://contract-a.example")
+    first_body["deployment"]["allowed_hosts"] = ["contract-a.example"]
+    with TestClient(create_app(configured)) as client:
+        first = client.post(
+            "/api/v1/connectors/generations",
+            headers=HEADERS,
+            json=first_body,
+        ).json()
+        repeated = client.post(
+            "/api/v1/connectors/generations",
+            headers=HEADERS,
+            json=first_body,
+        ).json()
+        assert repeated["id"] == first["id"]
+        assert first["request_fingerprint"].startswith("sha256:")
+
+        second_body = {
+            **first_body,
+            "deployment": {
+                **first_body["deployment"],
+                "profile_id": "alternate-test",
+                "base_url": "https://contract-b.example",
+                "allowed_hosts": ["contract-b.example"],
+                "timeout_seconds": 45,
+            },
+        }
+        second = client.post(
+            "/api/v1/connectors/generations",
+            headers=HEADERS,
+            json=second_body,
+        ).json()
+        assert second["id"] != first["id"]
+        assert second["request_fingerprint"] != first["request_fingerprint"]
+
+    database = configured.data_dir / "agent_platform.db"
+    with sqlite3.connect(database) as connection:
+        connection.executescript(
+            """
+            ALTER TABLE openapi_connector_generations
+            RENAME TO openapi_connector_generations_current;
+            CREATE TABLE openapi_connector_generations (
+              id TEXT PRIMARY KEY,
+              connector_id TEXT NOT NULL,
+              version INTEGER NOT NULL,
+              source_digest TEXT NOT NULL,
+              record_json TEXT NOT NULL,
+              created_at TEXT NOT NULL,
+              UNIQUE(connector_id,version,source_digest)
+            );
+            INSERT INTO openapi_connector_generations
+              (id,connector_id,version,source_digest,record_json,created_at)
+            SELECT id,connector_id,version,source_digest,record_json,created_at
+            FROM openapi_connector_generations_current
+            WHERE id IN (
+              SELECT id
+              FROM openapi_connector_generations_current
+              ORDER BY created_at
+              LIMIT 1
+            );
+            DROP TABLE openapi_connector_generations_current;
+            """
+        )
+
+    with TestClient(create_app(configured)) as migrated_client:
+        migrated = migrated_client.post(
+            "/api/v1/connectors/generations",
+            headers=HEADERS,
+            json=first_body,
+        )
+        assert migrated.status_code == 201, migrated.text
+        assert migrated.json()["id"] == first["id"]
+        with sqlite3.connect(database) as connection:
+            columns = {
+                row[1]
+                for row in connection.execute(
+                    "PRAGMA table_info(openapi_connector_generations)"
+                )
+            }
+            assert "request_fingerprint" in columns
+
+
+def test_registration_requires_latest_run_to_cover_every_contract_case(
+    tmp_path: Path,
+) -> None:
+    with generated_contract_server() as base_url:
+        document = openapi_document()
+        document["security"] = []
+        document["components"]["securitySchemes"] = {}
+        first_operation = document["paths"]["/items/{item_id}"]["get"]
+        first_operation["security"] = []
+        document["paths"] = {
+            "/items/{item_id}": {"get": first_operation},
+            "/items/{item_id}/history": {
+                "get": {
+                    **first_operation,
+                    "operationId": "getItemHistory",
+                    "summary": "Read item history",
+                }
+            },
+        }
+        with TestClient(create_app(settings(tmp_path))) as client:
+            body = generation_body(base_url, document)
+            body["connector_id"] = "generated_contract_coverage"
+            generation = client.post(
+                "/api/v1/connectors/generations",
+                headers=HEADERS,
+                json=body,
+            ).json()
+            partial = client.post(
+                f"/api/v1/connectors/generations/{generation['id']}/contract-runs",
+                headers=HEADERS,
+                json={"operation_ids": ["getItem"]},
+            )
+            assert partial.status_code == 201, partial.text
+            assert partial.json()["status"] == "passed"
+            rejected = client.post(
+                f"/api/v1/connectors/generations/{generation['id']}/register",
+                headers=HEADERS,
+            )
+            assert rejected.status_code == 422
+            assert "every generated positive and negative case" in rejected.text
+
+            complete = client.post(
+                f"/api/v1/connectors/generations/{generation['id']}/contract-runs",
+                headers=HEADERS,
+                json={},
+            )
+            assert complete.status_code == 201, complete.text
+            assert complete.json()["status"] == "passed"
+            registered = client.post(
+                f"/api/v1/connectors/generations/{generation['id']}/register",
+                headers=HEADERS,
+            )
+            assert registered.status_code == 201, registered.text
+
+
+def test_selected_manifest_generates_and_executes_bounded_multipart_blob_contract(
+    tmp_path: Path,
+) -> None:
+    document = {
+        "openapi": "3.1.0",
+        "info": {"title": "File Submission API", "version": "1"},
+        "paths": {
+            "/file-submissions": {
+                "post": {
+                    "operationId": "submitFile",
+                    "requestBody": {
+                        "required": True,
+                        "content": {
+                            "multipart/form-data": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "description": {"type": "string"},
+                                        "attachment": {
+                                            "type": "string",
+                                            "format": "binary",
+                                        },
+                                    },
+                                    "required": ["description", "attachment"],
+                                },
+                                "encoding": {
+                                    "attachment": {
+                                        "contentType": "application/octet-stream"
+                                    }
+                                },
+                            }
+                        },
+                    },
+                    "responses": {
+                        "201": {
+                            "description": "stored",
+                            "content": {
+                                "application/json": {
+                                    "schema": {
+                                        "type": "object",
+                                        "properties": {"stored": {"type": "boolean"}},
+                                        "required": ["stored"],
+                                        "additionalProperties": False,
+                                    }
+                                }
+                            },
+                        }
+                    },
+                }
+            },
+            "/administrative-reset": {
+                "delete": {
+                    "operationId": "resetService",
+                    "responses": {
+                        "204": {"description": "reset"}
+                    },
+                }
+            },
+        },
+    }
+    with multipart_contract_server() as base_url:
+        with TestClient(create_app(settings(tmp_path))) as client:
+            body = generation_body(base_url, document)
+            body.update(
+                {
+                    "connector_id": "selected_file_submission",
+                    "domain": "file_submission",
+                    "include_operation_ids": ["submitFile"],
+                }
+            )
+            generated_response = client.post(
+                "/api/v1/connectors/generations",
+                headers=HEADERS,
+                json=body,
+            )
+            assert generated_response.status_code == 201, generated_response.text
+            generated = generated_response.json()
+            assert generated["discovered_operation_count"] == 2
+            assert generated["generated_operation_count"] == 1
+            assert generated["operation_selection"] == {
+                "mode": "include",
+                "requested_operation_ids": ["submitFile"],
+                "generated_operation_ids": ["submitFile"],
+            }
+            assert (
+                generated["manifest"]["source_provenance"]["operation_selection"]
+                == generated["operation_selection"]
+            )
+            assert [
+                item["id"] for item in generated["manifest"]["operations"]
+            ] == ["submitFile"]
+            request_body = generated["manifest"]["operations"][0]["request_body"]
+            assert request_body["content_type"] == "multipart/form-data"
+            assert {
+                item["wire_name"]: item["kind"]
+                for item in request_body["multipart_parts"]
+            } == {"description": "text", "attachment": "blob"}
+            blob_schema = generated["manifest"]["operations"][0]["request_schema"][
+                "json_schema"
+            ]["properties"]["body"]["properties"]["attachment"]
+            assert blob_schema["x-lilies-blob-contract"] == "inline-base64-v1"
+            assert blob_schema["x-lilies-max-decoded-bytes"] == 20 * 1024 * 1024
+
+            excluded_generation = client.post(
+                "/api/v1/connectors/generations",
+                headers=HEADERS,
+                json={
+                    **body,
+                    "include_operation_ids": [],
+                    "exclude_operation_ids": ["resetService"],
+                },
+            )
+            assert excluded_generation.status_code == 201, excluded_generation.text
+            assert excluded_generation.json()["id"] != generated["id"]
+            assert (
+                excluded_generation.json()["request_fingerprint"]
+                != generated["request_fingerprint"]
+            )
+            assert excluded_generation.json()["operation_selection"]["mode"] == "exclude"
+
+            unknown = client.post(
+                "/api/v1/connectors/generations",
+                headers=HEADERS,
+                json={
+                    **body,
+                    "connector_id": "unknown_selection",
+                    "include_operation_ids": ["missingOperation"],
+                },
+            )
+            assert unknown.status_code == 422
+            assert unknown.json()["detail"]["capability_gap"]["code"] == "IF-04"
+            assert (
+                unknown.json()["detail"]["capability_gap"]["capability"]
+                == "operation_selection"
+            )
+
+            content = b"neutral-file"
+            digest = f"sha256:{hashlib.sha256(content).hexdigest()}"
+            valid_payload = {
+                "body": {
+                    "description": "neutral upload",
+                    "attachment": {
+                        "filename": "neutral.bin",
+                        "content_type": "application/octet-stream",
+                        "content_base64": base64.b64encode(content).decode(),
+                        "sha256": digest,
+                    },
+                }
+            }
+            persistence_safe = ConnectorService._persistence_safe_payload(
+                ConnectorOperation.model_validate(
+                    generated["manifest"]["operations"][0]
+                ),
+                valid_payload,
+            )
+            assert persistence_safe["body"]["attachment"] == {
+                "filename": "neutral.bin",
+                "content_type": "application/octet-stream",
+                "size_bytes": len(content),
+                "sha256": digest,
+                "content_redacted": True,
+            }
+            invalid_blob_run = client.post(
+                f"/api/v1/connectors/generations/{generated['id']}/contract-runs",
+                headers=HEADERS,
+                json={
+                    "allow_mutating_operations": True,
+                    "sample_inputs": {
+                        "submitFile": {
+                            "body": {
+                                "description": "neutral upload",
+                                "attachment": {
+                                    "filename": "neutral.bin",
+                                    "content_type": "application/octet-stream",
+                                    "content_base64": base64.b64encode(content).decode(),
+                                    "sha256": "sha256:" + ("0" * 64),
+                                },
+                            }
+                        }
+                    },
+                },
+            )
+            assert invalid_blob_run.status_code == 201
+            assert invalid_blob_run.json()["status"] == "failed"
+            assert "does not match sha256" in next(
+                item["actual"]
+                for item in invalid_blob_run.json()["results"]
+                if item["case"]["kind"] == "positive"
+            )
+            assert MultipartContractHandler.received_body == b""
+
+            run = client.post(
+                f"/api/v1/connectors/generations/{generated['id']}/contract-runs",
+                headers=HEADERS,
+                json={
+                    "allow_mutating_operations": True,
+                    "sample_inputs": {
+                        "submitFile": valid_payload
+                    },
+                },
+            )
+            assert run.status_code == 201, run.text
+            assert run.json()["status"] == "passed"
+            positive_result = next(
+                item
+                for item in run.json()["results"]
+                if item["case"]["kind"] == "positive"
+            )
+            assert positive_result["executed_input_evidence"]["body_preview"]["body"][
+                "attachment"
+            ]["content_base64"] == "***"
+            assert MultipartContractHandler.received_content_type.startswith(
+                "multipart/form-data; boundary="
+            )
+            assert b'name="description"' in MultipartContractHandler.received_body
+            assert b'name="attachment"; filename="neutral.bin"' in (
+                MultipartContractHandler.received_body
+            )
+            assert content in MultipartContractHandler.received_body
+            encoded_content = base64.b64encode(content)
+            assert all(
+                encoded_content not in database_file.read_bytes()
+                for database_file in (tmp_path / "data").glob("agent_platform.db*")
+                if database_file.is_file()
+            )
+
+            registered = client.post(
+                f"/api/v1/connectors/generations/{generated['id']}/register",
+                headers=HEADERS,
+            )
+            assert registered.status_code == 201, registered.text
+            assert [item["id"] for item in registered.json()["operations"]] == [
+                "submitFile"
+            ]
 
 
 def test_experiment_fixture_does_not_author_connector_contracts() -> None:

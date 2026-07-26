@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import hashlib
 import ipaddress
 import json
@@ -17,9 +18,14 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .connector_sdk import (
+    MAX_CONNECTOR_BLOB_BYTES,
+    MAX_CONNECTOR_MULTIPART_PARTS,
+    MAX_CONNECTOR_OPERATION_PARAMETERS,
+    MAX_CONNECTOR_SCHEMA_FIELDS,
     ConnectorDeploymentProfile,
     ConnectorExecutionRequest,
     ConnectorManifest,
+    ConnectorMultipartPart,
     ConnectorObjectSchema,
     ConnectorOperation,
     ConnectorParameterBinding,
@@ -36,6 +42,10 @@ from .storage import Storage
 
 HTTP_METHODS = {"get", "post", "put", "patch", "delete"}
 MAX_OPENAPI_BYTES = 5_000_000
+MAX_OPENAPI_SCHEMA_OVERLAY_ACTIONS = 100
+MAX_OPENAPI_SCHEMA_OVERLAY_BYTES = 64_000
+MAX_OPENAPI_SCHEMA_OVERLAY_POINTER_BYTES = 4_000
+MAX_OPENAPI_SCHEMA_OVERLAY_POINTER_SEGMENTS = 128
 
 
 class _PinnedNetworkBackend(httpcore.AsyncNetworkBackend):
@@ -102,6 +112,41 @@ class OpenAPICapabilityGap(BaseModel):
     fatal: bool = False
 
 
+class OpenAPISchemaOverlayAction(BaseModel):
+    """One explicit JSON-Patch-like mutation inside an OpenAPI schema subtree."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    op: Literal["add", "replace", "remove"]
+    path: str = Field(min_length=1, max_length=MAX_OPENAPI_SCHEMA_OVERLAY_POINTER_BYTES)
+    value: Any | None = None
+
+    @model_validator(mode="after")
+    def validate_value_presence(self) -> OpenAPISchemaOverlayAction:
+        has_value = "value" in self.model_fields_set
+        if len(self.path.encode("utf-8")) > MAX_OPENAPI_SCHEMA_OVERLAY_POINTER_BYTES:
+            raise ValueError(
+                "schema overlay JSON Pointer exceeds "
+                f"{MAX_OPENAPI_SCHEMA_OVERLAY_POINTER_BYTES} bytes"
+            )
+        if self.op == "remove" and has_value:
+            raise ValueError("remove schema overlay actions must not include value")
+        if self.op != "remove" and not has_value:
+            raise ValueError(f"{self.op} schema overlay actions require value")
+        return self
+
+
+class OpenAPISchemaOverlayProvenance(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    overlay_digest: str = Field(default="", pattern=r"^(|sha256:[0-9a-f]{64})$")
+    action_count: int = Field(default=0, ge=0, le=MAX_OPENAPI_SCHEMA_OVERLAY_ACTIONS)
+    effective_contract_digest: str = Field(
+        default="",
+        pattern=r"^(|sha256:[0-9a-f]{64})$",
+    )
+
+
 class OpenAPISourceProvenance(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -112,6 +157,9 @@ class OpenAPISourceProvenance(BaseModel):
     title: str
     document_version: str
     size_bytes: int
+    schema_overlay: OpenAPISchemaOverlayProvenance = Field(
+        default_factory=OpenAPISchemaOverlayProvenance
+    )
     fetched_at: str = Field(default_factory=utc_now)
 
 
@@ -140,12 +188,58 @@ class OpenAPIConnectorGenerationRequest(BaseModel):
     document_url: str = Field(default="", max_length=2000)
     allowed_document_hosts: list[str] = Field(default_factory=list, max_length=30)
     allow_insecure_document_http: bool = False
+    include_operation_ids: list[str] = Field(default_factory=list, max_length=1_000)
+    exclude_operation_ids: list[str] = Field(default_factory=list, max_length=1_000)
+    schema_overlay: list[OpenAPISchemaOverlayAction] = Field(
+        default_factory=list,
+        max_length=MAX_OPENAPI_SCHEMA_OVERLAY_ACTIONS,
+    )
 
     @model_validator(mode="after")
     def exactly_one_source(self) -> OpenAPIConnectorGenerationRequest:
         if bool(self.document) == bool(self.document_url):
             raise ValueError("provide exactly one of document or document_url")
+        if self.include_operation_ids and self.exclude_operation_ids:
+            raise ValueError(
+                "include_operation_ids and exclude_operation_ids are mutually exclusive"
+            )
+        for label, values in (
+            ("include_operation_ids", self.include_operation_ids),
+            ("exclude_operation_ids", self.exclude_operation_ids),
+        ):
+            if len(values) != len(set(values)):
+                raise ValueError(f"{label} contains duplicate operationId values")
+            if any(not value or len(value) > 300 for value in values):
+                raise ValueError(f"{label} values must contain 1 to 300 characters")
+        overlay_paths = [action.path for action in self.schema_overlay]
+        if len(overlay_paths) != len(set(overlay_paths)):
+            raise ValueError("schema_overlay contains duplicate JSON Pointer paths")
+        try:
+            overlay_bytes = json.dumps(
+                [
+                    action.model_dump(mode="json", exclude_unset=True)
+                    for action in self.schema_overlay
+                ],
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            ).encode("utf-8")
+        except (TypeError, ValueError) as error:
+            raise ValueError("schema_overlay values must be finite JSON values") from error
+        if len(overlay_bytes) > MAX_OPENAPI_SCHEMA_OVERLAY_BYTES:
+            raise ValueError(
+                f"schema_overlay exceeds {MAX_OPENAPI_SCHEMA_OVERLAY_BYTES} bytes"
+            )
         return self
+
+
+class OpenAPIOperationSelection(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mode: Literal["all", "include", "exclude"] = "all"
+    requested_operation_ids: list[str] = Field(default_factory=list, max_length=1_000)
+    generated_operation_ids: list[str] = Field(default_factory=list, max_length=1_000)
 
 
 class OpenAPIConnectorGeneration(BaseModel):
@@ -156,6 +250,10 @@ class OpenAPIConnectorGeneration(BaseModel):
     version: int
     status: Literal["generated", "verified", "registered"] = "generated"
     provenance: OpenAPISourceProvenance
+    request_fingerprint: str = Field(default="", pattern=r"^(|sha256:[0-9a-f]{64})$")
+    operation_selection: OpenAPIOperationSelection = Field(
+        default_factory=OpenAPIOperationSelection
+    )
     manifest: ConnectorManifest
     gaps: list[OpenAPICapabilityGap] = Field(default_factory=list)
     discovered_operation_count: int
@@ -206,6 +304,11 @@ class ConnectorContractRun(BaseModel):
     id: str
     generation_id: str
     source_digest: str
+    overlay_digest: str = Field(default="", pattern=r"^(|sha256:[0-9a-f]{64})$")
+    effective_contract_digest: str = Field(
+        default="",
+        pattern=r"^(|sha256:[0-9a-f]{64})$",
+    )
     status: Literal["passed", "failed", "partial", "blocked_by_environment"]
     results: list[ConnectorContractCaseResult]
     passed: int
@@ -225,7 +328,220 @@ class OpenAPIMaterialError(ValueError):
         self.gap = gap
 
 
+class OpenAPISchemaOverlayReconciler:
+    """Apply bounded schema-only corrections without mutating the source material."""
+
+    def reconcile(
+        self,
+        document: dict[str, Any],
+        actions: list[OpenAPISchemaOverlayAction],
+    ) -> tuple[dict[str, Any], OpenAPISchemaOverlayProvenance]:
+        serialized_actions = json.dumps(
+            [
+                action.model_dump(mode="json", exclude_unset=True)
+                for action in actions
+            ],
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+        if len(serialized_actions) > MAX_OPENAPI_SCHEMA_OVERLAY_BYTES:
+            raise self._error(
+                "$.schema_overlay",
+                f"schema overlay exceeds {MAX_OPENAPI_SCHEMA_OVERLAY_BYTES} bytes",
+            )
+        effective = copy.deepcopy(document)
+        for index, action in enumerate(actions):
+            location = f"$.schema_overlay[{index}].path"
+            segments = self._pointer_segments(action.path, location)
+            if self._schema_boundary(segments) is None:
+                raise self._error(
+                    location,
+                    "schema overlay target must be inside a request or response schema "
+                    "or an OpenAPI components schema contract",
+                )
+            self._apply_action(effective, action, segments, location)
+        effective_bytes = self._canonical_document(effective)
+        return effective, OpenAPISchemaOverlayProvenance(
+            overlay_digest=f"sha256:{hashlib.sha256(serialized_actions).hexdigest()}",
+            action_count=len(actions),
+            effective_contract_digest=(
+                f"sha256:{hashlib.sha256(effective_bytes).hexdigest()}"
+            ),
+        )
+
+    def _pointer_segments(self, pointer: str, location: str) -> list[str]:
+        if not pointer.startswith("/") or pointer == "/":
+            raise self._error(location, "schema overlay path must be an absolute JSON Pointer")
+        raw_segments = pointer[1:].split("/")
+        if len(raw_segments) > MAX_OPENAPI_SCHEMA_OVERLAY_POINTER_SEGMENTS:
+            raise self._error(
+                location,
+                "schema overlay JSON Pointer has too many segments",
+            )
+        segments: list[str] = []
+        for raw in raw_segments:
+            cursor = 0
+            while cursor < len(raw):
+                if raw[cursor] != "~":
+                    cursor += 1
+                    continue
+                if cursor + 1 >= len(raw) or raw[cursor + 1] not in {"0", "1"}:
+                    raise self._error(
+                        location,
+                        "schema overlay path contains an invalid JSON Pointer escape",
+                    )
+                cursor += 2
+            segments.append(raw.replace("~1", "/").replace("~0", "~"))
+        return segments
+
+    def _schema_boundary(self, segments: list[str]) -> int | None:
+        if len(segments) >= 3 and segments[:2] == ["components", "schemas"]:
+            return 3
+        if len(segments) >= 4 and segments[0] == "components":
+            if segments[1] in {"headers", "parameters"} and segments[3] == "schema":
+                return 4
+            if (
+                segments[1] == "requestBodies"
+                and len(segments) >= 6
+                and segments[3] == "content"
+                and segments[5] == "schema"
+            ):
+                return 6
+            if segments[1] == "responses" and len(segments) >= 6:
+                if segments[3] == "content" and segments[5] == "schema":
+                    return 6
+                if segments[3] == "headers" and segments[5] == "schema":
+                    return 6
+            return None
+        if len(segments) < 4 or segments[0] != "paths":
+            return None
+        if (
+            segments[2] == "parameters"
+            and len(segments) >= 5
+            and segments[4] == "schema"
+        ):
+            return 5
+        if segments[2].casefold() not in HTTP_METHODS:
+            return None
+        if (
+            segments[3] == "parameters"
+            and len(segments) >= 6
+            and segments[5] == "schema"
+        ):
+            return 6
+        if (
+            segments[3] == "requestBody"
+            and len(segments) >= 7
+            and segments[4] == "content"
+            and segments[6] == "schema"
+        ):
+            return 7
+        if segments[3] == "responses" and len(segments) >= 8:
+            if segments[5] == "content" and segments[7] == "schema":
+                return 8
+            if segments[5] == "headers" and segments[7] == "schema":
+                return 8
+        return None
+
+    def _apply_action(
+        self,
+        document: dict[str, Any],
+        action: OpenAPISchemaOverlayAction,
+        segments: list[str],
+        location: str,
+    ) -> None:
+        parent: Any = document
+        for segment in segments[:-1]:
+            parent = self._descend(parent, segment, location)
+        target = segments[-1]
+        if isinstance(parent, dict):
+            exists = target in parent
+            if action.op == "add":
+                if exists:
+                    raise self._error(
+                        location,
+                        "schema overlay add target already exists; use replace explicitly",
+                    )
+                parent[target] = copy.deepcopy(action.value)
+                return
+            if not exists:
+                raise self._error(location, "schema overlay target does not exist")
+            if action.op == "replace":
+                parent[target] = copy.deepcopy(action.value)
+            else:
+                del parent[target]
+            return
+        if isinstance(parent, list):
+            if action.op == "add" and target == "-":
+                parent.append(copy.deepcopy(action.value))
+                return
+            index = self._list_index(target, location)
+            upper_bound = len(parent) if action.op == "add" else len(parent) - 1
+            if index < 0 or index > upper_bound:
+                raise self._error(location, "schema overlay list index is out of range")
+            if action.op == "add":
+                parent.insert(index, copy.deepcopy(action.value))
+            elif action.op == "replace":
+                parent[index] = copy.deepcopy(action.value)
+            else:
+                del parent[index]
+            return
+        raise self._error(location, "schema overlay parent is not a JSON object or array")
+
+    def _descend(self, value: Any, segment: str, location: str) -> Any:
+        if isinstance(value, dict):
+            if segment not in value:
+                raise self._error(location, "schema overlay parent path does not exist")
+            return value[segment]
+        if isinstance(value, list):
+            index = self._list_index(segment, location)
+            if index >= len(value):
+                raise self._error(location, "schema overlay list index is out of range")
+            return value[index]
+        raise self._error(location, "schema overlay parent path is not traversable")
+
+    def _list_index(self, segment: str, location: str) -> int:
+        if not re.fullmatch(r"(0|[1-9][0-9]*)", segment):
+            raise self._error(
+                location,
+                "schema overlay list indices must be canonical non-negative integers",
+            )
+        return int(segment)
+
+    def _canonical_document(self, document: dict[str, Any]) -> bytes:
+        try:
+            return json.dumps(
+                document,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            ).encode("utf-8")
+        except (TypeError, ValueError) as error:
+            raise self._error(
+                "$.schema_overlay",
+                "effective OpenAPI contract must contain only finite JSON values",
+            ) from error
+
+    @staticmethod
+    def _error(location: str, message: str) -> OpenAPIMaterialError:
+        return OpenAPIMaterialError(
+            OpenAPICapabilityGap(
+                code="IF-01",
+                capability="schema_overlay",
+                location=location,
+                message=message,
+                fatal=True,
+            )
+        )
+
+
 class OpenAPIMaterialLoader:
+    def __init__(self) -> None:
+        self.overlay_reconciler = OpenAPISchemaOverlayReconciler()
+
     async def load(
         self,
         request: OpenAPIConnectorGenerationRequest,
@@ -257,9 +573,27 @@ class OpenAPIMaterialLoader:
             )
         if not isinstance(document.get("paths"), dict):
             raise self._error("IF-01", "paths", "$.paths", "OpenAPI paths must be an object")
-        gaps: list[OpenAPICapabilityGap] = []
-        resolved = self._resolve_refs(document, document, "$", (), gaps)
-        self._inspect_unsupported(resolved, gaps)
+        source_gaps: list[OpenAPICapabilityGap] = []
+        source_resolved = self._resolve_refs(document, document, "$", (), source_gaps)
+        self._inspect_unsupported(source_resolved, source_gaps)
+        effective_document, overlay_provenance = self.overlay_reconciler.reconcile(
+            document,
+            request.schema_overlay,
+        )
+        if request.schema_overlay:
+            effective_gaps: list[OpenAPICapabilityGap] = []
+            resolved = self._resolve_refs(
+                effective_document,
+                effective_document,
+                "$",
+                (),
+                effective_gaps,
+            )
+            self._inspect_unsupported(resolved, effective_gaps)
+            gaps = [*source_gaps, *effective_gaps]
+        else:
+            resolved = source_resolved
+            gaps = source_gaps
         info = resolved.get("info", {}) if isinstance(resolved.get("info"), dict) else {}
         provenance = OpenAPISourceProvenance(
             source_kind=source_kind,
@@ -269,6 +603,7 @@ class OpenAPIMaterialLoader:
             title=str(info.get("title") or request.connector_id),
             document_version=str(info.get("version") or "unknown"),
             size_bytes=len(raw),
+            schema_overlay=overlay_provenance,
         )
         return resolved, provenance, self._unique_gaps(gaps)
 
@@ -521,6 +856,17 @@ class OpenAPIConnectorGenerator:
         started = time.perf_counter()
         gaps = list(initial_gaps)
         security_schemes = self._security_schemes(document, gaps)
+        selection_mode: Literal["all", "include", "exclude"] = (
+            "include"
+            if request.include_operation_ids
+            else "exclude"
+            if request.exclude_operation_ids
+            else "all"
+        )
+        requested_operation_ids = sorted(
+            request.include_operation_ids or request.exclude_operation_ids
+        )
+        selected_locations = self._selected_operation_locations(document, request)
         operations: list[ConnectorOperation] = []
         mapped_fields = 0
         total_fields = 0
@@ -535,6 +881,8 @@ class OpenAPIConnectorGenerator:
                 if method not in HTTP_METHODS or not isinstance(raw_operation, dict):
                     continue
                 discovered += 1
+                if (str(path), method) not in selected_locations:
+                    continue
                 generated = self._operation(
                     path,
                     method,
@@ -552,6 +900,19 @@ class OpenAPIConnectorGenerator:
                 mapped_fields += mapped
                 total_fields += total
         if not operations:
+            operation_gap = next(
+                (
+                    gap
+                    for gap in gaps
+                    if gap.location.startswith("$.paths.")
+                    and gap.code in {"IF-04", "IF-05", "IF-06", "IF-07", "IF-09", "IF-11", "IF-14"}
+                ),
+                None,
+            )
+            if discovered and operation_gap is not None:
+                raise OpenAPIMaterialError(
+                    operation_gap.model_copy(update={"fatal": True})
+                )
             raise OpenAPIMaterialError(
                 OpenAPICapabilityGap(
                     code="IF-01",
@@ -592,6 +953,11 @@ class OpenAPIConnectorGenerator:
             claim_ceiling=request.deployment.claim_ceiling,
             excluded_claims=["customer production readiness", "non-REST transport support"],
         )
+        operation_selection = OpenAPIOperationSelection(
+            mode=selection_mode,
+            requested_operation_ids=requested_operation_ids,
+            generated_operation_ids=[item.id for item in operations],
+        )
         manifest = ConnectorManifest(
             connector_id=request.connector_id,
             version=request.version,
@@ -604,13 +970,17 @@ class OpenAPIConnectorGenerator:
             operations=operations,
             deployment_profiles=[profile],
             security_schemes=security_schemes,
-            source_provenance=provenance.model_dump(mode="json"),
+            source_provenance={
+                **provenance.model_dump(mode="json"),
+                "operation_selection": operation_selection.model_dump(mode="json"),
+            },
         )
         return OpenAPIConnectorGeneration(
             id=str(uuid4()),
             connector_id=request.connector_id,
             version=request.version,
             provenance=provenance,
+            operation_selection=operation_selection,
             manifest=manifest,
             gaps=OpenAPIMaterialLoader._unique_gaps(gaps),
             discovered_operation_count=discovered,
@@ -620,6 +990,79 @@ class OpenAPIConnectorGenerator:
             parse_ms=parse_ms,
             generate_ms=(time.perf_counter() - started) * 1000,
         )
+
+    def _selected_operation_locations(
+        self,
+        document: dict[str, Any],
+        request: OpenAPIConnectorGenerationRequest,
+    ) -> set[tuple[str, str]]:
+        operations: list[tuple[str, str, str | None]] = []
+        by_id: dict[str, list[tuple[str, str]]] = {}
+        for path, path_item in document.get("paths", {}).items():
+            if not isinstance(path_item, dict):
+                continue
+            for method, raw_operation in path_item.items():
+                if method not in HTTP_METHODS or not isinstance(raw_operation, dict):
+                    continue
+                raw_id = raw_operation.get("operationId")
+                operation_id = str(raw_id) if isinstance(raw_id, str) and raw_id else None
+                location = (str(path), method)
+                operations.append((*location, operation_id))
+                if operation_id is not None:
+                    by_id.setdefault(operation_id, []).append(location)
+        requested = set(request.include_operation_ids or request.exclude_operation_ids)
+        unknown = sorted(requested - set(by_id))
+        selection_location = (
+            "$.include_operation_ids"
+            if request.include_operation_ids
+            else "$.exclude_operation_ids"
+        )
+        if unknown:
+            raise OpenAPIMaterialError(
+                OpenAPIMaterialLoader._gap(
+                    "IF-04",
+                    "operation_selection",
+                    selection_location,
+                    f"unknown official operationId values: {unknown}",
+                    fatal=True,
+                )
+            )
+        ambiguous = sorted(
+            operation_id
+            for operation_id in requested
+            if len(by_id.get(operation_id, [])) != 1
+        )
+        if ambiguous:
+            raise OpenAPIMaterialError(
+                OpenAPIMaterialLoader._gap(
+                    "IF-04",
+                    "operation_selection",
+                    "$.paths",
+                    f"selected operationId values are not unique in the document: {ambiguous}",
+                    fatal=True,
+                )
+            )
+        if not requested:
+            return {(path, method) for path, method, _ in operations}
+        selected: set[tuple[str, str]] = set()
+        for path, method, operation_id in operations:
+            if operation_id is None:
+                continue
+            if request.include_operation_ids and operation_id in requested:
+                selected.add((path, method))
+            elif request.exclude_operation_ids and operation_id not in requested:
+                selected.add((path, method))
+        if not selected:
+            raise OpenAPIMaterialError(
+                OpenAPIMaterialLoader._gap(
+                    "IF-04",
+                    "operation_selection",
+                    "$.paths",
+                    "operation selection produced an empty manifest scope",
+                    fatal=True,
+                )
+            )
+        return selected
 
     def _operation(
         self,
@@ -649,6 +1092,18 @@ class OpenAPIConnectorGenerator:
             raw_parameters.extend(path_parameters)
         if isinstance(raw.get("parameters"), list):
             raw_parameters.extend(raw["parameters"])
+        if len(raw_parameters) > MAX_CONNECTOR_OPERATION_PARAMETERS:
+            gaps.append(
+                OpenAPIMaterialLoader._gap(
+                    "IF-04",
+                    "parameter_count",
+                    f"{location}.parameters",
+                    "operation declares "
+                    f"{len(raw_parameters)} parameters; the bounded connector limit is "
+                    f"{MAX_CONNECTOR_OPERATION_PARAMETERS}",
+                )
+            )
+            return None
         for index, parameter in enumerate(raw_parameters):
             if not isinstance(parameter, dict):
                 continue
@@ -707,26 +1162,47 @@ class OpenAPIConnectorGenerator:
         body = raw.get("requestBody")
         if isinstance(body, dict):
             content = body.get("content", {})
-            media = content.get("application/json") if isinstance(content, dict) else None
+            json_media = content.get("application/json") if isinstance(content, dict) else None
+            multipart_media = (
+                content.get("multipart/form-data") if isinstance(content, dict) else None
+            )
+            media = json_media if isinstance(json_media, dict) else multipart_media
             if not isinstance(media, dict) or not isinstance(media.get("schema", {}), dict):
                 gaps.append(
                     OpenAPIMaterialLoader._gap(
                         "IF-05",
                         "request_media_type",
                         f"{location}.requestBody",
-                        "only application/json request bodies are generated",
+                        "only application/json and multipart/form-data request bodies are generated",
                     )
                 )
                 return None
             body_schema = self._schema_for_direction(media.get("schema", {}), request=True)
             body_field_count = self._schema_field_count(body_schema)
             total += body_field_count
+            multipart_parts: list[ConnectorMultipartPart] = []
+            content_type = "application/json"
+            if media is multipart_media:
+                multipart_contract = self._multipart_request_contract(
+                    body_schema,
+                    media,
+                    f"{location}.requestBody",
+                    gaps,
+                )
+                if multipart_contract is None:
+                    return None
+                body_schema, multipart_parts = multipart_contract
+                content_type = "multipart/form-data"
             if not self._schema_supported(body_schema, f"{location}.requestBody.schema", gaps):
                 return None
             request_properties["body"] = body_schema
             if body.get("required"):
                 required_inputs.append("body")
-            request_body = ConnectorRequestBody(required=bool(body.get("required")))
+            request_body = ConnectorRequestBody(
+                required=bool(body.get("required")),
+                content_type=content_type,
+                multipart_parts=multipart_parts,
+            )
             mapped += body_field_count
         responses = raw.get("responses", {})
         response_schema, response_type, statuses, content_types, errors = self._responses(
@@ -783,6 +1259,261 @@ class OpenAPIConnectorGenerator:
             mapped,
             total,
         )
+
+    def _multipart_request_contract(
+        self,
+        schema: dict[str, Any],
+        media: dict[str, Any],
+        location: str,
+        gaps: list[OpenAPICapabilityGap],
+    ) -> tuple[dict[str, Any], list[ConnectorMultipartPart]] | None:
+        flattened = self._multipart_properties(schema, location, gaps)
+        if flattened is None:
+            return None
+        properties, required = flattened
+        if not properties:
+            gaps.append(
+                OpenAPIMaterialLoader._gap(
+                    "IF-05",
+                    "multipart_schema",
+                    f"{location}.schema",
+                    "multipart/form-data requires declared object properties",
+                )
+            )
+            return None
+        if len(properties) > MAX_CONNECTOR_MULTIPART_PARTS:
+            gaps.append(
+                OpenAPIMaterialLoader._gap(
+                    "IF-05",
+                    "multipart_part_count",
+                    f"{location}.schema.properties",
+                    f"multipart request declares {len(properties)} parts; the bounded limit is "
+                    f"{MAX_CONNECTOR_MULTIPART_PARTS}",
+                )
+            )
+            return None
+        encoding = media.get("encoding", {})
+        if not isinstance(encoding, dict):
+            encoding = {}
+        normalized_properties: dict[str, Any] = {}
+        parts: list[ConnectorMultipartPart] = []
+        for name, part_schema in properties.items():
+            part_location = f"{location}.schema.properties.{name}"
+            if not isinstance(name, str) or not 1 <= len(name) <= 300:
+                gaps.append(
+                    OpenAPIMaterialLoader._gap(
+                        "IF-05",
+                        "multipart_part_name",
+                        part_location,
+                        "multipart part names must contain 1 to 300 characters",
+                    )
+                )
+                return None
+            if not isinstance(part_schema, dict):
+                part_schema = {}
+            raw_encoding = encoding.get(name, {})
+            if not isinstance(raw_encoding, dict):
+                raw_encoding = {}
+            content_types = self._multipart_content_types(
+                raw_encoding.get("contentType")
+                or part_schema.get("contentMediaType"),
+                binary=self._is_binary_schema(part_schema),
+                location=part_location,
+                gaps=gaps,
+            )
+            if content_types is None:
+                return None
+            if self._is_binary_schema(part_schema):
+                max_encoded_length = 4 * ((MAX_CONNECTOR_BLOB_BYTES + 2) // 3)
+                normalized_properties[name] = {
+                    "type": "object",
+                    "properties": {
+                        "filename": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 255,
+                            "example": "upload.bin",
+                        },
+                        "content_type": {
+                            "type": "string",
+                            "default": content_types[0],
+                            "maxLength": 200,
+                        },
+                        "content_base64": {
+                            "type": "string",
+                            "maxLength": max_encoded_length,
+                            "example": "Zml4dHVyZQ==",
+                        },
+                        "sha256": {
+                            "type": "string",
+                            "pattern": r"^sha256:[0-9a-f]{64}$",
+                        },
+                    },
+                    "required": ["filename", "content_type", "content_base64"],
+                    "additionalProperties": False,
+                    "x-lilies-blob-contract": "inline-base64-v1",
+                    "x-lilies-max-decoded-bytes": MAX_CONNECTOR_BLOB_BYTES,
+                }
+                parts.append(
+                    ConnectorMultipartPart(
+                        input_key=name,
+                        wire_name=name,
+                        kind="blob",
+                        required=name in required,
+                        content_types=content_types,
+                        max_bytes=MAX_CONNECTOR_BLOB_BYTES,
+                    )
+                )
+                continue
+            part_type = self._schema_type(part_schema)
+            if part_type not in {"string", "number", "integer", "boolean"}:
+                gaps.append(
+                    OpenAPIMaterialLoader._gap(
+                        "IF-05",
+                        "multipart_part_schema",
+                        part_location,
+                        "multipart text parts must use scalar schemas; nested objects and "
+                        "arrays require a later serialization contract",
+                    )
+                )
+                return None
+            normalized_properties[name] = part_schema
+            parts.append(
+                ConnectorMultipartPart(
+                    input_key=name,
+                    wire_name=name,
+                    kind="text",
+                    required=name in required,
+                    content_types=content_types,
+                )
+            )
+        return (
+            {
+                "type": "object",
+                "properties": normalized_properties,
+                "required": sorted(required & set(normalized_properties)),
+                "additionalProperties": False,
+            },
+            parts,
+        )
+
+    def _multipart_properties(
+        self,
+        schema: dict[str, Any],
+        location: str,
+        gaps: list[OpenAPICapabilityGap],
+    ) -> tuple[dict[str, dict[str, Any]], set[str]] | None:
+        if "oneOf" in schema or "anyOf" in schema:
+            gaps.append(
+                OpenAPIMaterialLoader._gap(
+                    "IF-05",
+                    "multipart_schema_composition",
+                    f"{location}.schema",
+                    "multipart root oneOf/anyOf part sets are not generated",
+                )
+            )
+            return None
+        raw_type = schema.get("type")
+        if raw_type not in {None, "object"}:
+            gaps.append(
+                OpenAPIMaterialLoader._gap(
+                    "IF-05",
+                    "multipart_schema",
+                    f"{location}.schema",
+                    "multipart/form-data schema root must be an object",
+                )
+            )
+            return None
+        properties: dict[str, dict[str, Any]] = {}
+        required = {
+            str(item)
+            for item in schema.get("required", [])
+            if isinstance(item, str)
+        }
+        raw_properties = schema.get("properties", {})
+        if isinstance(raw_properties, dict):
+            for name, part_schema in raw_properties.items():
+                properties[str(name)] = part_schema if isinstance(part_schema, dict) else {}
+        candidates = schema.get("allOf", [])
+        if not isinstance(candidates, list):
+            candidates = []
+        for index, candidate in enumerate(candidates):
+            if not isinstance(candidate, dict):
+                continue
+            nested = self._multipart_properties(
+                candidate,
+                f"{location}.schema.allOf[{index}]",
+                gaps,
+            )
+            if nested is None:
+                return None
+            nested_properties, nested_required = nested
+            required.update(nested_required)
+            for name, part_schema in nested_properties.items():
+                existing = properties.get(name)
+                if existing is not None and json.dumps(
+                    existing,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ) != json.dumps(part_schema, sort_keys=True, separators=(",", ":")):
+                    gaps.append(
+                        OpenAPIMaterialLoader._gap(
+                            "IF-05",
+                            "multipart_schema_conflict",
+                            f"{location}.schema.properties.{name}",
+                            "multipart allOf declares incompatible schemas for one part",
+                        )
+                    )
+                    return None
+                properties[name] = part_schema
+        return properties, required
+
+    @staticmethod
+    def _is_binary_schema(schema: dict[str, Any]) -> bool:
+        if schema.get("format") in {"binary", "byte"}:
+            return True
+        for keyword in ("allOf", "oneOf", "anyOf"):
+            candidates = schema.get(keyword)
+            if isinstance(candidates, list) and any(
+                OpenAPIConnectorGenerator._is_binary_schema(candidate)
+                for candidate in candidates
+                if isinstance(candidate, dict)
+            ):
+                return True
+        return False
+
+    @staticmethod
+    def _multipart_content_types(
+        raw: Any,
+        *,
+        binary: bool,
+        location: str,
+        gaps: list[OpenAPICapabilityGap],
+    ) -> list[str] | None:
+        values = (
+            [item.strip() for item in str(raw).split(",") if item.strip()]
+            if raw
+            else ["application/octet-stream" if binary else "text/plain"]
+        )
+        if len(values) > 20 or any(
+            re.fullmatch(
+                r"[A-Za-z0-9!#$&^_.+-]+/(?:[A-Za-z0-9!#$&^_.+-]+|\*)",
+                item,
+            )
+            is None
+            or (not binary and item.endswith("/*"))
+            for item in values
+        ):
+            gaps.append(
+                OpenAPIMaterialLoader._gap(
+                    "IF-05",
+                    "multipart_content_type",
+                    location,
+                    "multipart contentType declaration is invalid or exceeds 20 alternatives",
+                )
+            )
+            return None
+        return values
 
     def _responses(
         self,
@@ -908,17 +1639,53 @@ class OpenAPIConnectorGenerator:
         location: str,
         gaps: list[OpenAPICapabilityGap],
     ) -> bool:
-        for keyword in ("oneOf", "anyOf", "allOf", "not"):
-            if keyword in schema:
+        if "not" in schema:
+            gaps.append(
+                OpenAPIMaterialLoader._gap(
+                    "IF-06",
+                    "schema_composition",
+                    location,
+                    "JSON Schema keyword not is not generated",
+                )
+            )
+            return False
+        for keyword in ("oneOf", "anyOf", "allOf"):
+            if keyword not in schema:
+                continue
+            candidates = schema[keyword]
+            if (
+                not isinstance(candidates, list)
+                or not candidates
+                or not all(isinstance(candidate, dict) for candidate in candidates)
+            ):
                 gaps.append(
                     OpenAPIMaterialLoader._gap(
                         "IF-06",
                         "schema_composition",
                         location,
-                        f"JSON Schema keyword {keyword} is not generated",
+                        f"JSON Schema keyword {keyword} must contain non-empty schema objects",
                     )
                 )
                 return False
+            for index, candidate in enumerate(candidates):
+                if not self._schema_supported(
+                    candidate,
+                    f"{location}.{keyword}[{index}]",
+                    gaps,
+                ):
+                    return False
+        if any(keyword in schema for keyword in ("allOf", "oneOf", "anyOf")) and not (
+            self._schema_type_domain(schema)
+        ):
+            gaps.append(
+                OpenAPIMaterialLoader._gap(
+                    "IF-06",
+                    "schema_composition_conflict",
+                    location,
+                    "schema composition contains mutually incompatible value types",
+                )
+            )
+            return False
         if "discriminator" in schema:
             gaps.append(
                 OpenAPIMaterialLoader._gap(
@@ -954,16 +1721,37 @@ class OpenAPIConnectorGenerator:
         return True
 
     def _schema_field_count(self, schema: dict[str, Any]) -> int:
+        return max(1, len(self._schema_field_paths(schema)))
+
+    def _schema_field_paths(
+        self,
+        schema: dict[str, Any],
+        *,
+        prefix: str = "",
+    ) -> set[str]:
+        paths: set[str] = set()
         properties = schema.get("properties", {})
-        if isinstance(properties, dict) and properties:
-            return sum(
-                max(1, self._schema_field_count(child)) if isinstance(child, dict) else 1
-                for child in properties.values()
-            )
+        if isinstance(properties, dict):
+            for name, child in properties.items():
+                path = f"{prefix}.{name}" if prefix else str(name)
+                if isinstance(child, dict):
+                    nested = self._schema_field_paths(child, prefix=path)
+                    paths.update(nested or {path})
+                else:
+                    paths.add(path)
         items = schema.get("items")
         if isinstance(items, dict):
-            return max(1, self._schema_field_count(items))
-        return 1
+            item_prefix = f"{prefix}[]" if prefix else "[]"
+            nested = self._schema_field_paths(items, prefix=item_prefix)
+            paths.update(nested or {item_prefix})
+        for keyword in ("allOf", "oneOf", "anyOf"):
+            candidates = schema.get(keyword)
+            if not isinstance(candidates, list):
+                continue
+            for candidate in candidates:
+                if isinstance(candidate, dict):
+                    paths.update(self._schema_field_paths(candidate, prefix=prefix))
+        return paths
 
     def _schema_for_direction(
         self,
@@ -975,23 +1763,72 @@ class OpenAPIConnectorGenerator:
         if not isinstance(schema, dict):
             return {}
         normalized = dict(schema)
+        for keyword in ("allOf", "oneOf", "anyOf"):
+            candidates = schema.get(keyword)
+            if isinstance(candidates, list):
+                normalized[keyword] = [
+                    self._schema_for_direction(candidate, request=request)
+                    if isinstance(candidate, dict)
+                    else candidate
+                    for candidate in candidates
+                ]
         properties = schema.get("properties")
+        excluded_names: set[str] = set()
         if isinstance(properties, dict):
             filtered: dict[str, Any] = {}
             for name, child in properties.items():
                 child_schema = child if isinstance(child, dict) else {}
                 excluded = bool(child_schema.get("readOnly" if request else "writeOnly"))
                 if excluded:
+                    excluded_names.add(str(name))
                     continue
                 filtered[name] = self._schema_for_direction(child_schema, request=request)
             normalized["properties"] = filtered
-            required = schema.get("required")
-            if isinstance(required, list):
-                normalized["required"] = [name for name in required if name in filtered]
+        for keyword in ("allOf", "oneOf", "anyOf"):
+            candidates = schema.get(keyword)
+            if isinstance(candidates, list):
+                for candidate in candidates:
+                    if isinstance(candidate, dict):
+                        excluded_names.update(
+                            self._direction_excluded_property_names(
+                                candidate,
+                                request=request,
+                            )
+                        )
+        required = schema.get("required")
+        if isinstance(required, list) and excluded_names:
+            normalized["required"] = [name for name in required if name not in excluded_names]
         items = schema.get("items")
         if isinstance(items, dict):
             normalized["items"] = self._schema_for_direction(items, request=request)
         return normalized
+
+    def _direction_excluded_property_names(
+        self,
+        schema: dict[str, Any],
+        *,
+        request: bool,
+    ) -> set[str]:
+        excluded: set[str] = set()
+        properties = schema.get("properties")
+        if isinstance(properties, dict):
+            for name, child in properties.items():
+                if isinstance(child, dict) and child.get(
+                    "readOnly" if request else "writeOnly"
+                ):
+                    excluded.add(str(name))
+        for keyword in ("allOf", "oneOf", "anyOf"):
+            candidates = schema.get(keyword)
+            if isinstance(candidates, list):
+                for candidate in candidates:
+                    if isinstance(candidate, dict):
+                        excluded.update(
+                            self._direction_excluded_property_names(
+                                candidate,
+                                request=request,
+                            )
+                        )
+        return excluded
 
     @staticmethod
     def _first_required_scheme(operations: list[ConnectorOperation]) -> str:
@@ -1006,7 +1843,7 @@ class OpenAPIConnectorGenerator:
         required = set(schema.get("required", [])) if isinstance(schema, dict) else set()
         fields: list[ConnectorSchemaField] = []
         if isinstance(properties, dict):
-            for name, field_schema in list(properties.items())[:100]:
+            for name, field_schema in list(properties.items())[:MAX_CONNECTOR_SCHEMA_FIELDS]:
                 if not isinstance(field_schema, dict):
                     field_schema = {}
                 field_name = self._identifier(str(name), prefix="field")
@@ -1048,7 +1885,53 @@ class OpenAPIConnectorGenerator:
             return "object"
         if "items" in schema:
             return "array"
+        for keyword in ("allOf", "oneOf", "anyOf"):
+            candidates = schema.get(keyword)
+            if not isinstance(candidates, list):
+                continue
+            branch_types = [
+                OpenAPIConnectorGenerator._schema_type(candidate)
+                for candidate in candidates
+                if isinstance(candidate, dict) and candidate
+            ]
+            if branch_types:
+                return branch_types[0]
         return "string"
+
+    @classmethod
+    def _schema_type_domain(cls, schema: dict[str, Any]) -> set[str]:
+        all_types = {"null", "string", "number", "integer", "boolean", "object", "array"}
+        raw_type = schema.get("type")
+        if isinstance(raw_type, str) and raw_type in all_types:
+            domain = {raw_type}
+        elif isinstance(raw_type, list):
+            domain = {item for item in raw_type if item in all_types}
+            if not domain:
+                domain = set(all_types)
+        elif "properties" in schema:
+            domain = {"object"}
+        elif "items" in schema:
+            domain = {"array"}
+        else:
+            domain = set(all_types)
+        if "nullable" in schema and schema.get("nullable"):
+            domain.add("null")
+        if "number" in domain:
+            domain.add("integer")
+        for keyword in ("oneOf", "anyOf"):
+            candidates = schema.get(keyword)
+            if isinstance(candidates, list) and candidates:
+                alternatives: set[str] = set()
+                for candidate in candidates:
+                    if isinstance(candidate, dict):
+                        alternatives.update(cls._schema_type_domain(candidate))
+                domain.intersection_update(alternatives)
+        candidates = schema.get("allOf")
+        if isinstance(candidates, list):
+            for candidate in candidates:
+                if isinstance(candidate, dict):
+                    domain.intersection_update(cls._schema_type_domain(candidate))
+        return domain
 
     @staticmethod
     def _identifier(value: str, *, prefix: str) -> str:
@@ -1091,6 +1974,71 @@ class OpenAPIConnectorService:
 
     def _initialize_sync(self) -> None:
         with self.storage._connect() as conn:
+            columns = {
+                str(row["name"])
+                for row in conn.execute(
+                    "PRAGMA table_info(openapi_connector_generations)"
+                ).fetchall()
+            }
+            if columns and "request_fingerprint" not in columns:
+                conn.execute("BEGIN IMMEDIATE")
+                conn.execute(
+                    """
+                    CREATE TABLE openapi_connector_generations_v2 (
+                      id TEXT PRIMARY KEY,
+                      connector_id TEXT NOT NULL,
+                      version INTEGER NOT NULL,
+                      source_digest TEXT NOT NULL,
+                      request_fingerprint TEXT NOT NULL,
+                      record_json TEXT NOT NULL,
+                      created_at TEXT NOT NULL,
+                      UNIQUE(
+                        connector_id,
+                        version,
+                        source_digest,
+                        request_fingerprint
+                      )
+                    )
+                    """
+                )
+                rows = conn.execute(
+                    """
+                    SELECT id,connector_id,version,source_digest,record_json,created_at
+                    FROM openapi_connector_generations
+                    """
+                ).fetchall()
+                for row in rows:
+                    generation = OpenAPIConnectorGeneration.model_validate_json(
+                        row["record_json"]
+                    )
+                    generation = self._normalize_generation_selection(generation)
+                    fingerprint = self._request_fingerprint(generation)
+                    generation = generation.model_copy(
+                        update={"request_fingerprint": fingerprint}
+                    )
+                    conn.execute(
+                        """
+                        INSERT INTO openapi_connector_generations_v2
+                        VALUES(?,?,?,?,?,?,?)
+                        """,
+                        (
+                            row["id"],
+                            row["connector_id"],
+                            row["version"],
+                            row["source_digest"],
+                            fingerprint,
+                            generation.model_dump_json(),
+                            row["created_at"],
+                        ),
+                    )
+                conn.execute("DROP TABLE openapi_connector_generations")
+                conn.execute(
+                    """
+                    ALTER TABLE openapi_connector_generations_v2
+                    RENAME TO openapi_connector_generations
+                    """
+                )
+                conn.commit()
             conn.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS openapi_connector_generations (
@@ -1098,9 +2046,15 @@ class OpenAPIConnectorService:
                   connector_id TEXT NOT NULL,
                   version INTEGER NOT NULL,
                   source_digest TEXT NOT NULL,
+                  request_fingerprint TEXT NOT NULL,
                   record_json TEXT NOT NULL,
                   created_at TEXT NOT NULL,
-                  UNIQUE(connector_id,version,source_digest)
+                  UNIQUE(
+                    connector_id,
+                    version,
+                    source_digest,
+                    request_fingerprint
+                  )
                 );
                 CREATE TABLE IF NOT EXISTS openapi_connector_contract_runs (
                   id TEXT PRIMARY KEY,
@@ -1113,6 +2067,25 @@ class OpenAPIConnectorService:
                   ON openapi_connector_contract_runs(generation_id,created_at);
                 """
             )
+            rows = conn.execute(
+                "SELECT id,record_json FROM openapi_connector_generations"
+            ).fetchall()
+            for row in rows:
+                generation = self._normalize_generation_selection(
+                    OpenAPIConnectorGeneration.model_validate_json(row["record_json"])
+                )
+                fingerprint = self._request_fingerprint(generation)
+                generation = generation.model_copy(
+                    update={"request_fingerprint": fingerprint}
+                )
+                conn.execute(
+                    """
+                    UPDATE openapi_connector_generations
+                    SET request_fingerprint=?,record_json=?
+                    WHERE id=?
+                    """,
+                    (fingerprint, generation.model_dump_json(), row["id"]),
+                )
 
     async def generate(
         self, request: OpenAPIConnectorGenerationRequest
@@ -1121,6 +2094,9 @@ class OpenAPIConnectorService:
         document, provenance, gaps = await self.loader.load(request)
         parse_ms = (time.perf_counter() - started) * 1000
         generated = self.generator.generate(document, request, provenance, gaps, parse_ms=parse_ms)
+        generated = generated.model_copy(
+            update={"request_fingerprint": self._request_fingerprint(generated)}
+        )
         async with self._lock:
             return await asyncio.to_thread(self._save_generation_sync, generated)
 
@@ -1129,23 +2105,83 @@ class OpenAPIConnectorService:
     ) -> OpenAPIConnectorGeneration:
         with self.storage._connect() as conn:
             existing = conn.execute(
-                "SELECT record_json FROM openapi_connector_generations WHERE connector_id=? AND version=? AND source_digest=?",
-                (generation.connector_id, generation.version, generation.provenance.source_digest),
+                """
+                SELECT record_json
+                FROM openapi_connector_generations
+                WHERE connector_id=? AND version=? AND source_digest=?
+                  AND request_fingerprint=?
+                """,
+                (
+                    generation.connector_id,
+                    generation.version,
+                    generation.provenance.source_digest,
+                    generation.request_fingerprint,
+                ),
             ).fetchone()
             if existing:
                 return OpenAPIConnectorGeneration.model_validate_json(existing["record_json"])
             conn.execute(
-                "INSERT INTO openapi_connector_generations VALUES(?,?,?,?,?,?)",
+                "INSERT INTO openapi_connector_generations VALUES(?,?,?,?,?,?,?)",
                 (
                     generation.id,
                     generation.connector_id,
                     generation.version,
                     generation.provenance.source_digest,
+                    generation.request_fingerprint,
                     generation.model_dump_json(),
                     generation.created_at,
                 ),
             )
         return generation
+
+    @staticmethod
+    def _request_fingerprint(generation: OpenAPIConnectorGeneration) -> str:
+        material = {
+            "connector_id": generation.connector_id,
+            "version": generation.version,
+            "domain": generation.manifest.domain,
+            "deployment_profiles": [
+                item.model_dump(mode="json")
+                for item in generation.manifest.deployment_profiles
+            ],
+            "security_schemes": [
+                item.model_dump(mode="json")
+                for item in generation.manifest.security_schemes
+            ],
+            "operation_selection": generation.operation_selection.model_dump(mode="json"),
+            "schema_overlay": generation.provenance.schema_overlay.model_dump(mode="json"),
+        }
+        canonical = json.dumps(
+            material,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return f"sha256:{hashlib.sha256(canonical).hexdigest()}"
+
+    @staticmethod
+    def _normalize_generation_selection(
+        generation: OpenAPIConnectorGeneration,
+    ) -> OpenAPIConnectorGeneration:
+        selection = generation.operation_selection
+        if not selection.generated_operation_ids:
+            selection = selection.model_copy(
+                update={
+                    "generated_operation_ids": [
+                        item.id for item in generation.manifest.operations
+                    ]
+                }
+            )
+        return generation.model_copy(
+            update={"operation_selection": selection}
+        )
+
+    @staticmethod
+    def _contract_identity(generation: OpenAPIConnectorGeneration) -> str:
+        overlay = generation.provenance.schema_overlay
+        if overlay.action_count == 0:
+            return generation.provenance.source_digest
+        return f"{generation.provenance.source_digest}:{overlay.overlay_digest}"
 
     async def list_generations(self) -> list[OpenAPIConnectorGeneration]:
         return await asyncio.to_thread(self._list_generations_sync)
@@ -1156,14 +2192,14 @@ class OpenAPIConnectorService:
                 "SELECT record_json FROM openapi_connector_generations ORDER BY created_at DESC"
             ).fetchall()
         items = [OpenAPIConnectorGeneration.model_validate_json(row["record_json"]) for row in rows]
-        latest_digest: dict[str, str] = {}
+        latest_identity: dict[str, str] = {}
         for item in items:
-            latest_digest.setdefault(item.connector_id, item.provenance.source_digest)
+            latest_identity.setdefault(item.connector_id, self._contract_identity(item))
         return [
             item.model_copy(
                 update={
-                    "evidence_stale": latest_digest[item.connector_id]
-                    != item.provenance.source_digest
+                    "evidence_stale": latest_identity[item.connector_id]
+                    != self._contract_identity(item)
                 }
             )
             for item in items
@@ -1181,10 +2217,19 @@ class OpenAPIConnectorService:
                 raise KeyError(generation_id)
             item = OpenAPIConnectorGeneration.model_validate_json(row["record_json"])
             newest = conn.execute(
-                "SELECT source_digest FROM openapi_connector_generations WHERE connector_id=? ORDER BY created_at DESC LIMIT 1",
+                "SELECT record_json FROM openapi_connector_generations "
+                "WHERE connector_id=? ORDER BY created_at DESC LIMIT 1",
                 (item.connector_id,),
             ).fetchone()
-        stale = bool(newest and newest["source_digest"] != item.provenance.source_digest)
+        newest_item = (
+            OpenAPIConnectorGeneration.model_validate_json(newest["record_json"])
+            if newest
+            else None
+        )
+        stale = bool(
+            newest_item
+            and self._contract_identity(newest_item) != self._contract_identity(item)
+        )
         return item.model_copy(update={"evidence_stale": stale})
 
     async def generate_contract_cases(self, generation_id: str) -> list[ConnectorContractCase]:
@@ -1383,6 +2428,10 @@ class OpenAPIConnectorService:
             id=str(uuid4()),
             generation_id=generation_id,
             source_digest=generation.provenance.source_digest,
+            overlay_digest=generation.provenance.schema_overlay.overlay_digest,
+            effective_contract_digest=(
+                generation.provenance.schema_overlay.effective_contract_digest
+            ),
             status=status,
             results=results,
             passed=counts["passed"],
@@ -1428,6 +2477,28 @@ class OpenAPIConnectorService:
         runs = await self.list_contract_runs(generation_id)
         if not runs or runs[0].status != "passed":
             raise ValueError("latest contract run must pass before registration")
+        overlay = generation.provenance.schema_overlay
+        if overlay.action_count and (
+            runs[0].source_digest != generation.provenance.source_digest
+            or runs[0].overlay_digest != overlay.overlay_digest
+            or runs[0].effective_contract_digest
+            != overlay.effective_contract_digest
+        ):
+            raise ValueError(
+                "latest contract run does not match the effective overlaid contract"
+            )
+        expected_case_ids = {
+            item.id for item in await self.generate_contract_cases(generation_id)
+        }
+        passed_case_ids = {
+            item.case.id for item in runs[0].results if item.status == "passed"
+        }
+        missing_case_ids = sorted(expected_case_ids - passed_case_ids)
+        if missing_case_ids:
+            raise ValueError(
+                "latest contract run must pass every generated positive and negative "
+                f"case before registration; missing={missing_case_ids}"
+            )
         saved = await self.connectors.register_manifest(generation.manifest)
         await asyncio.to_thread(self._mark_generation_status_sync, generation_id, "registered")
         return saved
@@ -1450,28 +2521,106 @@ class OpenAPIConnectorService:
         value = self._sample_value(schema)
         return value if isinstance(value, dict) else {}
 
-    def _sample_value(self, schema: dict[str, Any]) -> Any:
+    def _sample_value(
+        self,
+        schema: dict[str, Any],
+        *,
+        include_optional: bool = False,
+    ) -> Any:
         if "example" in schema:
             return schema["example"]
         if "default" in schema:
             return schema["default"]
+        if "const" in schema:
+            return schema["const"]
         enum = schema.get("enum")
         if isinstance(enum, list) and enum:
             return enum[0]
-        schema_type = OpenAPIConnectorGenerator._schema_type(schema)
-        if schema_type == "object":
+        sample: Any | None = None
+        raw_type = schema.get("type")
+        if raw_type == "object" or "properties" in schema:
             properties = schema.get("properties", {})
             required = set(schema.get("required", []))
-            return {
-                name: self._sample_value(item)
+            sample = {
+                name: self._sample_value(item, include_optional=include_optional)
                 for name, item in properties.items()
                 if isinstance(item, dict)
-                and (name in required or "example" in item or "default" in item)
+                and (
+                    include_optional
+                    or name in required
+                    or "example" in item
+                    or "default" in item
+                    or "const" in item
+                )
             }
-        if schema_type == "array":
+        elif raw_type == "array" or "items" in schema:
             items = schema.get("items", {})
-            return [self._sample_value(items)] if isinstance(items, dict) else []
-        return {"string": "example", "integer": 1, "number": 1.0, "boolean": True}[schema_type]
+            sample = (
+                [self._sample_value(items, include_optional=include_optional)]
+                if isinstance(items, dict)
+                else []
+            )
+        for candidate in schema.get("allOf", []):
+            if isinstance(candidate, dict):
+                sample = self._merge_sample_values(
+                    sample,
+                    self._sample_value(candidate, include_optional=include_optional),
+                )
+        for keyword in ("oneOf", "anyOf"):
+            candidates = schema.get(keyword)
+            if not isinstance(candidates, list) or not candidates:
+                continue
+            generated: list[Any] = []
+            for candidate in candidates:
+                if not isinstance(candidate, dict):
+                    continue
+                value = self._merge_sample_values(
+                    sample,
+                    self._sample_value(candidate, include_optional=True),
+                )
+                generated.append(value)
+                try:
+                    ConnectorObjectSchema._validate_json_schema(
+                        value,
+                        schema,
+                        label="generated sample",
+                    )
+                except ValueError:
+                    continue
+                sample = value
+                break
+            else:
+                if generated:
+                    sample = generated[0]
+        if sample is not None:
+            return sample
+        schema_type = OpenAPIConnectorGenerator._schema_type(schema)
+        return {
+            "string": "example",
+            "integer": 1,
+            "number": 1.0,
+            "boolean": True,
+            "object": {},
+            "array": [],
+        }[schema_type]
+
+    def _merge_sample_values(self, left: Any, right: Any) -> Any:
+        if left is None:
+            return right
+        if right is None:
+            return left
+        if isinstance(left, dict) and isinstance(right, dict):
+            merged = dict(left)
+            for key, value in right.items():
+                merged[key] = (
+                    self._merge_sample_values(merged[key], value)
+                    if key in merged
+                    else value
+                )
+            return merged
+        if left == right:
+            return left
+        return right
 
     def _payload_evidence(self, payload: Any) -> dict[str, Any]:
         redacted_fields: list[str] = []
@@ -1537,6 +2686,7 @@ class OpenAPIConnectorService:
                         "authorization",
                         "cookie",
                         "credential",
+                        "content_base64",
                     )
                 ):
                     redacted_fields.append(item_path)
