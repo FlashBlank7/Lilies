@@ -1808,7 +1808,10 @@ def _python_entrypoint(
         if argument == "-c":
             if index + 1 >= len(argv):
                 return None
-            return "command", argv[index + 1], list(argv[index + 2 :])
+            # ``ps`` presents argv without preserving the original boundary
+            # around Python's command string. Rejoin the remaining projection
+            # so multi-word and escaped-newline launchers remain detectable.
+            return "command", " ".join(argv[index + 1 :]), []
         if argument.startswith("-"):
             return None
         return "script", Path(argument).name, list(argv[index + 1 :])

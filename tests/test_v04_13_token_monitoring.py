@@ -871,6 +871,11 @@ def test_process_detection_and_delta() -> None:
             " import uvicorn; uvicorn.run(api.app)'"
         ),
         "142 1 00:01 python -c 'print(\"agent_platform.api uvicorn\")'",
+        (
+            "143 1 00:01 python -c from pathlib import Path\\012"
+            "import agent_platform.api as api\\012import uvicorn\\012"
+            "uvicorn.run(api.app)"
+        ),
     ]
     processes = discover_model_capable_processes(rows)
     assert [(item["pid"], item["kind"]) for item in processes] == [
@@ -883,6 +888,7 @@ def test_process_detection_and_delta() -> None:
         (139, "local_lilies_daemon"),
         (140, "platform_api"),
         (141, "platform_api"),
+        (143, "platform_api"),
     ]
     raw = [item for item in processes if item["pid"] in {128, 129}]
     assert all(item["invocation_id"] == invocation for item in raw)
