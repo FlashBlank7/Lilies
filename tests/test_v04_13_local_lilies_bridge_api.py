@@ -22,6 +22,7 @@ from agent_platform.local_lilies_bridge import (
     LocalLiliesAssignment,
     LocalLiliesBridgeUnavailable,
     LocalLiliesConnection,
+    LocalLiliesObservabilitySnapshot,
     LocalLiliesRecoverySummary,
     LocalLiliesRelayEvent,
     LocalLiliesRelayResult,
@@ -40,6 +41,7 @@ from tests.test_runtime import ScriptedProvider
 
 ZERO_DIGEST = "sha256:" + "0" * 64
 FINGERPRINT = "sha256:" + "a" * 64
+DAEMON_INSTANCE_ID = UUID("aebd8a39-37b0-48c7-9f9e-d7e8be1219f0")
 PLATFORM_SCOPES = (
     PlatformBlackboxScope.catalog_read,
     PlatformBlackboxScope.application_write,
@@ -89,6 +91,47 @@ def _connection(connection_id: UUID) -> LocalLiliesConnection:
         last_seen_at=now,
         created_at=now,
         updated_at=now,
+    )
+
+
+def _observability_snapshot() -> LocalLiliesObservabilitySnapshot:
+    return LocalLiliesObservabilitySnapshot.model_validate(
+        {
+            "schema_version": "1.0",
+            "scope": "daemon_global",
+            "coverage_complete": True,
+            "daemon_fingerprint": FINGERPRINT,
+            "daemon_instance_id": str(DAEMON_INSTANCE_ID),
+            "captured_at": "2026-07-26T12:00:00+00:00",
+            "activity_revision": 7,
+            "model_egress_enabled": False,
+            "usage": {
+                "ledger_cursor": 3,
+                "attempted_calls": 3,
+                "recorded_calls": 2,
+                "unknown_calls": 1,
+                "input_tokens": 11,
+                "output_tokens": 7,
+                "total_tokens": 18,
+                "cost_usd": 0.02,
+            },
+            "runtime": {
+                "active_sessions": 0,
+                "active_model_turns": 0,
+                "active_provider_calls": 0,
+                "active_development_model_calls": 0,
+            },
+            "startup": {
+                "recovery_completed": True,
+                "automatic_resume_policy": "explicit_request_only",
+                "automatic_model_resume_count": 0,
+                "explicit_resume_candidate_count": 1,
+                "interrupted_sessions": 1,
+                "interrupted_turns": 0,
+                "interrupted_development_assignments": 0,
+                "reconciliation_required_development_invocations": 0,
+            },
+        }
     )
 
 
@@ -349,6 +392,9 @@ def test_platform_routes_cover_pairing_assignment_lookup_actions_and_safe_errors
                 truncated=False,
             )
         )
+        bridge.observability_snapshot = AsyncMock(
+            return_value=_observability_snapshot()
+        )
         bridge.reconnect_connection = AsyncMock(return_value=connection)
         bridge.start_build = AsyncMock(return_value=assignment)
         bridge.list_assignments_for_application = AsyncMock(return_value=[assignment])
@@ -409,6 +455,27 @@ def test_platform_routes_cover_pairing_assignment_lookup_actions_and_safe_errors
             page=1,
             page_size=100,
         )
+        observability = client.get(
+            f"/api/v1/local-lilies/connections/{connection_id}/observability-snapshot",
+            headers=_auth(),
+        )
+        assert observability.status_code == 200
+        assert observability.headers["cache-control"] == "no-store"
+        assert observability.json()["scope"] == "daemon_global"
+        assert observability.json()["daemon_fingerprint"] == FINGERPRINT
+        observability_schema = client.get("/openapi.json").json()["paths"][
+            "/api/v1/local-lilies/connections/{connection_id}/observability-snapshot"
+        ]["get"]["responses"]["200"]["content"]["application/json"]["schema"]
+        assert observability_schema == {
+            "$ref": "#/components/schemas/LocalLiliesObservabilitySnapshot",
+        }
+        bridge.observability_snapshot.assert_awaited_once_with(connection_id)
+
+        unauthenticated_observability = client.get(
+            f"/api/v1/local-lilies/connections/{connection_id}/observability-snapshot"
+        )
+        assert unauthenticated_observability.status_code == 401
+        assert bridge.observability_snapshot.await_count == 1
         assert client.post(
             f"/api/v1/local-lilies/connections/{connection_id}/reconnect",
             headers=_auth(),

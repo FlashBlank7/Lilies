@@ -15,17 +15,23 @@ import pytest
 
 from agent_platform.lilies_api import create_lilies_app
 from agent_platform.lilies_config import LiliesSettings
+from agent_platform.lilies_models import LocalScope
 from agent_platform.local_lilies_bridge import (
     BridgeAssignmentPhase,
+    BridgeConnectionStatus,
+    LEGACY_DAEMON_SCOPES,
     LocalLiliesBridge,
     LocalLiliesBridgeConflict,
     LocalLiliesBridgeDaemonRejected,
+    LocalLiliesObservabilitySnapshot,
+    LocalLiliesObservabilityUnavailable,
     LocalLiliesBridgeSecurityError,
     LocalLiliesBridgeStore,
     LocalLiliesBridgeUnavailable,
     LocalLiliesAssignment,
     LocalLiliesRelayCursorGap,
     LocalLiliesUsagePage,
+    OBSERVABILITY_DAEMON_SCOPES,
     PairLocalLiliesRequest,
     ReconnectLocalLiliesRequest,
     StartLocalLiliesBuildRequest,
@@ -51,6 +57,49 @@ from agent_platform.workflow_storage import WorkflowStorage
 
 DIGEST = "sha256:" + "b" * 64
 FINGERPRINT = "sha256:" + "c" * 64
+DAEMON_INSTANCE_ID = "913b6ec2-fb77-44af-a566-56e5ae1a60a3"
+
+
+def observability_payload(
+    *,
+    fingerprint: str = FINGERPRINT,
+) -> dict[str, Any]:
+    return {
+        "schema_version": "1.0",
+        "scope": "daemon_global",
+        "coverage_complete": True,
+        "daemon_fingerprint": fingerprint,
+        "daemon_instance_id": DAEMON_INSTANCE_ID,
+        "captured_at": "2026-07-26T12:00:00+00:00",
+        "activity_revision": 9,
+        "model_egress_enabled": False,
+        "usage": {
+            "ledger_cursor": 4,
+            "attempted_calls": 4,
+            "recorded_calls": 2,
+            "unknown_calls": 1,
+            "input_tokens": 11,
+            "output_tokens": 7,
+            "total_tokens": 18,
+            "cost_usd": 0.02,
+        },
+        "runtime": {
+            "active_sessions": 1,
+            "active_model_turns": 1,
+            "active_provider_calls": 1,
+            "active_development_model_calls": 0,
+        },
+        "startup": {
+            "recovery_completed": True,
+            "automatic_resume_policy": "explicit_request_only",
+            "automatic_model_resume_count": 0,
+            "explicit_resume_candidate_count": 2,
+            "interrupted_sessions": 1,
+            "interrupted_turns": 1,
+            "interrupted_development_assignments": 0,
+            "reconciliation_required_development_invocations": 0,
+        },
+    }
 
 
 class InjectedCrash(RuntimeError):
@@ -115,6 +164,9 @@ class FakeDaemonClient:
         self.pause_release = asyncio.Event()
         self.usage_payload: dict[str, Any] | None = None
         self.usage_error: LocalLiliesClientError | None = None
+        self.observability_payload: dict[str, Any] | None = None
+        self.observability_error: LocalLiliesClientError | None = None
+        self.observability_calls = 0
 
     def _available(self) -> None:
         if self.unavailable:
@@ -210,6 +262,19 @@ class FakeDaemonClient:
             "total_pages": 0,
             "truncated": False,
         }
+
+    async def observability_snapshot(
+        self,
+        _: str,
+        access_token: str,
+    ) -> dict[str, Any]:
+        self._available()
+        assert access_token == self.daemon_token
+        self.observability_calls += 1
+        if self.observability_error is not None:
+            raise self.observability_error
+        payload = self.observability_payload or observability_payload()
+        return json.loads(json.dumps(payload))
 
     async def create_session(
         self, _: str, access_token: str, payload: dict[str, Any]
@@ -616,8 +681,8 @@ async def test_bridge_store_migrates_v1_operations_and_rejects_future_schema(
         )
     store = LocalLiliesBridgeStore(db_path)
 
-    assert await store.initialize() == {"schema_version": 7}
-    assert await store.initialize() == {"schema_version": 7}
+    assert await store.initialize() == {"schema_version": 8}
+    assert await store.initialize() == {"schema_version": 8}
     with sqlite3.connect(db_path) as conn:
         columns = {
             str(row[1])
@@ -640,7 +705,14 @@ async def test_bridge_store_migrates_v1_operations_and_rejects_future_schema(
             str(row[1])
             for row in conn.execute("PRAGMA table_info(local_lilies_assignments)").fetchall()
         }
-    assert {"result_json", "completed_at"} <= columns
+        connection_columns = {
+            str(row[1])
+            for row in conn.execute(
+                "PRAGMA table_info(local_lilies_connections)"
+            ).fetchall()
+        }
+    assert {"result_json", "completed_at", "requested_scopes_json"} <= columns
+    assert "pairing_scope_profile_json" in connection_columns
     assert "terminal_events_drained_at" in assignment_columns
     assert "daemon_session_creation_started_at" in assignment_columns
     assert "formal_channel_close_receipt_json" in assignment_columns
@@ -654,7 +726,7 @@ async def test_bridge_store_migrates_v1_operations_and_rejects_future_schema(
         "formal_terminal_archive_manifest_digest",
         "formal_terminal_archive_completed_at",
     } <= assignment_columns
-    assert versions == [1, 2, 3, 4, 5, 6, 7]
+    assert versions == [1, 2, 3, 4, 5, 6, 7, 8]
     with pytest.raises(RuntimeError, match="newer than supported"):
         await store.initialize()
 
@@ -780,8 +852,132 @@ async def test_pairing_recovers_after_daemon_acceptance_without_pairing_code_reu
     replay = await restarted.pair_connection(request)
 
     assert recovered.status.value == "connected"
+    assert tuple(recovered.granted_scopes) == OBSERVABILITY_DAEMON_SCOPES
     assert replay == recovered
     assert daemon.pairing_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_legacy_pairing_outbox_recovers_exact_four_scopes_without_upgrade(
+    tmp_path: Path,
+) -> None:
+    _, workflow, harness, auth = await platform_parts(tmp_path)
+    daemon = FakeDaemonClient()
+    bridge = bridge_for(
+        tmp_path,
+        workflow=workflow,
+        harness=harness,
+        auth=auth,
+        daemon=daemon,
+        fault_hook=CrashOnce("pairing.exchange_accepted"),
+    )
+    await bridge.initialize()
+    request = PairLocalLiliesRequest(
+        idempotency_key="legacy-pair-recovery-000001",
+        base_url="http://127.0.0.1:8765",
+        pairing_code="PAIR-CODE-001",
+        expected_daemon_fingerprint=FINGERPRINT,
+    )
+
+    with pytest.raises(InjectedCrash, match="pairing.exchange_accepted"):
+        await bridge.pair_connection(request)
+
+    legacy_values = [scope.value for scope in LEGACY_DAEMON_SCOPES]
+    with sqlite3.connect(bridge.store.db_path) as conn:
+        conn.execute(
+            "UPDATE local_lilies_connections "
+            "SET pairing_scope_profile_json=NULL"
+        )
+    daemon.client_scopes = legacy_values
+
+    restarted = bridge_for(
+        tmp_path,
+        workflow=workflow,
+        harness=harness,
+        auth=auth,
+        daemon=daemon,
+    )
+    await restarted.initialize()
+    recovered = (await restarted.list_connections())[0]
+
+    assert recovered.status is BridgeConnectionStatus.connected
+    assert tuple(recovered.granted_scopes) == LEGACY_DAEMON_SCOPES
+    with pytest.raises(LocalLiliesObservabilityUnavailable):
+        await restarted.observability_snapshot(recovered.connection_id)
+    assert daemon.pairing_calls == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("persisted_profile", "daemon_scopes"),
+    [
+        pytest.param(
+            None,
+            OBSERVABILITY_DAEMON_SCOPES,
+            id="legacy-outbox-cannot-silently-upgrade",
+        ),
+        pytest.param(
+            OBSERVABILITY_DAEMON_SCOPES,
+            LEGACY_DAEMON_SCOPES,
+            id="new-outbox-cannot-silently-downgrade",
+        ),
+    ],
+)
+async def test_pairing_outbox_recovery_rejects_scope_profile_mismatch(
+    tmp_path: Path,
+    persisted_profile: tuple[LocalScope, ...] | None,
+    daemon_scopes: tuple[LocalScope, ...],
+) -> None:
+    _, workflow, harness, auth = await platform_parts(tmp_path)
+    daemon = FakeDaemonClient()
+    bridge = bridge_for(
+        tmp_path,
+        workflow=workflow,
+        harness=harness,
+        auth=auth,
+        daemon=daemon,
+        fault_hook=CrashOnce("pairing.exchange_accepted"),
+    )
+    await bridge.initialize()
+    request = PairLocalLiliesRequest(
+        idempotency_key="pair-profile-mismatch-000001",
+        base_url="http://127.0.0.1:8765",
+        pairing_code="PAIR-CODE-001",
+        expected_daemon_fingerprint=FINGERPRINT,
+    )
+    with pytest.raises(InjectedCrash, match="pairing.exchange_accepted"):
+        await bridge.pair_connection(request)
+
+    raw_profile = (
+        None
+        if persisted_profile is None
+        else json.dumps([scope.value for scope in persisted_profile])
+    )
+    with sqlite3.connect(bridge.store.db_path) as conn:
+        conn.execute(
+            "UPDATE local_lilies_connections SET pairing_scope_profile_json=?",
+            (raw_profile,),
+        )
+    daemon.client_scopes = [scope.value for scope in daemon_scopes]
+
+    restarted = bridge_for(
+        tmp_path,
+        workflow=workflow,
+        harness=harness,
+        auth=auth,
+        daemon=daemon,
+    )
+    await restarted.initialize()
+    persisted = await restarted.store.get_connection(
+        uuid5(
+            NAMESPACE_URL,
+            "lilies:platform-connection:"
+            f"http://127.0.0.1:8765:{request.idempotency_key}",
+        )
+    )
+
+    assert persisted["status"] == BridgeConnectionStatus.unavailable.value
+    assert persisted["last_error_code"] == "daemon_pairing_recovery_rejected"
 
 
 @pytest.mark.asyncio
@@ -876,6 +1072,88 @@ async def test_reconnect_recovers_every_post_rotation_crash_window(
 
 
 @pytest.mark.asyncio
+async def test_legacy_reconnect_outbox_recovers_exact_four_scopes_without_upgrade(
+    tmp_path: Path,
+) -> None:
+    _, workflow, harness, auth = await platform_parts(tmp_path)
+    daemon = FakeDaemonClient()
+    bridge = bridge_for(tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon)
+    connection = await pair(bridge)
+    legacy_values = [scope.value for scope in LEGACY_DAEMON_SCOPES]
+    with sqlite3.connect(bridge.store.db_path) as conn:
+        conn.execute(
+            "UPDATE local_lilies_connections SET granted_scopes_json=?,"
+            "pairing_scope_profile_json=NULL WHERE id=?",
+            (json.dumps(legacy_values), str(connection.connection_id)),
+        )
+    daemon.client_scopes = legacy_values
+    bridge.fault_hook = CrashOnce("reconnect.exchange_accepted")
+    request = ReconnectLocalLiliesRequest(
+        idempotency_key="legacy-reconnect-recovery-000001",
+        pairing_code="PAIR-CODE-001",
+    )
+
+    with pytest.raises(InjectedCrash, match="reconnect.exchange_accepted"):
+        await bridge.reconnect_connection(connection.connection_id, request)
+
+    with sqlite3.connect(bridge.store.db_path) as conn:
+        conn.execute(
+            "UPDATE local_lilies_connection_operations "
+            "SET requested_scopes_json=NULL WHERE connection_id=? "
+            "AND operation='reconnect' AND idempotency_key=?",
+            (str(connection.connection_id), request.idempotency_key),
+        )
+    daemon.client_scopes = legacy_values
+
+    restarted = bridge_for(
+        tmp_path,
+        workflow=workflow,
+        harness=harness,
+        auth=auth,
+        daemon=daemon,
+    )
+    await restarted.initialize()
+    recovered = await restarted.get_connection(connection.connection_id)
+    replay = await restarted.reconnect_connection(connection.connection_id, request)
+
+    assert recovered.status is BridgeConnectionStatus.connected
+    assert tuple(recovered.granted_scopes) == LEGACY_DAEMON_SCOPES
+    assert replay == recovered
+
+
+@pytest.mark.asyncio
+async def test_new_reconnect_outbox_recovery_rejects_legacy_scope_downgrade(
+    tmp_path: Path,
+) -> None:
+    _, workflow, harness, auth = await platform_parts(tmp_path)
+    daemon = FakeDaemonClient()
+    bridge = bridge_for(tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon)
+    connection = await pair(bridge)
+    bridge.fault_hook = CrashOnce("reconnect.exchange_accepted")
+    request = ReconnectLocalLiliesRequest(
+        idempotency_key="new-reconnect-profile-mismatch-000001",
+        pairing_code="PAIR-CODE-001",
+    )
+
+    with pytest.raises(InjectedCrash, match="reconnect.exchange_accepted"):
+        await bridge.reconnect_connection(connection.connection_id, request)
+    daemon.client_scopes = [scope.value for scope in LEGACY_DAEMON_SCOPES]
+
+    restarted = bridge_for(
+        tmp_path,
+        workflow=workflow,
+        harness=harness,
+        auth=auth,
+        daemon=daemon,
+    )
+    await restarted.initialize()
+    persisted = await restarted.store.get_connection(connection.connection_id)
+
+    assert persisted["status"] == BridgeConnectionStatus.unavailable.value
+    assert persisted["last_error_code"] == "daemon_reconnect_recovery_rejected"
+
+
+@pytest.mark.asyncio
 async def test_refresh_persists_unavailable_after_daemon_fingerprint_substitution(
     tmp_path: Path,
 ) -> None:
@@ -921,6 +1199,310 @@ async def test_refresh_fails_closed_on_expired_or_mismatched_bearer_expiry(
 
     persisted = await bridge.get_connection(connection.connection_id)
     assert persisted.status.value == expected_status
+
+
+@pytest.mark.asyncio
+async def test_observability_snapshot_uses_exact_new_scope_profile_and_strict_receipt(
+    tmp_path: Path,
+) -> None:
+    _, workflow, harness, auth = await platform_parts(tmp_path)
+    daemon = FakeDaemonClient()
+    bridge = bridge_for(tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon)
+    connection = await pair(bridge)
+
+    assert tuple(connection.granted_scopes) == OBSERVABILITY_DAEMON_SCOPES
+    assert tuple(daemon.client_scopes) == tuple(
+        scope.value for scope in OBSERVABILITY_DAEMON_SCOPES
+    )
+
+    snapshot = await bridge.observability_snapshot(connection.connection_id)
+
+    assert snapshot.scope == "daemon_global"
+    assert snapshot.coverage_complete is True
+    assert snapshot.daemon_fingerprint == FINGERPRINT
+    assert str(snapshot.daemon_instance_id) == DAEMON_INSTANCE_ID
+    assert snapshot.usage.attempted_calls == 4
+    assert snapshot.runtime.active_provider_calls == 1
+    assert snapshot.startup.automatic_resume_policy == "explicit_request_only"
+    assert daemon.observability_calls == 1
+    persisted = await bridge.get_connection(connection.connection_id)
+    assert persisted.status is BridgeConnectionStatus.connected
+    assert persisted.last_error is None
+
+
+def test_observability_snapshot_rejects_coercion_and_impossible_counters() -> None:
+    payload = observability_payload()
+    snapshot = LocalLiliesObservabilitySnapshot.model_validate_json(
+        json.dumps(payload),
+        strict=True,
+    )
+    assert snapshot.usage.total_tokens == 18
+
+    invalid_payloads: list[dict[str, Any]] = []
+    for path, invalid_value in (
+        (("activity_revision",), True),
+        (("activity_revision",), "9"),
+        (("activity_revision",), 2**63),
+        (("model_egress_enabled",), "false"),
+        (("scope",), " daemon_global "),
+        (("daemon_fingerprint",), f" {FINGERPRINT} "),
+        (("daemon_instance_id",), f" {DAEMON_INSTANCE_ID} "),
+        (("daemon_instance_id",), DAEMON_INSTANCE_ID.upper()),
+        (("daemon_instance_id",), DAEMON_INSTANCE_ID.replace("-", "")),
+        (("daemon_instance_id",), f"{{{DAEMON_INSTANCE_ID}}}"),
+        (("daemon_instance_id",), f"urn:uuid:{DAEMON_INSTANCE_ID}"),
+        (("captured_at",), "2026-07-26 12:00:00+00:00"),
+        (("captured_at",), " 2026-07-26T12:00:00+00:00 "),
+        (("coverage_complete",), 1),
+        (("coverage_complete",), 1.0),
+        (("usage", "ledger_cursor"), "4"),
+        (("usage", "ledger_cursor"), 2**63),
+        (("usage", "input_tokens"), True),
+        (("usage", "input_tokens"), 2**63),
+        (("usage", "cost_usd"), float("nan")),
+        (("usage", "cost_usd"), 1_000_000_000_000.01),
+        (("startup", "recovery_completed"), False),
+        (("startup", "recovery_completed"), "true"),
+        (("startup", "automatic_model_resume_count"), 1),
+        (("startup", "automatic_model_resume_count"), False),
+        (("startup", "interrupted_turns"), 2**63),
+    ):
+        candidate = json.loads(json.dumps(payload))
+        target = candidate
+        for segment in path[:-1]:
+            target = target[segment]
+        target[path[-1]] = invalid_value
+        invalid_payloads.append(candidate)
+
+    attempted_mismatch = json.loads(json.dumps(payload))
+    attempted_mismatch["usage"]["attempted_calls"] = 3
+    invalid_payloads.append(attempted_mismatch)
+    total_mismatch = json.loads(json.dumps(payload))
+    total_mismatch["usage"]["total_tokens"] = 19
+    invalid_payloads.append(total_mismatch)
+    cursor_mismatch = json.loads(json.dumps(payload))
+    cursor_mismatch["usage"]["ledger_cursor"] = 3
+    invalid_payloads.append(cursor_mismatch)
+    unrecorded_measured_usage = json.loads(json.dumps(payload))
+    unrecorded_measured_usage["usage"].update(
+        attempted_calls=1,
+        recorded_calls=0,
+        unknown_calls=0,
+        input_tokens=1,
+        output_tokens=2,
+        total_tokens=3,
+        cost_usd=9.0,
+    )
+    invalid_payloads.append(unrecorded_measured_usage)
+    development_exceeds_provider = json.loads(json.dumps(payload))
+    development_exceeds_provider["runtime"]["active_development_model_calls"] = 2
+    invalid_payloads.append(development_exceeds_provider)
+    provider_exceeds_turns = json.loads(json.dumps(payload))
+    provider_exceeds_turns["runtime"].update(
+        active_provider_calls=2,
+        active_development_model_calls=0,
+    )
+    provider_exceeds_turns["usage"]["attempted_calls"] = 5
+    invalid_payloads.append(provider_exceeds_turns)
+    turns_exceed_sessions = json.loads(json.dumps(payload))
+    turns_exceed_sessions["runtime"]["active_model_turns"] = 2
+    invalid_payloads.append(turns_exceed_sessions)
+    non_utc = json.loads(json.dumps(payload))
+    non_utc["captured_at"] = "2026-07-26T21:00:00+09:00"
+    invalid_payloads.append(non_utc)
+    extra_field = json.loads(json.dumps(payload))
+    extra_field["bootstrap_secret"] = "must-not-be-accepted"
+    invalid_payloads.append(extra_field)
+
+    for candidate in invalid_payloads:
+        with pytest.raises(ValueError):
+            LocalLiliesObservabilitySnapshot.model_validate_json(
+                json.dumps(candidate),
+                strict=True,
+            )
+
+
+@pytest.mark.asyncio
+async def test_legacy_connection_refreshes_without_upgrade_and_observability_is_unknown(
+    tmp_path: Path,
+) -> None:
+    _, workflow, harness, auth = await platform_parts(tmp_path)
+    daemon = FakeDaemonClient()
+    bridge = bridge_for(tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon)
+    connection = await pair(bridge)
+    legacy_values = [scope.value for scope in LEGACY_DAEMON_SCOPES]
+    with sqlite3.connect(bridge.store.db_path) as conn:
+        conn.execute(
+            "UPDATE local_lilies_connections SET granted_scopes_json=? WHERE id=?",
+            (json.dumps(legacy_values), str(connection.connection_id)),
+        )
+    daemon.client_scopes = legacy_values
+
+    refreshed = await bridge.refresh_connection(connection.connection_id)
+    assert tuple(refreshed.granted_scopes) == LEGACY_DAEMON_SCOPES
+    assert refreshed.status is BridgeConnectionStatus.connected
+
+    with pytest.raises(LocalLiliesObservabilityUnavailable) as captured:
+        await bridge.observability_snapshot(connection.connection_id)
+    assert captured.value.status_code == 409
+    assert captured.value.details["availability"] == "unknown"
+    assert captured.value.details["reason"] == "missing_observability_scope"
+    assert daemon.observability_calls == 0
+    still_connected = await bridge.get_connection(connection.connection_id)
+    assert still_connected.status is BridgeConnectionStatus.connected
+    assert still_connected.last_error is None
+
+    upgraded = await bridge.reconnect_connection(
+        connection.connection_id,
+        ReconnectLocalLiliesRequest(
+            idempotency_key="reconnect-observability-upgrade-0001",
+            pairing_code="PAIR-CODE-001",
+        ),
+    )
+    assert tuple(upgraded.granted_scopes) == OBSERVABILITY_DAEMON_SCOPES
+    assert (await bridge.observability_snapshot(connection.connection_id)).coverage_complete
+    assert daemon.observability_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_refresh_rejects_daemon_side_scope_upgrade_without_pairing(
+    tmp_path: Path,
+) -> None:
+    _, workflow, harness, auth = await platform_parts(tmp_path)
+    daemon = FakeDaemonClient()
+    bridge = bridge_for(tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon)
+    connection = await pair(bridge)
+    legacy_values = [scope.value for scope in LEGACY_DAEMON_SCOPES]
+    with sqlite3.connect(bridge.store.db_path) as conn:
+        conn.execute(
+            "UPDATE local_lilies_connections SET granted_scopes_json=? WHERE id=?",
+            (json.dumps(legacy_values), str(connection.connection_id)),
+        )
+    daemon.client_scopes = [scope.value for scope in OBSERVABILITY_DAEMON_SCOPES]
+
+    with pytest.raises(LocalLiliesBridgeSecurityError, match="persisted pairing profile"):
+        await bridge.refresh_connection(connection.connection_id)
+
+    persisted = await bridge.get_connection(connection.connection_id)
+    assert persisted.status is BridgeConnectionStatus.unavailable
+    assert persisted.last_error == {
+        "code": "daemon_scope_mismatch",
+        "message": "daemon bearer scopes no longer match the persisted pairing",
+    }
+
+
+@pytest.mark.parametrize(
+    ("daemon_error", "expected_error", "expected_status", "expected_code"),
+    [
+        pytest.param(
+            LocalLiliesUnavailable("SENSITIVE offline detail"),
+            LocalLiliesBridgeUnavailable,
+            503,
+            "daemon_observability_unavailable",
+            id="offline",
+        ),
+        pytest.param(
+            LocalLiliesRemoteError(401, "SENSITIVE revoked bearer"),
+            LocalLiliesBridgeDaemonRejected,
+            502,
+            "daemon_observability_authentication_rejected",
+            id="authentication-rejected",
+        ),
+        pytest.param(
+            LocalLiliesRemoteError(403, "SENSITIVE missing scope"),
+            LocalLiliesBridgeDaemonRejected,
+            502,
+            "daemon_observability_authentication_rejected",
+            id="scope-rejected",
+        ),
+        pytest.param(
+            LocalLiliesRemoteError(500, "SENSITIVE daemon detail"),
+            LocalLiliesBridgeDaemonRejected,
+            502,
+            "daemon_observability_rejected",
+            id="remote-failure",
+        ),
+        pytest.param(
+            LocalLiliesProtocolError("SENSITIVE malformed response"),
+            LocalLiliesBridgeDaemonRejected,
+            502,
+            "daemon_observability_protocol_error",
+            id="protocol-failure",
+        ),
+    ],
+)
+@pytest.mark.asyncio
+async def test_observability_failure_mapping_is_stateful_and_sanitized(
+    tmp_path: Path,
+    daemon_error: LocalLiliesClientError,
+    expected_error: type[Exception],
+    expected_status: int,
+    expected_code: str,
+) -> None:
+    _, workflow, harness, auth = await platform_parts(tmp_path)
+    daemon = FakeDaemonClient()
+    bridge = bridge_for(tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon)
+    connection = await pair(bridge)
+    daemon.observability_error = daemon_error
+
+    with pytest.raises(expected_error) as captured:
+        await bridge.observability_snapshot(connection.connection_id)
+
+    assert "SENSITIVE" not in str(captured.value)
+    assert captured.value.status_code == expected_status
+    persisted = await bridge.get_connection(connection.connection_id)
+    assert persisted.status is BridgeConnectionStatus.unavailable
+    assert persisted.last_error is not None
+    assert persisted.last_error["code"] == expected_code
+    assert "SENSITIVE" not in json.dumps(persisted.last_error)
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected_code"),
+    [
+        pytest.param("extra", "daemon_observability_receipt_invalid", id="extra"),
+        pytest.param(
+            "attempts", "daemon_observability_receipt_invalid", id="attempt-mismatch"
+        ),
+        pytest.param(
+            "tokens", "daemon_observability_receipt_invalid", id="token-mismatch"
+        ),
+        pytest.param(
+            "fingerprint", "daemon_observability_receipt_mismatch", id="fingerprint"
+        ),
+    ],
+)
+@pytest.mark.asyncio
+async def test_observability_invalid_or_mismatched_receipt_fails_closed(
+    tmp_path: Path,
+    mutation: str,
+    expected_code: str,
+) -> None:
+    _, workflow, harness, auth = await platform_parts(tmp_path)
+    daemon = FakeDaemonClient()
+    bridge = bridge_for(tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon)
+    connection = await pair(bridge)
+    payload = observability_payload()
+    if mutation == "extra":
+        payload["unexpected"] = "SENSITIVE daemon field"
+    elif mutation == "attempts":
+        payload["usage"]["attempted_calls"] = 3
+    elif mutation == "tokens":
+        payload["usage"]["total_tokens"] = 19
+    else:
+        payload["daemon_fingerprint"] = "sha256:" + "d" * 64
+    daemon.observability_payload = payload
+
+    with pytest.raises(LocalLiliesBridgeDaemonRejected) as captured:
+        await bridge.observability_snapshot(connection.connection_id)
+
+    assert captured.value.status_code == 502
+    assert "SENSITIVE" not in str(captured.value)
+    persisted = await bridge.get_connection(connection.connection_id)
+    assert persisted.status is BridgeConnectionStatus.unavailable
+    assert persisted.last_error is not None
+    assert persisted.last_error["code"] == expected_code
+    assert "SENSITIVE" not in json.dumps(persisted.last_error)
 
 
 @pytest.mark.asyncio
@@ -2193,6 +2775,7 @@ async def test_real_daemon_asgi_recovers_pair_and_reconnect_response_loss(
             "lilies.session:write",
             "lilies.permission:resolve",
             "lilies.credential:write",
+            "lilies.observability:read",
         ]
         client = LocalLiliesHttpClient(
             transport=httpx.ASGITransport(app=app, client=("127.0.0.1", 43121))
@@ -2379,6 +2962,7 @@ async def test_real_daemon_asgi_cancel_terminal_events_drain_and_restart_recover
                 "lilies.session:write",
                 "lilies.permission:resolve",
                 "lilies.credential:write",
+                "lilies.observability:read",
             ]
         )
         client = ASGIBoundedEventClient(
@@ -2502,6 +3086,7 @@ async def test_real_daemon_asgi_pair_assignment_idempotency_and_no_prebuilt_draf
                 "lilies.session:write",
                 "lilies.permission:resolve",
                 "lilies.credential:write",
+                "lilies.observability:read",
             ]
         )
         client = LocalLiliesHttpClient(

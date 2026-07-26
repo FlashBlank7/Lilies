@@ -107,9 +107,16 @@ class LocalScope(str, Enum):
     permission_resolve = "lilies.permission:resolve"
     daemon_control = "lilies.daemon:control"
     credential_write = "lilies.credential:write"
+    observability_read = "lilies.observability:read"
 
 
-DEFAULT_LOCAL_SCOPES: tuple[LocalScope, ...] = tuple(LocalScope)
+DEFAULT_LOCAL_SCOPES: tuple[LocalScope, ...] = (
+    LocalScope.session_read,
+    LocalScope.session_write,
+    LocalScope.permission_resolve,
+    LocalScope.daemon_control,
+    LocalScope.credential_write,
+)
 
 
 class PlatformScope(str, Enum):

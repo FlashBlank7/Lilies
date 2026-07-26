@@ -315,7 +315,14 @@ def test_assignment_requires_utc_timestamps_and_forward_deadline() -> None:
 def test_pairing_default_scopes_include_control_and_private_credentials() -> None:
     request = PairingCodeCreateRequest()
     assert request.ttl_seconds == 600
-    assert set(request.allowed_scopes) == set(LocalScope)
+    assert set(request.allowed_scopes) == {
+        LocalScope.session_read,
+        LocalScope.session_write,
+        LocalScope.permission_resolve,
+        LocalScope.daemon_control,
+        LocalScope.credential_write,
+    }
+    assert LocalScope.observability_read not in request.allowed_scopes
     assert LocalScope.daemon_control in request.allowed_scopes
     assert LocalScope.credential_write in request.allowed_scopes
 

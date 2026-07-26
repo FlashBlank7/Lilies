@@ -133,6 +133,30 @@ async def test_usage_uses_authenticated_bounded_public_query() -> None:
 
 
 @pytest.mark.asyncio
+async def test_observability_snapshot_uses_authenticated_fixed_public_path() -> None:
+    requests: list[httpx.Request] = []
+    payload = {"schema_version": "1.0", "scope": "daemon_global"}
+    client = LocalLiliesHttpClient(
+        transport=_transport(json.dumps(payload).encode(), requests=requests)
+    )
+
+    result = await client.observability_snapshot(
+        "http://127.0.0.1:8765",
+        "paired-observability-secret",
+    )
+
+    assert result == payload
+    assert len(requests) == 1
+    assert requests[0].method == "GET"
+    assert requests[0].url.path == "/local/v1/observability/snapshot"
+    assert requests[0].url.query == b""
+    assert requests[0].headers["authorization"] == (
+        "Bearer paired-observability-secret"
+    )
+    assert requests[0].headers["accept-encoding"] == "identity"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "base_url",
     [
@@ -261,6 +285,25 @@ async def test_invalid_or_oversized_declared_length_fails_before_body_read() -> 
     with pytest.raises(LocalLiliesProtocolError, match="Content-Length"):
         await invalid_client.health("http://127.0.0.1:8765")
 
+    huge_integer_client = LocalLiliesHttpClient(
+        transport=_transport(
+            b"{}",
+            headers={"content-length": "9" * 5_000},
+        )
+    )
+    with pytest.raises(LocalLiliesProtocolError, match="Content-Length"):
+        await huge_integer_client.health("http://127.0.0.1:8765")
+
+    huge_error_integer_client = LocalLiliesHttpClient(
+        transport=_transport(
+            b"{}",
+            status_code=502,
+            headers={"content-length": "9" * 5_000},
+        )
+    )
+    with pytest.raises(LocalLiliesProtocolError, match="Content-Length"):
+        await huge_error_integer_client.health("http://127.0.0.1:8765")
+
     oversized_client = LocalLiliesHttpClient(
         transport=_transport(
             b"",
@@ -305,6 +348,15 @@ async def test_success_json_rejects_bounded_excessive_nesting_without_recursion_
 
 
 @pytest.mark.asyncio
+async def test_success_json_rejects_python_oversized_integer_as_protocol_error() -> None:
+    body = b'{"value":' + (b"9" * 5_000) + b"}"
+    client = LocalLiliesHttpClient(transport=_transport(body))
+
+    with pytest.raises(LocalLiliesProtocolError, match="invalid JSON"):
+        await client.health("http://127.0.0.1:8765")
+
+
+@pytest.mark.asyncio
 async def test_error_response_is_bounded_before_parsing_or_rendering() -> None:
     limit = local_lilies_client._MAX_ERROR_RESPONSE_BYTES
     secret = b"must-not-be-rendered"
@@ -332,6 +384,18 @@ async def test_bounded_error_json_preserves_remote_status_contract() -> None:
     assert captured.value.status_code == 409
     assert str(captured.value) == "pairing_expired"
     assert captured.value.payload == {"detail": {"code": "pairing_expired"}}
+
+
+@pytest.mark.asyncio
+async def test_error_json_contains_oversized_integer_without_value_error_leak() -> None:
+    body = b'{"detail":' + (b"9" * 5_000) + b"}"
+    client = LocalLiliesHttpClient(transport=_transport(body, status_code=502))
+
+    with pytest.raises(LocalLiliesRemoteError) as captured:
+        await client.health("http://127.0.0.1:8765")
+
+    assert captured.value.status_code == 502
+    assert len(str(captured.value)) <= 2_000
 
 
 @pytest.mark.asyncio

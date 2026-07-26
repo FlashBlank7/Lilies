@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from .local_lilies_bridge import (
     LocalLiliesBridge,
     LocalLiliesBridgeError,
+    LocalLiliesObservabilitySnapshot,
     LocalLiliesRelayEvent,
     LocalLiliesUsagePage,
     PairLocalLiliesRequest,
@@ -29,6 +30,9 @@ from .platform_blackbox_auth import PlatformBlackboxScope
 
 
 _SSE_EVENT_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,199}$")
+_OBSERVABILITY_SNAPSHOT_PATH = re.compile(
+    r"^/api/v1/local-lilies/connections/[^/]+/observability-snapshot$"
+)
 _MAX_EVENT_CURSOR = 2**63 - 1
 _Result = TypeVar("_Result")
 AuthDependency = Callable[..., Awaitable[None]]
@@ -230,6 +234,32 @@ def install_local_lilies_bridge_api(
 
     previous_validation_handler = app.exception_handlers.get(RequestValidationError)
 
+    @app.middleware("http")
+    async def local_lilies_observability_no_store(
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Any]],
+    ) -> Any:
+        is_observability_snapshot = _OBSERVABILITY_SNAPSHOT_PATH.fullmatch(
+            request.url.path.rstrip("/")
+        )
+        try:
+            response = await call_next(request)
+        except Exception:
+            if is_observability_snapshot is None:
+                raise
+            response = JSONResponse(
+                status_code=500,
+                content={
+                    "detail": {
+                        "code": "local_lilies_observability_internal_error",
+                        "message": "local Lilies observability request failed",
+                    }
+                },
+            )
+        if is_observability_snapshot is not None:
+            response.headers["Cache-Control"] = "no-store"
+        return response
+
     @app.exception_handler(RequestValidationError)
     async def local_lilies_validation_error(
         request: Request,
@@ -322,6 +352,16 @@ def install_local_lilies_bridge_api(
                 page_size=page_size,
             )
         )
+
+    @app.get(
+        "/api/v1/local-lilies/connections/{connection_id}/observability-snapshot",
+        response_model=LocalLiliesObservabilitySnapshot,
+        dependencies=dependencies,
+    )
+    async def local_lilies_observability_snapshot(
+        connection_id: UUID,
+    ) -> Any:
+        return await _bridge_call(bridge.observability_snapshot(connection_id))
 
     @app.post(
         "/api/v1/local-lilies/connections/{connection_id}/reconnect",

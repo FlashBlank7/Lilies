@@ -84,6 +84,18 @@ class LocalLiliesHttpClient:
             access_token=access_token,
         )
 
+    async def observability_snapshot(
+        self,
+        base_url: str,
+        access_token: str,
+    ) -> dict[str, Any]:
+        return await self._json(
+            "GET",
+            base_url,
+            "/local/v1/observability/snapshot",
+            access_token=access_token,
+        )
+
     async def usage(
         self,
         base_url: str,
@@ -367,7 +379,7 @@ class LocalLiliesHttpClient:
             raise LocalLiliesUnavailable(f"local Lilies daemon HTTP failure: {error}") from error
         try:
             payload = json.loads(raw_payload)
-        except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as error:
+        except (UnicodeDecodeError, ValueError, RecursionError) as error:
             raise LocalLiliesProtocolError(
                 f"local Lilies returned invalid JSON for {method} {path}"
             ) from error
@@ -412,7 +424,7 @@ class LocalLiliesHttpClient:
                 response.status_code,
                 "local Lilies request failed",
             ) from None
-        except (UnicodeDecodeError, json.JSONDecodeError):
+        except (UnicodeDecodeError, ValueError):
             payload = raw_payload.decode("utf-8", errors="replace")[:2_000]
         if not cls._json_nesting_is_safe(payload):
             raise LocalLiliesRemoteError(
@@ -619,9 +631,18 @@ class LocalLiliesHttpClient:
         raw = response.headers.get("content-length")
         if raw is None:
             return None
-        if not raw.isdigit():
+        if (
+            len(raw) > 20
+            or not raw.isascii()
+            or not raw.isdecimal()
+        ):
             raise LocalLiliesProtocolError("local Lilies returned an invalid Content-Length")
-        return int(raw)
+        try:
+            return int(raw)
+        except ValueError as error:
+            raise LocalLiliesProtocolError(
+                "local Lilies returned an invalid Content-Length"
+            ) from error
 
     @staticmethod
     def _json_nesting_is_safe(payload: Any) -> bool:

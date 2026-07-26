@@ -25,6 +25,7 @@ from pydantic import (
     ConfigDict,
     Field,
     SecretStr,
+    ValidationInfo,
     field_validator,
     model_validator,
 )
@@ -105,13 +106,20 @@ from .task_packages import ArchiveStatus, TaskPackageNotReady
 from .workflow_storage import WorkflowStorage
 
 
-BRIDGE_SCHEMA_VERSION = 7
-REQUIRED_DAEMON_SCOPES = (
+BRIDGE_SCHEMA_VERSION = 8
+_MAX_SQLITE_INTEGER = 2**63 - 1
+_MAX_OBSERVABILITY_COST_USD = 1_000_000_000_000.0
+LEGACY_DAEMON_SCOPES = (
     LocalScope.session_read,
     LocalScope.session_write,
     LocalScope.permission_resolve,
     LocalScope.credential_write,
 )
+OBSERVABILITY_DAEMON_SCOPES = (
+    *LEGACY_DAEMON_SCOPES,
+    LocalScope.observability_read,
+)
+REQUIRED_DAEMON_SCOPES = OBSERVABILITY_DAEMON_SCOPES
 DAEMON_CREDENTIAL_REVOCATION_REASON = "platform assignment cancellation"
 DEFAULT_PLATFORM_SCOPES = (
     PlatformBlackboxScope.catalog_read,
@@ -155,10 +163,62 @@ def _parse_time(value: str | None) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
+def _persisted_daemon_scope_profile(
+    row: Mapping[str, Any],
+) -> tuple[LocalScope, ...]:
+    return _decode_daemon_scope_profile(row.get("granted_scopes_json"))
+
+
+def _decode_daemon_scope_profile(raw_profile: Any) -> tuple[LocalScope, ...]:
+    if type(raw_profile) is not str:
+        raise ValueError("persisted daemon scope profile must be JSON text")
+    raw_scopes = json.loads(raw_profile)
+    if not isinstance(raw_scopes, list) or not raw_scopes:
+        raise ValueError("persisted daemon scope profile must be a non-empty list")
+    if any(type(value) is not str for value in raw_scopes):
+        raise ValueError("persisted daemon scope profile must contain strings")
+    scopes = tuple(LocalScope(value) for value in raw_scopes)
+    if len(scopes) != len(set(scopes)):
+        raise ValueError("persisted daemon scope profile contains duplicates")
+    scope_set = set(scopes)
+    for profile in (LEGACY_DAEMON_SCOPES, OBSERVABILITY_DAEMON_SCOPES):
+        if scope_set == set(profile):
+            return profile
+    raise ValueError("persisted daemon scope profile is not supported")
+
+
+def _recovery_daemon_scope_profile(raw_profile: Any) -> tuple[LocalScope, ...]:
+    """Decode an outbox profile without silently upgrading legacy durable rows."""
+
+    if raw_profile is None:
+        return LEGACY_DAEMON_SCOPES
+    return _decode_daemon_scope_profile(raw_profile)
+
+
+def _daemon_scope_profile_json(scopes: tuple[LocalScope, ...]) -> str:
+    scope_set = set(scopes)
+    if len(scopes) != len(scope_set):
+        raise ValueError("daemon scope profile contains duplicates")
+    for profile in (LEGACY_DAEMON_SCOPES, OBSERVABILITY_DAEMON_SCOPES):
+        if scope_set == set(profile):
+            return _canonical_json([scope.value for scope in profile])
+    raise ValueError("daemon scope profile is not supported")
+
+
 class StrictBridgeModel(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
         str_strip_whitespace=True,
+        validate_assignment=True,
+    )
+
+
+class StrictObservabilityBridgeModel(BaseModel):
+    """Exact authenticated observability receipt; never normalize wire strings."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        str_strip_whitespace=False,
         validate_assignment=True,
     )
 
@@ -373,6 +433,171 @@ class LocalLiliesUsagePage(StrictBridgeModel):
         return self
 
 
+class LocalLiliesObservabilityUsage(StrictObservabilityBridgeModel):
+    ledger_cursor: int = Field(ge=0, le=_MAX_SQLITE_INTEGER)
+    attempted_calls: int = Field(ge=0, le=_MAX_SQLITE_INTEGER)
+    recorded_calls: int = Field(ge=0, le=_MAX_SQLITE_INTEGER)
+    unknown_calls: int = Field(ge=0, le=_MAX_SQLITE_INTEGER)
+    input_tokens: int = Field(ge=0, le=_MAX_SQLITE_INTEGER)
+    output_tokens: int = Field(ge=0, le=_MAX_SQLITE_INTEGER)
+    total_tokens: int = Field(ge=0, le=_MAX_SQLITE_INTEGER)
+    cost_usd: float = Field(
+        ge=0,
+        le=_MAX_OBSERVABILITY_COST_USD,
+        allow_inf_nan=False,
+    )
+
+    @model_validator(mode="after")
+    def token_totals_are_consistent(self) -> LocalLiliesObservabilityUsage:
+        if self.total_tokens != self.input_tokens + self.output_tokens:
+            raise ValueError(
+                "observability total_tokens must equal input_tokens plus output_tokens"
+            )
+        if self.ledger_cursor < self.attempted_calls:
+            raise ValueError("observability ledger_cursor must cover every attempted call")
+        if self.recorded_calls == 0 and any(
+            (
+                self.input_tokens,
+                self.output_tokens,
+                self.total_tokens,
+                self.cost_usd,
+            )
+        ):
+            raise ValueError(
+                "observability usage without recorded calls cannot include measured usage"
+            )
+        return self
+
+
+class LocalLiliesObservabilityRuntime(StrictObservabilityBridgeModel):
+    active_sessions: int = Field(ge=0, le=_MAX_SQLITE_INTEGER)
+    active_model_turns: int = Field(ge=0, le=_MAX_SQLITE_INTEGER)
+    active_provider_calls: int = Field(ge=0, le=_MAX_SQLITE_INTEGER)
+    active_development_model_calls: int = Field(ge=0, le=_MAX_SQLITE_INTEGER)
+
+    @model_validator(mode="after")
+    def active_work_counts_are_consistent(self) -> LocalLiliesObservabilityRuntime:
+        if self.active_development_model_calls > self.active_provider_calls:
+            raise ValueError(
+                "active development model calls cannot exceed active provider calls"
+            )
+        if (
+            self.active_provider_calls - self.active_development_model_calls
+            > self.active_model_turns
+        ):
+            raise ValueError(
+                "non-development provider calls cannot exceed active model turns"
+            )
+        if self.active_model_turns > self.active_sessions:
+            raise ValueError("active model turns cannot exceed active sessions")
+        return self
+
+
+class LocalLiliesObservabilityStartup(StrictObservabilityBridgeModel):
+    recovery_completed: Literal[True]
+    automatic_resume_policy: Literal["explicit_request_only"]
+    automatic_model_resume_count: Literal[0]
+    explicit_resume_candidate_count: int = Field(ge=0, le=_MAX_SQLITE_INTEGER)
+    interrupted_sessions: int = Field(ge=0, le=_MAX_SQLITE_INTEGER)
+    interrupted_turns: int = Field(ge=0, le=_MAX_SQLITE_INTEGER)
+    interrupted_development_assignments: int = Field(
+        ge=0,
+        le=_MAX_SQLITE_INTEGER,
+    )
+    reconciliation_required_development_invocations: int = Field(
+        ge=0,
+        le=_MAX_SQLITE_INTEGER,
+    )
+
+    @field_validator("recovery_completed", mode="before")
+    @classmethod
+    def recovery_completed_uses_boolean(cls, value: Any) -> Any:
+        if type(value) is not bool:
+            raise ValueError("recovery_completed must use a JSON boolean")
+        return value
+
+    @field_validator("automatic_model_resume_count", mode="before")
+    @classmethod
+    def automatic_resume_count_uses_integer(cls, value: Any) -> Any:
+        if type(value) is not int:
+            raise ValueError("automatic_model_resume_count must use a JSON integer")
+        return value
+
+
+class LocalLiliesObservabilitySnapshot(StrictObservabilityBridgeModel):
+    schema_version: Literal["1.0"]
+    scope: Literal["daemon_global"]
+    coverage_complete: Literal[True]
+    daemon_fingerprint: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    daemon_instance_id: UUID
+    captured_at: datetime
+    activity_revision: int = Field(ge=0, le=_MAX_SQLITE_INTEGER)
+    model_egress_enabled: bool
+    usage: LocalLiliesObservabilityUsage
+    runtime: LocalLiliesObservabilityRuntime
+    startup: LocalLiliesObservabilityStartup
+
+    @field_validator("daemon_instance_id", mode="before")
+    @classmethod
+    def daemon_instance_id_is_exact(cls, value: Any) -> Any:
+        if isinstance(value, UUID):
+            return value
+        if isinstance(value, str):
+            try:
+                canonical = str(UUID(value))
+            except ValueError as error:
+                raise ValueError("daemon_instance_id must be a canonical UUID") from error
+            if canonical != value:
+                raise ValueError("daemon_instance_id must be a canonical UUID")
+        return value
+
+    @field_validator("coverage_complete", mode="before")
+    @classmethod
+    def coverage_complete_uses_boolean(cls, value: Any) -> Any:
+        if type(value) is not bool:
+            raise ValueError("coverage_complete must use a JSON boolean")
+        return value
+
+    @field_validator("captured_at", mode="before")
+    @classmethod
+    def captured_at_is_exact(cls, value: Any, info: ValidationInfo) -> Any:
+        if isinstance(value, str):
+            if value != value.strip():
+                raise ValueError("captured_at must not contain outer whitespace")
+            if info.mode == "json":
+                if re.fullmatch(
+                    r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}"
+                    r"(?:\.\d{1,6})?(?:Z|\+00:00)",
+                    value,
+                ) is None:
+                    raise ValueError("captured_at must be an exact UTC timestamp")
+                return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return value
+
+    @field_validator("captured_at")
+    @classmethod
+    def captured_at_is_utc(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() != timedelta(0):
+            raise ValueError("captured_at must use UTC")
+        return value.astimezone(timezone.utc)
+
+    @model_validator(mode="after")
+    def call_totals_include_in_flight_provider_calls(
+        self,
+    ) -> LocalLiliesObservabilitySnapshot:
+        expected_attempts = (
+            self.usage.recorded_calls
+            + self.usage.unknown_calls
+            + self.runtime.active_provider_calls
+        )
+        if self.usage.attempted_calls != expected_attempts:
+            raise ValueError(
+                "observability attempted_calls must equal recorded_calls plus "
+                "unknown_calls plus active_provider_calls"
+            )
+        return self
+
+
 class LocalLiliesAssignment(StrictBridgeModel):
     assignment_id: UUID
     application_id: UUID
@@ -461,6 +686,11 @@ class LocalLiliesBridgeConflict(LocalLiliesBridgeError):
     status_code = 409
 
 
+class LocalLiliesObservabilityUnavailable(LocalLiliesBridgeError):
+    code = "observability_unavailable"
+    status_code = 409
+
+
 class LocalLiliesBridgeUnavailable(LocalLiliesBridgeError):
     code = "daemon_unavailable"
     status_code = 503
@@ -533,6 +763,7 @@ class LocalLiliesBridgeStore:
                   daemon_fingerprint TEXT NOT NULL,
                   client_id TEXT,
                   granted_scopes_json TEXT NOT NULL DEFAULT '[]',
+                  pairing_scope_profile_json TEXT,
                   access_token_secret_ref TEXT NOT NULL,
                   expires_at TEXT,
                   status TEXT NOT NULL,
@@ -547,6 +778,7 @@ class LocalLiliesBridgeStore:
                   operation TEXT NOT NULL,
                   idempotency_key TEXT NOT NULL,
                   request_digest TEXT NOT NULL,
+                  requested_scopes_json TEXT,
                   result_json TEXT,
                   completed_at TEXT,
                   created_at TEXT NOT NULL,
@@ -755,6 +987,34 @@ class LocalLiliesBridgeStore:
                     (7, _now().isoformat()),
                 )
                 current = 7
+            if current < 8:
+                connection_columns = {
+                    str(row["name"])
+                    for row in conn.execute(
+                        "PRAGMA table_info(local_lilies_connections)"
+                    ).fetchall()
+                }
+                if "pairing_scope_profile_json" not in connection_columns:
+                    conn.execute(
+                        "ALTER TABLE local_lilies_connections "
+                        "ADD COLUMN pairing_scope_profile_json TEXT"
+                    )
+                operation_columns = {
+                    str(row["name"])
+                    for row in conn.execute(
+                        "PRAGMA table_info(local_lilies_connection_operations)"
+                    ).fetchall()
+                }
+                if "requested_scopes_json" not in operation_columns:
+                    conn.execute(
+                        "ALTER TABLE local_lilies_connection_operations "
+                        "ADD COLUMN requested_scopes_json TEXT"
+                    )
+                conn.execute(
+                    "INSERT INTO local_lilies_bridge_schema(version,applied_at) VALUES(?,?)",
+                    (8, _now().isoformat()),
+                )
+                current = 8
         for path in (self.db_path, Path(f"{self.db_path}-wal"), Path(f"{self.db_path}-shm")):
             if path.exists():
                 os.chmod(path, 0o600)
@@ -767,6 +1027,7 @@ class LocalLiliesBridgeStore:
         base_url: str,
         request_digest: str,
         secret_ref: str,
+        scope_profile: tuple[LocalScope, ...] = LEGACY_DAEMON_SCOPES,
     ) -> dict[str, Any]:
         async with self._lock:
             return await asyncio.to_thread(
@@ -776,6 +1037,7 @@ class LocalLiliesBridgeStore:
                 base_url,
                 request_digest,
                 secret_ref,
+                _daemon_scope_profile_json(scope_profile),
             )
 
     def _reserve_connection_sync(
@@ -785,6 +1047,7 @@ class LocalLiliesBridgeStore:
         base_url: str,
         request_digest: str,
         secret_ref: str,
+        scope_profile_json: str,
     ) -> dict[str, Any]:
         now = _now().isoformat()
         with self._connect() as conn:
@@ -802,8 +1065,8 @@ class LocalLiliesBridgeStore:
                 """
                 INSERT INTO local_lilies_connections(
                   id,idempotency_key,request_digest,base_url,daemon_fingerprint,
-                  access_token_secret_ref,status,created_at,updated_at
-                ) VALUES(?,?,?,?,?,?,'pairing',?,?)
+                  pairing_scope_profile_json,access_token_secret_ref,status,created_at,updated_at
+                ) VALUES(?,?,?,?,?,?,?,'pairing',?,?)
                 """,
                 (
                     connection_id,
@@ -811,6 +1074,7 @@ class LocalLiliesBridgeStore:
                     request_digest,
                     base_url,
                     request.expected_daemon_fingerprint,
+                    scope_profile_json,
                     secret_ref,
                     now,
                     now,
@@ -1002,6 +1266,7 @@ class LocalLiliesBridgeStore:
         operation: str,
         idempotency_key: str,
         request_digest: str,
+        requested_scopes: tuple[LocalScope, ...] = LEGACY_DAEMON_SCOPES,
     ) -> dict[str, Any]:
         async with self._lock:
             return await asyncio.to_thread(
@@ -1010,6 +1275,7 @@ class LocalLiliesBridgeStore:
                 operation,
                 idempotency_key,
                 request_digest,
+                _daemon_scope_profile_json(requested_scopes),
             )
 
     def _reserve_connection_operation_sync(
@@ -1018,6 +1284,7 @@ class LocalLiliesBridgeStore:
         operation: str,
         idempotency_key: str,
         request_digest: str,
+        requested_scopes_json: str,
     ) -> dict[str, Any]:
         with self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
@@ -1037,10 +1304,18 @@ class LocalLiliesBridgeStore:
             conn.execute(
                 """
                 INSERT INTO local_lilies_connection_operations(
-                  connection_id,operation,idempotency_key,request_digest,created_at
-                ) VALUES(?,?,?,?,?)
+                  connection_id,operation,idempotency_key,request_digest,
+                  requested_scopes_json,created_at
+                ) VALUES(?,?,?,?,?,?)
                 """,
-                (connection_id, operation, idempotency_key, request_digest, _now().isoformat()),
+                (
+                    connection_id,
+                    operation,
+                    idempotency_key,
+                    request_digest,
+                    requested_scopes_json,
+                    _now().isoformat(),
+                ),
             )
             return dict(
                 conn.execute(
@@ -2197,9 +2472,25 @@ class LocalLiliesBridge:
             base_url=base_url,
             request_digest=request_digest,
             secret_ref=secret_ref,
+            scope_profile=OBSERVABILITY_DAEMON_SCOPES,
         )
         if row["status"] == BridgeConnectionStatus.connected.value:
             return self._connection_projection(row)
+        try:
+            intended_scope_profile = _recovery_daemon_scope_profile(
+                row.get("pairing_scope_profile_json")
+            )
+        except (TypeError, ValueError) as error:
+            await self.store.set_connection_state(
+                connection_id,
+                status=BridgeConnectionStatus.unavailable,
+                error_code="pairing_scope_profile_invalid",
+                error_message="persisted pairing scope profile is invalid",
+            )
+            raise LocalLiliesBridgeSecurityError(
+                "persisted pairing scope profile is invalid",
+                details={"connection_id": str(connection_id)},
+            ) from error
         prepared_client_id = self._paired_client_id(connection_id)
         if await self._secret_exists(secret_ref):
             prepared_token = await self._resolve_secret(secret_ref)
@@ -2223,7 +2514,9 @@ class LocalLiliesBridge:
                 {
                     "pairing_code": request.pairing_code,
                     "client_name": "platform",
-                    "requested_scopes": [scope.value for scope in REQUIRED_DAEMON_SCOPES],
+                    "requested_scopes": [
+                        scope.value for scope in intended_scope_profile
+                    ],
                     "client_nonce": self._pairing_nonce(
                         connection_id, "pair", request.idempotency_key
                     ),
@@ -2288,7 +2581,7 @@ class LocalLiliesBridge:
                 "daemon fingerprint mismatch",
                 details={"connection_id": str(connection_id)},
             )
-        if set(exchange.granted_scopes) != set(REQUIRED_DAEMON_SCOPES):
+        if set(exchange.granted_scopes) != set(intended_scope_profile):
             await self.store.set_connection_state(
                 connection_id,
                 status=BridgeConnectionStatus.unavailable,
@@ -2322,7 +2615,23 @@ class LocalLiliesBridge:
             operation="reconnect",
             idempotency_key=request.idempotency_key,
             request_digest=digest,
+            requested_scopes=OBSERVABILITY_DAEMON_SCOPES,
         )
+        try:
+            intended_scope_profile = _recovery_daemon_scope_profile(
+                operation_receipt.get("requested_scopes_json")
+            )
+        except (TypeError, ValueError) as error:
+            await self.store.set_connection_state(
+                connection_id,
+                status=BridgeConnectionStatus.unavailable,
+                error_code="reconnect_scope_profile_invalid",
+                error_message="persisted reconnect scope profile is invalid",
+            )
+            raise LocalLiliesBridgeSecurityError(
+                "persisted reconnect scope profile is invalid",
+                details={"connection_id": str(connection_id)},
+            ) from error
         owner_id = self._connection_secret_owner(UUID(str(connection_id)))
         rotation_name = self._rotation_secret_name(request.idempotency_key)
         rotation_ref = f"secret://{owner_id}/{rotation_name}"
@@ -2370,7 +2679,9 @@ class LocalLiliesBridge:
                 {
                     "pairing_code": request.pairing_code,
                     "client_name": "platform",
-                    "requested_scopes": [scope.value for scope in REQUIRED_DAEMON_SCOPES],
+                    "requested_scopes": [
+                        scope.value for scope in intended_scope_profile
+                    ],
                     "client_nonce": self._pairing_nonce(
                         UUID(str(connection_id)), "reconnect", request.idempotency_key
                     ),
@@ -2464,7 +2775,7 @@ class LocalLiliesBridge:
                 "daemon client identity changed during reconnect",
                 details={"connection_id": str(connection_id)},
             )
-        if set(exchange.granted_scopes) != set(REQUIRED_DAEMON_SCOPES):
+        if set(exchange.granted_scopes) != set(intended_scope_profile):
             await self._save_encrypted_secret(
                 owner_id=owner_id,
                 name="daemon-access-token",
@@ -2516,6 +2827,22 @@ class LocalLiliesBridge:
     async def refresh_connection(self, connection_id: UUID | str) -> LocalLiliesConnection:
         self.require_enabled()
         row = await self.store.get_connection(connection_id)
+        try:
+            persisted_scope_profile = _persisted_daemon_scope_profile(row)
+        except (TypeError, ValueError) as error:
+            row = await self.store.set_connection_state(
+                connection_id,
+                status=BridgeConnectionStatus.unavailable,
+                error_code="persisted_daemon_scope_profile_invalid",
+                error_message="persisted daemon scope profile is invalid",
+            )
+            raise LocalLiliesBridgeSecurityError(
+                "persisted daemon scope profile is invalid",
+                details={
+                    "connection_id": str(connection_id),
+                    "status": str(row["status"]),
+                },
+            ) from error
         token = await self._resolve_secret(str(row["access_token_secret_ref"]))
         try:
             status = DaemonStatus.model_validate(
@@ -2577,15 +2904,15 @@ class LocalLiliesBridge:
                     "status": str(row["status"]),
                 },
             )
-        if set(status.client_scopes) != set(REQUIRED_DAEMON_SCOPES):
+        if set(status.client_scopes) != set(persisted_scope_profile):
             row = await self.store.set_connection_state(
                 connection_id,
                 status=BridgeConnectionStatus.unavailable,
                 error_code="daemon_scope_mismatch",
-                error_message="daemon bearer no longer has the exact platform scopes",
+                error_message="daemon bearer scopes no longer match the persisted pairing",
             )
             raise LocalLiliesBridgeSecurityError(
-                "daemon bearer no longer has the exact platform scopes",
+                "daemon bearer scopes no longer match the persisted pairing profile",
                 details={
                     "connection_id": str(connection_id),
                     "status": str(row["status"]),
@@ -2770,6 +3097,153 @@ class LocalLiliesBridge:
             )
             raise LocalLiliesBridgeDaemonRejected(
                 "local Lilies usage receipt does not match the requested page",
+                details={
+                    "connection_id": str(connection_id),
+                    "status": str(row["status"]),
+                },
+            )
+        await self.store.set_connection_state(
+            connection_id,
+            status=BridgeConnectionStatus.connected,
+            seen=True,
+        )
+        return result
+
+    async def observability_snapshot(
+        self,
+        connection_id: UUID | str,
+    ) -> LocalLiliesObservabilitySnapshot:
+        """Read one fail-closed daemon-global idle/startup snapshot over paired HTTP."""
+
+        self.require_enabled()
+        row = await self.store.get_connection(connection_id)
+        if row["status"] != BridgeConnectionStatus.connected.value:
+            raise LocalLiliesBridgeUnavailable(
+                "local Lilies connection is not available",
+                details={
+                    "connection_id": str(connection_id),
+                    "status": str(row["status"]),
+                },
+            )
+        try:
+            persisted_scope_profile = _persisted_daemon_scope_profile(row)
+        except (TypeError, ValueError) as error:
+            row = await self.store.set_connection_state(
+                connection_id,
+                status=BridgeConnectionStatus.unavailable,
+                error_code="persisted_daemon_scope_profile_invalid",
+                error_message="persisted daemon scope profile is invalid",
+            )
+            raise LocalLiliesBridgeSecurityError(
+                "persisted daemon scope profile is invalid",
+                details={
+                    "connection_id": str(connection_id),
+                    "status": str(row["status"]),
+                },
+            ) from error
+        if persisted_scope_profile == LEGACY_DAEMON_SCOPES:
+            raise LocalLiliesObservabilityUnavailable(
+                "authenticated global observability is unavailable for this connection",
+                details={
+                    "connection_id": str(connection_id),
+                    "status": BridgeConnectionStatus.connected.value,
+                    "availability": "unknown",
+                    "reason": "missing_observability_scope",
+                },
+            )
+
+        token = await self._connection_token(row)
+        try:
+            payload = await self.client.observability_snapshot(
+                str(row["base_url"]),
+                token,
+            )
+        except LocalLiliesUnavailable as error:
+            await self.store.set_connection_state(
+                connection_id,
+                status=BridgeConnectionStatus.unavailable,
+                error_code="daemon_observability_unavailable",
+                error_message="local Lilies observability endpoint is unavailable",
+            )
+            raise LocalLiliesBridgeUnavailable(
+                "local Lilies observability endpoint is unavailable",
+                details={
+                    "connection_id": str(connection_id),
+                    "status": BridgeConnectionStatus.unavailable.value,
+                },
+            ) from error
+        except LocalLiliesRemoteError as error:
+            authentication_rejected = error.status_code in {401, 403}
+            row = await self.store.set_connection_state(
+                connection_id,
+                status=BridgeConnectionStatus.unavailable,
+                error_code=(
+                    "daemon_observability_authentication_rejected"
+                    if authentication_rejected
+                    else "daemon_observability_rejected"
+                ),
+                error_message=(
+                    "local Lilies rejected observability authentication"
+                    if authentication_rejected
+                    else "local Lilies rejected the observability request"
+                ),
+            )
+            details = {
+                "connection_id": str(connection_id),
+                "status": str(row["status"]),
+            }
+            if authentication_rejected:
+                raise LocalLiliesBridgeDaemonRejected(
+                    "paired local Lilies credential was rejected",
+                    details=details,
+                ) from error
+            raise LocalLiliesBridgeDaemonRejected(
+                "local Lilies rejected the observability request",
+                details=details,
+            ) from error
+        except LocalLiliesClientError as error:
+            row = await self.store.set_connection_state(
+                connection_id,
+                status=BridgeConnectionStatus.unavailable,
+                error_code="daemon_observability_protocol_error",
+                error_message="local Lilies returned an invalid observability response",
+            )
+            raise LocalLiliesBridgeDaemonRejected(
+                "local Lilies returned an invalid observability response",
+                details={
+                    "connection_id": str(connection_id),
+                    "status": str(row["status"]),
+                },
+            ) from error
+
+        try:
+            result = LocalLiliesObservabilitySnapshot.model_validate_json(
+                json.dumps(payload, allow_nan=False, separators=(",", ":")),
+                strict=True,
+            )
+        except (TypeError, ValueError) as error:
+            row = await self.store.set_connection_state(
+                connection_id,
+                status=BridgeConnectionStatus.unavailable,
+                error_code="daemon_observability_receipt_invalid",
+                error_message="local Lilies returned an invalid observability receipt",
+            )
+            raise LocalLiliesBridgeDaemonRejected(
+                "local Lilies returned an invalid authenticated observability receipt",
+                details={
+                    "connection_id": str(connection_id),
+                    "status": str(row["status"]),
+                },
+            ) from error
+        if result.daemon_fingerprint != str(row["daemon_fingerprint"]):
+            row = await self.store.set_connection_state(
+                connection_id,
+                status=BridgeConnectionStatus.unavailable,
+                error_code="daemon_observability_receipt_mismatch",
+                error_message="local Lilies observability receipt changed daemon identity",
+            )
+            raise LocalLiliesBridgeDaemonRejected(
+                "local Lilies observability receipt does not match the paired daemon",
                 details={
                     "connection_id": str(connection_id),
                     "status": str(row["status"]),
@@ -5516,10 +5990,14 @@ class LocalLiliesBridge:
         token = await self._resolve_secret(secret_ref)
         connection_id = UUID(str(row["id"]))
         client_id = self._paired_client_id(connection_id)
+        intended_scope_profile = _recovery_daemon_scope_profile(
+            row.get("pairing_scope_profile_json")
+        )
         daemon_status = await self._read_recovery_daemon_status(
             row=row,
             token=token,
             expected_client_id=client_id,
+            expected_scopes=intended_scope_profile,
         )
         if daemon_status is None:
             return None
@@ -5554,10 +6032,14 @@ class LocalLiliesBridge:
         else:
             return None
         expected_client_id = UUID(str(row["client_id"]))
+        intended_scope_profile = _recovery_daemon_scope_profile(
+            operation.get("requested_scopes_json")
+        )
         daemon_status = await self._read_recovery_daemon_status(
             row=row,
             token=token,
             expected_client_id=expected_client_id,
+            expected_scopes=intended_scope_profile,
         )
         if daemon_status is None:
             return None
@@ -5590,6 +6072,7 @@ class LocalLiliesBridge:
         row: Mapping[str, Any],
         token: str,
         expected_client_id: UUID,
+        expected_scopes: tuple[LocalScope, ...],
     ) -> DaemonStatus | None:
         connection_id = str(row["id"])
         if self._token_client_id(token) != expected_client_id:
@@ -5633,9 +6116,9 @@ class LocalLiliesBridge:
                 "recovered daemon bearer belongs to another client",
                 details={"connection_id": connection_id},
             )
-        if set(daemon_status.client_scopes) != set(REQUIRED_DAEMON_SCOPES):
+        if set(daemon_status.client_scopes) != set(expected_scopes):
             raise LocalLiliesBridgeSecurityError(
-                "recovered daemon bearer does not have the exact platform scopes",
+                "recovered daemon bearer does not have the exact persisted scope profile",
                 details={"connection_id": connection_id},
             )
         if (

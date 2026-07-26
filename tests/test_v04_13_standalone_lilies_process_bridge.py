@@ -39,6 +39,7 @@ REQUIRED_SCOPES = [
     "lilies.session:write",
     "lilies.permission:resolve",
     "lilies.credential:write",
+    "lilies.observability:read",
 ]
 
 
@@ -147,6 +148,8 @@ def _create_one_time_pairing_code(
             REQUIRED_SCOPES[2],
             "--scope",
             REQUIRED_SCOPES[3],
+            "--scope",
+            REQUIRED_SCOPES[4],
         ],
         cwd=STANDALONE_ROOT,
         env=_isolated_daemon_environment(

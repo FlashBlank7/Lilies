@@ -48,6 +48,7 @@ ALLOWED_CLIENT_SCOPES = frozenset(
         "lilies.permission:resolve",
         "lilies.daemon:control",
         "lilies.credential:write",
+        "lilies.observability:read",
     }
 )
 
