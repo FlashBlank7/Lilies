@@ -421,6 +421,9 @@ def test_status_stop_and_credential_responses_never_project_secrets(
     daemon_status = status_response.json()
     DaemonStatus.model_validate(daemon_status)
     assert daemon_status["provider"] == "deepseek"
+    assert daemon_status["provider_credential_loaded"] is bool(
+        local_client.app.state.settings.deepseek_api_key
+    )
     assert daemon_status["paired_client_count"] >= 1
     assert daemon_status["stopping"] is False
 

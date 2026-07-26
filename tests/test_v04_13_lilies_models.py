@@ -17,6 +17,7 @@ from agent_platform.lilies_models import (
     CredentialKind,
     CredentialProvisionRequest,
     CredentialRevokeRequest,
+    DaemonStatus,
     DaemonStopRequest,
     LocalScope,
     PairingCodeCreateRequest,
@@ -34,6 +35,37 @@ DIGEST = "sha256:" + "a" * 64
 IDEMPOTENCY_KEY = "request-1234567890"
 CREATED_AT = datetime(2026, 7, 22, 1, 0, tzinfo=timezone.utc)
 DEADLINE_AT = CREATED_AT + timedelta(hours=2)
+
+
+def test_daemon_status_provider_credential_state_is_backward_compatible() -> None:
+    payload = {
+        "schema_version": "1.0",
+        "pid": 42,
+        "address": "http://127.0.0.1:8765",
+        "started_at": CREATED_AT.isoformat(),
+        "daemon_fingerprint": DIGEST,
+        "client_id": str(uuid4()),
+        "client_scopes": [LocalScope.session_read.value],
+        "client_expires_at": DEADLINE_AT.isoformat(),
+        "provider": "deepseek",
+        "model": "deepseek-v4-flash",
+        "model_egress_enabled": False,
+        "paired_client_count": 1,
+        "platform_paired": True,
+        "active_session_count": 0,
+        "active_assignment_count": 0,
+        "stopping": False,
+    }
+
+    assert (
+        DaemonStatus.model_validate(payload).provider_credential_loaded is False
+    )
+    assert (
+        DaemonStatus.model_validate(
+            {**payload, "provider_credential_loaded": True}
+        ).provider_credential_loaded
+        is True
+    )
 
 
 def assignment_payload(*, mode: str = "customer") -> dict[str, object]:

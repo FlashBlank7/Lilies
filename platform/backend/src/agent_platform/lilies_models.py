@@ -496,6 +496,7 @@ class DaemonStatus(StrictModel):
     provider: str = Field(min_length=1, max_length=120)
     model: str = Field(min_length=1, max_length=200)
     model_egress_enabled: bool = False
+    provider_credential_loaded: bool = False
     paired_client_count: int = Field(ge=0)
     platform_paired: bool = False
     active_session_count: int = Field(ge=0)

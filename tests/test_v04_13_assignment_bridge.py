@@ -159,6 +159,7 @@ class FakeDaemonClient:
         self.revoke_commit_then_fail_once = False
         self.last_task_token = ""
         self.status_fingerprint = FINGERPRINT
+        self.provider_credential_loaded = False
         self.pause_after: str | None = None
         self.pause_entered = asyncio.Event()
         self.pause_release = asyncio.Event()
@@ -224,6 +225,8 @@ class FakeDaemonClient:
             "client_expires_at": self.client_expires_at,
             "provider": "fixture",
             "model": "fixture",
+            "model_egress_enabled": False,
+            "provider_credential_loaded": self.provider_credential_loaded,
             "paired_client_count": 1,
             "platform_paired": True,
             "active_session_count": len(self.sessions),
@@ -1362,6 +1365,27 @@ async def test_legacy_connection_refreshes_without_upgrade_and_observability_is_
     assert tuple(upgraded.granted_scopes) == OBSERVABILITY_DAEMON_SCOPES
     assert (await bridge.observability_snapshot(connection.connection_id)).coverage_complete
     assert daemon.observability_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_refresh_accepts_explicit_daemon_provider_credential_state(
+    tmp_path: Path,
+) -> None:
+    _, workflow, harness, auth = await platform_parts(tmp_path)
+    daemon = FakeDaemonClient()
+    daemon.provider_credential_loaded = True
+    bridge = bridge_for(
+        tmp_path,
+        workflow=workflow,
+        harness=harness,
+        auth=auth,
+        daemon=daemon,
+    )
+    connection = await pair(bridge)
+
+    refreshed = await bridge.refresh_connection(connection.connection_id)
+
+    assert refreshed.status is BridgeConnectionStatus.connected
 
 
 @pytest.mark.asyncio

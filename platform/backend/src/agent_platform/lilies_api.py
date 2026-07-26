@@ -405,6 +405,7 @@ def create_lilies_app(
             "provider": service_status["provider"],
             "model": service_status["model"],
             "model_egress_enabled": settings.model_egress_enabled,
+            "provider_credential_loaded": bool(settings.deepseek_api_key),
             "paired_client_count": service_status["paired_client_count"],
             "platform_paired": service_status["platform_paired"],
             "active_session_count": service_status["active_session_count"],
