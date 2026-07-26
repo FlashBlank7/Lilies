@@ -3,7 +3,10 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
+import re
+import selectors
 import secrets
 import signal
 import shutil
@@ -15,14 +18,14 @@ import time
 import tempfile
 from collections.abc import Mapping, Sequence
 from contextlib import ExitStack
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
-from agent_platform.lilies_client import LiliesClient
-from agent_platform.lilies_config import LiliesSettings
-from agent_platform.lilies_models import LocalScope
+from uuid import UUID
+
 from agent_platform.task_packages import BudgetSpec, TaskPackageManager
 from agent_platform.token_monitoring import (
     collect_token_monitor_snapshot,
@@ -32,40 +35,123 @@ from agent_platform.token_monitoring import (
 
 ROOT = Path(__file__).resolve().parents[1]
 TASK_ID = "EXP-LILIES-001"
-REVISION = 20
-TASK_ROOT = (
-    ROOT
-    / "docs"
-    / "experiments"
-    / "lilies-collaboration"
-    / TASK_ID
-    / str(REVISION)
-)
+REVISION = 23
+TASK_ROOT = ROOT / "docs" / "experiments" / "lilies-collaboration" / TASK_ID / str(REVISION)
 TASK_REVISIONS_ROOT = TASK_ROOT.parent
-ENVIRONMENT_CONTROL = (
-    ROOT
-    / "scripts"
-    / "experiments"
-    / "exp_lilies_001"
-    / "environment_control.py"
-)
+ENVIRONMENT_CONTROL = ROOT / "scripts" / "experiments" / "exp_lilies_001" / "environment_control.py"
 HOST_SNAPSHOT_VERIFIER = (
-    ROOT
-    / "scripts"
-    / "experiments"
-    / "exp_lilies_001"
-    / "verify_host_snapshot.py"
+    ROOT / "scripts" / "experiments" / "exp_lilies_001" / "verify_host_snapshot.py"
 )
 DEFAULT_PLATFORM_PORT = 18100
 DEFAULT_DAEMON_PORT = 18101
 TERMINAL_PHASES = frozenset({"completed", "failed", "cancelled"})
 MAX_HTTP_BYTES = 32 * 1024 * 1024
-PLATFORM_BRIDGE_SCOPES = (
-    LocalScope.session_read.value,
-    LocalScope.session_write.value,
-    LocalScope.permission_resolve.value,
-    LocalScope.credential_write.value,
+STANDALONE_LILIES_ROOT = (ROOT.parent / "LiliesAgent").resolve()
+STANDALONE_LILIES_PYTHON = STANDALONE_LILIES_ROOT / ".venv" / "bin" / "python"
+STANDALONE_LILIES_DISTRIBUTION = "lilies-local-agent"
+STANDALONE_LILIES_VERSION = "0.1.1"
+STANDALONE_PROBE_TIMEOUT_SECONDS = 10.0
+STANDALONE_PROBE_MAX_STDOUT_BYTES = 4 * 1024
+STANDALONE_PAIR_TIMEOUT_SECONDS = 10.0
+STANDALONE_PAIR_MAX_STDOUT_BYTES = 8 * 1024
+STANDALONE_SUBPROCESS_MAX_STDERR_BYTES = 8 * 1024
+STANDALONE_PAIR_MAX_TTL_SECONDS = 660
+STANDALONE_USAGE_PAGE_SIZE = 100
+STANDALONE_USAGE_MAX_PAGES = 1_000
+STANDALONE_USAGE_SNAPSHOT_TIMEOUT_SECONDS = 30.0
+STANDALONE_USAGE_INTEGER_MAX = 9_223_372_036_854_775_807
+STANDALONE_USAGE_COST_MAX = 1_000_000_000_000
+STANDALONE_USAGE_FIELDS = frozenset(
+    {
+        "schema_version",
+        "group_by",
+        "items",
+        "page",
+        "page_size",
+        "returned_count",
+        "total_items",
+        "total_pages",
+        "truncated",
+    }
 )
+STANDALONE_USAGE_ITEM_FIELDS = frozenset(
+    {
+        "session_id",
+        "stage",
+        "model",
+        "recorded_calls",
+        "unknown_calls",
+        "input_tokens",
+        "output_tokens",
+        "total_tokens",
+        "cost_usd",
+    }
+)
+STANDALONE_OBSERVABILITY_FIELDS = frozenset(
+    {
+        "schema_version",
+        "scope",
+        "coverage_complete",
+        "daemon_fingerprint",
+        "daemon_instance_id",
+        "captured_at",
+        "activity_revision",
+        "model_egress_enabled",
+        "usage",
+        "runtime",
+        "startup",
+    }
+)
+STANDALONE_OBSERVABILITY_USAGE_FIELDS = frozenset(
+    {
+        "attempted_calls",
+        "recorded_calls",
+        "unknown_calls",
+        "input_tokens",
+        "output_tokens",
+        "total_tokens",
+        "cost_usd",
+        "ledger_cursor",
+    }
+)
+STANDALONE_OBSERVABILITY_RUNTIME_FIELDS = frozenset(
+    {
+        "active_sessions",
+        "active_model_turns",
+        "active_provider_calls",
+        "active_development_model_calls",
+    }
+)
+STANDALONE_OBSERVABILITY_STARTUP_FIELDS = frozenset(
+    {
+        "recovery_completed",
+        "automatic_resume_policy",
+        "automatic_model_resume_count",
+        "explicit_resume_candidate_count",
+        "interrupted_sessions",
+        "interrupted_turns",
+        "interrupted_development_assignments",
+        "reconciliation_required_development_invocations",
+    }
+)
+STANDALONE_OBSERVABILITY_USAGE_COUNTER_FIELDS = (
+    "attempted_calls",
+    "recorded_calls",
+    "unknown_calls",
+    "input_tokens",
+    "output_tokens",
+    "total_tokens",
+    "cost_usd",
+)
+PLATFORM_BRIDGE_SCOPES = (
+    "lilies.session:read",
+    "lilies.session:write",
+    "lilies.permission:resolve",
+    "lilies.credential:write",
+    "lilies.observability:read",
+)
+PAIRING_CODE_PATTERN = re.compile(r"^[A-Z2-9][A-Z2-9-]{7,79}$")
+DAEMON_FINGERPRINT_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 OPERATIONAL_PERMISSION_POLICIES = ("manual", "task_local_workspace")
 TASK_LOCAL_PERMISSION_TOOLS = frozenset({"workspace_write", "workspace_patch"})
 TASK_LOCAL_WRITABLE_PREFIXES = frozenset({"work", "artifacts"})
@@ -233,9 +319,7 @@ def _request_json(
             f"platform request failed: {method} {path} -> {error.code}: {detail[:500]}"
         ) from error
     except (URLError, OSError, TimeoutError) as error:
-        raise EnterpriseExperimentError(
-            f"platform request failed: {method} {path}"
-        ) from error
+        raise EnterpriseExperimentError(f"platform request failed: {method} {path}") from error
     if not raw:
         return None
     try:
@@ -365,20 +449,12 @@ def _platform_environment(
             "DATA_DIR": str(state_root / "platform-data"),
             "WORKSPACE_ROOT": str(state_root / "platform-workspaces"),
             "MODEL_EGRESS_ENABLED": "true" if enable_model_egress else "false",
-            "PLATFORM_HARNESS_SECRET_ENVELOPE_KEY": secrets_state[
-                "platform_envelope_key"
-            ],
+            "PLATFORM_HARNESS_SECRET_ENVELOPE_KEY": secrets_state["platform_envelope_key"],
             "LILIES_LOCAL_AGENT_ENABLED": "true",
             "LILIES_COLLABORATION_ENABLED": "true",
-            "LILIES_COLLABORATION_DEVELOPER_TOKEN": secrets_state[
-                "collaboration_developer_token"
-            ],
-            "LILIES_COLLABORATION_VERIFIER_TOKEN": secrets_state[
-                "collaboration_verifier_token"
-            ],
-            "LILIES_FORMAL_HIDDEN_SEED_KEY": secrets_state[
-                "formal_hidden_seed_key"
-            ],
+            "LILIES_COLLABORATION_DEVELOPER_TOKEN": secrets_state["collaboration_developer_token"],
+            "LILIES_COLLABORATION_VERIFIER_TOKEN": secrets_state["collaboration_verifier_token"],
+            "LILIES_FORMAL_HIDDEN_SEED_KEY": secrets_state["formal_hidden_seed_key"],
             "LILIES_COLLABORATIVE_DEVELOPMENT_ENABLED": "true",
             "LILIES_COLLABORATIVE_DEVELOPMENT_SIGNING_KEY": secrets_state[
                 "collaborative_development_signing_key"
@@ -396,12 +472,226 @@ def _task_max_turns() -> int:
     try:
         budget = BudgetSpec.model_validate_json((TASK_ROOT / "budget.json").read_bytes())
     except (OSError, ValueError) as error:
-        raise EnterpriseExperimentError(
-            "frozen task budget is unavailable or invalid"
-        ) from error
+        raise EnterpriseExperimentError("frozen task budget is unavailable or invalid") from error
     if budget.task_id != TASK_ID or budget.revision != REVISION:
         raise EnterpriseExperimentError("frozen task budget identity is invalid")
     return budget.max_build_repair_turns
+
+
+def _standalone_base_environment() -> dict[str, str]:
+    environment = {
+        "PATH": os.environ.get("PATH", os.defpath),
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "PYTHONNOUSERSITE": "1",
+    }
+    for name in ("LANG", "LC_ALL", "TMPDIR", "SSL_CERT_FILE", "SSL_CERT_DIR"):
+        value = os.environ.get(name)
+        if value:
+            environment[name] = value
+    return environment
+
+
+class _BoundedSubprocessOutputError(RuntimeError):
+    """A standalone child exceeded a fixed stdout or stderr boundary."""
+
+
+def _kill_isolated_subprocess(process: subprocess.Popen[bytes]) -> None:
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except OSError:
+        try:
+            process.kill()
+        except OSError:
+            pass
+    try:
+        process.wait(timeout=2)
+    except subprocess.TimeoutExpired:
+        pass
+
+
+def _run_bounded_subprocess(
+    arguments: Sequence[str],
+    *,
+    cwd: Path,
+    environment: Mapping[str, str],
+    timeout_seconds: float,
+    max_stdout_bytes: int,
+    max_stderr_bytes: int,
+) -> subprocess.CompletedProcess[bytes]:
+    process = subprocess.Popen(
+        list(arguments),
+        cwd=cwd,
+        env=dict(environment),
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        bufsize=0,
+        close_fds=True,
+        start_new_session=True,
+    )
+    if process.stdout is None or process.stderr is None:
+        _kill_isolated_subprocess(process)
+        raise EnterpriseExperimentError("standalone subprocess pipes are unavailable")
+
+    streams = {
+        process.stdout.fileno(): ("stdout", process.stdout, max_stdout_bytes),
+        process.stderr.fileno(): ("stderr", process.stderr, max_stderr_bytes),
+    }
+    buffers = {"stdout": bytearray(), "stderr": bytearray()}
+    selector = selectors.DefaultSelector()
+    deadline = time.monotonic() + timeout_seconds
+    try:
+        for descriptor, (_, stream, _) in streams.items():
+            os.set_blocking(descriptor, False)
+            selector.register(stream, selectors.EVENT_READ, descriptor)
+        while selector.get_map():
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise subprocess.TimeoutExpired(arguments, timeout_seconds)
+            ready = selector.select(remaining)
+            if not ready:
+                raise subprocess.TimeoutExpired(arguments, timeout_seconds)
+            for key, _ in ready:
+                descriptor = int(key.data)
+                label, stream, maximum = streams[descriptor]
+                try:
+                    chunk = os.read(descriptor, 64 * 1024)
+                except BlockingIOError:
+                    continue
+                if not chunk:
+                    selector.unregister(stream)
+                    stream.close()
+                    continue
+                if len(buffers[label]) + len(chunk) > maximum:
+                    raise _BoundedSubprocessOutputError(
+                        f"standalone subprocess {label} exceeded its limit"
+                    )
+                buffers[label].extend(chunk)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise subprocess.TimeoutExpired(arguments, timeout_seconds)
+        returncode = process.wait(timeout=remaining)
+    except BaseException:
+        _kill_isolated_subprocess(process)
+        raise
+    finally:
+        selector.close()
+        if not process.stdout.closed:
+            process.stdout.close()
+        if not process.stderr.closed:
+            process.stderr.close()
+    return subprocess.CompletedProcess(
+        list(arguments),
+        returncode,
+        stdout=bytes(buffers["stdout"]),
+        stderr=bytes(buffers["stderr"]),
+    )
+
+
+def _parse_bounded_subprocess_json(
+    completed: subprocess.CompletedProcess[bytes],
+    *,
+    label: str,
+    max_stdout_bytes: int,
+) -> dict[str, Any]:
+    stdout = completed.stdout
+    stderr = completed.stderr
+    if not isinstance(stdout, bytes) or not isinstance(stderr, bytes):
+        raise EnterpriseExperimentError(f"{label} returned an invalid byte stream")
+    if len(stdout) > max_stdout_bytes or len(stderr) > STANDALONE_SUBPROCESS_MAX_STDERR_BYTES:
+        raise EnterpriseExperimentError(f"{label} exceeded its response limit")
+    if completed.returncode != 0:
+        raise EnterpriseExperimentError(f"{label} failed")
+    try:
+        value = json.loads(stdout)
+    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as error:
+        raise EnterpriseExperimentError(f"{label} returned invalid JSON") from error
+    if not isinstance(value, dict):
+        raise EnterpriseExperimentError(f"{label} returned an invalid JSON object")
+    return value
+
+
+def _verify_standalone_lilies_runtime() -> Path:
+    sibling_path = ROOT.parent / "LiliesAgent"
+    if sibling_path.is_symlink():
+        raise EnterpriseExperimentError("standalone Lilies sibling must not be a symlink")
+    expected_root = sibling_path.resolve()
+    if STANDALONE_LILIES_ROOT != expected_root:
+        raise EnterpriseExperimentError("standalone Lilies root is not the fixed sibling")
+    expected_python = STANDALONE_LILIES_ROOT / ".venv" / "bin" / "python"
+    if STANDALONE_LILIES_PYTHON != expected_python:
+        raise EnterpriseExperimentError(
+            "standalone Lilies interpreter is not the fixed sibling interpreter"
+        )
+    try:
+        interpreter_metadata = STANDALONE_LILIES_PYTHON.lstat()
+    except OSError as error:
+        raise EnterpriseExperimentError("standalone Lilies interpreter is unavailable") from error
+    if not (
+        stat.S_ISREG(interpreter_metadata.st_mode) or stat.S_ISLNK(interpreter_metadata.st_mode)
+    ):
+        raise EnterpriseExperimentError("standalone Lilies interpreter is invalid")
+
+    probe = (
+        "import importlib.metadata as m,json,pathlib,lilies_agent;"
+        f"d=m.distribution({STANDALONE_LILIES_DISTRIBUTION!r});"
+        "print(json.dumps({"
+        "'distribution':d.metadata['Name'],"
+        "'version':d.version,"
+        "'distribution_root':str(pathlib.Path(d.locate_file('')).resolve()),"
+        "'module_file':str(pathlib.Path(lilies_agent.__file__).resolve())"
+        "},separators=(',',':')))"
+    )
+    try:
+        completed = _run_bounded_subprocess(
+            (str(STANDALONE_LILIES_PYTHON), "-I", "-c", probe),
+            cwd=STANDALONE_LILIES_ROOT,
+            environment=_standalone_base_environment(),
+            timeout_seconds=STANDALONE_PROBE_TIMEOUT_SECONDS,
+            max_stdout_bytes=STANDALONE_PROBE_MAX_STDOUT_BYTES,
+            max_stderr_bytes=STANDALONE_SUBPROCESS_MAX_STDERR_BYTES,
+        )
+    except subprocess.TimeoutExpired as error:
+        raise EnterpriseExperimentError(
+            "standalone Lilies distribution verification timed out"
+        ) from error
+    except _BoundedSubprocessOutputError as error:
+        raise EnterpriseExperimentError(
+            "standalone Lilies distribution verification exceeded its response limit"
+        ) from error
+    except OSError as error:
+        raise EnterpriseExperimentError(
+            "standalone Lilies distribution verification could not start"
+        ) from error
+    identity = _parse_bounded_subprocess_json(
+        completed,
+        label="standalone Lilies distribution verification",
+        max_stdout_bytes=STANDALONE_PROBE_MAX_STDOUT_BYTES,
+    )
+    if set(identity) != {
+        "distribution",
+        "version",
+        "distribution_root",
+        "module_file",
+    }:
+        raise EnterpriseExperimentError("standalone Lilies distribution identity schema is invalid")
+    if (
+        identity["distribution"] != STANDALONE_LILIES_DISTRIBUTION
+        or identity["version"] != STANDALONE_LILIES_VERSION
+    ):
+        raise EnterpriseExperimentError("standalone Lilies distribution identity is invalid")
+    try:
+        distribution_root = Path(str(identity["distribution_root"])).resolve(strict=True)
+        module_file = Path(str(identity["module_file"])).resolve(strict=True)
+        distribution_root.relative_to(STANDALONE_LILIES_ROOT / ".venv")
+        module_file.relative_to(STANDALONE_LILIES_ROOT)
+    except (OSError, ValueError) as error:
+        raise EnterpriseExperimentError(
+            "standalone Lilies distribution escaped the fixed sibling"
+        ) from error
+    if module_file.name != "__init__.py" or module_file.parent.name != "lilies_agent":
+        raise EnterpriseExperimentError("standalone Lilies module identity is invalid")
+    return STANDALONE_LILIES_PYTHON
 
 
 def _daemon_environment(
@@ -410,20 +700,50 @@ def _daemon_environment(
     port: int,
     enable_model_egress: bool = False,
 ) -> dict[str, str]:
-    environment = os.environ.copy()
+    environment = _standalone_base_environment()
     environment.update(
         {
+            "HOME": str(state_root / "lilies-home"),
             "LILIES_DATA_DIR": str(state_root / "lilies-data"),
             "LILIES_WORKSPACE_ROOT": str(state_root / "lilies-workspaces"),
             "LILIES_HOST": "127.0.0.1",
             "LILIES_PORT": str(port),
             "LILIES_DEFAULT_MAX_TURNS": str(_task_max_turns()),
-            "LILIES_MODEL_EGRESS_ENABLED": (
-                "true" if enable_model_egress else "false"
-            ),
+            "LILIES_WORKFLOW_STUDIO_ENABLED": "true",
+            "LILIES_MODEL_EGRESS_ENABLED": ("true" if enable_model_egress else "false"),
         }
     )
+    if enable_model_egress:
+        provider_key = os.environ.get("DEEPSEEK_API_KEY")
+        if not provider_key:
+            raise EnterpriseExperimentError(
+                "authorized DEEPSEEK_API_KEY is unavailable for standalone Lilies"
+            )
+        environment["LILIES_DEEPSEEK_API_KEY"] = provider_key
     return environment
+
+
+def _standalone_daemon_command(
+    standalone_python: Path,
+    *,
+    state_root: Path,
+    port: int,
+) -> tuple[str, ...]:
+    if standalone_python != STANDALONE_LILIES_PYTHON:
+        raise EnterpriseExperimentError("unverified standalone Lilies interpreter")
+    return (
+        str(standalone_python),
+        "-I",
+        "-m",
+        "lilies_agent.cli",
+        "--data-dir",
+        str(state_root / "lilies-data"),
+        "serve",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        str(port),
+    )
 
 
 def _freeze_package(platform_data: Path) -> dict[str, Any]:
@@ -433,11 +753,7 @@ def _freeze_package(platform_data: Path) -> dict[str, Any]:
         source_manager = TaskPackageManager(temporary)
         source = None
         for revision in range(1, REVISION + 1):
-            source_root = (
-                TASK_ROOT
-                if revision == REVISION
-                else TASK_REVISIONS_ROOT / str(revision)
-            )
+            source_root = TASK_ROOT if revision == REVISION else TASK_REVISIONS_ROOT / str(revision)
             source = source_manager.freeze_revision(source_root)
             if revision < REVISION:
                 manager.freeze_revision(source_root)
@@ -445,14 +761,11 @@ def _freeze_package(platform_data: Path) -> dict[str, Any]:
         if manager.has_frozen_revision(TASK_ID, REVISION):
             package = manager.load_frozen(TASK_ID, REVISION)
             if (
-                package.record.public_summary_digest
-                != source.record.public_summary_digest
-                or package.record.sealed_package_digest
-                != source.record.sealed_package_digest
+                package.record.public_summary_digest != source.record.public_summary_digest
+                or package.record.sealed_package_digest != source.record.sealed_package_digest
             ):
                 raise EnterpriseExperimentError(
-                    "run state already freezes another EXP-LILIES-001 "
-                    f"revision-{REVISION} payload"
+                    f"run state already freezes another EXP-LILIES-001 revision-{REVISION} payload"
                 )
         else:
             package = manager.freeze_revision(TASK_ROOT)
@@ -471,21 +784,11 @@ def _host_secrets(state_root: Path) -> dict[str, Any]:
     secrets_state = _read_private_json(environment_root / "secrets.json")
     credentials = _read_private_json(environment_root / "credentials.json")
     required = {
-        "exp-lilies-001-environment-attestation": secrets_state.get(
-            "attestation_secret"
-        ),
-        "exp-lilies-001-paperless-builder-token": credentials.get(
-            "paperless_builder_token"
-        ),
-        "exp-lilies-001-inventree-builder-token": credentials.get(
-            "inventree_builder_token"
-        ),
-        "exp-lilies-001-paperless-verifier-token": credentials.get(
-            "paperless_verifier_token"
-        ),
-        "exp-lilies-001-inventree-verifier-token": credentials.get(
-            "inventree_verifier_token"
-        ),
+        "exp-lilies-001-environment-attestation": secrets_state.get("attestation_secret"),
+        "exp-lilies-001-paperless-builder-token": credentials.get("paperless_builder_token"),
+        "exp-lilies-001-inventree-builder-token": credentials.get("inventree_builder_token"),
+        "exp-lilies-001-paperless-verifier-token": credentials.get("paperless_verifier_token"),
+        "exp-lilies-001-inventree-verifier-token": credentials.get("inventree_verifier_token"),
     }
     if any(not isinstance(value, str) or not value for value in required.values()):
         raise EnterpriseExperimentError("scoped host credentials are incomplete")
@@ -529,15 +832,82 @@ def _pair_daemon(
     daemon_port: int,
     platform_url: str,
     platform_token: str,
+    standalone_python: Path,
+    daemon_environment: Mapping[str, str],
 ) -> dict[str, Any]:
-    settings = LiliesSettings(
-        data_dir=state_root / "lilies-data",
-        workspace_root=state_root / "lilies-workspaces",
-        host="127.0.0.1",
-        port=daemon_port,
+    if standalone_python != STANDALONE_LILIES_PYTHON:
+        raise EnterpriseExperimentError("unverified standalone Lilies interpreter")
+    command = [
+        str(standalone_python),
+        "-I",
+        "-m",
+        "lilies_agent.cli",
+        "--data-dir",
+        str(state_root / "lilies-data"),
+        "pair",
+    ]
+    for scope in PLATFORM_BRIDGE_SCOPES:
+        command.extend(("--scope", scope))
+    pairing_environment = dict(daemon_environment)
+    pairing_environment["LILIES_MODEL_EGRESS_ENABLED"] = "false"
+    pairing_environment.pop("LILIES_DEEPSEEK_API_KEY", None)
+    try:
+        completed = _run_bounded_subprocess(
+            command,
+            cwd=STANDALONE_LILIES_ROOT,
+            environment=pairing_environment,
+            timeout_seconds=STANDALONE_PAIR_TIMEOUT_SECONDS,
+            max_stdout_bytes=STANDALONE_PAIR_MAX_STDOUT_BYTES,
+            max_stderr_bytes=STANDALONE_SUBPROCESS_MAX_STDERR_BYTES,
+        )
+    except subprocess.TimeoutExpired as error:
+        raise EnterpriseExperimentError("standalone Lilies pairing command timed out") from error
+    except _BoundedSubprocessOutputError as error:
+        raise EnterpriseExperimentError(
+            "standalone Lilies pairing command exceeded its response limit"
+        ) from error
+    except OSError as error:
+        raise EnterpriseExperimentError(
+            "standalone Lilies pairing command could not start"
+        ) from error
+    pairing = _parse_bounded_subprocess_json(
+        completed,
+        label="standalone Lilies pairing command",
+        max_stdout_bytes=STANDALONE_PAIR_MAX_STDOUT_BYTES,
     )
-    settings.prepare()
-    pairing = LiliesClient(settings).create_pairing_code(PLATFORM_BRIDGE_SCOPES)
+    if set(pairing) != {
+        "allowed_scopes",
+        "daemon_fingerprint",
+        "expires_at",
+        "pairing_code",
+    }:
+        raise EnterpriseExperimentError("standalone Lilies pairing schema is invalid")
+    if pairing.get("allowed_scopes") != sorted(PLATFORM_BRIDGE_SCOPES):
+        raise EnterpriseExperimentError("standalone Lilies pairing scopes are invalid")
+    pairing_code = pairing.get("pairing_code")
+    daemon_fingerprint = pairing.get("daemon_fingerprint")
+    expires_at = pairing.get("expires_at")
+    if not isinstance(pairing_code, str) or not PAIRING_CODE_PATTERN.fullmatch(pairing_code):
+        raise EnterpriseExperimentError("standalone Lilies pairing code is invalid")
+    if not isinstance(daemon_fingerprint, str) or not DAEMON_FINGERPRINT_PATTERN.fullmatch(
+        daemon_fingerprint
+    ):
+        raise EnterpriseExperimentError("standalone Lilies daemon fingerprint is invalid")
+    if not isinstance(expires_at, str):
+        raise EnterpriseExperimentError("standalone Lilies pairing expiry is invalid")
+    try:
+        expiry = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+    except ValueError as error:
+        raise EnterpriseExperimentError("standalone Lilies pairing expiry is invalid") from error
+    if expiry.tzinfo is None or expiry.utcoffset() != timezone.utc.utcoffset(expiry):
+        raise EnterpriseExperimentError("standalone Lilies pairing expiry is invalid")
+    current_time = datetime.now(timezone.utc)
+    if (
+        not current_time
+        < expiry
+        <= current_time + timedelta(seconds=STANDALONE_PAIR_MAX_TTL_SECONDS)
+    ):
+        raise EnterpriseExperimentError("standalone Lilies pairing expiry is invalid")
     status = _request_json(
         platform_url,
         "/api/v1/local-lilies/connections",
@@ -546,8 +916,8 @@ def _pair_daemon(
         value={
             "idempotency_key": f"{TASK_ID.lower()}.pair.{daemon_port:05d}",
             "base_url": f"http://127.0.0.1:{daemon_port}",
-            "pairing_code": pairing["pairing_code"],
-            "expected_daemon_fingerprint": pairing["daemon_fingerprint"],
+            "pairing_code": pairing_code,
+            "expected_daemon_fingerprint": daemon_fingerprint,
         },
     )
     connections = status.get("connections") if isinstance(status, dict) else None
@@ -577,8 +947,12 @@ def _create_application(
         method="POST",
         token=platform_token,
         value={
-            "name": f"{TASK_ID} seed {seed}",
-            "description": "Frozen real-host enterprise experiment",
+            "name": f"{TASK_ID} · {seed} · workflow pending",
+            "description": (
+                "Formal task and environment seed only. The application is not a "
+                "completed business workflow until its requirement, graph, tests, "
+                "and delivery evidence are present."
+            ),
             "requirement": "",
             "mode": "workflow",
             "delivery_mode": "guided",
@@ -631,9 +1005,7 @@ def _set_auto_forward(
     )
     channels = inventory.get("channels") if isinstance(inventory, dict) else None
     if not isinstance(channels, list):
-        raise EnterpriseExperimentError(
-            "formal collaboration channel inventory is invalid"
-        )
+        raise EnterpriseExperimentError("formal collaboration channel inventory is invalid")
     matching = [
         item
         for item in channels
@@ -660,24 +1032,16 @@ def _set_auto_forward(
 
 def _task_local_workspace_path(value: Any) -> str:
     if not isinstance(value, str) or not value or "\x00" in value or "\\" in value:
-        raise EnterpriseExperimentError(
-            "unattended workspace permission path is not canonical"
-        )
+        raise EnterpriseExperimentError("unattended workspace permission path is not canonical")
     path = PurePosixPath(value)
     if path.is_absolute():
-        raise EnterpriseExperimentError(
-            "unattended workspace permission path is not canonical"
-        )
+        raise EnterpriseExperimentError("unattended workspace permission path is not canonical")
     parts = tuple(part for part in path.parts if part != ".")
     if not parts or any(part in {"", ".."} for part in parts):
-        raise EnterpriseExperimentError(
-            "unattended workspace permission path is not canonical"
-        )
+        raise EnterpriseExperimentError("unattended workspace permission path is not canonical")
     denied = {item.casefold() for item in TASK_LOCAL_DENIED_SEGMENTS}
     if any(part.casefold() in denied for part in parts):
-        raise EnterpriseExperimentError(
-            "unattended workspace permission targets a denied segment"
-        )
+        raise EnterpriseExperimentError("unattended workspace permission targets a denied segment")
     canonical = PurePosixPath(*parts).as_posix()
     if canonical != value or parts[0] not in TASK_LOCAL_WRITABLE_PREFIXES:
         raise EnterpriseExperimentError(
@@ -718,9 +1082,7 @@ def _task_local_permission_idempotency_key(
         or not isinstance(task_revision, int)
         or task_revision < 1
     ):
-        raise EnterpriseExperimentError(
-            "task-local permission idempotency bindings are invalid"
-        )
+        raise EnterpriseExperimentError("task-local permission idempotency bindings are invalid")
     digest = hashlib.sha256(_canonical_json(bindings)).hexdigest()
     return f"task-local-permission:{digest}"
 
@@ -740,30 +1102,21 @@ def _pending_studio_permission(
     )
     channels = inventory.get("channels") if isinstance(inventory, dict) else None
     if not isinstance(channels, list):
-        raise EnterpriseExperimentError(
-            "formal collaboration channel inventory is invalid"
-        )
+        raise EnterpriseExperimentError("formal collaboration channel inventory is invalid")
     matching = [
         item
         for item in channels
         if isinstance(item, dict) and item.get("assignment_id") == assignment_id
     ]
     if len(matching) != 1 or not isinstance(matching[0].get("channel_id"), str):
-        raise EnterpriseExperimentError(
-            "formal collaboration channel is not uniquely visible"
-        )
+        raise EnterpriseExperimentError("formal collaboration channel is not uniquely visible")
     detail = _request_json(
         platform_url,
-        (
-            "/api/v1/studio/collaboration/channels/"
-            f"{matching[0]['channel_id']}"
-        ),
+        (f"/api/v1/studio/collaboration/channels/{matching[0]['channel_id']}"),
         token=platform_token,
     )
     context = detail.get("context") if isinstance(detail, dict) else None
-    context_assignment = (
-        context.get("assignment") if isinstance(context, dict) else None
-    )
+    context_assignment = context.get("assignment") if isinstance(context, dict) else None
     if (
         not isinstance(context_assignment, dict)
         or context_assignment.get("task_id") != TASK_ID
@@ -777,9 +1130,7 @@ def _pending_studio_permission(
         )
     events = context.get("observable_events")
     if not isinstance(events, list):
-        raise EnterpriseExperimentError(
-            "formal collaboration permission timeline is invalid"
-        )
+        raise EnterpriseExperimentError("formal collaboration permission timeline is invalid")
     resolved: set[str] = set()
     pending: list[tuple[int, dict[str, Any]]] = []
     for event in events:
@@ -797,9 +1148,7 @@ def _pending_studio_permission(
         ):
             pending.append((int(event.get("seq") or 0), request))
     unresolved = [
-        (seq, request)
-        for seq, request in pending
-        if request["request_id"] not in resolved
+        (seq, request) for seq, request in pending if request["request_id"] not in resolved
     ]
     if len(unresolved) != 1:
         raise EnterpriseExperimentError(
@@ -837,10 +1186,7 @@ def _resolve_task_local_workspace_permission(
     session_id = str(assignment["session_id"])
     decision = _request_json(
         platform_url,
-        (
-            f"/api/v1/local-lilies/assignments/{assignment_id}/"
-            f"permissions/{request_id}"
-        ),
+        (f"/api/v1/local-lilies/assignments/{assignment_id}/permissions/{request_id}"),
         method="POST",
         token=platform_token,
         value={
@@ -867,9 +1213,7 @@ def _resolve_task_local_workspace_permission(
         or receipt.get("status") != "allowed"
         or receipt.get("input_digest") != input_digest
     ):
-        raise EnterpriseExperimentError(
-            "daemon returned an invalid unattended permission receipt"
-        )
+        raise EnterpriseExperimentError("daemon returned an invalid unattended permission receipt")
     return {
         "request_id": request_id,
         "tool_name": tool_name,
@@ -888,6 +1232,7 @@ def _poll_assignment_inner(
     operational_permission_policy: str = "manual",
     token_state_root: Path | None = None,
     token_monitor_interval: float = 5.0,
+    connection_id: str | None = None,
 ) -> dict[str, Any]:
     if operational_permission_policy not in OPERATIONAL_PERMISSION_POLICIES:
         raise EnterpriseExperimentError("operational permission policy is invalid")
@@ -909,6 +1254,15 @@ def _poll_assignment_inner(
                 previous=previous_token_snapshot,
                 previous_at=previous_token_at,
                 observed_at=now_monotonic,
+                **(
+                    {
+                        "platform_url": platform_url,
+                        "platform_token": platform_token,
+                        "connection_id": connection_id,
+                    }
+                    if connection_id is not None
+                    else {}
+                ),
             )
             next_token_snapshot_at = now_monotonic + token_monitor_interval
         relay_error: EnterpriseExperimentError | None = None
@@ -933,10 +1287,7 @@ def _poll_assignment_inner(
         if not isinstance(value, dict):
             raise EnterpriseExperimentError("formal assignment status is invalid")
         last = value
-        if (
-            relay_error is not None
-            and "security_boundary_violation" in str(relay_error)
-        ):
+        if relay_error is not None and "security_boundary_violation" in str(relay_error):
             return {
                 **value,
                 "runner_auto_permissions": permission_receipts,
@@ -964,10 +1315,7 @@ def _poll_assignment_inner(
                 try:
                     _request_json(
                         platform_url,
-                        (
-                            "/api/v1/local-lilies/assignments/"
-                            f"{assignment_id}/relay"
-                        ),
+                        (f"/api/v1/local-lilies/assignments/{assignment_id}/relay"),
                         method="POST",
                         token=platform_token,
                         value={"max_events": 1000},
@@ -986,8 +1334,7 @@ def _poll_assignment_inner(
                         "runner_auto_permissions": permission_receipts,
                         "runner_terminal": "unattended_permission_rejected",
                         "runner_terminal_detail": (
-                            "pending permission synchronization failed: "
-                            f"{error}"
+                            f"pending permission synchronization failed: {error}"
                         ),
                     }
                 try:
@@ -1042,6 +1389,7 @@ def _poll_assignment(
     operational_permission_policy: str = "manual",
     token_state_root: Path | None = None,
     token_monitor_interval: float = 5.0,
+    connection_id: str | None = None,
 ) -> dict[str, Any]:
     try:
         return _poll_assignment_inner(
@@ -1052,6 +1400,7 @@ def _poll_assignment(
             operational_permission_policy=operational_permission_policy,
             token_state_root=token_state_root,
             token_monitor_interval=token_monitor_interval,
+            connection_id=connection_id,
         )
     finally:
         if token_state_root is not None and token_monitor_interval > 0:
@@ -1061,7 +1410,403 @@ def _poll_assignment(
                 previous=None,
                 previous_at=observed_at,
                 observed_at=observed_at,
+                **(
+                    {
+                        "platform_url": platform_url,
+                        "platform_token": platform_token,
+                        "connection_id": connection_id,
+                    }
+                    if connection_id is not None
+                    else {}
+                ),
             )
+
+
+def _standalone_nonnegative_integer(value: object) -> bool:
+    return (
+        isinstance(value, int)
+        and not isinstance(value, bool)
+        and 0 <= value <= STANDALONE_USAGE_INTEGER_MAX
+    )
+
+
+def _standalone_nonnegative_cost(value: object) -> bool:
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, int):
+        return 0 <= value <= STANDALONE_USAGE_COST_MAX
+    return (
+        isinstance(value, float)
+        and math.isfinite(value)
+        and 0 <= value <= STANDALONE_USAGE_COST_MAX
+    )
+
+
+def _standalone_observability_receipt(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict) or set(value) != STANDALONE_OBSERVABILITY_FIELDS:
+        raise EnterpriseExperimentError("standalone observability schema is invalid")
+    usage = value.get("usage")
+    runtime = value.get("runtime")
+    startup = value.get("startup")
+    if (
+        not isinstance(usage, dict)
+        or set(usage) != STANDALONE_OBSERVABILITY_USAGE_FIELDS
+        or not isinstance(runtime, dict)
+        or set(runtime) != STANDALONE_OBSERVABILITY_RUNTIME_FIELDS
+        or not isinstance(startup, dict)
+        or set(startup) != STANDALONE_OBSERVABILITY_STARTUP_FIELDS
+    ):
+        raise EnterpriseExperimentError("standalone observability sections are invalid")
+    daemon_fingerprint = value.get("daemon_fingerprint")
+    daemon_instance_id = value.get("daemon_instance_id")
+    captured_at = value.get("captured_at")
+    if (
+        value.get("schema_version") != "1.0"
+        or value.get("scope") != "daemon_global"
+        or value.get("coverage_complete") is not True
+        or not isinstance(daemon_fingerprint, str)
+        or DAEMON_FINGERPRINT_PATTERN.fullmatch(daemon_fingerprint) is None
+        or not isinstance(daemon_instance_id, str)
+        or not isinstance(captured_at, str)
+        or not isinstance(value.get("model_egress_enabled"), bool)
+        or not _standalone_nonnegative_integer(value.get("activity_revision"))
+    ):
+        raise EnterpriseExperimentError("standalone observability receipt is invalid")
+    try:
+        if str(UUID(daemon_instance_id)) != daemon_instance_id:
+            raise ValueError("non-canonical daemon instance")
+        parsed_capture = datetime.fromisoformat(captured_at.replace("Z", "+00:00"))
+        captured_at_size = len(captured_at.encode("utf-8"))
+    except (TypeError, UnicodeEncodeError, ValueError) as error:
+        raise EnterpriseExperimentError(
+            "standalone observability identity or timestamp is invalid"
+        ) from error
+    if (
+        captured_at != captured_at.strip()
+        or captured_at_size > 64
+        or parsed_capture.tzinfo is None
+        or parsed_capture.utcoffset() != timedelta(0)
+    ):
+        raise EnterpriseExperimentError("standalone observability timestamp is invalid")
+
+    integer_usage_fields = (
+        "attempted_calls",
+        "recorded_calls",
+        "unknown_calls",
+        "input_tokens",
+        "output_tokens",
+        "total_tokens",
+        "ledger_cursor",
+    )
+    if any(
+        not _standalone_nonnegative_integer(usage.get(field))
+        for field in integer_usage_fields
+    ):
+        raise EnterpriseExperimentError("standalone observability usage counters are invalid")
+    if any(
+        not _standalone_nonnegative_integer(runtime.get(field))
+        for field in STANDALONE_OBSERVABILITY_RUNTIME_FIELDS
+    ):
+        raise EnterpriseExperimentError("standalone observability runtime counters are invalid")
+    if (
+        runtime["active_development_model_calls"] > runtime["active_provider_calls"]
+        or runtime["active_provider_calls"] - runtime["active_development_model_calls"]
+        > runtime["active_model_turns"]
+        or runtime["active_model_turns"] > runtime["active_sessions"]
+    ):
+        raise EnterpriseExperimentError("standalone observability runtime accounting is invalid")
+    cost = usage.get("cost_usd")
+    if (
+        not _standalone_nonnegative_cost(cost)
+        or usage["total_tokens"] != usage["input_tokens"] + usage["output_tokens"]
+        or usage["ledger_cursor"] < usage["attempted_calls"]
+        or usage["attempted_calls"]
+        != usage["recorded_calls"]
+        + usage["unknown_calls"]
+        + runtime["active_provider_calls"]
+    ):
+        raise EnterpriseExperimentError("standalone observability usage accounting is invalid")
+    if (
+        startup.get("recovery_completed") is not True
+        or startup.get("automatic_resume_policy") != "explicit_request_only"
+        or any(
+            not _standalone_nonnegative_integer(startup.get(field))
+            for field in STANDALONE_OBSERVABILITY_STARTUP_FIELDS
+            if field not in {"recovery_completed", "automatic_resume_policy"}
+        )
+    ):
+        raise EnterpriseExperimentError("standalone observability startup receipt is invalid")
+    return value
+
+
+def _standalone_observability_snapshot(
+    *,
+    platform_url: str | None,
+    platform_token: str | None,
+    connection_id: str | None,
+) -> dict[str, Any] | None:
+    if not platform_url or not platform_token or not connection_id:
+        return None
+    try:
+        normalized_connection_id = str(UUID(connection_id))
+    except (AttributeError, ValueError):
+        return None
+    if normalized_connection_id != connection_id:
+        return None
+
+    pages: list[dict[str, Any]] = []
+    dimensions: set[tuple[str, str, str]] = set()
+    total_items: int | None = None
+    total_pages: int | None = None
+    page = 1
+    deadline = time.monotonic() + STANDALONE_USAGE_SNAPSHOT_TIMEOUT_SECONDS
+    observability_path = (
+        f"/api/v1/local-lilies/connections/{normalized_connection_id}"
+        "/observability-snapshot"
+    )
+    try:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise EnterpriseExperimentError("standalone observability snapshot timed out")
+        before = _standalone_observability_receipt(
+            _request_json(
+                platform_url,
+                observability_path,
+                token=platform_token,
+                timeout=min(2.0, remaining),
+            )
+        )
+        while total_pages is None or page <= total_pages:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise EnterpriseExperimentError("standalone observability snapshot timed out")
+            value = _request_json(
+                platform_url,
+                (
+                    f"/api/v1/local-lilies/connections/{normalized_connection_id}/usage"
+                    "?group_by=session&group_by=stage&group_by=model"
+                    f"&page={page}&page_size={STANDALONE_USAGE_PAGE_SIZE}"
+                ),
+                token=platform_token,
+                timeout=min(2.0, remaining),
+            )
+            if not isinstance(value, dict) or set(value) != STANDALONE_USAGE_FIELDS:
+                raise EnterpriseExperimentError("standalone usage page schema is invalid")
+            items = value.get("items")
+            returned_count = value.get("returned_count")
+            observed_total_items = value.get("total_items")
+            observed_total_pages = value.get("total_pages")
+            if (
+                value.get("schema_version") != "1.0"
+                or value.get("group_by") != ["session", "stage", "model"]
+                or isinstance(value.get("page"), bool)
+                or not isinstance(value.get("page"), int)
+                or value.get("page") != page
+                or isinstance(value.get("page_size"), bool)
+                or not isinstance(value.get("page_size"), int)
+                or value.get("page_size") != STANDALONE_USAGE_PAGE_SIZE
+                or value.get("truncated") is not False
+                or not isinstance(items, list)
+                or len(items) > STANDALONE_USAGE_PAGE_SIZE
+                or isinstance(returned_count, bool)
+                or not isinstance(returned_count, int)
+                or returned_count != len(items)
+                or isinstance(observed_total_items, bool)
+                or not isinstance(observed_total_items, int)
+                or observed_total_items < 0
+                or observed_total_items > STANDALONE_USAGE_PAGE_SIZE * STANDALONE_USAGE_MAX_PAGES
+                or isinstance(observed_total_pages, bool)
+                or not isinstance(observed_total_pages, int)
+                or not 0 <= observed_total_pages <= STANDALONE_USAGE_MAX_PAGES
+            ):
+                raise EnterpriseExperimentError("standalone usage page receipt is invalid")
+            expected_pages = (
+                0
+                if observed_total_items == 0
+                else (observed_total_items + STANDALONE_USAGE_PAGE_SIZE - 1)
+                // STANDALONE_USAGE_PAGE_SIZE
+            )
+            if observed_total_pages != expected_pages:
+                raise EnterpriseExperimentError("standalone usage page count is invalid")
+            if total_items is None:
+                total_items = observed_total_items
+                total_pages = observed_total_pages
+            elif observed_total_items != total_items or observed_total_pages != total_pages:
+                raise EnterpriseExperimentError("standalone usage pages drifted")
+            expected_returned = min(
+                STANDALONE_USAGE_PAGE_SIZE,
+                max(
+                    0,
+                    observed_total_items - ((page - 1) * STANDALONE_USAGE_PAGE_SIZE),
+                ),
+            )
+            if returned_count != expected_returned:
+                raise EnterpriseExperimentError("standalone usage page is incomplete")
+            for item in items:
+                if (
+                    not isinstance(item, dict)
+                    or set(item) != STANDALONE_USAGE_ITEM_FIELDS
+                    or not isinstance(item.get("session_id"), str)
+                    or not isinstance(item.get("stage"), str)
+                    or not isinstance(item.get("model"), str)
+                ):
+                    raise EnterpriseExperimentError("standalone usage item schema is invalid")
+                integer_fields = (
+                    "recorded_calls",
+                    "unknown_calls",
+                    "input_tokens",
+                    "output_tokens",
+                    "total_tokens",
+                )
+                if any(
+                    isinstance(item.get(field), bool)
+                    or not isinstance(item.get(field), int)
+                    or not 0 <= item[field] <= STANDALONE_USAGE_INTEGER_MAX
+                    for field in integer_fields
+                ):
+                    raise EnterpriseExperimentError("standalone usage item counters are invalid")
+                cost = item.get("cost_usd")
+                if (
+                    not _standalone_nonnegative_cost(cost)
+                    or item["total_tokens"] != item["input_tokens"] + item["output_tokens"]
+                    or item["recorded_calls"] + item["unknown_calls"] > STANDALONE_USAGE_INTEGER_MAX
+                ):
+                    raise EnterpriseExperimentError("standalone usage item accounting is invalid")
+                try:
+                    normalized_session_id = str(UUID(item["session_id"]))
+                except (AttributeError, ValueError) as error:
+                    raise EnterpriseExperimentError(
+                        "standalone usage session identity is invalid"
+                    ) from error
+                if (
+                    normalized_session_id != item["session_id"]
+                    or not item["stage"]
+                    or item["stage"] != item["stage"].strip()
+                    or len(item["stage"].encode("utf-8")) > 120
+                    or not item["model"]
+                    or item["model"] != item["model"].strip()
+                    or len(item["model"].encode("utf-8")) > 200
+                ):
+                    raise EnterpriseExperimentError("standalone usage dimensions are invalid")
+                dimension = (
+                    normalized_session_id,
+                    item["stage"],
+                    item["model"],
+                )
+                if dimension in dimensions:
+                    raise EnterpriseExperimentError(
+                        "standalone usage pages contain duplicate dimensions"
+                    )
+                dimensions.add(dimension)
+                pages.append(item)
+            if observed_total_pages == 0:
+                break
+            page += 1
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise EnterpriseExperimentError("standalone observability snapshot timed out")
+        after = _standalone_observability_receipt(
+            _request_json(
+                platform_url,
+                observability_path,
+                token=platform_token,
+                timeout=min(2.0, remaining),
+            )
+        )
+
+        before_usage = before["usage"]
+        after_usage = after["usage"]
+        before_captured_at = datetime.fromisoformat(
+            before["captured_at"].replace("Z", "+00:00")
+        )
+        after_captured_at = datetime.fromisoformat(after["captured_at"].replace("Z", "+00:00"))
+        if (
+            before["daemon_fingerprint"] != after["daemon_fingerprint"]
+            or before["daemon_instance_id"] != after["daemon_instance_id"]
+            or before_usage["ledger_cursor"] != after_usage["ledger_cursor"]
+            or any(
+                (
+                    Decimal(str(before_usage[field])) != Decimal(str(after_usage[field]))
+                    if field == "cost_usd"
+                    else before_usage[field] != after_usage[field]
+                )
+                for field in STANDALONE_OBSERVABILITY_USAGE_COUNTER_FIELDS
+            )
+            or after_captured_at < before_captured_at
+            or after["activity_revision"] < before["activity_revision"]
+        ):
+            raise EnterpriseExperimentError("standalone observability bracket drifted")
+        if total_items is None or total_pages is None or len(pages) != total_items:
+            raise EnterpriseExperimentError("standalone usage merge is incomplete")
+
+        acl_totals: dict[str, int | Decimal] = {
+            "recorded_calls": 0,
+            "unknown_calls": 0,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "total_tokens": 0,
+            "cost_usd": Decimal("0"),
+        }
+        for item in pages:
+            for field in (
+                "recorded_calls",
+                "unknown_calls",
+                "input_tokens",
+                "output_tokens",
+                "total_tokens",
+            ):
+                acl_totals[field] = int(acl_totals[field]) + int(item[field])
+            acl_totals["cost_usd"] = Decimal(str(acl_totals["cost_usd"])) + Decimal(
+                str(item["cost_usd"])
+            )
+        for field in (
+            "recorded_calls",
+            "unknown_calls",
+            "input_tokens",
+            "output_tokens",
+            "total_tokens",
+        ):
+            if (
+                int(acl_totals[field]) > int(after_usage[field])
+                or int(acl_totals[field]) > STANDALONE_USAGE_INTEGER_MAX
+            ):
+                raise EnterpriseExperimentError(
+                    "standalone ACL usage exceeds the daemon-global ledger"
+                )
+        if (
+            Decimal(str(acl_totals["cost_usd"])) > Decimal(str(after_usage["cost_usd"]))
+            or Decimal(str(acl_totals["cost_usd"])) > Decimal(str(STANDALONE_USAGE_COST_MAX))
+        ):
+            raise EnterpriseExperimentError(
+                "standalone ACL cost exceeds the daemon-global ledger"
+            )
+        merged_usage = {
+            "schema_version": "1.0",
+            "group_by": ["session", "stage", "model"],
+            "items": pages,
+            "page": 1,
+            "page_size": STANDALONE_USAGE_PAGE_SIZE,
+            "returned_count": total_items,
+            "total_items": total_items,
+            "total_pages": total_pages,
+            "truncated": False,
+            "snapshot_kind": "complete_paginated_merge",
+        }
+        return {
+            "schema_version": "1.0",
+            "snapshot_kind": "paired_observability_bracket",
+            "before": before,
+            "client_acl_usage": merged_usage,
+            "after": after,
+        }
+    except (
+        ArithmeticError,
+        EnterpriseExperimentError,
+        TypeError,
+        UnicodeEncodeError,
+        ValueError,
+    ):
+        return None
 
 
 def _record_token_monitor_snapshot(
@@ -1070,15 +1815,26 @@ def _record_token_monitor_snapshot(
     previous: dict[str, Any] | None,
     previous_at: float,
     observed_at: float,
+    platform_url: str | None = None,
+    platform_token: str | None = None,
+    connection_id: str | None = None,
 ) -> tuple[dict[str, Any], float]:
+    standalone_observability = _standalone_observability_snapshot(
+        platform_url=platform_url,
+        platform_token=platform_token,
+        connection_id=connection_id,
+    )
     snapshot = collect_token_monitor_snapshot(
         platform_db=state_root / "platform-data" / "agent_platform.db",
-        lilies_db=state_root / "lilies-data" / "lilies.db",
         bridge_db=state_root / "platform-data" / "local-lilies-bridge.db",
-        development_db=(
-            state_root / "platform-data" / "collaborative-development.db"
+        development_db=(state_root / "platform-data" / "collaborative-development.db"),
+        standalone_observability_snapshot=standalone_observability,
+        required_sources=(
+            "platform",
+            "standalone_lilies",
+            "bridge",
+            "collaborative_development",
         ),
-        required_sources=("platform", "local_lilies", "bridge"),
         model_egress_enabled=True,
     )
     delta = (
@@ -1098,16 +1854,26 @@ def _record_token_monitor_snapshot(
         "by_stage": snapshot["usage"]["by_stage"],
         "by_model": snapshot["usage"]["by_model"],
         "delta": delta,
+        "source_status": {
+            "standalone_lilies": {
+                key: snapshot["sources"]["standalone_lilies"].get(key)
+                for key in (
+                    "available",
+                    "schema_valid",
+                    "unavailable_reason",
+                    "boundary",
+                    "active_work_evidence_complete",
+                )
+            }
+        },
         "active": {
             "processes": snapshot["processes"],
             "platform_tasks": snapshot["sources"]["platform"]["active_tasks"],
-            "local_sessions": snapshot["sources"]["local_lilies"]["active_sessions"],
-            "recoverable_assignments": snapshot["sources"]["bridge"][
-                "recoverable_assignments"
+            "local_sessions": snapshot["sources"]["standalone_lilies"]["active_sessions"],
+            "recoverable_assignments": snapshot["sources"]["bridge"]["recoverable_assignments"],
+            "development_assignments": snapshot["sources"]["collaborative_development"][
+                "active_assignments"
             ],
-            "development_assignments": snapshot["sources"][
-                "collaborative_development"
-            ]["active_assignments"],
         },
     }
     monitor_root = state_root / "monitoring"
@@ -1127,12 +1893,18 @@ def _record_token_monitor_snapshot(
         os.close(descriptor)
     totals = projection["totals"]
     delta_tokens = int(delta["tokens"]) if delta is not None else 0
+    standalone_coverage = (
+        "complete"
+        if projection["source_status"]["standalone_lilies"]["available"] is True
+        else "unknown"
+    )
     print(
         "[token-monitor] "
-        f"tokens={int(totals['tokens']):,} "
+        f"observed_tokens={int(totals['tokens']):,} "
         f"delta={delta_tokens:+,} "
         f"calls={int(totals['model_calls']):,} "
-        f"cost_usd={float(totals['cost_usd']):.6f}",
+        f"cost_usd={float(totals['cost_usd']):.6f} "
+        f"standalone_coverage={standalone_coverage}",
         file=sys.stderr,
         flush=True,
     )
@@ -1188,11 +1960,7 @@ def _run_host_snapshot_verification(
     *,
     seed: str,
 ) -> dict[str, Any]:
-    snapshot_path = (
-        state_root
-        / "environment"
-        / f"host-snapshot-{seed}-final.json"
-    )
+    snapshot_path = state_root / "environment" / f"host-snapshot-{seed}-final.json"
     snapshot_digest = _digest(snapshot_path.read_bytes())
     oracle_path = TASK_ROOT / "protected" / "oracle" / "host-oracle.json"
     oracle_digest = _digest(oracle_path.read_bytes())
@@ -1208,10 +1976,7 @@ def _run_host_snapshot_verification(
     output_path = (
         state_root
         / "environment"
-        / (
-            f"host-verification-{seed}-"
-            f"{verification_identity.removeprefix('sha256:')}.json"
-        )
+        / (f"host-verification-{seed}-{verification_identity.removeprefix('sha256:')}.json")
     )
     if not output_path.exists():
         completed = subprocess.run(
@@ -1242,8 +2007,7 @@ def _run_host_snapshot_verification(
         or str(result.get("seed")) != seed
         or result.get("snapshot_digest") != snapshot_digest
         or result.get("oracle_digest") != oracle_digest
-        or result.get("verdict")
-        not in {"independently_verified", "verification_failed"}
+        or result.get("verdict") not in {"independently_verified", "verification_failed"}
     ):
         raise EnterpriseExperimentError(
             "independent host snapshot result changed its frozen binding"
@@ -1267,10 +2031,7 @@ def _run_platform_independent_verification(
 ) -> dict[str, Any]:
     result = _request_json(
         platform_url,
-        (
-            f"/api/v1/local-lilies/assignments/{assignment_id}/"
-            "independent-verification"
-        ),
+        (f"/api/v1/local-lilies/assignments/{assignment_id}/independent-verification"),
         method="POST",
         token=platform_token,
         timeout=300.0,
@@ -1286,14 +2047,11 @@ def _run_platform_independent_verification(
         )
     verdict = verification.get("verdict")
     claim_status = result.get("claim_status")
-    if (
-        verdict not in {"independently_verified", "verification_failed"}
-        or claim_status
-        not in {"independently_verified", "verification_failed"}
-    ):
-        raise EnterpriseExperimentError(
-            "platform independent verification has an invalid verdict"
-        )
+    if verdict not in {"independently_verified", "verification_failed"} or claim_status not in {
+        "independently_verified",
+        "verification_failed",
+    }:
+        raise EnterpriseExperimentError("platform independent verification has an invalid verdict")
     differences = verification.get("differences")
     stable_progress = result.get("stable_progress")
     if not isinstance(stable_progress, dict):
@@ -1302,9 +2060,7 @@ def _run_platform_independent_verification(
         )
     stable_verdict = stable_progress.get("stable_verdict")
     if stable_verdict is not None and not isinstance(stable_verdict, dict):
-        raise EnterpriseExperimentError(
-            "platform stable-seed verdict has an invalid projection"
-        )
+        raise EnterpriseExperimentError("platform stable-seed verdict has an invalid projection")
     return {
         "claim_id": result.get("claim_id"),
         "claim_status": claim_status,
@@ -1320,9 +2076,7 @@ def _run_platform_independent_verification(
             if stable_verdict is None
             else {
                 "verdict": stable_verdict.get("verdict"),
-                "qualification_digest": stable_verdict.get(
-                    "qualification_digest"
-                ),
+                "qualification_digest": stable_verdict.get("qualification_digest"),
                 "verdict_digest": stable_verdict.get("verdict_digest"),
             }
         ),
@@ -1501,9 +2255,7 @@ def _write_run_evidence(
                 "status": connection.get("status"),
             }
         ),
-        "assignment": (
-            None if assignment is None else _safe_assignment_projection(assignment)
-        ),
+        "assignment": (None if assignment is None else _safe_assignment_projection(assignment)),
         "secret_receipts": list(secret_receipts),
         "host_snapshots": list(host_snapshots),
         "platform_verification": platform_verification,
@@ -1602,6 +2354,7 @@ def run_seed(args: argparse.Namespace) -> int:
             raise EnterpriseExperimentError(
                 "a paid formal run requires --token-monitor-interval greater than zero"
             )
+        standalone_python = _verify_standalone_lilies_runtime()
         _environment_command(
             state_root,
             "config",
@@ -1642,9 +2395,7 @@ def run_seed(args: argparse.Namespace) -> int:
         )
         host_snapshots.append(
             _snapshot_summary(
-                state_root
-                / "environment"
-                / f"host-snapshot-{args.seed}-baseline.json"
+                state_root / "environment" / f"host-snapshot-{args.seed}-baseline.json"
             )
         )
 
@@ -1687,15 +2438,10 @@ def run_seed(args: argparse.Namespace) -> int:
             )
             _managed_process(
                 stack,
-                (
-                    sys.executable,
-                    "-m",
-                    "agent_platform.lilies_cli",
-                    "serve",
-                    "--host",
-                    "127.0.0.1",
-                    "--port",
-                    str(args.daemon_port),
+                _standalone_daemon_command(
+                    standalone_python,
+                    state_root=state_root,
+                    port=args.daemon_port,
                 ),
                 environment=daemon_environment,
                 log_path=state_root / "logs" / f"lilies-seed-{args.seed}.log",
@@ -1713,6 +2459,8 @@ def run_seed(args: argparse.Namespace) -> int:
                 daemon_port=args.daemon_port,
                 platform_url=platform_url,
                 platform_token=runner_secrets["platform_api_token"],
+                standalone_python=standalone_python,
+                daemon_environment=daemon_environment,
             )
             application = _create_application(
                 platform_url,
@@ -1751,6 +2499,7 @@ def run_seed(args: argparse.Namespace) -> int:
                 operational_permission_policy=operational_permission_policy,
                 token_state_root=state_root,
                 token_monitor_interval=args.token_monitor_interval,
+                connection_id=str(connection["connection_id"]),
             )
             _write_active_run(
                 state_root,
@@ -1774,9 +2523,7 @@ def run_seed(args: argparse.Namespace) -> int:
             )
             host_snapshots.append(
                 _snapshot_summary(
-                    state_root
-                    / "environment"
-                    / f"host-snapshot-{args.seed}-final.json"
+                    state_root / "environment" / f"host-snapshot-{args.seed}-final.json"
                 )
             )
             if str(assignment.get("phase")) == "completed":
@@ -1793,8 +2540,7 @@ def run_seed(args: argparse.Namespace) -> int:
         phase = str(assignment.get("phase"))
         independently_verified = (
             platform_verification is not None
-            and platform_verification.get("claim_status")
-            == "independently_verified"
+            and platform_verification.get("claim_status") == "independently_verified"
             and host_verification is not None
             and host_verification.get("verdict") == "independently_verified"
         )
@@ -1804,14 +2550,11 @@ def run_seed(args: argparse.Namespace) -> int:
             else "assignment_completed_verification_failed"
             if phase == "completed"
             else "assignment_builder_incomplete"
-            if assignment.get("runner_terminal")
-            == "builder_ready_without_completion_claim"
+            if assignment.get("runner_terminal") == "builder_ready_without_completion_claim"
             else "assignment_unattended_permission_rejected"
-            if assignment.get("runner_terminal")
-            == "unattended_permission_rejected"
+            if assignment.get("runner_terminal") == "unattended_permission_rejected"
             else "assignment_relay_security_rejected"
-            if assignment.get("runner_terminal")
-            == "relay_security_boundary_rejected"
+            if assignment.get("runner_terminal") == "relay_security_boundary_rejected"
             else "assignment_waiting_user"
             if phase == "waiting"
             else "assignment_failed"
@@ -1832,14 +2575,10 @@ def run_seed(args: argparse.Namespace) -> int:
             platform_verification=platform_verification,
             host_verification=host_verification,
             error=None,
-            model_egress_authorized=bool(
-                getattr(args, "enable_model_egress", False)
-            ),
+            model_egress_authorized=bool(getattr(args, "enable_model_egress", False)),
             token_monitor=_token_monitor_evidence(
                 state_root,
-                interval_seconds=float(
-                    getattr(args, "token_monitor_interval", 5.0)
-                ),
+                interval_seconds=float(getattr(args, "token_monitor_interval", 5.0)),
             ),
         )
         print(path)
@@ -1859,14 +2598,10 @@ def run_seed(args: argparse.Namespace) -> int:
             platform_verification=platform_verification,
             host_verification=host_verification,
             error=f"{type(error).__name__}: {error}",
-            model_egress_authorized=bool(
-                getattr(args, "enable_model_egress", False)
-            ),
+            model_egress_authorized=bool(getattr(args, "enable_model_egress", False)),
             token_monitor=_token_monitor_evidence(
                 state_root,
-                interval_seconds=float(
-                    getattr(args, "token_monitor_interval", 5.0)
-                ),
+                interval_seconds=float(getattr(args, "token_monitor_interval", 5.0)),
             ),
         )
         print(path, file=sys.stderr)
@@ -1895,9 +2630,7 @@ def resume_seed(args: argparse.Namespace) -> int:
     if collaboration_policy not in {"manual", "auto_forward"}:
         raise EnterpriseExperimentError("active run has an invalid collaboration policy")
     if operational_permission_policy not in OPERATIONAL_PERMISSION_POLICIES:
-        raise EnterpriseExperimentError(
-            "active run has an invalid operational permission policy"
-        )
+        raise EnterpriseExperimentError("active run has an invalid operational permission policy")
     if not os.environ.get("DEEPSEEK_API_KEY"):
         raise EnterpriseExperimentError(
             "DEEPSEEK_API_KEY is required to resume the real Lilies model run"
@@ -1911,6 +2644,7 @@ def resume_seed(args: argparse.Namespace) -> int:
         raise EnterpriseExperimentError(
             "a paid formal resume requires --token-monitor-interval greater than zero"
         )
+    standalone_python = _verify_standalone_lilies_runtime()
     runner_secrets = _runner_secrets(state_root, create=False)
     inherited_environment = os.environ.copy()
     _environment_command(
@@ -1937,11 +2671,7 @@ def resume_seed(args: argparse.Namespace) -> int:
     host_snapshots: list[dict[str, Any]] = []
     platform_verification: dict[str, Any] | None = None
     host_verification: dict[str, Any] | None = None
-    baseline_path = (
-        state_root
-        / "environment"
-        / f"host-snapshot-{args.seed}-baseline.json"
-    )
+    baseline_path = state_root / "environment" / f"host-snapshot-{args.seed}-baseline.json"
     if baseline_path.exists():
         host_snapshots.append(_snapshot_summary(baseline_path))
     try:
@@ -1968,15 +2698,10 @@ def resume_seed(args: argparse.Namespace) -> int:
             )
             _managed_process(
                 stack,
-                (
-                    sys.executable,
-                    "-m",
-                    "agent_platform.lilies_cli",
-                    "serve",
-                    "--host",
-                    "127.0.0.1",
-                    "--port",
-                    str(daemon_port),
+                _standalone_daemon_command(
+                    standalone_python,
+                    state_root=state_root,
+                    port=daemon_port,
                 ),
                 environment=daemon_environment,
                 log_path=state_root / "logs" / f"lilies-seed-{args.seed}.log",
@@ -2013,6 +2738,7 @@ def resume_seed(args: argparse.Namespace) -> int:
                 operational_permission_policy=operational_permission_policy,
                 token_state_root=state_root,
                 token_monitor_interval=args.token_monitor_interval,
+                connection_id=connection_id,
             )
             _environment_command(
                 state_root,
@@ -2025,9 +2751,7 @@ def resume_seed(args: argparse.Namespace) -> int:
             )
             host_snapshots.append(
                 _snapshot_summary(
-                    state_root
-                    / "environment"
-                    / f"host-snapshot-{args.seed}-final.json"
+                    state_root / "environment" / f"host-snapshot-{args.seed}-final.json"
                 )
             )
             if str(assignment.get("phase")) == "completed":
@@ -2061,8 +2785,7 @@ def resume_seed(args: argparse.Namespace) -> int:
         phase = str(assignment.get("phase"))
         independently_verified = (
             platform_verification is not None
-            and platform_verification.get("claim_status")
-            == "independently_verified"
+            and platform_verification.get("claim_status") == "independently_verified"
             and host_verification is not None
             and host_verification.get("verdict") == "independently_verified"
         )
@@ -2072,14 +2795,11 @@ def resume_seed(args: argparse.Namespace) -> int:
             else "assignment_completed_verification_failed"
             if phase == "completed"
             else "assignment_builder_incomplete"
-            if assignment.get("runner_terminal")
-            == "builder_ready_without_completion_claim"
+            if assignment.get("runner_terminal") == "builder_ready_without_completion_claim"
             else "assignment_unattended_permission_rejected"
-            if assignment.get("runner_terminal")
-            == "unattended_permission_rejected"
+            if assignment.get("runner_terminal") == "unattended_permission_rejected"
             else "assignment_relay_security_rejected"
-            if assignment.get("runner_terminal")
-            == "relay_security_boundary_rejected"
+            if assignment.get("runner_terminal") == "relay_security_boundary_rejected"
             else "assignment_waiting_user"
             if phase == "waiting"
             else "assignment_failed"
@@ -2100,14 +2820,10 @@ def resume_seed(args: argparse.Namespace) -> int:
             platform_verification=platform_verification,
             host_verification=host_verification,
             error=None,
-            model_egress_authorized=bool(
-                getattr(args, "enable_model_egress", False)
-            ),
+            model_egress_authorized=bool(getattr(args, "enable_model_egress", False)),
             token_monitor=_token_monitor_evidence(
                 state_root,
-                interval_seconds=float(
-                    getattr(args, "token_monitor_interval", 5.0)
-                ),
+                interval_seconds=float(getattr(args, "token_monitor_interval", 5.0)),
             ),
         )
         print(path)
@@ -2130,14 +2846,10 @@ def resume_seed(args: argparse.Namespace) -> int:
             platform_verification=platform_verification,
             host_verification=host_verification,
             error=f"{type(error).__name__}: {error}",
-            model_egress_authorized=bool(
-                getattr(args, "enable_model_egress", False)
-            ),
+            model_egress_authorized=bool(getattr(args, "enable_model_egress", False)),
             token_monitor=_token_monitor_evidence(
                 state_root,
-                interval_seconds=float(
-                    getattr(args, "token_monitor_interval", 5.0)
-                ),
+                interval_seconds=float(getattr(args, "token_monitor_interval", 5.0)),
             ),
         )
         print(path, file=sys.stderr)
