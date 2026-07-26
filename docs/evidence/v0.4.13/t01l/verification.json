@@ -1,0 +1,153 @@
+{
+  "schema_version": "1.0",
+  "stage_task_id": "V04-13-T01L",
+  "status": "passed_at_scoped_evidence_floor",
+  "enterprise_denominator": false,
+  "standalone_commit": "fd0f1a4e67511157f805f936f58d5152fe67dc5f",
+  "merge_commit": "3c37d35f795e4c4dad08a4146ec74885ec77e9bf",
+  "integration_commit": "61a1e0b64a2cd5921d41d94cb63bac687fdcb963",
+  "formal_base_commit": "36441b232a38ef0204635c1426771c0aee2b4c57",
+  "closure_audit": {
+    "verdict": "pass",
+    "mandatory_blockers": 0,
+    "fresh_context": true,
+    "may_mark_t01l_completed": true,
+    "evidence": "closure-review-pass.md"
+  },
+  "verification": {
+    "python_full": {
+      "command": "PYTHONPATH=src .venv/bin/python -m pytest -q",
+      "result": "322 passed",
+      "duration_seconds": 40.88,
+      "environment": "host macOS; real loopback processes and Seatbelt enabled",
+      "warning": "one Starlette httpx deprecation warning"
+    },
+    "contract_focus": {
+      "result": "147 passed",
+      "review_context": "independent read-only requirements review"
+    },
+    "python_static": {
+      "ruff": "passed",
+      "compileall": "passed",
+      "git_diff_check": "passed"
+    },
+    "generated_contract": {
+      "command": "PYTHONPATH=src .venv/bin/python scripts/generate_client_contract.py --check",
+      "result": "passed"
+    },
+    "process_supervision_focus": {
+      "result": "included in the 147 contract-focused passing cases",
+      "coverage": [
+        "FD-only frozen workspace input with exact digest and byte accounting",
+        "private empty read-only cwd and no workspace or state path authority",
+        "static root-owned loader profile without /usr/local or sys.prefix",
+        "FIFO, symlink, hardlink, state-copy and decoder-limit rejection",
+        "assignment and command deadline, cancellation and output limits",
+        "durable prepared/running identity and complete process-group reap"
+      ]
+    },
+    "macos_swift": {
+      "command": "swift test",
+      "result": "99 passed",
+      "duration_seconds": 2.532
+    },
+    "macos_release_build": {
+      "command": "swift build -c release",
+      "result": "passed",
+      "duration_seconds": 12.17
+    },
+    "merge_integrity": {
+      "final_commit_is_descendant_of_formal_base": true,
+      "settings_view_absent": true,
+      "model_service_notice_view_absent": true,
+      "deleted_view_references_absent": true,
+      "chinese_readme_is_primary": true,
+      "dark_purple_lilies_concept_present": true
+    },
+    "independent_daemon_cli": {
+      "result": "passed",
+      "evidence": "independent-cli-transcript.json",
+      "provider": "deterministic-development",
+      "paid_model_calls": 0,
+      "billed_cost_usd": "0"
+    },
+    "deterministic_model_tool_loop": {
+      "result": "passed",
+      "evidence": [
+        "one content-addressed source mutation and diff",
+        "one source inspection",
+        "one granted process test",
+        "six recorded model calls across planning, continuation and final stages",
+        "exact persisted tool, byte, token and fixture-cost usage"
+      ]
+    },
+    "desktop_launch": {
+      "command": "./script/build_and_run.sh --verify",
+      "result": "exact app binary and standalone daemon identity verified",
+      "model_egress_enabled": false
+    }
+  },
+  "security_properties_verified": [
+    "broker, executor, resolver and reviewer have exact separate scope profiles",
+    "ordinary session writers, including legacy mixed profiles, cannot reach development execution",
+    "assignment paths, commands, network, side effects, deadline and budgets are frozen",
+    "workspace file tools use nonblocking no-follow descriptors, single-link checks and bounded authenticated-state detection",
+    "file publication timeout or cancellation after the side-effect fence requires reconciliation rather than a false settled receipt",
+    "process targets receive immutable read-only FD snapshots and no workspace pathname or filesystem-write authority",
+    "process input and retained output bytes use the same cumulative assignment ledger with conservative output reservation",
+    "process loader roots are static root-owned macOS paths and exclude /usr/local, sys.prefix and mutable toolchains",
+    "private process cwd is stable, mode 0500 and descriptor-verified empty at preparation and execution",
+    "file mutation, process execution and model calls have durable prepared records before side effects",
+    "model request bounds and trusted pricing are checked before egress",
+    "prepared or unknown model usage forces reconciliation and cannot be terminally digested",
+    "cancellation atomically freezes prepared model calls and rejects late recorded settlement",
+    "run and direct invocation admission share one serialized gate with durable owner binding",
+    "process leader remains behind a nonce gate until its full identity is durably persisted",
+    "independent watchdog enforces timeout, output bound and full target process-group reap",
+    "startup verified reap uses PID, PGID and kernel birth markers and never signals a mismatched identity",
+    "raw model output, file content, process output, gate nonce and control directory are absent from durable public evidence",
+    "schema version 6 prevents older schema-5 binaries from opening upgraded development state",
+    "provider egress disabled prevents model-call preparation and provider invocation"
+  ],
+  "token_and_egress": {
+    "paid_model_calls": 0,
+    "billed_cost_usd": "0",
+    "deterministic_fixture_tokens": 24,
+    "deterministic_fixture_cost_usd": "0.00003",
+    "deterministic_e2e_tokens": 87,
+    "deterministic_e2e_cost_usd": "0.000099",
+    "fixture_cost_is_not_a_bill": true,
+    "deepseek_development_status": "fail_closed_before_ledger_and_network_without_authoritative_offline_input_tokenizer"
+  },
+  "evidence_debt": [
+    {
+      "id": "V0413-T01L-LIVE-MODEL-001",
+      "status": "not_required_for_r6_deterministic_acceptance",
+      "achieved_level": "deterministic provider with exact pre-egress request bound and complete durable ledger",
+      "claim_ceiling": "does not claim a paid or live DeepSeek DevelopmentAssignment run",
+      "recheck_trigger": "an authoritative offline tokenizer and request-bound DeepSeek completion adapter are installed"
+    },
+    {
+      "id": "V0413-T01L-HOST-RESIDUE-001",
+      "status": "environment_residue",
+      "achieved_level": "all final watchdog and complete process-group tests pass with no new residue",
+      "claim_ceiling": "four uninterruptible processes created by an obsolete pre-watchdog experiment remain outside the final test state; they have no model provider egress and are not token-consuming workflows",
+      "recheck_trigger": "host reboot"
+    },
+    {
+      "id": "V0413-ED-004",
+      "status": "carried_from_t01k",
+      "achieved_level": "99 Swift tests, debug and release builds, exact app/daemon launch verification and static Chinese/accessibility implementation",
+      "claim_ceiling": "does not claim native visual, keyboard, accessibility or human-interaction inspection",
+      "recheck_trigger": "Computer Use native pipe becomes available or the user supplies explicit visual confirmation"
+    },
+    {
+      "id": "V0413-T01L-CROSS-PLATFORM-001",
+      "status": "separate_future_tasks",
+      "achieved_level": "controlled-local macOS FD-snapshot process backend",
+      "claim_ceiling": "does not claim Android or Windows build/runtime support; T01M and T01N remain separate mandatory tasks",
+      "recheck_trigger": "the separately frozen T01M or T01N runtime evidence is available"
+    }
+  ],
+  "claim_ceiling": "Controlled-local macOS integration: a standalone deterministic-provider DevelopmentAssignment can autonomously mutate, inspect and test an explicitly authorized local software workspace with durable role separation, immutable FD process inputs, idempotency, reconciliation, token accounting and Seatbelt/watchdog containment. No live DeepSeek coding-quality claim, Android or Windows result, native visual/human-interaction pass, enterprise customer result, cross-platform isolation or production certification is claimed."
+}

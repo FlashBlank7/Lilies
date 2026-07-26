@@ -1,0 +1,205 @@
+{
+  "schema_version": "1.0",
+  "stage_task_id": "V04-13-T01L",
+  "kind": "sanitized_normalized_independent_daemon_cli_transcript",
+  "captured_at": "2026-07-27T00:55:01+09:00",
+  "standalone_commit": "fd0f1a4e67511157f805f936f58d5152fe67dc5f",
+  "runtime": {
+    "daemon_process": "separate uvicorn process",
+    "cli_processes": "one separate process per command",
+    "address": "http://127.0.0.1:<ephemeral-port>",
+    "provider": "deterministic-development",
+    "paid_model_calls": 0,
+    "billed_cost_usd": "0",
+    "ledger_cost_is_fixture_only": true
+  },
+  "transcript": [
+    {
+      "command": "lilies develop --no-start --profile broker pair --pairing-code-file <private-file>",
+      "returncode": 0,
+      "stderr_empty": true,
+      "output": {
+        "profile": "broker",
+        "granted_scopes": [
+          "lilies.development:read",
+          "lilies.development:write",
+          "lilies.session:read"
+        ]
+      }
+    },
+    {
+      "command": "lilies develop --no-start --profile executor pair --pairing-code-file <private-file>",
+      "returncode": 0,
+      "stderr_empty": true,
+      "output": {
+        "profile": "executor",
+        "granted_scopes": [
+          "lilies.development:execute",
+          "lilies.development:read",
+          "lilies.session:read"
+        ]
+      }
+    },
+    {
+      "command": "lilies develop --no-start --profile resolver pair --pairing-code-file <private-file>",
+      "returncode": 0,
+      "stderr_empty": true,
+      "output": {
+        "profile": "resolver",
+        "granted_scopes": [
+          "lilies.development:read",
+          "lilies.permission:resolve",
+          "lilies.session:read"
+        ]
+      }
+    },
+    {
+      "command": "lilies develop --no-start --profile reviewer pair --pairing-code-file <private-file>",
+      "returncode": 0,
+      "stderr_empty": true,
+      "output": {
+        "profile": "reviewer",
+        "granted_scopes": [
+          "lilies.development:read",
+          "lilies.development:review",
+          "lilies.session:read"
+        ]
+      }
+    },
+    {
+      "command": "lilies develop --no-start --profile broker submit <assignment.json>",
+      "returncode": 0,
+      "stderr_empty": true,
+      "output": {
+        "status": "accepted",
+        "authorization_mode": "frozen_autonomous",
+        "client_role": "broker",
+        "executor_role": "developer",
+        "legacy_binding_quarantined": false,
+        "side_effects": {
+          "file_write": "preauthorized",
+          "model_call": "preauthorized",
+          "process_run": "disabled"
+        }
+      }
+    },
+    {
+      "command": "lilies develop --no-start --profile executor run <assignment-id> --idempotency-key cli-independent-development-run-001",
+      "returncode": 0,
+      "stderr_empty": true,
+      "output": {
+        "status": "prepared",
+        "outcome": null,
+        "provider": "deterministic-development",
+        "model": "deterministic-model",
+        "usage": {
+          "model_calls": 0,
+          "input_tokens": 0,
+          "output_tokens": 0,
+          "tool_calls": 0
+        }
+      }
+    },
+    {
+      "command": "lilies develop --no-start --profile executor run-status <assignment-id> <run-id>",
+      "returncode": 0,
+      "stderr_empty": true,
+      "output": {
+        "status": "settled",
+        "outcome": "succeeded",
+        "result_digest": "sha256:7b48c3d50182570999cab5bf5c5de03459c66b8f825210183bd45d5128f303a7",
+        "final_text": "CLI 独立进程任务完成，持久化证据已生成。",
+        "evidence": {
+          "mutation_count": 1,
+          "post_mutation_validation_count": 1,
+          "file_diff_count": 1,
+          "process_test_count": 0,
+          "tools": [
+            "file_write",
+            "text_search"
+          ],
+          "file_diff": {
+            "operation": "created",
+            "path": "src/cli_answer.py",
+            "bytes_written": 39,
+            "after_sha256": "sha256:2f9c5b738db9a1e7b802bd09d853cd321e0cb2e56fd6bdc880413dc32fc4b056"
+          }
+        },
+        "usage": {
+          "model_calls": 3,
+          "input_tokens": 18,
+          "output_tokens": 6,
+          "tool_calls": 2,
+          "bytes_read": 39,
+          "bytes_written": 39,
+          "fixture_cost_usd": "0.00003"
+        }
+      }
+    },
+    {
+      "command": "lilies develop --no-start --profile executor usage <assignment-id>",
+      "returncode": 0,
+      "stderr_empty": true,
+      "output": {
+        "recorded_calls": 3,
+        "unknown_calls": 0,
+        "total_tokens": 24,
+        "stages": [
+          {
+            "stage": "development:planning",
+            "input_tokens": 5,
+            "output_tokens": 2,
+            "total_tokens": 7
+          },
+          {
+            "stage": "development:tool-continuation",
+            "input_tokens": 6,
+            "output_tokens": 2,
+            "total_tokens": 8
+          },
+          {
+            "stage": "development:final",
+            "input_tokens": 7,
+            "output_tokens": 2,
+            "total_tokens": 9
+          }
+        ]
+      }
+    }
+  ],
+  "durable_database_checks": {
+    "run_status": "settled",
+    "run_outcome": "succeeded",
+    "settled_invocations": 2,
+    "ledger_rows": [
+      [
+        1,
+        "recorded",
+        5,
+        2,
+        7
+      ],
+      [
+        2,
+        "recorded",
+        6,
+        2,
+        8
+      ],
+      [
+        3,
+        "recorded",
+        7,
+        2,
+        9
+      ]
+    ]
+  },
+  "secret_policy": {
+    "raw_transcript_archived": false,
+    "access_tokens": "redacted and temporary source deleted",
+    "pairing_codes": "redacted and temporary source deleted",
+    "bootstrap_credential": "not emitted",
+    "provider_key": "not configured"
+  }
+}
