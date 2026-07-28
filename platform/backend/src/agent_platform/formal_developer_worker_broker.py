@@ -199,6 +199,10 @@ _FORBIDDEN_ENVIRONMENT_IDENTITIES = frozenset(
 _MAX_WORKSPACE_FILES = 100_000
 _MAX_WORKSPACE_BYTES = 2 * 1024 * 1024 * 1024
 _MAX_CAPTURE_BYTES = 16 * 1024 * 1024
+_WORKER_RUNTIME_RELATIVE_ROOTS = (
+    PurePosixPath("work/.developer-worker-home"),
+    PurePosixPath("work/.developer-worker-tmp"),
+)
 
 
 def _canonical_json(value: Any) -> bytes:
@@ -393,13 +397,23 @@ def _safe_environment(
     return environment
 
 
-def _workspace_tree_digest(root: Path) -> str:
+def _workspace_tree_digest(
+    root: Path,
+    *,
+    excluded_relative_roots: Sequence[PurePosixPath] = (),
+) -> str:
     digest = hashlib.sha256()
     files = 0
     total_bytes = 0
     for path in sorted(root.rglob("*"), key=lambda item: item.relative_to(root).as_posix()):
         relative = path.relative_to(root).as_posix()
-        parts = PurePosixPath(relative).parts
+        relative_path = PurePosixPath(relative)
+        if any(
+            relative_path == excluded or excluded in relative_path.parents
+            for excluded in excluded_relative_roots
+        ):
+            continue
+        parts = relative_path.parts
         if any(part.casefold() in _REQUIRED_DENIED_SEGMENTS for part in parts):
             raise FormalDeveloperWorkerError("developer worker workspace contains a forbidden path")
         metadata = path.lstat()
@@ -825,7 +839,10 @@ class FormalDeveloperWorkerBroker:
             workspace=workspace_path,
             executable_roots=self._runtime_executable_roots,
         )
-        before_digest = _workspace_tree_digest(workspace_path)
+        before_digest = _workspace_tree_digest(
+            workspace_path,
+            excluded_relative_roots=_WORKER_RUNTIME_RELATIVE_ROOTS,
+        )
         read_roots = (
             workspace_path,
             *self._runtime_read_roots,
@@ -874,7 +891,10 @@ class FormalDeveloperWorkerBroker:
         stderr, stderr_complete = _bounded_capture(stderr)
         boundary_intact = stdout_complete and stderr_complete
         try:
-            after_digest = _workspace_tree_digest(workspace_path)
+            after_digest = _workspace_tree_digest(
+                workspace_path,
+                excluded_relative_roots=_WORKER_RUNTIME_RELATIVE_ROOTS,
+            )
         except FormalDeveloperWorkerError:
             boundary_intact = False
             after_digest = _digest(
@@ -997,7 +1017,12 @@ class FormalDeveloperWorkerBroker:
                 )
                 and hmac.compare_digest(
                     receipt.workspace_after_digest,
-                    _workspace_tree_digest(workspace_path),
+                    _workspace_tree_digest(
+                        workspace_path,
+                        excluded_relative_roots=(
+                            _WORKER_RUNTIME_RELATIVE_ROOTS
+                        ),
+                    ),
                 )
                 and receipt.boundary_intact
             )

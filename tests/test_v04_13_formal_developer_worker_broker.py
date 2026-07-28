@@ -44,7 +44,9 @@ from agent_platform.formal_developer_worker_broker import (
     FormalDeveloperWorkerBroker,
     FormalDeveloperWorkerConflict,
     FormalDeveloperWorkerError,
+    _WORKER_RUNTIME_RELATIVE_ROOTS,
     _canonical_json,
+    _workspace_tree_digest,
 )
 from agent_platform.lilies_models import CollaborationScope
 from agent_platform.task_packages import (
@@ -81,6 +83,40 @@ def _json_bytes(value: object) -> bytes:
 
 def _digest(payload: bytes) -> str:
     return "sha256:" + hashlib.sha256(payload).hexdigest()
+
+
+def test_workspace_digest_excludes_only_broker_owned_runtime_directories(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    source = workspace / "source"
+    runtime = (
+        workspace
+        / "work"
+        / ".developer-worker-home"
+        / ".codex"
+        / "tmp"
+    )
+    source.mkdir(parents=True)
+    runtime.mkdir(parents=True)
+    (source / "implementation.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (runtime / "codex-wrapper").symlink_to("/usr/bin/true")
+
+    digest = _workspace_tree_digest(
+        workspace,
+        excluded_relative_roots=_WORKER_RUNTIME_RELATIVE_ROOTS,
+    )
+
+    assert digest.startswith("sha256:")
+    (source / "forbidden-link").symlink_to("/usr/bin/true")
+    with pytest.raises(
+        FormalDeveloperWorkerError,
+        match="cannot contain symbolic links",
+    ):
+        _workspace_tree_digest(
+            workspace,
+            excluded_relative_roots=_WORKER_RUNTIME_RELATIVE_ROOTS,
+        )
 
 
 def _write(path: Path, payload: bytes, *, mode: int) -> None:
