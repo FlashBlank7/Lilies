@@ -86,6 +86,7 @@ class CustomerSystemHandler(BaseHTTPRequestHandler):
     patch_bodies: list[dict[str, Any]] = []
     slow_reads = False
     leak_extra_read_field = False
+    required_authorization: str | None = None
 
     def do_GET(self) -> None:  # noqa: N802
         path = self.path.split("?", 1)[0]
@@ -95,7 +96,14 @@ class CustomerSystemHandler(BaseHTTPRequestHandler):
         if type(self).slow_reads:
             time.sleep(0.1)
         type(self).get_calls += 1
-        type(self).authorization_headers.append(self.headers.get("Authorization", ""))
+        authorization = self.headers.get("Authorization", "")
+        type(self).authorization_headers.append(authorization)
+        if (
+            type(self).required_authorization is not None
+            and authorization != type(self).required_authorization
+        ):
+            self._send(401, {"error": "credential rejected"})
+            return
         case_id = path.rsplit("/", 1)[-1]
         response = {"case_id": case_id, "summary": "Controlled customer case"}
         if type(self).leak_extra_read_field:
@@ -170,6 +178,7 @@ def customer_server() -> Iterator[tuple[str, type[CustomerSystemHandler]]]:
     CustomerSystemHandler.patch_bodies = []
     CustomerSystemHandler.slow_reads = False
     CustomerSystemHandler.leak_extra_read_field = False
+    CustomerSystemHandler.required_authorization = None
     server = ThreadingHTTPServer(("127.0.0.1", 0), CustomerSystemHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -900,6 +909,103 @@ def test_dry_run_promotes_only_exact_preauthorized_payload_and_replays_once(
                 "connector.execution.authorized",
                 "connector.execution.dry_run_completed",
                 "connector.execution.dry_run_promoted",
+                "connector.execution.succeeded",
+            ]
+
+
+def test_failed_read_retries_after_connector_binding_revision_changes(
+    tmp_path: Path,
+) -> None:
+    current_secret = "current-customer-secret"
+    with customer_server() as (base_url, handler):
+        handler.required_authorization = f"Bearer {current_secret}"
+        app = create_app(settings(tmp_path), DecisionProvider())
+        with TestClient(app) as client:
+            register_manifest(client, base_url)
+            binding, _policy = register_tenant(
+                client,
+                application_ids=["app-controlled"],
+                secret="expired-customer-secret",
+            )
+            request = execute_body(
+                operation_id="get_case",
+                payload={"case_id": "binding-refresh"},
+                idempotency_key="failed-read-binding-refresh",
+            )
+
+            first = client.post(
+                "/api/v1/connectors/executions",
+                headers=HEADERS,
+                json=request,
+            )
+            assert first.status_code == 502, first.text
+            assert handler.get_calls == 1
+
+            replacement_secret = client.post(
+                "/api/v1/platform/secrets",
+                headers=HEADERS,
+                json={
+                    "owner_id": "test-tenant",
+                    "name": "customer-system-current",
+                    "value": current_secret,
+                    "description": "rotated controlled Connector bearer secret",
+                },
+            )
+            assert replacement_secret.status_code == 201, replacement_secret.text
+            rebound = client.put(
+                "/api/v1/connectors/bindings",
+                headers=HEADERS,
+                json={
+                    "expected_revision": binding["revision"],
+                    "binding": {
+                        key: value
+                        for key, value in binding.items()
+                        if key
+                        in {
+                            "connector_id",
+                            "connector_version",
+                            "tenant_id",
+                            "external_tenant_id",
+                            "profile_id",
+                            "application_ids",
+                            "allowed_operations",
+                            "subjects",
+                        }
+                    }
+                    | {
+                        "secret_ref": (
+                            "secret://test-tenant/customer-system-current"
+                        )
+                    },
+                },
+            )
+            assert rebound.status_code == 200, rebound.text
+            assert rebound.json()["revision"] == binding["revision"] + 1
+
+            second = client.post(
+                "/api/v1/connectors/executions",
+                headers=HEADERS,
+                json=request,
+            )
+
+            assert second.status_code == 201, second.text
+            receipt = second.json()["receipt"]
+            assert receipt["status"] == "succeeded"
+            assert receipt["replayed"] is False
+            assert receipt["binding_revision"] == rebound.json()["revision"]
+            assert handler.get_calls == 2
+            assert handler.authorization_headers == [
+                "Bearer expired-customer-secret",
+                f"Bearer {current_secret}",
+            ]
+            events = client.get(
+                f"/api/v1/connectors/executions/{receipt['execution_id']}/events",
+                headers=HEADERS,
+            ).json()
+            assert [item["event_type"] for item in events] == [
+                "connector.execution.authorized",
+                "connector.execution.failed",
+                "connector.execution.binding_refresh_started",
                 "connector.execution.succeeded",
             ]
 

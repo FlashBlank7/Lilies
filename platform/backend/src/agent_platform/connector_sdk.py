@@ -492,6 +492,7 @@ class ConnectorExecution(BaseModel):
     status: ConnectorExecutionStatus
     side_effect_state: Literal["none", "applied", "unknown", "compensated"] = "none"
     policy_revision: int
+    binding_revision: int = Field(default=0, ge=0)
     authorization_id: str = ""
     adapter_called: bool = False
     response: Any = Field(default_factory=dict)
@@ -523,6 +524,7 @@ class ConnectorExecution(BaseModel):
             "compensation_execution_id": self.compensation_execution_id,
             "callback_status": self.callback_status,
             "replayed": self.replayed,
+            "binding_revision": self.binding_revision,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "claim_scope": (
@@ -1499,6 +1501,7 @@ class ConnectorService:
                 self._reserve_execution_sync,
                 request,
                 operation,
+                binding,
                 policy,
                 payload,
             )
@@ -1677,6 +1680,7 @@ class ConnectorService:
         self,
         request: ConnectorExecutionRequest,
         operation: ConnectorOperation,
+        binding: ConnectorTenantBinding,
         policy: ConnectorDomainPolicy,
         payload: dict[str, Any],
     ) -> tuple[ConnectorExecution, bool]:
@@ -1748,6 +1752,52 @@ class ConnectorService:
                     )
                 if record.status == "executing":
                     raise ConnectorConflict("connector execution is already in progress")
+                if (
+                    record.status == "failed"
+                    and operation.kind == "read"
+                    and record.binding_revision != binding.revision
+                ):
+                    refreshed = record.model_copy(
+                        update={
+                            "status": "executing",
+                            "side_effect_state": "none",
+                            "binding_revision": binding.revision,
+                            "adapter_called": False,
+                            "response": {},
+                            "response_hash": "",
+                            "external_reference": "",
+                            "error": "",
+                            "replayed": False,
+                            "updated_at": now,
+                            "finished_at": None,
+                        }
+                    )
+                    conn.execute(
+                        """UPDATE connector_executions SET status=?,record_json=?,updated_at=?
+                           WHERE id=?""",
+                        (
+                            refreshed.status,
+                            refreshed.model_dump_json(),
+                            now,
+                            refreshed.id,
+                        ),
+                    )
+                    self._append_event_sync(
+                        conn,
+                        refreshed.connector_id,
+                        refreshed.connector_version,
+                        refreshed.tenant_id,
+                        refreshed.id,
+                        "connector.execution.binding_refresh_started",
+                        {
+                            "operation_id": refreshed.operation_id,
+                            "previous_binding_revision": record.binding_revision,
+                            "binding_revision": binding.revision,
+                            "side_effect_safe": True,
+                        },
+                        now,
+                    )
+                    return refreshed, False
                 if record.status == "dry_run" and not request.dry_run:
                     current_policy_row = conn.execute(
                         """SELECT record_json FROM connector_domain_policies
@@ -1882,6 +1932,7 @@ class ConnectorService:
                 request_payload=payload,
                 status=status,
                 policy_revision=current_policy.revision,
+                binding_revision=binding.revision,
                 authorization_id=request.authorization_id,
                 finished_at=now if request.dry_run else None,
                 created_at=now,

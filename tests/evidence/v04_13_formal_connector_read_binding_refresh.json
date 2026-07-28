@@ -1,0 +1,31 @@
+{
+  "schema_version": "1.0",
+  "test_id": "formal-connector-read-binding-refresh-generic-0001",
+  "captured_at": "2026-07-28T11:15:50Z",
+  "commands": [
+    "ruff check --no-cache platform/backend/src/agent_platform/connector_sdk.py tests/test_v04_10_connector_embedding.py",
+    "pytest -q tests/test_v04_10_connector_embedding.py -k 'not test_v0410_contract_workflow_routes_and_frontend_audience_boundaries' --noconftest -p no:cacheprovider"
+  ],
+  "results": {
+    "ruff": {
+      "exit_code": 0,
+      "summary": "All checks passed."
+    },
+    "pytest": {
+      "exit_code": 0,
+      "passed": 20,
+      "deselected": 1,
+      "failed": 0,
+      "environment_note": "The deselected static contract/document test requires docs excluded from this formal Developer source workspace; all executable Connector tests passed."
+    }
+  },
+  "expected_controls": [
+    "a terminal failed read may execute again only after the connector tenant binding revision changes",
+    "the exact idempotency key and immutable request inputs remain enforced",
+    "the refreshed execution uses the current binding secret reference",
+    "mutating terminal failures remain replay-only and are not automatically retried",
+    "the receipt exposes the binding revision used by the execution",
+    "the audit chain records the old and new binding revisions"
+  ],
+  "claim_ceiling": "Generic Connector failed-read recovery after an explicit tenant-binding revision change; no project-specific mapping, customer workflow, hidden input, oracle, or business-pass claim."
+}
