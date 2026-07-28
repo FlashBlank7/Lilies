@@ -5989,11 +5989,26 @@ class FormalSourceProvenanceCoordinator:
             previous = (
                 records[-1].commit_sha
                 if records
-                else baseline.source_state.head_commit_sha
+                else receipt.parent_commit_sha
             )
-            if receipt.parent_commit_sha != previous:
+            if records and receipt.parent_commit_sha != previous:
                 raise FormalSourceProvenanceConflict(
                     "promoted DeveloperResponse is not the next approved commit"
+                )
+            if not records and (
+                receipts[0] != receipt
+                or not self._repository.commit_is_ancestor(
+                    baseline.source_state.head_commit_sha,
+                    receipt.parent_commit_sha,
+                )
+                or self._repository.descendant_history_touches_paths(
+                    ancestor=baseline.source_state.head_commit_sha,
+                    descendant=receipt.parent_commit_sha,
+                    paths=receipt.changed_paths,
+                )
+            ):
+                raise FormalSourceProvenanceConflict(
+                    "first promoted DeveloperResponse has an unsafe source predecessor"
                 )
             provenance, files = _commit_provenance(
                 self._repository,

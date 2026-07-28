@@ -958,6 +958,13 @@ def test_promotion_rebases_once_over_path_disjoint_fast_forward(
         repository / "tests/test_example.py"
     ).read_text(encoding="utf-8")
     assert _promote(context) == receipt
+    coordinator = context["coordinator"]
+    assert isinstance(coordinator, FormalSourceProvenanceCoordinator)
+    record = coordinator.record_promoted_response(
+        assignment_id=context["assignment_id"],
+        binding=_binding(context, receipt.commit_sha),
+    )
+    assert record.parent_commit_sha == advanced_head
 
 
 def test_promotion_rejects_fast_forward_that_touched_target_path(
