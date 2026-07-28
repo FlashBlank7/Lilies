@@ -50,6 +50,7 @@ class _Providers:
         self,
         request: PrepareFormalAssignmentRequest,
         required_scopes: tuple[PlatformScope, ...],
+        _allowed_actions: object,
     ) -> PlatformAccess:
         self.platform_calls += 1
         scopes = list(required_scopes)
@@ -188,6 +189,21 @@ def test_broker_prepares_exact_public_bundle_from_sealed_package(
     assert assignment.constraints.max_tool_calls == (package.budget.max_platform_tool_calls)
     assert assignment.collaboration is not None
     assert assignment.collaboration.expires_at == assignment.constraints.deadline_at
+    ready_payload = json.loads(
+        (
+            task_state
+            / "preflight"
+            / request.task_id
+            / str(request.revision)
+            / prepared.run_id
+            / "environment-ready.json"
+        ).read_text(encoding="utf-8")
+    )
+    ready_finished_at = datetime.fromisoformat(ready_payload["finished_at"])
+    ready_expires_at = datetime.fromisoformat(ready_payload["expires_at"])
+    assert (
+        ready_expires_at - ready_finished_at
+    ).total_seconds() == package.budget.assignment_wall_clock_seconds
     assert providers.platform_calls == 1
     assert providers.collaboration_calls == 1
 
@@ -307,6 +323,21 @@ def test_developer_workspace_allows_source_edits_but_rejects_boundary_tampering(
         session_id=request.session_id,
     )
     assert replay == first
+
+    runtime = (
+        workspace
+        / "work"
+        / ".developer-worker-home"
+        / ".codex"
+        / "tmp"
+    )
+    runtime.mkdir(parents=True)
+    (runtime / "codex-wrapper").symlink_to("/usr/bin/true")
+    replay_with_broker_runtime = broker.resolve_developer_workspace(
+        assignment_id=request.assignment_id,
+        session_id=request.session_id,
+    )
+    assert replay_with_broker_runtime == first
 
     forbidden = workspace / "source/protected"
     forbidden.mkdir()

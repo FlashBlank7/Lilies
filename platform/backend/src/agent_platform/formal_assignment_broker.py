@@ -46,6 +46,7 @@ from .lilies_models import (
 from .task_packages import (
     WORKSPACE_MANIFEST_FILE,
     WORKSPACE_POLICY_FILE,
+    AllowedActionsPolicy,
     TaskPackageManager,
     TaskPackageSecurityError,
     WorkspaceMountManifest,
@@ -67,6 +68,10 @@ _FORBIDDEN_PUBLIC_SEGMENTS = frozenset(
     }
 )
 _FORBIDDEN_PUBLIC_IDENTITIES = frozenset(item.casefold() for item in _FORBIDDEN_PUBLIC_SEGMENTS)
+_DEVELOPER_WORKER_RUNTIME_ROOTS = (
+    PurePosixPath("work/.developer-worker-home"),
+    PurePosixPath("work/.developer-worker-tmp"),
+)
 _PublicPath = Annotated[
     str,
     StringConstraints(min_length=1, max_length=4_096),
@@ -194,7 +199,11 @@ class PreparedFormalAssignment(_FrozenModel):
 
 
 PlatformAccessProvider = Callable[
-    [PrepareFormalAssignmentRequest, tuple[PlatformScope, ...]],
+    [
+        PrepareFormalAssignmentRequest,
+        tuple[PlatformScope, ...],
+        AllowedActionsPolicy,
+    ],
     PlatformAccess | Mapping[str, Any],
 ]
 CollaborationAccessProvider = Callable[
@@ -917,7 +926,14 @@ class FormalAssignmentBroker:
                 )
         for path in workspace.rglob("*"):
             relative = path.relative_to(workspace).as_posix()
-            relative_parts = PurePosixPath(relative).parts
+            relative_path = PurePosixPath(relative)
+            if any(
+                relative_path == runtime_root
+                or runtime_root in relative_path.parents
+                for runtime_root in _DEVELOPER_WORKER_RUNTIME_ROOTS
+            ):
+                continue
+            relative_parts = relative_path.parts
             if any(part.casefold() in _FORBIDDEN_PUBLIC_IDENTITIES for part in relative_parts):
                 raise TaskPackageSecurityError(
                     "formal developer workspace contains a reserved tree segment"
@@ -1030,7 +1046,11 @@ class FormalAssignmentBroker:
                 )
             )
             platform = PlatformAccess.model_validate(
-                self.__platform_access_provider(parsed, required_scopes)
+                self.__platform_access_provider(
+                    parsed,
+                    required_scopes,
+                    package.allowed_actions,
+                )
             )
             if tuple(platform.scopes) != required_scopes or platform.application_ids != [
                 parsed.application_id
@@ -1046,6 +1066,10 @@ class FormalAssignmentBroker:
                 run_id=run_id,
                 assignment_id=parsed.assignment_id,
                 environment_instance_id=parsed.environment_instance_id,
+                ttl_seconds=max(
+                    60,
+                    package.budget.assignment_wall_clock_seconds,
+                ),
             )
             _, ready_digest = self.__manager.require_environment_ready(
                 package,
