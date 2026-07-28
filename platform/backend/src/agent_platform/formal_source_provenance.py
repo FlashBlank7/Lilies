@@ -3847,6 +3847,20 @@ class FormalSourceProvenanceCoordinator:
         remaining = list(receipts)
         while remaining:
             matches = [item for item in remaining if item.parent_commit_sha == parent]
+            if not matches and not ordered:
+                matches = [
+                    item
+                    for item in remaining
+                    if self._repository.commit_is_ancestor(
+                        parent,
+                        item.parent_commit_sha,
+                    )
+                    and not self._repository.descendant_history_touches_paths(
+                        ancestor=parent,
+                        descendant=item.parent_commit_sha,
+                        paths=item.changed_paths,
+                    )
+                ]
             if len(matches) != 1:
                 raise FormalSourceProvenanceConflict(
                     "developer promotion receipts are not one exact linear chain"

@@ -957,6 +957,7 @@ def test_promotion_rebases_once_over_path_disjoint_fast_forward(
     assert "test_rebased_workspace" in (
         repository / "tests/test_example.py"
     ).read_text(encoding="utf-8")
+    assert _promote(context) == receipt
 
 
 def test_promotion_rejects_fast_forward_that_touched_target_path(
