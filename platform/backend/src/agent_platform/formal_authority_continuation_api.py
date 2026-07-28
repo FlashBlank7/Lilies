@@ -14,6 +14,7 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 from fastapi import Depends, FastAPI, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
 
+from .connector_sdk import ConnectorConflict
 from .external_builder_bootstrap import (
     ExternalBuilderBootstrapReceipt,
     ExternalBuilderBootstrapRequest,
@@ -135,6 +136,57 @@ class RotateFormalAuthorityResponse(_StrictModel):
     bootstrap: ExternalBuilderBootstrapReceipt
     rotation_digest: str
     reason: str
+
+
+class RebindFormalConnectorCredentialRequest(_StrictModel):
+    """Owner-only, secret-free connector credential reference rotation."""
+
+    schema_version: Literal["1.0"] = "1.0"
+    connector_id: str = Field(
+        min_length=1,
+        max_length=160,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+    )
+    connector_version: int = Field(ge=1)
+    tenant_id: str = Field(min_length=1, max_length=200)
+    application_id: UUID
+    expected_binding_revision: int = Field(ge=1)
+    current_secret_ref: str = Field(
+        min_length=12,
+        max_length=512,
+        pattern=r"^secret://[^/]+/[^/]+$",
+    )
+    replacement_secret_ref: str = Field(
+        min_length=12,
+        max_length=512,
+        pattern=r"^secret://[^/]+/[^/]+$",
+    )
+    reason: str = Field(min_length=3, max_length=500)
+
+
+class RebindFormalConnectorCredentialResponse(_StrictModel):
+    schema_version: Literal["1.0"] = "1.0"
+    connector_id: str
+    connector_version: int
+    tenant_id: str
+    application_id: UUID
+    previous_secret_ref: str
+    secret_ref: str
+    previous_binding_revision: int
+    binding_revision: int
+    changed: bool
+    rebind_digest: str
+    reason: str
+
+
+def _split_platform_secret_ref(secret_ref: str) -> tuple[str, str]:
+    prefix = "secret://"
+    if not secret_ref.startswith(prefix):
+        raise ValueError("connector binding credential is not a PlatformHarness secret")
+    owner_id, separator, name = secret_ref.removeprefix(prefix).partition("/")
+    if not separator or not owner_id or not name or "/" in name:
+        raise ValueError("connector binding credential secret reference is invalid")
+    return owner_id, name
 
 
 def _utc_now() -> datetime:
@@ -403,6 +455,127 @@ def install_formal_authority_continuation_api(
     handoff_root: Path,
     token_derivation_key: str,
 ) -> None:
+    @app.put(
+        "/api/v1/platform/formal-environment/connector-bindings/secret-ref",
+        response_model=RebindFormalConnectorCredentialResponse,
+        dependencies=[Depends(require_user_token)],
+        tags=["formal-environment"],
+    )
+    async def rebind_formal_connector_credential(
+        body: RebindFormalConnectorCredentialRequest,
+    ) -> RebindFormalConnectorCredentialResponse:
+        bindings = await services.connectors.list_bindings(
+            body.connector_id,
+            tenant_id=body.tenant_id,
+            application_id=str(body.application_id),
+        )
+        matches = [
+            binding
+            for binding in bindings
+            if binding.connector_version == body.connector_version
+            and str(body.application_id) in binding.application_ids
+        ]
+        if len(matches) != 1:
+            raise HTTPException(
+                status_code=(
+                    status.HTTP_404_NOT_FOUND
+                    if not matches
+                    else status.HTTP_409_CONFLICT
+                ),
+                detail={
+                    "code": "connector_binding_not_exact",
+                    "message": "formal connector binding did not resolve uniquely",
+                },
+            )
+        binding = matches[0]
+        if binding.revision != body.expected_binding_revision:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "connector_binding_revision_conflict",
+                    "message": "formal connector binding changed before credential rebind",
+                },
+            )
+        if binding.secret_ref != body.current_secret_ref:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "connector_binding_secret_conflict",
+                    "message": "formal connector binding references another credential",
+                },
+            )
+        current_owner, _current_name = _split_platform_secret_ref(
+            body.current_secret_ref
+        )
+        replacement_owner, replacement_name = _split_platform_secret_ref(
+            body.replacement_secret_ref
+        )
+        if current_owner != replacement_owner:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail={
+                    "code": "connector_binding_secret_owner_mismatch",
+                    "message": "credential rebind cannot cross PlatformHarness owners",
+                },
+            )
+        available_secrets = await services.harness.list_secrets(
+            owner_id=replacement_owner
+        )
+        if not any(
+            item.get("name") == replacement_name
+            and item.get("encrypted") is True
+            for item in available_secrets
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "code": "replacement_connector_secret_not_found",
+                    "message": "replacement connector credential is unavailable",
+                },
+            )
+        changed = body.current_secret_ref != body.replacement_secret_ref
+        saved = binding
+        if changed:
+            try:
+                saved = await services.connectors.upsert_binding(
+                    binding.model_copy(
+                        update={"secret_ref": body.replacement_secret_ref}
+                    ),
+                    expected_revision=body.expected_binding_revision,
+                )
+            except ConnectorConflict as error:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail={
+                        "code": "connector_binding_rebind_conflict",
+                        "message": "formal connector credential rebind conflicted",
+                    },
+                ) from error
+            except (KeyError, ValueError) as error:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail={
+                        "code": "connector_binding_rebind_invalid",
+                        "message": "formal connector credential rebind was invalid",
+                    },
+                ) from error
+        semantic = {
+            "connector_id": saved.connector_id,
+            "connector_version": saved.connector_version,
+            "tenant_id": saved.tenant_id,
+            "application_id": str(body.application_id),
+            "previous_secret_ref": body.current_secret_ref,
+            "secret_ref": saved.secret_ref,
+            "previous_binding_revision": body.expected_binding_revision,
+            "binding_revision": saved.revision,
+            "changed": changed,
+            "reason": body.reason,
+        }
+        return RebindFormalConnectorCredentialResponse(
+            **semantic,
+            rebind_digest=_digest(semantic),
+        )
+
     @app.post(
         "/api/v1/formal-assignments/{assignment_id}/authority/continue",
         response_model=ContinueFormalAuthorityResponse,

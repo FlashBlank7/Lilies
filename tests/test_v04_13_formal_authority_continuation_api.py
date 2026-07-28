@@ -13,6 +13,10 @@ from fastapi.testclient import TestClient
 from agent_platform.api import create_app
 from agent_platform.collaboration_storage import CollaborationUnauthorized
 from agent_platform.config import Settings
+from agent_platform.connector_sdk import (
+    ConnectorIdentitySubject,
+    ConnectorTenantBinding,
+)
 from agent_platform.external_builder_bootstrap import (
     ExternalBuilderBootstrapReceipt,
 )
@@ -161,6 +165,121 @@ def _continuation_body(authority: dict[str, object]) -> tuple[dict[str, object],
         platform_token,
         collaboration_token,
     )
+
+
+def test_owner_rebinds_connector_credential_without_secret_disclosure(
+    tmp_path: Path,
+) -> None:
+    app = create_app(_settings(tmp_path), ScriptedProvider())
+    with TestClient(app) as client:
+        application_id = uuid4()
+        binding = ConnectorTenantBinding(
+            connector_id="synthetic-erp",
+            connector_version=3,
+            tenant_id="synthetic-customer",
+            external_tenant_id="customer-001",
+            profile_id="contract-test",
+            secret_ref="secret://synthetic-owner/rotated-alias",
+            application_ids=[str(application_id)],
+            allowed_operations=["orders_list"],
+            subjects=[
+                ConnectorIdentitySubject(
+                    external_subject="workflow-builder",
+                    actor_id="workflow-builder",
+                    roles=["builder"],
+                )
+            ],
+            revision=7,
+        )
+        saved = binding.model_copy(
+            update={
+                "secret_ref": "secret://synthetic-owner/current-credential",
+                "revision": 8,
+            }
+        )
+        services = client.app.state.services
+        services.connectors.list_bindings = AsyncMock(
+            return_value=[binding]
+        )
+        services.connectors.upsert_binding = AsyncMock(return_value=saved)
+        secret_value = "credential-material-must-not-cross-the-api"
+        installed = client.post(
+            "/api/v1/platform/secrets",
+            headers={"Authorization": "Bearer formal-owner-test-token"},
+            json={
+                "owner_id": "synthetic-owner",
+                "name": "current-credential",
+                "value": secret_value,
+                "description": "synthetic connector credential",
+            },
+        )
+        assert installed.status_code == 201, installed.text
+
+        response = client.put(
+            (
+                "/api/v1/platform/formal-environment/"
+                "connector-bindings/secret-ref"
+            ),
+            headers={"Authorization": "Bearer formal-owner-test-token"},
+            json={
+                "connector_id": "synthetic-erp",
+                "connector_version": 3,
+                "tenant_id": "synthetic-customer",
+                "application_id": str(application_id),
+                "expected_binding_revision": 7,
+                "current_secret_ref": (
+                    "secret://synthetic-owner/rotated-alias"
+                ),
+                "replacement_secret_ref": (
+                    "secret://synthetic-owner/current-credential"
+                ),
+                "reason": "refresh an owner-managed credential after reset",
+            },
+        )
+
+        assert response.status_code == 200, response.text
+        payload = response.json()
+        assert payload["changed"] is True
+        assert payload["previous_binding_revision"] == 7
+        assert payload["binding_revision"] == 8
+        assert payload["secret_ref"] == (
+            "secret://synthetic-owner/current-credential"
+        )
+        assert secret_value not in response.text
+        services.connectors.upsert_binding.assert_awaited_once()
+        updated_binding = services.connectors.upsert_binding.await_args.args[0]
+        assert updated_binding.secret_ref == (
+            "secret://synthetic-owner/current-credential"
+        )
+        assert services.connectors.upsert_binding.await_args.kwargs == {
+            "expected_revision": 7
+        }
+
+        cross_owner = client.put(
+            (
+                "/api/v1/platform/formal-environment/"
+                "connector-bindings/secret-ref"
+            ),
+            headers={"Authorization": "Bearer formal-owner-test-token"},
+            json={
+                "connector_id": "synthetic-erp",
+                "connector_version": 3,
+                "tenant_id": "synthetic-customer",
+                "application_id": str(application_id),
+                "expected_binding_revision": 7,
+                "current_secret_ref": (
+                    "secret://synthetic-owner/rotated-alias"
+                ),
+                "replacement_secret_ref": (
+                    "secret://another-owner/current-credential"
+                ),
+                "reason": "attempt a forbidden cross-owner rebind",
+            },
+        )
+        assert cross_owner.status_code == 422
+        assert cross_owner.json()["detail"]["code"] == (
+            "connector_binding_secret_owner_mismatch"
+        )
 
 
 def test_expired_authority_continuation_preserves_policy_and_replays(
