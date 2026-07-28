@@ -1690,6 +1690,80 @@ class _GitRepository:
             )
         return value
 
+    def commit_is_ancestor(self, ancestor: str, descendant: str) -> bool:
+        """Fail closed unless ``ancestor`` is a verified ancestor commit."""
+
+        if (
+            self.oid(ancestor, "commit") != ancestor
+            or self.oid(descendant, "commit") != descendant
+        ):
+            return False
+        try:
+            payload = self.run(
+                ["merge-base", "--all", ancestor, descendant],
+                limit=4 * 1024,
+            )
+        except FormalSourceProvenanceError:
+            return False
+        try:
+            merge_bases = payload.decode("ascii").splitlines()
+        except UnicodeDecodeError as error:
+            raise FormalSourceProvenanceSecurityError(
+                "Git merge-base returned an invalid object ID"
+            ) from error
+        if any(
+            len(item) != self.oid_length
+            or any(character not in "0123456789abcdef" for character in item)
+            for item in merge_bases
+        ):
+            raise FormalSourceProvenanceSecurityError(
+                "Git merge-base returned an invalid object ID"
+            )
+        return merge_bases == [ancestor]
+
+    def descendant_history_touches_paths(
+        self,
+        *,
+        ancestor: str,
+        descendant: str,
+        paths: Sequence[str],
+    ) -> bool:
+        """Return whether a post-ancestor commit touched any protected path."""
+
+        if ancestor == descendant:
+            return False
+        normalized = [_safe_source_path(path) for path in paths]
+        if normalized != sorted(set(normalized)):
+            raise FormalSourceProvenanceSecurityError(
+                "descendant history paths must be sorted and unique"
+            )
+        payload = self.run(
+            [
+                "rev-list",
+                "--full-history",
+                "--ancestry-path",
+                f"{ancestor}..{descendant}",
+                "--",
+                *normalized,
+            ],
+            limit=MAX_GIT_STATUS_BYTES,
+        )
+        try:
+            commits = payload.decode("ascii").splitlines()
+        except UnicodeDecodeError as error:
+            raise FormalSourceProvenanceSecurityError(
+                "Git descendant history returned an invalid object ID"
+            ) from error
+        if any(
+            len(item) != self.oid_length
+            or any(character not in "0123456789abcdef" for character in item)
+            for item in commits
+        ):
+            raise FormalSourceProvenanceSecurityError(
+                "Git descendant history returned an invalid object ID"
+            )
+        return bool(commits)
+
     def object_payload(
         self,
         oid: str,
@@ -4002,23 +4076,53 @@ class FormalSourceProvenanceCoordinator:
             excluding_response_id=response_id,
         )
         receipts = self._load_promotion_receipts(projection.assignment_id)
-        parent_commit = (
+        trusted_parent_commit = (
             receipts[-1].commit_sha if receipts else projection.baseline_commit_sha
         )
-        parent_tree = (
+        trusted_parent_tree = (
             receipts[-1].tree_sha if receipts else projection.baseline_tree_sha
         )
-        if self._repository.oid(parent_commit, "tree") != parent_tree:
+        if (
+            self._repository.oid(trusted_parent_commit, "tree")
+            != trusted_parent_tree
+        ):
             raise FormalSourceProvenanceSecurityError(
                 "developer promotion parent tree differs from its trusted receipt"
             )
         changes, target_blobs, target_payloads = self._workspace_delta(
             projection=projection,
             workspace=workspace,
-            parent_commit_sha=parent_commit,
+            parent_commit_sha=trusted_parent_commit,
             workspace_manifest_digest=workspace_manifest_digest,
             source_manifest_digest=source_manifest_digest,
         )
+        parent_commit = trusted_parent_commit
+        parent_tree = trusted_parent_tree
+        active_branch_commit = self._repository.oid(
+            projection.branch_ref,
+            "commit",
+        )
+        if active_branch_commit != trusted_parent_commit:
+            changed_paths = [change.path for change in changes]
+            if (
+                receipts
+                or self._repository.symbolic_head() != projection.branch_ref
+                or not self._repository.commit_is_ancestor(
+                    trusted_parent_commit,
+                    active_branch_commit,
+                )
+                or self._repository.descendant_history_touches_paths(
+                    ancestor=trusted_parent_commit,
+                    descendant=active_branch_commit,
+                    paths=changed_paths,
+                )
+            ):
+                raise FormalSourceProvenanceConflict(
+                    "developer promotion cannot rebase across conflicting "
+                    "or non-linear branch history"
+                )
+            parent_commit = active_branch_commit
+            parent_tree = self._repository.oid(active_branch_commit, "tree")
         payload = {
             "schema_version": "1.0",
             "assignment_id": str(projection.assignment_id),

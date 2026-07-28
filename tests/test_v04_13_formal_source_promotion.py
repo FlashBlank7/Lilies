@@ -905,13 +905,91 @@ def test_activation_rejects_affected_user_drift_and_wrong_parent(
         moved_workspace / "source/tests/test_example.py",
         "def test_workspace():\n    assert True\n",
     )
-    _write(moved_repository / "docs/note.md", "new main-only commit\n")
-    _git(moved_repository, "add", "docs/note.md")
-    _git(moved_repository, "commit", "-m", "move branch outside promotion")
-    moved_head = _git(moved_repository, "rev-parse", "HEAD")
+    baseline_tree = _git(
+        moved_repository,
+        "rev-parse",
+        f"{moved['baseline']}^{{tree}}",
+    )
+    moved_head = _git(
+        moved_repository,
+        "commit-tree",
+        baseline_tree,
+        input_payload=b"divergent branch root\n",
+    )
+    _git(
+        moved_repository,
+        "update-ref",
+        "refs/heads/main",
+        moved_head,
+        str(moved["baseline"]),
+    )
+    _git(moved_repository, "read-tree", "--reset", "-u", moved_head)
     with pytest.raises(FormalSourceProvenanceConflict):
         _promote(moved)
     assert _git(moved_repository, "rev-parse", "HEAD") == moved_head
+
+
+def test_promotion_rebases_once_over_path_disjoint_fast_forward(
+    tmp_path: Path,
+) -> None:
+    context = _setup_projection(tmp_path)
+    repository = context["repository"]
+    workspace = context["workspace"]
+    assert isinstance(repository, Path)
+    assert isinstance(workspace, Path)
+
+    _write(repository / "docs/note.md", "unrelated committed evolution\n")
+    _git(repository, "add", "docs/note.md")
+    _git(repository, "commit", "-m", "advance unrelated source")
+    advanced_head = _git(repository, "rev-parse", "HEAD")
+    _write(
+        workspace / "source/tests/test_example.py",
+        "def test_rebased_workspace():\n    assert True\n",
+    )
+
+    receipt = _promote(context)
+
+    assert receipt.parent_commit_sha == advanced_head
+    assert _git(repository, "rev-parse", "HEAD") == receipt.commit_sha
+    assert "unrelated committed evolution" in (
+        repository / "docs/note.md"
+    ).read_text(encoding="utf-8")
+    assert "test_rebased_workspace" in (
+        repository / "tests/test_example.py"
+    ).read_text(encoding="utf-8")
+
+
+def test_promotion_rejects_fast_forward_that_touched_target_path(
+    tmp_path: Path,
+) -> None:
+    context = _setup_projection(tmp_path)
+    repository = context["repository"]
+    workspace = context["workspace"]
+    assert isinstance(repository, Path)
+    assert isinstance(workspace, Path)
+
+    _write(
+        repository / "tests/test_example.py",
+        "def test_committed_user_change():\n    assert True\n",
+    )
+    _git(repository, "add", "tests/test_example.py")
+    _git(repository, "commit", "-m", "advance affected source")
+    advanced_head = _git(repository, "rev-parse", "HEAD")
+    _write(
+        workspace / "source/tests/test_example.py",
+        "def test_workspace_change():\n    assert True\n",
+    )
+
+    with pytest.raises(
+        FormalSourceProvenanceConflict,
+        match="cannot rebase",
+    ):
+        _promote(context)
+
+    assert _git(repository, "rev-parse", "HEAD") == advanced_head
+    assert "test_committed_user_change" in (
+        repository / "tests/test_example.py"
+    ).read_text(encoding="utf-8")
 
 
 def test_branch_cas_preserves_concurrent_third_commit_and_rolls_back(
