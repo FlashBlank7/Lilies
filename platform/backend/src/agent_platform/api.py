@@ -6429,6 +6429,21 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         require_user_token=require_local_lilies_token,
     )
 
+    from .formal_authority_continuation_api import (
+        install_formal_authority_continuation_api,
+    )
+
+    install_formal_authority_continuation_api(
+        app,
+        services,
+        require_user_token=require_local_lilies_token,
+        handoff_root=settings.data_dir.parent / "formal-authority-rotations",
+        token_derivation_key=(
+            settings.platform_harness_secret_envelope_key
+            or settings.api_token
+        ),
+    )
+
     from .collaborative_development_api import (
         install_collaborative_development_api,
     )
