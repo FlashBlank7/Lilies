@@ -1,7 +1,8 @@
 """Tests for NodeContract runtime validation and ErrorStrategy extensions."""
 from __future__ import annotations
 
-import sys, time
+import sys
+import time
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -10,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "platform" / "ba
 from fastapi.testclient import TestClient
 from agent_platform.api import create_app
 from agent_platform.config import Settings
-from agent_platform.workflow_models import NodeContract, ErrorStrategy
+from agent_platform.workflow_models import EdgeSpec, NodeContract, ErrorStrategy
 from agent_platform.workflow_runtime import WorkflowRuntime
 
 H = {"Authorization": "Bearer test-token-2024"}
@@ -216,6 +217,38 @@ def test_enum_values():
     assert ErrorStrategy.fail.value == "fail"
     assert ErrorStrategy.continue_on_error.value == "continue"
     assert ErrorStrategy.error_branch.value == "error_branch"
+
+
+def test_error_branch_excludes_implicit_success_edge():
+    """Reserved error output activates only the explicitly labelled error path."""
+    success_edge = EdgeSpec(id="success", source="request", target="success")
+    error_edge = EdgeSpec(
+        id="failure",
+        source="request",
+        target="failure",
+        branch="error",
+    )
+
+    assert WorkflowRuntime._edge_active(
+        success_edge,
+        {"request": {"output": {"status": 200}}},
+        set(),
+    )
+    assert not WorkflowRuntime._edge_active(
+        error_edge,
+        {"request": {"output": {"status": 200}}},
+        set(),
+    )
+    assert not WorkflowRuntime._edge_active(
+        success_edge,
+        {"request": {"error": "HTTP 403", "branch": "error"}},
+        set(),
+    )
+    assert WorkflowRuntime._edge_active(
+        error_edge,
+        {"request": {"error": "HTTP 403", "branch": "error"}},
+        set(),
+    )
 
 
 def test_contract_model_roundtrip():

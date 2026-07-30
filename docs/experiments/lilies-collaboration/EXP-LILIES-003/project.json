@@ -5,7 +5,7 @@
   "project_id": "EXP-LILIES-003",
   "sequence": 3,
   "title": "Durable facility event monitoring and governed automation",
-  "status": "active",
+  "status": "passed",
   "cohort": "individual_and_small_facility",
   "enterprise_denominator": false,
   "capability_family": "event_driven_monitoring_cross_system_automation",
@@ -34,6 +34,51 @@
   "deliverables": ["deduplicated notification", "durable timer and recovery trace", "governed service-action receipt"],
   "workflow_result": "A generated workflow discovers and subscribes to the WebSocket contract, validates events, preserves timers across restart, deduplicates notifications, and gates risky service actions.",
   "independent_oracle": "A frozen event clock replays duplicates, disconnects, restart, reload, stale state, and permission denial and checks exact notification count, timer deadlines, recovery, and zero unapproved device actions.",
+  "public_test_categories": [
+    "published mandatory tests",
+    "open until deadline",
+    "close before deadline",
+    "duplicate event replay",
+    "stale event rejection",
+    "concurrent subject isolation",
+    "platform restart recovery",
+    "Home Assistant WebSocket reconnect",
+    "permission denial safe stop",
+    "transient retry exactly once",
+    "human rejection with zero action",
+    "human approval with one scoped action"
+  ],
+  "hidden_seed_contract": {
+    "count": 3,
+    "generation": "Deterministic business distributions per Seed with a fresh attempt nonce for entity, event and action identities. Exact values are sent to real Home Assistant state APIs, published workflow APIs and the controlled side-effect sink.",
+    "fresh_state_per_seed": "Every attempt uses new entity identities, event identities, action names and timer keys while retaining real platform history; the shared Home Assistant and sink processes are reported as such.",
+    "varied_dimensions": [
+      "entity identities",
+      "event identities and ordering",
+      "duplicate position",
+      "hold duration and close timing",
+      "concurrent subjects",
+      "notification authorization",
+      "transient HTTP failure",
+      "human approval and rejection"
+    ],
+    "pass_meaning": "All eight business categories agree with timer history, final workflow output, trace retry counts and customer-system side effects while device service action count remains zero.",
+    "claim_limit": "The Seed generator and verifier are controlled-local and authored in the same repository context, so this is sealed regression evidence rather than third-party independent black-box certification."
+  },
+  "capability_placement": {
+    "domain_module": "event_automation",
+    "platform_service_count": 1,
+    "atomic_block_count": 2,
+    "public_management_endpoint_count": 6,
+    "host_specific_block_count": 0,
+    "merge_recommendation": "Keep authenticated WebSocket subscription and per-event durable timers as one optional event capability. Keep Home Assistant message mapping and notification/action endpoints in workflow configuration."
+  },
+  "published_application": {
+    "application_id": "3c605600-b9ef-4717-b401-e59488837773",
+    "draft_revision": 78,
+    "active_version": 2,
+    "content_hash": "2f00b7e9862a0244dbf736225b8a99100403509f8107a6972c37e6d9594c79b7"
+  },
   "source_intent_ids": ["EVAL-003", "PRODUCT-001", "PRODUCT-010", "PRODUCT-011", "PRODUCT-015", "PRODUCT-016", "PRODUCT-017", "SCENARIO-009", "SCENARIO-010", "SCENARIO-011"],
   "selection_gates": {
     "real_user_and_problem": true,
@@ -49,8 +94,8 @@
     "https://www.home-assistant.io/docs/automation/trigger/"
   ],
   "task_package_root": "docs/experiments/lilies-collaboration/EXP-LILIES-003",
-  "latest_revision": 0,
-  "revision_semantics": "Revision 1 is authorized after EXP-LILIES-002 closed. EXP-LILIES-001 remains needs_revision for formal-evidence debt and is not rewritten as passed.",
+  "latest_revision": 1,
+  "revision_semantics": "Revision 1 freezes Home Assistant 2026.7.2, authenticated WebSocket subscription, REST state recheck, per-entity durable timers, controlled notification and action sinks, public debug, three controlled-local Seeds and the one-million-token ceiling for any future Lilies run.",
   "current_blocker": null,
-  "next_action": "Freeze revision 1 WebSocket schema, host image, event fixtures, clock, permissions, Seeds, and replacement baseline, then build only through public platform APIs."
+  "next_action": "Preserve version 2 and all retained failures. Continue EXP-LILIES-005; a fresh-context capability-admission review remains evidence debt and is not a reason to rerun the customer workflow."
 }

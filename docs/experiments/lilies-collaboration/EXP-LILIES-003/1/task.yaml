@@ -1,0 +1,35 @@
+schema_version: '1.0'
+task_id: EXP-LILIES-003
+revision: 1
+parent_revision: null
+title: Home Assistant 持久事件监控与受控自动化
+cohort: enterprise
+customer_role: 小型设施值班人员、自动化管理员和高风险动作复核人员
+business_goal: 订阅真实 Home Assistant 状态事件，在平台重启和 WebSocket 重连后仍可靠执行持久期限，并把通知和高风险动作限制为恰好一次的受控副作用。
+source_projects:
+- name: Home Assistant Core
+  repository_url: https://github.com/home-assistant/core
+  release: 2026.7.2
+  commit_sha: f9122fb28dd30d3833b3b313924befbc82157f97
+  image_digest: sha256:1476924357b46e80735c13e94232ba5c853cac052e9df4bb28d50fa56348097b
+  license: Apache-2.0
+requirement_file: requirement.md
+environment_lock_digest: sha256:5eb263c2c78fa6898329445a4ce4efd38e7ff432ca3dad76158a0d24d00720c7
+fixture_manifest_digest: sha256:ea8c732ef28aca0b4080b21caa80681b460f110634ca9c57b70862d9737365e2
+allowed_actions_file: allowed-actions.json
+budget_file: budget.json
+deliverables:
+- name: notification-decision
+  description: 当前实体状态、逻辑期限、通知决定和幂等写入回执。
+  media_type: application/json
+- name: durable-timer-trace
+  description: 定时器建立、重放、取消、恢复、到期和完成轨迹。
+  media_type: application/json
+- name: governed-action-receipt
+  description: 高风险动作请求、人工决定、是否尝试及客户系统结果。
+  media_type: application/json
+acceptance_summary: 持续打开只通知一次；提前关闭零通知；重复和乱序安全；并发不串线；平台重启和 WebSocket 重连后继续；403 安全停写；503 有界重试；人工批准一次执行、拒绝零执行。
+no_substitute_validation: true
+collaboration_enabled: true
+author: codex-task-author
+created_at: '2026-07-30T00:00:00Z'

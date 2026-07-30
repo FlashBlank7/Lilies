@@ -27,6 +27,12 @@ CREATE TABLE IF NOT EXISTS action_attempts (
     approved INTEGER NOT NULL,
     accepted INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS fault_responses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    path TEXT NOT NULL,
+    status INTEGER NOT NULL,
+    remaining INTEGER NOT NULL
+);
 """
 
 
@@ -56,6 +62,28 @@ class SinkHandler(BaseHTTPRequestHandler):
         return self.headers.get("Authorization") == (
             f"Bearer {self.server.write_token}"
         )
+
+    def _consume_fault(self) -> int | None:
+        with sqlite3.connect(self.server.database_path) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT id, status, remaining FROM fault_responses "
+                "WHERE path=? AND remaining > 0 ORDER BY id LIMIT 1",
+                (self.path,),
+            ).fetchone()
+            if row is None:
+                return None
+            if row[2] == 1:
+                connection.execute(
+                    "DELETE FROM fault_responses WHERE id=?",
+                    (row[0],),
+                )
+            else:
+                connection.execute(
+                    "UPDATE fault_responses SET remaining=remaining-1 WHERE id=?",
+                    (row[0],),
+                )
+            return int(row[1])
 
     def do_GET(self) -> None:  # noqa: N802
         if self.path == "/health":
@@ -101,6 +129,24 @@ class SinkHandler(BaseHTTPRequestHandler):
                 ],
             )
             return
+        if self.path == "/faults":
+            with sqlite3.connect(self.server.database_path) as connection:
+                rows = connection.execute(
+                    "SELECT path, status, remaining FROM fault_responses "
+                    "ORDER BY id"
+                ).fetchall()
+            self._send(
+                HTTPStatus.OK,
+                [
+                    {
+                        "path": row[0],
+                        "status": row[1],
+                        "remaining": row[2],
+                    }
+                    for row in rows
+                ],
+            )
+            return
         self._send(HTTPStatus.NOT_FOUND, {"detail": "not found"})
 
     def do_POST(self) -> None:  # noqa: N802
@@ -111,6 +157,47 @@ class SinkHandler(BaseHTTPRequestHandler):
             payload = self._json_body()
         except (ValueError, json.JSONDecodeError) as error:
             self._send(HTTPStatus.BAD_REQUEST, {"detail": str(error)})
+            return
+        if self.path == "/faults":
+            path = str(payload.get("path", ""))
+            status = int(payload.get("status", 0))
+            count = int(payload.get("count", 1))
+            if (
+                not path.startswith("/")
+                or path == "/faults"
+                or not 400 <= status <= 599
+                or not 1 <= count <= 10
+            ):
+                self._send(
+                    HTTPStatus.BAD_REQUEST,
+                    {
+                        "detail": (
+                            "fault requires a non-/faults path, HTTP 400-599, "
+                            "and count 1-10"
+                        )
+                    },
+                )
+                return
+            with sqlite3.connect(self.server.database_path) as connection:
+                connection.execute(
+                    "INSERT INTO fault_responses(path,status,remaining) "
+                    "VALUES (?, ?, ?)",
+                    (path, status, count),
+                )
+            self._send(
+                HTTPStatus.CREATED,
+                {"path": path, "status": status, "remaining": count},
+            )
+            return
+        fault_status = self._consume_fault()
+        if fault_status is not None:
+            self._send(
+                HTTPStatus(fault_status),
+                {
+                    "detail": "controlled fault response",
+                    "status": fault_status,
+                },
+            )
             return
         if self.path == "/notifications":
             required = {

@@ -1,0 +1,62 @@
+schema_version: '1.0'
+task_id: EXP-LILIES-003
+revision: 1
+source_projects:
+- name: Home Assistant Core
+  repository_url: https://github.com/home-assistant/core
+  release: 2026.7.2
+  commit_sha: f9122fb28dd30d3833b3b313924befbc82157f97
+  image_digest: sha256:1476924357b46e80735c13e94232ba5c853cac052e9df4bb28d50fa56348097b
+  license: Apache-2.0
+compose_digest: sha256:90329fe7a0bb9e8f3f87379b317bfc2599c1a344b04b6b623d78f9568f02d827
+ports:
+- service: home-assistant-http-websocket
+  host: 127.0.0.1
+  port: 18030
+- service: controlled-notification-and-action-sink
+  host: 127.0.0.1
+  port: 18031
+network_name: exp-lilies-003-r1_default
+bind_mounts:
+- /private/tmp/lilies-exp003-ha-config-r1
+initialization_commands:
+- name: ensure-home-assistant
+  digest: sha256:90329fe7a0bb9e8f3f87379b317bfc2599c1a344b04b6b623d78f9568f02d827
+- name: provision-home-assistant-owner
+  digest: sha256:5129dedffd5ad4ed1bdfb942db523489aa41890872dcf66e9c0963381b45fa59
+- name: start-controlled-side-effect-sink
+  digest: sha256:813f6f16a7837311c5cee9733881e5b902a21e9dd48f3028370b508fc083a39a
+seed_commands:
+- name: run-sealed-seed
+  digest: sha256:e4246beed336747c4320359b7a98a888358c2feaa88a72604d421baaf8312097
+health_checks:
+- check_id: http:home-assistant-api
+  kind: http
+  url: http://127.0.0.1:18030/api/
+  expected_status: 401
+  timeout_seconds: 5.0
+  mandatory: true
+- check_id: http:controlled-sink
+  kind: http
+  url: http://127.0.0.1:18031/health
+  expected_status: 200
+  timeout_seconds: 5.0
+  mandatory: true
+secret_refs:
+- secret:exp-lilies-003-home-assistant-rest
+- secret:exp-lilies-003-home-assistant-websocket
+- secret:exp-lilies-003-notification-sink
+python_version: 3.13.13
+node_version: 24.15.0
+docker_version: 29.4.0
+fixture_files:
+- path: fixtures/public-cases.json
+  digest: sha256:93607ef03d3a5965e27350b71b958073717ea6034e1e01f1dd2c316da0e66074
+  size_bytes: 721
+- path: schemas/home-assistant-event.json
+  digest: sha256:41710b65baa6552d48132cf591416447eb2d5072e89cf617c98819ed7951bc80
+  size_bytes: 743
+- path: schemas/deliverables.json
+  digest: sha256:b1742c7e9d949144e753b85182efbd67e636744472da8c28d18f174d2b911237
+  size_bytes: 606
+provenance: real_host

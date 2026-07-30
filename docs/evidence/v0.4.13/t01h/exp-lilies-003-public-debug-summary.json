@@ -1,0 +1,106 @@
+{
+  "application": {
+    "active_version": 2,
+    "content_hash": "2f00b7e9862a0244dbf736225b8a99100403509f8107a6972c37e6d9594c79b7",
+    "draft_revision": 78,
+    "edge_count": 34,
+    "id": "3c605600-b9ef-4717-b401-e59488837773",
+    "node_count": 35,
+    "test_count": 2
+  },
+  "case_count": 12,
+  "cases": [
+    {
+      "case": "published_platform_tests",
+      "detail": "2/2 mandatory public tests passed before publication",
+      "passed": true
+    },
+    {
+      "case": "open_until_deadline",
+      "detail": "one durable deadline and exactly one notification",
+      "passed": true
+    },
+    {
+      "case": "close_before_deadline",
+      "detail": "timer cancelled and no notification",
+      "passed": true
+    },
+    {
+      "case": "duplicate_event_replay",
+      "detail": "same source event scheduled once and replayed once",
+      "passed": true
+    },
+    {
+      "case": "stale_event_ignored",
+      "detail": "older close did not cancel the newer open",
+      "passed": true
+    },
+    {
+      "case": "concurrent_subject_isolation",
+      "detail": "two subjects each completed with one distinct notification",
+      "passed": true
+    },
+    {
+      "case": "restart_recovery",
+      "detail": "pending deadline recovered after platform restart",
+      "passed": true
+    },
+    {
+      "case": "websocket_reconnect",
+      "detail": "subscription reconnected after Home Assistant restart",
+      "passed": true
+    },
+    {
+      "case": "permission_denial_safe_stop",
+      "detail": "HTTP 403 caused zero retries, zero write, error path only",
+      "passed": true
+    },
+    {
+      "case": "transient_retry_exactly_once",
+      "detail": "one injected HTTP 503, one retry, one final write",
+      "passed": true
+    },
+    {
+      "case": "human_rejection",
+      "detail": "one pause/resume and no rejected action attempt",
+      "passed": true
+    },
+    {
+      "case": "human_approval",
+      "detail": "one pause/resume and exactly one approved scoped action",
+      "passed": true
+    }
+  ],
+  "excluded_debug_attempts": [
+    {
+      "case": "close_before_deadline",
+      "reason": "earlier subject reused a pending timer"
+    },
+    {
+      "case": "restart_recovery",
+      "reason": "first deadline completed before shutdown"
+    },
+    {
+      "case": "websocket_reconnect",
+      "reason": "first synthetic state had no initialized baseline"
+    },
+    {
+      "case": "permission_denial",
+      "reason": "pre-fix run exposed the shared error-branch runtime defect"
+    }
+  ],
+  "failed_cases": [],
+  "forbidden_device_service_action_count": 0,
+  "home_assistant": {
+    "event_count": 16,
+    "reconnect_count": 28,
+    "subscription_status": "connected",
+    "version": "2026.7.2"
+  },
+  "model_calls": 0,
+  "model_tokens": 0,
+  "passed_count": 12,
+  "schema_version": "exp-lilies-003-public-debug-summary-v1",
+  "status": "passed",
+  "task_id": "EXP-LILIES-003"
+}

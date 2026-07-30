@@ -1,0 +1,49 @@
+{
+  "schema_version": "1.0",
+  "task_id": "EXP-LILIES-003",
+  "status": "complete",
+  "origin_report": "EXP-LILIES-003-GAP-001",
+  "supplementation": {
+    "optional_domain_module": "event_automation",
+    "platform_service_count": 1,
+    "workflow_block_count": 2,
+    "public_management_endpoint_count": 6,
+    "host_specific_block_count": 0,
+    "new_dependency_count": 1,
+    "blocks": [
+      "configurable authenticated WebSocket subscription trigger",
+      "per-subject durable event timer"
+    ],
+    "runtime_fixes_without_new_blocks": [
+      "HTTP status-aware retry policy",
+      "mutually exclusive reserved error branch",
+      "per-run artifact workspace isolation"
+    ],
+    "test_only_capabilities": [
+      "controlled next-request HTTP fault response"
+    ]
+  },
+  "generality_evidence": {
+    "home_assistant_fields_in_platform_module": false,
+    "home_assistant_entities_in_platform_module": false,
+    "notification_endpoint_in_platform_module": false,
+    "project_answer_in_platform_module": false,
+    "mapping_location": "published workflow configuration",
+    "reuse_scope": [
+      "authenticated JSON WebSocket event sources",
+      "per-business-subject deadlines",
+      "restart recovery",
+      "duplicate and stale event handling"
+    ]
+  },
+  "verification": {
+    "focused_platform_tests_passed": 11,
+    "public_business_cases_passed": 12,
+    "public_business_cases_total": 12,
+    "sealed_seed_cases_passed": 24,
+    "sealed_seed_cases_total": 24,
+    "affected_project_rerun": "passed",
+    "fresh_context_independent_review": "not_run"
+  },
+  "claim_limit": "Customer workflow and controlled-local business acceptance passed. Fresh-context capability admission review remains evidence debt."
+}

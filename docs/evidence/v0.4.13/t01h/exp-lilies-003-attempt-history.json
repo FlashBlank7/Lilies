@@ -1,0 +1,61 @@
+{
+  "schema_version": "1.0",
+  "task_id": "EXP-LILIES-003",
+  "status": "closed_with_retained_failures",
+  "attempts": [
+    {
+      "attempt": "public-build-input-contract",
+      "result": "failed",
+      "cause": "Builder test included the platform-reserved internal event field.",
+      "resolution": "Remove the reserved field from external test inputs; keep external forgery forbidden."
+    },
+    {
+      "attempt": "production-artifact-collision",
+      "result": "failed",
+      "cause": "Concurrent runs wrote the same declared artifact path.",
+      "resolution": "Isolate generated artifacts by run without changing business filenames."
+    },
+    {
+      "attempt": "close-before-deadline-initial",
+      "result": "excluded",
+      "cause": "The chosen subject already had an unrelated pending timer.",
+      "resolution": "Use a fresh subject and retain the polluted attempt as invalid evidence."
+    },
+    {
+      "attempt": "restart-recovery-initial",
+      "result": "excluded",
+      "cause": "The deadline completed before platform shutdown.",
+      "resolution": "Use a longer deadline and confirm pending status before shutdown."
+    },
+    {
+      "attempt": "websocket-reconnect-initial",
+      "result": "excluded",
+      "cause": "The first synthetic entity update had no initialized prior state.",
+      "resolution": "Initialize an off baseline before the post-reconnect open event."
+    },
+    {
+      "attempt": "permission-denial-before-runtime-fix",
+      "result": "failed",
+      "cause": "The runtime activated both implicit success and explicit error paths.",
+      "resolution": "Make the reserved error branch exclude the implicit success edge and add a regression test."
+    },
+    {
+      "attempt": "seed-3301-attempt-1",
+      "result": "failed_4_of_8",
+      "cause": "The verifier read a deadline run after timer completion but before workflow completion.",
+      "resolution": "Wait for the timer-associated run to reach a final state; rerun with fresh identities."
+    },
+    {
+      "attempt": "seed-3301-attempt-2",
+      "result": "passed_8_of_8"
+    },
+    {
+      "attempt": "seed-3302",
+      "result": "passed_8_of_8"
+    },
+    {
+      "attempt": "seed-3303",
+      "result": "passed_8_of_8"
+    }
+  ]
+}

@@ -1,0 +1,52 @@
+{
+  "application_id": "3c605600-b9ef-4717-b401-e59488837773",
+  "artifact_count": 20,
+  "case_count": 8,
+  "completed_at": "2026-07-30T03:39:46.094314+00:00",
+  "elapsed_seconds": 9.694,
+  "failed_cases": [],
+  "forbidden_device_service_action_count": 0,
+  "passed_count": 8,
+  "report_contains_exact_seed_values": false,
+  "results": [
+    {
+      "case": "open_until_deadline",
+      "passed": true
+    },
+    {
+      "case": "close_before_deadline",
+      "passed": true
+    },
+    {
+      "case": "duplicate_event_replay",
+      "passed": true
+    },
+    {
+      "case": "stale_event_ignored",
+      "passed": true
+    },
+    {
+      "case": "concurrent_subject_isolation",
+      "passed": true
+    },
+    {
+      "case": "permission_denial_safe_stop",
+      "passed": true
+    },
+    {
+      "case": "transient_retry_exactly_once",
+      "passed": true
+    },
+    {
+      "case": "human_action_gate",
+      "passed": true
+    }
+  ],
+  "resume_count": 2,
+  "run_count": 20,
+  "schema_version": "exp-lilies-003-sealed-seed-summary-v1",
+  "seed": 3303,
+  "status": "passed",
+  "task_id": "EXP-LILIES-003",
+  "version": 2
+}

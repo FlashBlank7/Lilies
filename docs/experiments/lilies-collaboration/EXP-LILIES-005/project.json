@@ -5,7 +5,7 @@
   "project_id": "EXP-LILIES-005",
   "sequence": 5,
   "title": "Structured finance reconciliation and artifact delivery",
-  "status": "selected",
+  "status": "active",
   "cohort": "individual_and_small_business",
   "enterprise_denominator": false,
   "capability_family": "structured_data_artifact_customer_delivery",
@@ -44,8 +44,7 @@
   ],
   "task_package_root": "docs/experiments/lilies-collaboration/EXP-LILIES-005",
   "latest_revision": 0,
-  "revision_semantics": "Revision 1 starts only after EXP-LILIES-004 closes.",
+  "revision_semantics": "Revision 1 is authorized after EXP-LILIES-003 and EXP-LILIES-004 closed. EXP-LILIES-001 keeps its formal-evidence result and is not rewritten as passed.",
   "current_blocker": null,
   "next_action": "Freeze the server and API package versions, CLI help, budget fixture, rule baseline, secrets, seeds, and oracle."
 }
-

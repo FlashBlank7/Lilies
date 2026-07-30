@@ -4321,7 +4321,11 @@ class WorkflowRuntime:
         if edge.source in skipped or edge.source not in outputs:
             return False
         if edge.branch is None:
-            return True
+            # A branchless edge is the implicit success path for blocks that
+            # support ``error_strategy=error_branch``.  Once the runtime emits
+            # the reserved error branch, only an explicitly labelled error
+            # edge may continue; otherwise both success and failure paths run.
+            return outputs[edge.source].get("branch") != "error"
         return outputs[edge.source].get("branch") == edge.branch
 
     @staticmethod

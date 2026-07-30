@@ -4,22 +4,21 @@
   "stage_task_id": "V04-13-T01H",
   "contract_revision": 3,
   "selection_status": "locked",
-  "execution_status": "project_3_active",
+  "execution_status": "project_5_active",
   "approved_at": "2026-07-25",
   "approval_ref": "User approved continuing with approximately six real projects organized by distinct capability families, executed one by one, with iterations under each project and reusable platform supplementation tracked separately.",
   "required_project_count": 6,
   "execution_policy": {
     "mode": "strictly_sequential",
-    "active_project_id": "EXP-LILIES-003",
+    "active_project_id": "EXP-LILIES-005",
     "next_project_requires_previous_project_closure": true,
     "explicit_user_sequence_overrides": [
       {
         "project_id": "EXP-LILIES-004",
         "nonpassing_prior_project_ids": [
-          "EXP-LILIES-001",
-          "EXP-LILIES-003"
+          "EXP-LILIES-001"
         ],
-        "authority": "The user explicitly directed Codex to continue with project 4 after the project-1 capability exercise. EXP-LILIES-002 later passed; this override preserves the nonpassing results of projects 1 and 3 at the time project 4 started.",
+        "authority": "The user explicitly directed Codex to continue with project 4 after the project-1 capability exercise. EXP-LILIES-002 and EXP-LILIES-003 later passed; this override preserves the remaining nonpassing result of project 1.",
         "does_not_mark_prior_projects_passed": true
       },
       {
@@ -36,6 +35,14 @@
           "EXP-LILIES-001"
         ],
         "authority": "After EXP-LILIES-002 passed, the user explicitly instructed Codex to continue and complete the remaining projects. EXP-LILIES-001 keeps its formal-evidence result and is not rewritten as passed.",
+        "does_not_mark_prior_projects_passed": true
+      },
+      {
+        "project_id": "EXP-LILIES-005",
+        "nonpassing_prior_project_ids": [
+          "EXP-LILIES-001"
+        ],
+        "authority": "After EXP-LILIES-003 and EXP-LILIES-004 passed, the user explicitly instructed Codex to continue and complete the remaining projects. EXP-LILIES-001 keeps its formal-evidence result and is not rewritten as passed.",
         "does_not_mark_prior_projects_passed": true
       }
     ],
@@ -96,7 +103,7 @@
     "SCENARIO-010",
     "SCENARIO-011"
   ],
-  "member_manifest_set_sha256": "2d967384216826f09646503f3ea1fe3b52a469597e16accb30f5c161916a3cd1",
+  "member_manifest_set_sha256": "0a81116a0cd5f140fa3a35395867e0fc1bf60409f9872f6c90b3b1271f5c1dd4",
   "projects": [
     {
       "project_id": "EXP-LILIES-001",
@@ -118,9 +125,9 @@
       "project_id": "EXP-LILIES-003",
       "sequence": 3,
       "manifest": "docs/experiments/lilies-collaboration/EXP-LILIES-003/project.json",
-      "manifest_sha256": "4c628a8ebe123ab4409862754267821a4680c87ae7d48e50c7759b5244905a47",
-      "latest_revision": 0,
-      "status": "active"
+      "manifest_sha256": "55a0dbc93dc6228c1f3fcc04bc51c5450d636bbd797a0f73b35d86ac8e67b68d",
+      "latest_revision": 1,
+      "status": "passed"
     },
     {
       "project_id": "EXP-LILIES-004",
@@ -134,9 +141,9 @@
       "project_id": "EXP-LILIES-005",
       "sequence": 5,
       "manifest": "docs/experiments/lilies-collaboration/EXP-LILIES-005/project.json",
-      "manifest_sha256": "a12a6f382050826c56b176ca20a17dcc274d9635f18c5bab5c36d7ae281d9cd1",
+      "manifest_sha256": "5c09ab868e985e9d7eee2ad4fcb0bd4892cad12b2f87e3788ce42da84d4a4d2c",
       "latest_revision": 0,
-      "status": "selected"
+      "status": "active"
     },
     {
       "project_id": "EXP-LILIES-006",
