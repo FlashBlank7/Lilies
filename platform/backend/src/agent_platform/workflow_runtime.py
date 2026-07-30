@@ -4,7 +4,9 @@ import asyncio
 import hashlib
 import ipaddress
 import json
+import os
 import re
+import shutil
 from collections import defaultdict, deque
 from collections.abc import Collection
 from dataclasses import dataclass
@@ -1636,7 +1638,12 @@ class WorkflowRuntime:
             variables = {key: self._resolve(value, context) for key, value in config.variables.items()}
             return {"text": self._render(config.template, variables)}
         if isinstance(config, VariableAssignerConfig):
-            return {"output": {key: self._resolve(value, context) for key, value in config.assignments.items()}}
+            return {
+                "output": {
+                    key: self._resolve_assignment(value, context)
+                    for key, value in config.assignments.items()
+                }
+            }
         if isinstance(config, VariableAggregatorConfig):
             skipped_nodes = set(state.skipped if state else [])
             values = []
@@ -3617,6 +3624,16 @@ class WorkflowRuntime:
                 hostname="news.google.com",
             )
             return
+        if tool_name == "Program":
+            tool = self.tools.get(tool_name)
+            network_hosts_for = getattr(tool, "network_hosts_for", None)
+            if callable(network_hosts_for):
+                for hostname in network_hosts_for(str(tool_input.get("profile_id", ""))):
+                    self.harness.enforce_network_egress_policy(
+                        surface="workflow_tool:Program",
+                        hostname=hostname,
+                    )
+            return
         if tool_name != "MCP":
             return
         server_name = str(tool_input.get("server", ""))
@@ -3832,6 +3849,7 @@ class WorkflowRuntime:
                 safe_test_id = re.sub(r"[^A-Za-z0-9_.-]", "-", str(test.id))[:48]
                 case_workspace = suite_workspace / f"case-{index:03d}-{safe_test_id or 'test'}"
                 case_workspace.mkdir(parents=False, exist_ok=False)
+                self._stage_test_workspace_tools(suite_base, case_workspace)
                 self._validate_execution_policy(
                     snapshot.workflow,
                     workspace_boundary=case_workspace,
@@ -4282,6 +4300,52 @@ class WorkflowRuntime:
         await self._emit(application_id, "tests.completed", report)
         return report
 
+    @staticmethod
+    def _stage_test_workspace_tools(
+        suite_base: Path,
+        case_workspace: Path,
+    ) -> None:
+        """Snapshot program tools and writable local cache into an isolated test."""
+
+        source = (suite_base / "tools").resolve()
+        if not source.is_dir():
+            return
+        for candidate in source.rglob("*"):
+            if not candidate.is_symlink():
+                continue
+            target = candidate.resolve()
+            if target != source and source not in target.parents:
+                raise WorkflowWorkspaceBoundaryViolation(
+                    f"test tool symlink escapes workspace tools: {candidate}"
+                )
+        destination = case_workspace / "tools"
+        try:
+            shutil.copytree(
+                source,
+                destination,
+                symlinks=True,
+                copy_function=os.link,
+            )
+        except OSError:
+            shutil.rmtree(destination, ignore_errors=True)
+            shutil.copytree(source, destination, symlinks=True)
+        cache_source = (suite_base / ".program-cache").resolve()
+        if not cache_source.is_dir():
+            return
+        for candidate in cache_source.rglob("*"):
+            if not candidate.is_symlink():
+                continue
+            target = candidate.resolve()
+            if target != cache_source and cache_source not in target.parents:
+                raise WorkflowWorkspaceBoundaryViolation(
+                    f"test program cache symlink escapes workspace: {candidate}"
+                )
+        shutil.copytree(
+            cache_source,
+            case_workspace / ".program-cache",
+            symlinks=True,
+        )
+
     async def _validate_contract(
         self, node: NodeSpec, output: dict[str, Any], scoped_id: str, run_id: str
     ) -> None:
@@ -4380,6 +4444,129 @@ class WorkflowRuntime:
         if isinstance(value, list):
             return [cls._resolve(item, context) for item in value]
         return value
+
+    @classmethod
+    def _resolve_assignment(cls, value: Any, context: dict[str, Any]) -> Any:
+        """Resolve bounded, deterministic expressions inside Variable Assigner only."""
+
+        if not isinstance(value, dict) or len(value) != 1:
+            return cls._resolve(value, context)
+        operator, operand = next(iter(value.items()))
+        if operator not in {
+            "$add",
+            "$subtract",
+            "$equals",
+            "$length",
+            "$sum",
+            "$count",
+            "$concat",
+            "$coalesce",
+            "$json_encode",
+        }:
+            return cls._resolve(value, context)
+        if operator in {"$add", "$subtract", "$equals", "$concat", "$coalesce"}:
+            if not isinstance(operand, list):
+                raise TypeError(f"{operator} requires an array")
+            resolved = [cls._resolve_assignment(item, context) for item in operand]
+            if operator == "$add":
+                if any(isinstance(item, bool) or not isinstance(item, (int, float)) for item in resolved):
+                    raise TypeError("$add values must be numbers")
+                return sum(resolved)
+            if operator == "$subtract":
+                if (
+                    len(resolved) != 2
+                    or any(
+                        isinstance(item, bool) or not isinstance(item, (int, float))
+                        for item in resolved
+                    )
+                ):
+                    raise TypeError("$subtract requires exactly two numbers")
+                return resolved[0] - resolved[1]
+            if operator == "$equals":
+                if len(resolved) != 2:
+                    raise TypeError("$equals requires exactly two values")
+                return resolved[0] == resolved[1]
+            if operator == "$concat":
+                if any(not isinstance(item, str) for item in resolved):
+                    raise TypeError("$concat values must be strings")
+                return "".join(resolved)
+            return next((item for item in resolved if item is not None), None)
+        if operator == "$json_encode":
+            resolved = cls._resolve_assignment(operand, context)
+            try:
+                encoded = json.dumps(
+                    resolved,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                )
+            except (TypeError, ValueError) as error:
+                raise TypeError("$json_encode value must be JSON serializable") from error
+            if len(encoded.encode("utf-8")) > 1_000_000:
+                raise ValueError("$json_encode output exceeds 1000000 bytes")
+            return encoded
+        if operator == "$length":
+            resolved = cls._resolve_assignment(operand, context)
+            if not isinstance(resolved, (list, dict, str)):
+                raise TypeError("$length requires an array, object, or string")
+            return len(resolved)
+        if operator == "$sum":
+            items, path, where = cls._assignment_collection_spec(operand, context)
+            values = [
+                cls._assignment_path(item, path)
+                for item in items
+                if cls._assignment_where(item, where)
+            ]
+            if any(isinstance(item, bool) or not isinstance(item, (int, float)) for item in values):
+                raise TypeError("$sum selected values must be numbers")
+            return sum(values)
+        items, _, where = cls._assignment_collection_spec(operand, context)
+        return sum(1 for item in items if cls._assignment_where(item, where))
+
+    @classmethod
+    def _assignment_collection_spec(
+        cls,
+        operand: Any,
+        context: dict[str, Any],
+    ) -> tuple[list[Any], list[str | int], dict[str, Any] | None]:
+        if isinstance(operand, dict) and set(operand).issubset({"items", "path", "where"}):
+            items = cls._resolve_assignment(operand.get("items"), context)
+            path = list(operand.get("path", []))
+            where = operand.get("where")
+        else:
+            items = cls._resolve_assignment(operand, context)
+            path = []
+            where = None
+        if not isinstance(items, list):
+            raise TypeError("collection expression requires an array")
+        if len(items) > 100_000:
+            raise ValueError("collection expression exceeds 100000 items")
+        if len(path) > 32 or any(not isinstance(item, (str, int)) for item in path):
+            raise ValueError("collection expression path is invalid")
+        if where is not None and (
+            not isinstance(where, dict)
+            or set(where) != {"path", "equals"}
+            or not isinstance(where["path"], list)
+            or len(where["path"]) > 32
+        ):
+            raise ValueError("collection expression where must contain path and equals")
+        return items, path, where
+
+    @staticmethod
+    def _assignment_path(value: Any, path: list[str | int]) -> Any:
+        current = value
+        for key in path:
+            current = current[int(key)] if isinstance(current, list) else current[key]
+        return current
+
+    @classmethod
+    def _assignment_where(cls, value: Any, where: dict[str, Any] | None) -> bool:
+        if where is None:
+            return True
+        try:
+            return cls._assignment_path(value, list(where["path"])) == where["equals"]
+        except (KeyError, IndexError, TypeError, ValueError):
+            return False
 
     @classmethod
     def _references_skipped_node(cls, value: Any, skipped_nodes: set[str]) -> bool:

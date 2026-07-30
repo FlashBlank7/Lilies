@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from urllib.parse import urlencode
 from xml.etree import ElementTree
 from typing import Any, Literal
@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from .base import Tool, ToolContext, ToolRegistry, ToolResult
 from .mcp import MCPClient
+from .program import ProgramTool
 
 
 _SAFE_PATH_SCRIPT = r"""
@@ -357,7 +358,7 @@ class MCPTool(Tool):
             return ToolResult(f"MCP call failed: {error}", True)
 
 
-def build_core_registry() -> ToolRegistry:
+def build_core_registry(program_profiles_file: Path | None = None) -> ToolRegistry:
     registry = ToolRegistry()
     for tool in (
         ReadTool(),
@@ -371,6 +372,7 @@ def build_core_registry() -> ToolRegistry:
         SkillTool(),
         AgentTool(),
         MCPTool(),
+        ProgramTool(program_profiles_file),
     ):
         registry.register(tool)
     return registry

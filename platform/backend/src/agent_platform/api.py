@@ -198,6 +198,7 @@ from .workflow_models import (
     ManualScheduleTriggerRequest,
     PublishApplicationRequest,
     WorkflowRunRequest,
+    WorkflowTestSuiteRequest,
 )
 from .workflow_runtime import WorkflowRuntime
 from .workflow_storage import PublishGateError, RevisionConflict, WorkflowStorage
@@ -5473,9 +5474,16 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
 
     @app.get("/api/v1/tools", dependencies=[Depends(require_token)])
     async def list_platform_tools() -> list[dict[str, Any]]:
-        result = [
-            {"name": name, "type": "core", "published": True} for name in services.tools.names()
-        ]
+        result = []
+        for name in services.tools.names():
+            definition = services.tools.get(name).definition()
+            result.append({
+                "name": name,
+                "type": "core",
+                "published": True,
+                "description": definition.description,
+                "input_schema": definition.input_schema,
+            })
         for application in await services.workflow_store.list_applications():
             if application["active_version"] is not None:
                 result.append(
@@ -5488,6 +5496,12 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                     }
                 )
         return result
+
+    @app.get("/api/v1/tools/program-profiles", dependencies=[Depends(require_token)])
+    async def list_program_profiles() -> list[dict[str, Any]]:
+        program_tool = services.tools.get("Program")
+        public_profiles = getattr(program_tool, "public_profiles", None)
+        return public_profiles() if callable(public_profiles) else []
 
     @app.get("/api/v1/schedules", dependencies=[Depends(require_token)])
     async def list_schedules() -> list[dict[str, Any]]:
@@ -6110,9 +6124,16 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         "/api/v1/applications/{application_id}/tests/run",
         dependencies=[Depends(require_token)],
     )
-    async def run_application_tests(application_id: str) -> dict[str, Any]:
+    async def run_application_tests(
+        application_id: str,
+        body: WorkflowTestSuiteRequest | None = None,
+    ) -> dict[str, Any]:
         try:
-            return await services.workflow_runtime.run_test_suite(application_id)
+            request = body or WorkflowTestSuiteRequest()
+            return await services.workflow_runtime.run_test_suite(
+                application_id,
+                workspace_path=request.workspace_path,
+            )
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
 

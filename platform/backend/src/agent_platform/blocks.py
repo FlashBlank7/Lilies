@@ -1608,6 +1608,59 @@ def _typed_workbook_manual() -> dict[str, Any]:
     }
 
 
+def _computed_assignment_manual() -> dict[str, Any]:
+    return {
+        "summary": (
+            "Create named workflow values by copying references or evaluating bounded "
+            "deterministic arithmetic, comparison, string, JSON, and collection expressions."
+        ),
+        "when_to_use": [
+            "Use it to build a typed result object from upstream workflow evidence.",
+            "Use its safe expressions for balances, counts, sums, equality, and stable identifiers.",
+            "Use $json_encode to pass one bounded structured value to an official CLI argument.",
+        ],
+        "examples": [
+            {
+                "description": "Calculate and verify a balance invariant.",
+                "connection": "host readback -> variable_assigner -> typed artifacts",
+                "config": {
+                    "assignments": {
+                        "expected_balance": {
+                            "$add": [
+                                {"$ref": {"node_id": "opening", "path": ["balance"]}},
+                                {"$sum": {
+                                    "items": {"$ref": {"node_id": "rows", "path": ["items"]}},
+                                    "path": ["approved_new_amount"],
+                                }},
+                            ]
+                        },
+                        "write_count": {
+                            "$count": {
+                                "items": {"$ref": {"node_id": "rows", "path": ["items"]}},
+                                "where": {"path": ["mutation_performed"], "equals": True},
+                            }
+                        },
+                    }
+                },
+            }
+        ],
+        "anti_patterns": [
+            "Do not put executable code, shell text, or remote calls in an assignment.",
+            "Do not use computed values as a substitute for independent host readback.",
+        ],
+        "common_errors": [
+            "Arithmetic receives a boolean, string, or missing path instead of a number.",
+            "A collection expression receives a non-array or an invalid item path.",
+        ],
+        "claude_architecture_mapping": "Deterministic typed value transform.",
+        "composability_constraints": [
+            "Expressions are allowed only in Variable Assigner and cannot perform I/O.",
+            "Collection inputs and paths are bounded; formulas are not emitted to artifacts.",
+            "JSON encoding is deterministic and limited to one megabyte.",
+        ],
+    }
+
+
 class BlockRegistry:
     def __init__(self) -> None:
         self._definitions: dict[str, BlockDefinition] = {}
@@ -1935,7 +1988,7 @@ def build_block_registry() -> BlockRegistry:
         (_definition("question_classifier", "Question Classifier", "Route free text into a named class.", "logic", ClassifierConfig, inputs=[("input", ValueType.any)], outputs=[("branch", ValueType.string), ("text", ValueType.string)], retry=True, error_branch=True), ClassifierConfig),
         (_definition("parameter_extractor", "Parameter Extractor", "Extract typed JSON fields from text.", "transform", ParameterExtractorConfig, inputs=[("input", ValueType.any)], outputs=[("structured", ValueType.object)], retry=True, error_branch=True), ParameterExtractorConfig),
         (_definition("template_transform", "Template Transform", "Render a template from variables.", "transform", TemplateConfig, inputs=[("input", ValueType.any)], outputs=[("text", ValueType.string)]), TemplateConfig),
-        (_definition("variable_assigner", "Variable Assigner", "Create named workflow values.", "transform", VariableAssignerConfig, inputs=[("input", ValueType.any)], outputs=[("output", ValueType.object)]), VariableAssignerConfig),
+        (_definition("variable_assigner", "Variable Assigner", "Create named workflow values.", "transform", VariableAssignerConfig, inputs=[("input", ValueType.any)], outputs=[("output", ValueType.object)], manual=_computed_assignment_manual()), VariableAssignerConfig),
         (_definition("variable_aggregator", "Variable Aggregator", "Join branch values.", "transform", VariableAggregatorConfig, inputs=[("input", ValueType.any)], outputs=[("output", ValueType.any)]), VariableAggregatorConfig),
         (_definition("http_request", "HTTP Request", "Call an external HTTP endpoint.", "integration", HTTPConfig, inputs=[("input", ValueType.any)], outputs=[("output", ValueType.object)], retry=True, error_branch=True), HTTPConfig),
         (

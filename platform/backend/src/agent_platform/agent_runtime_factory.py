@@ -40,7 +40,7 @@ def build_agent_runtime_core(
     """
 
     storage = Storage(settings.data_dir)
-    tools = build_core_registry()
+    tools = build_core_registry(settings.program_tool_profiles_file)
     sandboxes = SandboxManager(settings)
     permissions = PermissionBroker()
     selected_provider = provider or MultiProvider(

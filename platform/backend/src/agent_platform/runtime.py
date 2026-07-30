@@ -459,6 +459,16 @@ class AgentRuntime:
                 hostname="news.google.com",
             )
             return
+        if tool_name == "Program":
+            tool = self.tools.get(tool_name)
+            network_hosts_for = getattr(tool, "network_hosts_for", None)
+            if callable(network_hosts_for):
+                for hostname in network_hosts_for(str(tool_input.get("profile_id", ""))):
+                    self.harness.enforce_network_egress_policy(
+                        surface="agent_tool:Program",
+                        hostname=hostname,
+                    )
+            return
         if tool_name != "MCP":
             return
         server_name = str(tool_input.get("server", ""))

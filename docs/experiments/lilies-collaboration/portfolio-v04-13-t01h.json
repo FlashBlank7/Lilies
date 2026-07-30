@@ -4,13 +4,13 @@
   "stage_task_id": "V04-13-T01H",
   "contract_revision": 3,
   "selection_status": "locked",
-  "execution_status": "project_5_active",
+  "execution_status": "project_6_active",
   "approved_at": "2026-07-25",
   "approval_ref": "User approved continuing with approximately six real projects organized by distinct capability families, executed one by one, with iterations under each project and reusable platform supplementation tracked separately.",
   "required_project_count": 6,
   "execution_policy": {
     "mode": "strictly_sequential",
-    "active_project_id": "EXP-LILIES-005",
+    "active_project_id": "EXP-LILIES-006",
     "next_project_requires_previous_project_closure": true,
     "explicit_user_sequence_overrides": [
       {
@@ -43,6 +43,14 @@
           "EXP-LILIES-001"
         ],
         "authority": "After EXP-LILIES-003 and EXP-LILIES-004 passed, the user explicitly instructed Codex to continue and complete the remaining projects. EXP-LILIES-001 keeps its formal-evidence result and is not rewritten as passed.",
+        "does_not_mark_prior_projects_passed": true
+      },
+      {
+        "project_id": "EXP-LILIES-006",
+        "nonpassing_prior_project_ids": [
+          "EXP-LILIES-001"
+        ],
+        "authority": "After EXP-LILIES-005 passed, the user explicitly instructed Codex to continue and complete the remaining projects. EXP-LILIES-001 keeps its formal-evidence result and is not rewritten as passed.",
         "does_not_mark_prior_projects_passed": true
       }
     ],
@@ -103,7 +111,7 @@
     "SCENARIO-010",
     "SCENARIO-011"
   ],
-  "member_manifest_set_sha256": "0a81116a0cd5f140fa3a35395867e0fc1bf60409f9872f6c90b3b1271f5c1dd4",
+  "member_manifest_set_sha256": "a1746b4c4ac0d8eee11477eee1a5fa2893f2eaae376d3f2059cf7540ea44c36d",
   "projects": [
     {
       "project_id": "EXP-LILIES-001",
@@ -141,17 +149,17 @@
       "project_id": "EXP-LILIES-005",
       "sequence": 5,
       "manifest": "docs/experiments/lilies-collaboration/EXP-LILIES-005/project.json",
-      "manifest_sha256": "5c09ab868e985e9d7eee2ad4fcb0bd4892cad12b2f87e3788ce42da84d4a4d2c",
-      "latest_revision": 0,
-      "status": "active"
+      "manifest_sha256": "5c2104a4a3a0a8054f1ded717685bf8911b43d49e46beb3e4176548fe2f4e93a",
+      "latest_revision": 1,
+      "status": "passed"
     },
     {
       "project_id": "EXP-LILIES-006",
       "sequence": 6,
       "manifest": "docs/experiments/lilies-collaboration/EXP-LILIES-006/project.json",
-      "manifest_sha256": "6636dcd108b432a22954d9f26a37ad956c58c29fea5f45e9b475fb5e75667050",
+      "manifest_sha256": "0674440802313ab6df74d204c1c07948dcb0c69127c5583a6c30a919cd6c8c79",
       "latest_revision": 0,
-      "status": "selected"
+      "status": "active"
     }
   ],
   "generic_capability_lane": {

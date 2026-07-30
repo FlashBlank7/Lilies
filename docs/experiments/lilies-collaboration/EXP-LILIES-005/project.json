@@ -5,7 +5,7 @@
   "project_id": "EXP-LILIES-005",
   "sequence": 5,
   "title": "Structured finance reconciliation and artifact delivery",
-  "status": "active",
+  "status": "passed",
   "cohort": "individual_and_small_business",
   "enterprise_denominator": false,
   "capability_family": "structured_data_artifact_customer_delivery",
@@ -27,6 +27,40 @@
   "deliverables": ["typed reconciliation table", "validated CSV or XLSX artifact", "Actual mutation receipts", "balance invariant report"],
   "workflow_result": "A generated workflow builds a typed SDK or CLI contract, validates and transforms finance data, reconciles records, routes conflicts, writes approved updates exactly once, and emits an independently checked artifact.",
   "independent_oracle": "Hidden transactions and receipts check schema, types, exact amounts, balance invariants, rule ordering, deduplication, artifact cells, SDK or CLI receipts, retry behavior, and zero unauthorized mutations.",
+  "public_test_categories": [
+    "invalid input safe stop",
+    "already-reconciled replay with zero write",
+    "official CLI resource discovery and readback",
+    "typed JSON and XLSX artifacts"
+  ],
+  "hidden_seed_contract": {
+    "count": 3,
+    "generation": "deterministic seeded generation with Builder-hidden receipt values, Actual transaction identities, human decisions, and oracle",
+    "fresh_host_state_per_seed": true,
+    "inputs_per_seed": 8,
+    "business_cases": [
+      "unique strong match",
+      "ambiguous match with trusted human selection",
+      "already reconciled by stable imported identity",
+      "already reconciled by receipt marker",
+      "amount conflict",
+      "approved new transaction",
+      "duplicate input",
+      "human-rejected write candidate"
+    ],
+    "pass_meaning": "All classifications, human routing, three allowed physical effects, zero forbidden effects, balance invariant, JSON and XLSX artifacts, and zero-effect replay agree with an independent fresh Actual readback.",
+    "claim_limit": "Does not establish production accounting certification, multi-user concurrency, long-duration reliability, or every future Actual release."
+  },
+  "capability_placement": {
+    "generic_runtime_service": "governed registered Program profiles",
+    "atomic_block_count": 0,
+    "host_specific_block_count": 0,
+    "runtime_enhancements": [
+      "bounded deterministic Variable Assigner expressions",
+      "explicit and isolated test-suite workspace tools and mutable cache"
+    ],
+    "project_specific_configuration_location": "revision-1 Program profile and published workflow configuration"
+  },
   "source_intent_ids": ["EVAL-003", "PRODUCT-001", "PRODUCT-010", "PRODUCT-011", "PRODUCT-014", "PRODUCT-015", "PRODUCT-016", "PRODUCT-017", "SCENARIO-005", "SCENARIO-010", "SCENARIO-011"],
   "selection_gates": {
     "real_user_and_problem": true,
@@ -43,8 +77,25 @@
     "https://actualbudget.org/docs/budgeting/rules/"
   ],
   "task_package_root": "docs/experiments/lilies-collaboration/EXP-LILIES-005",
-  "latest_revision": 0,
-  "revision_semantics": "Revision 1 is authorized after EXP-LILIES-003 and EXP-LILIES-004 closed. EXP-LILIES-001 keeps its formal-evidence result and is not rewritten as passed.",
+  "latest_revision": 1,
+  "revision_semantics": "Revision 1 was authorized after EXP-LILIES-003 and EXP-LILIES-004 closed. The final application published version 2 and passed three isolated Seeds; a fresh application published version 1 and passed a fourth new-data regression. EXP-LILIES-001 keeps its formal-evidence result and is not rewritten as passed.",
+  "published_application": {
+    "application_id": "1d0ba364-07f2-4bba-8e27-5190a68398b3",
+    "draft_revision": 159,
+    "active_version": 2,
+    "content_hash": "3f8ccfea9023b507bbb43dcccb99d0418d1b68e338f2a6decd58be4b7912e84e",
+    "public_tests": "2/2",
+    "sealed_seed_checks": "45/45"
+  },
+  "experience_rebuild": {
+    "application_id": "8f1fc9f5-5010-439f-b697-6df5d83862a4",
+    "draft_revision": 143,
+    "active_version": 1,
+    "content_hash": "0893507f411881c068b15386eb6001ee0fd4a7e2d98c102a468ea61a0fde2602",
+    "new_data_seed": 404,
+    "checks": "15/15",
+    "claim_limit": "same-context operational reuse with retained project-level public-API helpers; not independent Skill or model generalization"
+  },
   "current_blocker": null,
-  "next_action": "Freeze the server and API package versions, CLI help, budget fixture, rule baseline, secrets, seeds, and oracle."
+  "next_action": "Preserve both published applications and controlled-local evidence; package the generic playbook and a desired-state Draft builder as a future Skill, then continue EXP-LILIES-006 under the explicit user sequence authority."
 }

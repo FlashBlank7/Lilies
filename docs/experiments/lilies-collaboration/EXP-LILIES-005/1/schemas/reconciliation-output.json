@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "batch_id",
+    "workflow",
+    "rows",
+    "summary",
+    "program_receipts"
+  ],
+  "properties": {
+    "batch_id": {"type": "string", "minLength": 1},
+    "workflow": {
+      "type": "object",
+      "required": ["application_id", "version"],
+      "properties": {
+        "application_id": {"type": "string", "minLength": 1},
+        "version": {"type": ["integer", "null"]}
+      }
+    },
+    "rows": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "receipt_id",
+          "status",
+          "approved",
+          "mutation_performed",
+          "amount_cents"
+        ],
+        "properties": {
+          "receipt_id": {"type": "string"},
+          "status": {
+            "enum": [
+              "matched",
+              "ambiguous",
+              "already_reconciled",
+              "amount_conflict",
+              "new_transaction",
+              "duplicate_input",
+              "invalid",
+              "rejected",
+              "permission_denied",
+              "failed"
+            ]
+          },
+          "approved": {"type": "boolean"},
+          "mutation_performed": {"type": "boolean"},
+          "amount_cents": {"type": "integer"},
+          "actual_transaction_id": {"type": ["string", "null"]},
+          "actual_imported_id": {"type": ["string", "null"]},
+          "category": {"type": ["string", "null"]},
+          "error_class": {"type": ["string", "null"]}
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": [
+        "opening_balance_cents",
+        "approved_new_ledger_amount_cents",
+        "closing_balance_cents",
+        "balance_invariant_passed",
+        "write_count"
+      ],
+      "properties": {
+        "opening_balance_cents": {"type": "integer"},
+        "approved_new_ledger_amount_cents": {"type": "integer"},
+        "closing_balance_cents": {"type": "integer"},
+        "balance_invariant_passed": {"type": "boolean"},
+        "write_count": {"type": "integer", "minimum": 0},
+        "duplicate_count": {"type": "integer", "minimum": 0},
+        "conflict_count": {"type": "integer", "minimum": 0}
+      }
+    },
+    "program_receipts": {"type": "array"}
+  }
+}

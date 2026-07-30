@@ -39,6 +39,7 @@ class Settings(BaseSettings):
     sandbox_memory: str = "1g"
     sandbox_pids_limit: int = 256
     sandbox_command_timeout: float = 120.0
+    program_tool_profiles_file: Path | None = None
 
     max_parallel_tools: int = 4
     max_subagent_depth: int = 2

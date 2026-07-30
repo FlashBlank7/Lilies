@@ -328,6 +328,10 @@ class WorkflowRunRequest(BaseModel):
     workspace_path: str = "."
 
 
+class WorkflowTestSuiteRequest(BaseModel):
+    workspace_path: str = "."
+
+
 class ResumeRunRequest(BaseModel):
     values: dict[str, Any]
 

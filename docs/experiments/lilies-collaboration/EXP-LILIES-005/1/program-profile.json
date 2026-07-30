@@ -1,0 +1,43 @@
+{
+  "schema_version": "1.0",
+  "profile_id": "actual-cli-26-7",
+  "version": 1,
+  "title": "Actual Budget official CLI 26.7.0",
+  "description": "Pinned official CLI package exposed through the generic governed Program tool. This profile contains no wrapper, endpoint adapter, field mapping, or workflow logic.",
+  "executable": "tools/actual-cli/node_modules/.bin/actual",
+  "fixed_arguments": [
+    "--data-dir",
+    "/workspace/.program-cache/actual",
+    "--format",
+    "json"
+  ],
+  "allowed_argument_prefixes": [
+    ["budgets", "list"],
+    ["budgets", "download"],
+    ["accounts", "list"],
+    ["accounts", "balance"],
+    ["categories", "list"],
+    ["rules", "list"],
+    ["transactions", "list"],
+    ["transactions", "import"],
+    ["transactions", "update"]
+  ],
+  "write_argument_prefixes": [
+    ["transactions", "import"],
+    ["transactions", "update"]
+  ],
+  "allowed_environment": [
+    "ACTUAL_SERVER_URL",
+    "ACTUAL_PASSWORD",
+    "ACTUAL_SYNC_ID"
+  ],
+  "allowed_network_hosts": ["host.docker.internal"],
+  "output_formats": ["json"],
+  "max_timeout_seconds": 120,
+  "package": {
+    "name": "@actual-app/cli",
+    "version": "26.7.0",
+    "integrity": "sha512-hijWzc19lO+tyfNwF0uNj37v7maTHmgK8MALXZWRsqAvwROgchaOHbLuEqmMRitGaF+RVWfo6rm0lfmg1tu3RQ==",
+    "source": "https://registry.npmjs.org/@actual-app/cli/-/cli-26.7.0.tgz"
+  }
+}

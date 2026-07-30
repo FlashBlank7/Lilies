@@ -1,0 +1,77 @@
+{
+  "schema_version": "v0.4.13-t01h-external-builder-api-manual-1",
+  "authority": {
+    "owner_continuation": "This user-authorized direct Codex run uses only the public owner API. A future isolated Lilies assignment must use its task-scoped rendered contract.",
+    "token_source": "Use only the task-issued platform bearer. Never print or persist it."
+  },
+  "budget": {
+    "single_lilies_run_token_limit": 1000000,
+    "note": "Direct deterministic Codex API work consumes no Lilies model tokens."
+  },
+  "discovery": {
+    "openapi": "GET /openapi.json",
+    "blocks": [
+      "GET /api/v1/blocks",
+      "GET /api/v1/blocks/{block_type}",
+      "GET /api/v1/blocks/{block_type}/manual"
+    ],
+    "tools": [
+      "GET /api/v1/tools",
+      "GET /api/v1/tools/program-profiles"
+    ]
+  },
+  "workflow": {
+    "operations": [
+      "POST /api/v1/applications",
+      "GET /api/v1/applications/{application_id}/draft",
+      "POST /api/v1/applications/{application_id}/draft",
+      "POST /api/v1/applications/{application_id}/draft/validate",
+      "POST /api/v1/applications/{application_id}/tests/run",
+      "POST /api/v1/applications/{application_id}/runs",
+      "GET /api/v1/runs/{run_id}",
+      "POST /api/v1/runs/{run_id}/resume",
+      "GET /api/v1/runs/{run_id}/events",
+      "GET /api/v1/runs/{run_id}/artifacts",
+      "POST /api/v1/applications/{application_id}/versions"
+    ],
+    "rules": [
+      "Inspect the current revision before each Draft mutation.",
+      "Use one batch human pause, then resume with a decisions object.",
+      "Use integer cents and stable receipt or bank identities.",
+      "Only retry classified transient failures and keep attempts bounded.",
+      "A permission denial is terminal and cannot be reported as a business rejection."
+    ]
+  },
+  "program": {
+    "block": "Use the existing tool block with tool_name Program.",
+    "profile_discovery": "Read the published profile; do not infer or expand its parameter, environment, network, timeout, or write scope.",
+    "input_contract": {
+      "profile_id": "Published profile identifier.",
+      "arguments": "Exact argv suffix covered by one allowed prefix.",
+      "stdin": "JSON value or text sent to the official program.",
+      "environment": "Only published keys; use {$secret: name} for credentials.",
+      "output_format": "json or text, as allowed by the profile.",
+      "idempotency_key": "Required for every registered write prefix.",
+      "timeout": "Cannot exceed profile maximum."
+    },
+    "result_contract": {
+      "ok": "True only for zero exit and valid requested output.",
+      "data": "Parsed JSON or text from the official program.",
+      "stderr": "Redacted diagnostic text.",
+      "error_class": "permission_denied, program_error, program_exit_nonzero, invalid_json_output, or null.",
+      "receipt": "Profile/version, request digest, exit status, write flag, and hashed idempotency key."
+    }
+  },
+  "actual_official_contract": {
+    "surface": "@actual-app/cli 26.7.0",
+    "amounts": "Integer cents; expenses are negative.",
+    "deduplication": "transactions import invokes Actual rules/reconciliation and does not add the same imported_id twice; do not use addTransactions.",
+    "discovery": "List remote budgets by name, download by Sync ID, then list accounts/categories/rules/transactions. Do not hardcode generated UUIDs.",
+    "documentation": [
+      "https://actualbudget.org/docs/api/",
+      "https://actualbudget.org/docs/api/reference/",
+      "https://actualbudget.org/docs/api/cli/",
+      "https://actualbudget.org/docs/budgeting/rules/"
+    ]
+  }
+}

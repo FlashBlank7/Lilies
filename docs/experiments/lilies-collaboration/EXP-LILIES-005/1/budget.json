@@ -1,0 +1,12 @@
+{
+  "schema_version": "1.0",
+  "task_id": "EXP-LILIES-005",
+  "revision": 1,
+  "assignment_wall_clock_seconds": 14400,
+  "max_build_repair_turns": 120,
+  "max_model_cost_usd": 25.0,
+  "max_model_tokens_per_single_run": 1000000,
+  "max_platform_tool_calls": 1000,
+  "max_report_evidence_rounds": 3,
+  "stable_hidden_runs": 3
+}

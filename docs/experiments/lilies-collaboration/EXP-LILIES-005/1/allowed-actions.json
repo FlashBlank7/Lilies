@@ -1,0 +1,52 @@
+{
+  "schema_version": "1.0",
+  "task_id": "EXP-LILIES-005",
+  "revision": 1,
+  "validation_mode": "real_host",
+  "file_access": true,
+  "model_access": false,
+  "connector_access": false,
+  "program_access": true,
+  "network_hosts": ["host.docker.internal"],
+  "max_payload_bytes": 4194304,
+  "max_write_count": 24,
+  "platform_actions": [
+    "platform_contract_get",
+    "platform_block_search",
+    "platform_block_get",
+    "platform_tool_catalog",
+    "platform_application_create",
+    "platform_application_get",
+    "platform_draft_inspect",
+    "platform_draft_apply",
+    "platform_tests_run",
+    "platform_run_start",
+    "platform_run_get",
+    "platform_run_resume",
+    "platform_run_cancel",
+    "platform_trace_get",
+    "platform_artifact_read",
+    "platform_publish"
+  ],
+  "readable_program_profiles": ["actual-cli-26-7"],
+  "writable_program_argument_prefixes": [
+    ["transactions", "import"],
+    ["transactions", "update"]
+  ],
+  "permission_required_actions": [
+    "program:actual-cli-26-7:transactions:import",
+    "program:actual-cli-26-7:transactions:update"
+  ],
+  "prohibited_actions": [
+    "read_platform_source",
+    "read_platform_database",
+    "read_protected",
+    "modify_task_package",
+    "install_unknown_adapter",
+    "actual.transactions.add",
+    "actual.transactions.delete",
+    "actual.accounts.mutate",
+    "actual.categories.mutate",
+    "actual.rules.mutate"
+  ]
+}

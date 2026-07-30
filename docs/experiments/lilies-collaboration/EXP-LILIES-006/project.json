@@ -5,7 +5,7 @@
   "project_id": "EXP-LILIES-006",
   "sequence": 6,
   "title": "Forecast-driven constrained replenishment planning",
-  "status": "selected",
+  "status": "active",
   "cohort": "enterprise",
   "enterprise_denominator": true,
   "capability_family": "forecasting_constrained_optimization_planning",
@@ -44,8 +44,7 @@
   ],
   "task_package_root": "docs/experiments/lilies-collaboration/EXP-LILIES-006",
   "latest_revision": 0,
-  "revision_semantics": "Revision 1 starts only after EXP-LILIES-005 closes.",
+  "revision_semantics": "EXP-LILIES-005 closed with three protected Seeds and a fresh-application experience regression. The user's explicit instruction to complete the remaining projects now activates EXP-LILIES-006; revision 1 will freeze its public package and independent Seed contract.",
   "current_blocker": null,
   "next_action": "Freeze ERPNext and Frappe digests, API schema, roles, database seed, historical split, constraints, baseline plan, seeds, and oracle."
 }
-

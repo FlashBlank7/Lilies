@@ -1,0 +1,124 @@
+{
+  "batch_id": "actual-public-r1",
+  "budget_name": "My Finances",
+  "account_name": "Business Checking",
+  "date_range": {
+    "start": "2026-07-01",
+    "end": "2026-07-31"
+  },
+  "receipts": [
+    {
+      "receipt_id": "R-001",
+      "receipt_imported_id": "receipt:R-001",
+      "date": "2026-07-01",
+      "amount_cents": 4599,
+      "ledger_amount_cents": -4599,
+      "merchant_raw": "Office Depot #0421",
+      "merchant_normalized": "OFFICE DEPOT 0421",
+      "category_hint": "Office Supplies",
+      "source_sha256": "f59aa4de407114203cee5158a7e814686dad45e70402aad1ab6d7e08f6db8466"
+    },
+    {
+      "receipt_id": "R-002",
+      "receipt_imported_id": "receipt:R-002",
+      "date": "2026-07-02",
+      "amount_cents": 12900,
+      "ledger_amount_cents": -12900,
+      "merchant_raw": "CloudHub",
+      "merchant_normalized": "CLOUDHUB MONTHLY",
+      "category_hint": "Software",
+      "source_sha256": "30d7ff1c3a0e8d43568f2f7d894a7c45e7556b2ec73f96f13cd096ab8f05c7ec"
+    },
+    {
+      "receipt_id": "R-003",
+      "receipt_imported_id": "receipt:R-003",
+      "date": "2026-07-03",
+      "amount_cents": 3250,
+      "ledger_amount_cents": -3250,
+      "merchant_raw": "Cafe",
+      "merchant_normalized": "CAFE",
+      "category_hint": "Meals",
+      "source_sha256": "b8f0fcb94e6c9289cdf76cc049c1b5e3611a2aa38da54007665505883b4d87d3"
+    },
+    {
+      "receipt_id": "R-004",
+      "receipt_imported_id": "receipt:R-004",
+      "date": "2026-07-04",
+      "amount_cents": 7900,
+      "ledger_amount_cents": -7900,
+      "merchant_raw": "Rail Co",
+      "merchant_normalized": "RAIL CO",
+      "category_hint": "Travel",
+      "source_sha256": "59f9590b3c94eff1a3c298e0990b51c70f16e6bb17ab7126272a0de2e74fa26a"
+    },
+    {
+      "receipt_id": "R-005",
+      "receipt_imported_id": "receipt:R-005",
+      "date": "2026-07-05",
+      "amount_cents": 1850,
+      "ledger_amount_cents": -1850,
+      "merchant_raw": "Corner Cafe",
+      "merchant_normalized": "CORNER CAFE",
+      "category_hint": "Meals",
+      "source_sha256": "912f4c66c7f5350ec6ae051a657bc95efb92dd552303b1fbbed5907985059633"
+    },
+    {
+      "receipt_id": "R-001",
+      "receipt_imported_id": "receipt:R-001",
+      "date": "2026-07-01",
+      "amount_cents": 4599,
+      "ledger_amount_cents": -4599,
+      "merchant_raw": "Office Depot #0421 duplicate upload",
+      "merchant_normalized": "OFFICE DEPOT 0421",
+      "category_hint": "Office Supplies",
+      "source_sha256": "1566a1e6c820306b910af42f5f32c024bbcfa3ab25c73f6facc5f017a2e19c33"
+    },
+    {
+      "receipt_id": "R-007",
+      "receipt_imported_id": "receipt:R-007",
+      "date": "2026-07-07",
+      "amount_cents": 6400,
+      "ledger_amount_cents": -6400,
+      "merchant_raw": "Software Mart",
+      "merchant_normalized": "SOFTWARE MART",
+      "category_hint": "Software",
+      "source_sha256": "ecea409bcc10ae6c3bdf6a6d159c12cbe1c462d92f8d7d97cc1bcff87a6ff31f"
+    },
+    {
+      "receipt_id": "R-008",
+      "receipt_imported_id": "receipt:R-008",
+      "date": "2026-07-06",
+      "amount_cents": 9999,
+      "ledger_amount_cents": -9999,
+      "merchant_raw": "Unknown Vendor",
+      "merchant_normalized": "UNKNOWN VENDOR",
+      "category_hint": "Uncategorized Review",
+      "source_sha256": "40b06e4f9271376513119d7e827ff84d224872149152886881f9a61b1ed92a77"
+    }
+  ],
+  "public_review_response": {
+    "decisions": {
+      "R-001": {
+        "approved": true,
+        "reason": "Receipt and bank identity agree"
+      },
+      "R-002": {
+        "approved": true,
+        "reason": "Receipt and existing software transaction agree"
+      },
+      "R-003": {
+        "approved": true,
+        "selected_imported_id": "bank-r1-1003",
+        "reason": "Receipt image names Cafe One"
+      },
+      "R-007": {
+        "approved": true,
+        "reason": "Valid new business purchase"
+      },
+      "R-008": {
+        "approved": false,
+        "reason": "Category evidence is insufficient"
+      }
+    }
+  }
+}

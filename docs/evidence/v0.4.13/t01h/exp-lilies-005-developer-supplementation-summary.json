@@ -1,0 +1,50 @@
+{
+  "schema_version": "1.0",
+  "task_id": "EXP-LILIES-005",
+  "status": "complete",
+  "origin_report": "EXP-LILIES-005-GAP-001",
+  "supplementation": {
+    "generic_runtime_tools": [
+      "registered and versioned governed Program profile execution"
+    ],
+    "runtime_service_count": 1,
+    "workflow_block_count": 0,
+    "host_specific_block_count": 0,
+    "new_dependency_count": 0,
+    "runtime_fixes_without_new_blocks": [
+      "bounded deterministic Variable Assigner expressions for arithmetic, equality, collection aggregation, concatenation, coalescing, and JSON encoding",
+      "explicit owner test-suite workspace selection",
+      "per-test snapshot of governed program tools and mutable program cache"
+    ]
+  },
+  "generality_evidence": {
+    "actual_fields_in_platform_runtime": false,
+    "actual_commands_in_platform_runtime": false,
+    "actual_endpoint_or_mapping_in_platform_runtime": false,
+    "project_answer_in_platform_runtime": false,
+    "profile_location": "project-owned registered public profile",
+    "workflow_mapping_location": "published workflow configuration",
+    "reuse_scope": [
+      "pinned command-line programs with argument and environment allowlists",
+      "deterministic typed workflow calculations",
+      "isolated test execution for tools with mutable local caches"
+    ]
+  },
+  "verification": {
+    "focused_platform_tests_passed": 9,
+    "focused_platform_tests_failed": 0,
+    "workflow_regression_tests_passed": 90,
+    "workflow_regression_tests_failed": 3,
+    "workflow_regression_new_failures": 0,
+    "baseline_failure_confirmation": "The same three failures reproduce on untouched commit 95e2121: two legacy tests use reserved runtime inputs and one legacy code-repair test conflicts with the existing isolated test-workspace boundary.",
+    "public_business_cases_passed": 2,
+    "public_business_cases_total": 2,
+    "sealed_seed_checks_passed": 45,
+    "sealed_seed_checks_total": 45,
+    "fresh_application_seed_checks_passed": 15,
+    "fresh_application_seed_checks_total": 15,
+    "affected_project_rerun": "passed",
+    "fresh_context_independent_review": "not_run"
+  },
+  "claim_limit": "Customer workflow and controlled-local Actual 26.7.0 acceptance passed. The same-context fresh-application rebuild proves operational reuse, not independent Skill or model generalization; fresh-context capability admission review remains evidence debt."
+}

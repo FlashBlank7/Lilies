@@ -1,0 +1,38 @@
+schema_version: '1.0'
+task_id: EXP-LILIES-005
+revision: 1
+parent_revision: null
+title: 小微企业收据对账、受控入账与审计工件
+cohort: individual_and_small_business
+customer_role: 小型服务公司的记账员和预算负责人
+business_goal: 将收据事实与 Actual Budget 的真实银行交易对齐，在所有账本变更前完成人工审批，保持余额和去重不变量，并交付可复核的 JSON 与 Excel 工件。
+source_projects:
+- name: Actual Budget
+  repository_url: https://github.com/actualbudget/actual
+  release: v26.7.0
+  commit_sha: 111ea5f71ce97105376bd1472f2e1f3fa22139ad
+  image_digest: sha256:e18b7fbfec6157a368fad4146563f397502e9da70a120aeaeac63b4977405d1c
+  license: MIT
+requirement_file: requirement.md
+environment_lock_digest: sha256:f66ab25768476d2596fc96ee18572bee0ae0d5519079c29cde53f212ebe43a97
+fixture_manifest_digest: sha256:d1bfcac221bfa2016d13a43c852643ee6f6e732cafeded033076a923090294a1
+allowed_actions_file: allowed-actions.json
+budget_file: budget.json
+program_profile_file: program-profile.json
+input_schema_file: schemas/receipt-batch.json
+output_schema_file: schemas/reconciliation-output.json
+deliverables:
+- name: reconciliation-result
+  description: 每条收据的校验、去重、匹配、人工决定、Actual 回执、规则结果、错误分类和余额不变量。
+  media_type: application/json
+- name: reconciliation-audit
+  description: 包含逐收据对账表和期初/期末余额、批准新增金额、重复、冲突、写入与 invariant 的 Excel 工作簿。
+  media_type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+- name: host-readback
+  description: 从 Actual 官方 CLI 回读的账户余额、交易与受治理 Program 执行回执。
+  media_type: application/json
+acceptance_summary: 全部输入均有可追溯结果；重复、已对账、金额冲突和拒绝记录不写入；批准记录经 Actual 官方 import 恰好处理一次；临时失败有界重试、权限失败安全停写；余额不变量、JSON schema、Excel 类型和宿主回读均通过。
+no_substitute_validation: true
+collaboration_enabled: true
+author: codex-task-author
+created_at: '2026-07-30T14:00:00Z'

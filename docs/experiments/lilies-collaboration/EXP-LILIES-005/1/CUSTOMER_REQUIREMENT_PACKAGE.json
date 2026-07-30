@@ -1,0 +1,67 @@
+{
+  "schema_version": "v0.4.13-customer-requirement-package-1",
+  "task_id": "EXP-LILIES-005",
+  "revision": 1,
+  "material_completeness": "substantial",
+  "materials": [
+    {
+      "kind": "customer_brief",
+      "path": "requirement.md",
+      "description": "Customer business request, workflow logic, deliverables, and safety boundary.",
+      "provided_by": "customer"
+    },
+    {
+      "kind": "customer_data",
+      "path": "fixtures/public-inputs/debug-receipts.json",
+      "description": "Public debug receipts and the public finance-review response.",
+      "provided_by": "customer"
+    },
+    {
+      "kind": "input_schema",
+      "path": "schemas/receipt-batch.json",
+      "description": "Typed receipt-batch schema.",
+      "provided_by": "customer"
+    },
+    {
+      "kind": "output_schema",
+      "path": "schemas/reconciliation-output.json",
+      "description": "Typed reconciliation result schema.",
+      "provided_by": "customer"
+    },
+    {
+      "kind": "program_profile",
+      "path": "program-profile.json",
+      "description": "Pinned official Actual CLI surface exposed through the generic governed Program tool.",
+      "provided_by": "platform_owner"
+    },
+    {
+      "kind": "platform_manual",
+      "path": "BUILDER_API_MANUAL.json",
+      "description": "Public Lilies workflow and Program API guide.",
+      "provided_by": "platform"
+    },
+    {
+      "kind": "permission_contract",
+      "path": "allowed-actions.json",
+      "description": "Task-scoped platform, host-write, and forbidden-action boundary.",
+      "provided_by": "task_author"
+    },
+    {
+      "kind": "system_environment_contract",
+      "path": "environment.lock",
+      "description": "Pinned real Actual host, official package, health, secret references, and public fixture.",
+      "provided_by": "task_author"
+    },
+    {
+      "kind": "delivery_contract",
+      "path": "task.yaml",
+      "description": "Customer role, deliverables, and acceptance summary.",
+      "provided_by": "task_author"
+    }
+  ],
+  "missing_materials": [
+    "No production Actual tenant or customer credentials are supplied; validation is controlled-local.",
+    "No trained receipt classifier is supplied because the task is deterministic reconciliation, not a model-accuracy task.",
+    "Protected seeds and independent expected results are intentionally outside the Builder package."
+  ]
+}

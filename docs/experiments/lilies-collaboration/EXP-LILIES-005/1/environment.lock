@@ -1,0 +1,64 @@
+schema_version: '1.0'
+task_id: EXP-LILIES-005
+revision: 1
+source_projects:
+- name: Actual Budget
+  repository_url: https://github.com/actualbudget/actual
+  release: v26.7.0
+  commit_sha: 111ea5f71ce97105376bd1472f2e1f3fa22139ad
+  image_digest: sha256:e18b7fbfec6157a368fad4146563f397502e9da70a120aeaeac63b4977405d1c
+  architecture_manifest_digest: sha256:6a5f749f40e2b7ca43ec8d2d61f5e6fa0618f2d0cb049700b9dcda42da70b8cb
+  license: MIT
+official_packages:
+- name: '@actual-app/api'
+  version: 26.7.0
+  integrity: sha512-nZDZAE6blc1HTdNEDGomAijE9Xgw+vBwUPkUsD63MVyAu92Vyi8H7hqueePtoERo2T9HYkMunXlABRrcPwr1KA==
+- name: '@actual-app/cli'
+  version: 26.7.0
+  integrity: sha512-hijWzc19lO+tyfNwF0uNj37v7maTHmgK8MALXZWRsqAvwROgchaOHbLuEqmMRitGaF+RVWfo6rm0lfmg1tu3RQ==
+program_profile:
+  path: program-profile.json
+  digest: sha256:633e1c2ef723adfdbda78c8448cd11358588dfeaee9fd354c2c85659afdf4130
+ports:
+- service: actual-http
+  host: 127.0.0.1
+  port: 18050
+- service: lilies-platform
+  host: 127.0.0.1
+  port: 8017
+host_state:
+  budget_name: My Finances
+  account_name: Business Checking
+  opening_balance_cents: 206352
+  currency_amount_unit: integer_cents
+  expense_sign: negative
+  identifier_policy: discover_by_name_at_runtime
+health_checks:
+- check_id: http:actual
+  kind: http
+  url: http://127.0.0.1:18050/account/needs-bootstrap
+  expected_status: 200
+  timeout_seconds: 5.0
+  mandatory: true
+- check_id: http:lilies
+  kind: http
+  url: http://127.0.0.1:8017/health
+  expected_status: 200
+  timeout_seconds: 5.0
+  mandatory: true
+secret_refs:
+- secret:actual-password
+- secret:exp-lilies-005-environment-attestation
+attestation_secret_ref: secret:exp-lilies-005-environment-attestation
+python_version: 3.12
+node_version: 24.15.0
+docker_version: 29.4.0
+fixture_files:
+- path: public-inputs/debug-receipts.json
+  digest: sha256:e1e08ba1bb0d3ddefdd922ef5a9fe7f71948d733a1288d88982d868675dfe780
+  size_bytes: 3982
+host_setup_evidence:
+- Actual was bootstrapped through its customer UI and verified through the official CLI.
+- Rules and transactions are stored in the real Actual server; UUIDs are intentionally omitted from the Builder package.
+- No experimenter SDK wrapper, CLI wrapper, field map, or prepared workflow is supplied.
+provenance: real_host
