@@ -1,0 +1,68 @@
+{
+  "schema_version": "1.0",
+  "capability_id": "CAP-LILIES-RAG-LIFECYCLE-001",
+  "source_project_id": "EXP-LILIES-002",
+  "source_project_revision": 1,
+  "builder_gap_reports": [
+    "EXP-LILIES-002-GAP-001",
+    "EXP-LILIES-002-BUILDER-GAP-002"
+  ],
+  "placement": {
+    "kind": "optional_domain_module",
+    "domain": "enterprise_rag",
+    "platform_service_count": 1,
+    "atomic_block_count": 3,
+    "public_route_count": 6,
+    "host_specific_block_count": 0,
+    "host_specific_platform_symbol_count": 0
+  },
+  "implementation": {
+    "service": "platform/backend/src/agent_platform/knowledge_rag.py",
+    "blocks": [
+      "knowledge_index_sync",
+      "knowledge_retrieval",
+      "grounded_answer"
+    ],
+    "public_contracts": [
+      "create/list/get immutable knowledge index",
+      "versioned document synchronization with update, delete and idempotent receipt",
+      "ACL-before-ranking retrieval with forbidden-chunk evidence",
+      "grounded extractive answer or explicit refusal"
+    ],
+    "model_versions": {
+      "embedding": "hashing-embedding-v1",
+      "retrieval": "acl-hybrid-retrieval-v2",
+      "answer": "grounded-extractive-answer-v1"
+    },
+    "bookstack_specific_behavior_in_platform": false,
+    "project_mapping_location": "workflow configuration only"
+  },
+  "generic_verification": {
+    "command": ".venv/bin/pytest -q tests/test_knowledge_rag.py",
+    "passed": 4,
+    "failed": 0,
+    "non_source_examples": [
+      "warehouse safety versus finance handbook ACL",
+      "generic public emergency contact versus HR payroll relevance",
+      "update, delete, replay and stale revision handling",
+      "public API and workflow block end-to-end path"
+    ],
+    "ruff": "passed"
+  },
+  "affected_project_rerun": {
+    "application_id": "927987e8-5ce0-47e0-8a6d-1ed2d4be4ac4",
+    "workflow_content_hash_unchanged_during_retrieval_v2_fix": true,
+    "public_debug": "7/7 plus four lifecycle checks passed",
+    "sealed_seeds": "2201, 2202 and 2203 each passed 7/7 plus four lifecycle checks",
+    "published_version": 1,
+    "published_smoke_run_id": "d13b29e7-ce7f-4fe3-960b-457e4f4c15d3"
+  },
+  "review": {
+    "same_context_code_and_evidence_review": "passed",
+    "independent_fresh_context_review": "not_run",
+    "reason": "The current execution instruction did not authorize sub-agent delegation.",
+    "claim_effect": "Customer business evidence is complete at controlled-local level; the strict CAP-LILIES independent-review admission remains evidence debt."
+  },
+  "lilies_model_calls": 0,
+  "lilies_tokens": 0
+}

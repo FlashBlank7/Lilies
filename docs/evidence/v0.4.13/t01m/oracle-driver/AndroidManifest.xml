@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="dev.lilies.t01m.oracle">
+
+    <uses-sdk
+        android:minSdkVersion="26"
+        android:targetSdkVersion="37" />
+
+    <application
+        android:allowBackup="false"
+        android:debuggable="true"
+        android:hasCode="true"
+        android:label="T01M 外部黑箱驱动"
+        android:supportsRtl="true"
+        android:usesCleartextTraffic="false" />
+
+    <instrumentation
+        android:name="dev.lilies.t01m.oracle.T01MOracleInstrumentation"
+        android:functionalTest="true"
+        android:handleProfiling="false"
+        android:label="T01M 外部黑箱驱动"
+        android:targetPackage="dev.lilies.civilizationseed" />
+</manifest>
+

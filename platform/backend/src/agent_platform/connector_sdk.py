@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import binascii
 import hashlib
 import hmac
 import json
+import math
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal
@@ -30,6 +32,32 @@ ConnectorExecutionStatus = Literal[
     "failed",
     "compensated",
 ]
+ConnectorFailureDisposition = Literal[
+    "none",
+    "retryable",
+    "terminal",
+    "ambiguous",
+]
+ConnectorRetrySafety = Literal[
+    "none",
+    "pre_dispatch",
+    "read_only",
+    "idempotency_key",
+]
+DEFAULT_CONNECTOR_RETRYABLE_STATUS_CODES = [408, 425, 429, 500, 502, 503, 504]
+MAX_CONNECTOR_OPERATION_PARAMETERS = 1_000
+MAX_CONNECTOR_SCHEMA_FIELDS = 1_000
+MAX_CONNECTOR_MULTIPART_PARTS = 100
+MAX_CONNECTOR_BLOB_BYTES = 20 * 1024 * 1024
+MAX_CONNECTOR_MULTIPART_BYTES = 50 * 1024 * 1024
+MAX_CONNECTOR_OPERATION_REQUEST_CONSTRAINTS = 100
+MAX_CONNECTOR_REQUEST_CONSTRAINT_FIELDS = 100
+MAX_CONNECTOR_REQUEST_CONSTRAINT_FIXED_VALUES = 100
+MAX_CONNECTOR_REQUEST_CONSTRAINT_JSON_BYTES = 16 * 1024
+MAX_CONNECTOR_POLICY_REQUEST_CONSTRAINT_BYTES = 64 * 1024
+MAX_CONNECTOR_REQUEST_CONSTRAINT_JSON_DEPTH = 8
+MAX_CONNECTOR_REQUEST_CONSTRAINT_JSON_NODES = 512
+MAX_CONNECTOR_REQUEST_CONSTRAINT_STRING_BYTES = 4 * 1024
 
 
 class ConnectorConflict(RuntimeError):
@@ -41,7 +69,56 @@ class ConnectorDenied(RuntimeError):
 
 
 class ConnectorAdapterError(RuntimeError):
-    pass
+    """A structured adapter failure with an explicit replay safety decision."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        retryable: bool = False,
+        side_effect_state: Literal["none", "unknown"] = "unknown",
+        adapter_called: bool = True,
+        failure_disposition: ConnectorFailureDisposition | None = None,
+        retry_safety: ConnectorRetrySafety = "none",
+    ) -> None:
+        super().__init__(message)
+        self.retryable = retryable
+        self.side_effect_state = side_effect_state
+        self.adapter_called = adapter_called
+        self.failure_disposition: ConnectorFailureDisposition = (
+            failure_disposition
+            or ("retryable" if retryable else "ambiguous" if side_effect_state == "unknown" else "terminal")
+        )
+        self.retry_safety = retry_safety
+        if self.retryable and self.retry_safety == "none":
+            raise ValueError("retryable connector failure requires an explicit retry safety")
+        if self.retryable and self.failure_disposition != "retryable":
+            raise ValueError("retryable connector failure must use retryable disposition")
+        if self.failure_disposition == "ambiguous" and self.retryable:
+            raise ValueError("ambiguous connector failure cannot be retryable")
+
+    @classmethod
+    def from_execution(cls, execution: ConnectorExecution) -> ConnectorAdapterError:
+        side_effect_state = (
+            "unknown" if execution.side_effect_state == "unknown" else "none"
+        )
+        disposition = execution.failure_disposition
+        if disposition == "none":
+            disposition = (
+                "retryable"
+                if execution.retryable
+                else "ambiguous"
+                if side_effect_state == "unknown"
+                else "terminal"
+            )
+        return cls(
+            execution.error or "connector execution previously failed",
+            retryable=execution.retryable,
+            side_effect_state=side_effect_state,
+            adapter_called=execution.adapter_called,
+            failure_disposition=disposition,
+            retry_safety=execution.retry_safety,
+        )
 
 
 class ConnectorSchemaField(BaseModel):
@@ -68,7 +145,10 @@ class ConnectorObjectSchema(BaseModel):
 
     schema_id: str = Field(pattern=r"^[A-Za-z][A-Za-z0-9_.-]{1,119}$")
     version: int = Field(default=1, ge=1)
-    fields: list[ConnectorSchemaField] = Field(default_factory=list, max_length=100)
+    fields: list[ConnectorSchemaField] = Field(
+        default_factory=list,
+        max_length=MAX_CONNECTOR_SCHEMA_FIELDS,
+    )
     additional_properties: bool = False
     json_schema: dict[str, Any] | None = None
 
@@ -107,46 +187,61 @@ class ConnectorObjectSchema(BaseModel):
         *,
         label: str,
     ) -> None:
-        one_of = schema.get("oneOf")
-        if isinstance(one_of, list):
-            matches = 0
-            for candidate in one_of:
-                if not isinstance(candidate, dict):
-                    continue
-                try:
-                    cls._validate_json_schema(value, candidate, label=label)
-                except ValueError:
-                    continue
-                matches += 1
-            if matches != 1:
-                raise ValueError(
-                    f"{label} must match exactly one declared response shape"
-                )
-            return
-        nullable = bool(schema.get("nullable")) or "null" in schema.get("type", [])
+        if not isinstance(schema, dict):
+            raise ValueError(f"{label} has an invalid JSON Schema declaration")
+        raw_type = schema.get("type")
+        nullable = bool(schema.get("nullable")) or (
+            isinstance(raw_type, list) and "null" in raw_type
+        ) or raw_type == "null"
         if value is None:
+            inferred_type = (
+                "object"
+                if "properties" in schema
+                else "array"
+                if "items" in schema
+                else None
+            )
+            if not nullable and (raw_type is not None or inferred_type is not None):
+                raise ValueError(f"{label} must not be null")
             if nullable:
                 return
-            raise ValueError(f"{label} must not be null")
-        raw_type = schema.get("type")
-        expected = next(
-            (item for item in raw_type if item != "null"),
-            None,
-        ) if isinstance(raw_type, list) else raw_type
-        valid = {
-            "string": isinstance(value, str),
-            "number": isinstance(value, (int, float)) and not isinstance(value, bool),
-            "integer": isinstance(value, int) and not isinstance(value, bool),
-            "boolean": isinstance(value, bool),
-            "object": isinstance(value, dict),
-            "array": isinstance(value, list),
-            None: True,
-        }.get(expected, True)
-        if not valid:
-            raise ValueError(f"{label} must be {expected}")
+        else:
+            expected_types = (
+                [item for item in raw_type if item != "null"]
+                if isinstance(raw_type, list)
+                else [raw_type]
+                if raw_type is not None
+                else ["object"]
+                if "properties" in schema
+                else ["array"]
+                if "items" in schema
+                else []
+            )
+            if expected_types and not any(
+                cls._matches_json_type(value, expected) for expected in expected_types
+            ):
+                expected = " or ".join(str(item) for item in expected_types)
+                raise ValueError(f"{label} must be {expected}")
         if "enum" in schema and value not in schema["enum"]:
             raise ValueError(f"{label} must be one of {schema['enum']}")
-        if expected == "object" and isinstance(value, dict):
+        if "const" in schema and value != schema["const"]:
+            raise ValueError(f"{label} must equal the declared constant")
+        if isinstance(value, str):
+            min_length = schema.get("minLength")
+            max_length = schema.get("maxLength")
+            if isinstance(min_length, int) and len(value) < min_length:
+                raise ValueError(f"{label} is shorter than minLength {min_length}")
+            if isinstance(max_length, int) and len(value) > max_length:
+                raise ValueError(f"{label} exceeds maxLength {max_length}")
+        pattern = schema.get("pattern")
+        if isinstance(value, str) and isinstance(pattern, str):
+            try:
+                matched = re.search(pattern, value)
+            except re.error as error:
+                raise ValueError(f"{label} has an invalid pattern declaration") from error
+            if matched is None:
+                raise ValueError(f"{label} does not match the declared pattern")
+        if isinstance(value, dict):
             properties = schema.get("properties", {})
             required = set(schema.get("required", []))
             missing = sorted(required - set(value))
@@ -160,11 +255,73 @@ class ConnectorObjectSchema(BaseModel):
                 item_schema = properties.get(key)
                 if isinstance(item_schema, dict):
                     cls._validate_json_schema(item, item_schema, label=f"{label}.{key}")
-        if expected == "array" and isinstance(value, list):
+        if isinstance(value, list):
             item_schema = schema.get("items")
             if isinstance(item_schema, dict):
                 for index, item in enumerate(value):
                     cls._validate_json_schema(item, item_schema, label=f"{label}[{index}]")
+        all_of = schema.get("allOf")
+        if all_of is not None:
+            if not isinstance(all_of, list) or not all_of or not all(
+                isinstance(candidate, dict) for candidate in all_of
+            ):
+                raise ValueError(f"{label} has an invalid allOf declaration")
+            for candidate in all_of:
+                cls._validate_json_schema(value, candidate, label=label)
+        any_of = schema.get("anyOf")
+        if any_of is not None:
+            matches = cls._matching_json_schema_branches(
+                value,
+                any_of,
+                label=label,
+                keyword="anyOf",
+            )
+            if matches < 1:
+                raise ValueError(f"{label} must match at least one declared schema branch")
+        one_of = schema.get("oneOf")
+        if one_of is not None:
+            matches = cls._matching_json_schema_branches(
+                value,
+                one_of,
+                label=label,
+                keyword="oneOf",
+            )
+            if matches != 1:
+                raise ValueError(f"{label} must match exactly one declared schema branch")
+
+    @staticmethod
+    def _matches_json_type(value: Any, expected: Any) -> bool:
+        return {
+            "null": value is None,
+            "string": isinstance(value, str),
+            "number": isinstance(value, (int, float)) and not isinstance(value, bool),
+            "integer": isinstance(value, int) and not isinstance(value, bool),
+            "boolean": isinstance(value, bool),
+            "object": isinstance(value, dict),
+            "array": isinstance(value, list),
+        }.get(expected, True)
+
+    @classmethod
+    def _matching_json_schema_branches(
+        cls,
+        value: Any,
+        candidates: Any,
+        *,
+        label: str,
+        keyword: str,
+    ) -> int:
+        if not isinstance(candidates, list) or not candidates or not all(
+            isinstance(candidate, dict) for candidate in candidates
+        ):
+            raise ValueError(f"{label} has an invalid {keyword} declaration")
+        matches = 0
+        for candidate in candidates:
+            try:
+                cls._validate_json_schema(value, candidate, label=label)
+            except ValueError:
+                continue
+            matches += 1
+        return matches
 
     @classmethod
     def _validate_value(
@@ -211,12 +368,62 @@ class ConnectorParameterBinding(BaseModel):
     explode: bool = True
 
 
+class ConnectorMultipartPart(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    input_key: str = Field(min_length=1, max_length=300)
+    wire_name: str = Field(min_length=1, max_length=300)
+    kind: Literal["text", "blob"]
+    required: bool = False
+    content_types: list[str] = Field(default_factory=list, max_length=20)
+    max_bytes: int = Field(default=MAX_CONNECTOR_BLOB_BYTES, ge=1, le=MAX_CONNECTOR_BLOB_BYTES)
+
+    @model_validator(mode="after")
+    def safe_wire_contract(self) -> ConnectorMultipartPart:
+        if any(
+            character in value
+            for value in (self.input_key, self.wire_name)
+            for character in ("\x00", "\r", "\n")
+        ):
+            raise ValueError("multipart part names contain an unsafe character")
+        for content_type in self.content_types:
+            if re.fullmatch(
+                r"[A-Za-z0-9!#$&^_.+-]+/(?:[A-Za-z0-9!#$&^_.+-]+|\*)",
+                content_type,
+            ) is None:
+                raise ValueError("multipart part content_type is invalid")
+            if self.kind == "text" and content_type.endswith("/*"):
+                raise ValueError("multipart text parts require a concrete content_type")
+        return self
+
+
 class ConnectorRequestBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     input_key: str = Field(default="body", pattern=r"^[A-Za-z_][A-Za-z0-9_]*$")
     required: bool = False
     content_type: str = Field(default="application/json", min_length=1, max_length=200)
+    multipart_parts: list[ConnectorMultipartPart] = Field(
+        default_factory=list,
+        max_length=MAX_CONNECTOR_MULTIPART_PARTS,
+    )
+    max_total_bytes: int = Field(
+        default=MAX_CONNECTOR_MULTIPART_BYTES,
+        ge=1,
+        le=MAX_CONNECTOR_MULTIPART_BYTES,
+    )
+
+    @model_validator(mode="after")
+    def multipart_contract_is_consistent(self) -> ConnectorRequestBody:
+        if self.multipart_parts and self.content_type != "multipart/form-data":
+            raise ValueError("multipart parts require multipart/form-data content_type")
+        if self.content_type == "multipart/form-data" and not self.multipart_parts:
+            raise ValueError("multipart/form-data requires declared multipart parts")
+        input_keys = [item.input_key for item in self.multipart_parts]
+        wire_names = [item.wire_name for item in self.multipart_parts]
+        if len(input_keys) != len(set(input_keys)) or len(wire_names) != len(set(wire_names)):
+            raise ValueError("multipart request contains duplicate part bindings")
+        return self
 
 
 class ConnectorSecurityScheme(BaseModel):
@@ -239,7 +446,10 @@ class ConnectorOperation(BaseModel):
     path: str = Field(min_length=1, max_length=500)
     request_schema: ConnectorObjectSchema
     response_schema: ConnectorObjectSchema
-    parameters: list[ConnectorParameterBinding] = Field(default_factory=list, max_length=100)
+    parameters: list[ConnectorParameterBinding] = Field(
+        default_factory=list,
+        max_length=MAX_CONNECTOR_OPERATION_PARAMETERS,
+    )
     request_body: ConnectorRequestBody | None = None
     response_json_schema: dict[str, Any] | None = None
     response_root_type: ConnectorValueType = "object"
@@ -252,10 +462,34 @@ class ConnectorOperation(BaseModel):
     error_responses: dict[str, str] = Field(default_factory=dict)
     required_roles: list[str] = Field(default_factory=list, max_length=40)
     compensation_operation_id: str | None = None
+    retryable_status_codes: list[int] = Field(
+        default_factory=lambda: list(DEFAULT_CONNECTOR_RETRYABLE_STATUS_CODES),
+        max_length=20,
+    )
+    idempotency_semantics: Literal["none", "request_key"] = "none"
+    max_attempts: int = Field(default=3, ge=1, le=20)
 
     @property
     def mutating(self) -> bool:
         return self.kind in {"write", "compensate"}
+
+    @model_validator(mode="after")
+    def bounded_retry_contract(self) -> ConnectorOperation:
+        if len(self.retryable_status_codes) != len(set(self.retryable_status_codes)):
+            raise ValueError("connector retryable status codes must be unique")
+        if any(
+            status < 400 or status > 599
+            for status in self.retryable_status_codes
+        ):
+            raise ValueError("connector retryable status codes must be HTTP errors")
+        overlap = sorted(
+            set(self.retryable_status_codes).intersection(self.success_status_codes)
+        )
+        if overlap:
+            raise ValueError(
+                f"connector retryable status codes overlap success statuses: {overlap}"
+            )
+        return self
 
 
 class ConnectorDeploymentProfile(BaseModel):
@@ -288,6 +522,19 @@ class ConnectorDeploymentProfile(BaseModel):
         if self.environment in {"mock", "test"} and self.claim_ceiling in {"H4", "H5"}:
             raise ValueError("mock/test deployment cannot claim H4 or H5")
         return self
+
+
+class ConnectorPreDispatchAttestation(BaseModel):
+    """Operator-owned contract for a trusted no-side-effect response."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    header_name: str = Field(
+        min_length=1,
+        max_length=100,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9-]*$",
+    )
+    header_value: str = Field(min_length=1, max_length=200)
 
 
 class ConnectorManifest(BaseModel):
@@ -350,6 +597,9 @@ class ConnectorManifest(BaseModel):
                 "x-kind": operation.kind,
                 "x-required-roles": operation.required_roles,
                 "x-compensation-operation": operation.compensation_operation_id,
+                "x-idempotency-semantics": operation.idempotency_semantics,
+                "x-retryable-status-codes": operation.retryable_status_codes,
+                "x-max-attempts": operation.max_attempts,
                 "requestSchema": operation.request_schema.model_dump(mode="json"),
                 "responseSchema": operation.response_schema.model_dump(mode="json"),
                 "parameters": [item.model_dump(mode="json") for item in operation.parameters],
@@ -421,6 +671,174 @@ class ConnectorTenantBinding(BaseModel):
         return self
 
 
+def _bounded_constraint_json_nodes(value: Any, *, depth: int = 0) -> int:
+    if depth > MAX_CONNECTOR_REQUEST_CONSTRAINT_JSON_DEPTH:
+        raise ValueError("connector request constraint JSON exceeds the depth limit")
+    if value is None or isinstance(value, bool):
+        return 1
+    if isinstance(value, int):
+        if value.bit_length() > 4096:
+            raise ValueError("connector request constraint integer is too large")
+        return 1
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ValueError("connector request constraint JSON must contain finite numbers")
+        return 1
+    if isinstance(value, str):
+        if len(value.encode("utf-8")) > MAX_CONNECTOR_REQUEST_CONSTRAINT_STRING_BYTES:
+            raise ValueError("connector request constraint string exceeds the byte limit")
+        return 1
+    if isinstance(value, list):
+        if len(value) > MAX_CONNECTOR_REQUEST_CONSTRAINT_FIELDS:
+            raise ValueError("connector request constraint array exceeds the item limit")
+        return 1 + sum(
+            _bounded_constraint_json_nodes(item, depth=depth + 1)
+            for item in value
+        )
+    if isinstance(value, dict):
+        if len(value) > MAX_CONNECTOR_REQUEST_CONSTRAINT_FIELDS:
+            raise ValueError("connector request constraint object exceeds the field limit")
+        nodes = 1
+        for key, item in value.items():
+            if not isinstance(key, str) or not key:
+                raise ValueError(
+                    "connector request constraint JSON object keys must be non-empty strings"
+                )
+            if (
+                len(key.encode("utf-8"))
+                > MAX_CONNECTOR_REQUEST_CONSTRAINT_STRING_BYTES
+                or any(ord(character) < 0x20 for character in key)
+            ):
+                raise ValueError("connector request constraint JSON object key is unsafe")
+            nodes += _bounded_constraint_json_nodes(item, depth=depth + 1)
+        return nodes
+    raise ValueError("connector request constraint values must be JSON-compatible")
+
+
+def _validate_constraint_field_name(value: Any) -> str:
+    if not isinstance(value, str) or not value:
+        raise ValueError("connector request constraint field names must be non-empty strings")
+    if (
+        len(value) > 300
+        or len(value.encode("utf-8")) > 1_000
+        or any(ord(character) < 0x20 for character in value)
+    ):
+        raise ValueError("connector request constraint field name is unsafe or too long")
+    return value
+
+
+class ConnectorOperationRequestConstraint(BaseModel):
+    """Bounded per-operation request authority, not an arbitrary schema language.
+
+    Path and query maps use ``ConnectorParameterBinding.input_key`` names. Body
+    maps address only the first-level JSON object below ``request_body.input_key``
+    (or the implicit body for legacy operations without an explicit body binding).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    operation_id: str = Field(pattern=r"^[A-Za-z][A-Za-z0-9_.-]{1,119}$")
+    allowed_body_fields: list[str] | None = Field(
+        default=None,
+        max_length=MAX_CONNECTOR_REQUEST_CONSTRAINT_FIELDS,
+    )
+    fixed_path_values: dict[str, Any] = Field(
+        default_factory=dict,
+        max_length=MAX_CONNECTOR_REQUEST_CONSTRAINT_FIXED_VALUES,
+    )
+    fixed_query_values: dict[str, Any] = Field(
+        default_factory=dict,
+        max_length=MAX_CONNECTOR_REQUEST_CONSTRAINT_FIXED_VALUES,
+    )
+    fixed_body_values: dict[str, Any] = Field(
+        default_factory=dict,
+        max_length=MAX_CONNECTOR_REQUEST_CONSTRAINT_FIXED_VALUES,
+    )
+
+    @model_validator(mode="after")
+    def bounded_request_authority(self) -> ConnectorOperationRequestConstraint:
+        if (
+            self.allowed_body_fields is None
+            and not self.fixed_path_values
+            and not self.fixed_query_values
+            and not self.fixed_body_values
+        ):
+            raise ValueError(
+                "connector request constraint must narrow at least one request dimension"
+            )
+        if self.allowed_body_fields is not None:
+            names = [
+                _validate_constraint_field_name(item)
+                for item in self.allowed_body_fields
+            ]
+            if len(names) != len(set(names)):
+                raise ValueError(
+                    "connector request constraint contains duplicate allowed body fields"
+                )
+        for values in (
+            self.fixed_path_values,
+            self.fixed_query_values,
+            self.fixed_body_values,
+        ):
+            for key in values:
+                _validate_constraint_field_name(key)
+        fixed_count = sum(
+            len(values)
+            for values in (
+                self.fixed_path_values,
+                self.fixed_query_values,
+                self.fixed_body_values,
+            )
+        )
+        if fixed_count > MAX_CONNECTOR_REQUEST_CONSTRAINT_FIXED_VALUES:
+            raise ValueError(
+                "connector request constraint exceeds the total fixed-value limit"
+            )
+        for value in self.fixed_path_values.values():
+            if value is None or isinstance(value, (list, dict)):
+                raise ValueError(
+                    "connector fixed path values must be non-null JSON scalars"
+                )
+        for value in self.fixed_query_values.values():
+            if value is None or isinstance(value, dict) or (
+                isinstance(value, list)
+                and any(item is None or isinstance(item, (list, dict)) for item in value)
+            ):
+                raise ValueError(
+                    "connector fixed query values must be JSON scalars or scalar arrays"
+                )
+        fixed_document = {
+            "fixed_path_values": self.fixed_path_values,
+            "fixed_query_values": self.fixed_query_values,
+            "fixed_body_values": self.fixed_body_values,
+        }
+        nodes = _bounded_constraint_json_nodes(fixed_document)
+        if nodes > MAX_CONNECTOR_REQUEST_CONSTRAINT_JSON_NODES:
+            raise ValueError("connector request constraint JSON exceeds the node limit")
+        try:
+            encoded = json.dumps(
+                fixed_document,
+                ensure_ascii=False,
+                allow_nan=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            ).encode("utf-8")
+        except (TypeError, ValueError) as error:
+            raise ValueError(
+                "connector request constraint values must be finite canonical JSON"
+            ) from error
+        if len(encoded) > MAX_CONNECTOR_REQUEST_CONSTRAINT_JSON_BYTES:
+            raise ValueError("connector request constraint JSON exceeds the byte limit")
+        if (
+            self.allowed_body_fields is not None
+            and not set(self.fixed_body_values).issubset(self.allowed_body_fields)
+        ):
+            raise ValueError(
+                "connector fixed body fields must be included in allowed_body_fields"
+            )
+        return self
+
+
 class ConnectorDomainPolicy(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -432,6 +850,10 @@ class ConnectorDomainPolicy(BaseModel):
     allowed_operations: list[str] = Field(min_length=1, max_length=1000)
     required_roles: list[str] = Field(default_factory=list, max_length=40)
     max_payload_bytes: int = Field(default=100_000, ge=1, le=10_000_000)
+    operation_request_constraints: list[ConnectorOperationRequestConstraint] = Field(
+        default_factory=list,
+        max_length=MAX_CONNECTOR_OPERATION_REQUEST_CONSTRAINTS,
+    )
     mutation_preauthorization_required: bool = True
     allow_dry_run: bool = True
     allow_compensation_during_stop: bool = True
@@ -440,6 +862,464 @@ class ConnectorDomainPolicy(BaseModel):
     revision: int = Field(default=1, ge=1)
     created_at: str = Field(default_factory=utc_now)
     updated_at: str = Field(default_factory=utc_now)
+
+    @model_validator(mode="after")
+    def bounded_operation_request_constraints(self) -> ConnectorDomainPolicy:
+        operation_ids = [
+            constraint.operation_id
+            for constraint in self.operation_request_constraints
+        ]
+        if len(operation_ids) != len(set(operation_ids)):
+            raise ValueError(
+                "connector policy contains duplicate operation request constraints"
+            )
+        unknown = sorted(set(operation_ids) - set(self.allowed_operations))
+        if unknown:
+            raise ValueError(
+                "connector policy request constraints reference disallowed operations: "
+                f"{unknown}"
+            )
+        encoded = json.dumps(
+            [
+                constraint.model_dump(mode="json")
+                for constraint in self.operation_request_constraints
+            ],
+            ensure_ascii=False,
+            allow_nan=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+        if len(encoded) > MAX_CONNECTOR_POLICY_REQUEST_CONSTRAINT_BYTES:
+            raise ValueError(
+                "connector policy request constraints exceed the aggregate byte limit"
+            )
+        return self
+
+    def request_constraint(
+        self,
+        operation_id: str,
+    ) -> ConnectorOperationRequestConstraint | None:
+        return next(
+            (
+                constraint
+                for constraint in self.operation_request_constraints
+                if constraint.operation_id == operation_id
+            ),
+            None,
+        )
+
+
+def connector_object_json_schema(value: ConnectorObjectSchema) -> dict[str, Any]:
+    if value.json_schema is not None:
+        return json.loads(json.dumps(value.json_schema))
+    properties: dict[str, Any] = {}
+    required: list[str] = []
+    for field in value.fields:
+        field_schema: dict[str, Any] = {"type": field.value_type}
+        if field.enum:
+            field_schema["enum"] = list(field.enum)
+        if field.item_type is not None:
+            field_schema["items"] = {"type": field.item_type}
+        if field.max_length is not None:
+            if field.value_type == "string":
+                field_schema["maxLength"] = field.max_length
+            elif field.value_type == "array":
+                field_schema["maxItems"] = field.max_length
+            elif field.value_type == "object":
+                field_schema["maxProperties"] = field.max_length
+        properties[field.name] = field_schema
+        if field.required:
+            required.append(field.name)
+    return {
+        "type": "object",
+        "properties": properties,
+        "required": required,
+        "additionalProperties": value.additional_properties,
+    }
+
+
+def _direct_object_schema(
+    schema: dict[str, Any],
+    *,
+    label: str,
+) -> tuple[dict[str, Any], list[str], bool | dict[str, Any]]:
+    if not isinstance(schema, dict):
+        raise ValueError(f"{label} must be a JSON object schema")
+    if any(keyword in schema for keyword in ("allOf", "anyOf", "oneOf", "$ref")):
+        raise ValueError(
+            f"{label} must use a direct object schema for request constraints"
+        )
+    schema_type = schema.get("type")
+    if schema_type not in {None, "object"}:
+        raise ValueError(f"{label} must describe an object")
+    properties = schema.get("properties", {})
+    required = schema.get("required", [])
+    additional = schema.get("additionalProperties", True)
+    if not isinstance(properties, dict) or not all(
+        isinstance(key, str) and isinstance(item, dict)
+        for key, item in properties.items()
+    ):
+        raise ValueError(f"{label} has invalid direct properties")
+    if not isinstance(required, list) or not all(
+        isinstance(item, str) for item in required
+    ):
+        raise ValueError(f"{label} has an invalid required field list")
+    if not isinstance(additional, (bool, dict)):
+        raise ValueError(f"{label} has an invalid additionalProperties declaration")
+    return properties, list(required), additional
+
+
+def _schema_for_allowed_property(
+    properties: dict[str, Any],
+    additional: bool | dict[str, Any],
+    key: str,
+    *,
+    label: str,
+) -> dict[str, Any]:
+    existing = properties.get(key)
+    if isinstance(existing, dict):
+        return json.loads(json.dumps(existing))
+    if additional is False:
+        raise ValueError(f"{label} references undeclared field {key!r}")
+    if isinstance(additional, dict):
+        return json.loads(json.dumps(additional))
+    return {}
+
+
+def _set_schema_constant(
+    properties: dict[str, Any],
+    additional: bool | dict[str, Any],
+    key: str,
+    value: Any,
+    *,
+    label: str,
+) -> None:
+    property_schema = _schema_for_allowed_property(
+        properties,
+        additional,
+        key,
+        label=label,
+    )
+    ConnectorObjectSchema._validate_json_schema(
+        value,
+        property_schema,
+        label=f"{label}.{key}",
+    )
+    property_schema["const"] = json.loads(
+        json.dumps(value, ensure_ascii=False, allow_nan=False)
+    )
+    properties[key] = property_schema
+
+
+def _operation_parameter_inputs(
+    operation: ConnectorOperation,
+    *,
+    location: Literal["path", "query"],
+    outer_properties: dict[str, Any],
+) -> set[str]:
+    if operation.parameters:
+        return {
+            parameter.input_key
+            for parameter in operation.parameters
+            if parameter.location == location
+        }
+    path_inputs = set(re.findall(r"\{([^{}]+)\}", operation.path))
+    if location == "path":
+        return path_inputs
+    if operation.request_body is None and operation.method == "GET":
+        return set(outer_properties) - path_inputs
+    return set()
+
+
+def project_connector_operation_request_schema(
+    operation: ConnectorOperation,
+    constraint: ConnectorOperationRequestConstraint | None,
+) -> dict[str, Any]:
+    """Return the public request schema after applying bounded policy authority.
+
+    The same constraint is separately enforced by ``ConnectorService.execute``;
+    this projection is descriptive and cannot grant authority.
+    """
+
+    schema = connector_object_json_schema(operation.request_schema)
+    if constraint is None:
+        return schema
+    if constraint.operation_id != operation.id:
+        raise ValueError("connector request constraint operation does not match")
+    outer_properties, outer_required, outer_additional = _direct_object_schema(
+        schema,
+        label=f"{operation.id} request schema",
+    )
+    outer_properties = {
+        key: json.loads(json.dumps(item))
+        for key, item in outer_properties.items()
+    }
+    outer_required_set = set(outer_required)
+    path_inputs = _operation_parameter_inputs(
+        operation,
+        location="path",
+        outer_properties=outer_properties,
+    )
+    query_inputs = _operation_parameter_inputs(
+        operation,
+        location="query",
+        outer_properties=outer_properties,
+    )
+    unknown_path = sorted(set(constraint.fixed_path_values) - path_inputs)
+    unknown_query = sorted(set(constraint.fixed_query_values) - query_inputs)
+    if unknown_path or unknown_query:
+        raise ValueError(
+            "connector request constraint references unknown parameter inputs: "
+            f"path={unknown_path}, query={unknown_query}"
+        )
+
+    explicit_body = operation.request_body is not None
+    implicit_body = (
+        operation.request_body is None
+        and not operation.parameters
+        and operation.method != "GET"
+    )
+    body_constraint_present = (
+        constraint.allowed_body_fields is not None
+        or bool(constraint.fixed_body_values)
+    )
+    if body_constraint_present and not (explicit_body or implicit_body):
+        raise ValueError(
+            "connector request constraint declares body authority for an operation "
+            "without a request body"
+        )
+
+    if explicit_body and body_constraint_present:
+        body_key = operation.request_body.input_key
+        body_schema = _schema_for_allowed_property(
+            outer_properties,
+            outer_additional,
+            body_key,
+            label=f"{operation.id} request body",
+        )
+        body_properties, body_required, body_additional = _direct_object_schema(
+            body_schema,
+            label=f"{operation.id} request body",
+        )
+        body_properties = {
+            key: json.loads(json.dumps(item))
+            for key, item in body_properties.items()
+        }
+        body_required_set = set(body_required)
+        if operation.request_body.multipart_parts:
+            part_names = {
+                part.input_key for part in operation.request_body.multipart_parts
+            }
+            unknown_parts = sorted(
+                set(body_properties).difference(part_names)
+            )
+            if unknown_parts:
+                raise ValueError(
+                    "connector multipart body schema contains undeclared parts: "
+                    f"{unknown_parts}"
+                )
+            for part_name in part_names:
+                body_properties.setdefault(part_name, {})
+            body_additional = False
+        if constraint.allowed_body_fields is not None:
+            allowed_body = set(constraint.allowed_body_fields)
+            missing_required = sorted(body_required_set - allowed_body)
+            if missing_required:
+                raise ValueError(
+                    "connector allowed_body_fields excludes required request body "
+                    f"fields: {missing_required}"
+                )
+            narrowed: dict[str, Any] = {}
+            for key in constraint.allowed_body_fields:
+                narrowed[key] = _schema_for_allowed_property(
+                    body_properties,
+                    body_additional,
+                    key,
+                    label=f"{operation.id} allowed request body",
+                )
+            body_properties = narrowed
+            body_additional = False
+        for key, value in constraint.fixed_body_values.items():
+            _set_schema_constant(
+                body_properties,
+                body_additional,
+                key,
+                value,
+                label=f"{operation.id} fixed request body",
+            )
+            body_required_set.add(key)
+        body_schema = {
+            **body_schema,
+            "type": "object",
+            "properties": body_properties,
+            "required": sorted(body_required_set),
+            "additionalProperties": body_additional,
+        }
+        outer_properties[body_key] = body_schema
+        if constraint.fixed_body_values:
+            outer_required_set.add(body_key)
+    elif implicit_body and body_constraint_present:
+        body_fields = set(outer_properties) - path_inputs
+        body_required_set = outer_required_set - path_inputs
+        if constraint.allowed_body_fields is not None:
+            allowed_body = set(constraint.allowed_body_fields)
+            missing_required = sorted(body_required_set - allowed_body)
+            if missing_required:
+                raise ValueError(
+                    "connector allowed_body_fields excludes required request body "
+                    f"fields: {missing_required}"
+                )
+            narrowed = {
+                key: _schema_for_allowed_property(
+                    outer_properties,
+                    outer_additional,
+                    key,
+                    label=f"{operation.id} request path",
+                )
+                for key in sorted(path_inputs)
+            }
+            for key in constraint.allowed_body_fields:
+                narrowed[key] = _schema_for_allowed_property(
+                    {
+                        field: outer_properties[field]
+                        for field in body_fields
+                    },
+                    outer_additional,
+                    key,
+                    label=f"{operation.id} allowed request body",
+                )
+            outer_properties = narrowed
+            outer_additional = False
+            outer_required_set = (
+                outer_required_set.intersection(path_inputs)
+                | body_required_set
+            )
+        for key, value in constraint.fixed_body_values.items():
+            _set_schema_constant(
+                outer_properties,
+                outer_additional,
+                key,
+                value,
+                label=f"{operation.id} fixed request body",
+            )
+            outer_required_set.add(key)
+
+    for values, label in (
+        (constraint.fixed_path_values, "fixed path"),
+        (constraint.fixed_query_values, "fixed query"),
+    ):
+        for key, value in values.items():
+            _set_schema_constant(
+                outer_properties,
+                outer_additional,
+                key,
+                value,
+                label=f"{operation.id} {label}",
+            )
+            outer_required_set.add(key)
+    return {
+        **schema,
+        "type": "object",
+        "properties": outer_properties,
+        "required": sorted(outer_required_set),
+        "additionalProperties": outer_additional,
+    }
+
+
+def _same_constraint_json_value(actual: Any, expected: Any) -> bool:
+    if isinstance(actual, bool) or isinstance(expected, bool):
+        return isinstance(actual, bool) and isinstance(expected, bool) and actual == expected
+    if (
+        isinstance(actual, (int, float))
+        and isinstance(expected, (int, float))
+    ):
+        return (
+            not isinstance(actual, bool)
+            and not isinstance(expected, bool)
+            and (not isinstance(actual, float) or math.isfinite(actual))
+            and (not isinstance(expected, float) or math.isfinite(expected))
+            and actual == expected
+        )
+    if actual is None or expected is None:
+        return actual is None and expected is None
+    if isinstance(actual, str) or isinstance(expected, str):
+        return isinstance(actual, str) and isinstance(expected, str) and actual == expected
+    if isinstance(actual, list) or isinstance(expected, list):
+        return (
+            isinstance(actual, list)
+            and isinstance(expected, list)
+            and len(actual) == len(expected)
+            and all(
+                _same_constraint_json_value(actual_item, expected_item)
+                for actual_item, expected_item in zip(actual, expected, strict=True)
+            )
+        )
+    if isinstance(actual, dict) or isinstance(expected, dict):
+        return (
+            isinstance(actual, dict)
+            and isinstance(expected, dict)
+            and set(actual) == set(expected)
+            and all(
+                _same_constraint_json_value(actual[key], expected[key])
+                for key in actual
+            )
+        )
+    return False
+
+
+def enforce_connector_operation_request_constraint(
+    operation: ConnectorOperation,
+    constraint: ConnectorOperationRequestConstraint | None,
+    payload: dict[str, Any],
+) -> None:
+    if constraint is None:
+        return
+    if constraint.operation_id != operation.id:
+        raise ConnectorDenied("connector request constraint operation does not match")
+    for key, expected in constraint.fixed_path_values.items():
+        if key not in payload:
+            raise ConnectorDenied(f"connector fixed path input is missing: {key}")
+        if not _same_constraint_json_value(payload[key], expected):
+            raise ConnectorDenied(f"connector fixed path input drifted: {key}")
+    for key, expected in constraint.fixed_query_values.items():
+        if key not in payload:
+            raise ConnectorDenied(f"connector fixed query input is missing: {key}")
+        if not _same_constraint_json_value(payload[key], expected):
+            raise ConnectorDenied(f"connector fixed query input drifted: {key}")
+
+    if operation.request_body is not None:
+        body = payload.get(operation.request_body.input_key)
+    elif not operation.parameters and operation.method != "GET":
+        path_inputs = set(re.findall(r"\{([^{}]+)\}", operation.path))
+        body = {
+            key: value
+            for key, value in payload.items()
+            if key not in path_inputs
+        }
+    else:
+        body = None
+    if constraint.allowed_body_fields is not None:
+        if body is not None and not isinstance(body, dict):
+            raise ConnectorDenied("connector constrained request body must be an object")
+        unknown = sorted(
+            set(body or {}).difference(constraint.allowed_body_fields)
+        )
+        if unknown:
+            raise ConnectorDenied(
+                f"connector request body contains policy-denied fields: {unknown}"
+            )
+    if constraint.fixed_body_values:
+        if not isinstance(body, dict):
+            raise ConnectorDenied("connector fixed request body is missing")
+        for key, expected in constraint.fixed_body_values.items():
+            if key not in body:
+                raise ConnectorDenied(
+                    f"connector fixed request body field is missing: {key}"
+                )
+            if not _same_constraint_json_value(body[key], expected):
+                raise ConnectorDenied(
+                    f"connector fixed request body field drifted: {key}"
+                )
 
 
 class ConnectorAuthorization(BaseModel):
@@ -452,8 +1332,32 @@ class ConnectorAuthorization(BaseModel):
     actor_id: str
     profile_id: str
     operation_id: str
+    operation_kind: ConnectorOperationKind | None = None
     payload_hash: str
     policy_revision: int
+    issuance_source: Literal["owner", "task_policy"] = "owner"
+    descriptor_digest: str = ""
+    task_credential_ref_digest: str = ""
+    task_policy_digest: str = ""
+    allowed_actions_digest: str = ""
+    budget_digest: str = ""
+    assignment_budget_policy_digest: str = ""
+    assignment_max_write_count: int | None = Field(
+        default=None,
+        ge=0,
+        le=1_000_000,
+    )
+    assignment_max_payload_bytes: int | None = Field(
+        default=None,
+        ge=1,
+        le=100 * 1024 * 1024,
+    )
+    assignment_write_count_at_issue: int | None = Field(
+        default=None,
+        ge=0,
+        le=1_000_000,
+    )
+    task_deadline_at: str = ""
     assignment_id: str = ""
     session_id: str = ""
     application_id: str = ""
@@ -464,6 +1368,106 @@ class ConnectorAuthorization(BaseModel):
     revoked: bool = False
     created_at: str = Field(default_factory=utc_now)
     updated_at: str = Field(default_factory=utc_now)
+
+    @model_validator(mode="after")
+    def task_policy_binding_is_complete(self) -> ConnectorAuthorization:
+        if self.issuance_source != "task_policy":
+            return self
+        digest_fields = (
+            self.descriptor_digest,
+            self.task_credential_ref_digest,
+            self.task_policy_digest,
+            self.allowed_actions_digest,
+            self.budget_digest,
+            self.assignment_budget_policy_digest,
+        )
+        if (
+            self.operation_kind not in {"write", "compensate"}
+            or not all(
+                re.fullmatch(r"sha256:[0-9a-f]{64}", value)
+                for value in digest_fields
+            )
+            or not self.assignment_id
+            or not self.session_id
+            or not self.application_id
+            or self.assignment_max_write_count is None
+            or self.assignment_max_payload_bytes is None
+            or self.assignment_write_count_at_issue is None
+            or not self.task_deadline_at
+            or self.max_uses != 1
+        ):
+            raise ValueError(
+                "task-policy connector authorization binding is incomplete"
+            )
+        expires_at = datetime.fromisoformat(
+            self.expires_at.replace("Z", "+00:00")
+        )
+        task_deadline_at = datetime.fromisoformat(
+            self.task_deadline_at.replace("Z", "+00:00")
+        )
+        if (
+            expires_at.tzinfo is None
+            or task_deadline_at.tzinfo is None
+            or expires_at > task_deadline_at
+            or self.assignment_write_count_at_issue
+            >= self.assignment_max_write_count
+        ):
+            raise ValueError(
+                "task-policy connector authorization exceeds its budget or deadline"
+            )
+        return self
+
+    def public_task_receipt(self) -> dict[str, Any]:
+        if self.issuance_source != "task_policy":
+            raise ValueError("owner connector authorization has no task receipt")
+        unsigned = {
+            "authorization_id": self.id,
+            "issuance_source": self.issuance_source,
+            "connector_id": self.connector_id,
+            "connector_version": self.connector_version,
+            "tenant_id": self.tenant_id,
+            "actor_id": self.actor_id,
+            "profile_id": self.profile_id,
+            "operation_id": self.operation_id,
+            "operation_kind": self.operation_kind,
+            "payload_hash": f"sha256:{self.payload_hash}",
+            "policy_revision": self.policy_revision,
+            "descriptor_digest": self.descriptor_digest,
+            "task_credential_ref_digest": self.task_credential_ref_digest,
+            "task_policy_digest": self.task_policy_digest,
+            "allowed_actions_digest": self.allowed_actions_digest,
+            "budget_digest": self.budget_digest,
+            "assignment_budget_policy_digest": (
+                self.assignment_budget_policy_digest
+            ),
+            "assignment_id": self.assignment_id,
+            "session_id": self.session_id,
+            "application_id": self.application_id,
+            "assignment_max_write_count": self.assignment_max_write_count,
+            "assignment_max_payload_bytes": self.assignment_max_payload_bytes,
+            "assignment_write_count_at_issue": (
+                self.assignment_write_count_at_issue
+            ),
+            "max_uses": self.max_uses,
+            "expires_at": self.expires_at,
+            "task_deadline_at": self.task_deadline_at,
+            "created_at": self.created_at,
+        }
+        return {
+            **unsigned,
+            "receipt_digest": (
+                "sha256:"
+                + hashlib.sha256(
+                    json.dumps(
+                        unsigned,
+                        ensure_ascii=False,
+                        allow_nan=False,
+                        separators=(",", ":"),
+                        sort_keys=True,
+                    ).encode("utf-8")
+                ).hexdigest()
+            ),
+        }
 
 
 class ConnectorExecution(BaseModel):
@@ -504,9 +1508,43 @@ class ConnectorExecution(BaseModel):
     callback_status: str = ""
     error: str = ""
     replayed: bool = False
+    attempt_count: int = Field(default=0, ge=0, le=1_000_000)
+    retryable: bool = False
+    failure_disposition: ConnectorFailureDisposition = "none"
+    retry_safety: ConnectorRetrySafety = "none"
     created_at: str = Field(default_factory=utc_now)
     updated_at: str = Field(default_factory=utc_now)
     finished_at: str | None = None
+
+    @model_validator(mode="after")
+    def retry_state_is_consistent(self) -> ConnectorExecution:
+        if self.retryable:
+            if (
+                self.status != "failed"
+                or self.failure_disposition != "retryable"
+                or self.retry_safety == "none"
+            ):
+                raise ValueError(
+                    "retryable connector receipt lacks a safe failed execution state"
+                )
+        elif self.failure_disposition == "retryable":
+            raise ValueError(
+                "connector retryable disposition requires retryable=true"
+            )
+        if self.failure_disposition == "ambiguous":
+            if self.status != "failed" or self.side_effect_state != "unknown":
+                raise ValueError(
+                    "ambiguous connector receipt must be a failed unknown side effect"
+                )
+        if self.status != "failed" and (
+            self.retryable
+            or self.failure_disposition != "none"
+            or self.retry_safety != "none"
+        ):
+            raise ValueError(
+                "non-failed connector receipt cannot retain failure retry state"
+            )
+        return self
 
     def public_receipt(self) -> dict[str, Any]:
         return {
@@ -524,6 +1562,10 @@ class ConnectorExecution(BaseModel):
             "compensation_execution_id": self.compensation_execution_id,
             "callback_status": self.callback_status,
             "replayed": self.replayed,
+            "attempt_count": self.attempt_count,
+            "retryable": self.retryable,
+            "failure_disposition": self.failure_disposition,
+            "retry_safety": self.retry_safety,
             "binding_revision": self.binding_revision,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
@@ -637,6 +1679,10 @@ class ConnectorAssignmentWriteReceipt(BaseModel):
     side_effect_state: Literal["none", "applied", "unknown", "compensated"]
     authorization_ref_digest: str | None
     adapter_called: bool
+    attempt_count: int = Field(default=0, ge=0, le=1_000_000)
+    retryable: bool = False
+    failure_disposition: ConnectorFailureDisposition = "none"
+    retry_safety: ConnectorRetrySafety = "none"
     created_at: str
     updated_at: str
 
@@ -722,12 +1768,28 @@ class ConnectorAssignmentBudgetReceipt(BaseModel):
 
 
 class ConnectorService:
-    def __init__(self, *, storage: Storage, harness: PlatformHarness) -> None:
+    def __init__(
+        self,
+        *,
+        storage: Storage,
+        harness: PlatformHarness,
+        pre_dispatch_attestations: dict[str, dict[str, str]] | None = None,
+        environment_epoch: str = "default",
+    ) -> None:
         self.storage = storage
         self.harness = harness
+        self._environment_epoch_digest = (
+            ""
+            if environment_epoch == "default"
+            else hashlib.sha256(environment_epoch.encode()).hexdigest()[:24]
+        )
         self._lock = asyncio.Lock()
         self._manifests: dict[tuple[str, int], ConnectorManifest] = {}
         self._bindings: dict[tuple[str, int, str], ConnectorTenantBinding] = {}
+        self._pre_dispatch_attestations = {
+            key: ConnectorPreDispatchAttestation.model_validate(value)
+            for key, value in (pre_dispatch_attestations or {}).items()
+        }
 
     async def initialize(self) -> None:
         await asyncio.to_thread(self._initialize_sync)
@@ -983,6 +2045,10 @@ class ConnectorService:
                         else None
                     ),
                     adapter_called=execution.adapter_called,
+                    attempt_count=execution.attempt_count,
+                    retryable=execution.retryable,
+                    failure_disposition=execution.failure_disposition,
+                    retry_safety=execution.retry_safety,
                     created_at=execution.created_at,
                     updated_at=execution.updated_at,
                 )
@@ -1207,6 +2273,11 @@ class ConnectorService:
                 f"connector policy has unknown profiles={unknown_profiles}, "
                 f"operations={unknown_operations}"
             )
+        for constraint in policy.operation_request_constraints:
+            project_connector_operation_request_schema(
+                manifest.operation(constraint.operation_id),
+                constraint,
+            )
         async with self._lock:
             return await asyncio.to_thread(
                 self._set_policy_sync,
@@ -1339,13 +2410,35 @@ class ConnectorService:
         run_id: str = "",
         expires_in_seconds: int = 300,
         max_uses: int = 1,
+        issuance_source: Literal["owner", "task_policy"] = "owner",
+        descriptor_digest: str = "",
+        task_credential_ref_digest: str = "",
+        task_policy_digest: str = "",
+        allowed_actions_digest: str = "",
+        budget_digest: str = "",
+        assignment_budget_policy_digest: str = "",
+        assignment_max_write_count: int | None = None,
+        assignment_max_payload_bytes: int | None = None,
+        assignment_write_count_at_issue: int | None = None,
+        task_deadline_at: str = "",
     ) -> ConnectorAuthorization:
         manifest = await self.get_manifest(connector_id, connector_version)
         operation = manifest.operation(operation_id)
-        operation.request_schema.validate_payload(payload, label="authorization payload")
         policy = await self.get_policy(connector_id, connector_version, tenant_id)
-        if profile_id not in policy.allowed_profiles or operation_id not in policy.allowed_operations:
+        authorized_payload = operation.request_schema.validate_payload(
+            payload,
+            label="authorization payload",
+        )
+        if (
+            profile_id not in policy.allowed_profiles
+            or operation_id not in policy.allowed_operations
+        ):
             raise ConnectorDenied("connector policy does not allow the authorization scope")
+        enforce_connector_operation_request_constraint(
+            operation,
+            policy.request_constraint(operation_id),
+            authorized_payload,
+        )
         now = datetime.now(timezone.utc)
         authorization = ConnectorAuthorization(
             id=f"cauth-{uuid4()}",
@@ -1355,8 +2448,20 @@ class ConnectorService:
             actor_id=actor_id,
             profile_id=profile_id,
             operation_id=operation_id,
-            payload_hash=self.payload_hash(payload),
+            operation_kind=operation.kind,
+            payload_hash=self.payload_hash(authorized_payload),
             policy_revision=policy.revision,
+            issuance_source=issuance_source,
+            descriptor_digest=descriptor_digest,
+            task_credential_ref_digest=task_credential_ref_digest,
+            task_policy_digest=task_policy_digest,
+            allowed_actions_digest=allowed_actions_digest,
+            budget_digest=budget_digest,
+            assignment_budget_policy_digest=assignment_budget_policy_digest,
+            assignment_max_write_count=assignment_max_write_count,
+            assignment_max_payload_bytes=assignment_max_payload_bytes,
+            assignment_write_count_at_issue=assignment_write_count_at_issue,
+            task_deadline_at=task_deadline_at,
             assignment_id=assignment_id,
             session_id=session_id,
             application_id=application_id,
@@ -1392,6 +2497,11 @@ class ConnectorService:
                 {
                     "authorization_id": authorization.id,
                     "operation_id": authorization.operation_id,
+                    "operation_kind": authorization.operation_kind,
+                    "issuance_source": authorization.issuance_source,
+                    "assignment_id": authorization.assignment_id,
+                    "application_id": authorization.application_id,
+                    "payload_hash": authorization.payload_hash,
                     "expires_at": authorization.expires_at,
                 },
                 authorization.created_at,
@@ -1506,7 +2616,10 @@ class ConnectorService:
                 payload,
             )
         if replay:
-            return reserved.model_copy(update={"replayed": True})
+            replayed = reserved.model_copy(update={"replayed": True})
+            if replayed.status == "failed":
+                raise ConnectorAdapterError.from_execution(replayed)
+            return replayed
         if request.dry_run:
             return reserved
         try:
@@ -1525,14 +2638,96 @@ class ConnectorService:
                 response,
                 "",
             )
-        except Exception as error:
+        except ConnectorAdapterError as adapter_error:
+            error = self._bounded_adapter_error(
+                operation,
+                reserved,
+                adapter_error,
+            )
             await asyncio.to_thread(
                 self._finish_execution_sync,
                 reserved.id,
                 {},
                 str(error),
+                error.retryable,
+                error.side_effect_state,
+                error.adapter_called,
+                error.failure_disposition,
+                error.retry_safety,
             )
-            raise ConnectorAdapterError(str(error)) from error
+            if error is adapter_error:
+                raise
+            raise error from adapter_error
+        except Exception as error:
+            failure = ConnectorAdapterError(
+                str(error),
+                retryable=False,
+                side_effect_state=(
+                    "unknown" if operation.mutating else "none"
+                ),
+                adapter_called=True,
+                failure_disposition=(
+                    "ambiguous" if operation.mutating else "terminal"
+                ),
+            )
+            await asyncio.to_thread(
+                self._finish_execution_sync,
+                reserved.id,
+                {},
+                str(failure),
+                failure.retryable,
+                failure.side_effect_state,
+                failure.adapter_called,
+                failure.failure_disposition,
+                failure.retry_safety,
+            )
+            raise failure from error
+
+    @staticmethod
+    def _bounded_adapter_error(
+        operation: ConnectorOperation,
+        execution: ConnectorExecution,
+        error: ConnectorAdapterError,
+    ) -> ConnectorAdapterError:
+        side_effect_state: Literal["none", "unknown"] = (
+            "unknown"
+            if execution.side_effect_state == "unknown"
+            or error.side_effect_state == "unknown"
+            else "none"
+        )
+        retryable = error.retryable
+        retry_safety = error.retry_safety
+        if retryable and operation.mutating and side_effect_state == "unknown":
+            if operation.idempotency_semantics != "request_key":
+                retryable = False
+            else:
+                retry_safety = "idempotency_key"
+        if retryable and execution.attempt_count >= operation.max_attempts:
+            retryable = False
+        failure_disposition: ConnectorFailureDisposition = (
+            "retryable"
+            if retryable
+            else "ambiguous"
+            if side_effect_state == "unknown"
+            else "terminal"
+        )
+        if not retryable:
+            retry_safety = "none"
+        if (
+            retryable == error.retryable
+            and side_effect_state == error.side_effect_state
+            and failure_disposition == error.failure_disposition
+            and retry_safety == error.retry_safety
+        ):
+            return error
+        return ConnectorAdapterError(
+            str(error),
+            retryable=retryable,
+            side_effect_state=side_effect_state,
+            adapter_called=error.adapter_called,
+            failure_disposition=failure_disposition,
+            retry_safety=retry_safety,
+        )
 
     def _preflight(
         self,
@@ -1556,13 +2751,50 @@ class ConnectorService:
             raise ConnectorDenied("connector actor is not mapped for this tenant")
         if set(request.actor_roles) != set(mapped_subject.roles):
             raise ConnectorDenied("connector actor roles do not match the tenant mapping")
+        if (
+            request.application_id
+            and request.application_id not in binding.application_ids
+        ):
+            raise ConnectorDenied(
+                "application is outside the connector tenant binding"
+            )
         if request.profile_id not in policy.allowed_profiles:
             raise ConnectorDenied("connector policy denies this deployment profile")
         if request.operation_id not in policy.allowed_operations:
             raise ConnectorDenied("connector policy denies this operation")
+        if manifest.domain != policy.domain:
+            raise ConnectorDenied("connector policy domain mismatch")
+        reserved_headers = {
+            "authorization",
+            "content-length",
+            "cookie",
+            "host",
+            "idempotency-key",
+            "transfer-encoding",
+            "x-lilies-actor",
+            "x-lilies-tenant",
+        }
+        if profile.auth_type == "api_key" and profile.auth_location == "header":
+            reserved_headers.add(profile.auth_wire_name.casefold())
+        conflicting_headers = sorted(
+            parameter.wire_name
+            for parameter in operation.parameters
+            if parameter.location == "header"
+            and parameter.wire_name.casefold() in reserved_headers
+        )
+        if conflicting_headers:
+            raise ConnectorDenied(
+                "connector operation declares platform-controlled request headers: "
+                f"{conflicting_headers}"
+            )
         required_roles = set(policy.required_roles) | set(operation.required_roles)
         if required_roles and not required_roles.intersection(request.actor_roles):
             raise ConnectorDenied("connector actor lacks a required role")
+        enforce_connector_operation_request_constraint(
+            operation,
+            policy.request_constraint(request.operation_id),
+            payload,
+        )
         payload_bytes = len(self.canonical_json(payload).encode())
         if payload_bytes > policy.max_payload_bytes:
             raise ConnectorDenied("connector payload exceeds policy limit")
@@ -1624,8 +2856,6 @@ class ConnectorService:
                 raise ConnectorDenied(
                     f"connector emergency stop is active: {policy.emergency_reason or 'no reason'}"
                 )
-        if manifest.domain != policy.domain:
-            raise ConnectorDenied("connector policy domain mismatch")
 
     @staticmethod
     def _require_assigned_operation(
@@ -1686,12 +2916,24 @@ class ConnectorService:
     ) -> tuple[ConnectorExecution, bool]:
         now = utc_now()
         payload_hash = self.payload_hash(payload)
+        persisted_payload = self._persistence_safe_payload(operation, payload)
+        storage_idempotency_key = request.idempotency_key
+        if self._environment_epoch_digest:
+            storage_idempotency_key = (
+                f"{storage_idempotency_key}:environment:"
+                f"{self._environment_epoch_digest}"
+            )
+        if operation.kind == "read" and request.run_id:
+            run_scope = hashlib.sha256(request.run_id.encode()).hexdigest()[:24]
+            storage_idempotency_key = (
+                f"{storage_idempotency_key}:read-run:{run_scope}"
+            )
         execution_id = self.execution_id(
             request.connector_id,
             request.connector_version,
             request.tenant_id,
             request.operation_id,
-            request.idempotency_key,
+            storage_idempotency_key,
         )
         with self.storage._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
@@ -1703,7 +2945,7 @@ class ConnectorService:
                     request.connector_version,
                     request.tenant_id,
                     request.operation_id,
-                    request.idempotency_key,
+                    storage_idempotency_key,
                 ),
             ).fetchone()
             if existing:
@@ -1766,8 +3008,12 @@ class ConnectorService:
                             "response": {},
                             "response_hash": "",
                             "external_reference": "",
-                            "error": "",
                             "replayed": False,
+                            "attempt_count": record.attempt_count + 1,
+                            "retryable": False,
+                            "failure_disposition": "none",
+                            "retry_safety": "none",
+                            "error": "",
                             "updated_at": now,
                             "finished_at": None,
                         }
@@ -1793,11 +3039,79 @@ class ConnectorService:
                             "operation_id": refreshed.operation_id,
                             "previous_binding_revision": record.binding_revision,
                             "binding_revision": binding.revision,
+                            "attempt": refreshed.attempt_count,
                             "side_effect_safe": True,
                         },
                         now,
                     )
                     return refreshed, False
+                if record.status == "failed" and record.retryable:
+                    if request.dry_run:
+                        raise ConnectorConflict(
+                            "a real connector execution cannot be replayed as dry-run"
+                        )
+                    if record.retry_safety == "none":
+                        raise ConnectorConflict(
+                            "connector retryable receipt has no replay safety contract"
+                        )
+                    if record.policy_revision != policy.revision:
+                        raise ConnectorConflict(
+                            "connector policy changed before a safe retry"
+                        )
+                    if (
+                        record.authorization_id
+                        and record.authorization_id != request.authorization_id
+                    ):
+                        raise ConnectorConflict(
+                            "connector retry must preserve its original authorization"
+                        )
+                    if record.authorization_id:
+                        self._authorization_for_request_sync(
+                            conn,
+                            request,
+                            policy,
+                            payload_hash,
+                            operation.kind,
+                        )
+                    retried = record.model_copy(
+                        update={
+                            "status": "executing",
+                            "replayed": False,
+                            "attempt_count": record.attempt_count + 1,
+                            "retryable": False,
+                            "failure_disposition": "none",
+                            "retry_safety": "none",
+                            "error": "",
+                            "updated_at": now,
+                            "finished_at": None,
+                        }
+                    )
+                    conn.execute(
+                        """UPDATE connector_executions SET status=?,record_json=?,updated_at=?
+                           WHERE id=?""",
+                        (
+                            retried.status,
+                            retried.model_dump_json(),
+                            now,
+                            retried.id,
+                        ),
+                    )
+                    self._append_event_sync(
+                        conn,
+                        retried.connector_id,
+                        retried.connector_version,
+                        retried.tenant_id,
+                        retried.id,
+                        "connector.execution.retry_started",
+                        {
+                            "attempt": retried.attempt_count,
+                            "retry_safety": record.retry_safety,
+                            "authorization_reused": bool(record.authorization_id),
+                            "assignment_budget_reused": bool(record.assignment_id),
+                        },
+                        now,
+                    )
+                    return retried, False
                 if record.status == "dry_run" and not request.dry_run:
                     current_policy_row = conn.execute(
                         """SELECT record_json FROM connector_domain_policies
@@ -1815,12 +3129,18 @@ class ConnectorService:
                     )
                     if current_policy.revision != policy.revision:
                         raise ConnectorConflict("connector policy changed during execution")
+                    enforce_connector_operation_request_constraint(
+                        operation,
+                        current_policy.request_constraint(request.operation_id),
+                        payload,
+                    )
                     if operation.mutating or request.permission_required:
                         self._consume_authorization_sync(
                             conn,
                             request,
                             current_policy,
                             payload_hash,
+                            operation.kind,
                             force_required=request.permission_required,
                         )
                     if operation.mutating:
@@ -1836,6 +3156,7 @@ class ConnectorService:
                             "authorization_id": request.authorization_id,
                             "run_id": request.run_id,
                             "replayed": False,
+                            "attempt_count": 1,
                             "updated_at": now,
                             "finished_at": None,
                         }
@@ -1878,6 +3199,11 @@ class ConnectorService:
             )
             if current_policy.revision != policy.revision:
                 raise ConnectorConflict("connector policy changed during execution")
+            enforce_connector_operation_request_constraint(
+                operation,
+                current_policy.request_constraint(request.operation_id),
+                payload,
+            )
             if (
                 (operation.mutating or request.permission_required)
                 and not request.dry_run
@@ -1887,6 +3213,7 @@ class ConnectorService:
                     request,
                     current_policy,
                     payload_hash,
+                    operation.kind,
                     force_required=request.permission_required,
                 )
             if operation.mutating and not request.dry_run:
@@ -1929,11 +3256,12 @@ class ConnectorService:
                 operation_kind=operation.kind,
                 idempotency_key=request.idempotency_key,
                 payload_hash=payload_hash,
-                request_payload=payload,
+                request_payload=persisted_payload,
                 status=status,
                 policy_revision=current_policy.revision,
                 binding_revision=binding.revision,
                 authorization_id=request.authorization_id,
+                attempt_count=0 if request.dry_run else 1,
                 finished_at=now if request.dry_run else None,
                 created_at=now,
                 updated_at=now,
@@ -1948,7 +3276,7 @@ class ConnectorService:
                     record.connector_version,
                     record.tenant_id,
                     record.operation_id,
-                    record.idempotency_key,
+                    storage_idempotency_key,
                     record.status,
                     record.model_dump_json(),
                     now,
@@ -1989,11 +3317,37 @@ class ConnectorService:
         request: ConnectorExecutionRequest,
         policy: ConnectorDomainPolicy,
         payload_hash: str,
+        operation_kind: ConnectorOperationKind,
         *,
         force_required: bool = False,
     ) -> None:
         if not policy.mutation_preauthorization_required and not force_required:
             return
+        authorization = self._authorization_for_request_sync(
+            conn,
+            request,
+            policy,
+            payload_hash,
+            operation_kind,
+        )
+        if authorization.use_count >= authorization.max_uses:
+            raise ConnectorDenied("connector authorization is revoked or exhausted")
+        updated = authorization.model_copy(
+            update={"use_count": authorization.use_count + 1, "updated_at": utc_now()}
+        )
+        conn.execute(
+            "UPDATE connector_authorizations SET record_json=?,updated_at=? WHERE id=?",
+            (updated.model_dump_json(), updated.updated_at, updated.id),
+        )
+
+    def _authorization_for_request_sync(
+        self,
+        conn: Any,
+        request: ConnectorExecutionRequest,
+        policy: ConnectorDomainPolicy,
+        payload_hash: str,
+        operation_kind: ConnectorOperationKind,
+    ) -> ConnectorAuthorization:
         if not request.authorization_id:
             raise ConnectorDenied("connector mutation requires preauthorization")
         row = conn.execute(
@@ -2025,7 +3379,7 @@ class ConnectorService:
         )
         if actual != expected:
             raise ConnectorDenied("connector authorization scope does not match execution")
-        if request.assignment_id and request.permission_required:
+        if request.assignment_id:
             assigned_expected = (
                 request.assignment_id,
                 request.session_id,
@@ -2050,17 +3404,43 @@ class ConnectorService:
                 raise ConnectorDenied(
                     "connector authorization run scope does not match execution"
                 )
-        if authorization.revoked or authorization.use_count >= authorization.max_uses:
+        if authorization.issuance_source == "task_policy":
+            if (
+                authorization.operation_kind != operation_kind
+                or request.assignment_max_write_count
+                != authorization.assignment_max_write_count
+                or request.assignment_max_payload_bytes
+                != authorization.assignment_max_payload_bytes
+                or request.allowed_network_hosts is None
+                or request.allowed_compensation_operations is None
+            ):
+                raise ConnectorDenied(
+                    "task-policy connector authorization budget scope does not "
+                    "match execution"
+                )
+            budget_policy = self._assignment_budget_policy(
+                allowed_network_hosts=request.allowed_network_hosts,
+                allowed_compensation_operations=(
+                    request.allowed_compensation_operations
+                ),
+                max_write_count=request.assignment_max_write_count,
+                max_payload_bytes=request.assignment_max_payload_bytes,
+            )
+            budget_policy_digest = (
+                f"sha256:{self.payload_hash(budget_policy)}"
+            )
+            if not hmac.compare_digest(
+                budget_policy_digest,
+                authorization.assignment_budget_policy_digest,
+            ):
+                raise ConnectorDenied(
+                    "task-policy connector authorization budget changed"
+                )
+        if authorization.revoked:
             raise ConnectorDenied("connector authorization is revoked or exhausted")
         if self._parse_time(authorization.expires_at) <= datetime.now(timezone.utc):
             raise ConnectorDenied("connector authorization is expired")
-        updated = authorization.model_copy(
-            update={"use_count": authorization.use_count + 1, "updated_at": utc_now()}
-        )
-        conn.execute(
-            "UPDATE connector_authorizations SET record_json=?,updated_at=? WHERE id=?",
-            (updated.model_dump_json(), updated.updated_at, updated.id),
-        )
+        return authorization
 
     def _consume_assignment_budget_sync(
         self,
@@ -2201,11 +3581,14 @@ class ConnectorService:
                 )
             consumed.update(path_fields)
         url = urljoin(profile.base_url.rstrip("/") + "/", rendered_path.lstrip("/"))
-        headers = {
-            "X-Lilies-Tenant": binding.external_tenant_id,
-            "X-Lilies-Actor": request.actor_id,
-            "Idempotency-Key": request.idempotency_key,
-        }
+        headers = dict(request_headers)
+        headers.update(
+            {
+                "X-Lilies-Tenant": binding.external_tenant_id,
+                "X-Lilies-Actor": request.actor_id,
+                "Idempotency-Key": request.idempotency_key,
+            }
+        )
         if profile.auth_type == "bearer":
             secret = await self._tenant_secret(binding)
             headers["Authorization"] = f"Bearer {secret}"
@@ -2222,50 +3605,307 @@ class ConnectorService:
                 query[profile.auth_wire_name] = auth_value
             else:
                 cookies[profile.auth_wire_name] = auth_value
-        headers.update(request_headers)
         if cookies:
             headers["Cookie"] = "; ".join(
                 f"{name}={quote(str(value), safe='')}" for name, value in cookies.items()
             )
         body: Any = None
+        multipart_files: list[tuple[str, tuple[str | None, bytes, str]]] | None = None
         if operation.request_body:
             consumed.add(operation.request_body.input_key)
             body = payload.get(operation.request_body.input_key)
             if body is None and operation.request_body.required:
                 raise ValueError("connector operation is missing required request body")
-            headers.setdefault("Content-Type", operation.request_body.content_type)
+            if body is not None and operation.request_body.multipart_parts:
+                multipart_files = self._multipart_files(
+                    body,
+                    operation.request_body,
+                )
+                body = None
+            elif not operation.request_body.multipart_parts:
+                headers.setdefault("Content-Type", operation.request_body.content_type)
         remaining = {key: value for key, value in payload.items() if key not in consumed}
         if not operation.parameters and not operation.request_body:
             if operation.method == "GET":
                 query.update(remaining)
             else:
                 body = remaining
-        async with httpx.AsyncClient(timeout=profile.timeout_seconds) as client:
-            response = await client.request(
-                operation.method,
-                url,
-                headers=headers,
-                params=query or None,
-                json=body,
-            )
-            if response.status_code not in operation.success_status_codes:
-                expected = ", ".join(str(item) for item in operation.success_status_codes)
-                detail = response.text[:1000]
-                raise ValueError(
-                    f"connector response status {response.status_code}; expected {expected}; "
-                    f"body={detail}"
+        try:
+            async with httpx.AsyncClient(timeout=profile.timeout_seconds) as client:
+                response = await client.request(
+                    operation.method,
+                    url,
+                    headers=headers,
+                    params=query or None,
+                    json=body if multipart_files is None else None,
+                    files=multipart_files,
                 )
-            content_type = response.headers.get("content-type", "").split(";", 1)[0].strip()
-            if operation.response_content_types and content_type:
-                if content_type not in operation.response_content_types:
-                    raise ValueError(
-                        f"connector response content-type {content_type!r} is outside contract "
-                        f"{operation.response_content_types}"
+        except (httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout) as error:
+            raise ConnectorAdapterError(
+                str(error) or type(error).__name__,
+                retryable=True,
+                side_effect_state="none",
+                adapter_called=False,
+                retry_safety="pre_dispatch",
+            ) from error
+        except httpx.TransportError as error:
+            raise self._transport_adapter_error(operation, error) from error
+        if response.status_code not in operation.success_status_codes:
+            expected = ", ".join(str(item) for item in operation.success_status_codes)
+            detail = response.text[:1000]
+            message = (
+                f"connector response status {response.status_code}; expected {expected}; "
+                f"body={detail}"
+            )
+            if response.status_code in operation.retryable_status_codes:
+                if self._is_attested_pre_dispatch_failure(
+                    manifest=manifest,
+                    profile=profile,
+                    response=response,
+                ):
+                    raise ConnectorAdapterError(
+                        message,
+                        retryable=True,
+                        side_effect_state="none",
+                        adapter_called=True,
+                        retry_safety="pre_dispatch",
                     )
-            if response.status_code == 204 or not response.content:
-                return {}
-            data = response.json()
-            return data
+                raise self._retryable_response_error(operation, message)
+            raise ConnectorAdapterError(
+                message,
+                retryable=False,
+                side_effect_state=(
+                    "unknown" if operation.mutating else "none"
+                ),
+                adapter_called=True,
+                failure_disposition=(
+                    "ambiguous" if operation.mutating else "terminal"
+                ),
+            )
+        content_type = response.headers.get("content-type", "").split(";", 1)[0].strip()
+        if operation.response_content_types and content_type:
+            if content_type not in operation.response_content_types:
+                raise ValueError(
+                    f"connector response content-type {content_type!r} is outside contract "
+                    f"{operation.response_content_types}"
+                )
+        if response.status_code == 204 or not response.content:
+            return {}
+        data = response.json()
+        return data
+
+    def _is_attested_pre_dispatch_failure(
+        self,
+        *,
+        manifest: ConnectorManifest,
+        profile: ConnectorDeploymentProfile,
+        response: httpx.Response,
+    ) -> bool:
+        identity = f"{manifest.connector_id}@{manifest.version}/{profile.id}"
+        attestation = self._pre_dispatch_attestations.get(identity)
+        if attestation is None:
+            return False
+        actual = response.headers.get(attestation.header_name, "")
+        return hmac.compare_digest(actual, attestation.header_value)
+
+    @staticmethod
+    def _retryable_response_error(
+        operation: ConnectorOperation,
+        message: str,
+    ) -> ConnectorAdapterError:
+        if not operation.mutating:
+            return ConnectorAdapterError(
+                message,
+                retryable=True,
+                side_effect_state="none",
+                adapter_called=True,
+                retry_safety="read_only",
+            )
+        if operation.idempotency_semantics == "request_key":
+            return ConnectorAdapterError(
+                message,
+                retryable=True,
+                side_effect_state="unknown",
+                adapter_called=True,
+                retry_safety="idempotency_key",
+            )
+        return ConnectorAdapterError(
+            message,
+            retryable=False,
+            side_effect_state="unknown",
+            adapter_called=True,
+            failure_disposition="ambiguous",
+        )
+
+    @staticmethod
+    def _transport_adapter_error(
+        operation: ConnectorOperation,
+        error: httpx.TransportError,
+    ) -> ConnectorAdapterError:
+        message = str(error) or type(error).__name__
+        if not operation.mutating:
+            return ConnectorAdapterError(
+                message,
+                retryable=True,
+                side_effect_state="none",
+                adapter_called=True,
+                retry_safety="read_only",
+            )
+        if operation.idempotency_semantics == "request_key":
+            return ConnectorAdapterError(
+                message,
+                retryable=True,
+                side_effect_state="unknown",
+                adapter_called=True,
+                retry_safety="idempotency_key",
+            )
+        return ConnectorAdapterError(
+            message,
+            retryable=False,
+            side_effect_state="unknown",
+            adapter_called=True,
+            failure_disposition="ambiguous",
+        )
+
+    @staticmethod
+    def _multipart_files(
+        body: Any,
+        contract: ConnectorRequestBody,
+    ) -> list[tuple[str, tuple[str | None, bytes, str]]]:
+        if not isinstance(body, dict):
+            raise ValueError("multipart connector request body must be an object")
+        declared = {item.input_key: item for item in contract.multipart_parts}
+        unknown = sorted(set(body) - set(declared))
+        if unknown:
+            raise ValueError(f"multipart connector request contains undeclared parts: {unknown}")
+        missing = sorted(
+            item.input_key
+            for item in contract.multipart_parts
+            if item.required and item.input_key not in body
+        )
+        if missing:
+            raise ValueError(f"multipart connector request is missing required parts: {missing}")
+        files: list[tuple[str, tuple[str | None, bytes, str]]] = []
+        total_bytes = 0
+        for part in contract.multipart_parts:
+            if part.input_key not in body:
+                continue
+            value = body[part.input_key]
+            if part.kind == "text":
+                if isinstance(value, bool):
+                    text = "true" if value else "false"
+                elif isinstance(value, (str, int, float)) and not isinstance(value, complex):
+                    text = str(value)
+                else:
+                    raise ValueError(
+                        f"multipart text part {part.wire_name!r} must be a scalar value"
+                    )
+                raw = text.encode("utf-8")
+                content_type = part.content_types[0] if part.content_types else "text/plain"
+                files.append((part.wire_name, (None, raw, content_type)))
+            else:
+                filename, content_type, raw = ConnectorService._decode_blob_part(
+                    value,
+                    part,
+                )
+                files.append((part.wire_name, (filename, raw, content_type)))
+            total_bytes += len(raw)
+            if total_bytes > contract.max_total_bytes:
+                raise ValueError(
+                    "multipart connector request exceeds the bounded total byte limit "
+                    f"{contract.max_total_bytes}"
+                )
+        return files
+
+    @staticmethod
+    def _persistence_safe_payload(
+        operation: ConnectorOperation,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        request_body = operation.request_body
+        if request_body is None or not request_body.multipart_parts:
+            return dict(payload)
+        body = payload.get(request_body.input_key)
+        if not isinstance(body, dict):
+            return dict(payload)
+        safe_body = dict(body)
+        for part in request_body.multipart_parts:
+            if part.kind != "blob" or part.input_key not in body:
+                continue
+            filename, content_type, raw = ConnectorService._decode_blob_part(
+                body[part.input_key],
+                part,
+            )
+            safe_body[part.input_key] = {
+                "filename": filename,
+                "content_type": content_type,
+                "size_bytes": len(raw),
+                "sha256": f"sha256:{hashlib.sha256(raw).hexdigest()}",
+                "content_redacted": True,
+            }
+        return {
+            **payload,
+            request_body.input_key: safe_body,
+        }
+
+    @staticmethod
+    def _decode_blob_part(
+        value: Any,
+        part: ConnectorMultipartPart,
+    ) -> tuple[str, str, bytes]:
+        if not isinstance(value, dict):
+            raise ValueError(
+                f"multipart blob part {part.wire_name!r} must use the inline blob contract"
+            )
+        filename = value.get("filename")
+        content_type = value.get("content_type")
+        content_base64 = value.get("content_base64")
+        if not isinstance(filename, str) or not 1 <= len(filename) <= 255:
+            raise ValueError("multipart blob filename must contain 1 to 255 characters")
+        if any(character in filename for character in ("\x00", "\r", "\n", "/", "\\")):
+            raise ValueError("multipart blob filename contains an unsafe character")
+        if not isinstance(content_type, str) or not re.fullmatch(
+            r"[A-Za-z0-9!#$&^_.+-]+/[A-Za-z0-9!#$&^_.+-]+",
+            content_type,
+        ):
+            raise ValueError("multipart blob content_type is invalid")
+        if part.content_types and not any(
+            content_type == allowed
+            or (
+                allowed.endswith("/*")
+                and content_type.startswith(f"{allowed[:-1]}")
+            )
+            for allowed in part.content_types
+        ):
+            raise ValueError(
+                f"multipart blob content_type {content_type!r} is outside the contract"
+            )
+        if not isinstance(content_base64, str):
+            raise ValueError("multipart blob content_base64 must be a string")
+        max_encoded = 4 * ((part.max_bytes + 2) // 3)
+        if len(content_base64) > max_encoded:
+            raise ValueError(
+                f"multipart blob exceeds the bounded part byte limit {part.max_bytes}"
+            )
+        try:
+            raw = base64.b64decode(content_base64, validate=True)
+        except (binascii.Error, ValueError) as error:
+            raise ValueError("multipart blob content_base64 is invalid") from error
+        if len(raw) > part.max_bytes:
+            raise ValueError(
+                f"multipart blob exceeds the bounded part byte limit {part.max_bytes}"
+            )
+        expected_digest = value.get("sha256")
+        if expected_digest is not None:
+            if not isinstance(expected_digest, str) or not re.fullmatch(
+                r"sha256:[0-9a-f]{64}",
+                expected_digest,
+            ):
+                raise ValueError("multipart blob sha256 is invalid")
+            actual_digest = f"sha256:{hashlib.sha256(raw).hexdigest()}"
+            if not hmac.compare_digest(expected_digest, actual_digest):
+                raise ValueError("multipart blob content does not match sha256")
+        return filename, content_type, raw
 
     @staticmethod
     def validate_operation_response(operation: ConnectorOperation, response: Any) -> None:
@@ -2286,6 +3926,11 @@ class ConnectorService:
         execution_id: str,
         response: Any,
         error: str,
+        retryable: bool = False,
+        side_effect_state: Literal["none", "unknown"] = "unknown",
+        adapter_called: bool = True,
+        failure_disposition: ConnectorFailureDisposition = "terminal",
+        retry_safety: ConnectorRetrySafety = "none",
     ) -> ConnectorExecution:
         now = utc_now()
         with self.storage._connect() as conn:
@@ -2303,17 +3948,25 @@ class ConnectorService:
                 saved = current.model_copy(
                     update={
                         "status": "failed",
-                        "side_effect_state": (
-                            "unknown" if current.operation_kind != "read" else "none"
-                        ),
-                        "adapter_called": True,
+                        "side_effect_state": side_effect_state,
+                        "adapter_called": current.adapter_called or adapter_called,
                         "error": error,
+                        "retryable": retryable,
+                        "failure_disposition": failure_disposition,
+                        "retry_safety": retry_safety,
                         "updated_at": now,
                         "finished_at": now,
                     }
                 )
                 event_type = "connector.execution.failed"
-                event_data = {"error": error, "side_effect_state": saved.side_effect_state}
+                event_data = {
+                    "error": error,
+                    "side_effect_state": saved.side_effect_state,
+                    "retryable": saved.retryable,
+                    "failure_disposition": saved.failure_disposition,
+                    "retry_safety": saved.retry_safety,
+                    "attempt": saved.attempt_count,
+                }
             else:
                 response_object = response if isinstance(response, dict) else {}
                 compensation = response_object.get("compensation_payload", {})
@@ -2336,6 +3989,10 @@ class ConnectorService:
                         "response_hash": self.payload_hash(response),
                         "external_reference": external_reference,
                         "compensation_payload": compensation,
+                        "retryable": False,
+                        "failure_disposition": "none",
+                        "retry_safety": "none",
+                        "error": "",
                         "updated_at": now,
                         "finished_at": now,
                     }

@@ -6,6 +6,8 @@ import json
 import os
 import socket
 import stat
+import subprocess
+import sys
 import threading
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
@@ -32,6 +34,10 @@ from agent_platform.forbidden_assistance_scanner import (
     scan_forbidden_assistance,
 )
 from agent_platform.formal_verification_contracts import ArchivedEvidenceIndex
+from agent_platform.formal_source_provenance import (
+    DEVELOPER_TRUST_ROOT_PATHS,
+    LEGACY_DEVELOPER_TRUST_ROOT_PATHS_V1,
+)
 from agent_platform.lilies_tools import (
     LiliesToolContext,
     LiliesToolError,
@@ -47,6 +53,7 @@ from agent_platform.lilies_models import (
 from agent_platform.task_packages import (
     WORKSPACE_MANIFEST_FILE,
     WORKSPACE_POLICY_FILE,
+    _VERIFICATION_BUNDLE_SOURCE_PATHS_V1,
     ArchiveClaimBinding,
     ArchiveStatus,
     RunArchiveManifest,
@@ -56,6 +63,7 @@ from agent_platform.task_packages import (
     TaskPackageNotReady,
     TaskPackageSecurityError,
     TaskPackageSpec,
+    VerificationPolicyBundleManifest,
     VerificationRuntimeDependency,
     ValidationMode,
     WorkspaceRole,
@@ -1728,6 +1736,15 @@ def test_freeze_retains_content_addressed_verification_policy_bundle(
         package.record.verification_process_digest
     )
     assert policy.entrypoint == "agent_platform.independent_verifier"
+    assert policy.schema_version == "1.1"
+    assert (
+        "platform/backend/src/agent_platform/kernel_boot_identity.py"
+        in policy.protected_source_paths
+    )
+    assert {
+        "agent_platform/capability_generality_gate.py",
+        "agent_platform/kernel_boot_identity.py",
+    } <= {item.path for item in policy.sources}
     assert policy.python_executable_digest.startswith("sha256:")
     assert policy.python_executable_size_bytes > 0
     assert [item.name for item in policy.runtime_dependencies] == [
@@ -1771,6 +1788,219 @@ def test_freeze_retains_content_addressed_verification_policy_bundle(
         stat.S_IMODE((policy_source / entry.path).stat().st_mode) == 0o400
         for entry in policy.sources
     )
+    isolated_import = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            "-c",
+            (
+                "import sys;"
+                f"sys.path.insert(0,{str(policy_source)!r});"
+                "import agent_platform.independent_verifier"
+            ),
+        ],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert isolated_import.returncode == 0, isolated_import.stderr
+
+
+def test_verification_policy_trust_root_evolution_is_versioned(
+    tmp_path: Path,
+) -> None:
+    source = _make_task_source(tmp_path / "source")
+    manager = TaskPackageManager(tmp_path / "state")
+    package = manager.freeze_revision(source)
+    _policy_source, current = manager.load_verification_policy_bundle(
+        package.record.verification_process_digest
+    )
+
+    legacy_payload = current.model_dump(mode="json")
+    legacy_payload["schema_version"] = "1.0"
+    legacy_payload["protected_source_paths"] = sorted(
+        LEGACY_DEVELOPER_TRUST_ROOT_PATHS_V1
+    )
+    legacy_payload["sources"] = [
+        {
+            "digest": digest,
+            "path": path,
+            "size_bytes": size_bytes,
+        }
+        for path, digest, size_bytes in (
+            (
+                "agent_platform/__init__.py",
+                "sha256:6fa5d1b3841b0f5e447de0741c9e11619c3521520be2d3b56e18a62d7afece69",
+                87,
+            ),
+            (
+                "agent_platform/capability_contracts.py",
+                "sha256:f48e2c81b3535f9f512fe56632e6df9094cde563310220c2d6112d0da6ab2ac9",
+                50258,
+            ),
+            (
+                "agent_platform/collaboration_models.py",
+                "sha256:13d414b1e6cdbd3d99d7b9447a72ac4eff226c20acb2d675fc2559e48bc5ffc5",
+                58305,
+            ),
+            (
+                "agent_platform/forbidden_assistance_scanner.py",
+                "sha256:e5f77c428cae253c6b1f1b66543923ff6b3347a82aa6a1b2f6102d0c2eb4975e",
+                94043,
+            ),
+            (
+                "agent_platform/formal_source_provenance.py",
+                "sha256:cdb395e4b683e10dbcb36d09a65f5596a38ace15b4fcf42b0851f48e2698c6d2",
+                270665,
+            ),
+            (
+                "agent_platform/formal_verification_contracts.py",
+                "sha256:b70086bff7aaa35e190b4ebb42d501ac2dafb4b1c72660039ea54c329a521c2d",
+                10567,
+            ),
+            (
+                "agent_platform/independent_verifier.py",
+                "sha256:623a6d43a8c19065302fbb006b7822d20737ec481495a3bc8aa1f85313b5e47d",
+                35885,
+            ),
+            (
+                "agent_platform/independent_verifier_broker.py",
+                "sha256:58492dc19a764ba0d645d778819773f1d09e81568eaecc58e143c047fdbfd23a",
+                13839,
+            ),
+            (
+                "agent_platform/lilies_models.py",
+                "sha256:b53720e977a14acdeac7cf1ee3e1440b024ae24a4ffd8279dac9cf5c60b5f313",
+                44551,
+            ),
+            (
+                "agent_platform/models.py",
+                "sha256:ca22d2026e98d7eb8a913d072889487c9599453048e12af6d27e0c35edad7b4a",
+                5984,
+            ),
+            (
+                "agent_platform/stable_verification.py",
+                "sha256:9c914aa397fc59eb8e72283592e3451e024eecc26f17cf8d8df69007f7da791a",
+                55904,
+            ),
+            (
+                "agent_platform/stable_verification_cli.py",
+                "sha256:64957431b38d394f3026caa653969979b2dff4b4dc751167bb71632f6fac41c7",
+                5956,
+            ),
+            (
+                "agent_platform/stable_verification_coordinator.py",
+                "sha256:56965000a74de92c8e254598e51387faff064004bec19cfec5f8d38b5326f7ef",
+                21062,
+            ),
+            (
+                "agent_platform/task_packages.py",
+                "sha256:884ecc42eb66e28045f2a194f74e88a89e55e3abc6bbf353de3d481d7b2c12f2",
+                258356,
+            ),
+            (
+                "agent_platform/workflow_models.py",
+                "sha256:3556272401798946922f69109a3d60507116c500b0fd368b8af14e39d066712e",
+                15974,
+            ),
+        )
+    ]
+    legacy_payload["verification_process_digest"] = _sha256(
+        _json_bytes(
+            {
+                key: value
+                for key, value in legacy_payload.items()
+                if key != "verification_process_digest"
+            }
+        )
+    )
+    legacy = VerificationPolicyBundleManifest.model_validate(legacy_payload)
+    assert legacy.protected_source_paths == sorted(
+        LEGACY_DEVELOPER_TRUST_ROOT_PATHS_V1
+    )
+
+    downgraded_current = current.model_dump(mode="json")
+    downgraded_current["schema_version"] = "1.0"
+    downgraded_current["protected_source_paths"] = sorted(
+        LEGACY_DEVELOPER_TRUST_ROOT_PATHS_V1
+    )
+    downgraded_current["sources"] = [
+        item
+        for item in downgraded_current["sources"]
+        if item["path"] in _VERIFICATION_BUNDLE_SOURCE_PATHS_V1
+    ]
+    downgraded_current["verification_process_digest"] = _sha256(
+        _json_bytes(
+            {
+                key: value
+                for key, value in downgraded_current.items()
+                if key != "verification_process_digest"
+            }
+        )
+    )
+    with pytest.raises(
+        ValidationError,
+        match="approved legacy source closure",
+    ):
+        VerificationPolicyBundleManifest.model_validate(downgraded_current)
+
+    for schema_version, protected_paths in (
+        ("1.0", sorted(DEVELOPER_TRUST_ROOT_PATHS)),
+        ("1.1", sorted(LEGACY_DEVELOPER_TRUST_ROOT_PATHS_V1)),
+    ):
+        forged = {
+            **legacy_payload,
+            "schema_version": schema_version,
+            "protected_source_paths": protected_paths,
+        }
+        forged["verification_process_digest"] = _sha256(
+            _json_bytes(
+                {
+                    key: value
+                    for key, value in forged.items()
+                    if key != "verification_process_digest"
+                }
+            )
+        )
+        with pytest.raises(
+            ValidationError,
+            match="complete developer trust root",
+        ):
+            VerificationPolicyBundleManifest.model_validate(forged)
+
+    for schema_version, protected_paths, sources in (
+        (
+            "1.0",
+            sorted(LEGACY_DEVELOPER_TRUST_ROOT_PATHS_V1),
+            current.model_dump(mode="json")["sources"],
+        ),
+        (
+            "1.1",
+            sorted(DEVELOPER_TRUST_ROOT_PATHS),
+            legacy_payload["sources"],
+        ),
+    ):
+        forged = {
+            **legacy_payload,
+            "schema_version": schema_version,
+            "protected_source_paths": protected_paths,
+            "sources": sources,
+        }
+        forged["verification_process_digest"] = _sha256(
+            _json_bytes(
+                {
+                    key: value
+                    for key, value in forged.items()
+                    if key != "verification_process_digest"
+                }
+            )
+        )
+        with pytest.raises(
+            ValidationError,
+            match="exact executable source closure",
+        ):
+            VerificationPolicyBundleManifest.model_validate(forged)
 
 
 def test_verification_policy_rejects_same_version_dependency_byte_drift(

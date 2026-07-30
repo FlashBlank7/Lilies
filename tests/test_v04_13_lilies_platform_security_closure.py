@@ -418,7 +418,7 @@ def test_valid_but_unauthorized_run_uuid_remains_not_found(tmp_path: Path) -> No
         assert response.json()["error"]["code"] == "not_found"
 
 
-def test_blackbox_publish_rejects_context_dependent_tool_without_creating_version(
+def test_blackbox_publish_binds_context_dependent_tool_to_immutable_policy(
     tmp_path: Path,
 ) -> None:
     app = create_app(_settings(tmp_path), ScriptedProvider())
@@ -471,9 +471,25 @@ def test_blackbox_publish_rejects_context_dependent_tool_without_creating_versio
             json={"acknowledge_warnings": False},
         )
 
-        assert response.status_code == 403, response.text
-        assert response.json()["error"]["code"] == "runtime_tool_scope_denied"
-        assert client.portal.call(
+        assert response.status_code == 200, response.text
+        policy = response.json()["data"]["publication_decision"][
+            "execution_policy_snapshot"
+        ]
+        assert policy["allowed_runtime_tools"] == [
+            "Edit",
+            "Glob",
+            "Grep",
+            "Read",
+            "Write",
+        ]
+        assert "workspace_boundary" not in policy
+        versions = client.portal.call(
             client.app.state.services.workflow_store.list_versions,
             application_id,
-        ) == []
+        )
+        assert [item["version"] for item in versions] == [1]
+        stored_policy = versions[0]["publication_decision"][
+            "execution_policy_snapshot"
+        ]
+        assert stored_policy["policy_digest"] == policy["policy_digest"]
+        assert stored_policy["workspace_boundary"]

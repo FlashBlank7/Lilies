@@ -15,6 +15,8 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 MAX_BODY_BYTES = 8 * 1024 * 1024
 MAX_REQUEST_LOG_ENTRIES = 10_000
+PRE_DISPATCH_ATTESTATION_HEADER = "X-Lilies-Connector-Dispatch-State"
+PRE_DISPATCH_ATTESTATION_VALUE = "not-started"
 _MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 _REQUEST_HEADERS = frozenset(
     {
@@ -232,6 +234,10 @@ class _Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(payload)))
             if injected == 503:
                 self.send_header("Retry-After", "1")
+                self.send_header(
+                    PRE_DISPATCH_ATTESTATION_HEADER,
+                    PRE_DISPATCH_ATTESTATION_VALUE,
+                )
             self.end_headers()
             self.wfile.write(payload)
             _record_request(

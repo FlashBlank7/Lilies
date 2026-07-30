@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EXP-LILIES-003 deliverable contracts",
+  "type": "object",
+  "required": ["notification_decision", "timer_recovery_trace", "action_receipt"],
+  "properties": {
+    "notification_decision": {
+      "type": "object",
+      "required": ["entity_id", "decision", "notification_count"]
+    },
+    "timer_recovery_trace": {
+      "type": "object",
+      "required": ["timer_id", "events", "durable"]
+    },
+    "action_receipt": {
+      "type": "object",
+      "required": ["requested", "approved", "attempted", "accepted"]
+    }
+  }
+}
+

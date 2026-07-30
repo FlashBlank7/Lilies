@@ -3,8 +3,10 @@ from __future__ import annotations
 import hashlib
 import json
 import mimetypes
+import os
 import re
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Literal
 from urllib.parse import urlsplit
@@ -26,6 +28,16 @@ from pydantic import (
 
 from .blocks import IterationConfig, LoopConfig
 from .capability_contracts import CapabilityBuildContract
+from .connector_sdk import (
+    ConnectorAssignmentWriteReceipt,
+    ConnectorDenied,
+    connector_object_json_schema,
+    project_connector_operation_request_schema,
+)
+from .execution_policy import (
+    ExecutionPolicyExpansionDenied,
+    ExecutionPolicySnapshot,
+)
 from .lilies_platform_contract import (
     DEFAULT_ARTIFACT_CHUNK_BYTES,
     MAX_ARTIFACT_CHUNK_BYTES,
@@ -55,6 +67,7 @@ from .platform_blackbox_artifacts import (
     ArtifactBinding,
     ArtifactReadRequest,
     ArtifactRegistrationRequest,
+    HostReceiptRegistrationRequest,
     PlatformBlackboxArtifactConflict,
     PlatformBlackboxArtifactError,
     PlatformBlackboxArtifactIntegrityError,
@@ -73,7 +86,6 @@ from .workflow_models import (
     DraftOperation,
     EdgeSpec,
     NodeSpec,
-    PublishApplicationRequest,
     ResumeRunRequest,
     WorkflowTestCase,
     WorkflowRunRequest,
@@ -95,6 +107,7 @@ from .workflow_storage import PublishGateError, RevisionConflict
 
 
 _ZERO_DIGEST = "sha256:" + "0" * 64
+_HOST_RECEIPT_DIRECTORY = ".lilies-platform-host-receipts"
 _DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 _CORRELATION_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$")
 _IDEMPOTENCY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$")
@@ -161,6 +174,12 @@ _TASK_CONTRACT_ROUTES = (
     ("GET", re.compile(r"^/api/v1/lilies/blocks$")),
     ("GET", re.compile(r"^/api/v1/lilies/blocks/[^/]+$")),
     ("GET", re.compile(r"^/api/v1/lilies/tools$")),
+    (
+        "POST",
+        re.compile(
+            r"^/api/v1/lilies/applications/[^/]+/connector-authorizations$"
+        ),
+    ),
     ("POST", re.compile(r"^/api/v1/lilies/applications$")),
     ("GET", re.compile(r"^/api/v1/lilies/applications/[^/]+$")),
     ("GET", re.compile(r"^/api/v1/lilies/applications/[^/]+/draft$")),
@@ -346,6 +365,31 @@ class RunCancelBody(_RunPathBody):
 
 class PublishBody(_ApplicationPathBody):
     acknowledge_warnings: bool = False
+
+
+class ConnectorAuthorizationBody(_ApplicationPathBody):
+    connector_id: str = Field(
+        min_length=1,
+        max_length=160,
+        pattern=r"^[A-Za-z][A-Za-z0-9_.-]*$",
+    )
+    connector_version: int = Field(ge=1)
+    tenant_id: str = Field(min_length=1, max_length=300)
+    actor_id: str = Field(min_length=1, max_length=300)
+    profile_id: str = Field(
+        min_length=1,
+        max_length=160,
+        pattern=r"^[A-Za-z][A-Za-z0-9_.-]*$",
+    )
+    operation_id: str = Field(
+        min_length=2,
+        max_length=120,
+        pattern=r"^[A-Za-z][A-Za-z0-9_.-]+$",
+    )
+    operation_kind: Literal["write", "compensate"]
+    descriptor_digest: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    payload: dict[str, Any]
+    expires_in_seconds: int = Field(default=300, ge=1, le=300)
 
 
 @dataclass(frozen=True, slots=True)
@@ -727,35 +771,6 @@ def _connector_policy_match(
     return len(candidates.intersection(values)) == 1
 
 
-def _connector_object_json_schema(value: Any) -> dict[str, Any]:
-    if value.json_schema is not None:
-        return json.loads(json.dumps(value.json_schema))
-    properties: dict[str, Any] = {}
-    required: list[str] = []
-    for field in value.fields:
-        field_schema: dict[str, Any] = {"type": field.value_type}
-        if field.enum:
-            field_schema["enum"] = list(field.enum)
-        if field.item_type is not None:
-            field_schema["items"] = {"type": field.item_type}
-        if field.max_length is not None:
-            if field.value_type == "string":
-                field_schema["maxLength"] = field.max_length
-            elif field.value_type == "array":
-                field_schema["maxItems"] = field.max_length
-            elif field.value_type == "object":
-                field_schema["maxProperties"] = field.max_length
-        properties[field.name] = field_schema
-        if field.required:
-            required.append(field.name)
-    return {
-        "type": "object",
-        "properties": properties,
-        "required": required,
-        "additionalProperties": value.additional_properties,
-    }
-
-
 async def _task_scoped_connector_tools(
     services: Any,
     credential: TaskCredentialRecord,
@@ -868,6 +883,8 @@ async def _task_scoped_connector_tools(
                 "schema_version": "1.0",
                 "connector_id": manifest.connector_id,
                 "connector_version": manifest.version,
+                "binding_revision": binding.revision,
+                "policy_revision": policy.revision,
                 "operation_id": operation.id,
                 "operation_kind": operation.kind,
                 "execution_context": {
@@ -879,6 +896,14 @@ async def _task_scoped_connector_tools(
                 },
                 "execution_modes": execution_modes,
                 "authorization_required": authorization_required,
+                "authorization_modes": (
+                    ["explicit", "runtime_exact"]
+                    if authorization_required
+                    else ["explicit"]
+                ),
+                "retryable_status_codes": operation.retryable_status_codes,
+                "idempotency_semantics": operation.idempotency_semantics,
+                "max_attempts": operation.max_attempts,
                 "available": True,
                 "environment": profile.environment,
                 "claim_ceiling": profile.claim_ceiling,
@@ -888,11 +913,14 @@ async def _task_scoped_connector_tools(
                     credential.max_payload_bytes,
                 ),
             }
-            payload_schema = _connector_object_json_schema(operation.request_schema)
+            payload_schema = project_connector_operation_request_schema(
+                operation,
+                policy.request_constraint(operation.id),
+            )
             output_schema = (
                 json.loads(json.dumps(operation.response_json_schema))
                 if operation.response_json_schema is not None
-                else _connector_object_json_schema(operation.response_schema)
+                else connector_object_json_schema(operation.response_schema)
             )
             input_schema: dict[str, Any] = {
                 "type": "object",
@@ -944,6 +972,256 @@ async def _task_scoped_connector_tools(
     return sorted(result, key=lambda item: item["name"])
 
 
+def _task_credential_policy_digest(
+    credential: TaskCredentialRecord,
+) -> tuple[str, str]:
+    credential_ref_digest = public_digest(
+        {"credential_ref": credential.credential_ref}
+    )
+    policy_digest = public_digest(
+        {
+            "credential_ref_digest": credential_ref_digest,
+            "assignment_id": str(credential.assignment_id),
+            "session_id": str(credential.session_id),
+            "scopes": sorted(scope.value for scope in credential.scopes),
+            "application_ids": sorted(
+                str(value) for value in credential.application_ids
+            ),
+            "allowed_operations": sorted(
+                operation.value for operation in credential.allowed_operations
+            ),
+            "allowed_actions_digest": credential.allowed_actions_digest,
+            "budget_digest": credential.budget_digest,
+            "allowed_network_hosts": sorted(
+                host.casefold().rstrip(".")
+                for host in credential.allowed_network_hosts
+            ),
+            "connector_access": credential.connector_access,
+            "readable_host_objects": sorted(credential.readable_host_objects),
+            "writable_host_operations": sorted(
+                credential.writable_host_operations
+            ),
+            "permission_required_actions": sorted(
+                credential.permission_required_actions
+            ),
+            "compensation_actions": sorted(credential.compensation_actions),
+            "max_write_count": credential.max_write_count,
+            "max_payload_bytes": credential.max_payload_bytes,
+            "expires_at": credential.expires_at.isoformat(),
+        }
+    )
+    return credential_ref_digest, policy_digest
+
+
+async def _runtime_connector_authorization_policy(
+    services: Any,
+    credential: TaskCredentialRecord,
+) -> dict[str, Any]:
+    """Build the trusted digest-only policy used by runtime-exact writes."""
+
+    credential_ref_digest, task_policy_digest = (
+        _task_credential_policy_digest(credential)
+    )
+    descriptor_digests: dict[str, str] = {}
+    for descriptor in await _task_scoped_connector_tools(services, credential):
+        contract = descriptor["input_schema"]["x-lilies-connector"]
+        descriptor_digests[
+            f"{contract['connector_id']}.{contract['operation_id']}"
+        ] = str(contract["descriptor_digest"])
+    return {
+        "connector_descriptor_digests": descriptor_digests,
+        "task_credential_ref_digest": credential_ref_digest,
+        "task_policy_digest": task_policy_digest,
+        "allowed_actions_digest": (
+            str(credential.allowed_actions_digest)
+            if credential.allowed_actions_digest is not None
+            else None
+        ),
+        "budget_digest": (
+            str(credential.budget_digest)
+            if credential.budget_digest is not None
+            else None
+        ),
+        "task_deadline_at": credential.expires_at.isoformat(),
+    }
+
+
+async def _issue_task_connector_authorization(
+    services: Any,
+    *,
+    correlation: _Correlation,
+    credential: TaskCredentialRecord,
+    application_id: str,
+    body: ConnectorAuthorizationBody,
+) -> dict[str, Any]:
+    if (
+        not credential.connector_access
+        or not _governed_host_actions(credential)
+        or credential.max_write_count < 1
+    ):
+        raise _FacadeFailure(
+            "connector_authorization_denied",
+            "the frozen task policy does not allow connector write authorization",
+            status_code=403,
+            failure_owner="user_permission",
+        )
+    descriptors = await _task_scoped_connector_tools(services, credential)
+    descriptor_name = (
+        f"connector:{body.connector_id}:{body.connector_version}:"
+        f"{body.operation_id}"
+    )
+    descriptor = next(
+        (item for item in descriptors if item["name"] == descriptor_name),
+        None,
+    )
+    if descriptor is None:
+        raise _FacadeFailure(
+            "connector_authorization_denied",
+            "the connector operation is outside the frozen task policy",
+            status_code=403,
+            failure_owner="user_permission",
+        )
+    connector_contract = descriptor["input_schema"]["x-lilies-connector"]
+    execution_context = connector_contract["execution_context"]
+    exact_identity = (
+        connector_contract["operation_kind"] == body.operation_kind
+        and execution_context["tenant_id"] == body.tenant_id
+        and execution_context["actor_id"] == body.actor_id
+        and execution_context["profile_id"] == body.profile_id
+        and application_id in execution_context["application_ids"]
+    )
+    if not exact_identity or not connector_contract["authorization_required"]:
+        raise _FacadeFailure(
+            "connector_authorization_denied",
+            "the requested connector identity or authorization mode is not "
+            "allowed by the frozen task policy",
+            status_code=403,
+            failure_owner="user_permission",
+        )
+    current_descriptor_digest = str(connector_contract["descriptor_digest"])
+    if body.descriptor_digest != current_descriptor_digest:
+        raise _FacadeFailure(
+            "connector_descriptor_drift",
+            "the connector descriptor changed before authorization",
+            status_code=409,
+            failure_owner="task_author",
+            expected=current_descriptor_digest,
+            actual=body.descriptor_digest,
+        )
+    try:
+        payload_bytes = len(
+            json.dumps(
+                body.payload,
+                ensure_ascii=False,
+                allow_nan=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        )
+    except (TypeError, ValueError) as error:
+        raise _FacadeFailure(
+            "invalid_request",
+            "connector authorization payload must be finite canonical JSON",
+            status_code=422,
+            failure_owner="task_author",
+        ) from error
+    if payload_bytes > min(
+        int(connector_contract["max_payload_bytes"]),
+        credential.max_payload_bytes,
+    ):
+        raise _FacadeFailure(
+            "connector_authorization_payload_too_large",
+            "connector authorization payload exceeds the frozen byte limit",
+            status_code=413,
+            failure_owner="user_permission",
+        )
+    try:
+        budget = await services.connectors.freeze_assignment_budget(
+            assignment_id=str(correlation.assignment_id),
+            allowed_network_hosts=list(credential.allowed_network_hosts),
+            allowed_compensation_operations=list(
+                credential.compensation_actions
+            ),
+            max_write_count=credential.max_write_count,
+            max_payload_bytes=credential.max_payload_bytes,
+        )
+    except ConnectorDenied as error:
+        raise _FacadeFailure(
+            "connector_authorization_denied",
+            "the frozen connector side-effect budget changed",
+            status_code=403,
+            failure_owner="user_permission",
+        ) from error
+    if budget.write_count >= budget.max_write_count:
+        raise _FacadeFailure(
+            "connector_authorization_budget_exhausted",
+            "connector write authorization budget is exhausted",
+            status_code=429,
+            failure_owner="lilies",
+        )
+    now = datetime.now(timezone.utc)
+    remaining_seconds = int((credential.expires_at - now).total_seconds())
+    expires_in_seconds = min(body.expires_in_seconds, remaining_seconds)
+    if expires_in_seconds < 1:
+        raise _FacadeFailure(
+            "credential_expired",
+            "platform task credential expired before authorization issuance",
+            status_code=401,
+            failure_owner="user_permission",
+        )
+    credential_ref_digest, task_policy_digest = (
+        _task_credential_policy_digest(credential)
+    )
+    try:
+        authorization = await services.connectors.create_authorization(
+            connector_id=body.connector_id,
+            connector_version=body.connector_version,
+            tenant_id=body.tenant_id,
+            actor_id=body.actor_id,
+            profile_id=body.profile_id,
+            operation_id=body.operation_id,
+            payload=body.payload,
+            assignment_id=str(correlation.assignment_id),
+            session_id=str(correlation.session_id),
+            application_id=application_id,
+            expires_in_seconds=expires_in_seconds,
+            max_uses=1,
+            issuance_source="task_policy",
+            descriptor_digest=current_descriptor_digest,
+            task_credential_ref_digest=credential_ref_digest,
+            task_policy_digest=task_policy_digest,
+            allowed_actions_digest=str(credential.allowed_actions_digest),
+            budget_digest=str(credential.budget_digest),
+            assignment_budget_policy_digest=f"sha256:{budget.policy_digest}",
+            assignment_max_write_count=budget.max_write_count,
+            assignment_max_payload_bytes=budget.max_payload_bytes,
+            assignment_write_count_at_issue=budget.write_count,
+            task_deadline_at=credential.expires_at.isoformat(),
+        )
+    except KeyError as error:
+        raise _FacadeFailure(
+            "connector_authorization_denied",
+            "the connector contract is unavailable",
+            status_code=403,
+            failure_owner="user_permission",
+        ) from error
+    except ConnectorDenied as error:
+        raise _FacadeFailure(
+            "connector_authorization_denied",
+            "the connector policy denied the exact authorization payload",
+            status_code=403,
+            failure_owner="user_permission",
+        ) from error
+    except ValueError as error:
+        raise _FacadeFailure(
+            "invalid_request",
+            "connector authorization payload does not satisfy its public schema",
+            status_code=422,
+            failure_owner="task_author",
+        ) from error
+    return authorization.public_task_receipt()
+
+
 async def _current_contract(
     services: Any, credential: TaskCredentialRecord
 ) -> dict[str, Any]:
@@ -952,6 +1230,13 @@ async def _current_contract(
         contract_version=contract_version,
         schema_digest=platform_contract_schema_digest(),
     )
+    allowed_operation_names = {
+        operation.value for operation in credential.allowed_operations
+    }
+    if not credential.connector_access or not _governed_host_actions(credential):
+        allowed_operation_names.discard(
+            PlatformBlackboxOperation.connector_authorization_issue.value
+        )
     return build_platform_contract(
         services.blocks,
         services.tools,
@@ -966,6 +1251,7 @@ async def _current_contract(
         ),
         contract_version=contract_version,
         allowed_runtime_tool_names=BLACKBOX_RUNTIME_TOOL_ALLOWLIST,
+        allowed_operation_names=allowed_operation_names,
     )
 
 
@@ -1028,6 +1314,13 @@ def _auth_failure(error: PlatformBlackboxAuthError) -> _FacadeFailure:
 
 
 def _operation_failure(error: Exception) -> _FacadeFailure:
+    if isinstance(error, ExecutionPolicyExpansionDenied):
+        return _FacadeFailure(
+            "execution_policy_expansion_denied",
+            "caller policy cannot expand the immutable published execution policy",
+            status_code=403,
+            failure_owner="user_permission",
+        )
     if isinstance(error, WorkflowWorkspaceBoundaryViolation):
         return _FacadeFailure(
             "workspace_boundary_violation",
@@ -1191,6 +1484,18 @@ def _operation_failure(error: Exception) -> _FacadeFailure:
 
 
 def _redact(value: Any, *, key: str = "") -> Any:
+    if (
+        key.casefold() == "source_path"
+        and isinstance(value, list)
+        and all(
+            isinstance(item, (str, int)) and not isinstance(item, bool)
+            for item in value
+        )
+    ):
+        # record_match uses source_path as a bounded JSON field path. Keep that
+        # public schema value round-trippable while continuing to redact string
+        # filesystem paths under the same ambiguous key.
+        return [_redact(item) for item in value]
     if _SENSITIVE_KEY_RE.search(key):
         return "[REDACTED]"
     if isinstance(value, dict):
@@ -1231,6 +1536,16 @@ def _run_projection(run: dict[str, Any]) -> dict[str, Any]:
         "waiting_node_id": getattr(state, "waiting_node_id", None),
         "completed_node_ids": list(getattr(state, "completed", [])),
         "skipped_node_ids": list(getattr(state, "skipped", [])),
+        "published_execution_policy_digest": getattr(
+            state,
+            "published_execution_policy_digest",
+            None,
+        ),
+        "execution_policy_digest": getattr(
+            state,
+            "execution_policy_digest",
+            None,
+        ),
         "created_at": run.get("created_at"),
         "updated_at": run.get("updated_at"),
     }
@@ -1306,17 +1621,26 @@ def _trace_data_projection(event_type: str, data: dict[str, Any]) -> dict[str, A
     }
 
 
-def _task_workspace(services: Any, correlation: _Correlation) -> Path:
+def _task_session_workspace(services: Any, correlation: _Correlation) -> Path:
     root = (
         services.settings.workspace_root.resolve()
         / ".lilies_tasks"
         / str(correlation.assignment_id)
         / str(correlation.session_id)
-        / f"run-{hashlib.sha256(correlation.idempotency_key.encode()).hexdigest()[:24]}"
     )
     root.mkdir(parents=True, exist_ok=True)
     resolved = root.resolve()
     resolved.mkdir(parents=True, exist_ok=True)
+    services.sandboxes.resolve_workspace(str(resolved))
+    return resolved
+
+
+def _task_workspace(services: Any, correlation: _Correlation) -> Path:
+    root = _task_session_workspace(services, correlation) / (
+        f"run-{hashlib.sha256(correlation.idempotency_key.encode()).hexdigest()[:24]}"
+    )
+    root.mkdir(parents=False, exist_ok=True)
+    resolved = root.resolve()
     services.sandboxes.resolve_workspace(str(resolved))
     return resolved
 
@@ -1389,6 +1713,8 @@ async def _register_run_artifacts(
     entries: list[dict[str, Any]] = []
     for candidate in sorted(workspace.rglob("*")):
         relative = candidate.relative_to(workspace)
+        if relative.parts and relative.parts[0] == _HOST_RECEIPT_DIRECTORY:
+            continue
         if candidate.is_symlink() or any(
             (workspace / Path(*relative.parts[:index])).is_symlink()
             for index in range(1, len(relative.parts) + 1)
@@ -1406,6 +1732,148 @@ async def _register_run_artifacts(
                 media_type=media_type,
             ),
             artifact_root=workspace,
+        )
+        record = registration.artifact
+        entries.append(
+            {
+                "artifact_id": str(record.artifact_id),
+                "relative_path": record.relative_path,
+                "media_type": record.media_type,
+                "size_bytes": record.size_bytes,
+                "sha256": record.sha256,
+            }
+        )
+    return entries
+
+
+def _write_host_receipt_once(
+    workspace: Path,
+    receipt: ConnectorAssignmentWriteReceipt,
+) -> str:
+    directory = workspace / _HOST_RECEIPT_DIRECTORY
+    if directory.exists():
+        if directory.is_symlink() or not directory.is_dir():
+            raise _FacadeFailure(
+                "artifact_path_unsafe",
+                "platform host-receipt directory is unsafe",
+                status_code=403,
+                failure_owner="platform",
+            )
+    else:
+        directory.mkdir(mode=0o700)
+    payload = json.dumps(
+        receipt.model_dump(mode="json"),
+        ensure_ascii=False,
+        allow_nan=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    relative_path = f"{_HOST_RECEIPT_DIRECTORY}/{receipt.execution_id}.json"
+    target = workspace / relative_path
+    if target.exists():
+        if target.is_symlink() or not target.is_file() or target.read_bytes() != payload:
+            raise _FacadeFailure(
+                "artifact_path_unsafe",
+                "platform host-receipt replay changed trusted evidence",
+                status_code=403,
+                failure_owner="platform",
+            )
+        return relative_path
+    temporary = directory / f".{receipt.execution_id}.{uuid4().hex}.tmp"
+    descriptor: int | None = None
+    try:
+        flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
+        flags |= getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(temporary, flags, 0o600)
+        with os.fdopen(descriptor, "wb", closefd=True) as stream:
+            descriptor = None
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+        try:
+            os.link(temporary, target, follow_symlinks=False)
+        except FileExistsError:
+            if target.is_symlink() or not target.is_file() or target.read_bytes() != payload:
+                raise _FacadeFailure(
+                    "artifact_path_unsafe",
+                    "platform host-receipt replay changed trusted evidence",
+                    status_code=403,
+                    failure_owner="platform",
+                )
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+        temporary.unlink(missing_ok=True)
+    return relative_path
+
+
+async def _register_run_host_receipts(
+    services: Any,
+    correlation: _Correlation,
+    run: dict[str, Any],
+) -> list[dict[str, Any]]:
+    workspace = _owned_artifact_root(services, correlation, run)
+    binding = _artifact_binding(correlation, run)
+    try:
+        budget = await services.connectors.export_assignment_budget(
+            str(correlation.assignment_id)
+        )
+    except KeyError:
+        return []
+    entries: list[dict[str, Any]] = []
+    for write in budget.writes:
+        execution = await services.connectors.get_execution(write.execution_id)
+        if execution.run_id != str(run["id"]):
+            continue
+        trusted = ConnectorAssignmentWriteReceipt(
+            execution_id=execution.id,
+            connector_id=execution.connector_id,
+            connector_version=execution.connector_version,
+            tenant_id=execution.tenant_id,
+            profile_id=execution.profile_id,
+            operation_id=execution.operation_id,
+            operation_kind=execution.operation_kind,
+            idempotency_key=execution.idempotency_key,
+            payload_hash=execution.payload_hash,
+            status=execution.status,
+            side_effect_state=execution.side_effect_state,
+            authorization_ref_digest=(
+                f"sha256:{services.connectors.payload_hash(execution.authorization_id)}"
+                if execution.authorization_id
+                else None
+            ),
+            adapter_called=execution.adapter_called,
+            attempt_count=execution.attempt_count,
+            retryable=execution.retryable,
+            failure_disposition=execution.failure_disposition,
+            retry_safety=execution.retry_safety,
+            created_at=execution.created_at,
+            updated_at=execution.updated_at,
+        )
+        if (
+            trusted != write
+            or execution.assignment_id != str(correlation.assignment_id)
+            or execution.session_id != str(correlation.session_id)
+            or execution.application_id != str(run["application_id"])
+        ):
+            raise _FacadeFailure(
+                "platform_operation_failed",
+                "connector host receipt changed its trusted run binding",
+                status_code=500,
+                failure_owner="platform",
+            )
+        relative_path = _write_host_receipt_once(workspace, trusted)
+        registration = (
+            await services.platform_blackbox_artifacts.register_host_receipt(
+                HostReceiptRegistrationRequest(
+                    binding=binding,
+                    relative_path=relative_path,
+                    media_type="application/json",
+                    receipt_id=execution.id,
+                    operation=execution.operation_id,
+                ),
+                artifact_root=workspace,
+            )
         )
         record = registration.artifact
         entries.append(
@@ -1699,7 +2167,7 @@ def install_lilies_platform_api(app: FastAPI, services: Any) -> None:
                 code="internal_endpoint_denied",
                 message="platform task credentials are valid only on contract endpoints",
                 failure_owner="user_permission",
-                expected="one of the 16 versioned public contract operations",
+                expected="one of the versioned public contract operations",
                 actual={"method": request.method, "path": request.url.path},
             )
             return _json_response(payload, 403)
@@ -1848,6 +2316,42 @@ def install_lilies_platform_api(app: FastAPI, services: Any) -> None:
             callback=execute,
         )
 
+    @app.post(
+        "/api/v1/lilies/applications/{application_id}/connector-authorizations",
+        name="platform_connector_authorization_issue",
+    )
+    async def platform_connector_authorization_issue(
+        request: Request,
+        application_id: str,
+        body: ConnectorAuthorizationBody,
+    ) -> JSONResponse:
+        async def execute(
+            correlation: _Correlation,
+            credential: TaskCredentialRecord,
+        ) -> dict[str, Any]:
+            return await _issue_task_connector_authorization(
+                services,
+                correlation=correlation,
+                credential=credential,
+                application_id=application_id,
+                body=body,
+            )
+
+        return await _invoke(
+            services,
+            request,
+            PlatformBlackboxOperation.connector_authorization_issue,
+            payload=_path_body_payload(
+                "application_id",
+                application_id,
+                body,
+            ),
+            callback=execute,
+            body=body,
+            application_id=application_id,
+            success_status=201,
+        )
+
     @app.post("/api/v1/lilies/applications", name="platform_application_create")
     async def platform_application_create(
         request: Request,
@@ -1897,9 +2401,11 @@ def install_lilies_platform_api(app: FastAPI, services: Any) -> None:
     ) -> JSONResponse:
         async def execute(_: _Correlation, __: TaskCredentialRecord) -> dict[str, Any]:
             draft = await services.workflow_store.get_draft(application_id)
+            preflight = await services.applications.validate_draft(application_id)
             return {
                 **{key: value for key, value in draft.items() if key != "snapshot"},
                 "snapshot": _redact(draft["snapshot"].model_dump(mode="json")),
+                "preflight": _redact(preflight),
             }
 
         return await _invoke(
@@ -1943,8 +2449,17 @@ def install_lilies_platform_api(app: FastAPI, services: Any) -> None:
                     if body.op == "add_node"
                     else str(body.data["node_id"])
                 )
-                updated_node = next(
-                    node for node in preview.workflow.nodes if node.id == node_id
+                updated_node = (
+                    next(
+                        node
+                        for node in preview.workflow.nodes
+                        if node.id == node_id
+                    )
+                    if body.op == "add_node"
+                    else services.applications.find_draft_node(
+                        preview,
+                        node_id,
+                    )
                 )
                 _validate_public_node_tree(services.blocks, updated_node)
             return await services.applications.apply_operation(
@@ -1998,6 +2513,12 @@ def install_lilies_platform_api(app: FastAPI, services: Any) -> None:
             credential: TaskCredentialRecord,
         ) -> dict[str, Any]:
             workspace = _task_workspace(services, correlation)
+            runtime_authorization_policy = (
+                await _runtime_connector_authorization_policy(
+                    services,
+                    credential,
+                )
+            )
             return _redact(
                 await services.workflow_runtime.run_test_suite(
                     application_id,
@@ -2021,6 +2542,7 @@ def install_lilies_platform_api(app: FastAPI, services: Any) -> None:
                     governed_host_actions=_governed_host_actions(credential),
                     assignment_id=str(correlation.assignment_id),
                     session_id=str(correlation.session_id),
+                    **runtime_authorization_policy,
                 )
             )
 
@@ -2050,6 +2572,12 @@ def install_lilies_platform_api(app: FastAPI, services: Any) -> None:
             credential: TaskCredentialRecord,
         ) -> dict[str, Any]:
             workspace = _task_workspace(services, correlation)
+            runtime_authorization_policy = (
+                await _runtime_connector_authorization_policy(
+                    services,
+                    credential,
+                )
+            )
             run_request = WorkflowRunRequest(
                 inputs=body.inputs,
                 version=body.version,
@@ -2078,6 +2606,8 @@ def install_lilies_platform_api(app: FastAPI, services: Any) -> None:
                 governed_host_actions=_governed_host_actions(credential),
                 assignment_id=str(correlation.assignment_id),
                 session_id=str(correlation.session_id),
+                allow_published_authority_rebind=True,
+                **runtime_authorization_policy,
             )
 
         return await _invoke(
@@ -2105,7 +2635,16 @@ def install_lilies_platform_api(app: FastAPI, services: Any) -> None:
                 if run.get("status") in {"succeeded", "failed", "cancelled"}
                 else []
             )
-            return {**_run_projection(run), "artifacts": artifacts}
+            host_receipts = (
+                await _register_run_host_receipts(services, correlation, run)
+                if run.get("status") in {"succeeded", "failed", "cancelled"}
+                else []
+            )
+            return {
+                **_run_projection(run),
+                "artifacts": artifacts,
+                "host_receipts": host_receipts,
+            }
 
         return await _invoke(
             services,
@@ -2281,33 +2820,8 @@ def install_lilies_platform_api(app: FastAPI, services: Any) -> None:
             correlation: _Correlation, credential: TaskCredentialRecord
         ) -> dict[str, Any]:
             workspace = _task_workspace(services, correlation)
+            session_workspace = _task_session_workspace(services, correlation)
             draft = await services.workflow_store.get_draft(application_id)
-            mandatory_tests = [
-                test for test in draft["snapshot"].tests if test.mandatory
-            ]
-            validation_report = draft.get("validation_report")
-            current_acceptance = bool(
-                mandatory_tests
-                and draft.get("tested_hash") == draft.get("content_hash")
-                and isinstance(validation_report, dict)
-                and validation_report.get("passed") is True
-            )
-            if not current_acceptance:
-                raise PublishGateError(
-                    "black-box publication requires current passing mandatory acceptance evidence",
-                    {
-                        "blocked": True,
-                        "reason": "current_mandatory_acceptance_required",
-                        "mandatory_test_count": len(mandatory_tests),
-                        "tested_hash_matches": draft.get("tested_hash")
-                        == draft.get("content_hash"),
-                        "latest_validation_passed": (
-                            validation_report.get("passed")
-                            if isinstance(validation_report, dict)
-                            else False
-                        ),
-                    },
-                )
             for node in draft["snapshot"].workflow.nodes:
                 _validate_public_node_tree(
                     services.blocks,
@@ -2327,13 +2841,40 @@ def install_lilies_platform_api(app: FastAPI, services: Any) -> None:
                 governed_host_actions=_governed_host_actions(credential),
                 for_publication=True,
             )
-            publish_request = PublishApplicationRequest(
-                acknowledge_warnings=body.acknowledge_warnings
+            # Calling the task-scoped publish operation is the Builder's
+            # explicit publication decision. Platform evidence remains visible
+            # diagnostics; it does not act as a business acceptance judge.
+            _ = body.acknowledge_warnings
+            execution_policy = ExecutionPolicySnapshot.build(
+                workspace_boundary=str(session_workspace),
+                assignment_id=correlation.assignment_id,
+                session_id=correlation.session_id,
+                allowed_nested_application_ids={
+                    str(value) for value in credential.application_ids
+                },
+                allowed_runtime_tools=_runtime_tool_policy(credential),
+                allowed_network_hosts=_runtime_network_policy(credential),
+                model_access=credential.model_access,
+                allowed_connector_operations=_runtime_connector_policy(credential),
+                writable_connector_operations=credential.writable_host_operations,
+                permission_required_connector_operations=(
+                    credential.permission_required_actions
+                ),
+                compensation_connector_operations=credential.compensation_actions,
+                max_connector_write_count=credential.max_write_count,
+                max_connector_payload_bytes=credential.max_payload_bytes,
+                governed_host_actions=_governed_host_actions(credential),
             )
-            return await services.workflow_store.publish(
+            published = await services.workflow_store.publish(
                 application_id,
-                acknowledge_warnings=publish_request.acknowledge_warnings,
+                acknowledge_warnings=True,
+                execution_policy_snapshot=execution_policy,
             )
+            decision = dict(published["publication_decision"])
+            decision["execution_policy_snapshot"] = (
+                execution_policy.public_projection()
+            )
+            return {**published, "publication_decision": decision}
 
         return await _invoke(
             services,

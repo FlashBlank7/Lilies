@@ -53,6 +53,7 @@ def _snapshot() -> LocalLiliesObservabilitySnapshot:
                 "interrupted_turns": 0,
                 "interrupted_development_assignments": 0,
                 "reconciliation_required_development_invocations": 0,
+                "unreaped_development_processes": 0,
             },
         }
     )

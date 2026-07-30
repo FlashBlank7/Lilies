@@ -1,0 +1,11 @@
+{
+  "schema_version": "1.0",
+  "task_id": "EXP-LILIES-002",
+  "revision": 1,
+  "builder_single_run_token_limit": 1000000,
+  "model_call_limit": 0,
+  "tool_call_limit": 2000,
+  "node_execution_limit": 10000,
+  "wall_clock_seconds": 10800,
+  "note": "This direct Codex Builder run makes no Lilies model call. Any future Lilies Builder session must stop at one million tokens for that single run."
+}

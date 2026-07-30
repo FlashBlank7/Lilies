@@ -4,14 +4,41 @@
   "stage_task_id": "V04-13-T01H",
   "contract_revision": 3,
   "selection_status": "locked",
-  "execution_status": "project_1_active",
+  "execution_status": "project_3_active",
   "approved_at": "2026-07-25",
   "approval_ref": "User approved continuing with approximately six real projects organized by distinct capability families, executed one by one, with iterations under each project and reusable platform supplementation tracked separately.",
   "required_project_count": 6,
   "execution_policy": {
     "mode": "strictly_sequential",
-    "active_project_id": "EXP-LILIES-001",
+    "active_project_id": "EXP-LILIES-003",
     "next_project_requires_previous_project_closure": true,
+    "explicit_user_sequence_overrides": [
+      {
+        "project_id": "EXP-LILIES-004",
+        "nonpassing_prior_project_ids": [
+          "EXP-LILIES-001",
+          "EXP-LILIES-003"
+        ],
+        "authority": "The user explicitly directed Codex to continue with project 4 after the project-1 capability exercise. EXP-LILIES-002 later passed; this override preserves the nonpassing results of projects 1 and 3 at the time project 4 started.",
+        "does_not_mark_prior_projects_passed": true
+      },
+      {
+        "project_id": "EXP-LILIES-002",
+        "nonpassing_prior_project_ids": [
+          "EXP-LILIES-001"
+        ],
+        "authority": "The user explicitly instructed Codex to complete EXP-LILIES-002 after the direct project-1 exercise. EXP-LILIES-001 keeps its formal-evidence result and is not rewritten as passed.",
+        "does_not_mark_prior_projects_passed": true
+      },
+      {
+        "project_id": "EXP-LILIES-003",
+        "nonpassing_prior_project_ids": [
+          "EXP-LILIES-001"
+        ],
+        "authority": "After EXP-LILIES-002 passed, the user explicitly instructed Codex to continue and complete the remaining projects. EXP-LILIES-001 keeps its formal-evidence result and is not rewritten as passed.",
+        "does_not_mark_prior_projects_passed": true
+      }
+    ],
     "one_builder_context_per_project_revision": true,
     "shared_assignment_session_seed_or_archive": false,
     "all_attempts_remain_in_project_denominator": true,
@@ -69,39 +96,39 @@
     "SCENARIO-010",
     "SCENARIO-011"
   ],
-  "member_manifest_set_sha256": "9c49cfa52e63ca54c9a08a272fb14beec6cc7e760087da119df2aa10e8225e58",
+  "member_manifest_set_sha256": "2d967384216826f09646503f3ea1fe3b52a469597e16accb30f5c161916a3cd1",
   "projects": [
     {
       "project_id": "EXP-LILIES-001",
       "sequence": 1,
       "manifest": "docs/experiments/lilies-collaboration/EXP-LILIES-001/project.json",
-      "manifest_sha256": "0cb8e6f81eb5960d83587ed6199329e3d2f0bf3f8d09eb47bb5fc9cd99ee0673",
-      "latest_revision": 20,
-      "status": "active"
+      "manifest_sha256": "641abf23335abbd141ff80cf142aab22a52283aa3eafbe2587a4afab256d6f04",
+      "latest_revision": 28,
+      "status": "needs_revision"
     },
     {
       "project_id": "EXP-LILIES-002",
       "sequence": 2,
       "manifest": "docs/experiments/lilies-collaboration/EXP-LILIES-002/project.json",
-      "manifest_sha256": "59eb6b6efc45f1d87942623d483d33533fb3e9c5b6b940da65caaa11100fac40",
-      "latest_revision": 0,
-      "status": "selected"
+      "manifest_sha256": "30dc0b69b14f7f8f7bedce732ccbd7852d620870b64cfe78cd9d8cb11d499ba9",
+      "latest_revision": 1,
+      "status": "passed"
     },
     {
       "project_id": "EXP-LILIES-003",
       "sequence": 3,
       "manifest": "docs/experiments/lilies-collaboration/EXP-LILIES-003/project.json",
-      "manifest_sha256": "aaa95da2e66c1319f09ab42c6344dbfd48e9590d53011ab63e76e0b64788ce93",
+      "manifest_sha256": "4c628a8ebe123ab4409862754267821a4680c87ae7d48e50c7759b5244905a47",
       "latest_revision": 0,
-      "status": "selected"
+      "status": "active"
     },
     {
       "project_id": "EXP-LILIES-004",
       "sequence": 4,
       "manifest": "docs/experiments/lilies-collaboration/EXP-LILIES-004/project.json",
-      "manifest_sha256": "1b22e1b018349d9212c53266b0e614d46ae8d0367d8965b4bfadec5582bc1c44",
-      "latest_revision": 0,
-      "status": "selected"
+      "manifest_sha256": "202482395f1523f3c33e779f5f326ad286f7a093902f9d849cd4a65601c37fe9",
+      "latest_revision": 1,
+      "status": "passed"
     },
     {
       "project_id": "EXP-LILIES-005",

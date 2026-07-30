@@ -57,18 +57,18 @@ def resolve_delivery_policy(
             hard_gate_enabled=False,
         )
 
-    hard_gate_enabled = bool(governed_hard_gate)
+    # Keep the stored option readable for backward compatibility, but do not
+    # let platform evidence diagnostics decide whether the owner/Builder may
+    # publish. Business acceptance belongs to the agent/owner; the platform
+    # still enforces structural, permission, and execution-safety boundaries.
+    _ = governed_hard_gate
     return DeliveryPolicy(
         mode=resolved_mode,
         title="Governed",
-        summary=(
-            "Enforce current acceptance evidence before publication."
-            if hard_gate_enabled
-            else "Expose governance evidence and require an explicit publication decision."
-        ),
-        publication_behavior="hard_gate" if hard_gate_enabled else "advisory_confirmation",
-        missing_evidence_action="block" if hard_gate_enabled else "confirm",
-        stale_evidence_action="block" if hard_gate_enabled else "confirm",
+        summary="Expose governance evidence and require an explicit publication decision.",
+        publication_behavior="advisory_confirmation",
+        missing_evidence_action="confirm",
+        stale_evidence_action="confirm",
         recommended_evidence=[
             "draft_validation",
             "mandatory_acceptance_cases",
@@ -84,6 +84,6 @@ def resolve_delivery_policy(
             "permission_boundary",
             "publication_decision",
         ],
-        warning_ack_required=not hard_gate_enabled,
-        hard_gate_enabled=hard_gate_enabled,
+        warning_ack_required=True,
+        hard_gate_enabled=False,
     )

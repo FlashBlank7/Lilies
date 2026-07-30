@@ -5,7 +5,7 @@
   "project_id": "EXP-LILIES-001",
   "sequence": 1,
   "title": "Supplier document intake, procurement reconciliation, and governed handoff",
-  "status": "active",
+  "status": "needs_revision",
   "cohort": "enterprise",
   "enterprise_denominator": true,
   "capability_family": "document_ocr_procurement_excel_writeback",
@@ -76,8 +76,8 @@
     "intervention_boundary": true
   },
   "task_package_root": "docs/experiments/lilies-collaboration/EXP-LILIES-001",
-  "latest_revision": 20,
-  "revision_semantics": "Revisions 1 through 20 are iterations of this project only.",
-  "current_blocker": "Historical Lilies revisions remain failed with zero stable business passes. Revision 20 freezes the public API manual without changing the business task. Two independent launch reviews first rejected and then approved exactly one controlled Codex public-interface debug attempt after process cleanup, active CONNECT tunnel revocation, trustworthy unknown-usage accounting, a persisted cross-invocation remaining-token budget, immutable manual binding, resumable context checks, Seatbelt negative evidence, and causal-ledger reference checks were completed. No revision 20 Codex model attempt or customer result exists yet.",
-  "next_action": "Run exactly one actor-stamped revision 20 public debug attempt in a fresh state root and port with the official token monitor. Preserve any complete automatically routed Builder report before generic platform supplementation and a same-project rerun; never convert process completion into project success."
+  "latest_revision": 28,
+  "revision_semantics": "Revisions 1 through 27 are iterations of this project only.",
+  "current_blocker": "Project 1 remains at zero of three stable business passes and all prior failures remain in the denominator. Revision 26 successfully exposed verified Paperless v4 and InvenTree v6 Connector projections to a fresh public-API Builder, which then recorded task-specification report d546d2ae-a6bb-4bc1-a96f-56bd9e4d3b07 instead of building because it interpreted three customer-nonprovided materials as prerequisites. Revision 27 preserves all business inputs and acceptance checks while clarifying generic Builder authoring semantics; no revision-27 rerun or hidden-seed pass exists yet.",
+  "next_action": "Advance the same application and isolated Codex thread from revision 26 to revision 27, preserving the routed task-specification report and retiring predecessor authority. Reuse the already verified official Connector generations, require the Builder to derive a candidate mapping and author the workflow/workbook through public APIs, then pass debug and all three independently verified hidden seeds without project-specific adapters, mappings, wrappers, final graphs, or provider egress."
 }

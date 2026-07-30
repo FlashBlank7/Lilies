@@ -1,0 +1,16 @@
+{
+  "schema_version": "1.0",
+  "cases": [
+    {"case": "open_until_deadline", "expected_notifications": 1},
+    {"case": "close_before_deadline", "expected_notifications": 0},
+    {"case": "duplicate_open", "expected_notifications": 1},
+    {"case": "platform_restart_during_wait", "expected_notifications": 1},
+    {"case": "websocket_reconnect", "expected_notifications": 1},
+    {"case": "stale_close", "expected_notifications": 1},
+    {"case": "two_entities_concurrent", "expected_notifications": 2},
+    {"case": "notification_permission_denied", "expected_notifications": 0},
+    {"case": "high_risk_action_approved", "expected_actions": 1},
+    {"case": "high_risk_action_rejected", "expected_actions": 0}
+  ]
+}
+

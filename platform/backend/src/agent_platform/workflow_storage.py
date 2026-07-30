@@ -10,10 +10,35 @@ from typing import Any
 from uuid import uuid4
 
 from .capability_contracts import CapabilityBuildContract
-from .models import utc_now
 from .delivery_policy import resolve_delivery_policy
+from .execution_policy import ExecutionPolicySnapshot
+from .models import utc_now
 from .storage import Storage
-from .workflow_models import ApplicationCreateRequest, ApplicationSnapshot, BuildTeamState, WorkflowRunState
+from .workflow_models import (
+    ApplicationCreateRequest,
+    ApplicationSnapshot,
+    BuildTeamState,
+    WorkflowRunState,
+)
+
+
+WORKFLOW_VALIDATION_CONTRACT_DIGEST = (
+    "sha256:"
+    + hashlib.sha256(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "rules": [
+                    "workflow_and_binding_validation",
+                    "mandatory_acceptance_tests",
+                    "simulated_human_input_validation",
+                ],
+            },
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode()
+    ).hexdigest()
+)
 
 
 class RevisionConflict(RuntimeError):
@@ -119,6 +144,7 @@ class WorkflowStorage:
                   content_hash TEXT NOT NULL,
                   tested_hash TEXT,
                   validation_report_json TEXT NOT NULL,
+                  validation_contract_digest TEXT NOT NULL DEFAULT '',
                   evidence_invalidated_at TEXT,
                   evidence_invalidated_revision INTEGER,
                   evidence_change_summary_json TEXT NOT NULL DEFAULT '[]',
@@ -131,6 +157,7 @@ class WorkflowStorage:
                   snapshot_json TEXT NOT NULL,
                   content_hash TEXT NOT NULL,
                   validation_report_json TEXT NOT NULL,
+                  validation_contract_digest TEXT NOT NULL DEFAULT '',
                   publication_decision_json TEXT NOT NULL DEFAULT '{}',
                   created_at TEXT NOT NULL,
                   PRIMARY KEY(application_id, version),
@@ -264,6 +291,11 @@ class WorkflowStorage:
                 conn.execute(
                     "ALTER TABLE application_drafts ADD COLUMN evidence_change_summary_json TEXT NOT NULL DEFAULT '[]'"
                 )
+            if "validation_contract_digest" not in draft_columns:
+                conn.execute(
+                    "ALTER TABLE application_drafts ADD COLUMN "
+                    "validation_contract_digest TEXT NOT NULL DEFAULT ''"
+                )
             version_columns = {
                 row["name"]
                 for row in conn.execute("PRAGMA table_info(application_versions)").fetchall()
@@ -271,6 +303,11 @@ class WorkflowStorage:
             if "publication_decision_json" not in version_columns:
                 conn.execute(
                     "ALTER TABLE application_versions ADD COLUMN publication_decision_json TEXT NOT NULL DEFAULT '{}'"
+                )
+            if "validation_contract_digest" not in version_columns:
+                conn.execute(
+                    "ALTER TABLE application_versions ADD COLUMN "
+                    "validation_contract_digest TEXT NOT NULL DEFAULT ''"
                 )
 
     async def create_application(self, request: ApplicationCreateRequest) -> dict[str, Any]:
@@ -317,10 +354,22 @@ class WorkflowStorage:
             conn.execute(
                 """INSERT INTO application_drafts(
                      application_id,revision,snapshot_json,content_hash,tested_hash,
-                     validation_report_json,evidence_invalidated_at,
+                     validation_report_json,validation_contract_digest,evidence_invalidated_at,
                      evidence_invalidated_revision,evidence_change_summary_json,updated_at
-                   ) VALUES(?,?,?,?,?,?,?,?,?,?)""",
-                (application_id, 0, encoded, content_hash, None, "{}", None, None, "[]", now),
+                   ) VALUES(?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    application_id,
+                    0,
+                    encoded,
+                    content_hash,
+                    None,
+                    "{}",
+                    "",
+                    None,
+                    None,
+                    "[]",
+                    now,
+                ),
             )
 
     async def list_applications(self) -> list[dict[str, Any]]:
@@ -828,6 +877,11 @@ class WorkflowStorage:
             if isinstance(validation_report, dict)
             else {}
         )
+        validation_contract_current = bool(
+            validation_report
+            and row.get("validation_contract_digest")
+            == WORKFLOW_VALIDATION_CONTRACT_DIGEST
+        )
         latest_validation_current = (
             isinstance(latest_validation, dict)
             and latest_validation.get("content_hash") == row["content_hash"]
@@ -838,7 +892,10 @@ class WorkflowStorage:
             and validation_report.get("passed") is False
         )
         state = cls._evidence_state(row.get("tested_hash"), row["content_hash"])
-        if latest_validation_failed and state == "current":
+        if (
+            (latest_validation_failed or not validation_contract_current)
+            and state == "current"
+        ):
             state = "stale"
         result = {
             "state": state,
@@ -902,21 +959,29 @@ class WorkflowStorage:
             if passed:
                 conn.execute(
                     """UPDATE application_drafts SET tested_hash=?,validation_report_json=?,
+                       validation_contract_digest=?,
                        evidence_invalidated_at=NULL,evidence_invalidated_revision=NULL,
                        evidence_change_summary_json='[]',updated_at=?
                        WHERE application_id=?""",
                     (
                         content_hash,
                         json.dumps(report, ensure_ascii=False),
+                        WORKFLOW_VALIDATION_CONTRACT_DIGEST,
                         utc_now(),
                         application_id,
                     ),
                 )
             else:
                 conn.execute(
-                    """UPDATE application_drafts SET validation_report_json=?,updated_at=?
+                    """UPDATE application_drafts SET validation_report_json=?,
+                       validation_contract_digest=?,updated_at=?
                        WHERE application_id=?""",
-                    (json.dumps(report, ensure_ascii=False), utc_now(), application_id),
+                    (
+                        json.dumps(report, ensure_ascii=False),
+                        WORKFLOW_VALIDATION_CONTRACT_DIGEST,
+                        utc_now(),
+                        application_id,
+                    ),
                 )
 
     async def publication_decision(self, application_id: str) -> dict[str, Any]:
@@ -979,18 +1044,21 @@ class WorkflowStorage:
         application_id: str,
         *,
         acknowledge_warnings: bool = False,
+        execution_policy_snapshot: ExecutionPolicySnapshot | None = None,
     ) -> dict[str, Any]:
         async with self._lock:
             return await asyncio.to_thread(
                 self._publish_sync,
                 application_id,
                 acknowledge_warnings,
+                execution_policy_snapshot,
             )
 
     def _publish_sync(
         self,
         application_id: str,
         acknowledge_warnings: bool,
+        execution_policy_snapshot: ExecutionPolicySnapshot | None,
     ) -> dict[str, Any]:
         now = utc_now()
         with self.storage._connect() as conn:
@@ -1011,6 +1079,10 @@ class WorkflowStorage:
                 acknowledge_warnings and decision["warnings"]
             )
             decision["decided_at"] = now
+            if execution_policy_snapshot is not None:
+                decision["execution_policy_snapshot"] = (
+                    execution_policy_snapshot.model_dump(mode="json")
+                )
             row = conn.execute(
                 "SELECT COALESCE(MAX(version),0)+1 AS version FROM application_versions WHERE application_id=?",
                 (application_id,),
@@ -1019,14 +1091,16 @@ class WorkflowStorage:
             conn.execute(
                 """INSERT INTO application_versions(
                      application_id,version,snapshot_json,content_hash,
-                     validation_report_json,publication_decision_json,created_at
-                   ) VALUES(?,?,?,?,?,?,?)""",
+                     validation_report_json,validation_contract_digest,
+                     publication_decision_json,created_at
+                   ) VALUES(?,?,?,?,?,?,?,?)""",
                 (
                     application_id,
                     version,
                     draft["snapshot_json"],
                     draft["content_hash"],
                     draft["validation_report_json"],
+                    draft["validation_contract_digest"],
                     json.dumps(decision, ensure_ascii=False),
                     now,
                 ),
@@ -1137,11 +1211,13 @@ class WorkflowStorage:
                 raise RevisionConflict("draft changed while version evidence was being restored")
             conn.execute(
                 """UPDATE application_drafts SET tested_hash=?,validation_report_json=?,
+                   validation_contract_digest=?,
                    evidence_invalidated_at=?,evidence_invalidated_revision=?,
                    evidence_change_summary_json=?,updated_at=? WHERE application_id=?""",
                 (
                     tested_hash,
                     json.dumps(published["validation_report"], ensure_ascii=False),
+                    published.get("validation_contract_digest", ""),
                     evidence.get("invalidated_at"),
                     evidence.get("invalidated_revision"),
                     json.dumps(evidence.get("change_summary") or [], ensure_ascii=False),

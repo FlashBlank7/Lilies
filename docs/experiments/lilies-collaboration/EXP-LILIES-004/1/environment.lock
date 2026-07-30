@@ -1,0 +1,86 @@
+schema_version: '1.0'
+task_id: EXP-LILIES-004
+revision: 1
+source_projects:
+- name: ThingsBoard Community Edition
+  repository_url: https://github.com/thingsboard/thingsboard
+  release: v4.3.1.3
+  commit_sha: 105351615126682762caf849619f0ea02df1faf3
+  image_digest: sha256:398ea445740dccc40f34a3618ba845f56c63ee7a594d3b850fce2149b40a6bb3
+  license: Apache-2.0
+compose_digest: sha256:f86a6fea5396a16531add9224a53df53965cc641360ab21dfcdaaae9157aee7d
+ports:
+- service: thingsboard-http
+  host: 127.0.0.1
+  port: 19090
+- service: thingsboard-mqtt
+  host: 127.0.0.1
+  port: 18884
+- service: thingsboard-fault-proxy
+  host: 127.0.0.1
+  port: 19091
+network_name: exp-lilies-004-r1_default
+volumes:
+- exp-lilies-004-r1-postgres-data
+initialization_commands:
+- name: ensure-thingsboard
+  digest: sha256:b590a5b085b02a5cf2e59e1a9dd31006295442b06a5d239ee843101ad3641696
+- name: prepare-fault-test-connector
+  digest: sha256:82b7f2901f54e58d128e50171969fbf23d8cdd0fc47322e1eb152e90f9429d6f
+- name: launch-fault-proxy
+  digest: sha256:78df37ed61aef983f3c2966dcbafe9350cf41d5db41bbd86de742d1c481d6d11
+seed_commands:
+- name: generate-public-fixtures
+  digest: sha256:d1b2464c13cdc66992b23c0a81dd87d36588cbd23015bf7e7c0a396fcb91b5d0
+- name: run-sealed-seed
+  digest: sha256:6d9c152852a4da75fa7a1b21c878cdb09df43f1929e9e4317eb719dc17e3a4bb
+health_checks:
+- check_id: http:thingsboard-login
+  kind: http
+  url: http://127.0.0.1:19090/login
+  expected_status: 200
+  timeout_seconds: 5.0
+  mandatory: true
+- check_id: tcp:thingsboard-mqtt
+  kind: tcp
+  host: 127.0.0.1
+  port: 18884
+  timeout_seconds: 5.0
+  mandatory: true
+- check_id: tcp:thingsboard-fault-proxy
+  kind: tcp
+  host: 127.0.0.1
+  port: 19091
+  timeout_seconds: 5.0
+  mandatory: true
+secret_refs:
+- secret:exp-lilies-004-environment-attestation
+- secret:exp-lilies-004-thingsboard-builder-jwt
+attestation_secret_ref: secret:exp-lilies-004-environment-attestation
+python_version: 3.12.13
+node_version: 24.15.0
+docker_version: 29.4.0
+fixture_files:
+- path: public-inputs/debug-events.json
+  digest: sha256:200d62746c0c44cbc2fbe39311940ec5a15fe0e161b6e4c15719100415b72229
+  size_bytes: 4841
+- path: public-inputs/drift-window.json
+  digest: sha256:062ad4b73cbd35cc4b15abe40141353d8d80094ae6d8bc48834dc794939bd41f
+  size_bytes: 4359
+- path: public-inputs/feature-contract.json
+  digest: sha256:8cccc6617d3583a26cbf8d64e8975b8baaa1b9dab08910944cc97e753634d933
+  size_bytes: 543
+- path: public-inputs/training.json
+  digest: sha256:8f93e97fd1bb845d3e7052d32f36efb1a9f40800c4f9eef424f8385c50cb1bfc
+  size_bytes: 101429
+- path: public-inputs/validation.json
+  digest: sha256:0cf3733fba0e31a9e01ddf3e65aa4db1c7ec00558c6e6a5d3d1d97f22e8b5ecc
+  size_bytes: 33827
+fault_injections:
+- name: thingsboard-save-alarm-transient-503
+  activation_command_digest: sha256:5b14d385f10abbabc6a964902effd37009917c7828ff3ae840d5af00f8bb9d03
+  recovery_command_digest: sha256:93015b6ee91d7b0c0afdbb8ad8ea034865b98ea7b158b1f4b95a849f38b3c63f
+- name: thingsboard-save-alarm-permission-403
+  activation_command_digest: sha256:701749ab1ac3845a1c1fef74ef84b215499f6a115adfc0f04b656591af65c913
+  recovery_command_digest: sha256:93015b6ee91d7b0c0afdbb8ad8ea034865b98ea7b158b1f4b95a849f38b3c63f
+provenance: real_host

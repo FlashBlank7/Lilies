@@ -1,0 +1,41 @@
+{
+  "base_version": 1,
+  "evaluation_id": "411f29de-f0c7-4080-b1a2-42868bfa67b0",
+  "evaluation_metrics": {
+    "accuracy": 1.0,
+    "auprc": 1.0,
+    "brier": 0.002166158615207258,
+    "count": 80,
+    "f1": 1.0,
+    "false_negative": 0,
+    "false_positive": 0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "threshold": 0.7,
+    "true_negative": 40,
+    "true_positive": 40
+  },
+  "fine_tuned_base_version": 1,
+  "fine_tuned_version": 2,
+  "passed": true,
+  "promoted_workflow_run": {
+    "alarm_count": 1,
+    "artifact_count": 3,
+    "model_version": 2,
+    "passed": true,
+    "workflow_status": "succeeded"
+  },
+  "promotion_revision": 2,
+  "restored_version": 1,
+  "rollback_action": "rollback",
+  "rollback_revision": 3,
+  "rolled_back_workflow_run": {
+    "alarm_count": 1,
+    "artifact_count": 3,
+    "model_version": 1,
+    "passed": true,
+    "workflow_status": "succeeded"
+  },
+  "schema_version": "1.0",
+  "task_id": "EXP-LILIES-004"
+}

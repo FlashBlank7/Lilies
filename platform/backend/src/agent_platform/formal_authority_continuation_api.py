@@ -297,6 +297,21 @@ def _rotation_identifiers(
     }
 
 
+def _rotation_bootstrap_idempotency_key(
+    *,
+    owner_idempotency_key: str,
+    rotation_id: UUID,
+) -> str:
+    semantic = _digest(
+        {
+            "kind": "formal_authority_rotation_bootstrap",
+            "owner_idempotency_key": owner_idempotency_key,
+            "rotation_id": str(rotation_id),
+        }
+    ).removeprefix("sha256:")
+    return f"authority.rotate.{semantic}"
+
+
 def _rotation_task_token_factory(
     *,
     signing_key: str,
@@ -339,6 +354,8 @@ def _require_expired_task_credential(
     assignment_id: UUID,
     session_id: UUID,
     now: datetime,
+    allow_retired: bool = False,
+    allow_active_retirement: bool = False,
 ) -> None:
     if record.assignment_id != assignment_id or record.session_id != session_id:
         raise HTTPException(
@@ -348,7 +365,7 @@ def _require_expired_task_credential(
                 "message": "formal assignment authority was not found",
             },
         )
-    if record.revoked_at is not None:
+    if record.revoked_at is not None and not allow_retired:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={
@@ -356,7 +373,7 @@ def _require_expired_task_credential(
                 "message": "revoked formal authority cannot be continued",
             },
         )
-    if record.expires_at > now:
+    if record.expires_at > now and not allow_active_retirement:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={
@@ -374,6 +391,7 @@ def _require_expired_collaboration_credential(
     session_id: UUID,
     now: datetime,
     allow_retired: bool = False,
+    allow_active_retirement: bool = False,
 ) -> dict[str, Any]:
     channel = dict(export.get("channel") or {})
     channel_status = str(channel.get("status"))
@@ -436,6 +454,7 @@ def _require_expired_collaboration_credential(
     if (
         expires_at.astimezone(timezone.utc) > now
         and record.get("revoked_at") is None
+        and not allow_active_retirement
     ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -460,6 +479,7 @@ def install_formal_authority_continuation_api(
         response_model=RebindFormalConnectorCredentialResponse,
         dependencies=[Depends(require_user_token)],
         tags=["formal-environment"],
+        include_in_schema=False,
     )
     async def rebind_formal_connector_credential(
         body: RebindFormalConnectorCredentialRequest,
@@ -581,6 +601,7 @@ def install_formal_authority_continuation_api(
         response_model=ContinueFormalAuthorityResponse,
         dependencies=[Depends(require_user_token)],
         tags=["formal-authority"],
+        include_in_schema=False,
     )
     async def continue_formal_assignment_authority(
         assignment_id: UUID,
@@ -772,6 +793,7 @@ def install_formal_authority_continuation_api(
         response_model=RotateFormalAuthorityResponse,
         dependencies=[Depends(require_user_token)],
         tags=["formal-authority"],
+        include_in_schema=False,
     )
     async def rotate_formal_assignment_authority(
         assignment_id: UUID,
@@ -797,6 +819,8 @@ def install_formal_authority_continuation_api(
             assignment_id=assignment_id,
             session_id=body.session_id,
             now=now,
+            allow_retired=True,
+            allow_active_retirement=True,
         )
         if body.application_id not in previous_platform.application_ids:
             raise HTTPException(
@@ -818,6 +842,7 @@ def install_formal_authority_continuation_api(
             session_id=body.session_id,
             now=now,
             allow_retired=True,
+            allow_active_retirement=True,
         )
         predecessor_channel = dict(export.get("channel") or {})
         if str(predecessor_channel.get("status")) != "closed":
@@ -841,6 +866,38 @@ def install_formal_authority_continuation_api(
                         ),
                     },
                 ) from error
+        try:
+            await (
+                services.local_lilies_bridge.store
+                .retire_external_builder_assignment(
+                    assignment_id,
+                    session_id=body.session_id,
+                    application_id=body.application_id,
+                    credential_ref=body.previous_platform_credential_ref,
+                    collaboration_credential_ref=(
+                        body.previous_collaboration_credential_ref
+                    ),
+                    reason=body.reason,
+                )
+            )
+            await services.platform_blackbox_auth.revoke_credential(
+                body.previous_platform_credential_ref,
+                reason=(
+                    "formal authority retired before successor rotation: "
+                    f"{body.reason}"
+                )[:1_000],
+            )
+        except Exception as error:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "code": "predecessor_authority_retirement_failed",
+                    "message": (
+                        "predecessor Builder authority could not be retired "
+                        "exactly"
+                    ),
+                },
+            ) from error
 
         identifiers = _rotation_identifiers(
             predecessor_assignment_id=assignment_id,
@@ -859,10 +916,10 @@ def install_formal_authority_continuation_api(
             session_id=identifiers["session_id"],
             connection_id=identifiers["connection_id"],
             environment_instance_id=body.environment_instance_id,
-            idempotency_key=(
-                f"authority.rotate.{body.idempotency_key}."
-                f"{body.rotation_id.hex}"
-            )[:128],
+            idempotency_key=_rotation_bootstrap_idempotency_key(
+                owner_idempotency_key=body.idempotency_key,
+                rotation_id=body.rotation_id,
+            ),
             builder_actor="codex",
             handoff_path=handoff_path,
         )

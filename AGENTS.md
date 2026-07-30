@@ -44,6 +44,14 @@ Before substantial Lilies work, read in this order:
 - Product behavior depending on browser, real model, real tool, or external integration needs evidence at that claimed level.
 - Missing higher-level evidence limits the claim; it does not erase deterministic implementation evidence or automatically block the campaign. Track it as evidence debt and never report the unavailable level as passed.
 
+## Minimum Usable Development
+
+- This repository is maintained by one developer. Optimize every task for a small, reviewable, working vertical slice rather than architectural completeness.
+- Do not expand an accepted stage task with adjacent features, generalized frameworks, speculative future requirements, or extra governance unless the locked acceptance or a newer explicit user instruction requires them.
+- Finish and verify the core requested behavior before adding reuse, abstraction, hardening, publication, packaging, or secondary interfaces.
+- If implementation reveals additional work, first ask whether it is strictly required for the current acceptance. If not, leave it out. Do not let helpful additions create an unfinished core, a broad bug surface, or work the sole maintainer cannot reasonably review.
+- Prefer the least complex implementation that is genuinely usable. Add complexity only in response to a demonstrated failure or an explicit requirement, not to anticipate hypothetical scale.
+
 ## Deviation And Resume
 
 - Implementation-route changes are allowed when acceptance is unchanged and the deviation is recorded.

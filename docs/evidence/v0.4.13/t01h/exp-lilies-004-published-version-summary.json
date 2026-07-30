@@ -1,0 +1,27 @@
+{
+  "active_version": 1,
+  "application_id": "2efc4c75-1101-4275-8c7a-4ce3f6fba4b8",
+  "artifact_count": 3,
+  "business_alarm_count": 1,
+  "claim_ceiling": "controlled-local ThingsBoard integration; not real-factory model accuracy or long-duration production reliability",
+  "content_hash": "f097bfb71b2b3ee911b87886da664875f5709197bd170c993782a2d935a1e648",
+  "decision": "automatic_high_risk",
+  "drift_status": "critical",
+  "mandatory_acceptance": {
+    "failed": 0,
+    "passed": 1,
+    "run_id": "013795cc-5dea-4ae4-a227-e29d3961b4c0",
+    "total": 1
+  },
+  "model_digest": "sha256:aa2698dee5930abfbe728428991e5e145f6368402b84f8e06001c22db3e70be0",
+  "model_version": 1,
+  "published_at": "2026-07-29T16:16:13.850438+00:00",
+  "published_run_id": "11d354e4-890b-483e-9713-88c74ea54432",
+  "published_run_status": "succeeded",
+  "revision": 76,
+  "schema_version": "1.0",
+  "task_id": "EXP-LILIES-004",
+  "thingsboard_alarm_id": "0bb057ab-bbd5-4591-9069-a30640f9e27c",
+  "thingsboard_matching_alarm_count": 1,
+  "workflow_version": 1
+}

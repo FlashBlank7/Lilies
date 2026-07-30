@@ -42,6 +42,7 @@ PLATFORM_TOOL_NAMES = {
     "platform_block_search",
     "platform_block_get",
     "platform_tool_catalog",
+    "platform_connector_authorization_issue",
     "platform_application_create",
     "platform_application_get",
     "platform_draft_inspect",
@@ -223,12 +224,12 @@ def _draft_payload_from_tool_schema(schema: dict[str, Any], operation: str) -> d
     return {**common, **_minimal_schema_value(selected)}
 
 
-def test_public_contract_and_local_registry_expose_exactly_the_sixteen_http_tools() -> None:
+def test_public_contract_and_local_registry_expose_exactly_the_seventeen_http_tools() -> None:
     client = _client(httpx.MockTransport(lambda request: httpx.Response(500, request=request)))
     platform_only = build_lilies_platform_registry(client, include_core_tools=False)
     combined = build_lilies_platform_registry(client)
 
-    assert len(PUBLIC_OPERATION_SPECS) == 16
+    assert len(PUBLIC_OPERATION_SPECS) == 17
     assert {operation["name"] for operation in PUBLIC_OPERATION_SPECS} == PLATFORM_TOOL_NAMES
     assert set(platform_only.names()) == PLATFORM_TOOL_NAMES
     assert {
@@ -260,7 +261,7 @@ def test_public_contract_and_local_registry_expose_exactly_the_sixteen_http_tool
     assert artifact_tool_schema["properties"]["max_bytes"]["maximum"] == 65_536
 
 
-def test_all_sixteen_response_schemas_are_strict_discoverable_success_or_error_envelopes() -> None:
+def test_all_seventeen_response_schemas_are_strict_discoverable_success_or_error_envelopes() -> None:
     expected_success_fields = {
         "platform_contract_get": {
             "schema_version",
@@ -278,6 +279,18 @@ def test_all_sixteen_response_schemas_are_strict_discoverable_success_or_error_e
         "platform_block_search": set(),
         "platform_block_get": {"definition", "manual"},
         "platform_tool_catalog": set(),
+        "platform_connector_authorization_issue": {
+            "authorization_id",
+            "connector_id",
+            "operation_id",
+            "operation_kind",
+            "payload_hash",
+            "descriptor_digest",
+            "assignment_id",
+            "session_id",
+            "application_id",
+            "receipt_digest",
+        },
         "platform_application_create": {"id", "draft_revision", "content_hash", "evidence"},
         "platform_application_get": {"id", "draft_revision", "content_hash", "evidence"},
         "platform_draft_inspect": {
@@ -1030,6 +1043,7 @@ async def test_assignment_client_requires_fetch_and_enforces_scoped_contract_ope
         "platform_block_search",
         "platform_block_get",
         "platform_tool_catalog",
+        "platform_connector_authorization_issue",
         "platform_run_start",
         "platform_run_get",
         "platform_run_resume",

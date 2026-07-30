@@ -8,15 +8,18 @@ import {
   idempotency,
   localLiliesApplicationAssignments,
   localLiliesAssignment,
+  localLiliesAssignmentMessages,
   localLiliesErrorMessage,
   localLiliesStatus,
   openLocalLiliesAssignmentEventStream,
   reconnectLocalLilies,
   resumeLocalLiliesAssignment,
+  sendLocalLiliesAssignmentMessage,
   PlatformApiError,
   type LocalLiliesAssignment,
   type LocalLiliesAssignmentEvent,
   type LocalLiliesCapabilityContext,
+  type LocalLiliesMessage,
   type LocalLiliesStatus,
 } from '@/lib/platform'
 import type { Locale } from '@/lib/i18n'
@@ -105,6 +108,11 @@ export function LocalLiliesBuildPanel({ applicationId, requirement, locale, requ
   const [status, setStatus] = useState<LocalLiliesStatus>(unavailableStatus)
   const [assignment, setAssignment] = useState<LocalLiliesAssignment | null>(null)
   const [events, setEvents] = useState<LocalLiliesAssignmentEvent[]>([])
+  const [messages, setMessages] = useState<LocalLiliesMessage[]>([])
+  const [messageBefore, setMessageBefore] = useState('')
+  const [messageHasMore, setMessageHasMore] = useState(false)
+  const [operatorMessage, setOperatorMessage] = useState('')
+  const [messageBusy, setMessageBusy] = useState(false)
   const [cursor, setCursor] = useState(0)
   const [connectionId, setConnectionId] = useState('')
   const [reconnectCode, setReconnectCode] = useState('')
@@ -158,6 +166,32 @@ export function LocalLiliesBuildPanel({ applicationId, requirement, locale, requ
     }
   }, [applicationId, loadStatus])
 
+  const loadMessages = useCallback(async (
+    assignmentId: string,
+    expectedSessionId: string,
+    before = '',
+  ) => {
+    try {
+      const page = await localLiliesAssignmentMessages(
+        assignmentId,
+        { limit: 20, ...(before ? { before } : {}) },
+      )
+      if (page.session_id !== expectedSessionId) {
+        setError(`assignment_session_mismatch: expected session_id=${expectedSessionId}, actual session_id=${page.session_id}`)
+        return
+      }
+      setMessages(current => {
+        const combined = before ? [...page.messages, ...current] : page.messages
+        const unique = new Map(combined.map(message => [message.message_id, message]))
+        return [...unique.values()]
+      })
+      setMessageBefore(page.next_before || '')
+      setMessageHasMore(page.has_more)
+    } catch (cause) {
+      setError(String(cause))
+    }
+  }, [])
+
   const recoverAssignment = useCallback(async () => {
     if (requestedAssignmentId) return loadAssignment(requestedAssignmentId)
     try {
@@ -184,6 +218,16 @@ export function LocalLiliesBuildPanel({ applicationId, requirement, locale, requ
     void loadStatus()
     void recoverAssignment()
   }, [loadStatus, recoverAssignment])
+
+  useEffect(() => {
+    if (!assignment) {
+      setMessages([])
+      setMessageBefore('')
+      setMessageHasMore(false)
+      return
+    }
+    void loadMessages(assignment.assignment_id, assignment.session_id)
+  }, [assignment?.assignment_id, assignment?.session_id, loadMessages])
 
   useEffect(() => {
     streamAbortRef.current?.abort()
@@ -228,6 +272,9 @@ export function LocalLiliesBuildPanel({ applicationId, requirement, locale, requ
       }
       if (['tool.completed', 'turn.finished', 'assignment.completed'].includes(normalized.event_type)) {
         void Promise.resolve(applicationChangedRef.current()).catch(cause => setError(String(cause)))
+      }
+      if (['message.created', 'turn.finished', 'assignment.completed'].includes(normalized.event_type)) {
+        void loadMessages(assignmentId, assignment.session_id)
       }
       if (['assignment.completed', 'assignment.cancelled'].includes(normalized.event_type)) {
         controller.abort()
@@ -282,7 +329,7 @@ export function LocalLiliesBuildPanel({ applicationId, requirement, locale, requ
   // cursor is intentionally excluded: streamCursor tracks the latest SSE id
   // within this cancellable fetch loop and is sent as Last-Event-ID on retry.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [assignment?.assignment_id, loadAssignment, loadStatus, zh])
+  }, [assignment?.assignment_id, assignment?.session_id, loadAssignment, loadMessages, loadStatus, zh])
 
   async function startLocalAssignment() {
     if (!connectionId || !status.enabled) return
@@ -389,6 +436,25 @@ export function LocalLiliesBuildPanel({ applicationId, requirement, locale, requ
     }
   }
 
+  async function sendOperatorMessage() {
+    if (!assignment || !operatorMessage.trim()) return
+    setMessageBusy(true)
+    setError('')
+    try {
+      await sendLocalLiliesAssignmentMessage(
+        assignment.assignment_id,
+        operatorMessage.trim(),
+      )
+      setOperatorMessage('')
+      await loadMessages(assignment.assignment_id, assignment.session_id)
+      await loadAssignment(assignment.assignment_id)
+    } catch (cause) {
+      setError(String(cause))
+    } finally {
+      setMessageBusy(false)
+    }
+  }
+
   const connection = status.connections.find(item => item.connection_id === connectionId) || null
   const terminal = Boolean(assignment && ['completed', 'cancelled'].includes(assignment.phase))
   const hasNonterminalAssignment = Boolean(assignment && !terminal)
@@ -398,6 +464,12 @@ export function LocalLiliesBuildPanel({ applicationId, requirement, locale, requ
   const visibleError = error
     || localLiliesErrorMessage(assignment?.last_error)
     || localLiliesErrorMessage(connection?.last_error)
+  const canSendOperatorMessage = Boolean(
+    assignment
+    && !terminal
+    && ['ready', 'error', 'interrupted', 'waiting_permission', 'waiting_collaboration']
+      .includes(String(assignment.daemon_status || '').toLowerCase()),
+  )
 
   return <section className="local-lilies-build" data-local-lilies-build="explicit" data-assignment-status={assignment?.status || 'none'}>
     <header>
@@ -428,6 +500,28 @@ export function LocalLiliesBuildPanel({ applicationId, requirement, locale, requ
     </div>}
     {visibleError && <p className="error-banner" role="alert">{visibleError}</p>}
     {streamError && <p className="error-banner" role="status">{streamError}</p>}
+    <div className="local-lilies-transcript" data-session-transcript={assignment?.session_id || 'none'}>
+      <div>
+        <strong>{zh ? '任务会话' : 'Task conversation'}</strong>
+        <span>{messages.length}</span>
+      </div>
+      {messageHasMore && assignment && <button type="button" className="ghost" disabled={messageBusy || !messageBefore} onClick={() => void loadMessages(assignment.assignment_id, assignment.session_id, messageBefore)}>{zh ? '加载更早消息' : 'Load older messages'}</button>}
+      <div className="local-lilies-message-list" role="log" aria-live="polite">
+        {messages.length ? messages.map(message => <article key={message.message_id} data-message-role={message.role}>
+          <header><b>{message.role}</b><time dateTime={message.created_at}>{new Date(message.created_at).toLocaleString()}</time></header>
+          {message.content.map((block, index) => {
+            if (block.type === 'text') return <p key={index}>{block.text}</p>
+            if (block.type === 'tool_use') return <code key={index}>{zh ? '调用积木/工具：' : 'Tool: '}{block.name}</code>
+            return <code key={index} data-tool-error={block.is_error ? 'true' : 'false'}>{block.is_error ? (zh ? '工具返回错误' : 'Tool returned an error') : (zh ? '工具调用完成' : 'Tool completed')}</code>
+          })}
+          {message.content_truncated && <small>{zh ? '该条消息已按公开会话上限截断。' : 'This message was truncated at the public transcript limit.'}</small>}
+        </article>) : <p>{zh ? '尚无可见消息。私有思维链不会进入这里。' : 'No visible messages yet. Private chain-of-thought is never projected here.'}</p>}
+      </div>
+      <form onSubmit={event => { event.preventDefault(); void sendOperatorMessage() }}>
+        <label><span>{zh ? '向当前 Lilies 会话追加指令' : 'Send a follow-up to this Lilies session'}</span><textarea value={operatorMessage} disabled={!canSendOperatorMessage || messageBusy} maxLength={100000} onChange={event => setOperatorMessage(event.target.value)} placeholder={canSendOperatorMessage ? (zh ? '补充目标、询问当前判断，或要求先整体检查…' : 'Clarify the goal, ask for the current rationale, or request an overall review…') : (zh ? '当前状态只支持查看；等待会话可接收消息。' : 'This state is read-only; wait until the session can accept a message.')} /></label>
+        <button type="submit" disabled={!canSendOperatorMessage || messageBusy || !operatorMessage.trim()}>{messageBusy ? (zh ? '发送中…' : 'Sending…') : (zh ? '发送到同一会话' : 'Send to same session')}</button>
+      </form>
+    </div>
     <div className="local-lilies-event-log" data-event-dedupe="event_id" data-event-cursor={cursor} role="log" aria-live="polite" aria-relevant="additions">
       <div><strong>{zh ? 'Live / replayed events' : 'Live / replayed events'}</strong><span>{events.length}</span></div>
       {events.length ? events.map(event => <article key={event.event_id} data-replayed={event.replayed ? 'true' : 'false'}><span>#{event.seq} · {event.event_type}{event.replayed ? ` · ${zh ? '重放' : 'replayed'}` : ''}</span><pre>{JSON.stringify(event.data, null, 2)}</pre></article>) : <p>{zh ? '尚无事件；重连后从持久 cursor 继续。' : 'No events yet; reconnects resume from the persisted cursor.'}</p>}

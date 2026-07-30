@@ -1,0 +1,35 @@
+schema_version: '1.0'
+task_id: EXP-LILIES-002
+revision: 1
+parent_revision: null
+title: 权限受控的 BookStack 企业知识助手
+cohort: enterprise
+customer_role: 企业知识库管理员、业务服务人员和合规复核人员
+business_goal: 从真实 BookStack 同步版本化知识，在检索前强制执行来源权限，并交付带引用的回答或安全拒答。
+source_projects:
+- name: BookStack
+  repository_url: https://codeberg.org/bookstack/bookstack
+  release: v26.05.2
+  commit_sha: fcb2d406067f9072ccd31bb17dbe5b2c390d3d72
+  image_digest: sha256:3db259db582808ab498d49ae96b0a63f935d9cf3635c9d5bd8b8815c6ff1f8a1
+  license: MIT
+requirement_file: requirement.md
+environment_lock_digest: sha256:ad0b2c1c3a98ac2602fe971f19b76c1a22b02ceb037133725d0ba8f66a900e80
+fixture_manifest_digest: sha256:4d6f47426870ad21b65b4efe4bc10f743d414402de6d396df11bdf2258459f36
+allowed_actions_file: allowed-actions.json
+budget_file: budget.json
+deliverables:
+- name: answer-record
+  description: 回答或拒答、引用、人工决定、索引版本和模型版本。
+  media_type: application/json
+- name: retrieval-acl-trace
+  description: 授权角色、允许与过滤的来源、实际检索片段和 forbidden_chunk_count。
+  media_type: application/json
+- name: index-sync-receipt
+  description: 插入、更新、删除、未变化来源、事件身份、索引修订和内容摘要。
+  media_type: application/json
+acceptance_summary: 所有问题得到授权回答或拒答；越权内容在评分前过滤；引用有效；更新和删除生效；同步可重放；敏感内容由人工决定；禁止片段为零。
+no_substitute_validation: true
+collaboration_enabled: true
+author: codex-task-author
+created_at: '2026-07-30T00:00:00Z'

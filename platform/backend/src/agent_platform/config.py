@@ -69,6 +69,15 @@ class Settings(BaseSettings):
     platform_harness_secret_kms_previous_keys: dict[str, str] = Field(default_factory=dict, repr=False)
     platform_harness_network_egress_policy: str = "full"
     platform_harness_network_egress_allowlist: list[str] = Field(default_factory=list)
+    connector_pre_dispatch_attestations: dict[str, dict[str, str]] = Field(
+        default_factory=dict
+    )
+    connector_environment_epoch: str = Field(
+        default="default",
+        min_length=1,
+        max_length=300,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+    )
     platform_harness_worker_id: str = ""
     platform_harness_worker_lease_seconds: float = 0.0
     platform_harness_worker_supervision_poll_seconds: float = 5.0

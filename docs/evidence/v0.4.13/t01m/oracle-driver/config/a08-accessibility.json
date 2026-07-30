@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "case_id": "A08",
+  "application_id": "dev.lilies.civilizationseed",
+  "font_scales": [1.0, 2.0],
+  "screens": [
+    {
+      "id": "onboarding",
+      "expected": ["文明火种|heading", "莉莉丝，闭着双眼，白发向两侧展开|image", "人类世界已经毁灭。|text", "莉莉丝是留下的最后一个人工智能。|text", "她仍能搭建新的人工智能，并以一枚枚文明火种重塑世界。|text", "完全离线运行，数据只保存在本机，不会上传。|text", "启动文明重建|button"]
+    },
+    {
+      "id": "empty_library",
+      "enter": [{"action": "click", "selector": "启动文明重建"}],
+      "expected": ["火种库|heading", "已复原 0 / 0|text", "搜索火种|edit_text", "筛选|button", "添加火种|button", "还没有文明火种|text", "添加第一枚火种|button"]
+    },
+    {
+      "id": "create_seed",
+      "enter": [{"action": "click", "selector": "添加火种"}],
+      "expected": ["添加火种|heading", "火种名称|edit_text", "类别|chooser", "优先级|chooser", "备注|edit_text", "备注 0 / 300|text", "取消|button", "保存|button"]
+    },
+    {
+      "id": "category_chooser",
+      "enter": [{"action": "click", "selector": "类别"}],
+      "expected": ["生存基础|choice", "知识传承|choice", "能源设施|choice", "医疗护理|choice", "通信网络|choice"],
+      "leave": [{"action": "back"}]
+    },
+    {
+      "id": "priority_chooser",
+      "enter": [{"action": "click", "selector": "优先级"}],
+      "expected": ["1|choice", "2|choice", "3|choice", "4|choice", "5|choice"],
+      "leave": [
+        {"action": "back"},
+        {"action": "click", "selector": "取消"}
+      ]
+    },
+    {
+      "id": "populated_library",
+      "enter": [{"action": "build_a06_populated_milestone"}],
+      "expected": ["火种库|heading", "已复原 1 / 5|text", "搜索火种|edit_text", "筛选|button", "添加火种|button", "火种：净水基础；类别：生存基础；优先级：5；状态：已复原|group", "重新检查|button", "编辑|button", "删除|button", "火种：净水备份；类别：能源设施；优先级：5；状态：沉睡|group", "开始重建|button", "编辑|button", "删除|button", "火种：医疗站；类别：医疗护理；优先级：3；状态：沉睡|group", "开始重建|button", "编辑|button", "删除|button", "火种：量子档案；类别：知识传承；优先级：2；状态：沉睡|group", "开始重建|button", "编辑|button", "删除|button", "火种：通信塔；类别：通信网络；优先级：1；状态：沉睡|group", "开始重建|button", "编辑|button", "删除|button"]
+    },
+    {
+      "id": "edit_seed",
+      "enter": [{"action": "click", "selector": "编辑", "scope": "火种：净水基础；类别：生存基础；优先级：5；状态：已复原"}],
+      "expected": ["火种名称|edit_text", "类别|chooser", "优先级|chooser", "备注|edit_text", "备注 0 / 300|text", "取消|button", "保存|button"],
+      "leave": [{"action": "click", "selector": "取消"}]
+    },
+    {
+      "id": "filter_panel",
+      "enter": [{"action": "click", "selector": "筛选"}],
+      "expected": ["生存基础|choice", "知识传承|choice", "能源设施|choice", "医疗护理|choice", "通信网络|choice", "沉睡|choice", "重建中|choice", "已复原|choice", "清除筛选|button"],
+      "leave": [{"action": "back"}]
+    },
+    {
+      "id": "no_match_library",
+      "enter": [{"action": "set_text", "selector": "搜索火种", "value": "不存在"}],
+      "expected": ["火种库|heading", "已复原 1 / 5|text", "搜索火种|edit_text", "筛选|button", "添加火种|button", "没有符合条件的火种|text"],
+      "leave": [{"action": "set_text", "selector": "搜索火种", "value": ""}]
+    },
+    {
+      "id": "delete_confirmation",
+      "enter": [{"action": "click", "selector": "删除", "scope": "火种：净水基础；类别：生存基础；优先级：5；状态：已复原"}],
+      "expected": ["删除“净水基础”吗？此操作无法撤销。|text", "取消|button", "删除|button"],
+      "leave": [{"action": "click", "selector": "取消", "scope": "删除“净水基础”吗？此操作无法撤销。"}]
+    }
+  ]
+}

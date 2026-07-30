@@ -3,8 +3,10 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import random
-import sys
+import shutil
+import tempfile
 import zlib
 from pathlib import Path
 from typing import Any
@@ -13,15 +15,10 @@ import yaml
 
 
 ROOT = Path(__file__).resolve().parents[3]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
-
-from scripts.run_v04_13_codex_builder_child import _public_api_manual  # noqa: E402
-
-
 TASK_ID = "EXP-LILIES-001"
-REVISION = 20
-CREATED_AT = "2026-07-25T22:34:31Z"
+REVISION = 28
+PARENT_REVISION = 27
+CREATED_AT = "2026-07-28T09:33:00Z"
 DEFAULT_OUTPUT = (
     ROOT
     / "docs"
@@ -29,6 +26,21 @@ DEFAULT_OUTPUT = (
     / "lilies-collaboration"
     / TASK_ID
     / str(REVISION)
+)
+PARENT_SOURCE_ROOT = DEFAULT_OUTPUT.parent / str(PARENT_REVISION)
+BUILDER_API_MANUAL_FILE = "BUILDER_API_MANUAL.json"
+CUSTOMER_REQUIREMENT_PACKAGE_FILE = "CUSTOMER_REQUIREMENT_PACKAGE.json"
+AMENDMENT_REASON = (
+    "Revision 28 preserves the revision-27 business requirement, source pins, official host "
+    "operations, budgets, host boundary, public and hidden fixtures and PDFs, business records, "
+    "oracle expected values, acceptance, model_access=false and max_write_count=18. It records "
+    "the user's authorization that a fresh external Codex may act as the isolated Builder when "
+    "needed, while the binding restriction remains that the Builder sees only the public customer "
+    "requirement package, filtered workspace, Builder manual and public platform contract and "
+    "uses only Lilies platform public APIs and functions. The adjacent revision also supplies a "
+    "fresh assignment, collaboration channel, task credential and write-authorization budget "
+    "after the predecessor environment reset. No project-specific mapping, adapter, wrapper, "
+    "final graph, hidden answer, host data, oracle or evidence denominator is added."
 )
 COMPOSE_PATH = Path(__file__).with_name("compose.yaml")
 RESULT_HEADERS = [
@@ -560,7 +572,7 @@ def _host_oracle(hidden_records: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def generate(output: Path) -> None:
+def _generate_source_from_records(output: Path) -> None:
     if output.exists():
         raise FileExistsError(
             f"refusing to replace an existing task revision: {output}"
@@ -835,19 +847,24 @@ def generate(output: Path) -> None:
             "task_id": TASK_ID,
             "revision": REVISION,
             "readable_host_objects": [
-                "paperless.documents",
-                "paperless.tasks",
-                "paperless.custom_fields",
-                "inventree.companies",
-                "inventree.parts",
-                "inventree.purchase_orders",
-                "inventree.purchase_order_lines",
+                "paperless.documents_list",
+                "paperless.documents_retrieve",
+                "paperless.documents_metadata_retrieve",
+                "paperless.custom_fields_list",
+                "paperless.tags_list",
+                "paperless.tasks_list",
+                "inventree.company_list",
+                "inventree.part_list",
+                "inventree.company_part_list",
+                "inventree.order_po_list",
+                "inventree.order_po_line_list",
+                "inventree.attachment_list",
+                "inventree.metadata_pk_retrieve",
             ],
             "writable_host_operations": [
-                "paperless.document.custom_fields.update",
-                "paperless.document.tags.update",
-                "inventree.purchase_order.attachment.create",
-                "inventree.purchase_order.metadata.update",
+                "paperless.documents_partial_update",
+                "inventree.attachment_create",
+                "inventree.metadata_pk_partial_update",
             ],
             "platform_actions": [
                 "platform_contract_get",
@@ -868,22 +885,19 @@ def generate(output: Path) -> None:
                 "platform_publish",
             ],
             "network_hosts": ["127.0.0.1"],
-            "model_access": True,
+            "model_access": False,
             "file_access": True,
             "connector_access": True,
             "permission_required_actions": [
-                "paperless.document.custom_fields.update",
-                "paperless.document.tags.update",
-                "inventree.purchase_order.attachment.create",
-                "inventree.purchase_order.metadata.update",
+                "paperless.documents_partial_update",
+                "inventree.attachment_create",
+                "inventree.metadata_pk_partial_update",
             ],
             "max_write_count": 18,
             "max_payload_bytes": 4_194_304,
             "compensation_actions": [
-                "paperless.document.custom_fields.restore",
-                "paperless.document.tags.restore",
-                "inventree.purchase_order.attachment.delete",
-                "inventree.purchase_order.metadata.restore",
+                "inventree.attachment_destroy",
+                "inventree.metadata_pk_update",
             ],
             "prohibited_actions": [
                 "read_platform_source",
@@ -923,13 +937,32 @@ def generate(output: Path) -> None:
             "保存每条记录的来源、判断、人工决定、写回收据和失败原因。工作流必须"
             "仅使用平台公开合同自动发现并对齐接口，不得依赖预写宿主适配器、字段"
             "映射或人工修改最终图。\n"
+            "\n"
+            "InvenTree 1.4.2 的正式关联声明上限是 link-only 外部关联，不是"
+            "二进制文件复制。`attachment_create` 只使用 JSON "
+            "`{model_type: \"purchaseorder\", model_id: integer >= 0, "
+            "link: URI (max 2000), comment?: string (max 250), tags?: string[]}`，"
+            "成功返回 201 Attachment；`attachment_list` 只按 "
+            "`model_type`、`model_id`、`is_link`、`limit` 过滤，"
+            "`attachment_destroy` 仅作为按 attachment id 删除并返回 204 的补偿。"
+            "metadata 操作固定使用 `/api/metadata/purchaseorder/{id}/`：GET、"
+            "PUT、PATCH 的请求或响应合同均为 `{metadata: object}`；PATCH 是"
+            "顶层浅合并，PUT 是全量覆盖。冻结宿主的 live OpenAPI 未给出这些 "
+            "metadata content schema，因此只能依据该官方合同通过平台通用 "
+            "operation-contract overlay 补齐，不能引入 InvenTree 专用映射、"
+            "adapter 或 wrapper。\n"
         ),
         encoding="utf-8",
     )
-    _write_json(
-        output / "BUILDER_API_MANUAL.json",
-        _public_api_manual(),
-    )
+    parent_manual = PARENT_SOURCE_ROOT / BUILDER_API_MANUAL_FILE
+    if not parent_manual.is_file():
+        raise FileNotFoundError(parent_manual)
+    manual_payload = parent_manual.read_bytes()
+    if _canonical_json(json.loads(manual_payload)) != manual_payload:
+        raise ValueError(
+            "revision-25 Builder API manual is not canonical JSON"
+        )
+    (output / BUILDER_API_MANUAL_FILE).write_bytes(manual_payload)
     _write_yaml(
         output / "task.yaml",
         {
@@ -975,22 +1008,171 @@ def generate(output: Path) -> None:
             "collaboration_enabled": True,
             "author": "codex-task-author",
             "created_at": CREATED_AT,
-            "parent_revision": 19,
-            "amendment_reason": (
-                "Revision 20 changes only the external Builder evidence boundary. It freezes the "
-                "versioned public platform and collaboration API manual into the immutable task "
-                "workspace so a fresh Codex Builder does not depend on an unbound runtime file. "
-                "The business requirement, fixtures, hidden inputs, oracle, budget, allowed "
-                "actions, host environment, auto-forward policy, CAP admission, and acceptance "
-                "remain identical to revision 19."
-            ),
+            "parent_revision": PARENT_REVISION,
+            "amendment_reason": AMENDMENT_REASON,
         },
     )
 
 
+def _rewrite_json_revision(path: Path) -> bytes:
+    value = json.loads(path.read_bytes())
+    if value.get("task_id") != TASK_ID or value.get("revision") != PARENT_REVISION:
+        raise ValueError(f"parent wrapper identity changed: {path}")
+    value["revision"] = REVISION
+    return _write_json(path, value)
+
+
+def generate(output: Path) -> None:
+    """Create revision 28 from revision 27 with explicit authoring semantics."""
+
+    if output.exists() or output.is_symlink():
+        raise FileExistsError(
+            f"refusing to replace an existing task revision: {output}"
+        )
+    if not PARENT_SOURCE_ROOT.is_dir() or PARENT_SOURCE_ROOT.is_symlink():
+        raise FileNotFoundError(PARENT_SOURCE_ROOT)
+    parent_task = yaml.safe_load(
+        (PARENT_SOURCE_ROOT / "task.yaml").read_bytes()
+    )
+    if (
+        parent_task.get("task_id") != TASK_ID
+        or parent_task.get("revision") != PARENT_REVISION
+    ):
+        raise ValueError("revision-27 parent task identity changed")
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+    temporary = Path(
+        tempfile.mkdtemp(
+            prefix=f".{REVISION}.",
+            dir=output.parent,
+        )
+    )
+    try:
+        shutil.copytree(
+            PARENT_SOURCE_ROOT,
+            temporary,
+            copy_function=shutil.copyfile,
+            dirs_exist_ok=True,
+        )
+
+        fixture_manifest_payload = _rewrite_json_revision(
+            temporary / "fixtures" / "manifest.json"
+        )
+        environment = yaml.safe_load(
+            (temporary / "environment.lock").read_bytes()
+        )
+        if (
+            environment.get("task_id") != TASK_ID
+            or environment.get("revision") != PARENT_REVISION
+        ):
+            raise ValueError("revision-27 environment identity changed")
+        environment["revision"] = REVISION
+        environment_payload = _write_yaml(
+            temporary / "environment.lock",
+            environment,
+        )
+
+        for relative in (
+            "budget.json",
+            "protected/oracle/oracle.json",
+            "protected/oracle/host-oracle.json",
+            "protected/hidden-inputs/101/seed-plan.json",
+            "protected/hidden-inputs/202/seed-plan.json",
+            "protected/hidden-inputs/303/seed-plan.json",
+            "protected/expected-state/seed-101.json",
+            "protected/expected-state/seed-202.json",
+            "protected/expected-state/seed-303.json",
+            CUSTOMER_REQUIREMENT_PACKAGE_FILE,
+        ):
+            _rewrite_json_revision(temporary / relative)
+
+        allowed = json.loads(
+            (temporary / "allowed-actions.json").read_bytes()
+        )
+        if (
+            allowed.get("task_id") != TASK_ID
+            or allowed.get("revision") != PARENT_REVISION
+            or allowed.get("platform_actions", []).count(
+                "platform_connector_authorization_issue"
+            )
+            != 1
+        ):
+            raise ValueError("revision-27 allowed actions changed")
+        allowed["revision"] = REVISION
+        _write_json(temporary / "allowed-actions.json", allowed)
+
+        manual = json.loads(
+            (temporary / BUILDER_API_MANUAL_FILE).read_bytes()
+        )
+        platform_manual = manual.get("platform")
+        if (
+            manual.get("schema_version")
+            != "v0.4.13-t01h-external-builder-api-manual-1"
+            or not isinstance(platform_manual, dict)
+            or platform_manual.get("operation_count") != 17
+            or not isinstance(
+                platform_manual.get("connector_authorization"),
+                dict,
+            )
+        ):
+            raise ValueError("revision-27 Builder API manual changed")
+
+        customer_package_path = (
+            temporary / CUSTOMER_REQUIREMENT_PACKAGE_FILE
+        )
+        customer_package = json.loads(customer_package_path.read_bytes())
+        if (
+            customer_package.get("task_id") != TASK_ID
+            or customer_package.get("revision") != REVISION
+            or customer_package.get("material_completeness") != "partial"
+            or len(customer_package.get("missing_materials", [])) != 3
+        ):
+            raise ValueError(
+                "revision-27 customer requirement package changed"
+            )
+        customer_package["clarification_policy"] = (
+            "Customer non-provision is not automatically a task gap. The "
+            "Builder must author the final workflow and delivery workbook, "
+            "and must derive a candidate field mapping from the supplied "
+            "customer materials plus the public official connector schemas. "
+            "Report a task-specification gap only when one concrete required "
+            "fact remains genuinely ambiguous after that derivation and the "
+            "ambiguity would make a governed write unsafe."
+        )
+        customer_package["missing_materials"] = [
+            (
+                "No customer-authored field mapping is supplied; derive a "
+                "candidate from customer materials and official schemas."
+            ),
+            (
+                "No customer-authored final workflow is supplied because the "
+                "workflow is a required Builder deliverable."
+            ),
+            (
+                "No customer-authored workbook template is supplied; generate "
+                "the workbook from the required deliverable fields."
+            ),
+        ]
+        _write_json(customer_package_path, customer_package)
+
+        task = yaml.safe_load((temporary / "task.yaml").read_bytes())
+        task["revision"] = REVISION
+        task["parent_revision"] = PARENT_REVISION
+        task["created_at"] = CREATED_AT
+        task["amendment_reason"] = AMENDMENT_REASON
+        task["environment_lock_digest"] = _digest(environment_payload)
+        task["fixture_manifest_digest"] = _digest(fixture_manifest_payload)
+        _write_yaml(temporary / "task.yaml", task)
+
+        os.rename(temporary, output)
+    finally:
+        if temporary.exists():
+            shutil.rmtree(temporary)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Generate immutable EXP-LILIES-001 revision-twenty source files."
+        description="Generate immutable EXP-LILIES-001 revision-twenty-eight source files."
     )
     parser.add_argument(
         "--output",

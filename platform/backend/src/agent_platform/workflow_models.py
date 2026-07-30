@@ -226,6 +226,14 @@ class WorkflowTestCase(BaseModel):
     requirement: str
     frame: TestFrameSpec | None = None
     inputs: dict[str, Any] = Field(default_factory=dict)
+    simulated_human_inputs: dict[str, dict[str, Any]] = Field(
+        default_factory=dict,
+        max_length=100,
+        description=(
+            "Test-only typed responses keyed by human_input node id. The runtime "
+            "injects them internally; production run inputs cannot use reserved keys."
+        ),
+    )
     assertions: list[TestAssertion] = Field(default_factory=list)
     required_node_types: list[str] = Field(default_factory=list)
     required_tool_nodes: list[str] = Field(default_factory=list)
@@ -359,9 +367,46 @@ class WorkflowRunState(BaseModel):
         le=100 * 1024 * 1024,
     )
     governed_host_actions: bool = False
+    # Public task runs may authorize a connector mutation only after workflow
+    # references resolve to one concrete payload. These trusted, digest-only
+    # fields preserve the exact task-policy ceiling across pause/resume without
+    # persisting a bearer token or broad owner authority.
+    connector_descriptor_digests: dict[str, str] | None = None
+    task_credential_ref_digest: str | None = Field(
+        default=None,
+        pattern=r"^sha256:[0-9a-f]{64}$",
+    )
+    task_policy_digest: str | None = Field(
+        default=None,
+        pattern=r"^sha256:[0-9a-f]{64}$",
+    )
+    allowed_actions_digest: str | None = Field(
+        default=None,
+        pattern=r"^sha256:[0-9a-f]{64}$",
+    )
+    budget_digest: str | None = Field(
+        default=None,
+        pattern=r"^sha256:[0-9a-f]{64}$",
+    )
+    task_deadline_at: str | None = None
+    # A published version may carry an immutable execution-policy snapshot.
+    # The first digest names that version-bound ceiling; the second names the
+    # effective policy after a task caller has optionally narrowed it.
+    published_execution_policy_digest: str | None = Field(
+        default=None,
+        pattern=r"^sha256:[0-9a-f]{64}$",
+    )
+    execution_policy_digest: str | None = Field(
+        default=None,
+        pattern=r"^sha256:[0-9a-f]{64}$",
+    )
     connector_write_count: int = Field(default=0, ge=0, le=1_000_000)
     connector_write_keys: list[str] = Field(
         default_factory=list,
+        max_length=1_000_000,
+    )
+    runtime_connector_authorization_ids: dict[str, str] = Field(
+        default_factory=dict,
         max_length=1_000_000,
     )
     # Black-box runs are owned by one exact task assignment and one exact
@@ -378,6 +423,10 @@ class WorkflowRunState(BaseModel):
     skipped: list[str] = Field(default_factory=list)
     waiting_node_id: str | None = None
     resumed_values: dict[str, Any] | None = None
+    human_input_values: dict[str, dict[str, Any]] = Field(
+        default_factory=dict,
+        max_length=1_000_000,
+    )
     created_at: str = Field(default_factory=utc_now)
 
 

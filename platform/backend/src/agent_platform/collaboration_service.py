@@ -14,6 +14,7 @@ from uuid import UUID, uuid4, uuid5, NAMESPACE_URL
 
 from pydantic import BaseModel, SecretStr, ValidationError
 
+from .capability_generality_gate import CapabilityGeneralityViolation
 from .collaboration_models import (
     ApprovalDecision,
     ApprovalDecisionRequest,
@@ -87,6 +88,7 @@ _DEVELOPER_VISIBLE_REPORT_STATUSES = frozenset(
         ReportStatus.approved_for_codex,
         ReportStatus.implementing,
         ReportStatus.ready_for_lilies_verification,
+        ReportStatus.verification_failed,
         ReportStatus.routed_to_task_author,
         ReportStatus.task_package_amended,
         ReportStatus.environment_failed,
@@ -3021,6 +3023,7 @@ class CollaborationService:
                             ReportStatus.approved_for_codex,
                             ReportStatus.implementing,
                             ReportStatus.ready_for_lilies_verification,
+                            ReportStatus.verification_failed,
                             ReportStatus.routed_to_task_author,
                             ReportStatus.task_package_amended,
                             ReportStatus.environment_failed,
@@ -3064,6 +3067,7 @@ class CollaborationService:
                 ReportStatus.approved_for_codex,
                 ReportStatus.implementing,
                 ReportStatus.ready_for_lilies_verification,
+                ReportStatus.verification_failed,
                 ReportStatus.routed_to_task_author,
                 ReportStatus.task_package_amended,
                 ReportStatus.environment_failed,
@@ -3491,6 +3495,11 @@ class CollaborationService:
             promoted = provider(channel, report, lease, request)
             if inspect.isawaitable(promoted):
                 promoted = await promoted
+        except CapabilityGeneralityViolation as error:
+            raise CollaborationConflict(
+                "developer_source_not_generic",
+                str(error),
+            ) from error
         except Exception as error:
             raise CollaborationConflict(
                 "developer_source_promotion_rejected",

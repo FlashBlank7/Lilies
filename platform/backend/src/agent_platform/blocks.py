@@ -4,8 +4,23 @@ from collections import defaultdict, deque
 from typing import Any, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
+from .event_automation import DurableEventTimerConfig
+from .knowledge_rag import (
+    GroundedAnswerConfig,
+    KnowledgeIndexSyncConfig,
+    KnowledgeRetrievalConfig,
+)
+from .record_pipeline import (
+    JsonSchemaValidateConfig,
+    RecordCollectionNormalizeConfig,
+    RecordDeduplicateConfig,
+    RecordMatchConfig,
+    RegexExtractConfig,
+    TypedJsonArtifactConfig,
+)
+from .typed_workbook import TypedWorkbookConfig
 from .workflow_models import (
     BlockDefinition,
     EdgeSpec,
@@ -46,6 +61,14 @@ class ScheduleTriggerConfig(BaseModel):
         except ZoneInfoNotFoundError as error:
             raise ValueError(f"unknown IANA timezone: {value}") from error
         return value
+
+
+class EventSubscriptionTriggerConfig(StartConfig):
+    subscription_name: str = Field(
+        min_length=2,
+        max_length=120,
+        pattern=r"^[A-Za-z0-9_.-]+$",
+    )
 
 
 class LLMConfig(BaseModel):
@@ -151,6 +174,25 @@ class CollectionDigestConfig(BaseModel):
     max_items: int = Field(default=20, ge=1, le=100)
 
 
+class DeployedModelInferenceConfig(BaseModel):
+    deployment_name: str = Field(min_length=2, max_length=120)
+    features: Any
+    units: Any
+
+
+class ModelDriftMonitorConfig(BaseModel):
+    deployment_name: str = Field(min_length=2, max_length=120)
+    observations: Any
+    warning_threshold: float = Field(default=1.0, gt=0)
+    critical_threshold: float = Field(default=2.0, gt=0)
+
+    @model_validator(mode="after")
+    def ordered_thresholds(self) -> ModelDriftMonitorConfig:
+        if self.critical_threshold <= self.warning_threshold:
+            raise ValueError("critical threshold must be greater than warning threshold")
+        return self
+
+
 class ConnectorActionConfig(BaseModel):
     connector_id: str = Field(min_length=2, max_length=120)
     connector_version: int = Field(default=1, ge=1)
@@ -162,12 +204,14 @@ class ConnectorActionConfig(BaseModel):
     payload: Any
     idempotency_key: Any
     authorization_id: Any = ""
+    authorization_mode: Any = "explicit"
     execution_mode: Any = "dry_run"
 
 
 class IterationConfig(BaseModel):
     items: Any
     workflow: WorkflowSpec
+    variables: dict[str, Any] = Field(default_factory=dict, max_length=100)
     item_name: str = "item"
     output_node_id: str
     output_path: list[str] = Field(default_factory=list)
@@ -268,6 +312,10 @@ _ZH_CATEGORIES = {
 _ZH_BLOCKS = {
     "start": ("用户输入", "声明工作流输入。"),
     "schedule_trigger": ("定时触发", "按 IANA 时区每天启动已发布工作流。"),
+    "event_subscription_trigger": (
+        "事件订阅触发",
+        "从授权的持久 WebSocket 订阅启动已发布工作流。",
+    ),
     "llm": ("LLM", "执行一次供应商无关的模型调用。"),
     "claude_agent": ("Claude 智能体", "运行完整的 Claude 风格 agent loop。"),
     "tool": ("工具", "调用一个已注册的核心、MCP 或工作流工具。"),
@@ -278,8 +326,64 @@ _ZH_BLOCKS = {
     "variable_assigner": ("变量赋值", "创建命名工作流变量。"),
     "variable_aggregator": ("变量聚合", "合并分支或多个上游值。"),
     "http_request": ("HTTP 请求", "调用外部 HTTP 接口。"),
+    "durable_event_timer": (
+        "持久事件定时器",
+        "按业务对象建立、取消或完成可跨重启恢复的定时器。",
+    ),
+    "connector_action": (
+        "连接器操作",
+        "通过租户、权限和请求策略执行一个已登记的外部系统接口操作。",
+    ),
     "web_collection": ("受控网页采集", "按允许来源和 robots 策略采集内容并保存来源证据。"),
     "collection_digest": ("采集摘要", "把采集结果整理为带来源和状态的可读摘要。"),
+    "deployed_model_inference": (
+        "已部署模型推理",
+        "按部署名调用已批准的表格型预测模型，并返回版本、摘要、概率和置信度。",
+    ),
+    "model_drift_monitor": (
+        "模型漂移监控",
+        "比较生产观测与已部署模型的训练基线，只报告漂移而不自动训练。",
+    ),
+    "knowledge_index_sync": (
+        "知识索引同步",
+        "按来源版本同步、更新或删除知识文档，并返回可重放的索引回执。",
+    ),
+    "knowledge_retrieval": (
+        "权限知识检索",
+        "先按调用者角色过滤无权文档，再从获准知识中检索可引用片段。",
+    ),
+    "grounded_answer": (
+        "有据回答",
+        "只用已授权检索证据回答；没有足够证据时明确拒答。",
+    ),
+    "json_schema_validate": (
+        "JSON Schema 校验",
+        "按有界 JSON Schema 确定性校验任意 JSON 值并返回逐项错误。",
+    ),
+    "regex_extract": (
+        "正则字段抽取",
+        "用受限正则配置从文本确定性抽取并强类型化字段。",
+    ),
+    "record_deduplicate": (
+        "记录去重",
+        "按配置键路径稳定去重记录并返回逐条回执。",
+    ),
+    "record_collection_normalize": (
+        "记录集合标准化",
+        "把数组、单对象或常见分页响应包转换为稳定的对象数组。",
+    ),
+    "record_match": (
+        "记录匹配",
+        "按加权条件、歧义阈值和冲突检查确定性匹配记录。",
+    ),
+    "typed_json_artifact": (
+        "类型化 JSON 工件",
+        "在当前运行工件目录写入真实、确定性的 JSON 文件并返回血缘。",
+    ),
+    "typed_workbook": (
+        "类型化工作簿",
+        "从有界表结构生成真实 XLSX 工件，并返回摘要、媒体类型和血缘。",
+    ),
     "iteration": ("迭代", "对数组中的每一项运行嵌套工作流。"),
     "loop": ("循环", "重复运行嵌套工作流直到满足退出条件。"),
     "human_input": ("人工输入", "持久化暂停，并通过表单恢复。"),
@@ -364,6 +468,404 @@ _EDITOR_FIELDS: dict[str, list[dict[str, Any]]] = {
         {"path": "topic", "label": "Digest topic", "label_zh": "摘要主题", "control": "reference_or_text"},
         {"path": "include_unchanged", "label": "Include unchanged sources", "label_zh": "包含未变化来源", "control": "boolean"},
         {"path": "max_items", "label": "Maximum digest items", "label_zh": "最大摘要条目", "control": "number", "minimum": 1, "maximum": 100, "step": 1},
+    ],
+    "deployed_model_inference": [
+        {
+            "path": "deployment_name",
+            "label": "Deployment name",
+            "label_zh": "部署名称",
+            "control": "text",
+            "description": "Resolve the currently approved immutable model version by name.",
+            "required": True,
+        },
+        {
+            "path": "features",
+            "label": "Feature values",
+            "label_zh": "特征值",
+            "control": "json",
+            "description": "Object of numeric feature values or one workflow reference.",
+            "required": True,
+        },
+        {
+            "path": "units",
+            "label": "Feature units",
+            "label_zh": "特征单位",
+            "control": "json",
+            "description": "Object of units keyed by the same feature names.",
+            "required": True,
+        },
+    ],
+    "model_drift_monitor": [
+        {
+            "path": "deployment_name",
+            "label": "Deployment name",
+            "label_zh": "部署名称",
+            "control": "text",
+            "required": True,
+        },
+        {
+            "path": "observations",
+            "label": "Observation window",
+            "label_zh": "观测窗口",
+            "control": "json",
+            "description": "Array of objects containing features and units.",
+            "required": True,
+        },
+        {
+            "path": "warning_threshold",
+            "label": "Warning threshold",
+            "label_zh": "警告阈值",
+            "control": "number",
+            "minimum": 0.01,
+            "step": 0.1,
+            "required": True,
+        },
+        {
+            "path": "critical_threshold",
+            "label": "Critical threshold",
+            "label_zh": "严重阈值",
+            "control": "number",
+            "minimum": 0.01,
+            "step": 0.1,
+            "required": True,
+        },
+    ],
+    "knowledge_index_sync": [
+        {
+            "path": "index_name",
+            "label": "Knowledge index",
+            "label_zh": "知识索引",
+            "control": "text",
+            "description": "A pre-created versioned knowledge index.",
+            "required": True,
+        },
+        {
+            "path": "documents",
+            "label": "Documents",
+            "label_zh": "文档",
+            "control": "json",
+            "description": "Documents or a workflow reference with source, revision, ACL, and content.",
+            "required": True,
+        },
+        {
+            "path": "deleted_source_ids",
+            "label": "Deleted sources",
+            "label_zh": "删除的来源",
+            "control": "json",
+            "description": "Source IDs removed from the customer system.",
+        },
+        {
+            "path": "event_id",
+            "label": "Synchronization event",
+            "label_zh": "同步事件",
+            "control": "reference_or_text",
+            "description": "Stable webhook, job, or change-set identity used for idempotency.",
+            "required": True,
+        },
+    ],
+    "knowledge_retrieval": [
+        {
+            "path": "index_name",
+            "label": "Knowledge index",
+            "label_zh": "知识索引",
+            "control": "text",
+            "required": True,
+        },
+        {
+            "path": "query",
+            "label": "Question",
+            "label_zh": "问题",
+            "control": "reference_or_text",
+            "required": True,
+        },
+        {
+            "path": "principal_roles",
+            "label": "Caller roles",
+            "label_zh": "调用者角色",
+            "control": "json",
+            "description": "Authenticated roles used before scoring or returning chunks.",
+            "required": True,
+        },
+        {
+            "path": "top_k",
+            "label": "Maximum evidence chunks",
+            "label_zh": "最大证据片段数",
+            "control": "number",
+            "minimum": 1,
+            "maximum": 20,
+            "step": 1,
+        },
+        {
+            "path": "minimum_score",
+            "label": "Minimum evidence score",
+            "label_zh": "最低证据分",
+            "control": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "step": 0.01,
+        },
+    ],
+    "grounded_answer": [
+        {
+            "path": "query",
+            "label": "Question",
+            "label_zh": "问题",
+            "control": "reference_or_text",
+            "required": True,
+        },
+        {
+            "path": "retrieval",
+            "label": "Authorized evidence",
+            "label_zh": "授权证据",
+            "control": "json",
+            "description": "Output from ACL-first knowledge retrieval.",
+            "required": True,
+        },
+        {
+            "path": "refusal_message",
+            "label": "Refusal message",
+            "label_zh": "拒答信息",
+            "control": "textarea",
+        },
+    ],
+    "json_schema_validate": [
+        {
+            "path": "value",
+            "label": "JSON value",
+            "label_zh": "JSON 值",
+            "control": "json",
+            "description": "Literal JSON or one workflow value reference.",
+            "required": True,
+        },
+        {
+            "path": "schema",
+            "label": "Bounded JSON Schema",
+            "label_zh": "有界 JSON Schema",
+            "control": "json",
+            "description": (
+                "A local schema using the documented bounded keyword subset; "
+                "remote references and executable extensions are rejected."
+            ),
+            "required": True,
+        },
+        {
+            "path": "max_errors",
+            "label": "Maximum errors",
+            "label_zh": "最大错误数",
+            "control": "number",
+            "minimum": 1,
+            "maximum": 100,
+            "step": 1,
+            "required": True,
+        },
+    ],
+    "regex_extract": [
+        {
+            "path": "text",
+            "label": "Source text",
+            "label_zh": "来源文本",
+            "control": "reference_or_text",
+            "required": True,
+        },
+        {
+            "path": "fields",
+            "label": "Extraction fields",
+            "label_zh": "抽取字段",
+            "control": "json",
+            "description": (
+                "Bounded field definitions with name, safe pattern, capture group, "
+                "type, required flag, and explicit flags."
+            ),
+            "required": True,
+        },
+    ],
+    "record_deduplicate": [
+        {
+            "path": "records",
+            "label": "Records",
+            "label_zh": "记录数组",
+            "control": "json",
+            "description": "An object array or one workflow value reference.",
+            "required": True,
+        },
+        {
+            "path": "key_paths",
+            "label": "Key paths",
+            "label_zh": "去重键路径",
+            "control": "json",
+            "description": "One or more bounded arrays of string or integer path segments.",
+            "required": True,
+        },
+        {
+            "path": "missing_key_policy",
+            "label": "Missing-key policy",
+            "label_zh": "缺失键策略",
+            "control": "enum",
+            "options": ["error", "keep"],
+            "required": True,
+        },
+    ],
+    "record_collection_normalize": [
+        {
+            "path": "value",
+            "label": "Response value",
+            "label_zh": "响应值",
+            "control": "json",
+            "description": "An array, one object, or a connector/tool response envelope.",
+            "required": True,
+        },
+        {
+            "path": "record_paths",
+            "label": "Candidate record paths",
+            "label_zh": "候选记录路径",
+            "control": "json",
+            "description": (
+                "Ordered bounded paths checked when the response is an object. "
+                "Defaults cover results, items, records, and data."
+            ),
+            "required": True,
+        },
+        {
+            "path": "single_object_policy",
+            "label": "Single-object policy",
+            "label_zh": "单对象策略",
+            "control": "enum",
+            "options": ["wrap", "error"],
+            "required": True,
+        },
+        {
+            "path": "empty_policy",
+            "label": "Empty collection policy",
+            "label_zh": "空集合策略",
+            "control": "enum",
+            "options": ["allow", "error"],
+            "required": True,
+        },
+    ],
+    "record_match": [
+        {
+            "path": "source",
+            "label": "Source record",
+            "label_zh": "来源记录",
+            "control": "json",
+            "required": True,
+        },
+        {
+            "path": "candidates",
+            "label": "Candidate records",
+            "label_zh": "候选记录",
+            "control": "json",
+            "required": True,
+        },
+        {
+            "path": "conditions",
+            "label": "Weighted conditions",
+            "label_zh": "加权条件",
+            "control": "json",
+            "description": "Exact, casefold, or numeric comparisons with bounded weights.",
+            "required": True,
+        },
+        {
+            "path": "conflict_checks",
+            "label": "Conflict checks",
+            "label_zh": "冲突检查",
+            "control": "json",
+            "description": "Hard comparisons that prevent a nearby candidate from being selected.",
+        },
+        {
+            "path": "min_score",
+            "label": "Minimum score",
+            "label_zh": "最低分",
+            "control": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "step": 0.01,
+            "required": True,
+        },
+        {
+            "path": "ambiguity_threshold",
+            "label": "Ambiguity threshold",
+            "label_zh": "歧义阈值",
+            "control": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "step": 0.01,
+            "required": True,
+        },
+        {
+            "path": "result_limit",
+            "label": "Candidate result limit",
+            "label_zh": "候选结果上限",
+            "control": "number",
+            "minimum": 1,
+            "maximum": 100,
+            "step": 1,
+            "required": True,
+        },
+    ],
+    "typed_json_artifact": [
+        {
+            "path": "value",
+            "label": "JSON value",
+            "label_zh": "JSON 值",
+            "control": "json",
+            "description": "Literal JSON or one workflow value reference.",
+            "required": True,
+        },
+        {
+            "path": "filename",
+            "label": "Artifact filename",
+            "label_zh": "工件文件名",
+            "control": "text",
+            "description": "A plain .json basename; directories and traversal are rejected.",
+            "required": True,
+        },
+        {
+            "path": "lineage",
+            "label": "Lineage sources",
+            "label_zh": "血缘来源",
+            "control": "json",
+            "description": "Optional bounded source references and source digests.",
+        },
+    ],
+    "typed_workbook": [
+        {
+            "path": "spec",
+            "label": "Workbook specification",
+            "label_zh": "工作簿规格",
+            "control": "json",
+            "description": (
+                "Bounded sheets, typed columns, and rows, or one workflow value reference."
+            ),
+            "required": True,
+        },
+        {
+            "path": "filename",
+            "label": "Artifact filename",
+            "label_zh": "工件文件名",
+            "control": "text",
+            "description": "A plain .xlsx basename; directories and traversal are rejected.",
+            "required": True,
+        },
+        {
+            "path": "formula_policy",
+            "label": "Formula-looking text",
+            "label_zh": "公式外观文本策略",
+            "control": "enum",
+            "options": ["reject", "literal"],
+            "description": (
+                "Reject by default. Literal keeps formula-looking values as explicit text cells; "
+                "the block never emits executable formulas."
+            ),
+            "required": True,
+        },
+        {
+            "path": "lineage",
+            "label": "Lineage sources",
+            "label_zh": "血缘来源",
+            "control": "json",
+            "description": "Optional bounded source references and source digests.",
+        },
     ],
     "tool": [
         {"path": "tool_name", "label": "Tool name", "label_zh": "工具名称", "control": "text", "description": "Registered core, MCP, or workflow tool name.", "required": True},
@@ -490,6 +992,618 @@ def _manual(
         "composability_constraints": [
             "Keep each block responsible for one runtime mechanism.",
             "Use nested WorkflowSpec subgraphs when a loop would crowd the main canvas.",
+        ],
+    }
+
+
+def _business_orchestration_manual(block_type: str) -> dict[str, Any]:
+    manuals: dict[str, dict[str, Any]] = {
+        "if_else": {
+            "summary": (
+                "Route runtime data through named, mutually ordered cases and one "
+                "explicit default branch."
+            ),
+            "when_to_use": [
+                "Use it after validation or matching to separate safe, review, duplicate, and error outcomes.",
+                "Use workflow value references in condition values so decisions depend on runtime evidence.",
+            ],
+            "examples": [
+                {
+                    "description": "Route a generic account match.",
+                    "connection": "record_match -> if_else -> safe action / human_input",
+                    "config": {
+                        "cases": [
+                            {
+                                "id": "safe",
+                                "conditions": [
+                                    {
+                                        "value": {
+                                            "$ref": {
+                                                "node_id": "match",
+                                                "path": ["status"],
+                                            }
+                                        },
+                                        "operator": "equals",
+                                        "expected": "matched",
+                                    }
+                                ],
+                                "logical_operator": "and",
+                            }
+                        ],
+                        "default_branch": "review",
+                    },
+                }
+            ],
+            "anti_patterns": [
+                "Do not use literal placeholder values as governed decision inputs.",
+                "Do not leave a declared case or default branch unconnected in a high-risk governed workflow.",
+            ],
+            "common_errors": [
+                "A condition references a skipped node without optional=true.",
+                "An outgoing edge branch does not equal a declared case id or default branch.",
+            ],
+            "claude_architecture_mapping": "Deterministic evidence-based routing.",
+            "composability_constraints": [
+                "Cases are evaluated in order and the first matching case wins.",
+                "Governed high-risk workflows must connect every declared outcome.",
+            ],
+        },
+        "iteration": {
+            "summary": (
+                "Run one explicit nested WorkflowSpec for every record in an array "
+                "while carrying declared parent variables into the nested inputs."
+            ),
+            "when_to_use": [
+                "Use it after record_collection_normalize or record_deduplicate when every record needs processing.",
+                "Use variables to pass shared candidate collections or policy facts into each nested run.",
+            ],
+            "examples": [
+                {
+                    "description": "Process every normalized service request.",
+                    "connection": "record_collection_normalize -> iteration -> typed_json_artifact",
+                    "config_template": {
+                        "items": {
+                            "$ref": {
+                                "node_id": "normalize",
+                                "path": ["records"],
+                            }
+                        },
+                        "item_name": "record",
+                        "variables": {
+                            "accounts": {
+                                "$ref": {
+                                    "node_id": "accounts",
+                                    "path": ["records"],
+                                }
+                            }
+                        },
+                        "workflow": "<nested WorkflowSpec using $inputs.record and $inputs.accounts>",
+                        "output_node_id": "nested_end",
+                        "output_path": [],
+                        "parallelism": 4,
+                    },
+                }
+            ],
+            "anti_patterns": [
+                "Do not select index 0 when the requirement says every record must be processed.",
+                "Do not hide a complete business workflow inside one custom-code block.",
+            ],
+            "common_errors": [
+                "items does not resolve to an array.",
+                "output_node_id or output_path does not exist in the nested workflow result.",
+            ],
+            "claude_architecture_mapping": "Bounded per-record subworkflow mapping.",
+            "composability_constraints": [
+                "Nested inputs include the declared item name, index, parent workflow inputs, and variables.",
+                "Parallelism is bounded and output order matches input order.",
+            ],
+        },
+        "human_input": {
+            "summary": (
+                "Persistently pause a production run for a typed decision, or consume "
+                "an explicit test-only simulated response during acceptance."
+            ),
+            "when_to_use": [
+                "Use it for low confidence, ambiguity, conflict, or approval before sensitive writeback.",
+                "In WorkflowTestCase, use simulated_human_inputs keyed by this node id for unattended deterministic tests.",
+            ],
+            "examples": [
+                {
+                    "description": "Review an unsafe deterministic match.",
+                    "connection": "if_else(review) -> human_input -> reviewed action/end",
+                    "config": {
+                        "title": "Review unsafe match",
+                        "description": "Approve, reject, or provide the corrected selection.",
+                        "fields": [
+                            {
+                                "name": "approved",
+                                "label": "Approved",
+                                "type": "boolean",
+                                "required": True,
+                            }
+                        ],
+                    },
+                    "test_template": {
+                        "inputs": {},
+                        "simulated_human_inputs": {
+                            "review_node_id": {"approved": True}
+                        },
+                    },
+                }
+            ],
+            "anti_patterns": [
+                "Do not remove the production review node merely to make an unattended test finish.",
+                "Do not place __human__ or any other reserved key in public run/test inputs.",
+            ],
+            "common_errors": [
+                "A required response field is missing.",
+                "A test fixture names an unknown node or field.",
+            ],
+            "claude_architecture_mapping": "Durable human decision boundary with safe test simulation.",
+            "composability_constraints": [
+                "Production runs pause and resume through the public run-resume operation.",
+                "Simulated responses are test-only and never widen production run input authority.",
+            ],
+        },
+        "connector_action": {
+            "summary": (
+                "Execute one registered, versioned Connector operation under the "
+                "assignment's tenant, operation, network, payload, write, and authorization policy."
+            ),
+            "when_to_use": [
+                "Use it for official customer-system reads and governed writes after inspecting the public Connector schema.",
+                "Normalize list responses before record processing and derive write idempotency keys from stable business record identity.",
+            ],
+            "examples": [
+                {
+                    "description": "Generic registered collection read.",
+                    "connection": "connector_action(read) -> record_collection_normalize -> iteration",
+                    "config_template": {
+                        "connector_id": "<registered connector>",
+                        "connector_version": 1,
+                        "operation_id": "<public operation id>",
+                        "tenant_id": "<assigned tenant>",
+                        "actor_id": "<assigned actor>",
+                        "actor_roles": ["operator"],
+                        "profile_id": "<assigned profile>",
+                        "payload": {},
+                        "idempotency_key": "<stable operation key>",
+                        "authorization_id": "",
+                        "authorization_mode": "explicit",
+                        "execution_mode": "execute",
+                    },
+                    "outputs": {
+                        "response": "Validated operation response for downstream normalization.",
+                        "receipt": "Durable public execution receipt.",
+                    },
+                }
+            ],
+            "anti_patterns": [
+                "Do not invent an operation, payload field, endpoint, or authorization id outside the public catalog.",
+                "Do not reuse one static idempotency key for distinct business-record writes.",
+            ],
+            "common_errors": [
+                "The operation is absent from the task policy or the payload violates its narrowed schema.",
+                "A mutating operation requires an authorization receipt or exceeds the frozen write budget.",
+            ],
+            "claude_architecture_mapping": "Governed external-system action and receipt.",
+            "composability_constraints": [
+                "Use response for data processing and receipt for audit lineage.",
+                "Configure bounded NodeSpec retry only when the Connector retry contract declares replay safety.",
+                (
+                    "Use authorization_mode=runtime_exact only for task-governed "
+                    "writes whose payload contains runtime references. The runtime "
+                    "resolves the payload first, issues one exact run-bound "
+                    "authorization, and immediately consumes it."
+                ),
+            ],
+        },
+    }
+    return manuals[block_type]
+
+
+def _record_pipeline_manual(block_type: str) -> dict[str, Any]:
+    manuals: dict[str, dict[str, Any]] = {
+        "json_schema_validate": {
+            "summary": (
+                "Validate any bounded JSON value against a deterministic local "
+                "JSON Schema subset and return valid, errors, and the original value."
+            ),
+            "when_to_use": [
+                "Use it before deterministic transforms or external writes need a typed contract.",
+                "Use it when validation failures must remain machine-readable workflow data.",
+            ],
+            "examples": [
+                {
+                    "description": "Validate a customer service request.",
+                    "connection": "start -> json_schema_validate -> end",
+                    "config": {
+                        "value": {
+                            "$ref": {
+                                "node_id": "start",
+                                "path": ["request"],
+                            }
+                        },
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "request_id": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                },
+                                "priority": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": 5,
+                                },
+                            },
+                            "required": ["request_id", "priority"],
+                            "additionalProperties": False,
+                        },
+                        "max_errors": 25,
+                    },
+                }
+            ],
+            "anti_patterns": [
+                "Do not use remote references, custom code, or unsupported schema keywords.",
+                "Do not treat valid=false as success without routing or exposing the errors.",
+            ],
+            "common_errors": [
+                "The schema contains an unsupported keyword or exceeds a depth or node limit.",
+                "A required value is absent, has the wrong JSON type, or violates a bound.",
+            ],
+            "claude_architecture_mapping": "Deterministic structured-data contract gate.",
+            "composability_constraints": [
+                "The schema is local, bounded, and contains no remote or executable references.",
+                "Validation errors are capped and returned in stable path order.",
+            ],
+        },
+        "regex_extract": {
+            "summary": (
+                "Extract configured fields from bounded text with a conservative regex "
+                "subset, strong types, confidence, missing fields, errors, and evidence."
+            ),
+            "when_to_use": [
+                "Use it for stable text formats whose field patterns are explicitly known.",
+                "Use it when extraction must remain deterministic and model-free.",
+            ],
+            "examples": [
+                {
+                    "description": "Extract an equipment observation.",
+                    "connection": "start -> regex_extract -> json_schema_validate",
+                    "config": {
+                        "text": {
+                            "$ref": {
+                                "node_id": "start",
+                                "path": ["observation"],
+                            }
+                        },
+                        "fields": [
+                            {
+                                "name": "asset_code",
+                                "pattern": r"Asset:\s*([A-Z0-9-]+)",
+                                "group": 1,
+                                "type": "string",
+                                "required": True,
+                                "flags": ["ascii"],
+                            },
+                            {
+                                "name": "reading",
+                                "pattern": r"Reading:\s*([0-9.]+)",
+                                "group": 1,
+                                "type": "number",
+                                "required": True,
+                                "flags": ["ascii"],
+                            },
+                        ],
+                    },
+                }
+            ],
+            "anti_patterns": [
+                "Do not use it for free-form language that needs probabilistic interpretation.",
+                "Do not attempt lookarounds, backreferences, alternation, or quantified groups.",
+            ],
+            "common_errors": [
+                "A selected capture group is absent from its pattern.",
+                "A captured string cannot be converted to the configured strong type.",
+            ],
+            "claude_architecture_mapping": "Deterministic text-to-record transform.",
+            "composability_constraints": [
+                "Input text, field count, pattern length, capture groups, and output are bounded.",
+                "Patterns are configuration only and never execute code.",
+            ],
+        },
+        "record_deduplicate": {
+            "summary": (
+                "Deduplicate a bounded object array by configured paths while preserving "
+                "first-seen order and emitting an immutable receipt for every input record."
+            ),
+            "when_to_use": [
+                "Use it before matching or delivery when repeated records must be removed.",
+                "Use it when downstream evidence needs the first and duplicate source indexes.",
+            ],
+            "examples": [
+                {
+                    "description": "Deduplicate customer contacts by tenant and external key.",
+                    "connection": "json_schema_validate -> record_deduplicate -> record_match",
+                    "config": {
+                        "records": {
+                            "$ref": {
+                                "node_id": "validate",
+                                "path": ["value"],
+                            }
+                        },
+                        "key_paths": [["tenant"], ["external_key"]],
+                        "missing_key_policy": "error",
+                    },
+                }
+            ],
+            "anti_patterns": [
+                "Do not use unstable array order as a hidden priority rule.",
+                "Do not silently collapse records with missing keys; choose an explicit policy.",
+            ],
+            "common_errors": [
+                "The input is not an object array or exceeds the record limit.",
+                "A configured path is missing while the error policy is active.",
+            ],
+            "claude_architecture_mapping": "Stable keyed-record normalization primitive.",
+            "composability_constraints": [
+                "The first record for each canonical key remains in the unique output.",
+                "Keys and receipts use canonical JSON digests and stable input indexes.",
+            ],
+        },
+        "record_collection_normalize": {
+            "summary": (
+                "Normalize an array, one object, or a common paginated response "
+                "envelope into a stable object array and record the selected path."
+            ),
+            "when_to_use": [
+                "Use it immediately after connector or tool reads before iteration, matching, or deduplication.",
+                "Use it when an external API may return an array or one of several documented envelope paths.",
+            ],
+            "examples": [
+                {
+                    "description": "Normalize a generic CRM list response.",
+                    "connection": "connector_action -> record_collection_normalize -> iteration",
+                    "config": {
+                        "value": {
+                            "$ref": {
+                                "node_id": "list_accounts",
+                                "path": ["response"],
+                            }
+                        },
+                        "record_paths": [["results"], ["items"], ["data"]],
+                        "single_object_policy": "error",
+                        "empty_policy": "allow",
+                    },
+                }
+            ],
+            "anti_patterns": [
+                "Do not encode provider-specific field mappings in the platform block.",
+                "Do not select the first array element when the business process must handle every record.",
+            ],
+            "common_errors": [
+                "None of the configured record paths exists in an object response.",
+                "The selected value is not an array of objects.",
+            ],
+            "claude_architecture_mapping": "Connector/tool response cardinality normalization.",
+            "composability_constraints": [
+                "The normalized records output is always an object array.",
+                "The selected path and source shape remain visible for trace and mapping diagnostics.",
+            ],
+        },
+        "record_match": {
+            "summary": (
+                "Compare one source record with bounded candidates using weighted exact, "
+                "casefold, or numeric conditions plus hard conflict checks."
+            ),
+            "when_to_use": [
+                "Use it when record alignment needs explainable deterministic scoring.",
+                "Use it when ties, near ties, and contradictory identifiers must not auto-match.",
+            ],
+            "examples": [
+                {
+                    "description": "Match a customer request with a service account.",
+                    "connection": "record_deduplicate -> record_match -> human_input",
+                    "config": {
+                        "source": {
+                            "$ref": {
+                                "node_id": "start",
+                                "path": ["request"],
+                            }
+                        },
+                        "candidates": {
+                            "$ref": {
+                                "node_id": "deduplicate",
+                                "path": ["unique"],
+                            }
+                        },
+                        "conditions": [
+                            {
+                                "name": "email",
+                                "source_path": ["email"],
+                                "candidate_path": ["email"],
+                                "comparator": "casefold",
+                                "weight": 3.0,
+                                "required": True,
+                            },
+                            {
+                                "name": "balance",
+                                "source_path": ["balance"],
+                                "candidate_path": ["balance"],
+                                "comparator": "numeric",
+                                "weight": 1.0,
+                            },
+                        ],
+                        "conflict_checks": [
+                            {
+                                "name": "region",
+                                "source_path": ["region"],
+                                "candidate_path": ["region"],
+                                "comparator": "exact",
+                            }
+                        ],
+                        "min_score": 0.75,
+                        "ambiguity_threshold": 0.05,
+                        "result_limit": 20,
+                    },
+                }
+            ],
+            "anti_patterns": [
+                "Do not resolve ambiguous or conflicting results by taking array position zero.",
+                "Do not use casefold or numeric comparison where exact typed identity is required.",
+            ],
+            "common_errors": [
+                "A required condition path is absent, which disqualifies the candidate.",
+                "A high-scoring candidate fails a conflict check and produces conflict status.",
+            ],
+            "claude_architecture_mapping": "Explainable deterministic record-alignment primitive.",
+            "composability_constraints": [
+                "Status is exactly matched, not_found, ambiguous, or conflict.",
+                "Candidate ordering is stable by descending score and original index.",
+            ],
+        },
+        "typed_json_artifact": {
+            "summary": (
+                "Write a bounded JSON value as a canonical, deterministic run artifact "
+                "with digest, media type, idempotent replay, and source lineage."
+            ),
+            "when_to_use": [
+                "Use it when a workflow must deliver a real machine-readable JSON file.",
+                "Use it when downstream retrieval needs registered bytes and lineage.",
+            ],
+            "examples": [
+                {
+                    "description": "Persist validated service records.",
+                    "connection": "json_schema_validate -> typed_json_artifact -> end",
+                    "config": {
+                        "value": {
+                            "$ref": {
+                                "node_id": "validate",
+                                "path": ["value"],
+                            }
+                        },
+                        "filename": "validated-records.json",
+                        "lineage": [
+                            {
+                                "source_type": "node_output",
+                                "reference": "validate.value",
+                            }
+                        ],
+                    },
+                }
+            ],
+            "anti_patterns": [
+                "Do not use a tool or arbitrary code node merely to write JSON.",
+                "Do not reuse one filename for different bytes in the same run.",
+            ],
+            "common_errors": [
+                "The value contains a non-JSON type, non-finite number, or exceeds a bound.",
+                "The filename contains a directory, traversal segment, or non-json suffix.",
+            ],
+            "claude_architecture_mapping": "Typed machine-readable artifact delivery primitive.",
+            "composability_constraints": [
+                "The file is written only under the current run artifacts directory.",
+                "Objects use sorted keys and compact UTF-8 JSON followed by one newline.",
+            ],
+        },
+    }
+    return manuals[block_type]
+
+
+def _typed_workbook_manual() -> dict[str, Any]:
+    return {
+        "summary": (
+            "Generate a deterministic XLSX artifact from bounded sheets, typed columns, "
+            "and rows without arbitrary code or executable formulas."
+        ),
+        "when_to_use": [
+            "Use it when a workflow must deliver a real spreadsheet file instead of prose.",
+            "Use it when downstream review needs typed cells, a content digest, and source lineage.",
+        ],
+        "examples": [
+            {
+                "description": "Create a typed measurement workbook from validated rows.",
+                "connection": "validated_rows -> typed_workbook -> end",
+                "config": {
+                    "spec": {
+                        "sheets": [
+                            {
+                                "name": "Measurements",
+                                "columns": [
+                                    {
+                                        "key": "record_id",
+                                        "header": "Record ID",
+                                        "type": "string",
+                                    },
+                                    {
+                                        "key": "observed_at",
+                                        "header": "Observed At",
+                                        "type": "datetime",
+                                    },
+                                    {
+                                        "key": "value",
+                                        "header": "Value",
+                                        "type": "number",
+                                    },
+                                    {
+                                        "key": "accepted",
+                                        "header": "Accepted",
+                                        "type": "boolean",
+                                    },
+                                ],
+                                "rows": [
+                                    {
+                                        "record_id": "R-001",
+                                        "observed_at": "2026-01-15T09:30:00Z",
+                                        "value": 12.5,
+                                        "accepted": True,
+                                    }
+                                ],
+                            }
+                        ]
+                    },
+                    "filename": "measurements.xlsx",
+                    "formula_policy": "reject",
+                    "lineage": [
+                        {
+                            "source_type": "workflow_input",
+                            "reference": "validated_measurements",
+                        }
+                    ],
+                },
+            },
+            {
+                "description": "Consume a complete workbook spec produced by an upstream node.",
+                "connection": "normalize -> typed_workbook -> end",
+                "config": {
+                    "spec": {
+                        "$ref": {
+                            "node_id": "normalize",
+                            "path": ["output", "workbook"],
+                        }
+                    },
+                    "filename": "result.xlsx",
+                    "formula_policy": "reject",
+                },
+            },
+        ],
+        "anti_patterns": [
+            "Do not use a tool or arbitrary code node merely to write an XLSX file.",
+            "Do not put identifiers longer than Excel's exact numeric precision in numeric columns; use strings.",
+            "Do not enable literal formula-looking text unless the leading character is business data.",
+        ],
+        "common_errors": [
+            "Rows contain undeclared keys, omit a non-nullable value, or do not match the declared type.",
+            "A sheet name or artifact filename contains reserved path or Excel characters.",
+            "Text begins with a formula prefix while the safe default reject policy is active.",
+            "Another node already wrote different bytes to the same artifact filename.",
+        ],
+        "claude_architecture_mapping": "Typed file-artifact delivery primitive.",
+        "composability_constraints": [
+            "Upstream nodes perform extraction, calculations, and validation; this block serializes typed results.",
+            "The artifact is always written under the current run workspace artifacts directory.",
+            "Formula execution is unsupported; use deterministic upstream calculations and write their values.",
         ],
     }
 
@@ -627,7 +1741,15 @@ class BlockRegistry:
             except Exception as error:
                 errors.append(f"{node.id}: {error}")
 
-        starts = [node for node in workflow.nodes if node.type in {"start", "schedule_trigger"}]
+        starts = [
+            node
+            for node in workflow.nodes
+            if node.type in {
+                "start",
+                "schedule_trigger",
+                "event_subscription_trigger",
+            }
+        ]
         terminals = [node for node in workflow.nodes if node.type in {"end", "answer"}]
         if len(starts) != 1:
             errors.append("workflow must contain exactly one start or schedule_trigger node")
@@ -645,17 +1767,28 @@ class BlockRegistry:
             target = node_map.get(edge.target)
             if not source or not target:
                 continue
-            source_def, target_def = self.get(source.type), self.get(target.type)
-            source_port = self._port(source_def.output_ports, edge.source_port)
-            target_port = self._port(target_def.input_ports, edge.target_port)
-            if source_port is None:
-                errors.append(f"{edge.id}: unknown source port {source.type}.{edge.source_port}")
-            if target_port is None:
-                errors.append(f"{edge.id}: unknown target port {target.type}.{edge.target_port}")
-            if source_port and target_port and not self._compatible(source_port.value_type, target_port.value_type):
-                errors.append(
-                    f"{edge.id}: incompatible ports {source_port.value_type.value} -> {target_port.value_type.value}"
-                )
+            errors.extend(self.validate_edge(source, target, edge))
+        return errors
+
+    def validate_edge(self, source: NodeSpec, target: NodeSpec, edge: EdgeSpec) -> list[str]:
+        """Validate one incremental edge against the public block port contracts."""
+        errors: list[str] = []
+        source_def, target_def = self.get(source.type), self.get(target.type)
+        source_port = self._port(source_def.output_ports, edge.source_port)
+        target_port = self._port(target_def.input_ports, edge.target_port)
+        if source_port is None:
+            errors.append(f"{edge.id}: unknown source port {source.type}.{edge.source_port}")
+        if target_port is None:
+            errors.append(f"{edge.id}: unknown target port {target.type}.{edge.target_port}")
+        if (
+            source_port
+            and target_port
+            and not self._compatible(source_port.value_type, target_port.value_type)
+        ):
+            errors.append(
+                f"{edge.id}: incompatible ports "
+                f"{source_port.value_type.value} -> {target_port.value_type.value}"
+            )
         return errors
 
     def _validate_graph_shape(self, workflow: WorkflowSpec, starts: list[NodeSpec]) -> list[str]:
@@ -762,6 +1895,27 @@ def build_block_registry() -> BlockRegistry:
     blocks: list[tuple[BlockDefinition, type[BaseModel]]] = [
         (_definition("start", "User Input", "Declare workflow inputs.", "input", StartConfig, outputs=[("output", ValueType.any)]), StartConfig),
         (_definition("schedule_trigger", "Schedule Trigger", "Start a published workflow on an IANA-timezone daily schedule.", "input", ScheduleTriggerConfig, outputs=[("output", ValueType.any)]), ScheduleTriggerConfig),
+        (
+            _definition(
+                "event_subscription_trigger",
+                "Event Subscription Trigger",
+                "Start a published workflow from an authorized persistent WebSocket subscription.",
+                "input",
+                EventSubscriptionTriggerConfig,
+                outputs=[("output", ValueType.any)],
+                manual=_manual(
+                    "event_subscription_trigger",
+                    "Event Subscription Trigger",
+                    (
+                        "Declare inputs delivered by a named host-neutral WebSocket "
+                        "subscription. Authentication, mapping, reconnection, and "
+                        "deduplication are configured through the public event-subscription API."
+                    ),
+                    "persistent external event ingestion",
+                ),
+            ),
+            EventSubscriptionTriggerConfig,
+        ),
         (_definition("llm", "LLM", "Make one provider-neutral model call.", "model", LLMConfig, inputs=[("input", ValueType.any)], outputs=[("text", ValueType.string), ("structured", ValueType.object)], retry=True, error_branch=True), LLMConfig),
         (_definition(
             "claude_agent",
@@ -777,19 +1931,328 @@ def build_block_registry() -> BlockRegistry:
             manual=_manual("claude_agent", "Claude Agent (Legacy)", "", "", legacy=True),
         ), ClaudeAgentConfig),
         (_definition("tool", "Tool", "Call one registered core, MCP, or workflow tool.", "integration", ToolConfig, inputs=[("input", ValueType.any)], retry=True, error_branch=True), ToolConfig),
-        (_definition("if_else", "If / Else", "Route with deterministic conditions.", "logic", IfElseConfig, inputs=[("input", ValueType.any)], outputs=[("branch", ValueType.string)]), IfElseConfig),
+        (_definition("if_else", "If / Else", "Route with deterministic conditions.", "logic", IfElseConfig, inputs=[("input", ValueType.any)], outputs=[("branch", ValueType.string)], manual=_business_orchestration_manual("if_else")), IfElseConfig),
         (_definition("question_classifier", "Question Classifier", "Route free text into a named class.", "logic", ClassifierConfig, inputs=[("input", ValueType.any)], outputs=[("branch", ValueType.string), ("text", ValueType.string)], retry=True, error_branch=True), ClassifierConfig),
         (_definition("parameter_extractor", "Parameter Extractor", "Extract typed JSON fields from text.", "transform", ParameterExtractorConfig, inputs=[("input", ValueType.any)], outputs=[("structured", ValueType.object)], retry=True, error_branch=True), ParameterExtractorConfig),
         (_definition("template_transform", "Template Transform", "Render a template from variables.", "transform", TemplateConfig, inputs=[("input", ValueType.any)], outputs=[("text", ValueType.string)]), TemplateConfig),
         (_definition("variable_assigner", "Variable Assigner", "Create named workflow values.", "transform", VariableAssignerConfig, inputs=[("input", ValueType.any)], outputs=[("output", ValueType.object)]), VariableAssignerConfig),
         (_definition("variable_aggregator", "Variable Aggregator", "Join branch values.", "transform", VariableAggregatorConfig, inputs=[("input", ValueType.any)], outputs=[("output", ValueType.any)]), VariableAggregatorConfig),
         (_definition("http_request", "HTTP Request", "Call an external HTTP endpoint.", "integration", HTTPConfig, inputs=[("input", ValueType.any)], outputs=[("output", ValueType.object)], retry=True, error_branch=True), HTTPConfig),
+        (
+            _definition(
+                "durable_event_timer",
+                "Durable Event Timer",
+                "Schedule, cancel, or complete one restart-safe timer per business subject.",
+                "logic",
+                DurableEventTimerConfig,
+                inputs=[("input", ValueType.any)],
+                outputs=[
+                    ("status", ValueType.string),
+                    ("timer_key", ValueType.string),
+                    ("due_at", ValueType.string),
+                    ("durable", ValueType.boolean),
+                    ("output", ValueType.object),
+                ],
+                error_branch=True,
+                manual=_manual(
+                    "durable_event_timer",
+                    "Durable Event Timer",
+                    (
+                        "Use a stable timer key and source event identity. Newer state "
+                        "can replace or cancel a timer; replays and stale events are safe. "
+                        "At the deadline the platform wakes the published workflow."
+                    ),
+                    "restart-safe per-event deadlines",
+                ),
+            ),
+            DurableEventTimerConfig,
+        ),
         (_definition("web_collection", "Controlled Web Collection", "Collect approved Web sources with durable provenance and access receipts.", "integration", WebCollectionConfig, inputs=[("input", ValueType.any)], outputs=[("output", ValueType.object), ("items", ValueType.array), ("receipts", ValueType.array)], retry=True, error_branch=True), WebCollectionConfig),
         (_definition("collection_digest", "Collection Digest", "Render collected source results as a customer-readable Markdown digest.", "transform", CollectionDigestConfig, inputs=[("input", ValueType.any)], outputs=[("text", ValueType.string), ("summary", ValueType.object)]), CollectionDigestConfig),
-        (_definition("connector_action", "Connector Action", "Execute a versioned tenant-scoped Connector operation through platform policy.", "integration", ConnectorActionConfig, inputs=[("input", ValueType.any)], outputs=[("output", ValueType.object), ("receipt", ValueType.object), ("response", ValueType.object)], retry=True, error_branch=True), ConnectorActionConfig),
-        (_definition("iteration", "Iteration", "Run a nested workflow for each array item.", "logic", IterationConfig, inputs=[("input", ValueType.array)], outputs=[("items", ValueType.array)], retry=True, error_branch=True), IterationConfig),
+        (
+            _definition(
+                "deployed_model_inference",
+                "Deployed Model Inference",
+                "Call the currently approved immutable tabular model version by deployment name.",
+                "model",
+                DeployedModelInferenceConfig,
+                inputs=[("input", ValueType.object)],
+                outputs=[
+                    ("probability", ValueType.number),
+                    ("predicted_label", ValueType.number),
+                    ("confidence", ValueType.number),
+                    ("model_id", ValueType.string),
+                    ("version", ValueType.number),
+                    ("model_digest", ValueType.string),
+                    ("model_card", ValueType.object),
+                    ("evaluation_metrics", ValueType.object),
+                    ("output", ValueType.object),
+                ],
+                error_branch=True,
+                manual=_manual(
+                    "deployed_model_inference",
+                    "Deployed Model Inference",
+                    (
+                        "Use a human-approved deployment for traceable production "
+                        "inference. This block never trains, fine-tunes, promotes, or rolls back."
+                    ),
+                    "approved model inference",
+                ),
+            ),
+            DeployedModelInferenceConfig,
+        ),
+        (
+            _definition(
+                "model_drift_monitor",
+                "Model Drift Monitor",
+                "Compare a production observation window with the deployed training baseline.",
+                "model",
+                ModelDriftMonitorConfig,
+                inputs=[("input", ValueType.array)],
+                outputs=[
+                    ("status", ValueType.string),
+                    ("score", ValueType.number),
+                    ("features", ValueType.object),
+                    ("output", ValueType.object),
+                ],
+                error_branch=True,
+                manual=_manual(
+                    "model_drift_monitor",
+                    "Model Drift Monitor",
+                    (
+                        "Report feature distribution shift against the approved model baseline. "
+                        "A warning creates governance evidence and never starts online learning."
+                    ),
+                    "model drift reporting",
+                ),
+            ),
+            ModelDriftMonitorConfig,
+        ),
+        (
+            _definition(
+                "knowledge_index_sync",
+                "Knowledge Index Synchronization",
+                "Synchronize versioned documents, ACL metadata, updates, and deletions.",
+                "integration",
+                KnowledgeIndexSyncConfig,
+                inputs=[("input", ValueType.array)],
+                outputs=[
+                    ("inserted", ValueType.array),
+                    ("updated", ValueType.array),
+                    ("deleted", ValueType.array),
+                    ("unchanged", ValueType.array),
+                    ("index_revision", ValueType.number),
+                    ("index_digest", ValueType.string),
+                    ("output", ValueType.object),
+                ],
+                error_branch=True,
+                manual=_manual(
+                    "knowledge_index_sync",
+                    "Knowledge Index Synchronization",
+                    (
+                        "Use a stable customer change-event identity to synchronize source revisions, "
+                        "permissions, updates, and deletions. Replaying the same event is safe."
+                    ),
+                    "versioned enterprise knowledge lifecycle",
+                ),
+            ),
+            KnowledgeIndexSyncConfig,
+        ),
+        (
+            _definition(
+                "knowledge_retrieval",
+                "ACL-first Knowledge Retrieval",
+                "Filter unauthorized sources before hybrid evidence retrieval.",
+                "model",
+                KnowledgeRetrievalConfig,
+                inputs=[("input", ValueType.object)],
+                outputs=[
+                    ("results", ValueType.array),
+                    ("retrieved_count", ValueType.number),
+                    ("acl_decision", ValueType.object),
+                    ("forbidden_chunk_count", ValueType.number),
+                    ("model_versions", ValueType.object),
+                    ("output", ValueType.object),
+                ],
+                error_branch=True,
+                manual=_manual(
+                    "knowledge_retrieval",
+                    "ACL-first Knowledge Retrieval",
+                    (
+                        "Supply authenticated caller roles. Sources without an allowed role are removed "
+                        "before scoring, so their chunks cannot enter the result or answer context."
+                    ),
+                    "permission-aware evidence retrieval",
+                ),
+            ),
+            KnowledgeRetrievalConfig,
+        ),
+        (
+            _definition(
+                "grounded_answer",
+                "Grounded Answer",
+                "Answer only from authorized evidence and refuse unsupported questions.",
+                "model",
+                GroundedAnswerConfig,
+                inputs=[("input", ValueType.object)],
+                outputs=[
+                    ("answer", ValueType.string),
+                    ("status", ValueType.string),
+                    ("supported", ValueType.boolean),
+                    ("citations", ValueType.array),
+                    ("output", ValueType.object),
+                ],
+                error_branch=True,
+                manual=_manual(
+                    "grounded_answer",
+                    "Grounded Answer",
+                    (
+                        "Consume only ACL-filtered retrieval output. Every positive answer carries exact "
+                        "source revision and chunk citations; an empty result becomes an explicit refusal."
+                    ),
+                    "grounded enterprise answer or safe refusal",
+                ),
+            ),
+            GroundedAnswerConfig,
+        ),
+        (
+            _definition(
+                "json_schema_validate",
+                "JSON Schema Validate",
+                "Validate a JSON value against a bounded local JSON Schema subset.",
+                "transform",
+                JsonSchemaValidateConfig,
+                inputs=[("input", ValueType.any)],
+                outputs=[
+                    ("valid", ValueType.boolean),
+                    ("errors", ValueType.array),
+                    ("value", ValueType.any),
+                    ("output", ValueType.object),
+                ],
+                error_branch=True,
+                manual=_record_pipeline_manual("json_schema_validate"),
+            ),
+            JsonSchemaValidateConfig,
+        ),
+        (
+            _definition(
+                "regex_extract",
+                "Regex Extract",
+                "Extract strongly typed fields with bounded safe regular expressions.",
+                "transform",
+                RegexExtractConfig,
+                inputs=[("input", ValueType.string)],
+                outputs=[
+                    ("fields", ValueType.object),
+                    ("confidence", ValueType.number),
+                    ("missing", ValueType.array),
+                    ("errors", ValueType.array),
+                    ("evidence", ValueType.array),
+                    ("output", ValueType.object),
+                ],
+                error_branch=True,
+                manual=_record_pipeline_manual("regex_extract"),
+            ),
+            RegexExtractConfig,
+        ),
+        (
+            _definition(
+                "record_collection_normalize",
+                "Record Collection Normalize",
+                "Normalize common connector response envelopes into an object array.",
+                "transform",
+                RecordCollectionNormalizeConfig,
+                inputs=[("input", ValueType.any)],
+                outputs=[
+                    ("records", ValueType.array),
+                    ("count", ValueType.number),
+                    ("empty", ValueType.boolean),
+                    ("source_shape", ValueType.string),
+                    ("selected_path", ValueType.array),
+                    ("output", ValueType.object),
+                ],
+                error_branch=True,
+                manual=_record_pipeline_manual("record_collection_normalize"),
+            ),
+            RecordCollectionNormalizeConfig,
+        ),
+        (
+            _definition(
+                "record_deduplicate",
+                "Record Deduplicate",
+                "Deduplicate records by configured key paths with stable receipts.",
+                "transform",
+                RecordDeduplicateConfig,
+                inputs=[("input", ValueType.array)],
+                outputs=[
+                    ("unique", ValueType.array),
+                    ("duplicates", ValueType.array),
+                    ("receipts", ValueType.array),
+                    ("output", ValueType.object),
+                ],
+                error_branch=True,
+                manual=_record_pipeline_manual("record_deduplicate"),
+            ),
+            RecordDeduplicateConfig,
+        ),
+        (
+            _definition(
+                "record_match",
+                "Record Match",
+                "Match records with weighted comparisons, ambiguity, and conflicts.",
+                "transform",
+                RecordMatchConfig,
+                inputs=[("input", ValueType.any)],
+                outputs=[
+                    ("status", ValueType.string),
+                    ("match", ValueType.object),
+                    ("candidates", ValueType.array),
+                    ("evidence", ValueType.object),
+                    ("output", ValueType.object),
+                ],
+                error_branch=True,
+                manual=_record_pipeline_manual("record_match"),
+            ),
+            RecordMatchConfig,
+        ),
+        (
+            _definition(
+                "typed_json_artifact",
+                "Typed JSON Artifact",
+                "Generate a bounded canonical JSON artifact with digest and lineage.",
+                "output",
+                TypedJsonArtifactConfig,
+                inputs=[("input", ValueType.any)],
+                outputs=[
+                    ("artifact", ValueType.file),
+                    ("output", ValueType.object),
+                ],
+                error_branch=True,
+                manual=_record_pipeline_manual("typed_json_artifact"),
+            ),
+            TypedJsonArtifactConfig,
+        ),
+        (
+            _definition(
+                "typed_workbook",
+                "Typed Workbook Artifact",
+                "Generate a bounded, deterministic XLSX artifact with typed cells and lineage.",
+                "output",
+                TypedWorkbookConfig,
+                inputs=[("input", ValueType.any)],
+                outputs=[
+                    ("artifact", ValueType.file),
+                    ("output", ValueType.object),
+                ],
+                error_branch=True,
+                manual=_typed_workbook_manual(),
+            ),
+            TypedWorkbookConfig,
+        ),
+        (_definition("connector_action", "Connector Action", "Execute a versioned tenant-scoped Connector operation through platform policy.", "integration", ConnectorActionConfig, inputs=[("input", ValueType.any)], outputs=[("output", ValueType.object), ("receipt", ValueType.object), ("response", ValueType.object)], retry=True, error_branch=True, manual=_business_orchestration_manual("connector_action")), ConnectorActionConfig),
+        (_definition("iteration", "Iteration", "Run a nested workflow for each array item.", "logic", IterationConfig, inputs=[("input", ValueType.array)], outputs=[("items", ValueType.array)], retry=True, error_branch=True, manual=_business_orchestration_manual("iteration")), IterationConfig),
         (_definition("loop", "Loop", "Run a nested workflow until a condition matches.", "logic", LoopConfig, inputs=[("input", ValueType.any)], outputs=[("output", ValueType.object)], retry=True, error_branch=True), LoopConfig),
-        (_definition("human_input", "Human Input", "Pause and resume with a typed form.", "input", HumanInputConfig, inputs=[("input", ValueType.any)], outputs=[("output", ValueType.object)]), HumanInputConfig),
+        (_definition("human_input", "Human Input", "Pause and resume with a typed form.", "input", HumanInputConfig, inputs=[("input", ValueType.any)], outputs=[("output", ValueType.object)], manual=_business_orchestration_manual("human_input")), HumanInputConfig),
         (_definition("end", "End", "Return named workflow outputs.", "output", EndConfig, inputs=[("input", ValueType.any)], outputs=[]), EndConfig),
         (_definition("answer", "Answer", "Return a chat answer.", "output", AnswerConfig, inputs=[("input", ValueType.any)], outputs=[]), AnswerConfig),
     ]

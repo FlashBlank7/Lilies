@@ -1,0 +1,34 @@
+{
+  "schema_version": "1.0",
+  "files": [
+    {
+      "path": "fixtures/public-cases.json",
+      "sha256": "pending"
+    },
+    {
+      "path": "schemas/home-assistant-event.json",
+      "sha256": "pending"
+    },
+    {
+      "path": "schemas/deliverables.json",
+      "sha256": "pending"
+    }
+  ],
+  "sealed_seed_contract": {
+    "count": 3,
+    "seed_ids": [3301, 3302, 3303],
+    "cases_per_seed": 10,
+    "varied_dimensions": [
+      "entity identities",
+      "event and context identities",
+      "event ordering and duplicate positions",
+      "hold duration and close timing",
+      "restart and disconnect positions",
+      "notification authorization",
+      "human approval or rejection"
+    ],
+    "evidence_policy": "Persist aggregate scenario categories and counts only; do not persist sealed entity identities, event values or oracle answers.",
+    "claim_limit": "Controlled-local sealed regression, not third-party independent black-box certification."
+  }
+}
+

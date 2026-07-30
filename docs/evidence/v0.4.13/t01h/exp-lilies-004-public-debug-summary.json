@@ -1,0 +1,93 @@
+{
+  "application_id": "2efc4c75-1101-4275-8c7a-4ce3f6fba4b8",
+  "case_count": 9,
+  "cases": [
+    {
+      "action": "no_alarm",
+      "alarm_count": 0,
+      "business_case": "low_risk_no_alarm",
+      "confidence": 0.9955058399999228,
+      "passed": true,
+      "probability": 0.002247080000038607,
+      "run_id": "172b5b1e-a058-43f7-bf16-205b6ddb8a22"
+    },
+    {
+      "action": "alarm",
+      "alarm_count": 1,
+      "business_case": "high_risk_automatic_alarm",
+      "confidence": 0.9996901684016009,
+      "passed": true,
+      "probability": 0.9998450842008004,
+      "run_id": "480b26ee-edef-4e06-9bf8-b18dca8541c9"
+    },
+    {
+      "action": "alarm",
+      "alarm_count": 1,
+      "business_case": "uncertain_human_approve",
+      "confidence": 0.060076329813165685,
+      "passed": true,
+      "probability": 0.5300381649065828,
+      "resume_count": 1,
+      "run_id": "ce93c005-b928-42c6-8d13-60f18c9b9887"
+    },
+    {
+      "action": "no_alarm",
+      "alarm_count": 0,
+      "business_case": "uncertain_human_reject",
+      "confidence": 0.060076329813165685,
+      "passed": true,
+      "probability": 0.5300381649065828,
+      "resume_count": 1,
+      "run_id": "bff6271c-f98f-477d-b4c5-55726795fa36"
+    },
+    {
+      "action": "safe_stop",
+      "alarm_count": 0,
+      "business_case": "invalid_unit_safe_stop",
+      "error_path": "units.vibration_rms_mm_s",
+      "passed": true,
+      "run_id": "5a69718c-8518-44bd-aff6-f1735a8c0112"
+    },
+    {
+      "action": "safe_stop",
+      "alarm_count": 0,
+      "business_case": "missing_feature_safe_stop",
+      "error_path": "features.current_a",
+      "passed": true,
+      "run_id": "331db06b-913c-40c5-b2de-6930e9d46926"
+    },
+    {
+      "action": "safe_stop",
+      "alarm_count": 0,
+      "business_case": "stale_event_safe_stop",
+      "passed": true,
+      "run_id": "4fca8766-2c43-403c-8328-f0d659dd27a7"
+    },
+    {
+      "action": "safe_stop",
+      "alarm_count": 0,
+      "business_case": "out_of_order_safe_stop",
+      "passed": true,
+      "run_id": "c9810b4f-a364-4fd1-ab41-aab63c1c34a3"
+    },
+    {
+      "action": "alarm",
+      "alarm_count_after_replay": 1,
+      "business_case": "duplicate_event_no_duplicate_alarm",
+      "passed": true,
+      "run_id": "769a8a43-0c34-4ddb-b689-1eef705c19e3"
+    }
+  ],
+  "drift": {
+    "automatic_training_triggered": false,
+    "score": 2.5810203229326567,
+    "status": "critical"
+  },
+  "failed_count": 0,
+  "model_id": "efb40f95-1b8c-4753-a0e3-cbfae8bbde95",
+  "model_version": 1,
+  "passed": true,
+  "passed_count": 9,
+  "schema_version": "1.0",
+  "task_id": "EXP-LILIES-004"
+}

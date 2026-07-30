@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "task_id": "V04-13-T01M",
+  "observed_at": "2026-07-27T04:35:00+09:00",
+  "result": "pass_for_environment_preflight",
+  "android_studio_present": true,
+  "jbr_present": true,
+  "sdk_licenses_accepted": "7/7",
+  "sdk_size_observed": "6.0 GiB",
+  "required_components_present": true,
+  "dedicated_avd_created": true,
+  "emulator_boot_probe": {
+    "result": "pass",
+    "avd_name": "T01M_API37_ARM64",
+    "serial": "emulator-5556",
+    "emulator_revision": "36.6.11",
+    "emulator_build_id": "15507667",
+    "boot_completed_value": "1",
+    "boot_elapsed_ms": 44696,
+    "reported_android_release": "17",
+    "reported_sdk": "37",
+    "shutdown_after_probe": true
+  },
+  "talkback_probe": {
+    "result": "pass",
+    "package": "com.google.android.marvin.talkback",
+    "version_name": "17.0.0.889642762",
+    "service": "com.google.android.marvin.talkback/com.google.android.marvin.talkback.TalkBackService",
+    "touch_exploration_enabled_after_unlock": true,
+    "service_bound_after_unlock": true,
+    "system_apk_sha256": "bb98c6f7904429485f67e082d45f7274faeb6670fb284bab1aa655fb3d7885f9",
+    "emulator_shutdown_without_snapshot": true
+  },
+  "sanitization": {
+    "raw_emulator_transcript_archived": false,
+    "reason": "The raw startup stream contained the user's adb public-key material. Only non-secret boot facts are retained.",
+    "secrets_or_private_keys_in_this_file": false
+  },
+  "remaining_before_assignment": [
+    "complete and independently review the frozen offline Android build backend",
+    "install and freeze a zero-cost local model provider without starting a persistent background service",
+    "freeze the final DevelopmentAssignment, budgets, provider digest and build environment digest"
+  ],
+  "claim_ceiling": "This preflight proves the pinned SDK and one clean AVD boot only. It does not prove that Lilies implemented, built or ran the application."
+}

@@ -210,6 +210,7 @@ _STANDALONE_OBSERVABILITY_STARTUP_FIELDS = {
     "interrupted_turns",
     "interrupted_development_assignments",
     "reconciliation_required_development_invocations",
+    "unreaped_development_processes",
 }
 _STANDALONE_OBSERVABILITY_USAGE_COUNTER_FIELDS = (
     "attempted_calls",

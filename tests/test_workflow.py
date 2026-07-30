@@ -45,6 +45,39 @@ from agent_platform.workflow_runtime import WorkflowRuntime
 from tests.test_runtime import ScriptedProvider
 
 
+def test_assertion_path_resolves_canonical_string_array_indexes() -> None:
+    outputs = {
+        "results": [
+            {"decision": "human_input_required"},
+            {"decision": "duplicate_noop"},
+        ],
+        "0": "dictionary string keys remain unchanged",
+    }
+
+    assert WorkflowRuntime._resolve_assertion_path(
+        outputs,
+        ["results", "0", "decision"],
+    ) == "human_input_required"
+    assert WorkflowRuntime._resolve_assertion_path(
+        outputs,
+        ["results", "1", "decision"],
+    ) == "duplicate_noop"
+    assert WorkflowRuntime._resolve_assertion_path(outputs, ["0"]) == (
+        "dictionary string keys remain unchanged"
+    )
+
+
+@pytest.mark.parametrize("segment", ["-1", "00", "+1", "1.0", "one", "١"])
+def test_assertion_path_rejects_noncanonical_array_indexes(segment: str) -> None:
+    with pytest.raises(TypeError, match="canonical index"):
+        WorkflowRuntime._resolve_assertion_path(["first", "second"], [segment])
+
+
+def test_assertion_path_rejects_out_of_range_array_index() -> None:
+    with pytest.raises(IndexError):
+        WorkflowRuntime._resolve_assertion_path(["only"], ["1"])
+
+
 def load_live_builder_benchmark_module() -> Any:
     module_path = Path(__file__).resolve().parents[1] / "scripts" / "live_builder_benchmark_suite.py"
     spec = importlib.util.spec_from_file_location("live_builder_benchmark_suite_under_test", module_path)
@@ -1404,6 +1437,204 @@ def test_run_suite_returns_readable_test_frame_report(tmp_path: Path) -> None:
         assert result["readable_report"]["feedback_hints"] == [
             "Inspect the end node output mapping if this fails."
         ]
+
+
+def test_owner_test_suites_isolate_artifacts_between_draft_revisions(
+    tmp_path: Path,
+) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+    )
+    app = create_app(settings, ScriptedProvider())
+    with TestClient(app) as client:
+        app_id = client.post(
+            "/api/v1/applications",
+            headers=headers(),
+            json={
+                "name": "Artifact-isolated tests",
+                "requirement": "Keep acceptance artifacts isolated by suite run.",
+            },
+        ).json()["id"]
+        revision = 0
+        nodes = [
+            {
+                "id": "start",
+                "type": "start",
+                "title": "Start",
+                "config": {
+                    "inputs": [
+                        {
+                            "name": "evidence",
+                            "type": "object",
+                            "required": True,
+                        }
+                    ]
+                },
+            },
+            {
+                "id": "artifact",
+                "type": "typed_json_artifact",
+                "title": "Evidence",
+                "config": {
+                    "value": {
+                        "$ref": {
+                            "node_id": "start",
+                            "path": ["evidence"],
+                        }
+                    },
+                    "filename": "acceptance-evidence.json",
+                    "lineage": [
+                        {
+                            "source_type": "workflow_input",
+                            "reference": "evidence",
+                        }
+                    ],
+                },
+            },
+            {
+                "id": "end",
+                "type": "end",
+                "title": "End",
+                "config": {
+                    "outputs": {
+                        "artifact": {
+                            "$ref": {
+                                "node_id": "artifact",
+                                "path": ["artifact"],
+                            }
+                        }
+                    }
+                },
+            },
+        ]
+        for node in nodes:
+            revision = mutate(
+                client,
+                app_id,
+                revision,
+                "add_node",
+                {"node": node},
+            )
+        for edge in [
+            {
+                "id": "start-artifact",
+                "source": "start",
+                "target": "artifact",
+                "source_port": "output",
+                "target_port": "input",
+            },
+            {
+                "id": "artifact-end",
+                "source": "artifact",
+                "target": "end",
+                "source_port": "output",
+                "target_port": "input",
+            },
+        ]:
+            revision = mutate(
+                client,
+                app_id,
+                revision,
+                "add_edge",
+                {"edge": edge},
+            )
+
+        test_id = "artifact-isolation"
+
+        def acceptance_case(value: int) -> dict[str, Any]:
+            return {
+                "id": test_id,
+                "name": "Artifact evidence",
+                "requirement": "Write the current acceptance evidence.",
+                "inputs": {"evidence": {"model_revision": value}},
+                "assertions": [
+                    {
+                        "path": ["artifact"],
+                        "operator": "exists",
+                    }
+                ],
+            }
+
+        revision = mutate(
+            client,
+            app_id,
+            revision,
+            "add_test",
+            {"test": acceptance_case(1)},
+        )
+        first = client.post(
+            f"/api/v1/applications/{app_id}/tests/run",
+            headers=headers(),
+        )
+        assert first.status_code == 200, first.text
+        assert first.json()["passed"] is True
+
+        mutate(
+            client,
+            app_id,
+            revision,
+            "add_test",
+            {"test": acceptance_case(2)},
+        )
+        second = client.post(
+            f"/api/v1/applications/{app_id}/tests/run",
+            headers=headers(),
+        )
+        assert second.status_code == 200, second.text
+        assert second.json()["passed"] is True
+
+        first_run = client.get(
+            f"/api/v1/runs/{first.json()['tests'][0]['run_id']}",
+            headers=headers(),
+        ).json()
+        second_run = client.get(
+            f"/api/v1/runs/{second.json()['tests'][0]['run_id']}",
+            headers=headers(),
+        ).json()
+        assert first_run["state"]["workspace_path"] != (
+            second_run["state"]["workspace_path"]
+        )
+        assert "test-suite-" in first_run["state"]["workspace_path"]
+        assert "test-suite-" in second_run["state"]["workspace_path"]
+
+        shared_workspace = settings.workspace_root / "shared-production-workspace"
+        shared_workspace.mkdir(parents=True)
+        production_runs = []
+        for model_revision in (3, 4):
+            created = client.post(
+                f"/api/v1/applications/{app_id}/runs",
+                headers=headers(),
+                json={
+                    "inputs": {"evidence": {"model_revision": model_revision}},
+                    "use_draft": True,
+                    "workspace_path": str(shared_workspace),
+                },
+            )
+            assert created.status_code == 202, created.text
+            run_id = created.json()["run_id"]
+            for _ in range(100):
+                current = client.get(
+                    f"/api/v1/runs/{run_id}",
+                    headers=headers(),
+                ).json()
+                if current["status"] in {"succeeded", "failed"}:
+                    break
+                time.sleep(0.01)
+            assert current["status"] == "succeeded", current.get("error")
+            production_runs.append(current)
+
+        artifact_paths = [
+            item["state"]["outputs"]["end"]["artifact"]["relative_path"]
+            for item in production_runs
+        ]
+        assert artifact_paths[0] != artifact_paths[1]
+        assert all(
+            path.startswith(".workflow-run-artifacts/")
+            and (shared_workspace / path).is_file()
+            for path in artifact_paths
+        )
 
 
 def test_acceptance_assertions_follow_structured_json_inside_answer_output(
@@ -3627,6 +3858,178 @@ def test_human_input_pauses_and_resumes(tmp_path: Path) -> None:
         assert record["outputs"] == {"approved": True}
 
 
+def test_iteration_human_inputs_resume_by_scoped_occurrence(tmp_path: Path) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+    )
+    app = create_app(settings, ScriptedProvider())
+    with TestClient(app) as client:
+        app_id = client.post(
+            "/api/v1/applications",
+            headers=headers(),
+            json={
+                "name": "Record reviews",
+                "requirement": "Retain one human decision for each record.",
+            },
+        ).json()["id"]
+        nested_workflow = {
+            "nodes": [
+                {
+                    "id": "nested_start",
+                    "type": "start",
+                    "title": "Record",
+                    "config": {"inputs": [{"name": "item"}]},
+                },
+                {
+                    "id": "review",
+                    "type": "human_input",
+                    "title": "Review",
+                    "config": {
+                        "title": "Review record",
+                        "fields": [
+                            {
+                                "name": "decision",
+                                "label": "Decision",
+                                "type": "string",
+                            }
+                        ],
+                    },
+                },
+                {
+                    "id": "nested_end",
+                    "type": "end",
+                    "title": "Reviewed",
+                    "config": {
+                        "outputs": {
+                            "item": {
+                                "$ref": {
+                                    "node_id": "nested_start",
+                                    "path": ["item"],
+                                }
+                            },
+                            "decision": {
+                                "$ref": {
+                                    "node_id": "review",
+                                    "path": ["decision"],
+                                }
+                            },
+                        }
+                    },
+                },
+            ],
+            "edges": [
+                {
+                    "id": "nested-a",
+                    "source": "nested_start",
+                    "target": "review",
+                },
+                {
+                    "id": "nested-b",
+                    "source": "review",
+                    "target": "nested_end",
+                },
+            ],
+        }
+        revision = 0
+        for node in [
+            {
+                "id": "start",
+                "type": "start",
+                "title": "Start",
+                "config": {"inputs": [{"name": "records", "type": "array"}]},
+            },
+            {
+                "id": "review_records",
+                "type": "iteration",
+                "title": "Review records",
+                "config": {
+                    "items": {"$ref": {"node_id": "start", "path": ["records"]}},
+                    "workflow": nested_workflow,
+                    "item_name": "item",
+                    "output_node_id": "nested_end",
+                    "parallelism": 1,
+                },
+            },
+            {
+                "id": "end",
+                "type": "end",
+                "title": "End",
+                "config": {
+                    "outputs": {
+                        "results": {
+                            "$ref": {
+                                "node_id": "review_records",
+                                "path": ["items"],
+                            }
+                        }
+                    }
+                },
+            },
+        ]:
+            revision = mutate(client, app_id, revision, "add_node", {"node": node})
+        for edge in [
+            {"id": "a", "source": "start", "target": "review_records"},
+            {
+                "id": "b",
+                "source": "review_records",
+                "target": "end",
+                "source_port": "items",
+            },
+        ]:
+            revision = mutate(client, app_id, revision, "add_edge", {"edge": edge})
+
+        run_id = client.post(
+            f"/api/v1/applications/{app_id}/runs",
+            headers=headers(),
+            json={"inputs": {"records": ["first", "second"]}, "use_draft": True},
+        ).json()["run_id"]
+        for _ in range(100):
+            record = client.get(f"/api/v1/runs/{run_id}", headers=headers()).json()
+            if record["status"] == "paused":
+                break
+            time.sleep(0.01)
+        assert record["status"] == "paused", record
+        persisted = asyncio.run(app.state.services.workflow_store.get_run(run_id))
+        assert persisted["state"].waiting_node_id == "review_records[0].review"
+
+        resumed = client.post(
+            f"/api/v1/runs/{run_id}/resume",
+            headers=headers(),
+            json={"values": {"decision": "hold-first"}},
+        )
+        assert resumed.status_code == 200, resumed.text
+        for _ in range(100):
+            record = client.get(f"/api/v1/runs/{run_id}", headers=headers()).json()
+            if record["status"] == "paused":
+                break
+            time.sleep(0.01)
+        assert record["status"] == "paused", record
+        persisted = asyncio.run(app.state.services.workflow_store.get_run(run_id))
+        assert persisted["state"].waiting_node_id == "review_records[1].review"
+
+    restarted = create_app(settings, ScriptedProvider())
+    with TestClient(restarted) as client:
+        resumed = client.post(
+            f"/api/v1/runs/{run_id}/resume",
+            headers=headers(),
+            json={"values": {"decision": "hold-second"}},
+        )
+        assert resumed.status_code == 200, resumed.text
+        for _ in range(100):
+            record = client.get(f"/api/v1/runs/{run_id}", headers=headers()).json()
+            if record["status"] == "succeeded":
+                break
+            time.sleep(0.01)
+        assert record["outputs"] == {
+            "results": [
+                {"item": "first", "decision": "hold-first"},
+                {"item": "second", "decision": "hold-second"},
+            ]
+        }
+
+
 def test_permission_gate_and_mailbox_wait_wake_pause_and_resume(tmp_path: Path) -> None:
     settings = Settings(
         api_token="workflow-test",
@@ -5196,11 +5599,13 @@ def test_iteration_and_loop_execute_nested_workflows(tmp_path: Path) -> None:
         nested_iteration = {
             "nodes": [
                 {"id": "nested-start", "type": "start", "title": "Item", "config": {"inputs": [
-                    {"name": "item", "type": "string"}, {"name": "index", "type": "number"}
+                    {"name": "item", "type": "string"}, {"name": "index", "type": "number"},
+                    {"name": "shared_prefix", "type": "string"},
                 ]}},
                 {"id": "nested-template", "type": "template_transform", "title": "Render", "config": {
-                    "template": "Item {{ value }}", "variables": {
-                        "value": {"$ref": {"node_id": "nested-start", "path": ["item"]}}
+                    "template": "{{ prefix }} {{ value }}", "variables": {
+                        "prefix": {"$ref": {"node_id": "nested-start", "path": ["shared_prefix"]}},
+                        "value": {"$ref": {"node_id": "nested-start", "path": ["item"]}},
                     }
                 }},
                 {"id": "nested-end", "type": "end", "title": "Item output", "config": {
@@ -5224,9 +5629,20 @@ def test_iteration_and_loop_execute_nested_workflows(tmp_path: Path) -> None:
             "edges": [{"id": "lc", "source": "loop-start", "target": "loop-end", "source_port": "output", "target_port": "input"}],
         }
         nodes = [
-            {"id": "start", "type": "start", "title": "Start", "config": {"inputs": [{"name": "items", "type": "array"}]}},
+            {"id": "start", "type": "start", "title": "Start", "config": {"inputs": [
+                {"name": "items", "type": "array"}, {"name": "prefix", "type": "string"}
+            ]}},
+            {"id": "context", "type": "variable_aggregator", "title": "Shared context", "config": {
+                "variables": [{"$ref": {"node_id": "start", "path": ["prefix"]}}],
+                "mode": "array",
+            }},
             {"id": "iteration", "type": "iteration", "title": "Map", "config": {
                 "items": {"$ref": {"node_id": "start", "path": ["items"]}},
+                "variables": {
+                    "shared_prefix": {
+                        "$ref": {"node_id": "context", "path": ["output", 0]}
+                    }
+                },
                 "workflow": nested_iteration, "item_name": "item", "output_node_id": "nested-end",
                 "output_path": ["value"], "parallelism": 2,
             }},
@@ -5245,16 +5661,17 @@ def test_iteration_and_loop_execute_nested_workflows(tmp_path: Path) -> None:
         for node in nodes:
             revision = mutate(client, app_id, revision, "add_node", {"node": node})
         for edge in [
-            {"id": "a", "source": "start", "target": "iteration", "source_port": "output", "target_port": "input"},
+            {"id": "a0", "source": "start", "target": "context", "source_port": "output", "target_port": "input"},
+            {"id": "a", "source": "context", "target": "iteration", "source_port": "output", "target_port": "input"},
             {"id": "b", "source": "iteration", "target": "loop", "source_port": "items", "target_port": "input"},
             {"id": "c", "source": "loop", "target": "end", "source_port": "output", "target_port": "input"},
         ]:
             revision = mutate(client, app_id, revision, "add_edge", {"edge": edge})
         revision = mutate(client, app_id, revision, "add_test", {"test": {
             "name": "Containers execute", "requirement": "Iteration maps and Loop exits.",
-            "inputs": {"items": ["a", "b"]},
+            "inputs": {"items": ["a", "b"], "prefix": "Batch"},
             "assertions": [
-                {"path": ["mapped"], "operator": "equals", "expected": ["Item a", "Item b"]},
+                {"path": ["mapped"], "operator": "equals", "expected": ["Batch a", "Batch b"]},
                 {"path": ["counter"], "operator": "equals", "expected": 2},
             ],
         }})

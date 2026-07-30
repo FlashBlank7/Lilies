@@ -5,7 +5,7 @@
   "project_id": "EXP-LILIES-003",
   "sequence": 3,
   "title": "Durable facility event monitoring and governed automation",
-  "status": "selected",
+  "status": "active",
   "cohort": "individual_and_small_facility",
   "enterprise_denominator": false,
   "capability_family": "event_driven_monitoring_cross_system_automation",
@@ -50,7 +50,7 @@
   ],
   "task_package_root": "docs/experiments/lilies-collaboration/EXP-LILIES-003",
   "latest_revision": 0,
-  "revision_semantics": "Revision 1 starts only after EXP-LILIES-002 closes.",
+  "revision_semantics": "Revision 1 is authorized after EXP-LILIES-002 closed. EXP-LILIES-001 remains needs_revision for formal-evidence debt and is not rewritten as passed.",
   "current_blocker": null,
-  "next_action": "Freeze the WebSocket schema, host image, event fixtures, clock, permissions, seeds, and replacement baseline."
+  "next_action": "Freeze revision 1 WebSocket schema, host image, event fixtures, clock, permissions, Seeds, and replacement baseline, then build only through public platform APIs."
 }

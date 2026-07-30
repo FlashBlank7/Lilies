@@ -32,14 +32,28 @@ from pydantic import (
     model_validator,
 )
 
+from .capability_generality_gate import CapabilityGeneralityGate
 from .collaboration_models import (
     ApprovalDecision,
     CollaborationMessageEnvelope,
     DeveloperOutcome,
     DeveloperResponse,
+    LiliesReprobeResult,
     MessageType,
+    PayloadSchema,
+    ReprobeOutcome,
     ReportDecision,
     SenderRole,
+)
+from .kernel_boot_identity import (
+    DARWIN_BOOT_SESSION_SCHEME,
+    LEGACY_DARWIN_BOOT_TIME_SCHEME,
+    LINUX_BOOT_ID_SCHEME,
+    GenerationSuccessorProof,
+    KernelBootIdentity,
+    legacy_darwin_boot_digest,
+    prove_generation_follows_activation,
+    read_current_kernel_boot_identity,
 )
 from .lilies_models import Digest, OpaqueReference
 
@@ -49,6 +63,24 @@ GitObjectId = Annotated[
     StringConstraints(pattern=r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$"),
 ]
 SafeSourcePath = Annotated[str, StringConstraints(min_length=1, max_length=4_096)]
+StableBootIdentityScheme = Literal[
+    "linux-boot-id-v1",
+    "darwin-bootsessionuuid-v1",
+]
+BootIdentityScheme = Literal[
+    "linux-boot-id-v1",
+    "darwin-bootsessionuuid-v1",
+    "darwin-kern-boottime-v1",
+]
+GenerationIdentityMatch = Literal[
+    "stable-kernel-identity",
+    "later-stable-kernel-boot",
+    "legacy-darwin-boottime",
+]
+GenerationOrderBasis = Literal[
+    "process-start-monotonic-ns",
+    "later-stable-kernel-boot",
+]
 
 SOURCE_PROVENANCE_MANIFEST_PATH = "source-provenance/manifest.json"
 DEVELOPER_SOURCE_MANIFEST_FILE = ".lilies-source-manifest.json"
@@ -98,6 +130,49 @@ DEVELOPER_TRUST_ROOT_PATHS = frozenset(
         "platform/backend/src/agent_platform/__init__.py",
         "platform/backend/src/agent_platform/api.py",
         "platform/backend/src/agent_platform/capability_contracts.py",
+        "platform/backend/src/agent_platform/capability_generality_gate.py",
+        "platform/backend/src/agent_platform/collaboration_api.py",
+        "platform/backend/src/agent_platform/collaboration_models.py",
+        "platform/backend/src/agent_platform/collaboration_service.py",
+        "platform/backend/src/agent_platform/collaboration_storage.py",
+        "platform/backend/src/agent_platform/config.py",
+        "platform/backend/src/agent_platform/forbidden_assistance_scanner.py",
+        "platform/backend/src/agent_platform/formal_assignment_broker.py",
+        "platform/backend/src/agent_platform/formal_assignment_runtime.py",
+        "platform/backend/src/agent_platform/formal_developer_worker_broker.py",
+        "platform/backend/src/agent_platform/formal_run_archiver.py",
+        "platform/backend/src/agent_platform/kernel_boot_identity.py",
+        "platform/backend/src/agent_platform/formal_source_provenance.py",
+        "platform/backend/src/agent_platform/formal_verification_contracts.py",
+        "platform/backend/src/agent_platform/formal_workspace.py",
+        "platform/backend/src/agent_platform/independent_verifier.py",
+        "platform/backend/src/agent_platform/independent_verifier_broker.py",
+        "platform/backend/src/agent_platform/lilies_models.py",
+        "platform/backend/src/agent_platform/local_lilies_bridge.py",
+        "platform/backend/src/agent_platform/local_lilies_bridge_api.py",
+        "platform/backend/src/agent_platform/models.py",
+        "platform/backend/src/agent_platform/platform_blackbox_artifacts.py",
+        "platform/backend/src/agent_platform/platform_blackbox_auth.py",
+        "platform/backend/src/agent_platform/stable_verification.py",
+        "platform/backend/src/agent_platform/stable_verification_cli.py",
+        "platform/backend/src/agent_platform/stable_verification_coordinator.py",
+        "platform/backend/src/agent_platform/task_packages.py",
+        "platform/backend/src/agent_platform/workflow_models.py",
+        "platform/backend/src/agent_platform/workflow_storage.py",
+    }
+)
+# Frozen verification-policy manifests issued before the Darwin reload trust
+# root was introduced used schema 1.0 and bind this exact predecessor set.
+# Keep that set explicit so historical assignments remain replayable without
+# allowing a current manifest to silently omit the new trust root.
+LEGACY_DEVELOPER_TRUST_ROOT_PATHS_V1 = frozenset(
+    {
+        "pyproject.toml",
+        "uv.lock",
+        "platform/backend/src/agent_platform/__init__.py",
+        "platform/backend/src/agent_platform/api.py",
+        "platform/backend/src/agent_platform/capability_contracts.py",
+        "platform/backend/src/agent_platform/capability_generality_gate.py",
         "platform/backend/src/agent_platform/collaboration_api.py",
         "platform/backend/src/agent_platform/collaboration_models.py",
         "platform/backend/src/agent_platform/collaboration_service.py",
@@ -152,88 +227,13 @@ class FormalSourceProvenanceSecurityError(FormalSourceProvenanceError):
     """Source evidence crossed the formal developer security boundary."""
 
 
-@dataclass(frozen=True)
-class _KernelBootIdentity:
-    digest: str
-    started_at: datetime
-
-
-def _current_kernel_boot_identity() -> _KernelBootIdentity:
-    identity: bytes
-    started_at: datetime
-    if sys.platform == "darwin":
-        class Timeval(ctypes.Structure):
-            _fields_ = [
-                ("tv_sec", ctypes.c_long),
-                ("tv_usec", ctypes.c_int),
-            ]
-
-        boot_time = Timeval()
-        size = ctypes.c_size_t(ctypes.sizeof(boot_time))
-        libc = ctypes.CDLL(None, use_errno=True)
-        try:
-            sysctlbyname = libc.sysctlbyname
-        except AttributeError as error:
-            raise FormalSourceProvenanceSecurityError(
-                "kernel boot identity is unavailable"
-            ) from error
-        sysctlbyname.argtypes = [
-            ctypes.c_char_p,
-            ctypes.c_void_p,
-            ctypes.POINTER(ctypes.c_size_t),
-            ctypes.c_void_p,
-            ctypes.c_size_t,
-        ]
-        sysctlbyname.restype = ctypes.c_int
-        if (
-            sysctlbyname(
-                b"kern.boottime",
-                ctypes.byref(boot_time),
-                ctypes.byref(size),
-                None,
-                0,
-            )
-            != 0
-            or size.value != ctypes.sizeof(boot_time)
-        ):
-            raise FormalSourceProvenanceSecurityError(
-                "kernel boot identity is unavailable"
-            )
-        identity = (
-            f"darwin:{boot_time.tv_sec}:{boot_time.tv_usec}"
-        ).encode("ascii")
-        started_at = datetime.fromtimestamp(
-            boot_time.tv_sec + boot_time.tv_usec / 1_000_000,
-            timezone.utc,
-        )
-    elif sys.platform.startswith("linux"):
-        try:
-            boot_uuid = UUID(
-                Path("/proc/sys/kernel/random/boot_id")
-                .read_text(encoding="ascii")
-                .strip()
-            )
-            boot_seconds = next(
-                int(line.split()[1])
-                for line in Path("/proc/stat")
-                .read_text(encoding="ascii")
-                .splitlines()
-                if line.startswith("btime ")
-            )
-        except (OSError, StopIteration, ValueError) as error:
-            raise FormalSourceProvenanceSecurityError(
-                "kernel boot identity is unavailable"
-            ) from error
-        identity = f"linux:{boot_uuid}".encode("ascii")
-        started_at = datetime.fromtimestamp(boot_seconds, timezone.utc)
-    else:
+def _current_kernel_boot_identity() -> KernelBootIdentity:
+    identity = read_current_kernel_boot_identity()
+    if identity is None or identity.started_at is None:
         raise FormalSourceProvenanceSecurityError(
-            "kernel boot identity is unavailable on this platform"
+            "stable kernel boot identity is unavailable"
         )
-    return _KernelBootIdentity(
-        digest=f"sha256:{hashlib.sha256(identity).hexdigest()}",
-        started_at=started_at,
-    )
+    return identity
 
 
 _CODE_GENERATION_BOOT = _current_kernel_boot_identity()
@@ -708,7 +708,7 @@ class DeveloperSourcePromotionReceipt(_FrozenModel):
 class DeveloperSourceActivationFence(_FrozenModel):
     """Trusted code-generation boundary captured only after activation."""
 
-    schema_version: Literal["1.0"] = "1.0"
+    schema_version: Literal["1.0", "1.1"] = "1.0"
     assignment_id: UUID
     channel_id: UUID
     report_id: UUID
@@ -721,6 +721,7 @@ class DeveloperSourceActivationFence(_FrozenModel):
     tree_sha: GitObjectId
     activation_process_instance_id: UUID
     activation_boot_id: Digest
+    activation_boot_scheme: StableBootIdentityScheme | None = None
     activation_boot_started_at: datetime
     activation_monotonic_ns: int = Field(ge=1)
     activated_at: datetime
@@ -735,6 +736,16 @@ class DeveloperSourceActivationFence(_FrozenModel):
     def fence_is_exact(self) -> DeveloperSourceActivationFence:
         if self.activated_at < self.activation_boot_started_at:
             raise ValueError("activation fence predates its kernel boot")
+        if (
+            self.schema_version == "1.0"
+            and self.activation_boot_scheme is not None
+        ) or (
+            self.schema_version == "1.1"
+            and self.activation_boot_scheme is None
+        ):
+            raise ValueError(
+                "activation fence boot scheme differs from its schema version"
+            )
         expected = _digest(
             self.model_dump(
                 mode="json",
@@ -787,7 +798,7 @@ class DeveloperSourcePromotionAdoption(_FrozenModel):
 class DeveloperSourceReloadConfirmation(_FrozenModel):
     """Audited proof that another process reloaded the exact active promotion."""
 
-    schema_version: Literal["1.0"] = "1.0"
+    schema_version: Literal["1.0", "1.1"] = "1.0"
     assignment_id: UUID
     channel_id: UUID
     report_id: UUID
@@ -805,12 +816,16 @@ class DeveloperSourceReloadConfirmation(_FrozenModel):
     confirming_process_instance_id: UUID
     activation_fence_digest: Digest
     activation_boot_id: Digest
+    activation_boot_scheme: BootIdentityScheme | None = None
     activation_boot_started_at: datetime
     activation_monotonic_ns: int = Field(ge=1)
     process_generation_boot_id: Digest
+    process_generation_boot_scheme: StableBootIdentityScheme | None = None
     process_generation_boot_started_at: datetime
     process_generation_monotonic_ns: int = Field(ge=1)
     process_generation_loaded_at: datetime
+    generation_identity_match: GenerationIdentityMatch | None = None
+    generation_order_basis: GenerationOrderBasis | None = None
     confirmed_at: datetime
     confirmation_digest: Digest
 
@@ -846,6 +861,24 @@ class DeveloperSourceReloadConfirmation(_FrozenModel):
             < self.process_generation_boot_started_at
         ):
             raise ValueError("code generation predates its kernel boot")
+        versioned_proof_fields = (
+            self.activation_boot_scheme,
+            self.process_generation_boot_scheme,
+            self.generation_identity_match,
+            self.generation_order_basis,
+        )
+        if self.schema_version == "1.0" and any(
+            item is not None for item in versioned_proof_fields
+        ):
+            raise ValueError(
+                "legacy reload confirmation cannot add successor proof fields"
+            )
+        if self.schema_version == "1.1" and any(
+            item is None for item in versioned_proof_fields
+        ):
+            raise ValueError(
+                "reload confirmation successor proof is incomplete"
+            )
         expected = _digest(
             self.model_dump(
                 mode="json",
@@ -858,7 +891,7 @@ class DeveloperSourceReloadConfirmation(_FrozenModel):
         return self
 
 
-def _code_generation_follows_activation(
+def _legacy_v1_code_generation_follows_activation(
     *,
     fence: DeveloperSourceActivationFence,
     process_boot_id: str,
@@ -871,6 +904,128 @@ def _code_generation_follows_activation(
             and process_monotonic_ns > fence.activation_monotonic_ns
         )
     return process_boot_started_at > fence.activated_at
+
+
+def _runtime_activation_boot_scheme(
+    *,
+    fence: DeveloperSourceActivationFence,
+    current_identity: KernelBootIdentity,
+) -> BootIdentityScheme | None:
+    if fence.activation_boot_scheme is not None:
+        return fence.activation_boot_scheme
+    if hmac.compare_digest(
+        fence.activation_boot_id,
+        current_identity.digest,
+    ):
+        return current_identity.scheme
+    legacy_digest = legacy_darwin_boot_digest(
+        fence.activation_boot_started_at
+    )
+    if (
+        legacy_digest is not None
+        and hmac.compare_digest(fence.activation_boot_id, legacy_digest)
+    ):
+        return LEGACY_DARWIN_BOOT_TIME_SCHEME
+    return None
+
+
+def _successor_proof_for_fence(
+    *,
+    fence: DeveloperSourceActivationFence,
+    activation_boot_scheme: str,
+    process_boot_id: str,
+    process_boot_scheme: str,
+    process_boot_started_at: datetime,
+    process_monotonic_ns: int,
+) -> GenerationSuccessorProof | None:
+    if process_boot_scheme not in {
+        LINUX_BOOT_ID_SCHEME,
+        DARWIN_BOOT_SESSION_SCHEME,
+    }:
+        return None
+    if (
+        fence.schema_version == "1.0"
+        and activation_boot_scheme != LEGACY_DARWIN_BOOT_TIME_SCHEME
+        and not hmac.compare_digest(
+            fence.activation_boot_id,
+            process_boot_id,
+        )
+    ):
+        # A legacy fence did not persist a stable identity scheme.  Equality
+        # with the current digest can recover a same-boot proof, but a later
+        # boot must be re-promoted instead of inferring its old scheme.
+        return None
+    try:
+        process_epoch_second = int(
+            process_boot_started_at.timestamp()
+        )
+    except (OverflowError, OSError, ValueError):
+        return None
+    current_identity = KernelBootIdentity(
+        scheme=process_boot_scheme,
+        digest=process_boot_id,
+        started_at=process_boot_started_at,
+        boot_epoch_second=process_epoch_second,
+    )
+    return prove_generation_follows_activation(
+        activation_identity_scheme=activation_boot_scheme,
+        activation_boot_digest=fence.activation_boot_id,
+        activation_boot_started_at=fence.activation_boot_started_at,
+        activated_at=fence.activated_at,
+        activation_monotonic_ns=fence.activation_monotonic_ns,
+        current_identity=current_identity,
+        current_monotonic_ns=process_monotonic_ns,
+    )
+
+
+def _reload_confirmation_follows_activation(
+    *,
+    fence: DeveloperSourceActivationFence,
+    confirmation: DeveloperSourceReloadConfirmation,
+) -> bool:
+    if confirmation.schema_version == "1.0":
+        return (
+            fence.schema_version == "1.0"
+            and _legacy_v1_code_generation_follows_activation(
+                fence=fence,
+                process_boot_id=confirmation.process_generation_boot_id,
+                process_boot_started_at=(
+                    confirmation.process_generation_boot_started_at
+                ),
+                process_monotonic_ns=(
+                    confirmation.process_generation_monotonic_ns
+                ),
+            )
+        )
+    activation_scheme = confirmation.activation_boot_scheme
+    process_scheme = confirmation.process_generation_boot_scheme
+    if (
+        activation_scheme is None
+        or process_scheme is None
+        or (
+            fence.activation_boot_scheme is not None
+            and activation_scheme != fence.activation_boot_scheme
+        )
+    ):
+        return False
+    proof = _successor_proof_for_fence(
+        fence=fence,
+        activation_boot_scheme=activation_scheme,
+        process_boot_id=confirmation.process_generation_boot_id,
+        process_boot_scheme=process_scheme,
+        process_boot_started_at=(
+            confirmation.process_generation_boot_started_at
+        ),
+        process_monotonic_ns=(
+            confirmation.process_generation_monotonic_ns
+        ),
+    )
+    return (
+        proof is not None
+        and confirmation.generation_identity_match
+        == proof.identity_match
+        and confirmation.generation_order_basis == proof.order_basis
+    )
 
 
 class _DeveloperSourcePromotionAbort(_FrozenModel):
@@ -934,6 +1089,18 @@ class _DeveloperSourceObjectReceipt(_FrozenModel):
         return self
 
 
+class FailedReprobeRetryAuthorization(_FrozenModel):
+    """Durable failed-reprobe edge that reauthorizes one Developer retry."""
+
+    schema_version: Literal["1.0"] = "1.0"
+    prior_response_id: UUID
+    prior_response_message_id: UUID
+    reprobe_id: UUID
+    reprobe_message_id: UUID
+    reprobe_message_seq: int = Field(ge=1)
+    reprobe_payload_digest: Digest
+
+
 class ApprovedDeveloperResponseBinding(_FrozenModel):
     schema_version: Literal["1.0"] = "1.0"
     channel_id: UUID
@@ -950,6 +1117,7 @@ class ApprovedDeveloperResponseBinding(_FrozenModel):
     response_report_revision: int = Field(ge=1)
     response_payload_digest: Digest
     commit_sha: GitObjectId
+    retry_after_failed_reprobe: FailedReprobeRetryAuthorization | None = None
 
     @model_validator(mode="after")
     def response_follows_approval(self) -> ApprovedDeveloperResponseBinding:
@@ -957,6 +1125,17 @@ class ApprovedDeveloperResponseBinding(_FrozenModel):
             raise ValueError("DeveloperResponse must follow its approval")
         if self.response_report_revision < self.approved_report_revision:
             raise ValueError("DeveloperResponse predates its approved report revision")
+        if (
+            self.retry_after_failed_reprobe is not None
+            and not (
+                self.approval_message_seq
+                < self.retry_after_failed_reprobe.reprobe_message_seq
+                < self.response_message_seq
+            )
+        ):
+            raise ValueError(
+                "DeveloperResponse retry must follow its failed Lilies reprobe"
+            )
         return self
 
 
@@ -1063,6 +1242,48 @@ class ArchivedBinaryDiff(_FrozenModel):
         return normalized
 
 
+class InterveningSourceCommit(_FrozenModel):
+    """One non-Developer commit in a path-disjoint promotion ancestry gap."""
+
+    schema_version: Literal["1.0"] = "1.0"
+    commit_sha: GitObjectId
+    tree_sha: GitObjectId
+    parent_commit_sha: GitObjectId
+    commit_object: ArchivedGitObject
+    changed_paths: list[SafeSourcePath] = Field(max_length=5_000)
+    provenance_digest: Digest
+
+    @field_validator("changed_paths")
+    @classmethod
+    def changed_paths_are_safe(cls, value: list[str]) -> list[str]:
+        normalized = [_safe_source_path(item) for item in value]
+        if normalized != sorted(set(normalized)):
+            raise ValueError(
+                "intervening source commit paths must be sorted and unique"
+            )
+        return normalized
+
+    @model_validator(mode="after")
+    def evidence_is_exactly_bound(self) -> InterveningSourceCommit:
+        if (
+            self.commit_object.object_type != "commit"
+            or self.commit_object.oid != self.commit_sha
+        ):
+            raise ValueError("intervening source commit object evidence is not bound")
+        expected = _digest(
+            self.model_dump(
+                mode="json",
+                exclude={"provenance_digest"},
+                exclude_none=True,
+            )
+        )
+        if not hmac.compare_digest(expected, self.provenance_digest):
+            raise ValueError(
+                "intervening source commit provenance digest does not match"
+            )
+        return self
+
+
 class DeveloperCommitProvenance(_FrozenModel):
     schema_version: Literal["1.0"] = "1.0"
     order: int = Field(ge=1)
@@ -1134,6 +1355,10 @@ class FormalSourceProvenanceManifest(_FrozenModel):
     baseline: FormalSourceBaseline
     baseline_commit_object: ArchivedGitObject
     tree_objects: list[ArchivedGitObject] = Field(min_length=1, max_length=200_000)
+    intervening_commits: list[InterveningSourceCommit] = Field(
+        default_factory=list,
+        max_length=100_000,
+    )
     approved_commits: list[DeveloperCommitProvenance] = Field(max_length=1_000)
     developer_projection: DeveloperSourceProjectionManifest | None = None
     projection_blob_objects: list[ArchivedGitObject] | None = Field(
@@ -1203,6 +1428,7 @@ class FormalSourceProvenanceManifest(_FrozenModel):
             tree_by_oid[tree.oid] = tree
         required_roots = {
             self.baseline.source_state.head_tree_sha,
+            *(commit.tree_sha for commit in self.intervening_commits),
             *(commit.tree_sha for commit in self.approved_commits),
         }
         if not required_roots <= set(tree_by_oid):
@@ -1210,7 +1436,9 @@ class FormalSourceProvenanceManifest(_FrozenModel):
         prior = self.baseline.source_state.head_commit_sha
         response_ids: set[UUID] = set()
         response_messages: set[UUID] = set()
-        approval_ids: set[UUID] = set()
+        approval_bindings: dict[UUID, ApprovedDeveloperResponseBinding] = {}
+        reprobe_ids: set[UUID] = set()
+        reprobe_messages: set[UUID] = set()
         commit_ids: set[str] = set()
         paths: dict[str, tuple[str, int]] = {
             self.baseline_commit_object.archive_path: (
@@ -1224,21 +1452,75 @@ class FormalSourceProvenanceManifest(_FrozenModel):
             if existing is not None and existing != identity:
                 raise ValueError("source tree archive path has conflicting payloads")
             paths[tree.archive_path] = identity
+        intervening_index = 0
         for expected_order, commit in enumerate(self.approved_commits, start=1):
-            if commit.order != expected_order or commit.parent_commit_sha != prior:
-                raise ValueError("approved developer commits are not one exact linear history")
+            if commit.order != expected_order:
+                raise ValueError("approved developer commit order is not contiguous")
+            while prior != commit.parent_commit_sha:
+                if intervening_index >= len(self.intervening_commits):
+                    raise ValueError(
+                        "approved developer commit has an undeclared source predecessor"
+                    )
+                predecessor = self.intervening_commits[intervening_index]
+                intervening_index += 1
+                if (
+                    predecessor.parent_commit_sha != prior
+                    or predecessor.commit_sha in commit_ids
+                    or set(predecessor.changed_paths).intersection(
+                        commit.changed_paths
+                    )
+                ):
+                    raise ValueError(
+                        "intervening source history is not linear and path-disjoint"
+                    )
+                descriptor = predecessor.commit_object
+                identity = (descriptor.payload_digest, descriptor.size_bytes)
+                existing = paths.get(descriptor.archive_path)
+                if existing is not None and existing != identity:
+                    raise ValueError(
+                        "intervening source commit path has conflicting payloads"
+                    )
+                paths[descriptor.archive_path] = identity
+                commit_ids.add(predecessor.commit_sha)
+                prior = predecessor.commit_sha
             if commit.binding.channel_id != self.channel_id:
                 raise ValueError("developer commit is bound to another collaboration channel")
             if (
                 commit.binding.response_id in response_ids
                 or commit.binding.response_message_id in response_messages
-                or commit.binding.approval_id in approval_ids
                 or commit.commit_sha in commit_ids
             ):
-                raise ValueError("developer source provenance reuses an approval or response")
+                raise ValueError("developer source provenance reuses a response or commit")
+            prior_approval = approval_bindings.get(commit.binding.approval_id)
+            retry = commit.binding.retry_after_failed_reprobe
+            if prior_approval is None:
+                if retry is not None:
+                    raise ValueError(
+                        "first use of a developer approval cannot be a retry"
+                    )
+            elif (
+                retry is None
+                or prior_approval.report_id != commit.binding.report_id
+                or prior_approval.approval_message_id
+                != commit.binding.approval_message_id
+                or prior_approval.approval_payload_digest
+                != commit.binding.approval_payload_digest
+                or retry.prior_response_id != prior_approval.response_id
+                or retry.prior_response_message_id
+                != prior_approval.response_message_id
+                or retry.reprobe_id in reprobe_ids
+                or retry.reprobe_message_id in reprobe_messages
+            ):
+                raise ValueError(
+                    "developer source provenance reuses an approval without "
+                    "a unique causal failed reprobe"
+                )
             response_ids.add(commit.binding.response_id)
             response_messages.add(commit.binding.response_message_id)
-            approval_ids.add(commit.binding.approval_id)
+            approval_bindings[commit.binding.approval_id] = commit.binding
+            if retry is not None:
+                reprobe_ids.add(retry.reprobe_id)
+                reprobe_messages.add(retry.reprobe_message_id)
             commit_ids.add(commit.commit_sha)
             prior = commit.commit_sha
             for item in (
@@ -1258,6 +1540,8 @@ class FormalSourceProvenanceManifest(_FrozenModel):
             if existing is not None and existing != diff_identity:
                 raise ValueError("source archive path has conflicting payloads")
             paths[commit.binary_diff.archive_path] = diff_identity
+        if intervening_index != len(self.intervening_commits):
+            raise ValueError("source manifest contains trailing intervening commits")
         if self.final_source_state.head_commit_sha != prior:
             raise ValueError("final source HEAD differs from the approved commit history")
         if self.approved_commits:
@@ -1491,15 +1775,9 @@ class FormalSourceProvenanceManifest(_FrozenModel):
                     != fence.activation_boot_started_at
                     or confirmation.activation_monotonic_ns
                     != fence.activation_monotonic_ns
-                    or not _code_generation_follows_activation(
+                    or not _reload_confirmation_follows_activation(
                         fence=fence,
-                        process_boot_id=confirmation.process_generation_boot_id,
-                        process_boot_started_at=(
-                            confirmation.process_generation_boot_started_at
-                        ),
-                        process_monotonic_ns=(
-                            confirmation.process_generation_monotonic_ns
-                        ),
+                        confirmation=confirmation,
                     )
                 ):
                     raise ValueError(
@@ -1533,13 +1811,18 @@ class FormalSourceProvenanceManifest(_FrozenModel):
                     raise ValueError(
                         "approved response revision lacks a promotion adoption"
                     )
-        expected = _digest(
-            self.model_dump(
-                mode="json",
-                exclude={"manifest_digest"},
-                exclude_none=True,
-            )
+        digest_payload = self.model_dump(
+            mode="json",
+            exclude={"manifest_digest"},
+            exclude_none=True,
         )
+        # `intervening_commits` was added to the schema with an empty default.
+        # Historical schema-1.0 manifests were frozen before that key existed,
+        # so replay their exact original digest surface while requiring all new
+        # manifests to bind the explicit inventory.
+        if "intervening_commits" not in self.model_fields_set:
+            digest_payload.pop("intervening_commits", None)
+        expected = _digest(digest_payload)
         if not hmac.compare_digest(expected, self.manifest_digest):
             raise ValueError("source provenance manifest digest does not match")
         return self
@@ -1901,7 +2184,19 @@ def approved_developer_response_bindings(
         )
     approvals: dict[
         UUID,
-        tuple[CollaborationMessageEnvelope, ApprovalDecision],
+        tuple[
+            CollaborationMessageEnvelope,
+            ApprovalDecision,
+            FailedReprobeRetryAuthorization | None,
+        ],
+    ] = {}
+    awaiting_reprobes: dict[
+        UUID,
+        tuple[
+            CollaborationMessageEnvelope,
+            ApprovalDecision,
+            CollaborationMessageEnvelope,
+        ],
     ] = {}
     bindings: list[ApprovedDeveloperResponseBinding] = []
     for message in parsed:
@@ -1922,9 +2217,42 @@ def approved_developer_response_bindings(
                     raise FormalSourceProvenanceConflict(
                         "approval message has no user-authorized authority"
                     )
-                approvals[approval.report_id] = (message, approval)
+                approvals[approval.report_id] = (message, approval, None)
             else:
                 approvals.pop(approval.report_id, None)
+            continue
+        if message.payload_schema is PayloadSchema.lilies_reprobe_result_v1:
+            reprobe = LiliesReprobeResult.model_validate(message.payload)
+            pending = awaiting_reprobes.pop(reprobe.report_id, None)
+            if pending is None:
+                continue
+            approval_message, approval, response_message = pending
+            if (
+                message.message_type is not MessageType.control
+                or message.sender_role is not SenderRole.lilies
+                or reprobe.channel_id != channel_id
+                or reprobe.report_id != message.correlation_id
+                or message.causal_parent_id != response_message.message_id
+            ):
+                raise FormalSourceProvenanceConflict(
+                    "Lilies reprobe does not match its approved DeveloperResponse"
+                )
+            if reprobe.outcome is ReprobeOutcome.verification_failed:
+                prior_response = DeveloperResponse.model_validate(
+                    response_message.payload
+                )
+                approvals[reprobe.report_id] = (
+                    approval_message,
+                    approval,
+                    FailedReprobeRetryAuthorization(
+                        prior_response_id=prior_response.response_id,
+                        prior_response_message_id=response_message.message_id,
+                        reprobe_id=reprobe.reprobe_id,
+                        reprobe_message_id=message.message_id,
+                        reprobe_message_seq=message.seq,
+                        reprobe_payload_digest=_digest(reprobe),
+                    ),
+                )
             continue
         if message.message_type is not MessageType.developer_response:
             continue
@@ -1943,7 +2271,7 @@ def approved_developer_response_bindings(
             raise FormalSourceProvenanceConflict(
                 "implemented DeveloperResponse has no active user approval"
             )
-        approval_message, approval = approved
+        approval_message, approval, retry_authorization = approved
         if response.commit_sha is None:  # pragma: no cover - model invariant
             raise FormalSourceProvenanceConflict(
                 "implemented DeveloperResponse has no source commit"
@@ -1976,7 +2304,13 @@ def approved_developer_response_bindings(
                 response_report_revision=response.report_revision,
                 response_payload_digest=_digest(response),
                 commit_sha=response.commit_sha,
+                retry_after_failed_reprobe=retry_authorization,
             )
+        )
+        awaiting_reprobes[response.report_id] = (
+            approval_message,
+            approval,
+            message,
         )
     if len({binding.commit_sha for binding in bindings}) != len(bindings):
         raise FormalSourceProvenanceConflict(
@@ -2473,6 +2807,122 @@ def _guard_payload(
         )
 
 
+def _intervening_source_commits(
+    repository: _GitRepository,
+    *,
+    ancestor_commit_sha: str,
+    descendant_commit_sha: str,
+    content_guard: ContentGuard | None,
+) -> tuple[list[InterveningSourceCommit], dict[str, bytes]]:
+    """Archive the exact linear commits in one approved promotion ancestry gap."""
+
+    if ancestor_commit_sha == descendant_commit_sha:
+        return [], {}
+    if not repository.commit_is_ancestor(
+        ancestor_commit_sha,
+        descendant_commit_sha,
+    ):
+        raise FormalSourceProvenanceConflict(
+            "intervening source predecessor does not descend from approved history"
+        )
+    payload = repository.run(
+        [
+            "rev-list",
+            "--first-parent",
+            "--reverse",
+            f"{ancestor_commit_sha}..{descendant_commit_sha}",
+            "--",
+        ],
+        limit=MAX_GIT_STATUS_BYTES,
+    )
+    try:
+        commit_ids = [item for item in payload.decode("ascii").splitlines() if item]
+    except UnicodeDecodeError as error:
+        raise FormalSourceProvenanceSecurityError(
+            "intervening source history returned an invalid object ID"
+        ) from error
+    previous = ancestor_commit_sha
+    records: list[InterveningSourceCommit] = []
+    files: dict[str, bytes] = {}
+    for commit_sha in commit_ids:
+        if repository.oid(commit_sha, "commit") != commit_sha:
+            raise FormalSourceProvenanceSecurityError(
+                "intervening source history returned an invalid commit"
+            )
+        commit_payload = repository.object_payload(commit_sha, "commit")
+        if repository.object_oid("commit", commit_payload) != commit_sha:
+            raise FormalSourceProvenanceSecurityError(
+                "intervening source commit does not hash to its identity"
+            )
+        tree_sha, parents = _parse_commit_headers(commit_payload)
+        if parents != [previous]:
+            raise FormalSourceProvenanceConflict(
+                "intervening source history contains an undeclared or merge commit"
+            )
+        if repository.oid(commit_sha, "tree") != tree_sha:
+            raise FormalSourceProvenanceSecurityError(
+                "intervening source commit tree differs from its Git object"
+            )
+        raw_changes = repository.run(
+            [
+                "diff-tree",
+                "-r",
+                "--raw",
+                "-z",
+                "--no-commit-id",
+                "--no-renames",
+                "--full-index",
+                previous,
+                commit_sha,
+                "--",
+            ],
+            limit=MAX_BINARY_DIFF_BYTES,
+        )
+        changed_paths = [
+            change.path
+            for change in _parse_raw_changes(
+                raw_changes,
+                oid_length=repository.oid_length,
+            )
+        ]
+        archive_path = (
+            f"source-provenance/commits/history-{commit_sha}.commit"
+        )
+        _guard_payload(
+            content_guard,
+            label=archive_path,
+            payload=commit_payload,
+        )
+        commit_object = ArchivedGitObject(
+            object_type="commit",
+            oid=commit_sha,
+            archive_path=archive_path,
+            payload_digest=_digest(commit_payload),
+            size_bytes=len(commit_payload),
+        )
+        record_payload = {
+            "schema_version": "1.0",
+            "commit_sha": commit_sha,
+            "tree_sha": tree_sha,
+            "parent_commit_sha": previous,
+            "commit_object": commit_object.model_dump(mode="json"),
+            "changed_paths": changed_paths,
+        }
+        records.append(
+            InterveningSourceCommit(
+                **record_payload,
+                provenance_digest=_digest(record_payload),
+            )
+        )
+        files[archive_path] = commit_payload
+        previous = commit_sha
+    if previous != descendant_commit_sha:
+        raise FormalSourceProvenanceConflict(
+            "intervening source history is not one exact first-parent chain"
+        )
+    return records, files
+
+
 def _commit_provenance(
     repository: _GitRepository,
     *,
@@ -2589,7 +3039,7 @@ def _commit_provenance(
     payload = {
         "schema_version": "1.0",
         "order": order,
-        "binding": binding.model_dump(mode="json"),
+        "binding": binding.model_dump(mode="json", exclude_none=True),
         "commit_sha": commit_sha,
         "tree_sha": tree_sha,
         "parent_commit_sha": parent_commit_sha,
@@ -2709,6 +3159,7 @@ class FormalSourceProvenanceCoordinator:
         repository_root: Path,
         state_root: Path,
         content_guard: ContentGuard | None = None,
+        promotion_generality_gate: CapabilityGeneralityGate | None = None,
     ) -> None:
         self._repository = _GitRepository(repository_root)
         self._state_root = _private_root(state_root)
@@ -2717,6 +3168,7 @@ class FormalSourceProvenanceCoordinator:
         os.chmod(self._assignments_root, 0o700)
         self._lock_path = self._state_root / ".source-provenance.lock"
         self._content_guard = content_guard
+        self._promotion_generality_gate = promotion_generality_gate
         self._process_instance_id = _process_identity_for_pid(os.getpid())
 
     def _assignment_root(self, assignment_id: UUID) -> Path:
@@ -2996,7 +3448,18 @@ class FormalSourceProvenanceCoordinator:
         descriptors: dict[str, ArchivedGitObject] = {}
         files: dict[str, bytes] = {}
         for entry in projection.entries:
-            payload = self._repository.object_payload(entry.blob_sha, "blob")
+            archive_path = f"source-provenance/objects/{entry.blob_sha}.blob"
+            persisted_path = self._payload_path(
+                projection.assignment_id,
+                archive_path,
+            )
+            if persisted_path.exists() or persisted_path.is_symlink():
+                payload = _read_private(
+                    persisted_path,
+                    limit=MAX_BLOB_OBJECT_BYTES,
+                )
+            else:
+                payload = self._repository.object_payload(entry.blob_sha, "blob")
             if (
                 len(payload) != entry.size_bytes
                 or not hmac.compare_digest(_digest(payload), entry.digest)
@@ -3005,7 +3468,6 @@ class FormalSourceProvenanceCoordinator:
                 raise FormalSourceProvenanceSecurityError(
                     "developer projection entry differs from its Git blob"
                 )
-            archive_path = f"source-provenance/objects/{entry.blob_sha}.blob"
             descriptor = ArchivedGitObject(
                 object_type="blob",
                 oid=entry.blob_sha,
@@ -3444,7 +3906,7 @@ class FormalSourceProvenanceCoordinator:
         receipt: DeveloperSourcePromotionReceipt,
         receipts: Sequence[DeveloperSourcePromotionReceipt],
     ) -> _DeveloperSourceObjectReceipt:
-        """Require the exact tail commit, refs, worktree, and index endpoints."""
+        """Require an intact formal tail under only path-disjoint descendants."""
 
         object_receipt = self._load_object_receipt(
             receipt.assignment_id,
@@ -3453,6 +3915,9 @@ class FormalSourceProvenanceCoordinator:
         expected_hidden_ref = (
             f"refs/lilies/formal/{receipt.assignment_id}/{receipt.response_id}"
         )
+        active_branch = self._repository.symbolic_head()
+        branch_commit = self._repository.oid(receipt.branch_ref, "commit")
+        head_commit = self._repository.oid("HEAD", "commit")
         if (
             not receipts
             or receipts[-1] != receipt
@@ -3480,16 +3945,18 @@ class FormalSourceProvenanceCoordinator:
             or object_receipt.commit_sha != receipt.commit_sha
             or object_receipt.tree_sha != receipt.tree_sha
             or object_receipt.hidden_ref != expected_hidden_ref
-            or self._repository.symbolic_head() != receipt.branch_ref
-            or self._repository.oid(receipt.branch_ref, "commit")
-            != receipt.commit_sha
-            or self._repository.oid("HEAD", "commit") != receipt.commit_sha
+            or active_branch != receipt.branch_ref
+            or branch_commit != head_commit
+            or not self._repository.commit_is_ancestor(
+                receipt.commit_sha,
+                head_commit,
+            )
             or self._repository.oid(receipt.commit_sha, "tree") != receipt.tree_sha
             or self._repository.oid(object_receipt.hidden_ref, "commit")
             != receipt.commit_sha
         ):
             raise FormalSourceProvenanceConflict(
-                "developer promotion is not the exact active chain tail"
+                "developer promotion is not an intact active formal chain tail"
             )
         target_entries = {
             entry.path: (entry.mode, entry.blob_sha)
@@ -3498,15 +3965,40 @@ class FormalSourceProvenanceCoordinator:
                 receipt.commit_sha,
             )
         }
+        head_entries = {
+            entry.path: (entry.mode, entry.blob_sha)
+            for entry in _projected_tree_entries(
+                self._repository,
+                head_commit,
+            )
+        }
+        if self._repository.descendant_history_touches_paths(
+            ancestor=receipt.commit_sha,
+            descendant=head_commit,
+            paths=receipt.changed_paths,
+        ):
+            raise FormalSourceProvenanceConflict(
+                "a descendant commit touched an activated source path"
+            )
         for path in receipt.changed_paths:
             target = target_entries.get(path)
             if (
-                self._worktree_endpoint(path) != target
+                head_entries.get(path) != target
+                or self._worktree_endpoint(path) != target
                 or self._index_endpoint(path) != target
             ):
                 raise FormalSourceProvenanceConflict(
-                    "an activated source path differs from its commit endpoint"
+                    "an activated source path differs from its receipt endpoint"
                 )
+        if (
+            self._repository.symbolic_head() != active_branch
+            or self._repository.oid(receipt.branch_ref, "commit")
+            != branch_commit
+            or self._repository.oid("HEAD", "commit") != head_commit
+        ):
+            raise FormalSourceProvenanceConflict(
+                "developer source advanced while its active promotion was checked"
+            )
         self._require_activation_fence(
             receipt=receipt,
             intent=intent,
@@ -3551,17 +4043,28 @@ class FormalSourceProvenanceCoordinator:
                 raise FormalSourceProvenanceConflict(
                     "activated developer code has not been loaded by a new process"
                 )
-            if not _code_generation_follows_activation(
+            activation_boot_scheme = _runtime_activation_boot_scheme(
                 fence=fence,
+                current_identity=_CODE_GENERATION_BOOT,
+            )
+            if activation_boot_scheme is None:
+                raise FormalSourceProvenanceConflict(
+                    "activation boot identity scheme cannot be proven"
+                )
+            proof = _successor_proof_for_fence(
+                fence=fence,
+                activation_boot_scheme=activation_boot_scheme,
                 process_boot_id=_CODE_GENERATION_BOOT.digest,
+                process_boot_scheme=_CODE_GENERATION_BOOT.scheme,
                 process_boot_started_at=_CODE_GENERATION_BOOT.started_at,
                 process_monotonic_ns=_CODE_GENERATION_MONOTONIC_NS,
-            ):
+            )
+            if proof is None:
                 raise FormalSourceProvenanceConflict(
                     "serving code generation predates developer activation"
                 )
             payload = {
-                "schema_version": "1.0",
+                "schema_version": "1.1",
                 "assignment_id": str(receipt.assignment_id),
                 "channel_id": str(receipt.channel_id),
                 "report_id": str(receipt.report_id),
@@ -3583,12 +4086,16 @@ class FormalSourceProvenanceCoordinator:
                 ),
                 "activation_fence_digest": fence.fence_digest,
                 "activation_boot_id": fence.activation_boot_id,
+                "activation_boot_scheme": activation_boot_scheme,
                 "activation_boot_started_at": (
                     fence.activation_boot_started_at.isoformat()
                     .replace("+00:00", "Z")
                 ),
                 "activation_monotonic_ns": fence.activation_monotonic_ns,
                 "process_generation_boot_id": _CODE_GENERATION_BOOT.digest,
+                "process_generation_boot_scheme": (
+                    _CODE_GENERATION_BOOT.scheme
+                ),
                 "process_generation_boot_started_at": (
                     _CODE_GENERATION_BOOT.started_at.isoformat()
                     .replace("+00:00", "Z")
@@ -3600,6 +4107,8 @@ class FormalSourceProvenanceCoordinator:
                     _CODE_GENERATION_LOADED_AT.isoformat()
                     .replace("+00:00", "Z")
                 ),
+                "generation_identity_match": proof.identity_match,
+                "generation_order_basis": proof.order_basis,
                 "confirmed_at": datetime.now(timezone.utc)
                 .isoformat()
                 .replace("+00:00", "Z"),
@@ -3634,21 +4143,17 @@ class FormalSourceProvenanceCoordinator:
             != fence.activation_monotonic_ns
             or confirmation.process_generation_boot_id
             != _CODE_GENERATION_BOOT.digest
+            or confirmation.process_generation_boot_scheme
+            != _CODE_GENERATION_BOOT.scheme
             or confirmation.process_generation_boot_started_at
             != _CODE_GENERATION_BOOT.started_at
             or confirmation.process_generation_monotonic_ns
             != _CODE_GENERATION_MONOTONIC_NS
             or confirmation.process_generation_loaded_at
             != _CODE_GENERATION_LOADED_AT
-            or not _code_generation_follows_activation(
+            or not _reload_confirmation_follows_activation(
                 fence=fence,
-                process_boot_id=confirmation.process_generation_boot_id,
-                process_boot_started_at=(
-                    confirmation.process_generation_boot_started_at
-                ),
-                process_monotonic_ns=(
-                    confirmation.process_generation_monotonic_ns
-                ),
+                confirmation=confirmation,
             )
         ):
             raise FormalSourceProvenanceSecurityError(
@@ -3847,7 +4352,7 @@ class FormalSourceProvenanceCoordinator:
         remaining = list(receipts)
         while remaining:
             matches = [item for item in remaining if item.parent_commit_sha == parent]
-            if not matches and not ordered:
+            if not matches:
                 matches = [
                     item
                     for item in remaining
@@ -3861,6 +4366,21 @@ class FormalSourceProvenanceCoordinator:
                         paths=item.changed_paths,
                     )
                 ]
+            if len(matches) > 1:
+                earliest = [
+                    candidate
+                    for candidate in matches
+                    if all(
+                        candidate.parent_commit_sha == other.parent_commit_sha
+                        or self._repository.commit_is_ancestor(
+                            candidate.parent_commit_sha,
+                            other.parent_commit_sha,
+                        )
+                        for other in matches
+                    )
+                ]
+                if len(earliest) == 1:
+                    matches = earliest
             if len(matches) != 1:
                 raise FormalSourceProvenanceConflict(
                     "developer promotion receipts are not one exact linear chain"
@@ -3879,6 +4399,7 @@ class FormalSourceProvenanceCoordinator:
         parent_commit_sha: str,
         workspace_manifest_digest: str,
         source_manifest_digest: str,
+        previously_changed_paths: frozenset[str] = frozenset(),
         require_changes: bool = True,
     ) -> tuple[list[GitPathChange], list[DeveloperSourcePromotionBlob], dict[str, bytes]]:
         lexical = Path(workspace)
@@ -3966,12 +4487,34 @@ class FormalSourceProvenanceCoordinator:
                 parent_commit_sha,
             )
         }
+        projection_entries = {
+            entry.path: entry
+            for entry in projection.entries
+        }
         changes: list[GitPathChange] = []
         target_blobs: list[DeveloperSourcePromotionBlob] = []
         target_payloads: dict[str, bytes] = {}
         for path in sorted(set(parent_entries) | set(workspace_files)):
             parent = parent_entries.get(path)
             current = workspace_files.get(path)
+            projected = projection_entries.get(path)
+            workspace_blob_sha = (
+                self._repository.object_oid("blob", current[0])
+                if current is not None
+                else None
+            )
+            if path not in previously_changed_paths and (
+                (projected is None and current is None)
+                or (
+                    projected is not None
+                    and workspace_blob_sha == projected.blob_sha
+                )
+            ):
+                # A long-lived formal workspace intentionally remains frozen at
+                # its original projection. Preserve path-disjoint branch
+                # evolution unless the developer changed this path before or
+                # changed its projected bytes now.
+                continue
             if parent is None and not projection.permits_new_path(path):
                 raise FormalSourceProvenanceSecurityError(
                     "developer workspace adds a path outside its allowed-new boundary"
@@ -3995,7 +4538,8 @@ class FormalSourceProvenanceCoordinator:
                 mode = parent.mode
             else:
                 mode = "100755" if metadata.st_mode & 0o111 else "100644"
-            blob_sha = self._repository.object_oid("blob", payload)
+            assert workspace_blob_sha is not None
+            blob_sha = workspace_blob_sha
             if (
                 parent is not None
                 and parent.mode == mode
@@ -4109,6 +4653,11 @@ class FormalSourceProvenanceCoordinator:
             parent_commit_sha=trusted_parent_commit,
             workspace_manifest_digest=workspace_manifest_digest,
             source_manifest_digest=source_manifest_digest,
+            previously_changed_paths=frozenset(
+                path
+                for receipt in receipts
+                for path in receipt.changed_paths
+            ),
         )
         parent_commit = trusted_parent_commit
         parent_tree = trusted_parent_tree
@@ -4119,8 +4668,7 @@ class FormalSourceProvenanceCoordinator:
         if active_branch_commit != trusted_parent_commit:
             changed_paths = [change.path for change in changes]
             if (
-                receipts
-                or self._repository.symbolic_head() != projection.branch_ref
+                self._repository.symbolic_head() != projection.branch_ref
                 or not self._repository.commit_is_ancestor(
                     trusted_parent_commit,
                     active_branch_commit,
@@ -4137,6 +4685,22 @@ class FormalSourceProvenanceCoordinator:
                 )
             parent_commit = active_branch_commit
             parent_tree = self._repository.oid(active_branch_commit, "tree")
+        if self._promotion_generality_gate is not None:
+            source_deltas: dict[str, tuple[bytes | None, bytes | None]] = {}
+            for change in changes:
+                old_payload = (
+                    self._repository.object_payload(change.old_blob_sha, "blob")
+                    if change.old_blob_sha is not None
+                    else None
+                )
+                source_deltas[change.path] = (
+                    old_payload,
+                    target_payloads.get(change.path),
+                )
+            # This runs before the immutable intent, Git objects, refs, or
+            # worktree are mutated. A rejected project-specific delta can
+            # therefore never become an implemented CAP receipt.
+            self._promotion_generality_gate.require_generic_delta(source_deltas)
         payload = {
             "schema_version": "1.0",
             "assignment_id": str(projection.assignment_id),
@@ -5280,7 +5844,7 @@ class FormalSourceProvenanceCoordinator:
         else:
             activation_monotonic_ns = time.monotonic_ns()
             fence_payload = {
-                "schema_version": "1.0",
+                "schema_version": "1.1",
                 "assignment_id": str(intent.assignment_id),
                 "channel_id": str(intent.channel_id),
                 "report_id": str(intent.report_id),
@@ -5295,6 +5859,7 @@ class FormalSourceProvenanceCoordinator:
                     activation_process_instance_id
                 ),
                 "activation_boot_id": _CODE_GENERATION_BOOT.digest,
+                "activation_boot_scheme": _CODE_GENERATION_BOOT.scheme,
                 "activation_boot_started_at": (
                     _CODE_GENERATION_BOOT.started_at.isoformat()
                     .replace("+00:00", "Z")
@@ -5867,16 +6432,41 @@ class FormalSourceProvenanceCoordinator:
                 raise FormalSourceProvenanceConflict(
                     "approved DeveloperResponse is not the clean developer source HEAD"
                 )
+            _tree_sha, parents = _parse_commit_headers(
+                self._repository.object_payload(binding.commit_sha, "commit")
+            )
+            if len(parents) != 1:
+                raise FormalSourceProvenanceConflict(
+                    "approved DeveloperResponse must be one linear Git commit"
+                )
+            intervening, intervening_files = _intervening_source_commits(
+                self._repository,
+                ancestor_commit_sha=previous,
+                descendant_commit_sha=parents[0],
+                content_guard=self._content_guard,
+            )
             provenance, files = _commit_provenance(
                 self._repository,
                 order=len(records) + 1,
-                parent_commit_sha=previous,
+                parent_commit_sha=parents[0],
                 binding=binding,
                 content_guard=self._content_guard,
             )
+            if any(
+                set(item.changed_paths).intersection(provenance.changed_paths)
+                for item in intervening
+            ):
+                raise FormalSourceProvenanceConflict(
+                    "approved DeveloperResponse source predecessor touched "
+                    "the response delta"
+                )
+            files.update(intervening_files)
             _trees, tree_files = _tree_object_closure(
                 self._repository,
-                root_tree_oids=[provenance.tree_sha],
+                root_tree_oids=[
+                    *(item.tree_sha for item in intervening),
+                    provenance.tree_sha,
+                ],
                 content_guard=self._content_guard,
             )
             files.update(tree_files)
@@ -5986,15 +6576,6 @@ class FormalSourceProvenanceCoordinator:
                 raise FormalSourceProvenanceConflict(
                     "DeveloperResponse source commits are not in message order"
                 )
-            previous = (
-                records[-1].commit_sha
-                if records
-                else receipt.parent_commit_sha
-            )
-            if records and receipt.parent_commit_sha != previous:
-                raise FormalSourceProvenanceConflict(
-                    "promoted DeveloperResponse is not the next approved commit"
-                )
             if not records and (
                 receipts[0] != receipt
                 or not self._repository.commit_is_ancestor(
@@ -6010,10 +6591,29 @@ class FormalSourceProvenanceCoordinator:
                 raise FormalSourceProvenanceConflict(
                     "first promoted DeveloperResponse has an unsafe source predecessor"
                 )
+            approved_predecessor = (
+                records[-1].commit_sha
+                if records
+                else baseline.source_state.head_commit_sha
+            )
+            intervening, intervening_files = _intervening_source_commits(
+                self._repository,
+                ancestor_commit_sha=approved_predecessor,
+                descendant_commit_sha=receipt.parent_commit_sha,
+                content_guard=self._content_guard,
+            )
+            if any(
+                set(item.changed_paths).intersection(receipt.changed_paths)
+                for item in intervening
+            ):
+                raise FormalSourceProvenanceConflict(
+                    "promoted DeveloperResponse source predecessor touched "
+                    "the workspace delta"
+                )
             provenance, files = _commit_provenance(
                 self._repository,
                 order=len(records) + 1,
-                parent_commit_sha=previous,
+                parent_commit_sha=receipt.parent_commit_sha,
                 binding=binding,
                 content_guard=self._content_guard,
             )
@@ -6025,9 +6625,13 @@ class FormalSourceProvenanceCoordinator:
                 raise FormalSourceProvenanceSecurityError(
                     "archived Git commit differs from the frozen workspace delta"
                 )
+            files.update(intervening_files)
             _trees, tree_files = _tree_object_closure(
                 self._repository,
-                root_tree_oids=[provenance.tree_sha],
+                root_tree_oids=[
+                    *(item.tree_sha for item in intervening),
+                    provenance.tree_sha,
+                ],
                 content_guard=self._content_guard,
             )
             files.update(tree_files)
@@ -6064,15 +6668,41 @@ class FormalSourceProvenanceCoordinator:
                 )
             files: dict[str, bytes] = {}
             previous = baseline.source_state.head_commit_sha
+            intervening_commits: list[InterveningSourceCommit] = []
+            declared_commit_ids: list[str] = []
             for record in records:
-                if record.parent_commit_sha != previous:
+                predecessors, predecessor_files = _intervening_source_commits(
+                    self._repository,
+                    ancestor_commit_sha=previous,
+                    descendant_commit_sha=record.parent_commit_sha,
+                    content_guard=self._content_guard,
+                )
+                if any(
+                    set(item.changed_paths).intersection(record.changed_paths)
+                    for item in predecessors
+                ):
                     raise FormalSourceProvenanceConflict(
-                        "source archive commit sequence is not linear"
+                        "source archive predecessor touched an approved response delta"
                     )
+                for predecessor in predecessors:
+                    expected_payload = predecessor_files[
+                        predecessor.commit_object.archive_path
+                    ]
+                    persisted = self._read_payload_descriptor(
+                        assignment_id,
+                        predecessor.commit_object,
+                    )
+                    if not hmac.compare_digest(persisted, expected_payload):
+                        raise FormalSourceProvenanceSecurityError(
+                            "durable intervening commit differs from Git"
+                        )
+                    files[predecessor.commit_object.archive_path] = persisted
+                    declared_commit_ids.append(predecessor.commit_sha)
+                intervening_commits.extend(predecessors)
                 reconstructed, repository_files = _commit_provenance(
                     self._repository,
                     order=record.order,
-                    parent_commit_sha=previous,
+                    parent_commit_sha=record.parent_commit_sha,
                     binding=record.binding,
                     content_guard=self._content_guard,
                 )
@@ -6095,6 +6725,7 @@ class FormalSourceProvenanceCoordinator:
                             "source archive object path contains conflicting bytes"
                         )
                     files[path] = payload
+                declared_commit_ids.append(record.commit_sha)
                 previous = record.commit_sha
             baseline_commit, _baseline_trees, baseline_files = self._baseline_objects(
                 baseline.source_state
@@ -6103,6 +6734,7 @@ class FormalSourceProvenanceCoordinator:
                 self._repository,
                 root_tree_oids=[
                     baseline.source_state.head_tree_sha,
+                    *(item.tree_sha for item in intervening_commits),
                     *(record.tree_sha for record in records),
                 ],
                 content_guard=self._content_guard,
@@ -6111,9 +6743,20 @@ class FormalSourceProvenanceCoordinator:
                 baseline_commit.archive_path: baseline_files[
                     baseline_commit.archive_path
                 ],
+                **{
+                    item.commit_object.archive_path: self._repository.object_payload(
+                        item.commit_sha,
+                        "commit",
+                    )
+                    for item in intervening_commits
+                },
                 **tree_files,
             }
-            for descriptor in (baseline_commit, *tree_objects):
+            for descriptor in (
+                baseline_commit,
+                *(item.commit_object for item in intervening_commits),
+                *tree_objects,
+            ):
                 persisted = self._read_payload_descriptor(
                     assignment_id,
                     descriptor,
@@ -6219,13 +6862,17 @@ class FormalSourceProvenanceCoordinator:
                     raise FormalSourceProvenanceConflict(
                         "activated source branch differs from approved promotion history"
                     )
-                final_entries = {
-                    entry.path: (entry.mode, entry.blob_sha)
-                    for entry in _projected_tree_entries(
-                        self._repository,
-                        previous,
-                    )
-                }
+                final_entries = (
+                    {
+                        entry.path: (entry.mode, entry.blob_sha)
+                        for entry in _projected_tree_entries(
+                            self._repository,
+                            previous,
+                        )
+                    }
+                    if records
+                    else {}
+                )
                 for path in {
                     item
                     for record in records
@@ -6263,7 +6910,7 @@ class FormalSourceProvenanceCoordinator:
                 self._repository,
                 baseline=baseline.source_state.head_commit_sha,
                 final=previous,
-                expected=[record.commit_sha for record in records],
+                expected=declared_commit_ids,
             )
             if sum(len(payload) for payload in files.values()) > MAX_ARCHIVE_PAYLOAD_BYTES:
                 raise FormalSourceProvenanceSecurityError(
@@ -6280,6 +6927,10 @@ class FormalSourceProvenanceCoordinator:
                 "baseline_commit_object": baseline_commit.model_dump(mode="json"),
                 "tree_objects": [
                     tree.model_dump(mode="json") for tree in tree_objects
+                ],
+                "intervening_commits": [
+                    item.model_dump(mode="json", exclude_none=True)
+                    for item in intervening_commits
                 ],
                 "approved_commits": [
                     record.model_dump(mode="json", exclude_none=True)
@@ -6308,7 +6959,7 @@ class FormalSourceProvenanceCoordinator:
                     for blob in projection_blob_objects
                 ]
                 payload["promotion_intents"] = [
-                    intent.model_dump(mode="json")
+                    intent.model_dump(mode="json", exclude_none=True)
                     for intent in promotion_intents
                 ]
                 payload["promotion_receipts"] = [
@@ -6316,7 +6967,7 @@ class FormalSourceProvenanceCoordinator:
                     for receipt in promotion_receipts
                 ]
                 payload["activation_fences"] = [
-                    fence.model_dump(mode="json")
+                    fence.model_dump(mode="json", exclude_none=True)
                     for fence in activation_fences
                 ]
                 payload["promotion_adoptions"] = [
@@ -6324,7 +6975,7 @@ class FormalSourceProvenanceCoordinator:
                     for adoption in promotion_adoptions
                 ]
                 payload["reload_confirmations"] = [
-                    confirmation.model_dump(mode="json")
+                    confirmation.model_dump(mode="json", exclude_none=True)
                     for confirmation in reload_confirmations
                 ]
             manifest = FormalSourceProvenanceManifest(
@@ -6383,7 +7034,16 @@ def _source_manifest_from_archive(
     manifest = FormalSourceProvenanceManifest.model_validate(
         _strict_json(manifest_payload)
     )
-    if not hmac.compare_digest(manifest_payload, _canonical_json(manifest)):
+    canonical_manifest = manifest.model_dump(
+        mode="json",
+        exclude_none=True,
+    )
+    if "intervening_commits" not in manifest.model_fields_set:
+        canonical_manifest.pop("intervening_commits", None)
+    if not hmac.compare_digest(
+        manifest_payload,
+        _canonical_json(canonical_manifest),
+    ):
         raise FormalSourceProvenanceSecurityError(
             "source provenance manifest is not canonical"
         )
@@ -6413,6 +7073,7 @@ def _source_archive_descriptors(
         manifest.baseline_commit_object,
         *manifest.tree_objects,
         *(manifest.projection_blob_objects or []),
+        *(item.commit_object for item in manifest.intervening_commits),
     ]
     for commit in manifest.approved_commits:
         all_descriptors.extend(
@@ -6601,17 +7262,43 @@ def verify_source_provenance_archive_offline(
     if baseline_tree != manifest.baseline.source_state.head_tree_sha:
         raise FormalSourceProvenanceSecurityError(
             "archived baseline commit points to another source tree"
-        )
+    )
     previous_commit = manifest.baseline.source_state.head_commit_sha
     previous_tree = manifest.baseline.source_state.head_tree_sha
+    intervening_index = 0
     for record in manifest.approved_commits:
+        while previous_commit != record.parent_commit_sha:
+            if intervening_index >= len(manifest.intervening_commits):
+                raise FormalSourceProvenanceConflict(
+                    "approved source commit chain has an undeclared predecessor"
+                )
+            predecessor = manifest.intervening_commits[intervening_index]
+            intervening_index += 1
+            commit_payload = object_payloads.get(
+                ("commit", predecessor.commit_sha)
+            )
+            if commit_payload is None:
+                raise FormalSourceProvenanceSecurityError(
+                    "source provenance archive omits an intervening commit object"
+                )
+            tree_oid, parents = _parse_commit_headers(commit_payload)
+            if (
+                tree_oid != predecessor.tree_sha
+                or parents != [previous_commit]
+                or predecessor.parent_commit_sha != previous_commit
+            ):
+                raise FormalSourceProvenanceSecurityError(
+                    "intervening commit object differs from its declared ancestry"
+                )
+            previous_commit = predecessor.commit_sha
+            previous_tree = predecessor.tree_sha
         commit_payload = object_payloads.get(("commit", record.commit_sha))
         if commit_payload is None:
             raise FormalSourceProvenanceSecurityError(
                 "source provenance archive omits an approved commit object"
             )
         tree_oid, parents = _parse_commit_headers(commit_payload)
-        if tree_oid != record.tree_sha or parents != [previous_commit]:
+        if tree_oid != record.tree_sha or parents != [record.parent_commit_sha]:
             raise FormalSourceProvenanceSecurityError(
                 "approved commit object differs from its tree or direct parent"
             )
@@ -6621,6 +7308,10 @@ def verify_source_provenance_archive_offline(
             )
         previous_commit = record.commit_sha
         previous_tree = record.tree_sha
+    if intervening_index != len(manifest.intervening_commits):
+        raise FormalSourceProvenanceConflict(
+            "offline source commit chain has trailing intervening commits"
+        )
     if (
         previous_commit != manifest.final_source_state.head_commit_sha
         or previous_tree != manifest.final_source_state.head_tree_sha
@@ -6642,6 +7333,7 @@ def verify_source_provenance_archive_offline(
         )
     root_trees = [
         manifest.baseline.source_state.head_tree_sha,
+        *(item.tree_sha for item in manifest.intervening_commits),
         *(record.tree_sha for record in manifest.approved_commits),
     ]
     snapshots, reachable_trees = _offline_tree_snapshots(
@@ -6703,8 +7395,35 @@ def verify_source_provenance_archive_offline(
                     "developer projection blob is not independently replayable"
                 )
 
+    parent_commit = manifest.baseline.source_state.head_commit_sha
     parent_tree = manifest.baseline.source_state.head_tree_sha
+    intervening_index = 0
     for record in manifest.approved_commits:
+        while parent_commit != record.parent_commit_sha:
+            if intervening_index >= len(manifest.intervening_commits):
+                raise FormalSourceProvenanceSecurityError(
+                    "approved source tree has an undeclared predecessor"
+                )
+            predecessor = manifest.intervening_commits[intervening_index]
+            if predecessor.parent_commit_sha != parent_commit:
+                raise FormalSourceProvenanceSecurityError(
+                    "intervening source tree is not one linear history"
+                )
+            expected_changes = _offline_expected_changes(
+                parent=snapshots[parent_tree],
+                current=snapshots[predecessor.tree_sha],
+            )
+            if set(expected_changes) != set(predecessor.changed_paths):
+                raise FormalSourceProvenanceSecurityError(
+                    "intervening commit changed paths differ from its trees"
+                )
+            if set(predecessor.changed_paths).intersection(record.changed_paths):
+                raise FormalSourceProvenanceSecurityError(
+                    "intervening source history touched an approved response delta"
+                )
+            parent_commit = predecessor.commit_sha
+            parent_tree = predecessor.tree_sha
+            intervening_index += 1
         expected_changes = _offline_expected_changes(
             parent=snapshots[parent_tree],
             current=snapshots[record.tree_sha],
@@ -6722,7 +7441,12 @@ def verify_source_provenance_archive_offline(
                 raise FormalSourceProvenanceSecurityError(
                     "approved source endpoint omits its raw blob object"
                 )
+        parent_commit = record.commit_sha
         parent_tree = record.tree_sha
+    if intervening_index != len(manifest.intervening_commits):
+        raise FormalSourceProvenanceSecurityError(
+            "source tree evidence has trailing intervening commits"
+        )
     return manifest
 
 
@@ -6751,11 +7475,37 @@ def verify_source_provenance_archive(
         raise FormalSourceProvenanceConflict(
             "source provenance baseline no longer resolves to its Git tree"
         )
+    intervening_index = 0
+    declared_commit_ids: list[str] = []
     for record in manifest.approved_commits:
+        predecessors, predecessor_files = _intervening_source_commits(
+            repository,
+            ancestor_commit_sha=previous,
+            descendant_commit_sha=record.parent_commit_sha,
+            content_guard=content_guard,
+        )
+        declared_predecessors = manifest.intervening_commits[
+            intervening_index : intervening_index + len(predecessors)
+        ]
+        if predecessors != declared_predecessors:
+            raise FormalSourceProvenanceSecurityError(
+                "archived intervening commit metadata differs from Git"
+            )
+        for path, expected_payload in predecessor_files.items():
+            actual_payload = archive_files.get(path)
+            if actual_payload is None or not hmac.compare_digest(
+                actual_payload,
+                expected_payload,
+            ):
+                raise FormalSourceProvenanceSecurityError(
+                    "intervening source payload is missing or differs from Git"
+                )
+        intervening_index += len(predecessors)
+        declared_commit_ids.extend(item.commit_sha for item in predecessors)
         reconstructed, files = _commit_provenance(
             repository,
             order=record.order,
-            parent_commit_sha=previous,
+            parent_commit_sha=record.parent_commit_sha,
             binding=record.binding,
             content_guard=content_guard,
         )
@@ -6773,12 +7523,17 @@ def verify_source_provenance_archive(
                     "source provenance payload is missing or differs from Git"
                 )
             _guard_payload(content_guard, label=path, payload=actual_payload)
+        declared_commit_ids.append(record.commit_sha)
         previous = record.commit_sha
+    if intervening_index != len(manifest.intervening_commits):
+        raise FormalSourceProvenanceSecurityError(
+            "archived source contains trailing intervening commits"
+        )
     _require_exact_revision_range(
         repository,
         baseline=manifest.baseline.source_state.head_commit_sha,
         final=previous,
-        expected=[record.commit_sha for record in manifest.approved_commits],
+        expected=declared_commit_ids,
     )
     if require_current_checkout:
         current = repository.state()

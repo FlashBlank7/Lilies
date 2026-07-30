@@ -470,7 +470,7 @@ def test_collaboration_migration_is_safe_across_repeated_platform_lifespans(
                 "WHERE type='table' AND name LIKE 'collaboration_%'"
             ).fetchall()
         }
-    assert versions == [(1,)]
+    assert versions == [(1,), (2,)]
     assert {
         "collaboration_channels",
         "collaboration_messages",

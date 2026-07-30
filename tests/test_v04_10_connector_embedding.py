@@ -20,6 +20,7 @@ from agent_platform.api import create_app
 from agent_platform.blocks import build_block_registry
 from agent_platform.config import Settings
 from agent_platform.connector_sdk import (
+    ConnectorAdapterError,
     ConnectorCallback,
     ConnectorConflict,
     ConnectorDenied,
@@ -86,6 +87,8 @@ class CustomerSystemHandler(BaseHTTPRequestHandler):
     patch_bodies: list[dict[str, Any]] = []
     slow_reads = False
     leak_extra_read_field = False
+    transient_patch_failures = 0
+    transient_patch_headers: dict[str, str] = {}
     required_authorization: str | None = None
 
     def do_GET(self) -> None:  # noqa: N802
@@ -116,6 +119,14 @@ class CustomerSystemHandler(BaseHTTPRequestHandler):
         type(self).patch_calls += 1
         type(self).authorization_headers.append(self.headers.get("Authorization", ""))
         type(self).patch_bodies.append(body)
+        if type(self).transient_patch_failures > 0:
+            type(self).transient_patch_failures -= 1
+            self._send(
+                503,
+                {"error": "controlled transient writeback failure"},
+                headers=type(self).transient_patch_headers,
+            )
+            return
         if body.get("decision") == "force-failure":
             self._send(503, {"error": "controlled writeback failure"})
             return
@@ -157,11 +168,19 @@ class CustomerSystemHandler(BaseHTTPRequestHandler):
         value = json.loads(payload)
         return value if isinstance(value, dict) else {}
 
-    def _send(self, status: int, body: dict[str, Any]) -> None:
+    def _send(
+        self,
+        status: int,
+        body: dict[str, Any],
+        *,
+        headers: dict[str, str] | None = None,
+    ) -> None:
         payload = json.dumps(body).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(payload)))
+        for name, value in (headers or {}).items():
+            self.send_header(name, value)
         self.end_headers()
         self.wfile.write(payload)
 
@@ -178,6 +197,8 @@ def customer_server() -> Iterator[tuple[str, type[CustomerSystemHandler]]]:
     CustomerSystemHandler.patch_bodies = []
     CustomerSystemHandler.slow_reads = False
     CustomerSystemHandler.leak_extra_read_field = False
+    CustomerSystemHandler.transient_patch_failures = 0
+    CustomerSystemHandler.transient_patch_headers = {}
     CustomerSystemHandler.required_authorization = None
     server = ThreadingHTTPServer(("127.0.0.1", 0), CustomerSystemHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -190,13 +211,14 @@ def customer_server() -> Iterator[tuple[str, type[CustomerSystemHandler]]]:
         thread.join(timeout=2)
 
 
-def settings(tmp_path: Path) -> Settings:
+def settings(tmp_path: Path, **overrides: Any) -> Settings:
     config = Settings(
         api_token="connector-test",
         data_dir=tmp_path / "data",
         workspace_root=tmp_path / "workspaces",
         scheduler_poll_seconds=3600,
         platform_harness_network_egress_policy="full",
+        **overrides,
     )
     config.workspace_root.mkdir(parents=True, exist_ok=True)
     return config
@@ -224,6 +246,7 @@ def manifest(
     environment: str = "test",
     profile_id: str = "test",
     claim_ceiling: str = "H3",
+    mutation_idempotency_semantics: str = "none",
 ) -> dict[str, Any]:
     return {
         "schema_version": "1.0",
@@ -271,6 +294,7 @@ def manifest(
                 ),
                 "required_roles": ["operator"],
                 "compensation_operation_id": "restore_case",
+                "idempotency_semantics": mutation_idempotency_semantics,
             },
             {
                 "id": "restore_case",
@@ -992,6 +1016,7 @@ def test_failed_read_retries_after_connector_binding_revision_changes(
             receipt = second.json()["receipt"]
             assert receipt["status"] == "succeeded"
             assert receipt["replayed"] is False
+            assert receipt["attempt_count"] == 2
             assert receipt["binding_revision"] == rebound.json()["revision"]
             assert handler.get_calls == 2
             assert handler.authorization_headers == [
@@ -1008,6 +1033,118 @@ def test_failed_read_retries_after_connector_binding_revision_changes(
                 "connector.execution.binding_refresh_started",
                 "connector.execution.succeeded",
             ]
+
+
+def test_read_idempotency_replays_within_a_run_and_refreshes_between_runs(
+    tmp_path: Path,
+) -> None:
+    with customer_server() as (base_url, handler):
+        app = create_app(settings(tmp_path), DecisionProvider())
+        with TestClient(app) as client:
+            register_manifest(client, base_url)
+            register_tenant(client, application_ids=["app-controlled"])
+            first_request = execute_body(
+                operation_id="get_case",
+                payload={"case_id": "run-scoped-read"},
+                idempotency_key="run-scoped-read-key",
+                run_id="run-one",
+            )
+
+            first = client.post(
+                "/api/v1/connectors/executions",
+                headers=HEADERS,
+                json=first_request,
+            )
+            replay = client.post(
+                "/api/v1/connectors/executions",
+                headers=HEADERS,
+                json=first_request,
+            )
+            refreshed = client.post(
+                "/api/v1/connectors/executions",
+                headers=HEADERS,
+                json={**first_request, "run_id": "run-two"},
+            )
+
+            assert first.status_code == replay.status_code == refreshed.status_code == 201
+            assert first.json()["receipt"]["replayed"] is False
+            assert replay.json()["receipt"]["replayed"] is True
+            assert refreshed.json()["receipt"]["replayed"] is False
+            assert (
+                first.json()["receipt"]["execution_id"]
+                != refreshed.json()["receipt"]["execution_id"]
+            )
+            assert handler.get_calls == 2
+
+            conflict = client.post(
+                "/api/v1/connectors/executions",
+                headers=HEADERS,
+                json={
+                    **first_request,
+                    "payload": {"case_id": "different-input"},
+                    "run_id": "run-two",
+                },
+            )
+            assert conflict.status_code == 409
+            assert handler.get_calls == 2
+
+
+def test_connector_environment_epoch_rotates_durable_write_idempotency(
+    tmp_path: Path,
+) -> None:
+    payload = {"case_id": "environment-reset", "decision": "approved"}
+    request_key = "environment-reset-write-key"
+    with customer_server() as (base_url, handler):
+        first_app = create_app(
+            settings(tmp_path, connector_environment_epoch="environment-one"),
+            DecisionProvider(),
+        )
+        with TestClient(first_app) as client:
+            register_manifest(client, base_url)
+            register_tenant(client, application_ids=["app-controlled"])
+            first_authorization = create_authorization(
+                client,
+                operation_id="update_case",
+                payload=payload,
+            )
+            first = client.post(
+                "/api/v1/connectors/executions",
+                headers=HEADERS,
+                json=execute_body(
+                    operation_id="update_case",
+                    payload=payload,
+                    idempotency_key=request_key,
+                    authorization_id=first_authorization["id"],
+                ),
+            )
+            assert first.status_code == 201, first.text
+            first_execution_id = first.json()["receipt"]["execution_id"]
+            assert handler.patch_calls == 1
+
+        second_app = create_app(
+            settings(tmp_path, connector_environment_epoch="environment-two"),
+            DecisionProvider(),
+        )
+        with TestClient(second_app) as client:
+            second_authorization = create_authorization(
+                client,
+                operation_id="update_case",
+                payload=payload,
+            )
+            second = client.post(
+                "/api/v1/connectors/executions",
+                headers=HEADERS,
+                json=execute_body(
+                    operation_id="update_case",
+                    payload=payload,
+                    idempotency_key=request_key,
+                    authorization_id=second_authorization["id"],
+                ),
+            )
+            assert second.status_code == 201, second.text
+            assert second.json()["receipt"]["replayed"] is False
+            assert second.json()["receipt"]["execution_id"] != first_execution_id
+            assert handler.patch_calls == 2
 
 
 def test_concurrent_duplicate_and_authorization_use_call_adapter_once(
@@ -1166,6 +1303,489 @@ def test_policy_revision_emergency_stop_and_failed_writeback_fail_closed(
             assert records[0]["status"] == "failed"
             assert records[0]["side_effect_state"] == "unknown"
             assert handler.patch_calls == 1
+
+
+def test_retryable_logical_write_reuses_authorization_and_assignment_budget(
+    tmp_path: Path,
+) -> None:
+    with customer_server() as (base_url, handler):
+        handler.transient_patch_failures = 1
+        app = create_app(settings(tmp_path), DecisionProvider())
+        with TestClient(app) as client:
+            register_manifest(
+                client,
+                base_url,
+                mutation_idempotency_semantics="request_key",
+            )
+            register_tenant(client, application_ids=["app-controlled"])
+            payload = {"case_id": "case-retry", "decision": "approved"}
+            authorization = create_authorization(
+                client,
+                operation_id="update_case",
+                payload=payload,
+                max_uses=1,
+                assignment_id="assignment-controlled",
+                session_id="session-controlled",
+                application_id="app-controlled",
+            )
+            request = assigned_execute_body(
+                operation_id="update_case",
+                payload=payload,
+                idempotency_key="assigned-retryable-write",
+                authorization_id=authorization["id"],
+                max_write_count=2,
+            )
+
+            failed = client.post(
+                "/api/v1/connectors/executions",
+                headers=HEADERS,
+                json=request,
+            )
+            assert failed.status_code == 502, failed.text
+            service = client.app.state.services.connectors
+            retry_request = ConnectorExecutionRequest.model_validate(request)
+
+            async def concurrent_retry() -> list[Any]:
+                return await asyncio.gather(
+                    service.execute(retry_request),
+                    service.execute(retry_request),
+                    return_exceptions=True,
+                )
+
+            retry_results = client.portal.call(concurrent_retry)
+            successful_retries = [
+                item for item in retry_results if not isinstance(item, Exception)
+            ]
+            assert len(successful_retries) == 1
+            assert sum(
+                isinstance(item, ConnectorConflict) for item in retry_results
+            ) == 1
+            first_receipt = successful_retries[0].public_receipt()
+            assert first_receipt["status"] == "succeeded"
+            assert first_receipt["attempt_count"] == 2
+            assert first_receipt["retryable"] is False
+            assert handler.patch_calls == 2
+
+            second_payload = {"case_id": "case-second", "decision": "approved"}
+            second_authorization = create_authorization(
+                client,
+                operation_id="update_case",
+                payload=second_payload,
+                max_uses=1,
+                assignment_id="assignment-controlled",
+                session_id="session-controlled",
+                application_id="app-controlled",
+            )
+            second = client.post(
+                "/api/v1/connectors/executions",
+                headers=HEADERS,
+                json=assigned_execute_body(
+                    operation_id="update_case",
+                    payload=second_payload,
+                    idempotency_key="assigned-second-logical-write",
+                    authorization_id=second_authorization["id"],
+                    max_write_count=2,
+                ),
+            )
+            assert second.status_code == 201, second.text
+            assert handler.patch_calls == 3
+
+            budget = client.portal.call(
+                client.app.state.services.connectors.export_assignment_budget,
+                "assignment-controlled",
+            )
+            assert budget.write_count == 2
+            assert len(budget.writes) == 2
+            assert {
+                item.idempotency_key: item.status
+                for item in budget.writes
+            } == {
+                "assigned-retryable-write": "succeeded",
+                "assigned-second-logical-write": "succeeded",
+            }
+            events = client.get(
+                f"/api/v1/connectors/executions/{first_receipt['execution_id']}/events",
+                headers=HEADERS,
+            ).json()
+            assert [item["event_type"] for item in events] == [
+                "connector.execution.authorized",
+                "connector.execution.failed",
+                "connector.execution.retry_started",
+                "connector.execution.succeeded",
+            ]
+            assert events[1]["data"] == {
+                "error": (
+                    "connector response status 503; expected 200; "
+                    'body={"error": "controlled transient writeback failure"}'
+                ),
+                "side_effect_state": "unknown",
+                "retryable": True,
+                "failure_disposition": "retryable",
+                "retry_safety": "idempotency_key",
+                "attempt": 1,
+            }
+            assert events[2]["data"]["authorization_reused"] is True
+            assert events[2]["data"]["assignment_budget_reused"] is True
+
+
+def test_ambiguous_failed_write_replay_raises_without_calling_adapter_again(
+    tmp_path: Path,
+) -> None:
+    with customer_server() as (base_url, handler):
+        app = create_app(settings(tmp_path), DecisionProvider())
+        with TestClient(app) as client:
+            register_manifest(client, base_url)
+            register_tenant(client, application_ids=["app-controlled"])
+            payload = {"case_id": "case-ambiguous", "decision": "force-failure"}
+            authorization = create_authorization(
+                client,
+                operation_id="update_case",
+                payload=payload,
+                max_uses=1,
+                assignment_id="assignment-controlled",
+                session_id="session-controlled",
+                application_id="app-controlled",
+            )
+            request = assigned_execute_body(
+                operation_id="update_case",
+                payload=payload,
+                idempotency_key="assigned-ambiguous-write",
+                authorization_id=authorization["id"],
+            )
+            first = client.post(
+                "/api/v1/connectors/executions",
+                headers=HEADERS,
+                json=request,
+            )
+            replay = client.post(
+                "/api/v1/connectors/executions",
+                headers=HEADERS,
+                json=request,
+            )
+            assert first.status_code == replay.status_code == 502
+            assert handler.patch_calls == 1
+
+            records = client.get(
+                "/api/v1/connectors/executions",
+                headers=HEADERS,
+                params={"status": "failed"},
+            ).json()["items"]
+            assert len(records) == 1
+            receipt = records[0]
+            assert receipt["status"] == "failed"
+            assert receipt["side_effect_state"] == "unknown"
+            assert receipt["retryable"] is False
+            assert receipt["failure_disposition"] == "ambiguous"
+            assert receipt["retry_safety"] == "none"
+            assert receipt["attempt_count"] == 1
+            budget = client.portal.call(
+                client.app.state.services.connectors.export_assignment_budget,
+                "assignment-controlled",
+            )
+            assert budget.write_count == 1
+            assert len(budget.writes) == 1
+            events = client.get(
+                f"/api/v1/connectors/executions/{receipt['execution_id']}/events",
+                headers=HEADERS,
+            ).json()
+            assert [item["event_type"] for item in events] == [
+                "connector.execution.authorized",
+                "connector.execution.failed",
+            ]
+
+
+def test_operator_attested_pre_dispatch_write_failure_is_safely_retryable(
+    tmp_path: Path,
+) -> None:
+    attestation_header = "X-Controlled-Connector-Dispatch-State"
+    with customer_server() as (base_url, handler):
+        handler.transient_patch_failures = 1
+        handler.transient_patch_headers = {attestation_header: "not-started"}
+        config = settings(
+            tmp_path,
+            connector_pre_dispatch_attestations={
+                "customer_system@1/test": {
+                    "header_name": attestation_header,
+                    "header_value": "not-started",
+                }
+            },
+        )
+        app = create_app(config, DecisionProvider())
+        with TestClient(app) as client:
+            register_manifest(client, base_url)
+            register_tenant(client, application_ids=["app-controlled"])
+            payload = {"case_id": "case-attested-retry", "decision": "approved"}
+            authorization = create_authorization(
+                client,
+                operation_id="update_case",
+                payload=payload,
+                max_uses=1,
+                assignment_id="assignment-attested-retry",
+                session_id="session-controlled",
+                application_id="app-controlled",
+            )
+            request = assigned_execute_body(
+                operation_id="update_case",
+                payload=payload,
+                idempotency_key="assigned-attested-retry",
+                authorization_id=authorization["id"],
+                assignment_id="assignment-attested-retry",
+            )
+
+            first = client.post(
+                "/api/v1/connectors/executions",
+                headers=HEADERS,
+                json=request,
+            )
+            second = client.post(
+                "/api/v1/connectors/executions",
+                headers=HEADERS,
+                json=request,
+            )
+
+            assert first.status_code == 502, first.text
+            assert second.status_code == 201, second.text
+            assert handler.patch_calls == 2
+            receipt = second.json()["receipt"]
+            assert receipt["attempt_count"] == 2
+            assert receipt["status"] == "succeeded"
+            events = client.get(
+                f"/api/v1/connectors/executions/{receipt['execution_id']}/events",
+                headers=HEADERS,
+            ).json()
+            assert events[1]["data"] == {
+                "error": (
+                    "connector response status 503; expected 200; "
+                    'body={"error": "controlled transient writeback failure"}'
+                ),
+                "side_effect_state": "none",
+                "retryable": True,
+                "failure_disposition": "retryable",
+                "retry_safety": "pre_dispatch",
+                "attempt": 1,
+            }
+            assert events[2]["data"]["authorization_reused"] is True
+            assert events[2]["data"]["assignment_budget_reused"] is True
+
+
+def test_retryable_logical_write_resumes_after_connector_service_restart(
+    tmp_path: Path,
+) -> None:
+    config = settings(tmp_path)
+    request: dict[str, Any]
+    with customer_server() as (base_url, handler):
+        handler.transient_patch_failures = 1
+        app = create_app(config, DecisionProvider())
+        with TestClient(app) as client:
+            register_manifest(
+                client,
+                base_url,
+                mutation_idempotency_semantics="request_key",
+            )
+            register_tenant(client, application_ids=["app-controlled"])
+            payload = {"case_id": "case-restart-retry", "decision": "approved"}
+            authorization = create_authorization(
+                client,
+                operation_id="update_case",
+                payload=payload,
+                max_uses=1,
+                assignment_id="assignment-restart-retry",
+                session_id="session-controlled",
+                application_id="app-controlled",
+            )
+            request = assigned_execute_body(
+                operation_id="update_case",
+                payload=payload,
+                idempotency_key="assigned-restart-retry",
+                authorization_id=authorization["id"],
+                assignment_id="assignment-restart-retry",
+            )
+            failed = client.post(
+                "/api/v1/connectors/executions",
+                headers=HEADERS,
+                json=request,
+            )
+            assert failed.status_code == 502, failed.text
+            assert handler.patch_calls == 1
+
+        restarted = create_app(settings(tmp_path), DecisionProvider())
+        with TestClient(restarted) as client:
+            retried = client.post(
+                "/api/v1/connectors/executions",
+                headers=HEADERS,
+                json=request,
+            )
+            assert retried.status_code == 201, retried.text
+            assert retried.json()["receipt"]["attempt_count"] == 2
+            assert handler.patch_calls == 2
+            budget = client.portal.call(
+                client.app.state.services.connectors.export_assignment_budget,
+                "assignment-restart-retry",
+            )
+            assert budget.write_count == 1
+            assert len(budget.writes) == 1
+            assert budget.writes[0].attempt_count == 2
+
+
+def test_retryable_logical_write_stops_at_connector_attempt_ceiling(
+    tmp_path: Path,
+) -> None:
+    with customer_server() as (base_url, handler):
+        app = create_app(settings(tmp_path), DecisionProvider())
+        with TestClient(app) as client:
+            register_manifest(
+                client,
+                base_url,
+                mutation_idempotency_semantics="request_key",
+            )
+            register_tenant(client, application_ids=["app-controlled"])
+            payload = {"case_id": "case-retry-ceiling", "decision": "force-failure"}
+            authorization = create_authorization(
+                client,
+                operation_id="update_case",
+                payload=payload,
+                max_uses=1,
+                assignment_id="assignment-retry-ceiling",
+                session_id="session-controlled",
+                application_id="app-controlled",
+            )
+            request = assigned_execute_body(
+                operation_id="update_case",
+                payload=payload,
+                idempotency_key="assigned-retry-ceiling",
+                authorization_id=authorization["id"],
+                assignment_id="assignment-retry-ceiling",
+            )
+            responses = [
+                client.post(
+                    "/api/v1/connectors/executions",
+                    headers=HEADERS,
+                    json=request,
+                )
+                for _ in range(4)
+            ]
+            assert all(response.status_code == 502 for response in responses)
+            assert handler.patch_calls == 3
+            records = client.get(
+                "/api/v1/connectors/executions",
+                headers=HEADERS,
+                params={"status": "failed"},
+            ).json()["items"]
+            assert len(records) == 1
+            receipt = records[0]
+            assert receipt["attempt_count"] == 3
+            assert receipt["retryable"] is False
+            assert receipt["failure_disposition"] == "ambiguous"
+            budget = client.portal.call(
+                client.app.state.services.connectors.export_assignment_budget,
+                "assignment-retry-ceiling",
+            )
+            assert budget.write_count == 1
+            assert len(budget.writes) == 1
+            assert budget.writes[0].attempt_count == 3
+
+
+def test_retryable_logical_write_never_downgrades_prior_unknown_side_effect(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    with customer_server() as (base_url, handler):
+        app = create_app(settings(tmp_path), DecisionProvider())
+        with TestClient(app) as client:
+            register_manifest(
+                client,
+                base_url,
+                mutation_idempotency_semantics="request_key",
+            )
+            register_tenant(client, application_ids=["app-controlled"])
+            payload = {"case_id": "case-uncertain-sequence", "decision": "approved"}
+            authorization = create_authorization(
+                client,
+                operation_id="update_case",
+                payload=payload,
+                max_uses=1,
+                assignment_id="assignment-uncertain-sequence",
+                session_id="session-controlled",
+                application_id="app-controlled",
+            )
+            request = assigned_execute_body(
+                operation_id="update_case",
+                payload=payload,
+                idempotency_key="assigned-uncertain-sequence",
+                authorization_id=authorization["id"],
+                assignment_id="assignment-uncertain-sequence",
+            )
+            service = client.app.state.services.connectors
+            adapter_attempts = 0
+
+            async def controlled_adapter(**_: Any) -> dict[str, Any]:
+                nonlocal adapter_attempts
+                adapter_attempts += 1
+                if adapter_attempts == 1:
+                    raise ConnectorAdapterError(
+                        "controlled uncertain response",
+                        retryable=True,
+                        side_effect_state="unknown",
+                        adapter_called=True,
+                        retry_safety="idempotency_key",
+                    )
+                raise ConnectorAdapterError(
+                    "controlled pre-dispatch failure",
+                    retryable=True,
+                    side_effect_state="none",
+                    adapter_called=False,
+                    retry_safety="pre_dispatch",
+                )
+
+            monkeypatch.setattr(service, "_call_adapter", controlled_adapter)
+            first = client.post(
+                "/api/v1/connectors/executions",
+                headers=HEADERS,
+                json=request,
+            )
+            second = client.post(
+                "/api/v1/connectors/executions",
+                headers=HEADERS,
+                json=request,
+            )
+            assert first.status_code == second.status_code == 502
+            records = client.get(
+                "/api/v1/connectors/executions",
+                headers=HEADERS,
+                params={"status": "failed"},
+            ).json()["items"]
+            assert records[0]["attempt_count"] == 2
+            assert records[0]["side_effect_state"] == "unknown"
+            assert records[0]["retryable"] is True
+            assert records[0]["retry_safety"] == "idempotency_key"
+
+            third = client.post(
+                "/api/v1/connectors/executions",
+                headers=HEADERS,
+                json=request,
+            )
+            replay = client.post(
+                "/api/v1/connectors/executions",
+                headers=HEADERS,
+                json=request,
+            )
+            assert third.status_code == replay.status_code == 502
+            assert adapter_attempts == 3
+            assert handler.patch_calls == 0
+            records = client.get(
+                "/api/v1/connectors/executions",
+                headers=HEADERS,
+                params={"status": "failed"},
+            ).json()["items"]
+            assert records[0]["attempt_count"] == 3
+            assert records[0]["side_effect_state"] == "unknown"
+            assert records[0]["retryable"] is False
+            assert records[0]["failure_disposition"] == "ambiguous"
+            budget = client.portal.call(
+                service.export_assignment_budget,
+                "assignment-uncertain-sequence",
+            )
+            assert budget.write_count == 1
 
 
 def test_callback_and_compensation_are_signed_ordered_explicit_and_idempotent(

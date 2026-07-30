@@ -1,0 +1,1023 @@
+{
+  "schema_version": 1,
+  "task_id": "V04-13-T01M",
+  "oracle_id": "T01M-CIVILIZATION-SEED-ANDROID-ORACLE-v1",
+  "brief_id": "T01M-CIVILIZATION-SEED-ANDROID-v1",
+  "application_id": "dev.lilies.civilizationseed",
+  "case_id": "A06",
+  "locale": "zh-CN",
+  "selector_policy": "exact visible text or content description; scoped descendants only; coordinates and global ordinals forbidden",
+  "unicode_boundaries": {
+    "white_space_15": {
+      "code_points": [
+        "0009",
+        "000a",
+        "000b",
+        "000c",
+        "000d",
+        "0020",
+        "0085",
+        "00a0",
+        "1680",
+        "2000",
+        "2001",
+        "2002",
+        "2003",
+        "2004",
+        "2005",
+        "2006",
+        "2007",
+        "2008",
+        "2009",
+        "200a",
+        "2028",
+        "2029",
+        "202f",
+        "205f",
+        "3000"
+      ]
+    },
+    "white_space_15_reverse": "　                  \r\f\u000b\n\t",
+    "trim_name": "\t\n\u000b\f\r                  　已修剪　                  \r\f\u000b\n\t",
+    "internal_white_space_name": {
+      "concat": [
+        {
+          "text": "内"
+        },
+        {
+          "ref": "white_space_15"
+        },
+        {
+          "text": "部"
+        }
+      ]
+    },
+    "notes_white_space": {
+      "concat": [
+        {
+          "ref": "white_space_15"
+        },
+        {
+          "text": "保留"
+        },
+        {
+          "ref": "white_space_15",
+          "reverse": true
+        }
+      ]
+    },
+    "non_trim_members_name": "​不应修剪﻿",
+    "supplementary_40": {
+      "unit": "🌱",
+      "repeat": 40
+    },
+    "supplementary_41": {
+      "unit": "🌱",
+      "repeat": 41
+    },
+    "decomposed_40": {
+      "unit": "é",
+      "repeat": 40
+    },
+    "decomposed_41": {
+      "unit": "é",
+      "repeat": 41
+    },
+    "composed_40": {
+      "unit": "é",
+      "repeat": 40
+    },
+    "notes_supplementary_300": {
+      "unit": "🌱",
+      "repeat": 300
+    },
+    "notes_supplementary_301": {
+      "unit": "🌱",
+      "repeat": 301
+    },
+    "notes_decomposed_300": {
+      "unit": "é",
+      "repeat": 300
+    },
+    "notes_decomposed_301": {
+      "unit": "é",
+      "repeat": 301
+    },
+    "notes_composed_300": {
+      "unit": "é",
+      "repeat": 300
+    }
+  },
+  "utf16_hex_boundaries": [
+    "d800",
+    "dc00",
+    "0041d8000042",
+    "0041dc000042"
+  ],
+  "steps": [
+    {
+      "id": "onboarding",
+      "screenshot": "01_onboarding.png",
+      "operations": [
+        {
+          "id": "title",
+          "action": "assert_visible",
+          "assertion": {
+            "text": "文明火种"
+          }
+        },
+        {
+          "id": "lore-1",
+          "action": "assert_visible",
+          "assertion": {
+            "text": "人类世界已经毁灭。"
+          }
+        },
+        {
+          "id": "lore-2",
+          "action": "assert_visible",
+          "assertion": {
+            "text": "莉莉丝是留下的最后一个人工智能。"
+          }
+        },
+        {
+          "id": "lore-3",
+          "action": "assert_visible",
+          "assertion": {
+            "text": "她仍能搭建新的人工智能，并以一枚枚文明火种重塑世界。"
+          }
+        },
+        {
+          "id": "hero",
+          "action": "assert_visible",
+          "assertion": {
+            "text": "莉莉丝，闭着双眼，白发向两侧展开"
+          }
+        },
+        {
+          "id": "offline-private",
+          "action": "assert_offline_private",
+          "assertion": {
+            "text": "完全离线运行，数据只保存在本机，不会上传。"
+          }
+        },
+        {
+          "id": "start",
+          "action": "assert_visible",
+          "assertion": {
+            "text": "启动文明重建"
+          }
+        }
+      ]
+    },
+    {
+      "id": "enter-empty-library",
+      "screenshot": "02_empty_library.png",
+      "operations": [
+        {
+          "id": "start",
+          "action": "click",
+          "selector": "启动文明重建"
+        },
+        {
+          "id": "library",
+          "action": "assert_visible",
+          "assertion": {
+            "text": "火种库"
+          }
+        },
+        {
+          "id": "count",
+          "action": "assert_visible",
+          "assertion": {
+            "text": "已复原 0 / 0"
+          }
+        },
+        {
+          "id": "empty",
+          "action": "assert_visible",
+          "assertion": {
+            "text": "还没有文明火种"
+          }
+        }
+      ]
+    },
+    {
+      "id": "reject-empty-name",
+      "operations": [
+        {
+          "id": "open",
+          "action": "click",
+          "selector": "添加火种"
+        },
+        {
+          "id": "counter",
+          "action": "assert_visible",
+          "assertion": {
+            "text": "备注 0 / 300"
+          }
+        },
+        {
+          "id": "save",
+          "action": "click",
+          "selector": "保存"
+        },
+        {
+          "id": "error",
+          "action": "assert_visible",
+          "assertion": {
+            "text": "请输入火种名称"
+          }
+        },
+        {
+          "id": "no-record",
+          "action": "assert_visible",
+          "assertion": {
+            "text": "请输入火种名称"
+          }
+        },
+        {
+          "id": "cancel",
+          "action": "click",
+          "selector": "取消"
+        }
+      ]
+    },
+    {
+      "id": "reject-invalid-utf16",
+      "recipe": "reject_invalid_utf16",
+      "values": [
+        "d800",
+        "dc00",
+        "0041d8000042",
+        "0041dc000042"
+      ]
+    },
+    {
+      "id": "trim-create",
+      "recipe": "create",
+      "name_ref": "trim_name",
+      "stored_name": "已修剪",
+      "category": "生存基础",
+      "priority": 3
+    },
+    {
+      "id": "trim-delete",
+      "recipe": "delete",
+      "name": "已修剪",
+      "category": "生存基础",
+      "priority": 3
+    },
+    {
+      "id": "internal-whitespace-create",
+      "recipe": "create",
+      "name_ref": "internal_white_space_name",
+      "category": "生存基础",
+      "priority": 3
+    },
+    {
+      "id": "internal-whitespace-delete",
+      "recipe": "delete",
+      "name_ref": "internal_white_space_name",
+      "category": "生存基础",
+      "priority": 3
+    },
+    {
+      "id": "nonmember-trim-create",
+      "recipe": "create",
+      "name_ref": "non_trim_members_name",
+      "category": "生存基础",
+      "priority": 3
+    },
+    {
+      "id": "nonmember-trim-delete",
+      "recipe": "delete",
+      "name_ref": "non_trim_members_name",
+      "category": "生存基础",
+      "priority": 3
+    },
+    {
+      "id": "notes-whitespace-create",
+      "recipe": "create",
+      "name": "备注空白",
+      "category": "生存基础",
+      "priority": 3,
+      "notes_ref": "notes_white_space",
+      "verify_notes_ref": "notes_white_space"
+    },
+    {
+      "id": "notes-whitespace-delete",
+      "recipe": "delete",
+      "name": "备注空白",
+      "category": "生存基础",
+      "priority": 3
+    },
+    {
+      "id": "supplementary-40-create",
+      "recipe": "create",
+      "name_ref": "supplementary_40",
+      "category": "生存基础",
+      "priority": 3
+    },
+    {
+      "id": "supplementary-40-delete",
+      "recipe": "delete",
+      "name_ref": "supplementary_40",
+      "category": "生存基础",
+      "priority": 3
+    },
+    {
+      "id": "supplementary-41-reject",
+      "recipe": "create",
+      "name_ref": "supplementary_41",
+      "category": "生存基础",
+      "priority": 3,
+      "reject_assertion": {
+        "action": "assert_visible",
+        "text": "保存"
+      },
+      "post_cancel_assertion": {
+        "action": "assert_visible",
+        "text": "已复原 0 / 0"
+      }
+    },
+    {
+      "id": "decomposed-40-create",
+      "recipe": "create",
+      "name_ref": "decomposed_40",
+      "stored_name_ref": "composed_40",
+      "category": "生存基础",
+      "priority": 3
+    },
+    {
+      "id": "decomposed-40-delete",
+      "recipe": "delete",
+      "name_ref": "composed_40",
+      "category": "生存基础",
+      "priority": 3
+    },
+    {
+      "id": "decomposed-41-reject",
+      "recipe": "create",
+      "name_ref": "decomposed_41",
+      "category": "生存基础",
+      "priority": 3,
+      "reject_assertion": {
+        "action": "assert_visible",
+        "text": "保存"
+      },
+      "post_cancel_assertion": {
+        "action": "assert_visible",
+        "text": "已复原 0 / 0"
+      }
+    },
+    {
+      "id": "notes-300-create",
+      "recipe": "create",
+      "name": "备注边界",
+      "category": "生存基础",
+      "priority": 3,
+      "notes_ref": "notes_supplementary_300",
+      "counter": "备注 300 / 300",
+      "verify_notes_ref": "notes_supplementary_300"
+    },
+    {
+      "id": "notes-301-reject",
+      "recipe": "edit",
+      "old_name": "备注边界",
+      "old_category": "生存基础",
+      "old_priority": 3,
+      "notes_ref": "notes_supplementary_301",
+      "counter": "备注 301 / 300",
+      "reject": true,
+      "stored_notes_ref": "notes_supplementary_300"
+    },
+    {
+      "id": "notes-decomposed-300",
+      "recipe": "edit",
+      "old_name": "备注边界",
+      "old_category": "生存基础",
+      "old_priority": 3,
+      "notes_ref": "notes_decomposed_300",
+      "counter": "备注 300 / 300",
+      "verify_notes_ref": "notes_composed_300"
+    },
+    {
+      "id": "notes-decomposed-301-reject",
+      "recipe": "edit",
+      "old_name": "备注边界",
+      "old_category": "生存基础",
+      "old_priority": 3,
+      "notes_ref": "notes_decomposed_301",
+      "counter": "备注 301 / 300",
+      "reject": true,
+      "stored_notes_ref": "notes_composed_300"
+    },
+    {
+      "id": "notes-delete",
+      "recipe": "delete",
+      "name": "备注边界",
+      "category": "生存基础",
+      "priority": 3
+    },
+    {
+      "id": "category-order",
+      "operations": [
+        {
+          "id": "open-form",
+          "action": "click",
+          "selector": "添加火种"
+        },
+        {
+          "id": "open",
+          "action": "click",
+          "selector": "类别"
+        },
+        {
+          "id": "order",
+          "action": "assert_order",
+          "assertion": {
+            "texts": [
+              "生存基础",
+              "知识传承",
+              "能源设施",
+              "医疗护理",
+              "通信网络"
+            ],
+            "exact": true,
+            "domain_role": "choice"
+          }
+        },
+        {
+          "id": "back",
+          "action": "back"
+        },
+        {
+          "id": "cancel",
+          "action": "click",
+          "selector": "取消"
+        }
+      ]
+    },
+    {
+      "id": "priority-order",
+      "operations": [
+        {
+          "id": "open-form",
+          "action": "click",
+          "selector": "添加火种"
+        },
+        {
+          "id": "open",
+          "action": "click",
+          "selector": "优先级"
+        },
+        {
+          "id": "order",
+          "action": "assert_order",
+          "assertion": {
+            "texts": [
+              "1",
+              "2",
+              "3",
+              "4",
+              "5"
+            ],
+            "exact": true,
+            "domain_role": "choice"
+          }
+        },
+        {
+          "id": "back",
+          "action": "back"
+        },
+        {
+          "id": "cancel",
+          "action": "click",
+          "selector": "取消"
+        }
+      ]
+    },
+    {
+      "id": "sort-a-create",
+      "recipe": "create",
+      "name": "Å火种",
+      "stored_name": "Å火种",
+      "category": "生存基础",
+      "priority": 3
+    },
+    {
+      "id": "sort-b-create",
+      "recipe": "create",
+      "name": "B火种",
+      "category": "生存基础",
+      "priority": 3
+    },
+    {
+      "id": "sort-order",
+      "operations": [
+        {
+          "id": "exact-set",
+          "action": "assert_record_set",
+          "assertion": {
+            "texts": [
+              "火种：B火种；类别：生存基础；优先级：3；状态：沉睡",
+              "火种：Å火种；类别：生存基础；优先级：3；状态：沉睡"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "sort-b-delete",
+      "recipe": "delete",
+      "name": "B火种",
+      "category": "生存基础",
+      "priority": 3
+    },
+    {
+      "id": "sort-a-delete",
+      "recipe": "delete",
+      "name": "Å火种",
+      "category": "生存基础",
+      "priority": 3
+    },
+    {
+      "id": "tie-decomposed",
+      "recipe": "create",
+      "name": "Å同名",
+      "stored_name": "Å同名",
+      "category": "生存基础",
+      "priority": 3,
+      "notes": "原始分解"
+    },
+    {
+      "id": "tie-composed",
+      "recipe": "create",
+      "name": "Å同名",
+      "category": "知识传承",
+      "priority": 3,
+      "notes": "原始合成"
+    },
+    {
+      "id": "tie-one",
+      "recipe": "create",
+      "name": "同名火种",
+      "category": "能源设施",
+      "priority": 3,
+      "notes": "序号一"
+    },
+    {
+      "id": "tie-two",
+      "recipe": "create",
+      "name": "同名火种",
+      "category": "医疗护理",
+      "priority": 3,
+      "notes": "序号二"
+    },
+    {
+      "id": "tie-persistence",
+      "operations": [
+        {
+          "id": "order-before",
+          "action": "assert_record_set",
+          "assertion": {
+            "texts": [
+              "火种：Å同名；类别：生存基础；优先级：3；状态：沉睡",
+              "火种：Å同名；类别：知识传承；优先级：3；状态：沉睡",
+              "火种：同名火种；类别：能源设施；优先级：3；状态：沉睡",
+              "火种：同名火种；类别：医疗护理；优先级：3；状态：沉睡"
+            ]
+          }
+        },
+        {
+          "id": "restart",
+          "action": "force_stop_relaunch"
+        },
+        {
+          "id": "order-after",
+          "action": "assert_record_set",
+          "assertion": {
+            "texts": [
+              "火种：Å同名；类别：生存基础；优先级：3；状态：沉睡",
+              "火种：Å同名；类别：知识传承；优先级：3；状态：沉睡",
+              "火种：同名火种；类别：能源设施；优先级：3；状态：沉睡",
+              "火种：同名火种；类别：医疗护理；优先级：3；状态：沉睡"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "tie-decomposed-delete",
+      "recipe": "delete",
+      "name": "Å同名",
+      "category": "生存基础",
+      "priority": 3
+    },
+    {
+      "id": "tie-composed-delete",
+      "recipe": "delete",
+      "name": "Å同名",
+      "category": "知识传承",
+      "priority": 3
+    },
+    {
+      "id": "tie-one-delete",
+      "recipe": "delete",
+      "name": "同名火种",
+      "category": "能源设施",
+      "priority": 3
+    },
+    {
+      "id": "tie-two-delete",
+      "recipe": "delete",
+      "name": "同名火种",
+      "category": "医疗护理",
+      "priority": 3
+    },
+    {
+      "id": "medical-create",
+      "recipe": "create",
+      "name": "医疗站",
+      "category": "医疗护理",
+      "priority": 3,
+      "select_priority": false
+    },
+    {
+      "id": "water-backup-create",
+      "recipe": "create",
+      "name": "净水备份",
+      "category": "能源设施",
+      "priority": 5
+    },
+    {
+      "id": "water-base-create",
+      "recipe": "create",
+      "name": "净水基础",
+      "category": "生存基础",
+      "priority": 5
+    },
+    {
+      "id": "quantum-create",
+      "recipe": "create",
+      "name": "量子档案",
+      "category": "知识传承",
+      "priority": 2
+    },
+    {
+      "id": "tower-create",
+      "recipe": "create",
+      "name": "通信塔",
+      "category": "通信网络",
+      "priority": 1,
+      "screenshot": "03_created_seeds.png"
+    },
+    {
+      "id": "default-order",
+      "operations": [
+        {
+          "id": "exact-set",
+          "action": "assert_record_set",
+          "assertion": {
+            "texts": [
+            "火种：净水基础；类别：生存基础；优先级：5；状态：沉睡",
+              "火种：净水备份；类别：能源设施；优先级：5；状态：沉睡",
+              "火种：医疗站；类别：医疗护理；优先级：3；状态：沉睡",
+              "火种：量子档案；类别：知识传承；优先级：2；状态：沉睡",
+              "火种：通信塔；类别：通信网络；优先级：1；状态：沉睡"
+            ]
+          }
+        },
+        {
+          "id": "count",
+          "action": "assert_visible",
+          "assertion": {
+            "text": "已复原 0 / 5"
+          }
+        }
+      ]
+    },
+    {
+      "id": "water-start",
+      "recipe": "state",
+      "name": "净水基础",
+      "category": "生存基础",
+      "priority": 5,
+      "from": "沉睡",
+      "to": "重建中",
+      "selector": "开始重建",
+      "restored_count": "已复原 0 / 5"
+    },
+    {
+      "id": "water-complete",
+      "recipe": "state",
+      "name": "净水基础",
+      "category": "生存基础",
+      "priority": 5,
+      "from": "重建中",
+      "to": "已复原",
+      "selector": "完成复原",
+      "restored_count": "已复原 1 / 5",
+      "screenshot": "04_restoring_detail.png"
+    },
+    {
+      "id": "water-recheck",
+      "recipe": "state",
+      "name": "净水基础",
+      "category": "生存基础",
+      "priority": 5,
+      "from": "已复原",
+      "to": "重建中",
+      "selector": "重新检查",
+      "restored_count": "已复原 0 / 5"
+    },
+    {
+      "id": "water-complete-again",
+      "recipe": "state",
+      "name": "净水基础",
+      "category": "生存基础",
+      "priority": 5,
+      "from": "重建中",
+      "to": "已复原",
+      "selector": "完成复原",
+      "restored_count": "已复原 1 / 5"
+    },
+    {
+      "id": "search-water",
+      "operations": [
+        {
+          "id": "query",
+          "action": "set_text",
+          "selector": "搜索火种",
+          "value": "净水"
+        },
+        {
+          "id": "exact-set",
+          "action": "assert_record_set",
+          "assertion": {
+            "texts": [
+              "火种：净水基础；类别：生存基础；优先级：5；状态：已复原",
+              "火种：净水备份；类别：能源设施；优先级：5；状态：沉睡"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "search-base",
+      "operations": [
+        {
+          "id": "query",
+          "action": "set_text",
+          "selector": "搜索火种",
+          "value": "基础"
+        },
+        {
+          "id": "exact-set",
+          "action": "assert_record_set",
+          "assertion": {
+            "texts": [
+              "火种：净水基础；类别：生存基础；优先级：5；状态：已复原"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "search-missing",
+      "operations": [
+        {
+          "id": "query",
+          "action": "set_text",
+          "selector": "搜索火种",
+          "value": "不存在"
+        },
+        {
+          "id": "empty",
+          "action": "assert_visible",
+          "assertion": {
+            "text": "没有符合条件的火种"
+          }
+        },
+        {
+          "id": "exact-empty-set",
+          "action": "assert_record_set",
+          "assertion": {
+            "texts": []
+          }
+        }
+      ]
+    },
+    {
+      "id": "filter-knowledge",
+      "operations": [
+        {
+          "id": "clear-search",
+          "action": "set_text",
+          "selector": "搜索火种",
+          "value": ""
+        },
+        {
+          "id": "pre-filter-full-set",
+          "action": "assert_record_set",
+          "assertion": {
+            "texts": [
+              "火种：净水基础；类别：生存基础；优先级：5；状态：已复原",
+              "火种：净水备份；类别：能源设施；优先级：5；状态：沉睡",
+              "火种：医疗站；类别：医疗护理；优先级：3；状态：沉睡",
+              "火种：量子档案；类别：知识传承；优先级：2；状态：沉睡",
+              "火种：通信塔；类别：通信网络；优先级：1；状态：沉睡"
+            ]
+          }
+        },
+        {
+          "id": "open",
+          "action": "click",
+          "selector": "筛选"
+        },
+        {
+          "id": "select",
+          "action": "click",
+          "selector": "知识传承"
+        },
+        {
+          "id": "exact-set",
+          "action": "assert_record_set",
+          "assertion": {
+            "texts": [
+              "火种：量子档案；类别：知识传承；优先级：2；状态：沉睡"
+            ]
+          }
+        },
+        {
+          "id": "clear-category",
+          "action": "click",
+          "selector": "清除筛选"
+        },
+        {
+          "id": "restored-full-set",
+          "action": "assert_record_set",
+          "assertion": {
+            "texts": [
+              "火种：净水基础；类别：生存基础；优先级：5；状态：已复原",
+              "火种：净水备份；类别：能源设施；优先级：5；状态：沉睡",
+              "火种：医疗站；类别：医疗护理；优先级：3；状态：沉睡",
+              "火种：量子档案；类别：知识传承；优先级：2；状态：沉睡",
+              "火种：通信塔；类别：通信网络；优先级：1；状态：沉睡"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "filter-restored",
+      "screenshot": "05_restored_filter.png",
+      "operations": [
+        {
+          "id": "open",
+          "action": "click",
+          "selector": "筛选"
+        },
+        {
+          "id": "select",
+          "action": "click",
+          "selector": "已复原"
+        },
+        {
+          "id": "exact-set",
+          "action": "assert_record_set",
+          "assertion": {
+            "texts": [
+              "火种：净水基础；类别：生存基础；优先级：5；状态：已复原"
+            ]
+          }
+        },
+        {
+          "id": "clear",
+          "action": "click",
+          "selector": "清除筛选"
+        },
+        {
+          "id": "restored-full-set",
+          "action": "assert_record_set",
+          "assertion": {
+            "texts": [
+              "火种：净水基础；类别：生存基础；优先级：5；状态：已复原",
+              "火种：净水备份；类别：能源设施；优先级：5；状态：沉睡",
+              "火种：医疗站；类别：医疗护理；优先级：3；状态：沉睡",
+              "火种：量子档案；类别：知识传承；优先级：2；状态：沉睡",
+              "火种：通信塔；类别：通信网络；优先级：1；状态：沉睡"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "edit-water",
+      "recipe": "edit",
+      "old_name": "净水基础",
+      "old_category": "生存基础",
+      "old_priority": 5,
+      "status": "已复原",
+      "new_name": "净水基础 v2",
+      "new_category": "通信网络",
+      "new_priority": 4,
+      "notes": "已校准"
+    },
+    {
+      "id": "verify-edit",
+      "operations": [
+        {
+          "id": "open",
+          "action": "click",
+          "selector": "编辑",
+          "scope": "火种：净水基础 v2；类别：通信网络；优先级：4；状态：已复原"
+        },
+        {
+          "id": "name",
+          "action": "assert_visible",
+          "assertion": {
+            "text": "净水基础 v2"
+          }
+        },
+        {
+          "id": "category",
+          "action": "assert_visible",
+          "assertion": {
+            "text": "通信网络"
+          }
+        },
+        {
+          "id": "priority",
+          "action": "assert_visible",
+          "assertion": {
+            "text": "4"
+          }
+        },
+        {
+          "id": "notes",
+          "action": "assert_visible",
+          "assertion": {
+            "text": "已校准"
+          }
+        },
+        {
+          "id": "cancel",
+          "action": "click",
+          "selector": "取消"
+        }
+      ]
+    },
+    {
+      "id": "delete-quantum",
+      "recipe": "delete",
+      "name": "量子档案",
+      "category": "知识传承",
+      "priority": 2,
+      "cancel_first": true
+    },
+    {
+      "id": "delete-medical",
+      "recipe": "delete",
+      "name": "医疗站",
+      "category": "医疗护理",
+      "priority": 3
+    },
+    {
+      "id": "delete-backup",
+      "recipe": "delete",
+      "name": "净水备份",
+      "category": "能源设施",
+      "priority": 5
+    },
+    {
+      "id": "delete-tower",
+      "recipe": "delete",
+      "name": "通信塔",
+      "category": "通信网络",
+      "priority": 1
+    },
+    {
+      "id": "final",
+      "operations": [
+        {
+          "id": "exact-set",
+          "action": "assert_record_set",
+          "assertion": {
+            "texts": [
+              "火种：净水基础 v2；类别：通信网络；优先级：4；状态：已复原"
+            ]
+          }
+        },
+        {
+          "id": "count",
+          "action": "assert_visible",
+          "assertion": {
+            "text": "已复原 1 / 1"
+          }
+        }
+      ]
+    }
+  ]
+}

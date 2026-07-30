@@ -1,0 +1,36 @@
+schema_version: '1.0'
+task_id: EXP-LILIES-004
+revision: 1
+parent_revision: null
+title: 旋转设备预测性维护、人工复核与 ThingsBoard 告警
+cohort: enterprise
+customer_role: 制造企业设备运营人员、可靠性工程师和模型负责人
+business_goal: 使用已批准的版本化风险模型处理 ThingsBoard 遥测，控制误告警，安全分流不确定事件，监测漂移并保留回滚和审计证据。
+source_projects:
+- name: ThingsBoard Community Edition
+  repository_url: https://github.com/thingsboard/thingsboard
+  release: v4.3.1.3
+  commit_sha: 105351615126682762caf849619f0ea02df1faf3
+  image_digest: sha256:398ea445740dccc40f34a3618ba845f56c63ee7a594d3b850fce2149b40a6bb3
+  license: Apache-2.0
+requirement_file: requirement.md
+environment_lock_digest: sha256:76975b6b51ecbba50d3dc589f81511f0840129acd15d6b2229fcb99f52bf1d8a
+fixture_manifest_digest: sha256:83a79d32c2cfdf141f514bacfce609dfcb76a18409cb929d8e3e47e7ae5a7c92
+allowed_actions_file: allowed-actions.json
+budget_file: budget.json
+deliverables:
+- name: enterprise-result
+  description: 每条设备事件的验证、推理、人工决定、告警回执、错误和模型血缘。
+  media_type: application/json
+- name: model-evidence
+  description: 已部署模型的来源、特征单位、数据摘要、训练或导入路线、基础版本、模型摘要和独立验证指标。
+  media_type: application/json
+- name: drift-report
+  description: 当前观测窗口相对训练基线的逐特征漂移与整体状态，且明确未触发在线训练。
+  media_type: application/json
+acceptance_summary: 全部输入有可追溯结果；高风险正确创建或更新告警，低风险和无效输入安全停写，不确定事件正确暂停和恢复，重复和乱序不产生错误副作用，模型版本与漂移证据完整，零
+  Device RPC。
+no_substitute_validation: true
+collaboration_enabled: true
+author: codex-task-author
+created_at: '2026-07-29T15:00:00Z'

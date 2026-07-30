@@ -1,0 +1,1444 @@
+{
+  "rows": [
+    {
+      "features": {
+        "current_a": 18.7651,
+        "pressure_bar": 5.3425,
+        "rpm": 1485.6159,
+        "temperature_c": 59.9181,
+        "vibration_rms_mm_s": 2.7088
+      },
+      "label": 0,
+      "record_id": "row-0008",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 24.6367,
+        "pressure_bar": 3.3333,
+        "rpm": 1420.1745,
+        "temperature_c": 94.6032,
+        "vibration_rms_mm_s": 6.575
+      },
+      "label": 1,
+      "record_id": "row-0031",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 23.0724,
+        "pressure_bar": 4.0844,
+        "rpm": 1572.073,
+        "temperature_c": 105.0048,
+        "vibration_rms_mm_s": 6.8183
+      },
+      "label": 1,
+      "record_id": "row-0059",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 25.4039,
+        "pressure_bar": 2.902,
+        "rpm": 1556.6095,
+        "temperature_c": 83.5257,
+        "vibration_rms_mm_s": 10.766
+      },
+      "label": 1,
+      "record_id": "row-0035",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 9.794,
+        "pressure_bar": 5.2622,
+        "rpm": 1514.2991,
+        "temperature_c": 66.6246,
+        "vibration_rms_mm_s": 1.8854
+      },
+      "label": 0,
+      "record_id": "row-0044",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 11.6672,
+        "pressure_bar": 5.114,
+        "rpm": 1460.6863,
+        "temperature_c": 65.9327,
+        "vibration_rms_mm_s": 1.9636
+      },
+      "label": 0,
+      "record_id": "row-0052",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 19.4494,
+        "pressure_bar": 6.4702,
+        "rpm": 1469.9975,
+        "temperature_c": 71.7501,
+        "vibration_rms_mm_s": 2.4772
+      },
+      "label": 0,
+      "record_id": "row-0070",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 31.5312,
+        "pressure_bar": 3.5267,
+        "rpm": 1184.9786,
+        "temperature_c": 102.3045,
+        "vibration_rms_mm_s": 6.9441
+      },
+      "label": 1,
+      "record_id": "row-0039",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 32.1125,
+        "pressure_bar": 3.1819,
+        "rpm": 1348.6855,
+        "temperature_c": 87.4321,
+        "vibration_rms_mm_s": 7.4324
+      },
+      "label": 1,
+      "record_id": "row-0053",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 10.2952,
+        "pressure_bar": 5.4418,
+        "rpm": 1488.9511,
+        "temperature_c": 62.337,
+        "vibration_rms_mm_s": 2.7276
+      },
+      "label": 0,
+      "record_id": "row-0014",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 9.8306,
+        "pressure_bar": 6.0186,
+        "rpm": 1489.5459,
+        "temperature_c": 70.9136,
+        "vibration_rms_mm_s": 1.5242
+      },
+      "label": 0,
+      "record_id": "row-0058",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 14.4049,
+        "pressure_bar": 6.5959,
+        "rpm": 1490.5789,
+        "temperature_c": 71.9969,
+        "vibration_rms_mm_s": 2.9836
+      },
+      "label": 0,
+      "record_id": "row-0036",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 25.5344,
+        "pressure_bar": 2.5912,
+        "rpm": 1384.8669,
+        "temperature_c": 102.6406,
+        "vibration_rms_mm_s": 8.1799
+      },
+      "label": 1,
+      "record_id": "row-0049",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 31.9843,
+        "pressure_bar": 2.5181,
+        "rpm": 1508.5146,
+        "temperature_c": 79.4016,
+        "vibration_rms_mm_s": 9.6076
+      },
+      "label": 1,
+      "record_id": "row-0025",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 24.5581,
+        "pressure_bar": 3.9142,
+        "rpm": 1452.0246,
+        "temperature_c": 81.6771,
+        "vibration_rms_mm_s": 8.1395
+      },
+      "label": 1,
+      "record_id": "row-0013",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 14.0968,
+        "pressure_bar": 6.0755,
+        "rpm": 1393.1553,
+        "temperature_c": 49.6583,
+        "vibration_rms_mm_s": 2.5258
+      },
+      "label": 0,
+      "record_id": "row-0050",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 19.5476,
+        "pressure_bar": 3.1584,
+        "rpm": 1338.1623,
+        "temperature_c": 97.969,
+        "vibration_rms_mm_s": 5.095
+      },
+      "label": 1,
+      "record_id": "row-0047",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 23.2389,
+        "pressure_bar": 3.2697,
+        "rpm": 1409.7077,
+        "temperature_c": 76.5943,
+        "vibration_rms_mm_s": 3.9815
+      },
+      "label": 1,
+      "record_id": "row-0071",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 28.3327,
+        "pressure_bar": 1.8728,
+        "rpm": 1456.7899,
+        "temperature_c": 86.2011,
+        "vibration_rms_mm_s": 4.2418
+      },
+      "label": 1,
+      "record_id": "row-0019",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 23.694,
+        "pressure_bar": 2.8616,
+        "rpm": 1377.921,
+        "temperature_c": 101.4847,
+        "vibration_rms_mm_s": 6.6328
+      },
+      "label": 1,
+      "record_id": "row-0027",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 20.9886,
+        "pressure_bar": 3.4276,
+        "rpm": 1367.2031,
+        "temperature_c": 86.7878,
+        "vibration_rms_mm_s": 7.3435
+      },
+      "label": 1,
+      "record_id": "row-0001",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 29.2944,
+        "pressure_bar": 2.4635,
+        "rpm": 1329.5087,
+        "temperature_c": 72.665,
+        "vibration_rms_mm_s": 7.5332
+      },
+      "label": 1,
+      "record_id": "row-0075",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 28.1846,
+        "pressure_bar": 2.1128,
+        "rpm": 1311.9821,
+        "temperature_c": 85.573,
+        "vibration_rms_mm_s": 7.5887
+      },
+      "label": 1,
+      "record_id": "row-0007",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 10.3694,
+        "pressure_bar": 4.4169,
+        "rpm": 1551.5006,
+        "temperature_c": 56.0533,
+        "vibration_rms_mm_s": 1.7654
+      },
+      "label": 0,
+      "record_id": "row-0006",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 15.8206,
+        "pressure_bar": 5.8359,
+        "rpm": 1493.0254,
+        "temperature_c": 62.2823,
+        "vibration_rms_mm_s": 3.0341
+      },
+      "label": 0,
+      "record_id": "row-0026",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 15.3101,
+        "pressure_bar": 6.6296,
+        "rpm": 1438.9789,
+        "temperature_c": 51.7039,
+        "vibration_rms_mm_s": 2.445
+      },
+      "label": 0,
+      "record_id": "row-0016",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 13.9252,
+        "pressure_bar": 5.346,
+        "rpm": 1314.4398,
+        "temperature_c": 51.0278,
+        "vibration_rms_mm_s": 3.5627
+      },
+      "label": 0,
+      "record_id": "row-0074",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 29.5113,
+        "pressure_bar": 4.5743,
+        "rpm": 1468.2772,
+        "temperature_c": 82.3913,
+        "vibration_rms_mm_s": 8.9889
+      },
+      "label": 1,
+      "record_id": "row-0045",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 37.0458,
+        "pressure_bar": 4.0907,
+        "rpm": 1426.0698,
+        "temperature_c": 97.5904,
+        "vibration_rms_mm_s": 10.3741
+      },
+      "label": 1,
+      "record_id": "row-0073",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 31.2878,
+        "pressure_bar": 2.5267,
+        "rpm": 1480.3254,
+        "temperature_c": 101.1371,
+        "vibration_rms_mm_s": 7.7308
+      },
+      "label": 1,
+      "record_id": "row-0015",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 9.5025,
+        "pressure_bar": 4.7005,
+        "rpm": 1538.3666,
+        "temperature_c": 69.6881,
+        "vibration_rms_mm_s": 1.3371
+      },
+      "label": 0,
+      "record_id": "row-0012",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 28.0884,
+        "pressure_bar": 3.6646,
+        "rpm": 1368.9209,
+        "temperature_c": 106.1191,
+        "vibration_rms_mm_s": 7.1307
+      },
+      "label": 1,
+      "record_id": "row-0055",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 13.5028,
+        "pressure_bar": 6.613,
+        "rpm": 1504.0643,
+        "temperature_c": 58.0792,
+        "vibration_rms_mm_s": 3.006
+      },
+      "label": 0,
+      "record_id": "row-0042",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 32.8535,
+        "pressure_bar": 5.0623,
+        "rpm": 1484.4821,
+        "temperature_c": 85.613,
+        "vibration_rms_mm_s": 9.7066
+      },
+      "label": 1,
+      "record_id": "row-0057",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 17.9349,
+        "pressure_bar": 6.7415,
+        "rpm": 1526.5925,
+        "temperature_c": 73.9919,
+        "vibration_rms_mm_s": 3.9751
+      },
+      "label": 0,
+      "record_id": "row-0054",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 12.174,
+        "pressure_bar": 6.3067,
+        "rpm": 1494.192,
+        "temperature_c": 53.3581,
+        "vibration_rms_mm_s": 2.8805
+      },
+      "label": 0,
+      "record_id": "row-0062",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 29.2421,
+        "pressure_bar": 3.1676,
+        "rpm": 1237.0786,
+        "temperature_c": 88.7176,
+        "vibration_rms_mm_s": 11.4766
+      },
+      "label": 1,
+      "record_id": "row-0023",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 11.0422,
+        "pressure_bar": 4.2736,
+        "rpm": 1475.0516,
+        "temperature_c": 47.8393,
+        "vibration_rms_mm_s": 0.5432
+      },
+      "label": 0,
+      "record_id": "row-0064",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 32.8439,
+        "pressure_bar": 2.7402,
+        "rpm": 1514.2067,
+        "temperature_c": 88.8967,
+        "vibration_rms_mm_s": 8.6076
+      },
+      "label": 1,
+      "record_id": "row-0029",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 28.8519,
+        "pressure_bar": 3.0636,
+        "rpm": 1493.5816,
+        "temperature_c": 90.9834,
+        "vibration_rms_mm_s": 7.2936
+      },
+      "label": 1,
+      "record_id": "row-0003",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 13.6446,
+        "pressure_bar": 7.3507,
+        "rpm": 1474.517,
+        "temperature_c": 68.7482,
+        "vibration_rms_mm_s": 1.7715
+      },
+      "label": 0,
+      "record_id": "row-0078",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 14.6962,
+        "pressure_bar": 5.6663,
+        "rpm": 1509.4228,
+        "temperature_c": 53.7077,
+        "vibration_rms_mm_s": 1.9056
+      },
+      "label": 0,
+      "record_id": "row-0002",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 31.6853,
+        "pressure_bar": 2.6732,
+        "rpm": 1433.5622,
+        "temperature_c": 81.1835,
+        "vibration_rms_mm_s": 7.8679
+      },
+      "label": 1,
+      "record_id": "row-0079",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 31.5551,
+        "pressure_bar": 3.0932,
+        "rpm": 1287.9439,
+        "temperature_c": 105.9217,
+        "vibration_rms_mm_s": 9.5899
+      },
+      "label": 1,
+      "record_id": "row-0061",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 29.5105,
+        "pressure_bar": 4.1004,
+        "rpm": 1191.9334,
+        "temperature_c": 70.2981,
+        "vibration_rms_mm_s": 10.1245
+      },
+      "label": 1,
+      "record_id": "row-0037",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 24.7754,
+        "pressure_bar": 3.153,
+        "rpm": 1467.6635,
+        "temperature_c": 86.5825,
+        "vibration_rms_mm_s": 9.0223
+      },
+      "label": 1,
+      "record_id": "row-0065",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 16.9811,
+        "pressure_bar": 5.0637,
+        "rpm": 1481.982,
+        "temperature_c": 79.9685,
+        "vibration_rms_mm_s": 3.3222
+      },
+      "label": 0,
+      "record_id": "row-0024",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 9.1864,
+        "pressure_bar": 4.8202,
+        "rpm": 1467.9518,
+        "temperature_c": 62.1206,
+        "vibration_rms_mm_s": 2.8964
+      },
+      "label": 0,
+      "record_id": "row-0046",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 12.8024,
+        "pressure_bar": 5.6818,
+        "rpm": 1354.6232,
+        "temperature_c": 60.1005,
+        "vibration_rms_mm_s": 1.8444
+      },
+      "label": 0,
+      "record_id": "row-0066",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 27.3858,
+        "pressure_bar": 3.2009,
+        "rpm": 1280.7775,
+        "temperature_c": 99.6969,
+        "vibration_rms_mm_s": 7.8348
+      },
+      "label": 1,
+      "record_id": "row-0069",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 17.5819,
+        "pressure_bar": 5.3674,
+        "rpm": 1408.8604,
+        "temperature_c": 56.5836,
+        "vibration_rms_mm_s": 2.8548
+      },
+      "label": 0,
+      "record_id": "row-0034",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 32.497,
+        "pressure_bar": 2.9649,
+        "rpm": 1308.1667,
+        "temperature_c": 92.3985,
+        "vibration_rms_mm_s": 7.728
+      },
+      "label": 1,
+      "record_id": "row-0041",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 13.8552,
+        "pressure_bar": 5.4403,
+        "rpm": 1484.0626,
+        "temperature_c": 53.6971,
+        "vibration_rms_mm_s": 2.86
+      },
+      "label": 0,
+      "record_id": "row-0022",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 26.9006,
+        "pressure_bar": 4.0497,
+        "rpm": 1371.1887,
+        "temperature_c": 78.6779,
+        "vibration_rms_mm_s": 8.036
+      },
+      "label": 1,
+      "record_id": "row-0009",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 16.9861,
+        "pressure_bar": 6.1205,
+        "rpm": 1452.5737,
+        "temperature_c": 58.6668,
+        "vibration_rms_mm_s": 1.8533
+      },
+      "label": 0,
+      "record_id": "row-0060",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 18.8425,
+        "pressure_bar": 6.4281,
+        "rpm": 1397.5,
+        "temperature_c": 65.5947,
+        "vibration_rms_mm_s": 3.3897
+      },
+      "label": 0,
+      "record_id": "row-0076",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 12.5042,
+        "pressure_bar": 6.4831,
+        "rpm": 1441.7304,
+        "temperature_c": 68.6497,
+        "vibration_rms_mm_s": 3.0691
+      },
+      "label": 0,
+      "record_id": "row-0018",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 20.4947,
+        "pressure_bar": 3.5928,
+        "rpm": 1374.9904,
+        "temperature_c": 88.9091,
+        "vibration_rms_mm_s": 7.4168
+      },
+      "label": 1,
+      "record_id": "row-0017",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 24.5854,
+        "pressure_bar": 3.8324,
+        "rpm": 1490.2682,
+        "temperature_c": 81.8139,
+        "vibration_rms_mm_s": 8.5833
+      },
+      "label": 1,
+      "record_id": "row-0077",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 17.9545,
+        "pressure_bar": 3.282,
+        "rpm": 1411.4608,
+        "temperature_c": 64.9864,
+        "vibration_rms_mm_s": 3.9319
+      },
+      "label": 0,
+      "record_id": "row-0030",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 26.7205,
+        "pressure_bar": 3.4566,
+        "rpm": 1477.6833,
+        "temperature_c": 78.1132,
+        "vibration_rms_mm_s": 5.1124
+      },
+      "label": 1,
+      "record_id": "row-0033",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 22.0046,
+        "pressure_bar": 4.1885,
+        "rpm": 1204.3846,
+        "temperature_c": 91.1737,
+        "vibration_rms_mm_s": 8.596
+      },
+      "label": 1,
+      "record_id": "row-0005",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 22.6602,
+        "pressure_bar": 3.2662,
+        "rpm": 1314.1728,
+        "temperature_c": 92.5491,
+        "vibration_rms_mm_s": 6.5837
+      },
+      "label": 1,
+      "record_id": "row-0051",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 10.5971,
+        "pressure_bar": 5.7444,
+        "rpm": 1449.449,
+        "temperature_c": 75.4727,
+        "vibration_rms_mm_s": 1.4341
+      },
+      "label": 0,
+      "record_id": "row-0004",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 27.9202,
+        "pressure_bar": 3.8523,
+        "rpm": 1452.5966,
+        "temperature_c": 95.1177,
+        "vibration_rms_mm_s": 8.0927
+      },
+      "label": 1,
+      "record_id": "row-0043",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 16.9313,
+        "pressure_bar": 5.6787,
+        "rpm": 1429.256,
+        "temperature_c": 71.0826,
+        "vibration_rms_mm_s": 3.9592
+      },
+      "label": 0,
+      "record_id": "row-0056",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 19.4331,
+        "pressure_bar": 4.5933,
+        "rpm": 1449.3564,
+        "temperature_c": 63.6502,
+        "vibration_rms_mm_s": 3.0302
+      },
+      "label": 0,
+      "record_id": "row-0068",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 25.9113,
+        "pressure_bar": 3.0892,
+        "rpm": 1497.8421,
+        "temperature_c": 99.6334,
+        "vibration_rms_mm_s": 6.9253
+      },
+      "label": 1,
+      "record_id": "row-0067",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 14.7832,
+        "pressure_bar": 5.5654,
+        "rpm": 1483.2313,
+        "temperature_c": 71.4484,
+        "vibration_rms_mm_s": 3.0537
+      },
+      "label": 0,
+      "record_id": "row-0040",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 21.2038,
+        "pressure_bar": 3.2559,
+        "rpm": 1231.5186,
+        "temperature_c": 103.483,
+        "vibration_rms_mm_s": 7.7584
+      },
+      "label": 1,
+      "record_id": "row-0063",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 16.1201,
+        "pressure_bar": 5.2984,
+        "rpm": 1519.8945,
+        "temperature_c": 63.4735,
+        "vibration_rms_mm_s": 1.4668
+      },
+      "label": 0,
+      "record_id": "row-0032",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 21.2751,
+        "pressure_bar": 6.7888,
+        "rpm": 1458.1258,
+        "temperature_c": 55.7332,
+        "vibration_rms_mm_s": 3.2171
+      },
+      "label": 0,
+      "record_id": "row-0020",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 20.9371,
+        "pressure_bar": 5.2922,
+        "rpm": 1364.822,
+        "temperature_c": 54.7478,
+        "vibration_rms_mm_s": 1.5637
+      },
+      "label": 0,
+      "record_id": "row-0038",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 12.8389,
+        "pressure_bar": 5.7044,
+        "rpm": 1513.5198,
+        "temperature_c": 64.4735,
+        "vibration_rms_mm_s": 3.187
+      },
+      "label": 0,
+      "record_id": "row-0048",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 26.7786,
+        "pressure_bar": 3.3507,
+        "rpm": 1385.2761,
+        "temperature_c": 88.2922,
+        "vibration_rms_mm_s": 6.815
+      },
+      "label": 1,
+      "record_id": "row-0011",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 8.8363,
+        "pressure_bar": 4.7267,
+        "rpm": 1442.6413,
+        "temperature_c": 44.0477,
+        "vibration_rms_mm_s": 2.2798
+      },
+      "label": 0,
+      "record_id": "row-0072",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 27.7714,
+        "pressure_bar": 3.1356,
+        "rpm": 1389.9525,
+        "temperature_c": 89.4958,
+        "vibration_rms_mm_s": 5.8422
+      },
+      "label": 1,
+      "record_id": "row-0021",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 10.1451,
+        "pressure_bar": 5.5523,
+        "rpm": 1464.0117,
+        "temperature_c": 55.9303,
+        "vibration_rms_mm_s": 0.4558
+      },
+      "label": 0,
+      "record_id": "row-0000",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 14.2878,
+        "pressure_bar": 4.9108,
+        "rpm": 1422.3396,
+        "temperature_c": 53.7497,
+        "vibration_rms_mm_s": 2.0565
+      },
+      "label": 0,
+      "record_id": "row-0010",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "features": {
+        "current_a": 17.2282,
+        "pressure_bar": 5.3263,
+        "rpm": 1509.8857,
+        "temperature_c": 71.1386,
+        "vibration_rms_mm_s": 3.1617
+      },
+      "label": 0,
+      "record_id": "row-0028",
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    }
+  ]
+}

@@ -1,0 +1,44 @@
+[
+  {
+    "source_key": "ops-conveyor-lockout",
+    "name": "Conveyor C-17 lockout and restart",
+    "html": "<h2>Lockout</h2><p>Before clearing a jam on conveyor C-17, stop the line, isolate disconnect DS-17, apply a personal lock, and verify zero energy at the local panel.</p><h2>Restart</h2><p>After all guards are restored, the area owner removes the group lock and announces the restart on radio channel 4.</p>",
+    "allowed_roles": ["operations", "safety"],
+    "tags": [{"name": "rag-role", "value": "operations"}, {"name": "rag-role", "value": "safety"}]
+  },
+  {
+    "source_key": "safety-spill-response",
+    "name": "Solvent spill response",
+    "html": "<p>For a solvent spill above 20 litres, stop ignition sources, call the emergency coordinator on extension 7711, establish a 15 metre exclusion zone, and use the red chemical response kit.</p>",
+    "allowed_roles": ["safety"],
+    "tags": [{"name": "rag-role", "value": "safety"}]
+  },
+  {
+    "source_key": "finance-vendor-approval",
+    "name": "Vendor payment approvals",
+    "html": "<p>Payments above 50000 USD require controller approval and a second approval from the CFO. The confidential audit phrase is SILVER-CEDAR.</p>",
+    "allowed_roles": ["finance"],
+    "tags": [{"name": "rag-role", "value": "finance"}]
+  },
+  {
+    "source_key": "hr-payroll-cutoff",
+    "name": "Payroll correction cutoff",
+    "html": "<p>Payroll corrections must be submitted by Tuesday 14:00 local time. Emergency corrections use internal case code HUSH-ORCHID and require the payroll manager.</p>",
+    "allowed_roles": ["hr"],
+    "tags": [{"name": "rag-role", "value": "hr"}]
+  },
+  {
+    "source_key": "public-emergency-contacts",
+    "name": "Emergency contacts",
+    "html": "<p>For immediate danger call local emergency services. The on-site security desk is extension 7000 and is staffed at all times.</p>",
+    "allowed_roles": ["*"],
+    "tags": [{"name": "rag-role", "value": "*"}]
+  },
+  {
+    "source_key": "ops-pump-inspection",
+    "name": "Pump P-08 inspection interval",
+    "html": "<p>Pump P-08 requires a seal inspection every 30 operating days. Record the vibration reading before opening the inspection ticket.</p>",
+    "allowed_roles": ["operations"],
+    "tags": [{"name": "rag-role", "value": "operations"}]
+  }
+]

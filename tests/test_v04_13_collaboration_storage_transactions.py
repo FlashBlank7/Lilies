@@ -252,6 +252,61 @@ async def test_activation_replay_requires_the_original_prepared_bearer(
 
 
 @pytest.mark.asyncio
+async def test_closed_attempt_allows_one_fresh_channel_for_same_task_revision(
+    tmp_path: Path,
+) -> None:
+    database = tmp_path / "formal-attempt-rotation.db"
+    store = CollaborationStore(database)
+    await store.initialize()
+    now = datetime.now(timezone.utc)
+    service = CollaborationService(store=store, enabled=True, now=lambda: now)
+    task_id = "EXP-FORMAL-ROTATION-001"
+    application_id = uuid4()
+
+    async def activate(marker: str):
+        return await service.create_formal_channel(
+            assignment_mode=AssignmentMode.formal_experiment,
+            task_id=task_id,
+            task_revision=28,
+            assignment_id=uuid4(),
+            lilies_session_id=uuid4(),
+            application_ids=[application_id],
+            collaboration_enabled=True,
+            user_notified=True,
+            expires_at=now + timedelta(hours=2),
+            retention_until=now + timedelta(days=30),
+            idempotency_key=f"formal-attempt-rotation-{marker}-0001",
+            max_report_evidence_rounds=4,
+        )
+
+    first = await activate("first")
+    closed = await store.close_channel(
+        first.channel.channel_id,
+        expected_revision=first.channel.revision,
+        idempotency_key="formal-attempt-close-first-0001",
+        reason="retire expired predecessor attempt",
+    )
+    assert closed["status"] == "closed"
+
+    second = await activate("second")
+    assert second.channel.channel_id != first.channel.channel_id
+    assert second.channel.status.value == "active"
+
+    with pytest.raises(CollaborationConflict):
+        await activate("concurrent")
+    with sqlite3.connect(database) as connection:
+        statuses = connection.execute(
+            """
+            SELECT status FROM collaboration_channels
+            WHERE task_id=? AND task_revision=28
+            ORDER BY created_at,channel_id
+            """,
+            (task_id,),
+        ).fetchall()
+    assert sorted(statuses) == [("active",), ("closed",)]
+
+
+@pytest.mark.asyncio
 async def test_lease_receipts_compare_exact_client_fields_and_release_report(
     tmp_path: Path,
 ) -> None:
@@ -1440,7 +1495,7 @@ async def test_zero_ack_is_a_stable_initial_cursor_projection(tmp_path: Path) ->
 async def test_schema_guard_wal_and_private_database_modes(tmp_path: Path) -> None:
     database = tmp_path / "private-collaboration.db"
     store = CollaborationStore(database)
-    assert await store.initialize() == {"schema_version": 1}
+    assert await store.initialize() == {"schema_version": 2}
     with sqlite3.connect(database) as connection:
         assert connection.execute("PRAGMA journal_mode").fetchone() == ("wal",)
     assert stat.S_IMODE(database.stat().st_mode) == 0o600
@@ -1459,3 +1514,99 @@ async def test_schema_guard_wal_and_private_database_modes(tmp_path: Path) -> No
         )
     with pytest.raises(CollaborationStorageError, match="newer than supported"):
         await CollaborationStore(future_database).initialize()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("recorded_schema_version", [1, 2])
+async def test_legacy_task_revision_uniqueness_migrates_even_with_v2_marker(
+    tmp_path: Path,
+    recorded_schema_version: int,
+) -> None:
+    database = tmp_path / f"collaboration-v{recorded_schema_version}.db"
+    channel_id = uuid4()
+    assignment_id = uuid4()
+    session_id = uuid4()
+    application_id = uuid4()
+    created_at = datetime.now(timezone.utc)
+    with sqlite3.connect(database) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE collaboration_schema(
+              version INTEGER PRIMARY KEY,
+              applied_at TEXT NOT NULL
+            );
+            CREATE TABLE collaboration_channels(
+              channel_id TEXT PRIMARY KEY,
+              task_id TEXT NOT NULL,
+              task_revision INTEGER NOT NULL CHECK(task_revision >= 1),
+              assignment_id TEXT NOT NULL UNIQUE,
+              lilies_session_id TEXT NOT NULL UNIQUE,
+              application_ids_json TEXT NOT NULL,
+              approval_mode TEXT NOT NULL,
+              max_report_evidence_rounds INTEGER,
+              status TEXT NOT NULL,
+              revision INTEGER NOT NULL DEFAULT 1,
+              next_seq INTEGER NOT NULL DEFAULT 1,
+              metadata_json TEXT NOT NULL DEFAULT '{}',
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              closed_at TEXT,
+              retention_until TEXT,
+              UNIQUE(task_id,task_revision)
+            );
+            """
+        )
+        connection.execute(
+            "INSERT INTO collaboration_schema VALUES(?,?)",
+            (recorded_schema_version, "2026-07-01T00:00:00+00:00"),
+        )
+        connection.execute(
+            """
+            INSERT INTO collaboration_channels(
+              channel_id,task_id,task_revision,assignment_id,lilies_session_id,
+              application_ids_json,approval_mode,max_report_evidence_rounds,
+              status,revision,next_seq,metadata_json,created_at,updated_at,
+              closed_at,retention_until
+            ) VALUES(?,?,?,?,?,?,'auto_forward',4,'closed',2,1,'{}',?,?,?,?)
+            """,
+            (
+                str(channel_id),
+                "EXP-ROTATION-MIGRATION-001",
+                28,
+                str(assignment_id),
+                str(session_id),
+                f'["{application_id}"]',
+                created_at.isoformat(),
+                created_at.isoformat(),
+                created_at.isoformat(),
+                (created_at + timedelta(days=30)).isoformat(),
+            ),
+        )
+
+    store = CollaborationStore(database)
+    assert await store.initialize() == {"schema_version": 2}
+    assert (await store.get_channel(channel_id))["status"] == "closed"
+    with sqlite3.connect(database) as connection:
+        versions = connection.execute(
+            "SELECT version FROM collaboration_schema ORDER BY version"
+        ).fetchall()
+        channel_sql = connection.execute(
+            "SELECT sql FROM sqlite_master "
+            "WHERE type='table' AND name='collaboration_channels'"
+        ).fetchone()[0]
+        index_sql = connection.execute(
+            "SELECT sql FROM sqlite_master "
+            "WHERE type='index' "
+            "AND name='idx_collaboration_one_open_task_revision'"
+        ).fetchone()[0]
+        foreign_key_violations = connection.execute(
+            "PRAGMA foreign_key_check"
+        ).fetchall()
+    assert versions == (
+        [(1,), (2,)]
+        if recorded_schema_version == 1
+        else [(2,)]
+    )
+    assert "UNIQUE(task_id,task_revision)" not in channel_sql.replace(" ", "")
+    assert "WHERE status IN" in index_sql
+    assert foreign_key_violations == []

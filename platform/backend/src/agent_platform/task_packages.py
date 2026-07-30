@@ -48,6 +48,7 @@ from .formal_verification_contracts import (
 from .formal_source_provenance import (
     DEVELOPER_TRUST_ROOT_PATHS,
     FormalSourceProvenanceError,
+    LEGACY_DEVELOPER_TRUST_ROOT_PATHS_V1,
     approved_developer_response_bindings,
     verify_source_provenance_archive_offline,
 )
@@ -79,10 +80,12 @@ from .workflow_models import ApplicationSnapshot
 
 MAX_CONTROL_FILE_BYTES = 2 * 1024 * 1024
 MAX_ARCHIVE_FILE_BYTES = 128 * 1024 * 1024
+MAX_ENVIRONMENT_READY_TTL_SECONDS = 7 * 24 * 60 * 60
 VERIFICATION_POLICY_MANIFEST_FILE = "verification-policy.json"
 WORKSPACE_POLICY_FILE = ".lilies-workspace-policy.json"
 WORKSPACE_MANIFEST_FILE = ".lilies-mount-manifest.json"
 BUILDER_API_MANUAL_FILE = "BUILDER_API_MANUAL.json"
+CUSTOMER_REQUIREMENT_PACKAGE_FILE = "CUSTOMER_REQUIREMENT_PACKAGE.json"
 _IMMUTABLE_TOP_LEVEL_FILES = frozenset(
     {
         "task.yaml",
@@ -92,7 +95,12 @@ _IMMUTABLE_TOP_LEVEL_FILES = frozenset(
         "budget.json",
     }
 )
-_OPTIONAL_IMMUTABLE_TOP_LEVEL_FILES = frozenset({BUILDER_API_MANUAL_FILE})
+_OPTIONAL_IMMUTABLE_TOP_LEVEL_FILES = frozenset(
+    {
+        BUILDER_API_MANUAL_FILE,
+        CUSTOMER_REQUIREMENT_PACKAGE_FILE,
+    }
+)
 _IMMUTABLE_TOP_LEVEL_DIRECTORIES = frozenset({"fixtures", "protected"})
 _GENERATED_TOP_LEVEL = frozenset({"archive-manifest.json", "runs"})
 _ARCHIVE_LOCK_FILE = ".archive-index.lock"
@@ -180,7 +188,7 @@ _DEVELOPER_SOURCE_SECRET_SUFFIXES = (
 )
 MAX_DEVELOPER_SOURCE_FILES = 20_000
 MAX_DEVELOPER_SOURCE_BYTES = 256 * 1024 * 1024
-_VERIFICATION_BUNDLE_SOURCE_PATHS = frozenset(
+_VERIFICATION_BUNDLE_SOURCE_PATHS_V1 = frozenset(
     {
         "agent_platform/__init__.py",
         "agent_platform/capability_contracts.py",
@@ -199,6 +207,22 @@ _VERIFICATION_BUNDLE_SOURCE_PATHS = frozenset(
         "agent_platform/workflow_models.py",
     }
 )
+_VERIFICATION_BUNDLE_SOURCE_PATHS = frozenset(
+    {
+        *_VERIFICATION_BUNDLE_SOURCE_PATHS_V1,
+        "agent_platform/capability_generality_gate.py",
+        "agent_platform/kernel_boot_identity.py",
+    }
+)
+# Schema 1.0 is retained only for exact historical policy bundles that were
+# already issued before the executable source closure was corrected.  Binding
+# the complete source-entry digest prevents current verifier bytes from being
+# relabelled as 1.0 to omit newly protected dependencies.
+_LEGACY_VERIFICATION_SOURCE_CLOSURE_DIGESTS_V1 = frozenset(
+    {
+        "sha256:ba7211d929ef7c3ba941d4baeb09973c319deeb269f09dac36fff68812928a64",
+    }
+)
 _VERIFICATION_RUNTIME_DISTRIBUTIONS = (
     "PyYAML",
     "annotated-types",
@@ -212,6 +236,7 @@ _ACTION_PLATFORM_SCOPES: dict[AllowedAction, PlatformScope] = {
     AllowedAction.platform_block_search: PlatformScope.catalog_read,
     AllowedAction.platform_block_get: PlatformScope.catalog_read,
     AllowedAction.platform_tool_catalog: PlatformScope.catalog_read,
+    AllowedAction.platform_connector_authorization_issue: PlatformScope.run_execute,
     AllowedAction.platform_application_create: PlatformScope.application_write,
     AllowedAction.platform_application_get: PlatformScope.application_write,
     AllowedAction.platform_draft_inspect: PlatformScope.draft_write,
@@ -251,6 +276,15 @@ class _ArchivedConnectorAssignmentWriteReceipt(BaseModel):
     side_effect_state: Literal["none", "applied", "unknown", "compensated"]
     authorization_ref_digest: str | None
     adapter_called: bool
+    attempt_count: int = Field(ge=0, le=1_000_000)
+    retryable: bool
+    failure_disposition: Literal["none", "retryable", "terminal", "ambiguous"]
+    retry_safety: Literal[
+        "none",
+        "read_only",
+        "idempotency_key",
+        "pre_dispatch",
+    ]
     created_at: str
     updated_at: str
 
@@ -1007,7 +1041,10 @@ class BudgetSpec(StrictFrozenModel):
     revision: int = Field(ge=1)
     max_build_repair_turns: int = Field(ge=5, le=200)
     max_model_cost_usd: float = Field(gt=0, le=100_000, allow_inf_nan=False)
-    assignment_wall_clock_seconds: int = Field(ge=1, le=7 * 24 * 60 * 60)
+    assignment_wall_clock_seconds: int = Field(
+        ge=1,
+        le=MAX_ENVIRONMENT_READY_TTL_SECONDS,
+    )
     max_platform_tool_calls: int = Field(ge=1, le=1_000)
     max_report_evidence_rounds: int = Field(ge=1, le=100)
     stable_hidden_runs: int = Field(ge=1, le=100)
@@ -1023,7 +1060,7 @@ class VerificationRuntimeDependency(StrictFrozenModel):
 class VerificationPolicyBundleManifest(StrictFrozenModel):
     """Content-addressed verifier/scanner/replay source and runtime policy."""
 
-    schema_version: Literal["1.0"]
+    schema_version: Literal["1.0", "1.1"]
     entrypoint: Literal["agent_platform.independent_verifier"]
     python_implementation: str = Field(min_length=1, max_length=120)
     python_version: str = Field(min_length=1, max_length=120)
@@ -1061,18 +1098,6 @@ class VerificationPolicyBundleManifest(StrictFrozenModel):
             raise ValueError(
                 "verification protected source paths must be sorted and unique"
             )
-        if normalized != sorted(DEVELOPER_TRUST_ROOT_PATHS):
-            raise ValueError(
-                "verification policy does not bind the complete developer trust root"
-            )
-        executable_trust_root = {
-            f"platform/backend/src/{path}"
-            for path in _VERIFICATION_BUNDLE_SOURCE_PATHS
-        }
-        if not executable_trust_root <= set(normalized):
-            raise ValueError(
-                "verification executable source is not protected from promotion"
-            )
         return normalized
 
     @field_validator("sources")
@@ -1082,9 +1107,9 @@ class VerificationPolicyBundleManifest(StrictFrozenModel):
         value: list[FileDigestEntry],
     ) -> list[FileDigestEntry]:
         paths = [item.path for item in value]
-        if paths != sorted(_VERIFICATION_BUNDLE_SOURCE_PATHS):
+        if paths != sorted(set(paths)):
             raise ValueError(
-                "verification policy does not bind the exact executable source closure"
+                "verification executable sources must be sorted and unique"
             )
         return value
 
@@ -1092,6 +1117,51 @@ class VerificationPolicyBundleManifest(StrictFrozenModel):
     def process_digest_matches_manifest(
         self,
     ) -> VerificationPolicyBundleManifest:
+        expected_trust_root = (
+            LEGACY_DEVELOPER_TRUST_ROOT_PATHS_V1
+            if self.schema_version == "1.0"
+            else DEVELOPER_TRUST_ROOT_PATHS
+        )
+        expected_sources = (
+            _VERIFICATION_BUNDLE_SOURCE_PATHS_V1
+            if self.schema_version == "1.0"
+            else _VERIFICATION_BUNDLE_SOURCE_PATHS
+        )
+        if self.protected_source_paths != sorted(expected_trust_root):
+            raise ValueError(
+                "verification policy does not bind the complete "
+                f"developer trust root for schema {self.schema_version}"
+            )
+        if [item.path for item in self.sources] != sorted(expected_sources):
+            raise ValueError(
+                "verification policy does not bind the exact executable "
+                f"source closure for schema {self.schema_version}"
+            )
+        if self.schema_version == "1.0":
+            source_closure_digest = _digest_bytes(
+                _canonical_json(
+                    [
+                        item.model_dump(mode="json", exclude_none=True)
+                        for item in self.sources
+                    ]
+                )
+            )
+            if (
+                source_closure_digest
+                not in _LEGACY_VERIFICATION_SOURCE_CLOSURE_DIGESTS_V1
+            ):
+                raise ValueError(
+                    "verification policy does not bind an approved legacy "
+                    "source closure"
+                )
+        executable_trust_root = {
+            f"platform/backend/src/{path}"
+            for path in expected_sources
+        }
+        if not executable_trust_root <= set(self.protected_source_paths):
+            raise ValueError(
+                "verification executable source is not protected from promotion"
+            )
         expected = _digest_bytes(
             _canonical_json(
                 self.model_dump(
@@ -2297,7 +2367,7 @@ class TaskPackageManager:
         entries = self._verification_source_entries()
         python_executable = self._verification_python_executable()
         manifest_payload = {
-            "schema_version": "1.0",
+            "schema_version": "1.1",
             "entrypoint": "agent_platform.independent_verifier",
             "python_implementation": platform.python_implementation(),
             "python_version": platform.python_version(),
@@ -2610,6 +2680,109 @@ class TaskPackageManager:
                 raise TaskPackageSecurityError(
                     "Builder API manual contains a live credential"
                 )
+        if CUSTOMER_REQUIREMENT_PACKAGE_FILE in names:
+            requirement_package_payload = _read_bytes(
+                source_root / CUSTOMER_REQUIREMENT_PACKAGE_FILE,
+                limit=MAX_CONTROL_FILE_BYTES,
+            )
+            try:
+                requirement_package = _strict_json_loads(
+                    requirement_package_payload
+                )
+            except (
+                UnicodeDecodeError,
+                json.JSONDecodeError,
+                ValueError,
+                TypeError,
+            ) as error:
+                raise TaskPackageError(
+                    "customer requirement package is not strict JSON"
+                ) from error
+            if (
+                not isinstance(requirement_package, dict)
+                or requirement_package.get("schema_version")
+                != "v0.4.13-customer-requirement-package-1"
+                or requirement_package.get("task_id") != task.task_id
+                or requirement_package.get("revision") != task.revision
+                or requirement_package.get("material_completeness")
+                not in {"sparse", "partial", "substantial"}
+                or not hmac.compare_digest(
+                    requirement_package_payload,
+                    _canonical_json(requirement_package),
+                )
+            ):
+                raise TaskPackageError(
+                    "customer requirement package is not the canonical "
+                    "versioned projection"
+                )
+            materials = requirement_package.get("materials")
+            missing_materials = requirement_package.get(
+                "missing_materials"
+            )
+            if (
+                not isinstance(materials, list)
+                or not materials
+                or not isinstance(missing_materials, list)
+                or any(
+                    not isinstance(item, str) or not item.strip()
+                    for item in missing_materials
+                )
+                or len(set(missing_materials)) != len(missing_materials)
+            ):
+                raise TaskPackageError(
+                    "customer requirement package material inventory is invalid"
+                )
+            seen_material_paths: set[str] = set()
+            for material in materials:
+                if not isinstance(material, dict) or set(material) != {
+                    "description",
+                    "kind",
+                    "path",
+                    "provided_by",
+                }:
+                    raise TaskPackageError(
+                        "customer requirement package material is invalid"
+                    )
+                raw_path = material.get("path")
+                try:
+                    normalized_path = _normalize_relative_path(raw_path)
+                except (TypeError, ValueError) as error:
+                    raise TaskPackageError(
+                        "customer requirement package material path is invalid"
+                    ) from error
+                if (
+                    normalized_path.startswith("protected/")
+                    or normalized_path
+                    == CUSTOMER_REQUIREMENT_PACKAGE_FILE
+                    or normalized_path in seen_material_paths
+                    or not _resolved_child(
+                        source_root,
+                        normalized_path,
+                    ).is_file()
+                    or any(
+                        not isinstance(material.get(field), str)
+                        or not material[field].strip()
+                        for field in (
+                            "description",
+                            "kind",
+                            "provided_by",
+                        )
+                    )
+                ):
+                    raise TaskPackageError(
+                        "customer requirement package material is invalid"
+                    )
+                seen_material_paths.add(normalized_path)
+            decoded_requirement_package = (
+                requirement_package_payload.decode("utf-8")
+            )
+            if re.search(
+                r"\b(?:lpt|lcc)_[0-9a-f]{32}_[A-Za-z0-9_-]{32,}\b",
+                decoded_requirement_package,
+            ):
+                raise TaskPackageSecurityError(
+                    "customer requirement package contains a live credential"
+                )
         all_files = _iter_tree_files(source_root)
         immutable_files: list[FileDigestEntry] = []
         seen_identities: set[str] = set()
@@ -2910,8 +3083,10 @@ class TaskPackageManager:
             package.task.revision,
             expected_sealed_digest=package.record.sealed_package_digest,
         )
-        if not 60 <= ttl_seconds <= 24 * 60 * 60:
-            raise ValueError("environment readiness TTL must be 60 seconds to 24 hours")
+        if not 60 <= ttl_seconds <= MAX_ENVIRONMENT_READY_TTL_SECONDS:
+            raise ValueError(
+                "environment readiness TTL must be 60 seconds to 7 days"
+            )
         run_id = TypeAdapter(OpaqueReference).validate_python(run_id)
         target = self._ready_path(
             package.task.task_id,

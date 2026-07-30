@@ -34,6 +34,9 @@ from agent_platform.task_packages import (  # noqa: E402
     WORKSPACE_MANIFEST_FILE,
     WORKSPACE_POLICY_FILE,
 )
+from agent_platform.lilies_platform_contract import (  # noqa: E402
+    PUBLIC_OPERATION_SPECS,
+)
 from scripts.run_v04_13_live_development_handoff import (  # noqa: E402
     CODEX_ALLOWED_PROVIDER_HOSTS,
     _AllowlistedConnectProxy,
@@ -49,6 +52,9 @@ MAX_SESSION_STATE_BYTES = 512 * 1024 * 1024
 DEFAULT_MODEL = "gpt-5.6-terra"
 MACOS_SANDBOX = Path("/usr/bin/sandbox-exec")
 RUNTIME_HANDOFF_FILE = "BUILDER_HANDOFF.json"
+AUTHORITY_TRANSITION_SCHEMA_VERSION = (
+    "v0.4.13-codex-resume-authority-transition-1"
+)
 SEATBELT_PROBE_FILE = "seatbelt-boundary-probe.sh"
 PROCESS_GROUP_GRACE_SECONDS = 3.0
 INVOCATION_PROCESS_POLL_SECONDS = 0.05
@@ -65,6 +71,13 @@ USAGE_FIELDS = (
     "reasoning_output_tokens",
 )
 _DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
+_STALE_AUTHORITY_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9_-])"
+    r"(?:lpt_|lcc_|collaboration-)[A-Za-z0-9_-]{24,}"
+)
+_BEARER_AUTHORITY_PATTERN = re.compile(
+    r"(?i)(\bBearer\s+)[A-Za-z0-9._~+/=-]{16,}"
+)
 _REQUIRED_DENIED_SEGMENTS = {
     ".git",
     ".hg",
@@ -684,7 +697,8 @@ def _verify_public_workspace(
             or manual_value.get("schema_version")
             != "v0.4.13-t01h-external-builder-api-manual-1"
             or not isinstance(manual_value.get("platform"), dict)
-            or manual_value["platform"].get("operation_count") != 16
+            or manual_value["platform"].get("operation_count")
+            not in {16, len(PUBLIC_OPERATION_SPECS)}
         ):
             raise CodexBuilderChildError(
                 "public Builder API manual identity is invalid"
@@ -714,7 +728,7 @@ def _validate_handoff(
     if (
         handoff.get("schema_version") != "1.0"
         or handoff.get("builder_actor") != "codex"
-        or handoff.get("formal_archive_supported") is not False
+        or handoff.get("formal_archive_supported") is not True
         or not isinstance(task.get("task_id"), str)
         or not isinstance(task.get("revision"), int)
         or not isinstance(assignment.get("session_id"), str)
@@ -1322,10 +1336,16 @@ def _runtime_authority_path(
     *,
     handoff: Mapping[str, Any],
     resume: bool,
+    resume_thread_id: str | None = None,
+    authority_transition_path: Path | None = None,
 ) -> Path:
     path = runtime_root / RUNTIME_HANDOFF_FILE
     payload = _canonical_json(handoff)
     if not resume:
+        if authority_transition_path is not None:
+            raise CodexBuilderChildError(
+                "an initial Builder runtime cannot consume an authority transition"
+            )
         _write_private_bytes(path, payload)
         return path
     try:
@@ -1338,11 +1358,253 @@ def _runtime_authority_path(
         raise CodexBuilderChildError(
             "resumed runtime omitted its original private handoff"
         ) from error
-    if not hmac.compare_digest(existing, payload):
+    if hmac.compare_digest(existing, payload):
+        if authority_transition_path is not None:
+            raise CodexBuilderChildError(
+                "resume authority transition is unnecessary for an unchanged handoff"
+            )
+        return path
+    if authority_transition_path is None or resume_thread_id is None:
         raise CodexBuilderChildError(
             "resume handoff changed; a new authority cannot reuse the Builder thread"
         )
+    _validate_resume_authority_transition(
+        existing_handoff=existing,
+        successor_handoff=payload,
+        transition_path=authority_transition_path,
+        resume_thread_id=resume_thread_id,
+    )
+    _replace_private_runtime_handoff(path, payload)
     return path
+
+
+def _authority_transition_projection(
+    handoff: Mapping[str, Any],
+    *,
+    handoff_digest: str,
+) -> dict[str, Any]:
+    task = handoff.get("task")
+    assignment = handoff.get("assignment")
+    platform = handoff.get("platform")
+    collaboration = handoff.get("collaboration")
+    workspace = handoff.get("workspace")
+    if not all(
+        isinstance(value, Mapping)
+        for value in (task, assignment, platform, collaboration, workspace)
+    ):
+        raise CodexBuilderChildError(
+            "authority transition handoff structure is invalid"
+        )
+    projection = {
+        "task_id": task.get("task_id"),
+        "revision": task.get("revision"),
+        "application_id": assignment.get("application_id"),
+        "assignment_id": assignment.get("assignment_id"),
+        "session_id": assignment.get("session_id"),
+        "channel_id": collaboration.get("channel_id"),
+        "task_credential_ref": platform.get("credential_ref"),
+        "collaboration_credential_ref": collaboration.get("credential_ref"),
+        "platform_base_url": platform.get("base_url"),
+        "platform_contract_url": platform.get("contract_url"),
+        "platform_contract_digest": platform.get("contract_digest"),
+        "workspace_policy_digest": workspace.get("policy_digest"),
+        "handoff_digest": handoff_digest,
+    }
+    if (
+        handoff.get("schema_version") != "1.0"
+        or handoff.get("builder_actor") != "codex"
+        or not isinstance(projection["task_id"], str)
+        or type(projection["revision"]) is not int
+        or projection["revision"] < 1
+        or any(
+            not isinstance(projection[key], str) or not projection[key]
+            for key in (
+                "application_id",
+                "assignment_id",
+                "session_id",
+                "channel_id",
+                "task_credential_ref",
+                "collaboration_credential_ref",
+                "platform_base_url",
+                "platform_contract_url",
+                "platform_contract_digest",
+                "workspace_policy_digest",
+            )
+        )
+        or not _DIGEST_PATTERN.fullmatch(handoff_digest)
+    ):
+        raise CodexBuilderChildError(
+            "authority transition handoff identity is invalid"
+        )
+    return projection
+
+
+def _validate_resume_authority_transition(
+    *,
+    existing_handoff: bytes,
+    successor_handoff: bytes,
+    transition_path: Path,
+    resume_thread_id: str,
+) -> None:
+    try:
+        predecessor = json.loads(existing_handoff)
+        successor = json.loads(successor_handoff)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise CodexBuilderChildError(
+            "authority transition handoff is invalid JSON"
+        ) from error
+    if not isinstance(predecessor, dict) or not isinstance(successor, dict):
+        raise CodexBuilderChildError(
+            "authority transition handoff must be a JSON object"
+        )
+    try:
+        transition_payload, _ = _read_nofollow_regular(
+            _absolute_lexical_path(transition_path),
+            size_limit=MAX_HANDOFF_BYTES,
+            require_owner=True,
+        )
+        transition = json.loads(transition_payload)
+    except (CodexBuilderChildError, OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise CodexBuilderChildError(
+            "resume authority transition evidence is unreadable"
+        ) from error
+    if not isinstance(transition, dict):
+        raise CodexBuilderChildError(
+            "resume authority transition evidence must be an object"
+        )
+    predecessor_projection = _authority_transition_projection(
+        predecessor,
+        handoff_digest=_digest(existing_handoff),
+    )
+    successor_projection = _authority_transition_projection(
+        successor,
+        handoff_digest=_digest(successor_handoff),
+    )
+    retirement = transition.get("authority_retirement")
+    environment_adoption_digest = transition.get(
+        "environment_adoption_receipt_digest"
+    )
+    if (
+        transition.get("schema_version")
+        != AUTHORITY_TRANSITION_SCHEMA_VERSION
+        or transition.get("thread_id") != resume_thread_id
+        or transition.get("predecessor") != predecessor_projection
+        or transition.get("successor") != successor_projection
+        or not isinstance(retirement, dict)
+        or retirement.get("task_id") != predecessor_projection["task_id"]
+        or retirement.get("predecessor_revision")
+        != predecessor_projection["revision"]
+        or retirement.get("successor_revision")
+        != successor_projection["revision"]
+        or retirement.get("application_id")
+        != predecessor_projection["application_id"]
+        or retirement.get("assignment_id")
+        != predecessor_projection["assignment_id"]
+        or retirement.get("session_id")
+        != predecessor_projection["session_id"]
+        or retirement.get("collaboration_channel_id")
+        != predecessor_projection["channel_id"]
+        or retirement.get("task_credential_ref")
+        != predecessor_projection["task_credential_ref"]
+        or retirement.get("collaboration_credential_ref")
+        != predecessor_projection["collaboration_credential_ref"]
+        or retirement.get("active_predecessor_retirement_authorized") is not True
+        or any(
+            not isinstance(retirement.get(key), str)
+            or not retirement[key]
+            for key in (
+                "task_credential_revoked_at",
+                "collaboration_credential_revoked_at",
+                "collaboration_channel_closed_at",
+                "retirement_reason",
+            )
+        )
+        or not isinstance(environment_adoption_digest, str)
+        or not _DIGEST_PATTERN.fullmatch(environment_adoption_digest)
+    ):
+        raise CodexBuilderChildError(
+            "resume authority transition evidence binding is invalid"
+        )
+    if (
+        successor_projection["task_id"] != predecessor_projection["task_id"]
+        or successor_projection["revision"]
+        != predecessor_projection["revision"] + 1
+        or successor_projection["application_id"]
+        != predecessor_projection["application_id"]
+        or successor_projection["platform_base_url"]
+        != predecessor_projection["platform_base_url"]
+        or successor_projection["platform_contract_url"]
+        != predecessor_projection["platform_contract_url"]
+        or successor_projection["platform_contract_digest"]
+        != predecessor_projection["platform_contract_digest"]
+        or successor_projection["workspace_policy_digest"]
+        != predecessor_projection["workspace_policy_digest"]
+        or any(
+            successor_projection[key] == predecessor_projection[key]
+            for key in (
+                "assignment_id",
+                "session_id",
+                "channel_id",
+                "task_credential_ref",
+                "collaboration_credential_ref",
+                "handoff_digest",
+            )
+        )
+    ):
+        raise CodexBuilderChildError(
+            "resume authority transition is not an adjacent governed revision"
+        )
+
+
+def _replace_private_runtime_handoff(path: Path, payload: bytes) -> None:
+    if len(payload) > MAX_HANDOFF_BYTES:
+        raise CodexBuilderChildError(
+            "successor Builder handoff exceeds its size limit"
+        )
+    parent_descriptor = _open_directory_nofollow(
+        _absolute_lexical_path(path).parent
+    )
+    temporary_name = (
+        f".{path.name}.authority-transition-{secrets.token_hex(12)}"
+    )
+    descriptor = -1
+    try:
+        descriptor = os.open(
+            temporary_name,
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_EXCL
+            | getattr(os, "O_NOFOLLOW", 0),
+            0o600,
+            dir_fd=parent_descriptor,
+        )
+        os.fchmod(descriptor, 0o600)
+        view = memoryview(payload)
+        while view:
+            written = os.write(descriptor, view)
+            if written < 1:
+                raise CodexBuilderChildError(
+                    "successor Builder handoff write failed"
+                )
+            view = view[written:]
+        os.fsync(descriptor)
+        os.close(descriptor)
+        descriptor = -1
+        os.replace(
+            temporary_name,
+            path.name,
+            src_dir_fd=parent_descriptor,
+            dst_dir_fd=parent_descriptor,
+        )
+        os.fsync(parent_descriptor)
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        try:
+            os.unlink(temporary_name, dir_fd=parent_descriptor)
+        except FileNotFoundError:
+            pass
+        os.close(parent_descriptor)
 
 
 _SEATBELT_PROBE_SOURCE = b"""\
@@ -1600,14 +1862,14 @@ def _public_api_manual() -> dict[str, Any]:
             "platform_bearer": "handoff.platform.access_token",
             "collaboration_bearer": "handoff.collaboration.access_token",
             "never_print_bearers": True,
-            "formal_archive_supported": False,
+            "formal_archive_supported": True,
             "human_monitoring_required": False,
             "approval_mode_required": "auto_forward",
             "permission_auto_expansion_enabled": False,
         },
         "platform": {
             "contract": "GET {platform.base_url}{platform.contract_url}",
-            "operation_count": 16,
+            "operation_count": len(PUBLIC_OPERATION_SPECS),
             "required_headers": {
                 "Authorization": "Bearer {platform.access_token}",
                 "X-Lilies-Request-ID": "UUID",
@@ -1618,7 +1880,7 @@ def _public_api_manual() -> dict[str, Any]:
                 "X-Lilies-Contract-Digest": "{platform.contract_digest}; use zero digest only for initial contract GET",
             },
             "rule": (
-                "Fetch the contract first, then use only its 16 operations and "
+                "Fetch the contract first, then use only the operations it declares and "
                 "their rendered request schemas. Do not call internal endpoints."
             ),
         },
@@ -2014,9 +2276,17 @@ def _codex_prompt(
         "contract. If a missing platform capability blocks a project, submit a "
         "Builder capability report through the collaboration API and stop that "
         "attempt so the owner can record development enablement and rerun the same "
-        "project. The external pilot does not support formal archive or terminal "
-        "verification claims; never claim either. Finish with a concise factual "
-        "summary containing public IDs and evidence references only."
+        "project. Before changing or republishing a workflow after an acceptance "
+        "failure, triangulate the business result, public trace branch, and distinct "
+        "customer-host mutation receipts. A verifier verdict alone is not proof of "
+        "a workflow defect, and records sharing one business key must not turn one "
+        "physical mutation identity into multiple writes. Never disable idempotency "
+        "or change its keys to hide an evidence mismatch. Treat formal archive and "
+        "independent verification as supplemental evidence: honor the support level "
+        "advertised by the handoff, record the claim ceiling, and do not describe an "
+        "otherwise successful customer workflow as undeliverable solely because that "
+        "surface is unavailable. Finish with a concise factual summary containing "
+        "public IDs and evidence references only."
     )
 
 
@@ -2031,6 +2301,14 @@ def _sanitize_bytes(
     replacements.append((str(handoff_path), "<private-handoff>"))
     for raw, replacement in replacements:
         text = text.replace(raw, replacement)
+    text = _BEARER_AUTHORITY_PATTERN.sub(
+        r"\1<redacted-authority>",
+        text,
+    )
+    text = _STALE_AUTHORITY_PATTERN.sub(
+        "<redacted-authority>",
+        text,
+    )
     return text.encode("utf-8")
 
 
@@ -2316,6 +2594,8 @@ def _run(args: argparse.Namespace) -> int:
         runtime_root,
         handoff=handoff,
         resume=resume,
+        resume_thread_id=args.resume_thread_id,
+        authority_transition_path=args.resume_authority_transition,
     )
     manual_path = workspace_verification.manual_path
     manual_digest = workspace_verification.manual_digest
@@ -2464,7 +2744,7 @@ def _run(args: argparse.Namespace) -> int:
         },
         "clean_environment_keys": environment_keys,
         "billing_mode": billing["billing_mode"],
-        "formal_archive_supported": False,
+        "formal_archive_supported": True,
     }
     _write_private_bytes(args.result.resolve(), _canonical_json(result))
     print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
@@ -2498,6 +2778,14 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "Resume this exact thread from an existing isolated runtime root; "
             "never creates a new Builder context."
+        ),
+    )
+    parser.add_argument(
+        "--resume-authority-transition",
+        type=Path,
+        help=(
+            "Private parent-runner evidence authorizing one adjacent immutable "
+            "project-revision authority rollover for the exact resumed thread."
         ),
     )
     return parser

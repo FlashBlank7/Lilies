@@ -5,7 +5,7 @@
   "project_id": "EXP-LILIES-004",
   "sequence": 4,
   "title": "Predictive-maintenance inference, review, and model monitoring",
-  "status": "selected",
+  "status": "passed",
   "cohort": "enterprise",
   "enterprise_denominator": true,
   "capability_family": "ml_dl_inference_threshold_review_monitoring",
@@ -27,7 +27,7 @@
     }
   ],
   "customer_role": "Device operations engineer, reliability engineer, and model owner",
-  "business_problem": "Detect equipment risk from telemetry with versioned models, control false alarms, route uncertain cases, and monitor drift without unsafe device action.",
+  "business_problem": "Detect rotating-equipment failure risk from ThingsBoard telemetry with an approved versioned model, control false alarms, route uncertain cases, and monitor drift without unsafe device action or implicit online learning.",
   "host_projects": [
     {
       "name": "ThingsBoard Community Edition",
@@ -36,13 +36,84 @@
       "official_interfaces": ["MQTT Device API", "REST API and Swagger", "Rule Engine", "alarms"]
     }
   ],
-  "inputs": ["timestamped device telemetry", "units and device metadata", "labeled failure windows"],
-  "models": ["imported or trained versioned anomaly or failure model", "frozen feature schema and thresholds"],
+  "inputs": [
+    "timestamped temperature, vibration, current, pressure, and rotation-speed telemetry",
+    "feature units and ThingsBoard device metadata",
+    "customer-authorized labeled failure windows for model preparation",
+    "human model-promotion and uncertain-alarm decisions"
+  ],
+  "model_supply_routes": [
+    {
+      "route": "import",
+      "description": "Discover a compatible candidate in an external or customer model registry and import it with source, digest, feature, unit, and license provenance."
+    },
+    {
+      "route": "fine_tune",
+      "description": "Fine-tune or warm-start a compatible candidate on customer-authorized data while preserving base-version and dataset lineage."
+    },
+    {
+      "route": "train_new",
+      "description": "Train a new deterministic tabular failure-risk model when no suitable candidate exists."
+    }
+  ],
+  "model_lifecycle_contract": {
+    "common_path": ["feature contract", "held-out evaluation", "model card", "human promotion", "versioned deployment", "production inference", "drift monitoring", "rollback"],
+    "production_behavior": "Production workflows may call only an approved deployment and may never train, fine-tune, promote, or roll back as an inference side effect.",
+    "online_learning_default": false
+  },
+  "models": [
+    "immutable imported, fine-tuned, or newly trained binary failure-risk model version",
+    "frozen feature and unit schema",
+    "human-approved deployment revision with rollback history"
+  ],
   "external_systems": ["ThingsBoard Community Edition"],
-  "human_decisions": ["model promotion", "uncertain-alarm review", "acknowledge and clear", "approval before any Device RPC"],
-  "deliverables": ["ThingsBoard alarm", "inference trace", "model card", "evaluation report", "drift report"],
-  "workflow_result": "A generated workflow validates telemetry, runs a versioned model, applies confidence and business thresholds, creates or updates alarms, routes review, and monitors model and data drift.",
-  "independent_oracle": "Hidden telemetry replay checks event-level precision/recall/AUPRC, latency, units, duplicates, disorder, reconnect, exact alarm identity/state/history, and zero Device RPC before approval.",
+  "human_decisions": [
+    "approve a model version for a named deployment",
+    "approve or reject uncertain alarms",
+    "acknowledge and clear ThingsBoard alarms",
+    "separately authorize any future Device RPC, which this project forbids"
+  ],
+  "deliverables": [
+    "correct ThingsBoard alarm identity, severity, state, and history",
+    "per-event inference and decision trace",
+    "versioned model card with dataset and base-model lineage",
+    "held-out evaluation report",
+    "production-window drift report",
+    "machine-readable enterprise result bound to the published workflow version"
+  ],
+  "workflow_result": "A generated workflow validates telemetry and units, suppresses duplicate and stale events, calls an approved deployment, applies risk and confidence policy, creates or updates governed alarms, routes uncertain cases to people, and reports drift without online learning.",
+  "independent_oracle": "Three isolated hidden telemetry replays check every event result; exact alarm identity, severity, state, and history; review routing; model and deployment lineage; duplicates; stale and disordered events; units; transient and permission failures; drift; deliverable consistency; and zero Device RPC. Event-level model metrics are reported separately from orchestration correctness.",
+  "public_test_categories": [
+    "low-risk no-write",
+    "high-risk automatic alarm",
+    "uncertain human approve",
+    "uncertain human reject",
+    "missing field and invalid unit",
+    "out-of-range, stale, and out-of-order telemetry",
+    "duplicate event idempotency",
+    "bounded retry after temporary host failure",
+    "safe stop after permission denial",
+    "drift report without automatic training",
+    "model promotion and rollback lineage",
+    "zero Device RPC"
+  ],
+  "hidden_seed_contract": {
+    "count": 3,
+    "generation": "deterministic seeded generation with Builder-hidden record values and oracle",
+    "fresh_host_state_per_seed": true,
+    "varied_dimensions": [
+      "device identities",
+      "event clock",
+      "feature combinations",
+      "unit conflicts",
+      "duplicate and disorder positions",
+      "human outcomes",
+      "host fault position",
+      "drift window"
+    ],
+    "pass_meaning": "All event decisions, allowed side effects, alarm history, model lineage, artifacts, and zero-RPC safety agree with the isolated oracle.",
+    "claim_limit": "Does not establish production model accuracy on real factory data, long-duration reliability, or compatibility with an untested external model registry."
+  },
   "source_intent_ids": ["EVAL-003", "PRODUCT-001", "PRODUCT-011", "PRODUCT-012", "PRODUCT-015", "PRODUCT-016", "PRODUCT-017", "SCENARIO-004", "SCENARIO-009", "SCENARIO-011"],
   "selection_gates": {
     "real_user_and_problem": true,
@@ -60,8 +131,8 @@
     "https://github.com/thingsboard/thingsboard/releases/tag/v4.3.1.3"
   ],
   "task_package_root": "docs/experiments/lilies-collaboration/EXP-LILIES-004",
-  "latest_revision": 0,
-  "revision_semantics": "Revision 1 starts only after EXP-LILIES-003 closes.",
+  "latest_revision": 1,
+  "revision_semantics": "Latest explicit user authority started EXP-LILIES-004 after EXP-LILIES-001 without closing or changing EXP-LILIES-002/003. Revision 1 froze its environment lock, public package, permissions, budgets, fixtures, and isolated Seed contract; its published application and three-Seed result are recorded in the completion report.",
   "current_blocker": null,
-  "next_action": "Freeze CE images, Swagger, Rule Chain baseline, telemetry replay, model data split, clock, seeds, and oracle."
+  "next_action": "Preserve the published version 1 and controlled-local evidence; begin another portfolio project only under a newer explicit user instruction."
 }

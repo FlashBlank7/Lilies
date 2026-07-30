@@ -908,6 +908,266 @@ def test_connector_permission_and_write_limit_are_enforced_inside_the_run(
         assert execute.await_count == 1
 
 
+def test_iteration_connector_inherits_assigned_state_without_bypassing_payload_policy(
+    tmp_path: Path,
+) -> None:
+    app = create_app(_settings(tmp_path), ScriptedProvider())
+    with TestClient(app) as client:
+        services = client.app.state.services
+        execution = MagicMock()
+        execution.id = "neutral-connector-execution-0001"
+        execution.operation_id = "records.fetch"
+        execution.status = "succeeded"
+        execution.replayed = False
+        execution.response = {"record_id": "record-1"}
+        execution.public_receipt.return_value = {
+            "execution_id": execution.id,
+            "status": execution.status,
+        }
+        execute = AsyncMock(return_value=execution)
+        services.workflow_runtime.connector_service.execute = execute
+        connector_operation = MagicMock()
+        connector_operation.kind = "read"
+        connector_operation.mutating = False
+        manifest = MagicMock()
+        manifest.operation.return_value = connector_operation
+        services.workflow_runtime.connector_service.get_manifest = AsyncMock(
+            return_value=manifest
+        )
+
+        application_id = _create_internal_application(
+            client,
+            "Neutral connector iteration",
+        )
+        headers, _, assignment_id, session_id, _ = _issue(
+            client,
+            application_ids=[UUID(application_id)],
+            grant_policy={
+                "allowed_actions_digest": ZERO_DIGEST,
+                "budget_digest": ZERO_DIGEST,
+                "connector_access": True,
+                "allowed_network_hosts": ["neutral.connector.invalid"],
+                "readable_host_objects": [
+                    "neutral_records.records.fetch"
+                ],
+                "max_write_count": 0,
+                "max_payload_bytes": 48,
+            },
+        )
+        nested_workflow = {
+            "nodes": [
+                {
+                    "id": "nested-start",
+                    "type": "start",
+                    "title": "Iteration input",
+                    "config": {
+                        "inputs": [
+                            {"name": "item", "type": "string"},
+                            {"name": "index", "type": "number"},
+                        ]
+                    },
+                },
+                {
+                    "id": "nested-connector",
+                    "type": "connector_action",
+                    "title": "Fetch neutral record",
+                    "config": {
+                        "connector_id": "neutral_records",
+                        "operation_id": "records.fetch",
+                        "tenant_id": "tenant-neutral",
+                        "actor_id": "actor-neutral",
+                        "actor_roles": ["reader"],
+                        "profile_id": "profile-neutral",
+                        "payload": {
+                            "record_id": {
+                                "$ref": {
+                                    "node_id": "nested-start",
+                                    "path": ["item"],
+                                }
+                            }
+                        },
+                        "idempotency_key": "neutral-read-iteration-0001",
+                        "execution_mode": "execute",
+                    },
+                },
+                {
+                    "id": "nested-end",
+                    "type": "end",
+                    "title": "Iteration output",
+                    "config": {
+                        "outputs": {
+                            "value": {
+                                "$ref": {
+                                    "node_id": "nested-connector",
+                                    "path": ["response"],
+                                }
+                            }
+                        }
+                    },
+                },
+            ],
+            "edges": [
+                {
+                    "id": "nested-start-connector",
+                    "source": "nested-start",
+                    "target": "nested-connector",
+                    "source_port": "output",
+                    "target_port": "input",
+                },
+                {
+                    "id": "nested-connector-end",
+                    "source": "nested-connector",
+                    "target": "nested-end",
+                    "source_port": "response",
+                    "target_port": "input",
+                },
+            ],
+        }
+        operations = [
+            (
+                "add_node",
+                {
+                    "node": {
+                        "id": "start",
+                        "type": "start",
+                        "title": "Start",
+                        "config": {
+                            "inputs": [{"name": "items", "type": "array"}]
+                        },
+                    }
+                },
+            ),
+            (
+                "add_node",
+                {
+                    "node": {
+                        "id": "iteration",
+                        "type": "iteration",
+                        "title": "Fetch each record",
+                        "config": {
+                            "items": {
+                                "$ref": {
+                                    "node_id": "start",
+                                    "path": ["items"],
+                                }
+                            },
+                            "workflow": nested_workflow,
+                            "item_name": "item",
+                            "output_node_id": "nested-end",
+                            "output_path": ["value"],
+                            "parallelism": 1,
+                        },
+                    }
+                },
+            ),
+            (
+                "add_node",
+                {
+                    "node": {
+                        "id": "end",
+                        "type": "end",
+                        "title": "End",
+                        "config": {
+                            "outputs": {
+                                "items": {
+                                    "$ref": {
+                                        "node_id": "iteration",
+                                        "path": ["items"],
+                                    }
+                                }
+                            }
+                        },
+                    }
+                },
+            ),
+            (
+                "add_edge",
+                {
+                    "edge": {
+                        "id": "start-iteration",
+                        "source": "start",
+                        "target": "iteration",
+                        "source_port": "output",
+                        "target_port": "input",
+                    }
+                },
+            ),
+            (
+                "add_edge",
+                {
+                    "edge": {
+                        "id": "iteration-end",
+                        "source": "iteration",
+                        "target": "end",
+                        "source_port": "items",
+                        "target_port": "input",
+                    }
+                },
+            ),
+        ]
+        _apply_operations(client, application_id, operations)
+
+        async def terminal_run(run_id: str) -> dict:
+            for _ in range(200):
+                run = await services.workflow_store.get_run(run_id)
+                if run["status"] in {"succeeded", "failed", "cancelled"}:
+                    return run
+                await asyncio.sleep(0.01)
+            raise AssertionError("iteration connector run did not become terminal")
+
+        succeeded = _request(
+            client,
+            "POST",
+            f"/api/v1/lilies/applications/{application_id}/runs",
+            headers,
+            key="neutral-iteration-connector-run-0001",
+            json={"inputs": {"items": ["record-1"]}, "use_draft": True},
+        )
+        assert succeeded.status_code == 202, succeeded.text
+        succeeded_run = client.portal.call(
+            terminal_run,
+            succeeded.json()["data"]["run_id"],
+        )
+        assert succeeded_run["status"] == "succeeded"
+        assert succeeded_run["outputs"] == {
+            "items": [{"record_id": "record-1"}]
+        }
+        assert set(succeeded_run["state"].outputs) == {
+            "start",
+            "iteration",
+            "end",
+        }
+        assert execute.await_count == 1
+        execution_request = execute.await_args.args[0]
+        assert execution_request.application_id == application_id
+        assert execution_request.run_id == succeeded_run["id"]
+        assert execution_request.assignment_id == str(assignment_id)
+        assert execution_request.session_id == str(session_id)
+        assert execution_request.allowed_network_hosts == [
+            "neutral.connector.invalid"
+        ]
+        assert execution_request.assignment_max_payload_bytes == 48
+
+        oversized = _request(
+            client,
+            "POST",
+            f"/api/v1/lilies/applications/{application_id}/runs",
+            headers,
+            key="neutral-iteration-connector-run-0002",
+            json={"inputs": {"items": ["x" * 100]}, "use_draft": True},
+        )
+        assert oversized.status_code == 202, oversized.text
+        oversized_run = client.portal.call(
+            terminal_run,
+            oversized.json()["data"]["run_id"],
+        )
+        assert oversized_run["status"] == "failed"
+        assert "payload exceeds the assigned byte limit" in str(
+            oversized_run["error"]
+        )
+        assert execute.await_count == 1
+
+
 @pytest.mark.parametrize("endpoint", ["tests", "run"])
 def test_blackbox_rejects_mcp_gateway_before_process_side_effect(
     tmp_path: Path,

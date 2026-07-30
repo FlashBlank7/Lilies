@@ -13,6 +13,7 @@ from agent_platform.collaboration_models import (
     ApprovalDecision,
     CollaborationMessageEnvelope,
     DeveloperResponse,
+    LiliesReprobeResult,
 )
 from agent_platform.formal_source_provenance import (
     SOURCE_PROVENANCE_MANIFEST_PATH,
@@ -231,6 +232,50 @@ def test_baseline_may_contain_sealed_task_paths_outside_developer_projection(
     assert not (tmp_path / "projection/docs").exists()
 
 
+def test_projection_archive_replay_uses_persisted_blobs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository = _repository(tmp_path)
+    assignment_id = uuid4()
+    channel_id = uuid4()
+    coordinator = FormalSourceProvenanceCoordinator(
+        repository_root=repository,
+        state_root=tmp_path / "source-provenance-state",
+    )
+    projection = coordinator.freeze_workspace_projection(
+        task_id="EXP-LILIES-001",
+        task_revision=4,
+        run_id="formal-run:persisted-projection-replay",
+        assignment_id=assignment_id,
+        channel_id=channel_id,
+        captured_at=NOW,
+        destination=tmp_path / "projection",
+    )
+    projected_blob_ids = {entry.blob_sha for entry in projection.entries}
+    original_object_payload = coordinator._repository.object_payload
+
+    def reject_projected_blob_refetch(oid: str, object_type: str) -> bytes:
+        if object_type == "blob" and oid in projected_blob_ids:
+            raise AssertionError("persisted projection blob was fetched from Git again")
+        return original_object_payload(oid, object_type)
+
+    monkeypatch.setattr(
+        coordinator._repository,
+        "object_payload",
+        reject_projected_blob_refetch,
+    )
+
+    archive = coordinator.finalize_archive(
+        assignment_id=assignment_id,
+        expected_bindings=[],
+        finalized_at=NOW,
+    )
+
+    assert archive.manifest.assignment_id == assignment_id
+    assert archive.manifest.developer_projection == projection
+
+
 def _commit(repository: Path, relative: str, payload: str | bytes, message: str) -> str:
     _write(repository / relative, payload)
     _git(repository, "add", "--all")
@@ -333,6 +378,51 @@ def _response_message(
         visibility="user_and_lilies",
         payload_schema="collaboration.developer_response.v1",
         payload=response.model_dump(mode="json"),
+        created_at=NOW,
+    )
+
+
+def _failed_reprobe_message(
+    *,
+    response_message: CollaborationMessageEnvelope,
+    sequence: int,
+) -> CollaborationMessageEnvelope:
+    response = DeveloperResponse.model_validate(response_message.payload)
+    reprobe = LiliesReprobeResult(
+        reprobe_id=uuid4(),
+        channel_id=response.channel_id,
+        report_id=response.report_id,
+        report_revision=response.report_revision + 1,
+        outcome="verification_failed",
+        contract_digest=response.new_contract_digest,
+        steps=response.reprobe_steps,
+        expected="the approved generic capability passes its frozen reprobe",
+        actual="the frozen reprobe still exposes the generic capability gap",
+        evidence_refs=[
+            {
+                "evidence_id": f"platform-blackbox-request:{uuid4()}",
+                "kind": "test_run",
+                "digest": DIGEST_A,
+                "media_type": "application/json",
+                "label": "failed frozen reprobe",
+                "captured_at": NOW.isoformat(),
+            }
+        ],
+        created_at=NOW,
+    )
+    return CollaborationMessageEnvelope(
+        message_id=uuid4(),
+        channel_id=response.channel_id,
+        seq=sequence,
+        message_type="control",
+        sender_role="lilies",
+        sender_id="lilies-session",
+        correlation_id=response.report_id,
+        causal_parent_id=response_message.message_id,
+        idempotency_key=f"reprobe-envelope-{sequence:04d}",
+        visibility="user_and_lilies",
+        payload_schema="collaboration.lilies_reprobe_result.v1",
+        payload=reprobe.model_dump(mode="json"),
         created_at=NOW,
     )
 
@@ -468,6 +558,74 @@ def test_binding_derivation_requires_active_user_or_task_auto_forward_approval(
                     sequence=30,
                 )
             ],
+            channel_id=channel_id,
+        )
+
+
+def test_binding_derivation_reuses_approval_only_after_causal_failed_reprobe(
+    tmp_path: Path,
+) -> None:
+    repository = _repository(tmp_path)
+    first_commit = _commit(
+        repository,
+        "platform/backend/src/agent_platform/generic.py",
+        "VALUE = 2\n",
+        "first approved repair",
+    )
+    second_commit = _commit(
+        repository,
+        "platform/backend/src/agent_platform/generic.py",
+        "VALUE = 3\n",
+        "follow-up approved repair",
+    )
+    channel_id = uuid4()
+    report_id = uuid4()
+    approval = _approval_message(
+        channel_id=channel_id,
+        report_id=report_id,
+        sequence=10,
+    )
+    first_response = _response_message(
+        channel_id=channel_id,
+        report_id=report_id,
+        commit_sha=first_commit,
+        sequence=12,
+    )
+    failed_reprobe = _failed_reprobe_message(
+        response_message=first_response,
+        sequence=13,
+    )
+    second_response = _response_message(
+        channel_id=channel_id,
+        report_id=report_id,
+        commit_sha=second_commit,
+        sequence=14,
+    )
+
+    bindings = approved_developer_response_bindings(
+        [approval, first_response, failed_reprobe, second_response],
+        channel_id=channel_id,
+    )
+
+    assert [binding.commit_sha for binding in bindings] == [
+        first_commit,
+        second_commit,
+    ]
+    assert {
+        binding.approval_id for binding in bindings
+    } == {
+        ApprovalDecision.model_validate(approval.payload).approval_id
+    }
+
+    unrelated_reprobe = failed_reprobe.model_copy(
+        update={"causal_parent_id": uuid4()}
+    )
+    with pytest.raises(
+        FormalSourceProvenanceConflict,
+        match="does not match its approved DeveloperResponse",
+    ):
+        approved_developer_response_bindings(
+            [approval, first_response, unrelated_reprobe, second_response],
             channel_id=channel_id,
         )
 

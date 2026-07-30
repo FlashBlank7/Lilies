@@ -6,6 +6,7 @@ import logging
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock
 from uuid import UUID, uuid4
@@ -22,6 +23,7 @@ from agent_platform.local_lilies_bridge import (
     LocalLiliesAssignment,
     LocalLiliesBridgeUnavailable,
     LocalLiliesConnection,
+    LocalLiliesMessagePage,
     LocalLiliesObservabilitySnapshot,
     LocalLiliesRecoverySummary,
     LocalLiliesRelayEvent,
@@ -31,8 +33,11 @@ from agent_platform.local_lilies_bridge import (
 from agent_platform.local_lilies_bridge_api import (
     _assignment_event_stream,
     install_local_lilies_bridge_api,
+    published_platform_contract_digest,
 )
+from agent_platform.lilies_platform_api import _governed_host_actions
 from agent_platform.platform_blackbox_auth import (
+    PlatformBlackboxOperation,
     PlatformBlackboxScope,
     TaskCredentialGrant,
 )
@@ -51,6 +56,51 @@ PLATFORM_SCOPES = (
     PlatformBlackboxScope.trace_read,
     PlatformBlackboxScope.artifact_read,
 )
+
+
+def test_published_contract_digest_uses_exact_frozen_action_policy(
+    monkeypatch: Any,
+) -> None:
+    observed: dict[str, Any] = {}
+
+    async def current_contract(_services: Any, credential: Any) -> dict[str, str]:
+        observed["credential"] = credential
+        return {"contract_digest": ZERO_DIGEST}
+
+    monkeypatch.setattr(
+        "agent_platform.lilies_platform_api._current_contract",
+        current_contract,
+    )
+    application_id = uuid4()
+    action = PlatformBlackboxOperation.connector_authorization_issue
+    policy = SimpleNamespace(
+        platform_actions=[SimpleNamespace(value=action.value)],
+        connector_access=True,
+        network_hosts=["paperless-proxy"],
+        readable_host_objects=["paperless.documents"],
+        writable_host_operations=["inventree.purchase_orders.create"],
+        permission_required_actions=["inventree.purchase_orders.create"],
+        compensation_actions=["inventree.purchase_orders.cancel"],
+        max_payload_bytes=4096,
+    )
+
+    digest = asyncio.run(
+        published_platform_contract_digest(
+            object(),
+            PLATFORM_SCOPES,
+            (application_id,),
+            policy,
+        )
+    )
+
+    credential = observed["credential"]
+    assert digest == ZERO_DIGEST
+    assert credential.application_ids == (application_id,)
+    assert credential.allowed_operations == (action,)
+    assert credential.connector_access is True
+    assert credential.allowed_network_hosts == ("paperless-proxy",)
+    assert credential.max_payload_bytes == 4096
+    assert _governed_host_actions(credential) is True
 
 
 def _settings(
@@ -130,6 +180,7 @@ def _observability_snapshot() -> LocalLiliesObservabilitySnapshot:
                 "interrupted_turns": 0,
                 "interrupted_development_assignments": 0,
                 "reconciliation_required_development_invocations": 0,
+                "unreaped_development_processes": 0,
             },
         }
     )
@@ -159,6 +210,37 @@ def _assignment(
         ack_cursor=relay_cursor,
         created_at=now,
         updated_at=now,
+    )
+
+
+def _message_page(session_id: UUID) -> LocalLiliesMessagePage:
+    return LocalLiliesMessagePage.model_validate(
+        {
+            "session_id": str(session_id),
+            "messages": [
+                {
+                    "message_id": str(uuid4()),
+                    "session_id": str(session_id),
+                    "turn_id": str(uuid4()),
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "I inspected the public contract and will build incrementally.",
+                        },
+                        {
+                            "type": "tool_use",
+                            "name": "platform_contract_get",
+                        },
+                    ],
+                    "content_truncated": False,
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                }
+            ],
+            "event_cursor": 9,
+            "has_more": False,
+            "next_before": None,
+        }
     )
 
 
@@ -401,6 +483,17 @@ def test_platform_routes_cover_pairing_assignment_lookup_actions_and_safe_errors
         bridge.get_assignment = AsyncMock(return_value=assignment)
         bridge.get_assignment_by_build = AsyncMock(return_value=assignment)
         bridge.get_assignment_by_session = AsyncMock(return_value=assignment)
+        bridge.list_assignment_messages = AsyncMock(
+            return_value=_message_page(assignment.session_id)
+        )
+        bridge.send_assignment_message = AsyncMock(
+            return_value={
+                "session_id": str(assignment.session_id),
+                "status": "running",
+                "event_cursor": 10,
+                "accepted_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
         bridge.resume_assignment = AsyncMock(return_value=assignment)
         bridge.cancel_assignment = AsyncMock(return_value=assignment)
         bridge.relay_events = AsyncMock(
@@ -504,6 +597,41 @@ def test_platform_routes_cover_pairing_assignment_lookup_actions_and_safe_errors
             response = client.get(route, headers=_auth())
             assert response.status_code == 200, response.text
 
+        transcript = client.get(
+            (
+                f"/api/v1/local-lilies/assignments/{assignment.assignment_id}"
+                "/messages?limit=20"
+            ),
+            headers=_auth(),
+        )
+        assert transcript.status_code == 200
+        assert transcript.headers["cache-control"] == "no-store"
+        assert transcript.json()["session_id"] == str(assignment.session_id)
+        assert transcript.json()["messages"][0]["role"] == "assistant"
+        bridge.list_assignment_messages.assert_awaited_once_with(
+            assignment.assignment_id,
+            limit=20,
+            before=None,
+        )
+
+        operator_message = client.post(
+            (
+                f"/api/v1/local-lilies/assignments/{assignment.assignment_id}"
+                "/messages"
+            ),
+            headers=_auth(),
+            json={
+                "idempotency_key": "operator-followup-0001",
+                "message_id": str(uuid4()),
+                "content": "Explain the current blocker before changing the draft.",
+            },
+        )
+        assert operator_message.status_code == 200
+        assert operator_message.headers["cache-control"] == "no-store"
+        assert operator_message.json()["session_id"] == str(assignment.session_id)
+        submitted = bridge.send_assignment_message.await_args.args[1]
+        assert submitted.content.startswith("Explain the current blocker")
+
         assert client.post(
             f"/api/v1/local-lilies/assignments/{assignment.assignment_id}/resume",
             headers=_auth(),
@@ -591,7 +719,11 @@ def test_lifespan_recovery_is_managed_and_does_not_block_startup(tmp_path: Path)
     started_at = time.monotonic()
     recovery_task: asyncio.Task[Any] | None = None
     with TestClient(app) as client:
-        assert time.monotonic() - started_at < 0.5
+        # This guards against awaiting the deliberately blocked recovery task,
+        # not against normal host-load variance while the full platform
+        # lifespan initializes.  A sub-second threshold was flaky on a busy
+        # multi-agent verification host.
+        assert time.monotonic() - started_at < 5.0
         client.portal.call(asyncio.wait_for, entered.wait(), 1)
         recovery_task = next(
             task
@@ -739,11 +871,25 @@ def test_assignment_digest_uses_the_published_blackbox_contract_facade(tmp_path:
     application_id = uuid4()
     assignment_id = uuid4()
     session_id = uuid4()
+    allowed_actions = SimpleNamespace(
+        platform_actions=[
+            SimpleNamespace(value=operation.value)
+            for operation in PlatformBlackboxOperation
+        ],
+        connector_access=False,
+        network_hosts=[],
+        readable_host_objects=[],
+        writable_host_operations=[],
+        permission_required_actions=[],
+        compensation_actions=[],
+        max_payload_bytes=100 * 1024 * 1024,
+    )
     with TestClient(app) as client:
         assignment_digest = client.portal.call(
             bridge.contract_digest_provider,
             PLATFORM_SCOPES,
             (application_id,),
+            allowed_actions,
         )
         issued = client.portal.call(
             app.state.services.platform_blackbox_auth.issue_credential,
@@ -768,3 +914,35 @@ def test_assignment_digest_uses_the_published_blackbox_contract_facade(tmp_path:
         )
         assert response.status_code == 200, response.text
         assert response.json()["data"]["contract_digest"] == assignment_digest
+
+
+def test_assignment_digest_renders_governed_connector_policy(
+    tmp_path: Path,
+) -> None:
+    app = create_app(_settings(tmp_path, enabled=True), ScriptedProvider())
+    bridge = app.state.services.local_lilies_bridge
+    application_id = uuid4()
+    allowed_actions = SimpleNamespace(
+        platform_actions=[
+            SimpleNamespace(value=operation.value)
+            for operation in PlatformBlackboxOperation
+        ],
+        connector_access=True,
+        network_hosts=["127.0.0.1"],
+        readable_host_objects=["documents_list"],
+        writable_host_operations=["documents_partial_update"],
+        permission_required_actions=["documents_partial_update"],
+        compensation_actions=[],
+        max_payload_bytes=4096,
+    )
+
+    with TestClient(app) as client:
+        digest = client.portal.call(
+            bridge.contract_digest_provider,
+            PLATFORM_SCOPES,
+            (application_id,),
+            allowed_actions,
+        )
+
+    assert digest.startswith("sha256:")
+    assert len(digest) == 71

@@ -82,6 +82,7 @@ from .lilies_models import (
     PlatformScope,
     ProhibitedAction,
     SessionAckResult,
+    SessionMessageRequest,
     SessionResult,
     SessionOperationResult,
     SessionStatus,
@@ -106,7 +107,7 @@ from .task_packages import ArchiveStatus, TaskPackageNotReady
 from .workflow_storage import WorkflowStorage
 
 
-BRIDGE_SCHEMA_VERSION = 8
+BRIDGE_SCHEMA_VERSION = 9
 _MAX_SQLITE_INTEGER = 2**63 - 1
 _MAX_OBSERVABILITY_COST_USD = 1_000_000_000_000.0
 LEGACY_DAEMON_SCOPES = (
@@ -508,6 +509,10 @@ class LocalLiliesObservabilityStartup(StrictObservabilityBridgeModel):
         ge=0,
         le=_MAX_SQLITE_INTEGER,
     )
+    unreaped_development_processes: int = Field(
+        ge=0,
+        le=_MAX_SQLITE_INTEGER,
+    )
 
     @field_validator("recovery_completed", mode="before")
     @classmethod
@@ -615,6 +620,62 @@ class LocalLiliesAssignment(StrictBridgeModel):
     updated_at: datetime
 
 
+class LocalLiliesMessageContentBlock(StrictBridgeModel):
+    """Display-safe message content from the standalone daemon."""
+
+    type: Literal["text", "tool_use", "tool_result"]
+    text: str | None = Field(default=None, max_length=32_768)
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    is_error: bool | None = None
+
+    @model_validator(mode="after")
+    def fields_match_type(self) -> LocalLiliesMessageContentBlock:
+        if self.type == "text":
+            if self.text is None or self.name is not None or self.is_error is not None:
+                raise ValueError("text content must contain only text")
+        elif self.type == "tool_use":
+            if self.name is None or self.text is not None or self.is_error is not None:
+                raise ValueError("tool_use content must contain only name")
+        elif self.is_error is None or self.text is not None or self.name is not None:
+            raise ValueError("tool_result content must contain only is_error")
+        return self
+
+
+class LocalLiliesMessage(StrictBridgeModel):
+    message_id: UUID
+    session_id: UUID
+    turn_id: UUID | None = None
+    role: Literal["system", "user", "assistant", "tool"]
+    content: list[LocalLiliesMessageContentBlock] = Field(max_length=64)
+    content_truncated: bool
+    created_at: datetime
+
+    @field_validator("created_at")
+    @classmethod
+    def created_at_is_utc(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() != timedelta(0):
+            raise ValueError("message created_at must use UTC")
+        return value.astimezone(timezone.utc)
+
+    @model_validator(mode="after")
+    def public_content_is_bounded(self) -> LocalLiliesMessage:
+        size = sum(
+            len((block.text or block.name or "").encode("utf-8"))
+            for block in self.content
+        )
+        if size > 32_768:
+            raise ValueError("message content exceeds the public response limit")
+        return self
+
+
+class LocalLiliesMessagePage(StrictBridgeModel):
+    session_id: UUID
+    messages: list[LocalLiliesMessage] = Field(default_factory=list, max_length=20)
+    event_cursor: int = Field(ge=0)
+    has_more: bool
+    next_before: UUID | None = None
+
+
 class LocalLiliesRelayEvent(StrictBridgeModel):
     assignment_id: UUID
     session_id: UUID
@@ -683,6 +744,11 @@ class LocalLiliesBridgeNotFound(LocalLiliesBridgeError):
 
 class LocalLiliesBridgeConflict(LocalLiliesBridgeError):
     code = "idempotency_conflict"
+    status_code = 409
+
+
+class LocalLiliesConversationConflict(LocalLiliesBridgeError):
+    code = "conversation_conflict"
     status_code = 409
 
 
@@ -834,6 +900,52 @@ class LocalLiliesBridgeStore:
                   received_at TEXT NOT NULL,
                   PRIMARY KEY(assignment_id, daemon_seq),
                   FOREIGN KEY(assignment_id) REFERENCES local_lilies_assignments(assignment_id)
+                );
+                CREATE TABLE IF NOT EXISTS formal_external_builder_assignments (
+                  assignment_id TEXT PRIMARY KEY,
+                  application_id TEXT NOT NULL,
+                  build_id TEXT NOT NULL UNIQUE,
+                  session_id TEXT NOT NULL UNIQUE,
+                  connection_id TEXT NOT NULL,
+                  idempotency_key TEXT NOT NULL,
+                  request_digest TEXT NOT NULL,
+                  request_json TEXT NOT NULL,
+                  assignment_mode TEXT NOT NULL DEFAULT 'formal_experiment',
+                  execution_mode TEXT NOT NULL DEFAULT 'external_builder',
+                  phase TEXT NOT NULL,
+                  status TEXT NOT NULL,
+                  desired_state TEXT NOT NULL,
+                  daemon_status TEXT,
+                  daemon_session_creation_started_at TEXT,
+                  credential_ref TEXT NOT NULL,
+                  collaboration_credential_ref TEXT NOT NULL,
+                  task_token_secret_ref TEXT NOT NULL,
+                  relay_cursor INTEGER NOT NULL DEFAULT 0,
+                  ack_cursor INTEGER NOT NULL DEFAULT 0,
+                  terminal_events_drained_at TEXT,
+                  submission_json TEXT NOT NULL,
+                  formal_archive_intent_json TEXT,
+                  formal_archive_intent_digest TEXT,
+                  formal_archive_intent_accepted_at TEXT,
+                  formal_archive_result_json TEXT,
+                  formal_claim_result_json TEXT,
+                  formal_archive_completed_at TEXT,
+                  last_error_code TEXT,
+                  last_error_message TEXT,
+                  created_at TEXT NOT NULL,
+                  updated_at TEXT NOT NULL,
+                  UNIQUE(application_id, idempotency_key)
+                );
+                CREATE TABLE IF NOT EXISTS formal_external_builder_events (
+                  assignment_id TEXT NOT NULL,
+                  daemon_seq INTEGER NOT NULL,
+                  session_id TEXT NOT NULL,
+                  event_type TEXT NOT NULL,
+                  data_json TEXT NOT NULL,
+                  received_at TEXT NOT NULL,
+                  PRIMARY KEY(assignment_id, daemon_seq),
+                  FOREIGN KEY(assignment_id)
+                    REFERENCES formal_external_builder_assignments(assignment_id)
                 );
                 CREATE INDEX IF NOT EXISTS idx_local_lilies_assignment_application
                   ON local_lilies_assignments(application_id, created_at);
@@ -1015,6 +1127,12 @@ class LocalLiliesBridgeStore:
                     (8, _now().isoformat()),
                 )
                 current = 8
+            if current < 9:
+                conn.execute(
+                    "INSERT INTO local_lilies_bridge_schema(version,applied_at) VALUES(?,?)",
+                    (9, _now().isoformat()),
+                )
+                current = 9
         for path in (self.db_path, Path(f"{self.db_path}-wal"), Path(f"{self.db_path}-shm")):
             if path.exists():
                 os.chmod(path, 0o600)
@@ -1395,6 +1513,387 @@ class LocalLiliesBridgeStore:
                 task_token_secret_ref,
                 assignment_mode.value,
             )
+
+    async def reserve_external_builder_assignment(
+        self,
+        *,
+        assignment: BuildAssignment,
+        session_id: UUID,
+        connection_id: UUID,
+        request_json: str,
+        request_digest: str,
+        credential_ref: str,
+        collaboration_credential_ref: str,
+        task_token_secret_ref: str,
+        builder_actor: str,
+    ) -> tuple[dict[str, Any], bool]:
+        """Register a broker-prepared external Builder without a daemon row.
+
+        The external Builder still uses the same frozen formal assignment,
+        task credential, collaboration channel, workflow provenance, and
+        archive/verifier stores.  This separate table prevents a verifier-only
+        handoff from fabricating a local-daemon connection or event stream.
+        """
+
+        if (
+            assignment.mode is not AssignmentMode.formal_experiment
+            or assignment.task_package is None
+            or assignment.collaboration is None
+            or assignment.target.application_id is None
+            or assignment.platform.application_ids
+            != [assignment.target.application_id]
+            or assignment.collaboration.credential_ref
+            != collaboration_credential_ref
+            or assignment.platform.credential_ref != credential_ref
+            or not builder_actor
+        ):
+            raise LocalLiliesBridgeSecurityError(
+                "external Builder registration changed its frozen assignment binding"
+            )
+        async with self._lock:
+            return await asyncio.to_thread(
+                self._reserve_external_builder_assignment_sync,
+                assignment,
+                str(session_id),
+                str(connection_id),
+                request_json,
+                request_digest,
+                credential_ref,
+                collaboration_credential_ref,
+                task_token_secret_ref,
+                builder_actor,
+            )
+
+    def _reserve_external_builder_assignment_sync(
+        self,
+        assignment: BuildAssignment,
+        session_id: str,
+        connection_id: str,
+        request_json: str,
+        request_digest: str,
+        credential_ref: str,
+        collaboration_credential_ref: str,
+        task_token_secret_ref: str,
+        builder_actor: str,
+    ) -> tuple[dict[str, Any], bool]:
+        assignment_id = str(assignment.assignment_id)
+        application_id = str(assignment.target.application_id)
+        task = assignment.task_package
+        assert task is not None
+        build_id = task.run_id.removeprefix("formal-run:")
+        now = _now().isoformat()
+        submission_json = assignment.model_dump_json(exclude_none=True)
+        accepted = _canonical_json(
+            {
+                "assignment_id": assignment_id,
+                "builder_actor": builder_actor,
+                "execution_mode": "external_builder",
+            }
+        )
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            existing = conn.execute(
+                """
+                SELECT * FROM formal_external_builder_assignments
+                WHERE assignment_id=?
+                """,
+                (assignment_id,),
+            ).fetchone()
+            if existing is not None:
+                row = dict(existing)
+                if (
+                    row["application_id"] != application_id
+                    or row["build_id"] != build_id
+                    or row["session_id"] != session_id
+                    or row["connection_id"] != connection_id
+                    or row["request_digest"] != request_digest
+                    or row["request_json"] != request_json
+                    or row["credential_ref"] != credential_ref
+                    or row["collaboration_credential_ref"]
+                    != collaboration_credential_ref
+                    or row["submission_json"] != submission_json
+                ):
+                    raise LocalLiliesBridgeConflict(
+                        "external Builder assignment replay changed its frozen binding"
+                    )
+                return row, True
+            conflicting_local = conn.execute(
+                """
+                SELECT assignment_id FROM local_lilies_assignments
+                WHERE assignment_id=? OR build_id=? OR session_id=?
+                """,
+                (assignment_id, build_id, session_id),
+            ).fetchone()
+            conflicting_external = conn.execute(
+                """
+                SELECT assignment_id FROM formal_external_builder_assignments
+                WHERE build_id=? OR session_id=?
+                """,
+                (build_id, session_id),
+            ).fetchone()
+            active_local = conn.execute(
+                """
+                SELECT assignment_id FROM local_lilies_assignments
+                WHERE application_id=?
+                  AND phase NOT IN ('completed','cancelled','error')
+                LIMIT 1
+                """,
+                (application_id,),
+            ).fetchone()
+            active_external = conn.execute(
+                """
+                SELECT assignment_id FROM formal_external_builder_assignments
+                WHERE application_id=?
+                  AND phase NOT IN ('completed','cancelled','error')
+                LIMIT 1
+                """,
+                (application_id,),
+            ).fetchone()
+            if any(
+                item is not None
+                for item in (
+                    conflicting_local,
+                    conflicting_external,
+                    active_local,
+                    active_external,
+                )
+            ):
+                raise LocalLiliesBridgeConflict(
+                    "external Builder assignment conflicts with an active formal identity"
+                )
+            conn.execute(
+                """
+                INSERT INTO formal_external_builder_assignments(
+                  assignment_id,application_id,build_id,session_id,connection_id,
+                  idempotency_key,request_digest,request_json,assignment_mode,
+                  execution_mode,phase,status,desired_state,credential_ref,
+                  collaboration_credential_ref,task_token_secret_ref,
+                  relay_cursor,ack_cursor,submission_json,created_at,updated_at
+                ) VALUES(?,?,?,?,?,?,?,?,?,'external_builder','running','ready',
+                         'active',?,?,?,1,1,?,?,?)
+                """,
+                (
+                    assignment_id,
+                    application_id,
+                    build_id,
+                    session_id,
+                    connection_id,
+                    assignment.idempotency_key,
+                    request_digest,
+                    request_json,
+                    AssignmentMode.formal_experiment.value,
+                    credential_ref,
+                    collaboration_credential_ref,
+                    task_token_secret_ref,
+                    submission_json,
+                    now,
+                    now,
+                ),
+            )
+            conn.execute(
+                """
+                INSERT INTO formal_external_builder_events(
+                  assignment_id,daemon_seq,session_id,event_type,data_json,received_at
+                ) VALUES(?,1,?,'assignment.accepted',?,?)
+                """,
+                (assignment_id, session_id, accepted, now),
+            )
+            stored = conn.execute(
+                """
+                SELECT * FROM formal_external_builder_assignments
+                WHERE assignment_id=?
+                """,
+                (assignment_id,),
+            ).fetchone()
+            assert stored is not None
+            return dict(stored), False
+
+    async def retire_external_builder_assignment(
+        self,
+        assignment_id: UUID | str,
+        *,
+        session_id: UUID | str,
+        application_id: UUID | str,
+        credential_ref: str,
+        collaboration_credential_ref: str,
+        reason: str,
+    ) -> dict[str, Any] | None:
+        """Retire one exact external Builder reservation before authority rotation."""
+
+        async with self._lock:
+            return await asyncio.to_thread(
+                self._retire_external_builder_assignment_sync,
+                str(assignment_id),
+                str(session_id),
+                str(application_id),
+                credential_ref,
+                collaboration_credential_ref,
+                reason[:1_000],
+            )
+
+    def _retire_external_builder_assignment_sync(
+        self,
+        assignment_id: str,
+        session_id: str,
+        application_id: str,
+        credential_ref: str,
+        collaboration_credential_ref: str,
+        reason: str,
+    ) -> dict[str, Any] | None:
+        now = _now().isoformat()
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            current = conn.execute(
+                """
+                SELECT * FROM formal_external_builder_assignments
+                WHERE assignment_id=?
+                """,
+                (assignment_id,),
+            ).fetchone()
+            if current is None:
+                return None
+            row = dict(current)
+            if (
+                row["session_id"] != session_id
+                or row["application_id"] != application_id
+                or row["credential_ref"] != credential_ref
+                or row["collaboration_credential_ref"]
+                != collaboration_credential_ref
+            ):
+                raise LocalLiliesBridgeSecurityError(
+                    "external Builder retirement changed its frozen authority binding"
+                )
+            if row["phase"] in {"completed", "cancelled", "error"}:
+                return row
+            if (
+                row["assignment_mode"] != AssignmentMode.formal_experiment.value
+                or row["execution_mode"] != "external_builder"
+                or row["phase"] != "running"
+                or row["status"] != "ready"
+                or row["desired_state"] != BridgeDesiredState.active.value
+                or int(row["relay_cursor"]) != 1
+                or int(row["ack_cursor"]) != 1
+                or row["terminal_events_drained_at"] is not None
+            ):
+                raise LocalLiliesBridgeSecurityError(
+                    "external Builder retirement crossed its frozen lifecycle boundary"
+                )
+            retired = _canonical_json(
+                {
+                    "assignment_id": assignment_id,
+                    "execution_mode": "external_builder",
+                    "reason": reason,
+                    "status": "cancelled",
+                }
+            )
+            conn.execute(
+                """
+                INSERT INTO formal_external_builder_events(
+                  assignment_id,daemon_seq,session_id,event_type,data_json,received_at
+                ) VALUES(?,2,?,'external_builder.cancelled',?,?)
+                """,
+                (assignment_id, session_id, retired, now),
+            )
+            conn.execute(
+                """
+                UPDATE formal_external_builder_assignments
+                SET phase='cancelled',status='cancelled',desired_state='cancelled',
+                    relay_cursor=2,ack_cursor=2,terminal_events_drained_at=?,
+                    updated_at=?
+                WHERE assignment_id=?
+                """,
+                (now, now, assignment_id),
+            )
+            stored = conn.execute(
+                """
+                SELECT * FROM formal_external_builder_assignments
+                WHERE assignment_id=?
+                """,
+                (assignment_id,),
+            ).fetchone()
+            assert stored is not None
+            return dict(stored)
+
+    async def seal_external_builder_completion(
+        self,
+        assignment_id: UUID | str,
+    ) -> dict[str, Any] | None:
+        """Seal the trusted public transcript before formal archive validation."""
+
+        async with self._lock:
+            return await asyncio.to_thread(
+                self._seal_external_builder_completion_sync,
+                str(assignment_id),
+            )
+
+    def _seal_external_builder_completion_sync(
+        self,
+        assignment_id: str,
+    ) -> dict[str, Any] | None:
+        now = _now().isoformat()
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            current = conn.execute(
+                """
+                SELECT * FROM formal_external_builder_assignments
+                WHERE assignment_id=?
+                """,
+                (assignment_id,),
+            ).fetchone()
+            if current is None:
+                return None
+            row = dict(current)
+            if row["phase"] == "completed":
+                return row
+            if (
+                row["assignment_mode"] != AssignmentMode.formal_experiment.value
+                or row["execution_mode"] != "external_builder"
+                or row["phase"] != "running"
+                or row["status"] != "ready"
+                or row["desired_state"] != BridgeDesiredState.active.value
+                or row["daemon_status"] is not None
+                or row["daemon_session_creation_started_at"] is not None
+                or row["terminal_events_drained_at"] is not None
+                or int(row["relay_cursor"]) != 1
+                or int(row["ack_cursor"]) != 1
+                or not row["submission_json"]
+            ):
+                raise LocalLiliesBridgeSecurityError(
+                    "external Builder completion crossed its frozen lifecycle boundary"
+                )
+            completed = _canonical_json(
+                {
+                    "assignment_id": assignment_id,
+                    "execution_mode": "external_builder",
+                    "status": "completed",
+                }
+            )
+            conn.execute(
+                """
+                INSERT INTO formal_external_builder_events(
+                  assignment_id,daemon_seq,session_id,event_type,data_json,received_at
+                ) VALUES(?,2,?,'external_builder.completed',?,?)
+                """,
+                (assignment_id, row["session_id"], completed, now),
+            )
+            conn.execute(
+                """
+                UPDATE formal_external_builder_assignments
+                SET phase='completed',status='completed',relay_cursor=2,ack_cursor=2,
+                    terminal_events_drained_at=?,updated_at=?
+                WHERE assignment_id=?
+                """,
+                (now, now, assignment_id),
+            )
+            stored = conn.execute(
+                """
+                SELECT * FROM formal_external_builder_assignments
+                WHERE assignment_id=?
+                """,
+                (assignment_id,),
+            ).fetchone()
+            assert stored is not None
+            return dict(stored)
 
     def _reserve_assignment_sync(
         self,
@@ -2285,15 +2784,33 @@ class LocalLiliesBridgeStore:
                 "SELECT * FROM local_lilies_assignments WHERE assignment_id=?",
                 (assignment_id,),
             ).fetchone()
-            if assignment is None:
-                raise LocalLiliesBridgeNotFound("local Lilies assignment not found")
-            events = conn.execute(
-                """
-                SELECT * FROM local_lilies_assignment_events
-                WHERE assignment_id=? ORDER BY daemon_seq
-                """,
-                (assignment_id,),
-            ).fetchall()
+            if assignment is not None:
+                events = conn.execute(
+                    """
+                    SELECT * FROM local_lilies_assignment_events
+                    WHERE assignment_id=? ORDER BY daemon_seq
+                    """,
+                    (assignment_id,),
+                ).fetchall()
+            else:
+                assignment = conn.execute(
+                    """
+                    SELECT * FROM formal_external_builder_assignments
+                    WHERE assignment_id=?
+                    """,
+                    (assignment_id,),
+                ).fetchone()
+                if assignment is None:
+                    raise LocalLiliesBridgeNotFound(
+                        "local Lilies assignment not found"
+                    )
+                events = conn.execute(
+                    """
+                    SELECT * FROM formal_external_builder_events
+                    WHERE assignment_id=? ORDER BY daemon_seq
+                    """,
+                    (assignment_id,),
+                ).fetchall()
         assignment_value = dict(assignment)
         event_values = [dict(row) for row in events]
         seqs = [int(row["daemon_seq"]) for row in event_values]
@@ -3479,13 +3996,58 @@ class LocalLiliesBridge:
             return self._assignment_projection(row)
         if row["phase"] == BridgeAssignmentStep.cancelled.value:
             return self._assignment_projection(row)
-        if (
-            formal
-            and row["phase"] == BridgeAssignmentStep.error.value
-        ):
-            row, _, _, _ = await self._drain_error_terminal_events_locked(row)
-            await self._archive_formal_terminal(row)
-            return self._assignment_projection(row)
+        if formal and row["phase"] == BridgeAssignmentStep.error.value:
+            retryable_preacceptance_rejection = (
+                str(row.get("status")) == "failed"
+                and isinstance(row.get("submission_json"), str)
+                and bool(row.get("submission_json"))
+                and row.get("daemon_status") == SessionStatus.ready.value
+                and row.get("terminal_events_drained_at") is None
+                and row.get("formal_archive_intent_json") is None
+                and row.get("formal_archive_result_json") is None
+            )
+            if retryable_preacceptance_rejection:
+                connection = await self.store.get_connection(row["connection_id"])
+                token = await self._connection_token(connection, assignment=row)
+                try:
+                    session = self._validate_session_receipt(
+                        await self.client.get_session(
+                            str(connection["base_url"]),
+                            token,
+                            row["session_id"],
+                        ),
+                        row=row,
+                        require_assignment_binding=False,
+                    )
+                except LocalLiliesClientError as error:
+                    await self._raise_assignment_unavailable(row, error)
+                if (
+                    session.status is SessionStatus.ready
+                    and session.assignment_id is None
+                ):
+                    retry_phase = (
+                        BridgeAssignmentStep.submitting
+                        if row.get("formal_workspace_receipt_json")
+                        else BridgeAssignmentStep.workspace_staging
+                    )
+                    row = await self._update_active_assignment(
+                        row,
+                        checkpoint="explicit pre-acceptance submission retry",
+                        phase=retry_phase,
+                        status="submitting",
+                        last_error_code=None,
+                        last_error_message=None,
+                    )
+                else:
+                    row, _, _, _ = await self._drain_error_terminal_events_locked(
+                        row
+                    )
+                    await self._archive_formal_terminal(row)
+                    return self._assignment_projection(row)
+            else:
+                row, _, _, _ = await self._drain_error_terminal_events_locked(row)
+                await self._archive_formal_terminal(row)
+                return self._assignment_projection(row)
         prepared: PreparedFormalAssignment | None = None
         if formal and row["phase"] in {
             BridgeAssignmentStep.recorded.value,
@@ -3523,8 +4085,7 @@ class LocalLiliesBridge:
                 row,
                 checkpoint="daemon session creation intent",
                 daemon_session_creation_started_at=(
-                    row.get("daemon_session_creation_started_at")
-                    or _now().isoformat()
+                    row.get("daemon_session_creation_started_at") or _now().isoformat()
                 ),
             )
             await self._fault(
@@ -3880,14 +4441,16 @@ class LocalLiliesBridge:
                 if error.status_code == 409:
                     # Cancellation can lose a race to an immutable daemon
                     # terminal state after the platform persisted its intent.
-                    # A 409 alone is not proof: bind a fresh session receipt to
-                    # both reserved IDs before changing the platform projection.
+                    # A session that became terminal before assignment
+                    # acceptance is still safely attributable by its reserved
+                    # session ID.  The validator continues to reject any
+                    # non-null assignment ID that differs from the reservation.
                     terminal = self._validate_session_receipt(
                         await self.client.get_session(
                             str(connection["base_url"]), token, row["session_id"]
                         ),
                         row=row,
-                        require_assignment_binding=True,
+                        require_assignment_binding=False,
                     )
                     if terminal.status not in {
                         SessionStatus.cancelled,
@@ -3961,6 +4524,7 @@ class LocalLiliesBridge:
                                 BridgeAssignmentStep.credential_issuing.value,
                                 BridgeAssignmentStep.credential_issued.value,
                                 BridgeAssignmentStep.credential_provisioned.value,
+                                BridgeAssignmentStep.collaboration_provisioning.value,
                             }
                         )
                         if error.status_code != 404 or not (
@@ -4546,9 +5110,12 @@ class LocalLiliesBridge:
                         str(connection["base_url"]), token, row["session_id"]
                     ),
                     row=row,
+                    # Successful completion must always prove assignment
+                    # acceptance.  Cancelled or failed sessions may have
+                    # become terminal after the submission intent was stored
+                    # but before the daemon accepted the assignment.
                     require_assignment_binding=(
                         expected_phase is BridgeAssignmentStep.completed
-                        or row.get("submission_json") is not None
                     ),
                 )
                 if session.status not in accepted_session_statuses:
@@ -4559,7 +5126,7 @@ class LocalLiliesBridge:
                 if (
                     require_cancel_event
                     and session.status == SessionStatus.cancelled
-                    and row.get("submission_json") is not None
+                    and session.assignment_id is not None
                 ):
                     cancellation_events = await self.store.get_assignment_event_data(
                         row["assignment_id"], "assignment.cancelled"
@@ -4734,6 +5301,112 @@ class LocalLiliesBridge:
         )
         return session
 
+    async def list_assignment_messages(
+        self,
+        assignment_id: UUID | str,
+        *,
+        limit: int = 20,
+        before: UUID | None = None,
+    ) -> LocalLiliesMessagePage:
+        """Read one bounded, display-safe page from the assignment session."""
+
+        self.require_enabled()
+        row = await self.store.get_assignment(assignment_id)
+        connection = await self.store.get_connection(row["connection_id"])
+        token = await self._connection_token(connection, assignment=row)
+        try:
+            raw = await self.client.list_session_messages(
+                str(connection["base_url"]),
+                token,
+                row["session_id"],
+                limit=limit,
+                before=str(before) if before is not None else None,
+            )
+        except LocalLiliesUnavailable as error:
+            await self._raise_assignment_unavailable(row, error)
+            raise AssertionError("unreachable daemon message-history projection")
+        except LocalLiliesClientError as error:
+            raise LocalLiliesBridgeDaemonRejected(
+                "local Lilies rejected the message-history request",
+                details=self._safe_assignment_ids(row),
+            ) from error
+        try:
+            page = LocalLiliesMessagePage.model_validate(raw)
+        except (TypeError, ValueError) as error:
+            raise LocalLiliesBridgeSecurityError(
+                "local Lilies returned an invalid message-history receipt",
+                details=self._safe_assignment_ids(row),
+            ) from error
+        expected_session_id = UUID(row["session_id"])
+        if page.session_id != expected_session_id or any(
+            message.session_id != expected_session_id for message in page.messages
+        ):
+            raise LocalLiliesBridgeSecurityError(
+                "local Lilies message history changed the assignment session binding",
+                details=self._safe_assignment_ids(row),
+            )
+        await self.store.set_connection_state(
+            row["connection_id"],
+            status=BridgeConnectionStatus.connected,
+            seen=True,
+        )
+        return page
+
+    async def send_assignment_message(
+        self,
+        assignment_id: UUID | str,
+        request: SessionMessageRequest,
+    ) -> SessionOperationResult:
+        """Send an operator follow-up without exposing the daemon bearer."""
+
+        self.require_enabled()
+        row = await self.store.get_assignment(assignment_id)
+        connection = await self.store.get_connection(row["connection_id"])
+        token = await self._connection_token(connection, assignment=row)
+        try:
+            raw = await self.client.send_session_message(
+                str(connection["base_url"]),
+                token,
+                row["session_id"],
+                request.model_dump(mode="json"),
+            )
+        except LocalLiliesUnavailable as error:
+            await self._raise_assignment_unavailable(row, error)
+            raise AssertionError("unreachable daemon message submission")
+        except LocalLiliesRemoteError as error:
+            if error.status_code == 409:
+                raise LocalLiliesConversationConflict(
+                    "local Lilies cannot accept an operator message in its current state",
+                    details=self._safe_assignment_ids(row),
+                ) from error
+            raise LocalLiliesBridgeDaemonRejected(
+                "local Lilies rejected the operator message",
+                details=self._safe_assignment_ids(row),
+            ) from error
+        except LocalLiliesClientError as error:
+            raise LocalLiliesBridgeDaemonRejected(
+                "local Lilies rejected the operator message",
+                details=self._safe_assignment_ids(row),
+            ) from error
+        try:
+            result = SessionOperationResult.model_validate(raw)
+        except (TypeError, ValueError) as error:
+            raise LocalLiliesBridgeSecurityError(
+                "local Lilies returned an invalid message submission receipt",
+                details=self._safe_assignment_ids(row),
+            ) from error
+        if result.session_id != UUID(row["session_id"]):
+            raise LocalLiliesBridgeSecurityError(
+                "local Lilies message submission changed the assignment session binding",
+                details=self._safe_assignment_ids(row),
+            )
+        await self.store.set_connection_state(
+            row["connection_id"],
+            status=BridgeConnectionStatus.connected,
+            seen=True,
+        )
+        return result
+
     async def get_assignment_by_build(self, build_id: UUID | str) -> LocalLiliesAssignment:
         self.require_enabled()
         return self._assignment_projection(await self.store.get_assignment_by_build(build_id))
@@ -4863,9 +5536,7 @@ class LocalLiliesBridge:
                 ),
                 BridgeAssignmentStep.cancelled: "cancelled",
                 BridgeAssignmentStep.error: (
-                    "invalid"
-                    if str(row.get("status")) == "invalid"
-                    else "failed"
+                    "invalid" if str(row.get("status")) == "invalid" else "failed"
                 ),
             }[phase]
             try:
@@ -4979,9 +5650,7 @@ class LocalLiliesBridge:
                     await self._seal_formal_pre_submission_rejection(
                         row,
                         error_code="formal_preparation_rejected",
-                        error_message=(
-                            "sealed formal assignment preparation was rejected"
-                        ),
+                        error_message=("sealed formal assignment preparation was rejected"),
                     )
                 else:  # pragma: no cover - formal broker is formal-only
                     await self._update_active_assignment(
@@ -4990,9 +5659,7 @@ class LocalLiliesBridge:
                         phase=BridgeAssignmentStep.error,
                         status="failed",
                         last_error_code="formal_preparation_rejected",
-                        last_error_message=(
-                            "sealed formal assignment preparation was rejected"
-                        ),
+                        last_error_message=("sealed formal assignment preparation was rejected"),
                     )
             except _AssignmentCancellationWon:
                 raise
@@ -5621,18 +6288,12 @@ class LocalLiliesBridge:
                 "file_access": constraints.file_access,
                 "connector_access": constraints.connector_access,
                 "readable_host_objects": list(constraints.readable_host_objects),
-                "writable_host_operations": list(
-                    constraints.writable_host_operations
-                ),
-                "permission_required_actions": list(
-                    constraints.permission_required_actions
-                ),
+                "writable_host_operations": list(constraints.writable_host_operations),
+                "permission_required_actions": list(constraints.permission_required_actions),
                 "max_write_count": constraints.max_write_count,
                 "max_payload_bytes": constraints.max_payload_bytes,
                 "compensation_actions": list(constraints.compensation_actions),
-                "max_report_evidence_rounds": (
-                    constraints.max_report_evidence_rounds
-                ),
+                "max_report_evidence_rounds": (constraints.max_report_evidence_rounds),
                 "stable_hidden_runs": constraints.stable_hidden_runs,
             }
             if assignment.platform.credential_ref != self._task_credential_ref(
@@ -5741,7 +6402,8 @@ class LocalLiliesBridge:
             )
         if formal and (
             provision.kind.value != "platform_assignment"
-            or [scope.value for scope in provision.scopes] != [scope.value for scope in scopes]
+            or sorted(scope.value for scope in provision.scopes)
+            != sorted(scope.value for scope in scopes)
             or provision.expires_at != deadline
         ):
             raise LocalLiliesBridgeSecurityError(
@@ -5831,15 +6493,6 @@ class LocalLiliesBridge:
         request = StartLocalLiliesBuildRequest.model_validate_json(row["request_json"])
         effective = self._effective_constraints(request.constraints)
         scopes = self._platform_scopes(request.auto_publish)
-        digest_result = self.contract_digest_provider(scopes, (UUID(row["application_id"]),))
-        contract_digest = (
-            await digest_result if inspect.isawaitable(digest_result) else digest_result
-        )
-        if (
-            not isinstance(contract_digest, str)
-            or re.fullmatch(r"sha256:[0-9a-f]{64}", contract_digest) is None
-        ):
-            raise LocalLiliesBridgeSecurityError("platform contract provider returned bad digest")
         allowed_actions = [
             AllowedAction.platform_contract_get,
             AllowedAction.platform_block_search,
@@ -5858,6 +6511,19 @@ class LocalLiliesBridge:
         ]
         if request.auto_publish:
             allowed_actions.append(AllowedAction.platform_publish)
+        digest_result = self.contract_digest_provider(
+            scopes,
+            (UUID(row["application_id"]),),
+            tuple(allowed_actions),
+        )
+        contract_digest = (
+            await digest_result if inspect.isawaitable(digest_result) else digest_result
+        )
+        if (
+            not isinstance(contract_digest, str)
+            or re.fullmatch(r"sha256:[0-9a-f]{64}", contract_digest) is None
+        ):
+            raise LocalLiliesBridgeSecurityError("platform contract provider returned bad digest")
         return BuildAssignment(
             schema_version="1.0",
             assignment_id=UUID(row["assignment_id"]),
@@ -6299,8 +6965,7 @@ class LocalLiliesBridge:
             if (
                 sealed_terminal_result.status is not ArchiveStatus.invalid
                 or task is None
-                or sealed_terminal_result.assignment_id
-                != assignment.assignment_id
+                or sealed_terminal_result.assignment_id != assignment.assignment_id
                 or sealed_terminal_result.task_id != task.task_id
                 or sealed_terminal_result.revision != task.revision
                 or sealed_terminal_result.run_id != task.run_id
@@ -6454,9 +7119,7 @@ class LocalLiliesBridge:
                 return await self._fail_formal_archive_permanently(
                     row,
                     error_code="formal_archive_invalid",
-                    message=(
-                        "the frozen formal success archive was sealed as invalid"
-                    ),
+                    message=("the frozen formal success archive was sealed as invalid"),
                     assignment_status="invalid",
                     sealed_terminal_result=error.result,
                 )
@@ -6634,14 +7297,10 @@ class LocalLiliesBridge:
         self,
         row: Mapping[str, Any],
     ) -> None:
-        if (
-            not self._is_formal_assignment(row)
-            or str(row.get("phase"))
-            not in {
-                BridgeAssignmentStep.cancelled.value,
-                BridgeAssignmentStep.error.value,
-            }
-        ):
+        if not self._is_formal_assignment(row) or str(row.get("phase")) not in {
+            BridgeAssignmentStep.cancelled.value,
+            BridgeAssignmentStep.error.value,
+        }:
             return
         if row.get("terminal_events_drained_at") is None or int(
             row.get("relay_cursor") or 0

@@ -1,0 +1,32 @@
+{
+  "actual_behavior": {
+    "block_catalog_rag_types": [],
+    "openapi_matching_routes": [
+      "/api/v1/embedding/invoke"
+    ],
+    "route_interpretation": "The existing embedding route invokes an embedded workflow and does not provide document chunking, vector indexing, ACL filtering, retrieval, reranking, citation, update, or deletion semantics."
+  },
+  "actor": "codex_builder",
+  "attempted_public_routes": [
+    "GET /api/v1/blocks",
+    "GET /openapi.json",
+    "GET /api/v1/tools"
+  ],
+  "evidence_level": "public_platform_contract",
+  "expected_behavior": "The public platform must let a workflow synchronize versioned knowledge documents, preserve source and ACL lineage, retrieve and rerank only content authorized for the caller, return citations or an explicit refusal, and update or delete stale index entries.",
+  "manuals_checked": [
+    "public block catalog",
+    "public OpenAPI schema",
+    "public tool catalog",
+    "BookStack REST API documentation",
+    "BookStack role and content-permission documentation"
+  ],
+  "missing_contract": "A host-neutral, versioned knowledge-index service plus workflow blocks for document synchronization, ACL-filtered retrieval, grounded cited answers, update, deletion, idempotent receipts, and forbidden-chunk evidence.",
+  "project_id": "EXP-LILIES-002",
+  "project_revision": 1,
+  "report_id": "EXP-LILIES-002-GAP-001",
+  "report_revision": 1,
+  "schema_version": "1.0",
+  "status": "complete",
+  "task_id": "V04-13-T01H"
+}

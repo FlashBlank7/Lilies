@@ -21,7 +21,7 @@ from .workflow_models import (
 
 
 PLATFORM_CONTRACT_SCHEMA_VERSION = "1.0"
-PLATFORM_CONTRACT_VERSION = 1
+PLATFORM_CONTRACT_VERSION = 2
 MAX_ARTIFACT_CHUNK_BYTES = 64 * 1024
 DEFAULT_ARTIFACT_CHUNK_BYTES = MAX_ARTIFACT_CHUNK_BYTES
 MAX_REGISTERED_ARTIFACT_BYTES = 2_000_000
@@ -407,6 +407,12 @@ def _draft_inspect_data_schema() -> dict[str, Any]:
             "revision": {"type": "integer", "minimum": 0},
             "content_hash": _raw_sha256_schema(),
             "tested_hash": _nullable(_raw_sha256_schema()),
+            "validation_contract_digest": {
+                "anyOf": [
+                    {"const": ""},
+                    _prefixed_sha256_schema(),
+                ]
+            },
             "evidence_invalidated_at": _nullable(_datetime_schema()),
             "evidence_invalidated_revision": _nullable(
                 {"type": "integer", "minimum": 0}
@@ -419,6 +425,7 @@ def _draft_inspect_data_schema() -> dict[str, Any]:
             "delivery_policy": _delivery_policy_data_schema(),
             "evidence": _evidence_data_schema(),
             "snapshot": _model_dump_schema(ApplicationSnapshot),
+            "preflight": _validation_data_schema(),
         }
     )
 
@@ -603,6 +610,10 @@ def _run_start_data_schema() -> dict[str, Any]:
             "status": {"const": "queued"},
             "version": _nullable({"type": "integer", "minimum": 1}),
             "draft_revision": _nullable({"type": "integer", "minimum": 0}),
+            "published_execution_policy_digest": _nullable(
+                _prefixed_sha256_schema()
+            ),
+            "execution_policy_digest": _nullable(_prefixed_sha256_schema()),
         }
     )
 
@@ -634,9 +645,14 @@ def _run_get_data_schema() -> dict[str, Any]:
             "waiting_node_id": _nullable({"type": "string"}),
             "completed_node_ids": _array_schema({"type": "string"}),
             "skipped_node_ids": _array_schema({"type": "string"}),
+            "published_execution_policy_digest": _nullable(
+                _prefixed_sha256_schema()
+            ),
+            "execution_policy_digest": _nullable(_prefixed_sha256_schema()),
             "created_at": _datetime_schema(),
             "updated_at": _datetime_schema(),
             "artifacts": _array_schema(_artifact_metadata_data_schema()),
+            "host_receipts": _array_schema(_artifact_metadata_data_schema()),
         }
     )
 
@@ -715,6 +731,90 @@ def _artifact_read_data_schema() -> dict[str, Any]:
     )
 
 
+def _execution_policy_snapshot_data_schema() -> dict[str, Any]:
+    string_policy = _array_schema(_string(maximum=1_000))
+    return _closed_schema(
+        {
+            "schema_version": {"const": "1.0"},
+            "policy_digest": _prefixed_sha256_schema(),
+            "workspace_scope": _closed_schema(
+                {
+                    "kind": {"const": "assignment_session"},
+                    "digest": _prefixed_sha256_schema(),
+                }
+            ),
+            "assignment_id": _uuid_schema(),
+            "session_id": _uuid_schema(),
+            "allowed_nested_application_ids": _array_schema(_uuid_schema()),
+            "allowed_runtime_tools": string_policy,
+            "allowed_network_hosts": string_policy,
+            "model_access": {"type": "boolean"},
+            "allowed_connector_operations": string_policy,
+            "writable_connector_operations": string_policy,
+            "permission_required_connector_operations": string_policy,
+            "compensation_connector_operations": string_policy,
+            "max_connector_write_count": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 1_000_000,
+            },
+            "max_connector_payload_bytes": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100 * 1024 * 1024,
+            },
+            "governed_host_actions": {"type": "boolean"},
+        }
+    )
+
+
+def _connector_authorization_data_schema() -> dict[str, Any]:
+    return _closed_schema(
+        {
+            "authorization_id": _string(maximum=200),
+            "issuance_source": {"const": "task_policy"},
+            "connector_id": _string(maximum=160),
+            "connector_version": {"type": "integer", "minimum": 1},
+            "tenant_id": _string(maximum=300),
+            "actor_id": _string(maximum=300),
+            "profile_id": _string(maximum=160),
+            "operation_id": _string(maximum=120),
+            "operation_kind": {"enum": ["write", "compensate"]},
+            "payload_hash": _prefixed_sha256_schema(),
+            "policy_revision": {"type": "integer", "minimum": 1},
+            "descriptor_digest": _prefixed_sha256_schema(),
+            "task_credential_ref_digest": _prefixed_sha256_schema(),
+            "task_policy_digest": _prefixed_sha256_schema(),
+            "allowed_actions_digest": _prefixed_sha256_schema(),
+            "budget_digest": _prefixed_sha256_schema(),
+            "assignment_budget_policy_digest": _prefixed_sha256_schema(),
+            "assignment_id": _uuid_schema(),
+            "session_id": _uuid_schema(),
+            "application_id": _uuid_schema(),
+            "assignment_max_write_count": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1_000_000,
+            },
+            "assignment_max_payload_bytes": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100 * 1024 * 1024,
+            },
+            "assignment_write_count_at_issue": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 999_999,
+            },
+            "max_uses": {"const": 1},
+            "expires_at": _datetime_schema(),
+            "task_deadline_at": _datetime_schema(),
+            "created_at": _datetime_schema(),
+            "receipt_digest": _prefixed_sha256_schema(),
+        }
+    )
+
+
 def _publication_decision_data_schema() -> dict[str, Any]:
     warning = _closed_schema(
         {"code": _string(maximum=160), "message": _string(maximum=4_000)}
@@ -733,6 +833,7 @@ def _publication_decision_data_schema() -> dict[str, Any]:
             "policy_source": {"type": "string"},
             "acknowledged_warnings": {"type": "boolean"},
             "decided_at": _datetime_schema(),
+            "execution_policy_snapshot": _execution_policy_snapshot_data_schema(),
         }
     )
 
@@ -912,6 +1013,16 @@ PUBLIC_FACADE_OPERATION_ERROR_CODES: dict[str, frozenset[str]] = {
     "platform_block_search": frozenset(),
     "platform_block_get": frozenset({"not_found"}),
     "platform_tool_catalog": frozenset(),
+    "platform_connector_authorization_issue": frozenset(
+        {
+            "application_not_assigned",
+            "connector_authorization_budget_exhausted",
+            "connector_authorization_denied",
+            "connector_authorization_payload_too_large",
+            "connector_descriptor_drift",
+            "not_found",
+        }
+    ),
     "platform_application_create": frozenset({"not_found"}),
     "platform_application_get": frozenset({"application_not_assigned", "not_found"}),
     "platform_draft_inspect": frozenset({"application_not_assigned", "not_found"}),
@@ -938,6 +1049,7 @@ PUBLIC_FACADE_OPERATION_ERROR_CODES: dict[str, frozenset[str]] = {
     "platform_run_start": frozenset(
         {
             "application_not_assigned",
+            "execution_policy_expansion_denied",
             "invalid_state",
             "nested_workflow_scope_denied",
             "not_found",
@@ -1157,6 +1269,59 @@ PUBLIC_OPERATION_SPECS: tuple[dict[str, Any], ...] = (
         scope=PlatformScope.catalog_read,
         request_schema=_object_schema(),
         data_schema=_array_schema(_runtime_tool_data_schema()),
+    ),
+    _operation(
+        "platform_connector_authorization_issue",
+        method="POST",
+        path=(
+            "/api/v1/lilies/applications/{application_id}/"
+            "connector-authorizations"
+        ),
+        scope=PlatformScope.run_execute,
+        request_schema=_object_schema(
+            {
+                "application_id": _APPLICATION_ID,
+                "connector_id": _string(maximum=160),
+                "connector_version": {"type": "integer", "minimum": 1},
+                "tenant_id": _string(maximum=300),
+                "actor_id": _string(maximum=300),
+                "profile_id": _string(maximum=160),
+                "operation_id": _string(maximum=120),
+                "operation_kind": {"enum": ["write", "compensate"]},
+                "descriptor_digest": _prefixed_sha256_schema(),
+                "payload": _object_schema(additional_properties=True),
+                "expires_in_seconds": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 300,
+                },
+                "idempotency_key": _idempotency_schema(),
+            },
+            required=(
+                "application_id",
+                "connector_id",
+                "connector_version",
+                "tenant_id",
+                "actor_id",
+                "profile_id",
+                "operation_id",
+                "operation_kind",
+                "descriptor_digest",
+                "payload",
+                "idempotency_key",
+            ),
+        ),
+        data_schema=_connector_authorization_data_schema(),
+        errors=(
+            "application_not_assigned",
+            "connector_authorization_budget_exhausted",
+            "connector_authorization_denied",
+            "connector_authorization_payload_too_large",
+            "connector_descriptor_drift",
+            "idempotency_conflict",
+            "invalid_request",
+            "not_found",
+        ),
     ),
     _operation(
         "platform_application_create",
@@ -1493,31 +1658,42 @@ def _static_contract_semantics() -> dict[str, Any]:
                 "code": "assigned_runtime_policy",
                 "description": (
                     "Assigned black-box runs may use only the safe runtime tools returned by "
-                    "this contract, have no network hosts, and cannot resolve platform secret "
-                    "references at this contract version."
+                    "this contract and connector operations/hosts projected by their credential; "
+                    "platform secret references remain unavailable."
                 ),
             },
             {
-                "code": "current_acceptance_required_for_publish",
+                "code": "immutable_execution_policy_snapshot",
                 "description": (
-                    "Autonomous task-credential publication requires at least one mandatory "
-                    "acceptance test and a current passing result for the exact draft content "
-                    "hash; this does not change interactive Quick or Guided user decisions."
+                    "Task-scoped publication binds a digest-addressed assignment/session "
+                    "workspace, model flag, tool/nested-application/connector allowlists and "
+                    "connector budgets to the immutable version. Later callers may only narrow "
+                    "that policy."
+                ),
+            },
+            {
+                "code": "exact_connector_authorization",
+                "description": (
+                    "A task credential can obtain a one-use connector mutation "
+                    "receipt only for an exact descriptor and payload already "
+                    "allowed by its immutable assignment/application policy, "
+                    "budget and deadline; internal owner endpoints remain "
+                    "unavailable."
                 ),
             },
             {
                 "code": "scheduled_publish_not_supported",
                 "description": (
                     "Drafts containing schedule_trigger cannot be published through a task "
-                    "credential until scheduler runs inherit assignment workspace and policy."
+                    "credential because trigger authority is not represented by the immutable "
+                    "execution-policy snapshot."
                 ),
             },
             {
-                "code": "context_dependent_publish_not_supported",
+                "code": "raw_network_publish_not_supported",
                 "description": (
-                    "Drafts containing schedules, runtime tools, nested workflows, agents, or "
-                    "network blocks cannot be published through a task credential until immutable "
-                    "versions preserve their assignment workspace and execution policy."
+                    "Raw HTTP and web-collection blocks cannot be published through a task "
+                    "credential; network side effects must use governed connector operations."
                 ),
             },
         ],
@@ -1546,6 +1722,7 @@ def build_platform_contract(
     generated_at: datetime | None = None,
     contract_version: int = PLATFORM_CONTRACT_VERSION,
     allowed_runtime_tool_names: Iterable[str] | None = None,
+    allowed_operation_names: Iterable[str] | None = None,
 ) -> dict[str, Any]:
     """Build a role/scope-filtered public contract without implementation identifiers."""
 
@@ -1557,10 +1734,19 @@ def build_platform_contract(
     )
     tool_catalog.extend(dict(item) for item in published_workflow_tools)
     tool_catalog.extend(dict(item) for item in published_connector_tools)
+    operation_allowlist = (
+        None
+        if allowed_operation_names is None
+        else frozenset(str(name) for name in allowed_operation_names)
+    )
     operations = [
         copy.deepcopy(operation)
         for operation in PUBLIC_OPERATION_SPECS
         if operation["scope"] in allowed_scopes
+        and (
+            operation_allowlist is None
+            or operation["name"] in operation_allowlist
+        )
     ]
     stable = {
         "schema_version": PLATFORM_CONTRACT_SCHEMA_VERSION,

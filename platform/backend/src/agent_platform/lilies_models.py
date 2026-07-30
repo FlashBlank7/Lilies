@@ -648,6 +648,9 @@ class AllowedAction(str, Enum):
     platform_block_search = "platform_block_search"
     platform_block_get = "platform_block_get"
     platform_tool_catalog = "platform_tool_catalog"
+    platform_connector_authorization_issue = (
+        "platform_connector_authorization_issue"
+    )
     platform_application_create = "platform_application_create"
     platform_application_get = "platform_application_get"
     platform_draft_inspect = "platform_draft_inspect"

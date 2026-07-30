@@ -1,0 +1,93 @@
+{
+  "schema_version": "1.0",
+  "task_id": "V04-13-T01H",
+  "project_id": "P1",
+  "observed_at": "2026-07-26T08:43:00Z",
+  "claim_boundary": "H3 controlled-test connector contract evidence; not H4/private registration or completed business-run evidence",
+  "platform_model_usage": {
+    "model_calls": 0,
+    "tokens": 0
+  },
+  "generations": [
+    {
+      "connector_id": "paperless",
+      "version": 2,
+      "generation_id": "c29f4a0b-21b7-4312-ae36-3733dfa24f25",
+      "environment": "test",
+      "claim_ceiling": "H3",
+      "operation_count": 7,
+      "schema_overlay_action_count": 3,
+      "operation_contract_overlay_count": 0
+    },
+    {
+      "connector_id": "inventree",
+      "version": 2,
+      "generation_id": "a9da8ce0-d611-4ff4-a14a-04625f600a55",
+      "environment": "test",
+      "claim_ceiling": "H3",
+      "operation_count": 10,
+      "schema_overlay_action_count": 3,
+      "operation_contract_overlay": {
+        "operation_count": 4,
+        "request_schema_count": 3,
+        "response_schema_count": 3,
+        "overlay_digest": "sha256:3b03e7135c12102f14009e8d0a7ff5dfb1cf14ac6553176350ecf4f02b402fa7",
+        "effective_contract_digest": "sha256:f34696bb163a8629045dab14da9aed87375cf88acd2e3bd72962d9e52e74ab22"
+      }
+    }
+  ],
+  "contract_runs": [
+    {
+      "connector_id": "paperless",
+      "run_id": "a54f8f19-62c0-4e0d-badd-027cf697691f",
+      "status": "failed",
+      "passed": 13,
+      "failed": 1,
+      "skipped": 0,
+      "unsupported": 0,
+      "blocked_by_environment": 0,
+      "failure": {
+        "case_id": "documents_partial_update.positive",
+        "actual": "The live PATCH response omitted is_shared_by_requester and user_can_change although the live response schema declared both required."
+      }
+    },
+    {
+      "connector_id": "inventree",
+      "run_id": "14ddb8f0-029c-4460-9ae7-eba6e9a05221",
+      "status": "failed",
+      "passed": 19,
+      "failed": 1,
+      "skipped": 0,
+      "unsupported": 0,
+      "blocked_by_environment": 0,
+      "failure": {
+        "case_id": "attachment_create.positive",
+        "actual": "The scoped Builder user received HTTP 403 because the environment granted the purchase_order RuleSet but omitted the related Django order.change_purchaseorder permission required by the official Attachment serializer."
+      }
+    }
+  ],
+  "side_effect_accounting": {
+    "business_side_effects": 0,
+    "contract_probe_side_effects_before_reset": [
+      "one Paperless title update",
+      "one InvenTree metadata shallow merge",
+      "one InvenTree metadata full replacement"
+    ],
+    "attachment_created": false,
+    "test_environment_reset_required": true,
+    "test_environment_reset_target": "EXP-LILIES-001 revision 23 debug host volumes only"
+  },
+  "classification": {
+    "paperless_response_mismatch": "live OpenAPI/runtime contract mismatch handled by generic schema overlay configuration",
+    "inventree_attachment_permission": "environment provisioning defect, not a platform capability gap",
+    "h4_private_mutation_registration": "platform software gap retained separately",
+    "safe_mutating_retry": "platform software gap retained separately"
+  },
+  "remediation": [
+    "Do not register either failed version 2 generation.",
+    "Restore the exact debug host baseline before any further contract or business run.",
+    "Generate a new version with the observed Paperless response requirement correction.",
+    "Provision the official related-model permission for the scoped InvenTree Builder account.",
+    "Use only exact-payload, assignment-bound single-use authorizations for business writes."
+  ]
+}

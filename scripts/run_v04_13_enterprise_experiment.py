@@ -35,7 +35,7 @@ from agent_platform.token_monitoring import (
 
 ROOT = Path(__file__).resolve().parents[1]
 TASK_ID = "EXP-LILIES-001"
-REVISION = 23
+REVISION = 28
 TASK_ROOT = ROOT / "docs" / "experiments" / "lilies-collaboration" / TASK_ID / str(REVISION)
 TASK_REVISIONS_ROOT = TASK_ROOT.parent
 ENVIRONMENT_CONTROL = ROOT / "scripts" / "experiments" / "exp_lilies_001" / "environment_control.py"

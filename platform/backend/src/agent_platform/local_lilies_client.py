@@ -153,6 +153,53 @@ class LocalLiliesHttpClient:
             access_token=access_token,
         )
 
+    async def list_session_messages(
+        self,
+        base_url: str,
+        access_token: str,
+        session_id: str,
+        *,
+        limit: int = 20,
+        before: str | None = None,
+    ) -> dict[str, Any]:
+        if (
+            isinstance(limit, bool)
+            or not 1 <= limit <= 20
+            or (before is not None and re.fullmatch(
+                r"[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
+                before,
+                flags=re.IGNORECASE,
+            ) is None)
+        ):
+            raise LocalLiliesProtocolError(
+                "local Lilies message-history query is outside safe bounds"
+            )
+        params: list[tuple[str, str | int]] = [("limit", limit)]
+        if before is not None:
+            params.append(("before", before))
+        return await self._json(
+            "GET",
+            base_url,
+            f"/local/v1/sessions/{session_id}/messages",
+            access_token=access_token,
+            params=params,
+        )
+
+    async def send_session_message(
+        self,
+        base_url: str,
+        access_token: str,
+        session_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        return await self._json(
+            "POST",
+            base_url,
+            f"/local/v1/sessions/{session_id}/messages",
+            access_token=access_token,
+            json_payload=payload,
+        )
+
     async def provision_credential(
         self,
         base_url: str,

@@ -358,7 +358,7 @@ async def test_evidence_bearing_child_is_accounted_without_business_success(
                 "public_api_manual_digest": _digest(b"manual"),
                 "transcript_digest": transcript_digest,
                 "stderr_digest": stderr_digest,
-                "formal_archive_supported": False,
+                "formal_archive_supported": True,
             },
         )
         return Process()
@@ -556,7 +556,7 @@ async def test_tampered_rollout_budget_receipt_fails_closed(
                 "usage": {},
                 "rollout_budget": bad_budget,
                 "public_api_manual_digest": _digest(b"manual"),
-                "formal_archive_supported": False,
+                "formal_archive_supported": True,
             },
         )
         return Process()
@@ -740,7 +740,7 @@ def _persist_resumable_invocation(
                 "process_only_completed_business_outcome_unknown"
             ),
             "business_outcome": "unknown",
-            "formal_archive_supported": False,
+            "formal_archive_supported": True,
             "thread_id": thread_id,
         }
     )
@@ -816,7 +816,7 @@ def _invocation(
         "status": "process_only_completed_business_outcome_unknown",
         "business_outcome": "unknown",
         "project_success": False,
-        "formal_archive_supported": False,
+        "formal_archive_supported": True,
         "thread_id": thread_id,
         "resume_thread_id": resume_thread_id,
         "transcript_path": str(transcript),
@@ -1618,7 +1618,7 @@ def test_resume_reuses_thread_runtime_and_allocates_new_invocation_outputs(
         {
             "status": "process_only_completed_business_outcome_unknown",
             "business_outcome": "unknown",
-            "formal_archive_supported": False,
+            "formal_archive_supported": True,
             "thread_id": thread_id,
             "rollout_budget": _rollout_budget(),
             "usage_accounting": _reported_usage(
@@ -1657,6 +1657,224 @@ def test_resume_reuses_thread_runtime_and_allocates_new_invocation_outputs(
             state_path,
             receipt=receipt,
             resume=False,
+        )
+
+
+def test_adjacent_revision_can_explicitly_replace_isolated_codex_context(
+    tmp_path: Path,
+) -> None:
+    application_id = str(uuid4())
+    prior_assignment_id = str(uuid4())
+    state_path = _owner_state(
+        tmp_path,
+        seed="debug",
+        project_id=runner.TASK_ID,
+        project_revision=runner.REVISION - 1,
+        application_id=application_id,
+        assignment_id=prior_assignment_id,
+        session_id=str(uuid4()),
+        channel_id=str(uuid4()),
+        invocations=[],
+    )
+    prior = runner._prepare_codex_invocation(
+        state_path,
+        receipt={
+            "task_id": runner.TASK_ID,
+            "revision": runner.REVISION - 1,
+            "application_id": application_id,
+            "assignment_id": prior_assignment_id,
+            "session_id": str(uuid4()),
+        },
+        resume=False,
+    )
+    state = json.loads(state_path.read_bytes())
+    state["codex_invocations"][0].update(
+        {
+            "status": "process_failed",
+            "business_outcome": "unknown",
+            "formal_archive_supported": True,
+        }
+    )
+    runner.enterprise_runner._atomic_private_json(state_path, state)
+    new_assignment_id = str(uuid4())
+
+    replacement = runner._prepare_codex_invocation(
+        state_path,
+        receipt={
+            "task_id": runner.TASK_ID,
+            "revision": runner.REVISION,
+            "application_id": application_id,
+            "assignment_id": new_assignment_id,
+            "session_id": str(uuid4()),
+        },
+        resume=False,
+        replace_context=True,
+    )
+
+    assert replacement["invocation_index"] == 2
+    assert replacement["resume_thread_id"] is None
+    assert replacement["rollout_token_limit"] == 1_000_000
+    assert replacement["runtime_root"] != prior["runtime_root"]
+    assert replacement["runtime_root"].endswith(
+        f"seed-debug-assignment-{new_assignment_id}"
+    )
+    replacement_evidence = replacement["replacement_context"]
+    assert replacement_evidence["prior_assignment_ids"] == [
+        prior_assignment_id
+    ]
+    assert replacement_evidence["new_assignment_id"] == new_assignment_id
+    assert replacement_evidence["prior_project_revision"] == (
+        runner.REVISION - 1
+    )
+    assert replacement_evidence["new_project_revision"] == runner.REVISION
+    assert replacement_evidence["public_api_boundary_unchanged"] is True
+    persisted = json.loads(state_path.read_bytes())
+    assert len(persisted["codex_invocations"]) == 2
+    assert persisted["codex_invocations"][0]["status"] == "process_failed"
+    assert persisted["codex_context_replacements"] == [
+        replacement_evidence
+    ]
+
+
+def test_replacement_context_resume_uses_only_replacement_generation_budget(
+    tmp_path: Path,
+) -> None:
+    application_id = str(uuid4())
+    prior_assignment_id = str(uuid4())
+    state_path = _owner_state(
+        tmp_path,
+        seed="replacement-resume",
+        project_id=runner.TASK_ID,
+        project_revision=runner.REVISION - 1,
+        application_id=application_id,
+        assignment_id=prior_assignment_id,
+        session_id=str(uuid4()),
+        channel_id=str(uuid4()),
+        invocations=[],
+    )
+    prior = runner._prepare_codex_invocation(
+        state_path,
+        receipt={
+            "task_id": runner.TASK_ID,
+            "revision": runner.REVISION - 1,
+            "application_id": application_id,
+            "assignment_id": prior_assignment_id,
+            "session_id": str(uuid4()),
+        },
+        resume=False,
+    )
+    _persist_resumable_invocation(
+        state_path,
+        invocation_index=1,
+        thread_id=str(uuid4()),
+        usage_accounting=_reported_usage(
+            input_tokens=400,
+            output_tokens=100,
+            cache_read_input_tokens=200,
+        ),
+        rollout_budget=_rollout_budget(),
+    )
+    new_assignment_id = str(uuid4())
+    new_session_id = str(uuid4())
+    receipt = {
+        "task_id": runner.TASK_ID,
+        "revision": runner.REVISION,
+        "application_id": application_id,
+        "assignment_id": new_assignment_id,
+        "session_id": new_session_id,
+    }
+    replacement = runner._prepare_codex_invocation(
+        state_path,
+        receipt=receipt,
+        resume=False,
+        replace_context=True,
+    )
+    assert replacement["runtime_root"] != prior["runtime_root"]
+    replacement_thread_id = str(uuid4())
+    _persist_resumable_invocation(
+        state_path,
+        invocation_index=2,
+        thread_id=replacement_thread_id,
+        usage_accounting=_reported_usage(
+            input_tokens=180,
+            output_tokens=40,
+            cache_read_input_tokens=80,
+        ),
+        rollout_budget=_rollout_budget(),
+    )
+
+    resumed = runner._prepare_codex_invocation(
+        state_path,
+        receipt=receipt,
+        resume=True,
+    )
+
+    assert resumed["invocation_index"] == 3
+    assert resumed["resume_thread_id"] == replacement_thread_id
+    assert resumed["runtime_root"] == replacement["runtime_root"]
+    assert resumed["rollout_token_limit"] == 999_860
+    assert resumed["rollout_budget_requirement"] == _rollout_budget(999_860)
+    assert resumed["cumulative_rollout_budget_enforcement"][
+        "cumulative_reported_weighted_tokens"
+    ] == 140
+
+
+def test_replacement_context_requires_fresh_assignment_and_adjacent_revision(
+    tmp_path: Path,
+) -> None:
+    application_id = str(uuid4())
+    assignment_id = str(uuid4())
+    state_path = _owner_state(
+        tmp_path,
+        seed="debug",
+        project_id=runner.TASK_ID,
+        project_revision=runner.REVISION - 1,
+        application_id=application_id,
+        assignment_id=assignment_id,
+        session_id=str(uuid4()),
+        channel_id=str(uuid4()),
+        invocations=[
+            {
+                "invocation_id": str(uuid4()),
+                "assignment_id": assignment_id,
+                "project_revision": runner.REVISION - 1,
+                "status": "process_failed",
+            }
+        ],
+    )
+
+    with pytest.raises(
+        runner.CodexBuilderRunnerError,
+        match="fresh formal assignment",
+    ):
+        runner._prepare_codex_invocation(
+            state_path,
+            receipt={
+                "task_id": runner.TASK_ID,
+                "revision": runner.REVISION,
+                "application_id": application_id,
+                "assignment_id": assignment_id,
+                "session_id": str(uuid4()),
+            },
+            resume=False,
+            replace_context=True,
+        )
+
+    with pytest.raises(
+        runner.CodexBuilderRunnerError,
+        match="adjacent project revision",
+    ):
+        runner._prepare_codex_invocation(
+            state_path,
+            receipt={
+                "task_id": runner.TASK_ID,
+                "revision": runner.REVISION + 1,
+                "application_id": application_id,
+                "assignment_id": str(uuid4()),
+                "session_id": str(uuid4()),
+            },
+            resume=False,
+            replace_context=True,
         )
 
 
@@ -1710,6 +1928,178 @@ def test_multiple_resumes_use_only_persisted_cumulative_remaining_budget(
     persisted = json.loads(state_path.read_bytes())["codex_budget"]
     assert persisted["cumulative_reported_weighted_tokens"] == 240
     assert persisted["current_invocation_cli_limit_tokens"] == 999_760
+
+
+def test_verified_pre_provider_authority_guard_failure_can_resume_without_rewriting_history(
+    tmp_path: Path,
+) -> None:
+    state_path, receipt, _first, thread_id = (
+        _prepare_first_invocation_fixture(
+            tmp_path,
+            seed="authority-preflight-retry",
+        )
+    )
+    _persist_resumable_invocation(
+        state_path,
+        invocation_index=1,
+        thread_id=thread_id,
+        usage_accounting=_reported_usage(
+            input_tokens=100,
+            output_tokens=20,
+            cache_read_input_tokens=30,
+        ),
+        rollout_budget=_rollout_budget(),
+    )
+    second = runner._prepare_codex_invocation(
+        state_path,
+        receipt=receipt,
+        resume=True,
+    )
+    runner._mark_codex_invocation_running(
+        state_path,
+        invocation_id=str(second["invocation_id"]),
+    )
+    wrapper_failure = runner.CodexBuilderChildExitError(
+        "preflight",
+        wrapper_exit_code=2,
+    )
+    runner._mark_codex_invocation_failed(
+        state_path,
+        invocation_id=str(second["invocation_id"]),
+        error_code="CodexBuilderChildExitError",
+        accounting_result=wrapper_failure.accounting_result,
+    )
+    log_path = (
+        tmp_path
+        / "logs"
+        / "codex-builder-child-authority-preflight-retry-invocation-0002.log"
+    )
+    log_path.parent.mkdir(parents=True)
+    log_path.write_bytes(runner.AUTHORITY_GUARD_PREFLIGHT_ERROR)
+    log_path.chmod(0o644)
+
+    third = runner._prepare_codex_invocation(
+        state_path,
+        receipt=receipt,
+        resume=True,
+    )
+
+    assert third["invocation_index"] == 3
+    assert third["resume_thread_id"] == thread_id
+    assert third["preflight_retry_of_invocation_id"] == second[
+        "invocation_id"
+    ]
+    assert third["rollout_token_limit"] == second["rollout_token_limit"]
+    state = json.loads(state_path.read_bytes())
+    failed = state["codex_invocations"][1]
+    assert failed["status"] == "process_failed"
+    assert failed["usage_accounting"]["unknown_usage_model_calls"] == 1
+    reconciliation = failed["pre_provider_failure_reconciliation"]
+    assert reconciliation["provider_process_started"] is False
+    assert reconciliation["retry_eligible"] is True
+    assert Path(reconciliation["evidence_path"]).is_file()
+
+
+def test_indeterminate_provider_retry_requires_fresh_risk_authorization_and_keeps_usage_unknown(
+    tmp_path: Path,
+) -> None:
+    state_path, receipt, _first, thread_id = (
+        _prepare_first_invocation_fixture(
+            tmp_path,
+            seed="indeterminate-provider-retry",
+        )
+    )
+    _persist_resumable_invocation(
+        state_path,
+        invocation_index=1,
+        thread_id=thread_id,
+        usage_accounting=_reported_usage(
+            input_tokens=100,
+            output_tokens=20,
+            cache_read_input_tokens=30,
+        ),
+        rollout_budget=_rollout_budget(),
+    )
+    second = runner._prepare_codex_invocation(
+        state_path,
+        receipt=receipt,
+        resume=True,
+    )
+    paths = runner._codex_child_paths(
+        tmp_path,
+        "indeterminate-provider-retry",
+        2,
+    )
+    result_digest = _write_private(paths["result"], b"provider-reset-result")
+    transcript_digest = _write_private(
+        paths["transcript"],
+        b'{"type":"thread.started"}\n',
+    )
+    stderr_digest = _write_private(paths["stderr_log"], b"")
+    paths["result"].parent.chmod(0o700)
+    state = json.loads(state_path.read_bytes())
+    failed = state["codex_invocations"][1]
+    failed.update(
+        {
+            "status": (
+                "process_only_ended_with_error_business_outcome_unknown"
+            ),
+            "process_execution_status": "exited_nonzero",
+            "business_outcome": "unknown",
+            "formal_archive_supported": True,
+            "thread_id": thread_id,
+            "result_digest": result_digest,
+            "transcript_digest": transcript_digest,
+            "stderr_digest": stderr_digest,
+            "usage_accounting": {
+                **runner._usage_accounting(None),
+                "model_call_count": 1,
+                "model_call_count_support": (
+                    "inferred_from_codex_process_receipt"
+                ),
+                "unknown_usage_model_calls": 1,
+            },
+        }
+    )
+    runner.enterprise_runner._atomic_private_json(state_path, state)
+
+    with pytest.raises(
+        runner.CodexBuilderRunnerError,
+        match="fresh explicit authorization",
+    ):
+        runner._prepare_codex_invocation(
+            state_path,
+            receipt=receipt,
+            resume=True,
+        )
+
+    third = runner._prepare_codex_invocation(
+        state_path,
+        receipt=receipt,
+        resume=True,
+        authorize_indeterminate_provider_retry=True,
+    )
+
+    assert third["invocation_index"] == 3
+    assert third["resume_thread_id"] == thread_id
+    assert third["preflight_retry_of_invocation_id"] == second[
+        "invocation_id"
+    ]
+    persisted = json.loads(state_path.read_bytes())
+    failed = persisted["codex_invocations"][1]
+    assert failed["usage_accounting"]["unknown_usage_model_calls"] == 1
+    authorization = failed["indeterminate_provider_retry_authorization"]
+    assert authorization["provider_outcome"] == "indeterminate"
+    assert authorization[
+        "duplicate_charge_or_execution_risk_acknowledged"
+    ] is True
+    assert authorization["retry_eligible"] is True
+    evidence_path = Path(authorization["evidence_path"])
+    assert stat.S_IMODE(evidence_path.stat().st_mode) == 0o400
+    evidence = json.loads(evidence_path.read_bytes())
+    assert evidence["usage_accounting_policy"] == (
+        "preserve_unknown_never_coerce_to_zero"
+    )
 
 
 @pytest.mark.parametrize(
@@ -1873,7 +2263,7 @@ def test_verified_rollout_budget_persists_to_invocation_and_execution_state(
             "timed_out": False,
             "rollout_budget": _rollout_budget(),
             "usage_accounting": runner._usage_accounting(None),
-            "formal_archive_supported": False,
+            "formal_archive_supported": True,
         },
         paths=paths,
     )

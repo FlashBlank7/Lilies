@@ -32,9 +32,10 @@ def test_delivery_policy_matrix_is_explicit() -> None:
     assert guided.warning_ack_required is True
     assert governed_advisory.publication_behavior == "advisory_confirmation"
     assert governed_advisory.hard_gate_enabled is False
-    assert governed_hard.publication_behavior == "hard_gate"
-    assert governed_hard.missing_evidence_action == "block"
-    assert governed_hard.stale_evidence_action == "block"
+    assert governed_hard.publication_behavior == "advisory_confirmation"
+    assert governed_hard.missing_evidence_action == "confirm"
+    assert governed_hard.stale_evidence_action == "confirm"
+    assert governed_hard.hard_gate_enabled is False
 
 
 def test_application_round_trips_shape_and_delivery_mode_independently(tmp_path: Path) -> None:
@@ -89,11 +90,11 @@ def test_application_round_trips_shape_and_delivery_mode_independently(tmp_path:
             assert item["mode"] == "chat"
             assert item["delivery_mode"] == "governed"
             assert item["governed_hard_gate"] is True
-            assert item["delivery_policy"]["hard_gate_enabled"] is True
+            assert item["delivery_policy"]["hard_gate_enabled"] is False
         assert draft["snapshot"]["mode"] == "chat"
         assert draft["snapshot"]["delivery_mode"] == "governed"
         assert draft["snapshot"]["governed_hard_gate"] is True
-        assert draft["delivery_policy"]["publication_behavior"] == "hard_gate"
+        assert draft["delivery_policy"]["publication_behavior"] == "advisory_confirmation"
 
 
 def test_legacy_application_schema_and_snapshot_migrate_to_guided(tmp_path: Path) -> None:

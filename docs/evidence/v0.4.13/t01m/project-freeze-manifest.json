@@ -1,0 +1,167 @@
+{
+  "schema_version": 1,
+  "manifest_id": "T01M-CIVILIZATION-SEED-PROJECT-FREEZE-v1",
+  "task_id": "V04-13-T01M",
+  "brief_id": "T01M-CIVILIZATION-SEED-ANDROID-v1",
+  "frozen_at": "2026-07-27T09:55:00+09:00",
+  "status": "frozen_pending_independent_project_freeze_review",
+  "enterprise_denominator": false,
+  "project_execution_authorized": false,
+  "authority": {
+    "stage_report": {
+      "path": "docs/stage-reports/v0.4.13_lilies_local_agent_and_collaboration_pipeline.md",
+      "sha256": "777e3bcc2567272f887fb7ddf4b113de939e207e3ac9169af869309513672bef"
+    },
+    "stage_contract": {
+      "path": "docs/evolution-control/stage-contracts/v0.4.13-r6.json",
+      "sha256": "67318fac5b4aebf3d4897299d60647e3b6a2dc35d3ce1f3dfe9c9618493e49bc"
+    },
+    "intent_registry": {
+      "path": "docs/evolution-control/report_intents.json",
+      "sha256": "50676709c9bada3ff5df1d4c8d0e981dfb82e4e59e5256f7f5d0396d6de0b965"
+    }
+  },
+  "frozen_inputs": [
+    {
+      "path": "docs/evidence/v0.4.13/t01m/project-brief.zh.md",
+      "sha256": "990d76d6b893a73d51ea98dc67e494bed1aa88bf04a75f534bacfe995ae60dee"
+    },
+    {
+      "path": "docs/evidence/v0.4.13/t01m/acceptance-oracle.json",
+      "sha256": "52c7998a6b9f3d710f043e53f49d2176ed50bb8bf4bfc782d7ec1b5321a8bbe4"
+    },
+    {
+      "path": "docs/evidence/v0.4.13/t01m/acceptance-oracle-design-review.md",
+      "sha256": "f02a229c446bc3ccf89896e27693f99c63c3420186c61cd7f2a8492e13b3c29b"
+    },
+    {
+      "path": "docs/evidence/v0.4.13/t01m/baseline.json",
+      "sha256": "9cc7c5f7b45afdbe3b10575e1c086ef0ae423d8c4260595e9e469eed15ab2a64"
+    },
+    {
+      "path": "docs/evidence/v0.4.13/t01m/environment-preflight.json",
+      "sha256": "8becf5f8eba0643aecea4b2cbddc938a3862afe55289210b860c8d95dc33b160"
+    },
+    {
+      "path": "docs/evidence/v0.4.13/t01m/toolchain-lock.json",
+      "sha256": "eaefdf0b12ec42c1ecd45dc1364e22d1febc595bf3712b9bb0095193664dcdf1"
+    },
+    {
+      "path": "docs/evidence/v0.4.13/t01m/model-lock.json",
+      "sha256": "2432017b3aa342bbbc0640190279e5dd906b60b60c660d62917ce1d201634f67"
+    },
+    {
+      "path": "docs/evidence/v0.4.13/t01m/iteration-plan.zh.md",
+      "sha256": "f6c6c321b7981d7cbb72afd2121f5cafc4c9b999e96a01fda3fee32b967fc14a"
+    },
+    {
+      "path": "docs/evidence/v0.4.13/t01m/token-budget.zh.md",
+      "sha256": "c87fb3f7b288524f37e06ba407d5795c7ce689d327b0382cf310932dc1a9a81d"
+    },
+    {
+      "path": "docs/evidence/v0.4.13/t01m/oracle-driver-independent-review.md",
+      "sha256": "0c1eb6cae4d014d933682b3274d2a48d8f9ca135bb8a25042104f717c1236544"
+    },
+    {
+      "path": "docs/evidence/v0.4.13/t01m/build-backend-independent-review.md",
+      "sha256": "eb6a1b347bf0676c7434eaeec0efa1079054f1c648cc730bf81bdac5e0a291df"
+    }
+  ],
+  "application_repository": {
+    "path": "/Users/zhonghaoyang/Code/agent/LiliesCivilizationSeedAndroid",
+    "branch": "main",
+    "baseline_commit": "82424224a039a7af33189e1288717737e60d9706",
+    "baseline_tree": "4b825dc642cb6eb9a060e54bf8d69288fbee4904",
+    "baseline_parents": [],
+    "tracked_entry_count": 0,
+    "first_non_empty_commit_author": "isolated Lilies DevelopmentAssignment only",
+    "codex_application_implementation_allowed": false
+  },
+  "lilies_runtime": {
+    "repository": "/Users/zhonghaoyang/Code/agent/LiliesAgent",
+    "branch": "agent/windows-runtime",
+    "commit": "d6f0ed7a493c213b6f654735e647011de93f73bc",
+    "tree": "eb0b88221e1367e857c781427b27d027a7ce4a4a",
+    "distribution": "lilies-local-agent 0.1.1",
+    "model_egress_default": false
+  },
+  "model": {
+    "provider": "ollama-local",
+    "name": "qwen2.5-coder:7b-instruct-q4_K_M",
+    "manifest_digest": "sha256:dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+    "template_digest": "sha256:1e65450c30670713aa47fe23e8b9662bdf4065e81cc8e3cbfaa98924fcc0d320",
+    "context_window_tokens": 32768,
+    "input_token_upper_bound_per_call": 24576,
+    "output_token_upper_bound_per_call": 8192,
+    "usage_source": "prompt_eval_count_and_eval_count_only",
+    "unknown_usage_policy": "stop_and_reconciliation_required",
+    "cost_usd_per_million_input_tokens": 0,
+    "cost_usd_per_million_output_tokens": 0,
+    "listener": "127.0.0.1:11435",
+    "persistent_service_allowed": false
+  },
+  "development_assignments": {
+    "iterations": [
+      "M01",
+      "M02",
+      "M03",
+      "M04",
+      "M05",
+      "M06"
+    ],
+    "one_new_session_assignment_run_and_ledger_per_iteration": true,
+    "shared_git_history_only": true,
+    "tools": [
+      "file_read",
+      "directory_list",
+      "directory_create",
+      "text_search",
+      "file_write",
+      "build_run"
+    ],
+    "build_environment_id": "android-sdk-java-offline-v1",
+    "process_run_allowed": false,
+    "network_allowed": false,
+    "project_scripts_allowed": false,
+    "annotation_processing_allowed": false,
+    "dependency_download_allowed": false,
+    "secret_access_allowed": false,
+    "vcs_metadata_access_allowed": false,
+    "workspace_scope": "application repository only",
+    "side_effect_authority": "frozen per-assignment preauthorized file/build scope only",
+    "final_source_mutation_requires_following_successful_build_test": true,
+    "external_oracle_source_or_internal_answers_visible_to_model": false
+  },
+  "project_budgets": {
+    "maximum_model_calls": 152,
+    "maximum_input_tokens": 3735552,
+    "maximum_output_tokens": 1245184,
+    "maximum_total_tokens": 4980736,
+    "maximum_tool_calls": 760,
+    "budget_values_are_hard_ceilings_not_targets": true
+  },
+  "build_backend": {
+    "environment_id": "android-sdk-java-offline-v1",
+    "reproducibility_runs": 2,
+    "network": false,
+    "artifact_promotion": "content-addressed-create-only",
+    "same_uid_external_path_replacement_resistant": false,
+    "scratch_instantaneous_peak_known": false,
+    "receipt_persistence": "first-response-equals-sqlite-equals-restart-get-v1"
+  },
+  "external_oracle": {
+    "repository_commit": "b6acc78d44f80f8def3a02c028d9663b6d59a75d",
+    "repository_tree": "f031230c94833c0691084e49a1d8f91209f224fe",
+    "lock_sha256": "3993b42f67479e80ee32ae872b3a544b32e31c111f08d9dcc2a7ea1c565775c1",
+    "driver_apk_sha256": "47f0568de6855f8bf893d76328cfacb1f354d0c7f4c416f224a35f649e893120",
+    "target_runtime_results_claimed_before_assignment": false
+  },
+  "authorization_boundary": {
+    "review_must_pass_before_authorization": true,
+    "authorization_must_be_a_separate_one_way_envelope": true,
+    "authorization_envelope_may_bind_but_may_not_mutate_this_manifest": true,
+    "starting_ollama_or_lilies_daemon_before_authorization": false,
+    "background_automatic_retry": false
+  },
+  "claim_ceiling": "This manifest freezes the project, empty baseline, Lilies runtime, zero-cost local model, offline build backend, budgets and external oracle. It does not authorize execution, prove any Lilies-authored Android source, APK, emulator result or T01M completion."
+}

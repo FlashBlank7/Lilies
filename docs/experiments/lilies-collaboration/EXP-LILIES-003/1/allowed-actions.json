@@ -1,0 +1,33 @@
+{
+  "schema_version": "1.0",
+  "project_id": "EXP-LILIES-003",
+  "revision": 1,
+  "builder": {
+    "allowed_reads": [
+      "this immutable public task package",
+      "public Lilies block manuals, tool catalog and OpenAPI schema",
+      "Home Assistant public REST and WebSocket responses exposed through scoped credentials",
+      "public workflow run, trace, artifact and test receipts"
+    ],
+    "allowed_writes": [
+      "Lilies applications, drafts, tests, runs, resumes, event subscriptions, secrets and published versions through public APIs",
+      "controlled Home Assistant test entity states and events through public APIs",
+      "controlled notification and action sink through its public API"
+    ],
+    "forbidden": [
+      "platform database reads or writes",
+      "Home Assistant .storage or database reads",
+      "hidden Seed records or oracle values",
+      "source-code search for a project answer",
+      "project-specific platform code, blocks or hard-coded entity identities",
+      "clearing durable timers or idempotency state to make a retry pass",
+      "starting scripts/run_v04_13_codex_builder.py"
+    ]
+  },
+  "developer_supplementation": {
+    "allowed_only_after": "A complete Builder gap report based on public platform behavior and manuals.",
+    "constraint": "Minimum host-neutral capability only; Home Assistant mapping remains in workflow configuration.",
+    "affected_project_rerun_required": true
+  }
+}
+

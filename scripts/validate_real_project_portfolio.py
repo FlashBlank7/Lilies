@@ -7,11 +7,22 @@ import argparse
 import hashlib
 import json
 import re
+import sys
 from pathlib import Path
 from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
+PLATFORM_BACKEND_SOURCE = ROOT / "platform/backend/src"
+if str(PLATFORM_BACKEND_SOURCE) not in sys.path:
+    sys.path.insert(0, str(PLATFORM_BACKEND_SOURCE))
+
+from agent_platform.capability_generality_gate import (  # noqa: E402
+    CapabilityGeneralityConfigurationError,
+    CapabilityGeneralityGate,
+)
+
+
 PORTFOLIO_PATH = Path(
     "docs/experiments/lilies-collaboration/portfolio-v04-13-t01h.json"
 )
@@ -550,6 +561,45 @@ def validate_portfolio(root: Path = ROOT) -> list[str]:
         errors.append("project failure attempts must remain in the denominator")
     if execution.get("next_project_requires_previous_project_closure") is not True:
         errors.append("portfolio does not require previous-project closure")
+    raw_sequence_overrides = execution.get("explicit_user_sequence_overrides", [])
+    sequence_overrides: dict[str, set[str]] = {}
+    if not isinstance(raw_sequence_overrides, list):
+        errors.append("explicit user sequence overrides must be a list")
+    else:
+        for index, override in enumerate(raw_sequence_overrides):
+            if not isinstance(override, dict):
+                errors.append(f"explicit user sequence override {index} is not an object")
+                continue
+            project_id = override.get("project_id")
+            prior_ids = override.get("nonpassing_prior_project_ids")
+            if project_id not in EXPECTED_PROJECT_IDS:
+                errors.append(
+                    f"explicit user sequence override {index} has unknown project"
+                )
+                continue
+            expected_prior_ids = set(
+                EXPECTED_PROJECT_IDS[: EXPECTED_PROJECT_IDS.index(project_id)]
+            )
+            if (
+                not isinstance(prior_ids, list)
+                or not prior_ids
+                or not set(prior_ids) <= expected_prior_ids
+            ):
+                errors.append(
+                    f"explicit user sequence override {project_id} has invalid prior projects"
+                )
+                continue
+            if not nonempty_text(override.get("authority")):
+                errors.append(
+                    f"explicit user sequence override {project_id} has no authority"
+                )
+                continue
+            if override.get("does_not_mark_prior_projects_passed") is not True:
+                errors.append(
+                    f"explicit user sequence override {project_id} may rewrite prior results"
+                )
+                continue
+            sequence_overrides[str(project_id)] = set(str(item) for item in prior_ids)
     if execution.get("one_builder_context_per_project_revision") is not True:
         errors.append("portfolio does not require a project-local Builder context")
     if execution.get("portfolio_average_cannot_mask_project_failure") is not True:
@@ -570,9 +620,15 @@ def validate_portfolio(root: Path = ROOT) -> list[str]:
             continue
         started = project.get("latest_revision", 0) > 0 or project.get("status") != "selected"
         prior_ids = EXPECTED_PROJECT_IDS[:index]
-        if started and any(
-            project_manifests.get(prior_id, {}).get("status") != "passed"
+        nonpassing_prior_ids = {
+            prior_id
             for prior_id in prior_ids
+            if project_manifests.get(prior_id, {}).get("status") != "passed"
+        }
+        if (
+            started
+            and nonpassing_prior_ids
+            and sequence_overrides.get(project_id) != nonpassing_prior_ids
         ):
             errors.append(f"{project_id} started before every previous project passed")
 
@@ -586,6 +642,27 @@ def validate_portfolio(root: Path = ROOT) -> list[str]:
     if lane.get("affected_project_rerun_required") is not True:
         errors.append("capability repair must require affected-project reruns")
     gap_entries = validate_gap_lane(root, project_manifests, errors)
+    product_source_present = any(
+        path.exists()
+        for path in (
+            root / "platform/backend/src",
+            root / "platform/frontend",
+            root / "scripts/run_v04_13_codex_builder.py",
+        )
+    )
+    if product_source_present:
+        try:
+            generality = CapabilityGeneralityGate.from_project_manifests(
+                project_manifests
+            ).inspect_repository(root)
+        except CapabilityGeneralityConfigurationError as error:
+            errors.append(f"capability generality policy is invalid: {error}")
+        else:
+            errors.extend(
+                "capability generality gate rejected "
+                + finding.public_detail
+                for finding in generality.findings
+            )
     closure = portfolio.get("closure_policy", {})
     if closure.get("required_project_verdict") != "pass_for_every_project":
         errors.append("portfolio closure does not require every project to pass")
@@ -623,7 +700,14 @@ def main() -> int:
         return 1
     print("real-project portfolio validation: PASS")
     print("- projects: 6")
-    print("- active: EXP-LILIES-001 revision 20")
+    portfolio = load_json(args.root.resolve() / PORTFOLIO_PATH)
+    active_project = next(
+        project for project in portfolio["projects"] if project["status"] == "active"
+    )
+    print(
+        f"- active: {active_project['project_id']} "
+        f"revision {active_project['latest_revision']}"
+    )
     print("- capability lane enterprise denominator: false")
     print("- provider egress default: disabled")
     return 0

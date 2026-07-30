@@ -51,6 +51,33 @@ class ToolCatalogInput(StrictToolInput):
     pass
 
 
+class ConnectorAuthorizationIssueInput(StrictToolInput):
+    application_id: UUID
+    connector_id: str = Field(
+        min_length=1,
+        max_length=160,
+        pattern=r"^[A-Za-z][A-Za-z0-9_.-]*$",
+    )
+    connector_version: int = Field(ge=1)
+    tenant_id: str = Field(min_length=1, max_length=300)
+    actor_id: str = Field(min_length=1, max_length=300)
+    profile_id: str = Field(
+        min_length=1,
+        max_length=160,
+        pattern=r"^[A-Za-z][A-Za-z0-9_.-]*$",
+    )
+    operation_id: str = Field(
+        min_length=2,
+        max_length=120,
+        pattern=r"^[A-Za-z][A-Za-z0-9_.-]+$",
+    )
+    operation_kind: Literal["write", "compensate"]
+    descriptor_digest: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    payload: dict[str, Any]
+    expires_in_seconds: int = Field(default=300, ge=1, le=300)
+    idempotency_key: IdempotencyKey
+
+
 class ApplicationCreateInput(StrictToolInput):
     name: str = Field(min_length=1, max_length=100)
     description: str = Field(default="", max_length=1_000)
@@ -161,6 +188,9 @@ _TOOL_DESCRIPTIONS = {
     "platform_block_search": "Search public workflow blocks and their manuals.",
     "platform_block_get": "Read one public block schema, ports, examples, and anti-patterns.",
     "platform_tool_catalog": "List public workflow-runtime tool contracts.",
+    "platform_connector_authorization_issue": (
+        "Issue one task-policy-bound, exact-payload, single-use connector authorization."
+    ),
     "platform_application_create": "Create one application owned by this assignment.",
     "platform_application_get": "Read an assigned application's version summary.",
     "platform_draft_inspect": "Inspect an assigned draft, revision, graph, tests, and validation.",
@@ -175,7 +205,10 @@ _TOOL_DESCRIPTIONS = {
         "Read one digest-verified, bounded chunk of a run artifact through "
         "assignment-safe path containment."
     ),
-    "platform_publish": "Publish an immutable assigned application version through its gate.",
+    "platform_publish": (
+        "Publish an immutable assigned application version after the Builder's explicit "
+        "decision; platform structural, permission, and execution-safety checks still apply."
+    ),
 }
 
 
@@ -372,6 +405,11 @@ def build_lilies_platform_registry(
         ("platform_block_search", BlockSearchInput, False),
         ("platform_block_get", BlockGetInput, False),
         ("platform_tool_catalog", ToolCatalogInput, False),
+        (
+            "platform_connector_authorization_issue",
+            ConnectorAuthorizationIssueInput,
+            True,
+        ),
         ("platform_application_create", ApplicationCreateInput, True),
         ("platform_application_get", ApplicationGetInput, False),
         ("platform_draft_inspect", DraftInspectInput, False),

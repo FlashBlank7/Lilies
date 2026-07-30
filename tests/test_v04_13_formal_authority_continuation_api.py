@@ -21,6 +21,7 @@ from agent_platform.external_builder_bootstrap import (
     ExternalBuilderBootstrapReceipt,
 )
 from agent_platform.formal_authority_continuation_api import (
+    _rotation_bootstrap_idempotency_key,
     _rotation_identifiers,
 )
 from agent_platform.lilies_models import AssignmentMode
@@ -282,6 +283,40 @@ def test_owner_rebinds_connector_credential_without_secret_disclosure(
         )
 
 
+def test_owner_close_retires_orphan_formal_builder_authority(
+    tmp_path: Path,
+) -> None:
+    app = create_app(_settings(tmp_path), ScriptedProvider())
+    with TestClient(app) as client:
+        issued_at = datetime.now(timezone.utc)
+        authority = _setup_expiring_authority(
+            client,
+            issued_at=issued_at,
+        )
+        channel = authority["collaboration"].channel
+
+        response = client.post(
+            (
+                "/api/v1/studio/collaboration/channels/"
+                f"{channel.channel_id}/close"
+            ),
+            headers={"Authorization": "Bearer formal-owner-test-token"},
+            json={
+                "idempotency_key": "close-orphan-formal-authority-0001",
+                "expected_channel_revision": channel.revision,
+                "reason": "retire incomplete Builder bootstrap authority",
+            },
+        )
+
+        assert response.status_code == 200, response.text
+        assert response.json()["status"] == "closed"
+        credential = client.portal.call(
+            client.app.state.services.platform_blackbox_auth.get_credential,
+            authority["platform"].credential.credential_ref,
+        )
+        assert credential.revoked_at is not None
+
+
 def test_expired_authority_continuation_preserves_policy_and_replays(
     tmp_path: Path,
 ) -> None:
@@ -490,7 +525,7 @@ def test_expired_authority_can_rotate_to_a_fresh_builder_attempt(
             "environment_instance_id": "generic-authority:r1:debug",
             "retire_predecessor_channel": True,
             "rotation_id": str(rotation_id),
-            "idempotency_key": "formal-authority-rotate-0001",
+            "idempotency_key": f"formal-authority-rotate-{rotation_id}",
             "reason": "start a new accountable attempt after environment reset",
         }
         bootstrap = AsyncMock(return_value=receipt)
@@ -536,43 +571,103 @@ def test_expired_authority_can_rotate_to_a_fresh_builder_attempt(
         assert request.assignment_id == identifiers["assignment_id"]
         assert request.application_id == authority["application_id"]
         assert request.handoff_path == handoff_path
+        assert request.idempotency_key == _rotation_bootstrap_idempotency_key(
+            owner_idempotency_key=body["idempotency_key"],
+            rotation_id=rotation_id,
+        )
+        assert f"{rotation_id}.{rotation_id.hex}" not in request.idempotency_key
         assert callable(bootstrap.await_args.kwargs["task_token_factory"])
 
 
-def test_active_authority_cannot_rotate(
+def test_active_authority_can_rotate_with_explicit_predecessor_retirement(
     tmp_path: Path,
 ) -> None:
     app = create_app(_settings(tmp_path), ScriptedProvider())
     with TestClient(app) as client:
         issued_at = datetime.now(timezone.utc)
         authority = _setup_expiring_authority(client, issued_at=issued_at)
-        response = client.post(
-            (
-                "/api/v1/formal-assignments/"
-                f"{authority['assignment_id']}/authority/rotate"
-            ),
-            headers={"Authorization": "Bearer formal-owner-test-token"},
-            json={
-                "schema_version": "1.0",
-                "session_id": str(authority["session_id"]),
-                "channel_id": str(
-                    authority["collaboration"].channel.channel_id
-                ),
-                "previous_platform_credential_ref": (
-                    authority["platform"].credential.credential_ref
-                ),
-                "previous_collaboration_credential_ref": (
-                    authority["collaboration"].credential_ref
-                ),
-                "application_id": str(authority["application_id"]),
-                "task_id": "GENERIC-AUTHORITY-001",
-                "revision": 1,
-                "environment_instance_id": "generic-authority:r1:debug",
-                "retire_predecessor_channel": True,
-                "rotation_id": str(uuid4()),
-                "idempotency_key": "formal-authority-rotate-active-0001",
-                "reason": "active authority must remain single owner",
-            },
+        rotation_id = uuid4()
+        identifiers = _rotation_identifiers(
+            predecessor_assignment_id=authority["assignment_id"],
+            rotation_id=rotation_id,
         )
-        assert response.status_code == 409, response.text
-        assert response.json()["detail"]["code"] == "authority_not_expired"
+        receipt = ExternalBuilderBootstrapReceipt(
+            builder_actor="codex",
+            task_id="GENERIC-AUTHORITY-001",
+            revision=1,
+            run_id="formal-run:active-rotation-test",
+            assignment_id=identifiers["assignment_id"],
+            application_id=authority["application_id"],
+            build_id=identifiers["build_id"],
+            session_id=identifiers["session_id"],
+            connection_id=identifiers["connection_id"],
+            environment_instance_id="generic-authority:r1:debug-clean",
+            channel_id=uuid4(),
+            task_credential_ref=f"platform-task-credential:{uuid4()}",
+            collaboration_credential_ref=f"collaboration_{uuid4().hex}",
+            contract_digest="sha256:" + "3" * 64,
+            assignment_bundle_digest="sha256:" + "4" * 64,
+            workspace_manifest_digest="sha256:" + "5" * 64,
+            workspace_policy_digest="sha256:" + "6" * 64,
+            expires_at=issued_at + timedelta(hours=1),
+            handoff_path=(
+                tmp_path
+                / "formal-authority-rotations"
+                / f"{identifiers['assignment_id']}.json"
+            ),
+            handoff_digest="sha256:" + "7" * 64,
+        )
+        with patch(
+            (
+                "agent_platform.formal_authority_continuation_api."
+                "bootstrap_external_builder_async"
+            ),
+            AsyncMock(return_value=receipt),
+        ):
+            response = client.post(
+                (
+                    "/api/v1/formal-assignments/"
+                    f"{authority['assignment_id']}/authority/rotate"
+                ),
+                headers={"Authorization": "Bearer formal-owner-test-token"},
+                json={
+                    "schema_version": "1.0",
+                    "session_id": str(authority["session_id"]),
+                    "channel_id": str(
+                        authority["collaboration"].channel.channel_id
+                    ),
+                    "previous_platform_credential_ref": (
+                        authority["platform"].credential.credential_ref
+                    ),
+                    "previous_collaboration_credential_ref": (
+                        authority["collaboration"].credential_ref
+                    ),
+                    "application_id": str(authority["application_id"]),
+                    "task_id": "GENERIC-AUTHORITY-001",
+                    "revision": 1,
+                    "environment_instance_id": (
+                        "generic-authority:r1:debug-clean"
+                    ),
+                    "retire_predecessor_channel": True,
+                    "rotation_id": str(rotation_id),
+                    "idempotency_key": (
+                        "formal-authority-rotate-active-0001"
+                    ),
+                    "reason": "retire active authority before a clean attempt",
+                },
+            )
+
+        assert response.status_code == 200, response.text
+        assert response.json()["bootstrap"]["assignment_id"] == str(
+            identifiers["assignment_id"]
+        )
+        previous = client.portal.call(
+            client.app.state.services.platform_blackbox_auth.get_credential,
+            authority["platform"].credential.credential_ref,
+        )
+        assert previous.revoked_at is not None
+        channel = client.portal.call(
+            client.app.state.services.collaboration.store.get_channel,
+            authority["collaboration"].channel.channel_id,
+        )
+        assert channel["status"] == "closed"

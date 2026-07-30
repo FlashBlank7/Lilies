@@ -150,25 +150,50 @@ pip install -e ".[dev]"
 
 本地开发请优先使用 `./scripts/dev_platform.sh` 同时启动 API 和 Studio。该脚本会把 Studio 代理和 Local Lilies assignment 回调都指向实际的 API host/port（默认 `http://127.0.0.1:8001`）；显式设置 `LILIES_PLATFORM_BASE_URL` 时则保留该值。不要手动把后端启动在另一个端口后再打开 Studio，否则前端代理或本地 daemon 回调会连到错误端口。
 
+本地 Lilies 已作为同级独立项目维护在 `../LiliesAgent/`。平台不得通过
+Python import、源码相对路径或共享数据库调用该项目，只能读取同一用户的
+`~/.lilies/daemon.json` 公开发现记录并通过版本化 `/local/v1` HTTP 合同连接。
+发现只会预填 loopback 地址与指纹；配对仍需在 Lilies 软件中生成一次性码，
+不会因自动发现而自动授予平台权限。开发环境需要把
+`LILIES_LOCAL_AGENT_ENABLED=true`，自定义状态目录时同步设置
+`LILIES_LOCAL_DISCOVERY_FILE`。
+
 ### 模型出口与 token 监控
 
 真实 provider HTTP 默认由 `MODEL_EGRESS_ENABLED=false` 阻断。充值、核对余额或
 检查历史 usage 不需要打开它。确认要执行模型任务时再临时设置
 `MODEL_EGRESS_ENABLED=true`；T01H 正式 runner 还要求
-`--enable-model-egress`，因此单纯启动平台、daemon 或恢复旧进程不会越过断路器。
+`--enable-model-egress`。外部 Codex Builder 则必须在同一条新命令中同时给出
+`--launch-codex` 与 `--authorize-external-codex-token-spend`；遗留命令或只恢复
+平台不会自动重启扣量进程。若某个隔离 state root 中存在
+`EXTERNAL_CODEX_SPEND_DISABLED`，任何 CLI 旗标都不能覆盖它；只能在再次获得明确
+的用户扣量授权后，由操作者显式移除该哨兵。
 
-监控直接只读 SQLite 账本和进程表，不会发出网络或模型调用：
+监控只读平台/实验自己拥有的 SQLite 账本、进程表和独立 daemon 的公开
+discovery/health，不会发出模型调用，也不会读取 `../LiliesAgent/` 的私有
+SQLite、bootstrap 或 bearer：
 
 ```bash
 python3 scripts/monitor_lilies_tokens.py
 python3 scripts/monitor_lilies_tokens.py --watch 5
 python3 scripts/monitor_lilies_tokens.py --state-root /path/to/experiment-state --watch 5
+python3 scripts/monitor_lilies_tokens.py \
+  --state-root /path/to/experiment-state \
+  --standalone-discovery-record ~/.lilies/daemon.json \
+  --watch 5
 python3 scripts/monitor_lilies_tokens.py --fail-on-risk
 ```
 
 输出按平台 Builder、Local Lilies Builder、工作流模型节点、需求补全、协作开发等
 阶段拆分 input/output/cache/reasoning token、模型调用次数和估算费用，同时检查
 模型进程、定时工作流、durable retry、可恢复 assignment 与 autonomous 开发任务。
+`--state-root` 选择隔离实验账本；`--standalone-discovery-record` 只增加独立
+daemon 的进程、回环地址和默认出口证明，不会越过 HTTP 配对边界读取其 Token
+明细。当前 CLI 身份 ACL 内的 session/stage/model 明细应在 `../LiliesAgent/`
+运行 `lilies usage` 查看；跨客户端全局汇总仍需经平台已配对的 authenticated
+usage bridge 提供，缺少该快照时监控会把独立 daemon 的完整安全结论保留为
+`unknown`，不会把未知误报为零。`--platform-owned-legacy-lilies-db` 仅用于明确
+属于平台的旧账本，不能指向独立 Lilies 私有状态。
 账本缺失时安全结论显示 `unknown` 并让 `--fail-on-risk` 非零退出；没有 usage
 回执的失败/重试调用单独计为 `unknown-usage-calls`，不会伪装成零 Token。
 

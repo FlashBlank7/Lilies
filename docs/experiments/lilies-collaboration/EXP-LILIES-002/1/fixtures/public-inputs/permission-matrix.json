@@ -1,0 +1,12 @@
+{
+  "roles": ["operations", "safety", "finance", "hr", "visitor"],
+  "policy": "A document is retrievable when it is public or at least one allowed role intersects the authenticated caller roles. Filtering must occur before ranking.",
+  "sources": {
+    "ops-conveyor-lockout": ["operations", "safety"],
+    "safety-spill-response": ["safety"],
+    "finance-vendor-approval": ["finance"],
+    "hr-payroll-cutoff": ["hr"],
+    "public-emergency-contacts": ["*"],
+    "ops-pump-inspection": ["operations"]
+  }
+}

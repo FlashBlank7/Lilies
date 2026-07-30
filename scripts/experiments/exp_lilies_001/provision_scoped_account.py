@@ -78,7 +78,44 @@ elif HOST == "inventree":
     group, _ = Group.objects.get_or_create(
         name=f"exp_lilies_{ROLE}",
     )
-    group.permissions.clear()
+    related_model_permissions = (
+        {
+            ("order", "change_purchaseorder"),
+        }
+        if ROLE == "builder"
+        else set()
+    )
+    related_permission_rows = list(
+        Permission.objects.filter(
+            content_type__app_label__in={
+                app_label
+                for app_label, _codename in related_model_permissions
+            },
+            codename__in={
+                codename
+                for _app_label, codename in related_model_permissions
+            },
+        ).order_by(
+            "content_type__app_label",
+            "codename",
+        )
+    )
+    found_related_permissions = {
+        (
+            permission.content_type.app_label,
+            permission.codename,
+        )
+        for permission in related_permission_rows
+    }
+    missing_related_permissions = sorted(
+        related_model_permissions - found_related_permissions
+    )
+    if missing_related_permissions:
+        raise RuntimeError(
+            "required related-model permissions are unavailable: "
+            f"{missing_related_permissions}"
+        )
+    group.permissions.set(related_permission_rows)
     rules = {
         "part": {
             "can_view": True,
@@ -119,6 +156,10 @@ elif HOST == "inventree":
         )
         for name, values in sorted(rules.items())
     ]
+    permission_inventory.extend(
+        f"django:{app_label}.{codename}"
+        for app_label, codename in sorted(found_related_permissions)
+    )
 else:
     raise RuntimeError("unsupported scoped account host")
 

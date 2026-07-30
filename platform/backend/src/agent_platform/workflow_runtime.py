@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import ipaddress
 import json
 import re
 from collections import defaultdict, deque
 from collections.abc import Collection
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -24,31 +26,71 @@ from .blocks import (
     CollectionDigestConfig,
     ConnectorActionConfig,
     Condition,
+    DeployedModelInferenceConfig,
     EndConfig,
+    EventSubscriptionTriggerConfig,
     HTTPConfig,
     HumanInputConfig,
     IfElseConfig,
     IterationConfig,
+    JsonSchemaValidateConfig,
     LLMConfig,
     LoopConfig,
+    ModelDriftMonitorConfig,
     ParameterExtractorConfig,
+    RecordCollectionNormalizeConfig,
+    RecordDeduplicateConfig,
+    RecordMatchConfig,
+    RegexExtractConfig,
     ScheduleTriggerConfig,
     StartConfig,
     TemplateConfig,
     ToolConfig,
+    TypedJsonArtifactConfig,
+    TypedWorkbookConfig,
     VariableAggregatorConfig,
     VariableAssignerConfig,
     WebCollectionConfig,
 )
 from .connector_sdk import ConnectorExecutionRequest, ConnectorService
+from .event_automation import (
+    DurableEventTimerConfig,
+    DurableEventTimerRequest,
+    EventAutomationService,
+)
+from .execution_policy import ExecutionPolicySnapshot
+from .knowledge_rag import (
+    GroundedAnswerConfig,
+    KnowledgeIndexService,
+    KnowledgeIndexSyncConfig,
+    KnowledgeRetrievalConfig,
+    KnowledgeRetrieveRequest,
+    KnowledgeSyncRequest,
+    grounded_answer,
+)
 from .models import AgentSpec, ChatMessage, ContentBlock, PermissionMode, Usage
 from .governed_memory import GovernedMemoryPermission, GovernedMemorySurface, GovernedMemoryViolation
 from .platform_harness import PlatformHarness
 from .providers import ModelProvider
+from .record_pipeline import (
+    deduplicate_records,
+    extract_regex_fields,
+    match_record,
+    normalize_record_collection,
+    validate_json_value,
+    write_typed_json_artifact,
+)
 from .runtime import AgentRuntime
 from .sandbox import SandboxManager
 from .storage import Storage
+from .tabular_models import (
+    ModelObservation,
+    TabularDriftRequest,
+    TabularInferenceRequest,
+    TabularModelService,
+)
 from .tools import ToolContext, ToolRegistry
+from .typed_workbook import write_typed_workbook_artifact
 from .workflow_models import (
     ApplicationSnapshot,
     ErrorStrategy,
@@ -64,6 +106,10 @@ from .web_collection import ControlledWebCollector
 
 class HumanInputPause(RuntimeError):
     pass
+
+
+class WorkflowReferenceResolutionError(ValueError):
+    """A required workflow value reference could not be resolved."""
 
 
 class WorkflowWorkspaceBoundaryViolation(ValueError):
@@ -122,6 +168,14 @@ MAX_NESTED_WORKFLOW_DEPTH = 16
 TEST_SUITE_MAX_CONCURRENCY = 4
 
 
+class WorkflowHTTPError(RuntimeError):
+    """HTTP response failure with enough structure for safe retry policy."""
+
+    def __init__(self, status_code: int, detail: str) -> None:
+        super().__init__(f"HTTP {status_code}: {detail}")
+        self.status_code = status_code
+
+
 @dataclass(slots=True)
 class NodeExecutionError(RuntimeError):
     node_id: str
@@ -148,6 +202,9 @@ class WorkflowRuntime:
         governed_memory: GovernedMemorySurface | None = None,
         web_collector: ControlledWebCollector | None = None,
         connector_service: ConnectorService | None = None,
+        tabular_models: TabularModelService | None = None,
+        knowledge_indexes: KnowledgeIndexService | None = None,
+        event_automation: EventAutomationService | None = None,
     ) -> None:
         self.storage = storage
         self.workflow_store = workflow_store
@@ -162,6 +219,9 @@ class WorkflowRuntime:
         self.governed_memory = governed_memory
         self.web_collector = web_collector
         self.connector_service = connector_service
+        self.tabular_models = tabular_models
+        self.knowledge_indexes = knowledge_indexes
+        self.event_automation = event_automation
         self.active_tasks: dict[str, asyncio.Task[None]] = {}
         self._workspace_boundaries: dict[str, Path] = {}
         self._nested_application_allowlists: dict[str, frozenset[str]] = {}
@@ -194,7 +254,15 @@ class WorkflowRuntime:
         governed_host_actions: bool = False,
         assignment_id: str | None = None,
         session_id: str | None = None,
+        connector_descriptor_digests: dict[str, str] | None = None,
+        task_credential_ref_digest: str | None = None,
+        task_policy_digest: str | None = None,
+        allowed_actions_digest: str | None = None,
+        budget_digest: str | None = None,
+        task_deadline_at: str | None = None,
         application_call_chain: Collection[str] | None = None,
+        simulated_human_inputs: dict[str, dict[str, Any]] | None = None,
+        allow_published_authority_rebind: bool = False,
     ) -> dict[str, Any]:
         ancestor_chain = [str(value) for value in (application_call_chain or ())]
         if application_id in ancestor_chain:
@@ -206,6 +274,68 @@ class WorkflowRuntime:
                 "nested workflow application depth exceeds the execution policy"
             )
         current_call_chain = [*ancestor_chain, application_id]
+        published_policy: ExecutionPolicySnapshot | None = None
+        effective_policy: ExecutionPolicySnapshot | None = None
+        if request.use_draft:
+            draft = await self.workflow_store.get_draft(application_id)
+            snapshot, version, draft_revision = draft["snapshot"], None, int(draft["revision"])
+        else:
+            published = await self.workflow_store.get_version(application_id, request.version)
+            snapshot, version, draft_revision = published["snapshot"], int(published["version"]), None
+            raw_policy = (published.get("publication_decision") or {}).get(
+                "execution_policy_snapshot"
+            )
+            if raw_policy is not None:
+                published_policy = ExecutionPolicySnapshot.model_validate(raw_policy)
+                effective_policy = published_policy.constrained_by(
+                    workspace_boundary=workspace_boundary,
+                    assignment_id=assignment_id,
+                    session_id=session_id,
+                    allowed_nested_application_ids=allowed_nested_application_ids,
+                    allowed_runtime_tools=allowed_runtime_tools,
+                    allowed_network_hosts=allowed_network_hosts,
+                    model_access=model_access,
+                    allowed_connector_operations=allowed_connector_operations,
+                    writable_connector_operations=writable_connector_operations,
+                    permission_required_connector_operations=(
+                        permission_required_connector_operations
+                    ),
+                    compensation_connector_operations=(
+                        compensation_connector_operations
+                    ),
+                    max_connector_write_count=max_connector_write_count,
+                    max_connector_payload_bytes=max_connector_payload_bytes,
+                    governed_host_actions=governed_host_actions,
+                    allow_authority_rebind=allow_published_authority_rebind,
+                )
+                workspace_boundary = effective_policy.workspace_boundary
+                allowed_nested_application_ids = (
+                    effective_policy.allowed_nested_application_ids
+                )
+                allowed_runtime_tools = effective_policy.allowed_runtime_tools
+                allowed_network_hosts = effective_policy.allowed_network_hosts
+                model_access = effective_policy.model_access
+                allowed_connector_operations = (
+                    effective_policy.allowed_connector_operations
+                )
+                writable_connector_operations = (
+                    effective_policy.writable_connector_operations
+                )
+                permission_required_connector_operations = (
+                    effective_policy.permission_required_connector_operations
+                )
+                compensation_connector_operations = (
+                    effective_policy.compensation_connector_operations
+                )
+                max_connector_write_count = (
+                    effective_policy.max_connector_write_count
+                )
+                max_connector_payload_bytes = (
+                    effective_policy.max_connector_payload_bytes
+                )
+                governed_host_actions = effective_policy.governed_host_actions
+                assignment_id = str(effective_policy.assignment_id)
+                session_id = str(effective_policy.session_id)
         restricted = any(
             value is not None
             for value in (
@@ -225,13 +355,14 @@ class WorkflowRuntime:
             )
         )
         if restricted:
-            self._validate_restricted_inputs(request.inputs)
-        if request.use_draft:
-            draft = await self.workflow_store.get_draft(application_id)
-            snapshot, version, draft_revision = draft["snapshot"], None, int(draft["revision"])
-        else:
-            published = await self.workflow_store.get_version(application_id, request.version)
-            snapshot, version, draft_revision = published["snapshot"], int(published["version"]), None
+            self._validate_restricted_inputs(
+                request.inputs,
+                allowed_reserved_keys=(
+                    frozenset({"__event_automation"})
+                    if origin == "event_automation"
+                    else frozenset()
+                ),
+            )
         errors = self.blocks.validate_workflow(snapshot.workflow)
         if errors:
             raise ValueError("invalid workflow: " + "; ".join(errors))
@@ -331,16 +462,14 @@ class WorkflowRuntime:
             inputs=request.inputs,
             run_id=run_id,
         )
+        if simulated_human_inputs:
+            inputs["__human__"] = simulated_human_inputs
         state = WorkflowRunState(
             run_id=run_id,
             application_id=application_id,
             snapshot=snapshot,
             inputs=inputs,
-            workspace_path=(
-                str(resolved_workspace)
-                if resolved_boundary is not None
-                else request.workspace_path
-            ),
+            workspace_path=str(resolved_workspace),
             workspace_boundary=(
                 str(resolved_boundary) if resolved_boundary is not None else None
             ),
@@ -377,6 +506,22 @@ class WorkflowRuntime:
             max_connector_write_count=max_connector_write_count,
             max_connector_payload_bytes=max_connector_payload_bytes,
             governed_host_actions=governed_host_actions,
+            connector_descriptor_digests=connector_descriptor_digests,
+            task_credential_ref_digest=task_credential_ref_digest,
+            task_policy_digest=task_policy_digest,
+            allowed_actions_digest=allowed_actions_digest,
+            budget_digest=budget_digest,
+            task_deadline_at=task_deadline_at,
+            published_execution_policy_digest=(
+                published_policy.policy_digest
+                if published_policy is not None
+                else None
+            ),
+            execution_policy_digest=(
+                effective_policy.policy_digest
+                if effective_policy is not None
+                else None
+            ),
             assignment_id=assignment_id,
             session_id=session_id,
             application_call_chain=current_call_chain,
@@ -402,7 +547,16 @@ class WorkflowRuntime:
             },
         )
         self._start(state)
-        return {"run_id": run_id, "status": "queued", "version": version, "draft_revision": draft_revision}
+        return {
+            "run_id": run_id,
+            "status": "queued",
+            "version": version,
+            "draft_revision": draft_revision,
+            "published_execution_policy_digest": (
+                state.published_execution_policy_digest
+            ),
+            "execution_policy_digest": state.execution_policy_digest,
+        }
 
     def _resolve_scoped_workspace(self, requested: str, boundary: Path) -> Path:
         """Resolve a workflow-selected directory relative to its trusted boundary."""
@@ -432,6 +586,29 @@ class WorkflowRuntime:
         if boundary is None:
             return requested
         return str(self._resolve_scoped_workspace(requested, boundary))
+
+    def _artifact_workspace_for_run(self, run_id: str, requested: str) -> Path:
+        """Give every run a private artifact namespace inside its declared workspace."""
+
+        workspace = Path(self._workspace_for_run(run_id, requested)).resolve(
+            strict=True
+        )
+        artifact_runs = workspace / ".workflow-run-artifacts"
+        if artifact_runs.is_symlink():
+            raise ValueError("workflow artifact run directory cannot be a symbolic link")
+        artifact_runs.mkdir(mode=0o700, exist_ok=True)
+        if artifact_runs.resolve() != artifact_runs or artifact_runs.parent != workspace:
+            raise ValueError("workflow artifact run directory escapes the workspace")
+        run_workspace = artifact_runs / run_id
+        if run_workspace.is_symlink():
+            raise ValueError("workflow run artifact directory cannot be a symbolic link")
+        run_workspace.mkdir(mode=0o700, exist_ok=True)
+        if (
+            run_workspace.resolve() != run_workspace
+            or run_workspace.parent != artifact_runs
+        ):
+            raise ValueError("workflow run artifact directory escapes the workspace")
+        return run_workspace
 
     def _validate_execution_policy(
         self,
@@ -607,6 +784,195 @@ class WorkflowRuntime:
             )
         return matched[0]
 
+    async def _issue_runtime_exact_connector_authorization(
+        self,
+        *,
+        config: ConnectorActionConfig,
+        state: WorkflowRunState | None,
+        run_id: str,
+        node_id: str,
+        tenant_id: str,
+        actor_id: str,
+        profile_id: str,
+        payload: dict[str, Any],
+        idempotency_key: str,
+    ) -> str:
+        """Issue one exact run-bound authorization after reference resolution."""
+
+        if self.connector_service is None or state is None:
+            raise WorkflowRuntimePermissionScopeDenied(
+                "runtime exact connector authorization policy is incomplete"
+            )
+        authorization_identity = {
+            "node_id": node_id,
+            "connector_id": config.connector_id,
+            "connector_version": config.connector_version,
+            "tenant_id": tenant_id,
+            "actor_id": actor_id,
+            "profile_id": profile_id,
+            "operation_id": config.operation_id,
+            "payload": payload,
+            "idempotency_key": idempotency_key,
+        }
+        try:
+            authorization_cache_key = hashlib.sha256(
+                json.dumps(
+                    authorization_identity,
+                    ensure_ascii=False,
+                    allow_nan=False,
+                    separators=(",", ":"),
+                    sort_keys=True,
+                ).encode("utf-8")
+            ).hexdigest()
+        except (TypeError, ValueError) as error:
+            raise ValueError(
+                "runtime exact connector authorization identity must be canonical JSON"
+            ) from error
+        cached_authorization_id = state.runtime_connector_authorization_ids.get(
+            authorization_cache_key
+        )
+        if cached_authorization_id is not None:
+            return cached_authorization_id
+        if not state.governed_host_actions:
+            await self._emit(
+                run_id,
+                "permission.requested",
+                {
+                    "node_id": node_id,
+                    "operation_id": config.operation_id,
+                    "behavior": "runtime_exact",
+                    "issuance_source": "owner",
+                },
+            )
+            authorization = await self.connector_service.create_authorization(
+                connector_id=config.connector_id,
+                connector_version=config.connector_version,
+                tenant_id=tenant_id,
+                actor_id=actor_id,
+                profile_id=profile_id,
+                operation_id=config.operation_id,
+                payload=payload,
+                application_id=state.application_id,
+                run_id=run_id,
+                expires_in_seconds=300,
+                max_uses=1,
+                issuance_source="owner",
+            )
+            state.runtime_connector_authorization_ids[
+                authorization_cache_key
+            ] = authorization.id
+            await self._emit(
+                run_id,
+                "permission.resolved",
+                {
+                    "node_id": node_id,
+                    "operation_id": config.operation_id,
+                    "behavior": "runtime_exact",
+                    "issuance_source": "owner",
+                    "outcome": "issued",
+                },
+            )
+            return authorization.id
+        if (
+            not state.assignment_id
+            or not state.session_id
+            or state.allowed_network_hosts is None
+            or state.compensation_connector_operations is None
+            or state.max_connector_write_count is None
+            or state.max_connector_payload_bytes is None
+            or state.connector_descriptor_digests is None
+            or not state.task_credential_ref_digest
+            or not state.task_policy_digest
+            or not state.allowed_actions_digest
+            or not state.budget_digest
+            or not state.task_deadline_at
+        ):
+            raise WorkflowRuntimePermissionScopeDenied(
+                "runtime exact connector authorization policy is incomplete"
+            )
+        operation_key = f"{config.connector_id}.{config.operation_id}"
+        descriptor_digest = state.connector_descriptor_digests.get(operation_key)
+        if descriptor_digest is None:
+            raise WorkflowRuntimePermissionScopeDenied(
+                "runtime exact connector authorization descriptor is absent"
+            )
+        deadline = datetime.fromisoformat(
+            state.task_deadline_at.replace("Z", "+00:00")
+        )
+        if deadline.tzinfo is None:
+            raise WorkflowRuntimePermissionScopeDenied(
+                "runtime exact connector authorization deadline is invalid"
+            )
+        remaining_seconds = int(
+            (deadline - datetime.now(timezone.utc)).total_seconds()
+        )
+        if remaining_seconds < 1:
+            raise WorkflowRuntimePermissionScopeDenied(
+                "runtime exact connector authorization deadline expired"
+            )
+        budget = await self.connector_service.freeze_assignment_budget(
+            assignment_id=state.assignment_id,
+            allowed_network_hosts=state.allowed_network_hosts,
+            allowed_compensation_operations=(
+                state.compensation_connector_operations
+            ),
+            max_write_count=state.max_connector_write_count,
+            max_payload_bytes=state.max_connector_payload_bytes,
+        )
+        if budget.write_count >= budget.max_write_count:
+            raise WorkflowRuntimeWriteLimitExceeded(
+                "connector write authorization budget is exhausted"
+            )
+        await self._emit(
+            run_id,
+            "permission.requested",
+            {
+                "node_id": node_id,
+                "operation_id": config.operation_id,
+                "behavior": "runtime_exact",
+            },
+        )
+        authorization = await self.connector_service.create_authorization(
+            connector_id=config.connector_id,
+            connector_version=config.connector_version,
+            tenant_id=tenant_id,
+            actor_id=actor_id,
+            profile_id=profile_id,
+            operation_id=config.operation_id,
+            payload=payload,
+            assignment_id=state.assignment_id,
+            session_id=state.session_id,
+            application_id=state.application_id,
+            run_id=run_id,
+            expires_in_seconds=min(300, remaining_seconds),
+            max_uses=1,
+            issuance_source="task_policy",
+            descriptor_digest=descriptor_digest,
+            task_credential_ref_digest=state.task_credential_ref_digest,
+            task_policy_digest=state.task_policy_digest,
+            allowed_actions_digest=state.allowed_actions_digest,
+            budget_digest=state.budget_digest,
+            assignment_budget_policy_digest=f"sha256:{budget.policy_digest}",
+            assignment_max_write_count=budget.max_write_count,
+            assignment_max_payload_bytes=budget.max_payload_bytes,
+            assignment_write_count_at_issue=budget.write_count,
+            task_deadline_at=state.task_deadline_at,
+        )
+        state.runtime_connector_authorization_ids[
+            authorization_cache_key
+        ] = authorization.id
+        await self._emit(
+            run_id,
+            "permission.resolved",
+            {
+                "node_id": node_id,
+                "operation_id": config.operation_id,
+                "behavior": "runtime_exact",
+                "outcome": "issued",
+            },
+        )
+        return authorization.id
+
     @staticmethod
     def _validate_network_url(
         raw_url: Any,
@@ -718,39 +1084,39 @@ class WorkflowRuntime:
             self._validate_publication_policy(snapshot.workflow)
 
     def _validate_publication_policy(self, workflow: WorkflowSpec) -> None:
-        """Reject nodes whose safety depends on ephemeral assignment run policy.
+        """Keep boundaries without a complete immutable runtime contract closed.
 
-        Immutable versions do not yet persist the assignment workspace, tool,
-        network, nested-application, or agent policy.  Publishing those nodes
-        would let a later scheduler/customer run interpret missing policy as
-        unrestricted, so only context-independent nodes may cross this gate.
+        Task-scoped publication now persists workspace, tool, nested workflow,
+        connector, model and budget authority.  Raw HTTP/web collection and
+        scheduling still have destination/trigger semantics that are not fully
+        represented by that snapshot and therefore remain unavailable.
         """
 
         for node in workflow.nodes:
             config = self.blocks.validate_node(node)
-            if isinstance(config, (HTTPConfig, WebCollectionConfig, ConnectorActionConfig)):
+            if isinstance(config, (HTTPConfig, WebCollectionConfig)):
                 raise WorkflowRuntimeNetworkScopeDenied(
-                    "network-dependent workflow blocks cannot be published until the "
-                    "immutable version preserves its assigned run policy"
+                    "raw network workflow blocks are outside immutable published policy"
                 )
-            if isinstance(
-                config,
-                (
-                    ScheduleTriggerConfig,
-                    ToolConfig,
-                    ClaudeAgentConfig,
-                    AgentArchitectureConfig,
-                ),
-            ):
+            if isinstance(config, ScheduleTriggerConfig):
                 raise WorkflowRuntimeToolScopeDenied(
-                    "context-dependent workflow blocks cannot be published until the "
-                    "immutable version preserves its assigned run policy"
+                    "scheduled execution is outside immutable published policy"
                 )
             if isinstance(config, (IterationConfig, LoopConfig)):
                 self._validate_publication_policy(config.workflow)
 
-    def _validate_restricted_inputs(self, inputs: dict[str, Any]) -> None:
-        reserved = sorted(str(key) for key in inputs if str(key).startswith("__"))
+    def _validate_restricted_inputs(
+        self,
+        inputs: dict[str, Any],
+        *,
+        allowed_reserved_keys: frozenset[str] = frozenset(),
+    ) -> None:
+        reserved = sorted(
+            str(key)
+            for key in inputs
+            if str(key).startswith("__")
+            and str(key) not in allowed_reserved_keys
+        )
         if reserved:
             raise ValueError(f"reserved runtime input keys are not public: {reserved}")
         if self.harness.contains_secret_reference(inputs):
@@ -1084,12 +1450,21 @@ class WorkflowRuntime:
                 )
             except HumanInputPause:
                 raise
-            except Exception:
-                if attempt == attempts:
+            except Exception as error:
+                if attempt == attempts or not self._retryable_execution_error(error):
                     raise
                 await self._emit(run_id, "node.retry", {"node_id": scoped_id, "attempt": attempt + 1})
                 await asyncio.sleep(node.retry.delay_seconds)
         raise RuntimeError("unreachable")
+
+    @staticmethod
+    def _retryable_execution_error(error: Exception) -> bool:
+        if isinstance(error, WorkflowHTTPError):
+            return (
+                error.status_code in {408, 429}
+                or 500 <= error.status_code <= 599
+            )
+        return True
 
     async def _execute_node(
         self,
@@ -1114,6 +1489,14 @@ class WorkflowRuntime:
             return {"output": result, **result}
         if isinstance(config, ScheduleTriggerConfig):
             result = {**config.inputs, **inputs}
+            return {"output": result, **result}
+        if isinstance(config, EventSubscriptionTriggerConfig):
+            result = {}
+            for field in config.inputs:
+                value = inputs.get(field.name, field.default)
+                if field.required and value is None:
+                    raise ValueError(f"missing required input: {field.name}")
+                result[field.name] = value
             return {"output": result, **result}
         if isinstance(config, LLMConfig):
             prompt = str(self._resolve(config.prompt, context))
@@ -1291,6 +1674,36 @@ class WorkflowRuntime:
                 context,
                 owner_id=state.application_id if state else "",
             )
+        if isinstance(config, DurableEventTimerConfig):
+            if self.event_automation is None:
+                raise RuntimeError("event automation service is not configured")
+            raw_operation = str(self._resolve(config.operation, context))
+            operation = {
+                "on": "schedule",
+                "open": "schedule",
+                "off": "cancel",
+                "closed": "cancel",
+            }.get(raw_operation, raw_operation)
+            request = DurableEventTimerRequest.model_validate(
+                {
+                    "operation": operation,
+                    "timer_key": self._resolve(config.timer_key, context),
+                    "subject_id": self._resolve(config.subject_id, context),
+                    "event_id": self._resolve(config.event_id, context),
+                    "occurred_at": self._resolve(config.occurred_at, context),
+                    "hold_for_seconds": self._resolve(
+                        config.hold_for_seconds,
+                        context,
+                    ),
+                    "due_inputs": self._resolve(config.due_inputs, context),
+                }
+            )
+            result = await self.event_automation.apply_timer(
+                state.application_id if state else "",
+                workspace_path,
+                request,
+            )
+            return {"output": result, **result}
         if isinstance(config, WebCollectionConfig):
             if run_id in self._network_host_allowlists:
                 raise WorkflowRuntimeNetworkScopeDenied(
@@ -1315,6 +1728,178 @@ class WorkflowRuntime:
                 self._resolve(config.collection, context),
                 self._resolve(config.topic, context),
             )
+        if isinstance(config, DeployedModelInferenceConfig):
+            if self.tabular_models is None:
+                raise RuntimeError("tabular model service is not configured")
+            result = await self.tabular_models.predict(
+                config.deployment_name,
+                TabularInferenceRequest(
+                    features=self._resolve(config.features, context),
+                    units=self._resolve(config.units, context),
+                ),
+            )
+            return {"output": result, **result}
+        if isinstance(config, ModelDriftMonitorConfig):
+            if self.tabular_models is None:
+                raise RuntimeError("tabular model service is not configured")
+            raw_observations = self._resolve(config.observations, context)
+            if not isinstance(raw_observations, list):
+                raise ValueError("model drift observations must resolve to an array")
+            result = await self.tabular_models.drift(
+                config.deployment_name,
+                TabularDriftRequest(
+                    observations=[
+                        ModelObservation.model_validate(item) for item in raw_observations
+                    ],
+                    warning_threshold=config.warning_threshold,
+                    critical_threshold=config.critical_threshold,
+                ),
+            )
+            return {"output": result, **result}
+        if isinstance(config, KnowledgeIndexSyncConfig):
+            if self.knowledge_indexes is None:
+                raise RuntimeError("knowledge index service is not configured")
+            documents = self._resolve(config.documents, context)
+            deleted_source_ids = self._resolve(config.deleted_source_ids, context)
+            event_id = self._resolve(config.event_id, context)
+            result = await self.knowledge_indexes.sync(
+                config.index_name,
+                KnowledgeSyncRequest.model_validate(
+                    {
+                        "documents": documents,
+                        "deleted_source_ids": deleted_source_ids,
+                        "event_id": event_id,
+                    }
+                ),
+            )
+            return {"output": result, **result}
+        if isinstance(config, KnowledgeRetrievalConfig):
+            if self.knowledge_indexes is None:
+                raise RuntimeError("knowledge index service is not configured")
+            result = await self.knowledge_indexes.retrieve(
+                config.index_name,
+                KnowledgeRetrieveRequest.model_validate(
+                    {
+                        "query": self._resolve(config.query, context),
+                        "principal_roles": self._resolve(config.principal_roles, context),
+                        "top_k": config.top_k,
+                        "minimum_score": config.minimum_score,
+                    }
+                ),
+            )
+            return {"output": result, **result}
+        if isinstance(config, GroundedAnswerConfig):
+            result = grounded_answer(
+                query=str(self._resolve(config.query, context)),
+                retrieval=self._resolve(config.retrieval, context),
+                refusal_message=config.refusal_message,
+            )
+            return {"output": result, **result}
+        if isinstance(config, JsonSchemaValidateConfig):
+            serialized = config.model_dump(mode="python", by_alias=True)
+            result = validate_json_value(
+                self._resolve(serialized["value"], context),
+                serialized["schema"],
+                max_errors=config.max_errors,
+            )
+            return {"output": result, **result}
+        if isinstance(config, RegexExtractConfig):
+            result = extract_regex_fields(
+                self._resolve(config.text, context),
+                config.fields,
+            )
+            return {"output": result, **result}
+        if isinstance(config, RecordCollectionNormalizeConfig):
+            result = normalize_record_collection(
+                self._resolve(config.value, context),
+                config.record_paths,
+                single_object_policy=config.single_object_policy,
+                empty_policy=config.empty_policy,
+            )
+            return {"output": result, **result}
+        if isinstance(config, RecordDeduplicateConfig):
+            result = deduplicate_records(
+                self._resolve(config.records, context),
+                config.key_paths,
+                missing_key_policy=config.missing_key_policy,
+            )
+            return {"output": result, **result}
+        if isinstance(config, RecordMatchConfig):
+            result = match_record(
+                self._resolve(config.source, context),
+                self._resolve(config.candidates, context),
+                conditions=config.conditions,
+                conflict_checks=config.conflict_checks,
+                min_score=config.min_score,
+                ambiguity_threshold=config.ambiguity_threshold,
+                result_limit=config.result_limit,
+            )
+            return {"output": result, **result}
+        if isinstance(config, TypedJsonArtifactConfig):
+            serialized = config.model_dump(mode="python", by_alias=True)
+            artifact_workspace = self._artifact_workspace_for_run(
+                run_id,
+                workspace_path,
+            )
+            artifact = write_typed_json_artifact(
+                workspace=artifact_workspace,
+                value=self._resolve(serialized["value"], context),
+                filename=config.filename,
+                lineage=self._resolve(serialized["lineage"], context),
+                run_id=run_id,
+                node_id=scoped_id,
+                application_id=state.application_id if state else "",
+            )
+            artifact["relative_path"] = (
+                f".workflow-run-artifacts/{run_id}/"
+                f"{artifact['relative_path']}"
+            )
+            await self._emit(
+                run_id,
+                "artifact.created",
+                {
+                    "node_id": scoped_id,
+                    "relative_path": artifact["relative_path"],
+                    "media_type": artifact["media_type"],
+                    "size_bytes": artifact["size_bytes"],
+                    "sha256": artifact["sha256"],
+                    "replayed": artifact["replayed"],
+                },
+            )
+            return {"output": artifact, "artifact": artifact}
+        if isinstance(config, TypedWorkbookConfig):
+            serialized = config.model_dump(mode="python", by_alias=True)
+            artifact_workspace = self._artifact_workspace_for_run(
+                run_id,
+                workspace_path,
+            )
+            artifact = write_typed_workbook_artifact(
+                workspace=artifact_workspace,
+                spec=self._resolve(serialized["spec"], context),
+                filename=config.filename,
+                formula_policy=config.formula_policy,
+                lineage=self._resolve(serialized["lineage"], context),
+                run_id=run_id,
+                node_id=scoped_id,
+                application_id=state.application_id if state else "",
+            )
+            artifact["relative_path"] = (
+                f".workflow-run-artifacts/{run_id}/"
+                f"{artifact['relative_path']}"
+            )
+            await self._emit(
+                run_id,
+                "artifact.created",
+                {
+                    "node_id": scoped_id,
+                    "relative_path": artifact["relative_path"],
+                    "media_type": artifact["media_type"],
+                    "size_bytes": artifact["size_bytes"],
+                    "sha256": artifact["sha256"],
+                    "replayed": artifact["replayed"],
+                },
+            )
+            return {"output": artifact, "artifact": artifact}
         if isinstance(config, ConnectorActionConfig):
             if self.connector_service is None:
                 raise RuntimeError("Connector service is not configured")
@@ -1336,6 +1921,9 @@ class WorkflowRuntime:
             payload = self._resolve(config.payload, context)
             idempotency_key = str(self._resolve(config.idempotency_key, context))
             authorization_id = str(self._resolve(config.authorization_id, context) or "")
+            authorization_mode = str(
+                self._resolve(config.authorization_mode, context)
+            )
             execution_mode = str(self._resolve(config.execution_mode, context))
             if not isinstance(actor_roles, list) or not all(
                 isinstance(item, str) and item for item in actor_roles
@@ -1345,6 +1933,15 @@ class WorkflowRuntime:
                 raise ValueError("connector payload must resolve to an object")
             if execution_mode not in {"dry_run", "execute"}:
                 raise ValueError("connector execution_mode must be dry_run or execute")
+            if authorization_mode not in {"explicit", "runtime_exact"}:
+                raise ValueError(
+                    "connector authorization_mode must be explicit or runtime_exact"
+                )
+            if authorization_id and authorization_mode == "runtime_exact":
+                raise ValueError(
+                    "connector runtime_exact authorization cannot also supply "
+                    "authorization_id"
+                )
             if run_id in self._connector_operation_allowlists:
                 if state is None or state.max_connector_payload_bytes is None:
                     raise WorkflowRuntimePayloadLimitExceeded(
@@ -1401,16 +1998,29 @@ class WorkflowRuntime:
                 if (
                     execution_mode == "execute"
                     and connector_operation.mutating
-                    and operation
-                    in self._permission_connector_operations.get(
-                        run_id,
-                        frozenset(),
-                    )
                     and not authorization_id
                 ):
-                    raise WorkflowRuntimePermissionScopeDenied(
-                        "connector write requires an authorization receipt"
-                    )
+                    if authorization_mode == "runtime_exact":
+                        authorization_id = (
+                            await self._issue_runtime_exact_connector_authorization(
+                                config=config,
+                                state=state,
+                                run_id=run_id,
+                                node_id=scoped_id,
+                                tenant_id=tenant_id,
+                                actor_id=actor_id,
+                                profile_id=profile_id,
+                                payload=payload,
+                                idempotency_key=idempotency_key,
+                            )
+                        )
+                    elif operation in self._permission_connector_operations.get(
+                        run_id,
+                        frozenset(),
+                    ):
+                        raise WorkflowRuntimePermissionScopeDenied(
+                            "connector write requires an authorization receipt"
+                        )
                 if (
                     execution_mode == "execute"
                     and connector_operation.mutating
@@ -1427,6 +2037,26 @@ class WorkflowRuntime:
                             )
                         state.connector_write_count += 1
                         state.connector_write_keys.append(idempotency_key)
+            if (
+                run_id not in self._connector_operation_allowlists
+                and execution_mode == "execute"
+                and connector_operation.mutating
+                and not authorization_id
+                and authorization_mode == "runtime_exact"
+            ):
+                authorization_id = (
+                    await self._issue_runtime_exact_connector_authorization(
+                        config=config,
+                        state=state,
+                        run_id=run_id,
+                        node_id=scoped_id,
+                        tenant_id=tenant_id,
+                        actor_id=actor_id,
+                        profile_id=profile_id,
+                        payload=payload,
+                        idempotency_key=idempotency_key,
+                    )
+                )
             execution = await self.connector_service.execute(
                 ConnectorExecutionRequest(
                     connector_id=config.connector_id,
@@ -1512,11 +2142,20 @@ class WorkflowRuntime:
             items = self._resolve(config.items, context)
             if not isinstance(items, list):
                 raise TypeError("iteration items must resolve to an array")
+            variables = {
+                key: self._resolve(value, context)
+                for key, value in config.variables.items()
+            }
             semaphore = asyncio.Semaphore(config.parallelism)
 
             async def one(index: int, item: Any) -> Any:
                 async with semaphore:
-                    nested_inputs = {**inputs, config.item_name: item, "index": index}
+                    nested_inputs = {
+                        **inputs,
+                        **variables,
+                        config.item_name: item,
+                        "index": index,
+                    }
                     nested = await self._run_graph(
                         snapshot,
                         config.workflow,
@@ -1524,6 +2163,7 @@ class WorkflowRuntime:
                         workspace_path,
                         run_id,
                         prefix=f"{scoped_id}[{index}].",
+                        top_state=state,
                     )
                     value: Any = nested.get(config.output_node_id)
                     for key in config.output_path:
@@ -1637,17 +2277,29 @@ class WorkflowRuntime:
             preset = inputs.get("__human__", {}).get(node.id) if isinstance(inputs.get("__human__"), dict) else None
             if preset is not None:
                 return {"output": preset, **preset}
-            if state and state.waiting_node_id == node.id and state.resumed_values is not None:
-                values = state.resumed_values
+            if state and scoped_id in state.human_input_values:
+                values = state.human_input_values[scoped_id]
+                return {"output": values, **values}
+            if (
+                state
+                and state.waiting_node_id in {node.id, scoped_id}
+                and state.resumed_values is not None
+            ):
+                values = dict(state.resumed_values)
                 for field in config.fields:
                     if field.required and values.get(field.name) is None:
                         raise ValueError(f"missing required human input: {field.name}")
+                state.human_input_values[scoped_id] = values
+                state.waiting_node_id = None
+                state.resumed_values = None
+                await self.workflow_store.update_run(run_id, status="running", state=state)
                 return {"output": values, **values}
             if not state:
                 raise RuntimeError("human input is only supported in persisted top-level runs")
-            state.waiting_node_id = node.id
+            state.waiting_node_id = scoped_id
             await self._emit(run_id, "human_input.required", {
-                "node_id": node.id,
+                "node_id": scoped_id,
+                "block_node_id": node.id,
                 "title": config.title,
                 "description": config.description,
                 "fields": [field.model_dump(mode="json") for field in config.fields],
@@ -2827,6 +3479,26 @@ class WorkflowRuntime:
                 ),
                 assignment_id=state.assignment_id if state is not None else None,
                 session_id=state.session_id if state is not None else None,
+                connector_descriptor_digests=(
+                    state.connector_descriptor_digests
+                    if state is not None
+                    else None
+                ),
+                task_credential_ref_digest=(
+                    state.task_credential_ref_digest
+                    if state is not None
+                    else None
+                ),
+                task_policy_digest=(
+                    state.task_policy_digest if state is not None else None
+                ),
+                allowed_actions_digest=(
+                    state.allowed_actions_digest if state is not None else None
+                ),
+                budget_digest=state.budget_digest if state is not None else None,
+                task_deadline_at=(
+                    state.task_deadline_at if state is not None else None
+                ),
                 application_call_chain=(
                     state.application_call_chain if state is not None else None
                 ),
@@ -3039,7 +3711,7 @@ class WorkflowRuntime:
         content_type = response.headers.get("content-type", "")
         value: Any = response.json() if "json" in content_type else response.text
         if response.is_error:
-            raise RuntimeError(f"HTTP {response.status_code}: {str(value)[:1000]}")
+            raise WorkflowHTTPError(response.status_code, str(value)[:1000])
         return {"output": value, "status": response.status_code, "headers": dict(response.headers)}
 
     async def run_test_suite(
@@ -3064,6 +3736,12 @@ class WorkflowRuntime:
         governed_host_actions: bool = False,
         assignment_id: str | None = None,
         session_id: str | None = None,
+        connector_descriptor_digests: dict[str, str] | None = None,
+        task_credential_ref_digest: str | None = None,
+        task_policy_digest: str | None = None,
+        allowed_actions_digest: str | None = None,
+        budget_digest: str | None = None,
+        task_deadline_at: str | None = None,
     ) -> dict[str, Any]:
         draft = await self.workflow_store.get_draft(application_id)
         snapshot: ApplicationSnapshot = draft["snapshot"]
@@ -3119,12 +3797,23 @@ class WorkflowRuntime:
             for test in snapshot.tests:
                 self._validate_restricted_inputs(test.inputs)
         case_workspaces: list[Path | None] = [None for _ in snapshot.tests]
-        suite_workspace: Path | None = None
+        suite_instance = f"test-suite-{uuid4().hex}"
         if workspace_boundary is not None:
             suite_boundary = self.sandboxes.resolve_workspace(workspace_boundary).resolve()
-            suite_workspace = self._resolve_scoped_workspace(workspace_path, suite_boundary)
+            suite_base = self._resolve_scoped_workspace(
+                workspace_path,
+                suite_boundary,
+            )
+        else:
+            suite_base = self.sandboxes.resolve_workspace(
+                workspace_path,
+                create=True,
+            ).resolve()
+        suite_workspace = suite_base / suite_instance
+        suite_workspace.mkdir(parents=False, exist_ok=False)
+        if workspace_boundary is not None:
             # Validate once before draft validation and before any report, run,
-            # version, or active-version side effect.  This deliberately also
+            # version, or active-version side effect. This deliberately also
             # covers an empty test suite.
             self._validate_execution_policy(
                 snapshot.workflow,
@@ -3138,11 +3827,11 @@ class WorkflowRuntime:
                 agents=snapshot.agents,
             )
         validation = await self.applications.validate_draft(application_id)
-        if validation["valid"] and suite_workspace is not None:
+        if validation["valid"]:
             for index, test in enumerate(snapshot.tests):
                 safe_test_id = re.sub(r"[^A-Za-z0-9_.-]", "-", str(test.id))[:48]
                 case_workspace = suite_workspace / f"case-{index:03d}-{safe_test_id or 'test'}"
-                case_workspace.mkdir(parents=False, exist_ok=True)
+                case_workspace.mkdir(parents=False, exist_ok=False)
                 self._validate_execution_policy(
                     snapshot.workflow,
                     workspace_boundary=case_workspace,
@@ -3333,6 +4022,13 @@ class WorkflowRuntime:
                     governed_host_actions=governed_host_actions,
                     assignment_id=assignment_id,
                     session_id=session_id,
+                    connector_descriptor_digests=connector_descriptor_digests,
+                    task_credential_ref_digest=task_credential_ref_digest,
+                    task_policy_digest=task_policy_digest,
+                    allowed_actions_digest=allowed_actions_digest,
+                    budget_digest=budget_digest,
+                    task_deadline_at=task_deadline_at,
+                    simulated_human_inputs=test.simulated_human_inputs,
                 )
                 run_id = created["run_id"]
                 task = self.active_tasks[run_id]
@@ -3425,15 +4121,17 @@ class WorkflowRuntime:
             assertions = []
             for assertion in test.assertions:
                 try:
-                    actual: Any = record["outputs"]
                     semantic_unwrap = False
                     try:
-                        for key in assertion.path:
-                            actual = actual[key]
+                        actual = self._resolve_assertion_path(
+                            record["outputs"],
+                            assertion.path,
+                        )
                     except (KeyError, TypeError, IndexError):
-                        actual = self._semantic_acceptance_output(record["outputs"])
-                        for key in assertion.path:
-                            actual = actual[key]
+                        actual = self._resolve_assertion_path(
+                            self._semantic_acceptance_output(record["outputs"]),
+                            assertion.path,
+                        )
                         semantic_unwrap = True
                     assertion_result = {
                         "passed": self._assert(
@@ -3643,20 +4341,36 @@ class WorkflowRuntime:
             reference = dict(value["$ref"])
             if value.get("optional"):
                 reference["optional"] = True
+            node_id = str(reference.get("node_id") or "")
+            path = list(reference.get("path", []))
+            traversed: list[Any] = []
+            current: Any = None
             try:
-                if reference.get("node_id") == "$inputs":
+                if node_id == "$inputs":
                     current: Any = context["inputs"]
                 else:
-                    if reference["node_id"] not in context["nodes"] and reference.get("optional"):
+                    if node_id not in context["nodes"] and reference.get("optional"):
                         return None
-                    current = context["nodes"][reference["node_id"]]
-                for key in reference.get("path", []):
+                    current = context["nodes"][node_id]
+                for key in path:
                     current = current[int(key)] if isinstance(current, list) else current[key]
+                    traversed.append(key)
                 return current
-            except (KeyError, IndexError, TypeError, ValueError):
+            except (KeyError, IndexError, TypeError, ValueError) as error:
                 if reference.get("optional"):
                     return None
-                raise
+                failed_segment = (
+                    path[len(traversed)] if len(traversed) < len(path) else None
+                )
+                container = type(current).__name__
+                detail = (
+                    f"workflow reference could not resolve node={node_id!r} "
+                    f"path={path!r}; failed_segment={failed_segment!r}; "
+                    f"container_type={container}"
+                )
+                if isinstance(current, list):
+                    detail += f"; container_length={len(current)}"
+                raise WorkflowReferenceResolutionError(detail) from error
         if isinstance(value, dict):
             return {key: cls._resolve(item, context) for key, item in value.items()}
         if isinstance(value, list):
@@ -3814,6 +4528,23 @@ class WorkflowRuntime:
     @staticmethod
     def _json_type(value: str) -> str:
         return {"file": "object", "file_list": "array", "any": "string"}.get(value, value)
+
+    @staticmethod
+    def _resolve_assertion_path(value: Any, path: list[str]) -> Any:
+        actual = value
+        for key in path:
+            if isinstance(actual, list):
+                is_canonical_index = key == "0" or (
+                    key.isascii()
+                    and key.isdigit()
+                    and key[0] in "123456789"
+                )
+                if not is_canonical_index:
+                    raise TypeError("array assertion path segment must be a canonical index")
+                actual = actual[int(key)]
+                continue
+            actual = actual[key]
+        return actual
 
     @staticmethod
     def _assert(actual: Any, operator: str, expected: Any) -> bool:

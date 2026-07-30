@@ -1,0 +1,56 @@
+schema_version: '1.0'
+task_id: EXP-LILIES-002
+revision: 1
+source_projects:
+- name: BookStack
+  repository_url: https://codeberg.org/bookstack/bookstack
+  release: v26.05.2
+  commit_sha: fcb2d406067f9072ccd31bb17dbe5b2c390d3d72
+  image_digest: sha256:3db259db582808ab498d49ae96b0a63f935d9cf3635c9d5bd8b8815c6ff1f8a1
+  license: MIT
+supporting_images:
+- name: MariaDB
+  release: '11.4'
+  image_digest: sha256:a794d9eb009e20de605858a11f32f63b4075cbd197c650436f0e3b457e4caed7
+compose_digest: sha256:150605c2886cd8e149b0e06aa093005c5dba0b3aec92522ea05ee2e22a7771bf
+ports:
+- service: bookstack-http
+  host: 127.0.0.1
+  port: 18020
+network_name: exp-lilies-002-r1_default
+volumes:
+- exp-lilies-002-r1-bookstack-db-data
+- exp-lilies-002-r1-bookstack-app-data
+initialization_commands:
+- name: ensure-bookstack
+  digest: sha256:ca3d1bdf328ca8c6187c240d026190a15143fbf1c8b3a474b9e44da04a7e14cf
+- name: provision-read-only-reader-and-pages
+  digest: sha256:41589be01aeac9396fc4e91cb85777934a52fd3f34adc54916c1604766b8967d
+seed_commands:
+- name: run-sealed-seed
+  digest: sha256:2ed4f781ed591b102b573e7993f16cedf5320823b20d49e8ecea97a36f2a47ec
+health_checks:
+- check_id: http:bookstack-login
+  kind: http
+  url: http://127.0.0.1:18020/login
+  expected_status: 200
+  timeout_seconds: 5.0
+  mandatory: true
+secret_refs:
+- secret:exp-lilies-002-bookstack-reader
+- secret:exp-lilies-002-environment-attestation
+attestation_secret_ref: secret:exp-lilies-002-environment-attestation
+python_version: 3.13.13
+node_version: 24.15.0
+docker_version: 29.4.0
+fixture_files:
+- path: public-inputs/bookstack-pages.json
+  digest: sha256:0b6e0d77722d012d831b832c49ca4143684c5d5a5a704759599e91e77fe491b5
+  size_bytes: 2299
+- path: public-inputs/debug-cases.json
+  digest: sha256:3ee6ee8f46c022a2d3c198e811982091384c23d2d78f686bd728fd55534d8b2d
+  size_bytes: 2443
+- path: public-inputs/permission-matrix.json
+  digest: sha256:4818e2835f59058f983feb24e220e34258d5e7d18fe6739e935d8413dabebe63
+  size_bytes: 510
+provenance: real_host

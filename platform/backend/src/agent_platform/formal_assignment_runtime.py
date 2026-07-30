@@ -14,6 +14,7 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 
 from pydantic import SecretStr
 
+from .capability_generality_gate import CapabilityGeneralityViolation
 from .collaboration_models import (
     ChannelStatus,
     CollaborationChannel,
@@ -39,10 +40,15 @@ from .lilies_models import (
 )
 from .platform_blackbox_auth import PlatformBlackboxScope
 from .platform_harness import PlatformHarness, PlatformHarnessViolation
+from .task_packages import AllowedActionsPolicy
 
 
 ContractDigestProvider = Callable[
-    [tuple[PlatformBlackboxScope, ...], tuple[UUID, ...]],
+    [
+        tuple[PlatformBlackboxScope, ...],
+        tuple[UUID, ...],
+        AllowedActionsPolicy,
+    ],
     Awaitable[str] | str,
 ]
 _DIGEST_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -207,6 +213,8 @@ class PlatformFormalAssignmentRuntime(FormalAssignmentBroker):
             if result["reload_confirmed"]:
                 result["reload_status"] = "confirmed"
             return result
+        except CapabilityGeneralityViolation:
+            raise
         except Exception as error:
             raise FormalAssignmentRuntimeError(
                 "formal developer workspace delta could not be promoted"
@@ -234,6 +242,7 @@ class PlatformFormalAssignmentRuntime(FormalAssignmentBroker):
         self,
         request: PrepareFormalAssignmentRequest,
         required_scopes: tuple[PlatformScope, ...],
+        allowed_actions: AllowedActionsPolicy,
     ) -> PlatformAccess:
         try:
             blackbox_scopes = tuple(PlatformBlackboxScope(scope.value) for scope in required_scopes)
@@ -245,6 +254,7 @@ class PlatformFormalAssignmentRuntime(FormalAssignmentBroker):
             self._contract_digest_provider(
                 blackbox_scopes,
                 (request.application_id,),
+                allowed_actions,
             )
         )
         if not isinstance(contract_digest, str) or not _DIGEST_PATTERN.fullmatch(contract_digest):

@@ -1,0 +1,108 @@
+{
+  "schema_version": 1,
+  "case_id": "A09",
+  "application_id": "dev.lilies.civilizationseed",
+  "clock": "android.os.SystemClock.uptimeMillis",
+  "frame_count": 13,
+  "frame_interval_ms": 100,
+  "timestamp_tolerance_ms": 25,
+  "idle_frame_count": 26,
+  "idle_frame_interval_ms": 200,
+  "target_capture_start_tolerance_ms": 250,
+  "target_timeout_after_action_complete_ms": 1000,
+  "stable_frame_minimum": 3,
+  "candidate_event_types": [32, 2048],
+  "initial_state": {
+    "id": "R01-cold-launch",
+    "required": [
+      "文明火种|heading",
+      "莉莉丝，闭着双眼，白发向两侧展开|image",
+      "人类世界已经毁灭。|text",
+      "莉莉丝是留下的最后一个人工智能。|text",
+      "她仍能搭建新的人工智能，并以一枚枚文明火种重塑世界。|text",
+      "完全离线运行，数据只保存在本机，不会上传。|text",
+      "启动文明重建|button"
+    ],
+    "absent": ["火种库|heading"]
+  },
+  "transition_targets": [
+    {
+      "id": "R02-onboarding-to-empty-library",
+      "action": {"kind": "click", "selector": "启动文明重建"},
+      "required": ["火种库|heading", "已复原 0 / 0|text", "还没有文明火种|text", "添加火种|button", "添加第一枚火种|button"],
+      "absent": ["启动文明重建|button"]
+    },
+    {
+      "id": "R03-open-create-form",
+      "action": {"kind": "click", "selector": "添加火种"},
+      "required": ["添加火种|heading", "火种名称|edit_text", "类别|chooser", "优先级|chooser", "备注|edit_text", "备注 0 / 300|text", "取消|button", "保存|button"],
+      "absent": ["还没有文明火种|text"]
+    },
+    {
+      "id": "R04-save-created-seed",
+      "action": {"kind": "click", "selector": "保存"},
+      "required": ["火种库|heading", "已复原 0 / 1|text", "火种：静态验证；类别：生存基础；优先级：3；状态：沉睡|group", "开始重建|button", "编辑|button", "删除|button"],
+      "absent": ["添加火种|heading"]
+    },
+    {
+      "id": "R05-open-edit-form",
+      "action": {"kind": "click", "selector": "编辑", "scope": "火种：静态验证；类别：生存基础；优先级：3；状态：沉睡"},
+      "required": ["火种名称|edit_text", "类别|chooser", "优先级|chooser", "备注|edit_text", "备注 0 / 300|text", "取消|button", "保存|button"],
+      "absent": ["还没有文明火种|text"]
+    },
+    {
+      "id": "R06-save-edited-notes",
+      "action": {"kind": "click", "selector": "保存"},
+      "required": ["火种库|heading", "已复原 0 / 1|text", "火种：静态验证；类别：生存基础；优先级：3；状态：沉睡|group", "开始重建|button", "编辑|button", "删除|button"],
+      "absent": ["备注 3 / 300|text"]
+    },
+    {
+      "id": "R07-open-filter-panel",
+      "action": {"kind": "click", "selector": "筛选"},
+      "required": ["生存基础|choice", "知识传承|choice", "能源设施|choice", "医疗护理|choice", "通信网络|choice", "沉睡|choice", "重建中|choice", "已复原|choice", "清除筛选|button"],
+      "absent": []
+    },
+    {
+      "id": "R08-select-survival-category-filter",
+      "action": {"kind": "click", "selector": "生存基础"},
+      "required": ["生存基础|choice|selected=true", "清除筛选|button"],
+      "absent": ["知识传承|choice|selected=true", "能源设施|choice|selected=true", "医疗护理|choice|selected=true", "通信网络|choice|selected=true"]
+    },
+    {
+      "id": "R09-return-to-filtered-library",
+      "action": {"kind": "back"},
+      "required": ["火种库|heading", "已复原 0 / 1|text", "火种：静态验证；类别：生存基础；优先级：3；状态：沉睡|group", "开始重建|button"],
+      "absent": ["清除筛选|button"]
+    },
+    {
+      "id": "R10-advance-to-restoring",
+      "action": {"kind": "click", "selector": "开始重建", "scope": "火种：静态验证；类别：生存基础；优先级：3；状态：沉睡"},
+      "required": ["火种：静态验证；类别：生存基础；优先级：3；状态：重建中|group", "完成复原|button"],
+      "absent": ["火种：静态验证；类别：生存基础；优先级：3；状态：沉睡|group", "开始重建|button"]
+    },
+    {
+      "id": "R11-open-delete-confirmation-first",
+      "action": {"kind": "click", "selector": "删除", "scope": "火种：静态验证；类别：生存基础；优先级：3；状态：重建中"},
+      "required": ["删除“静态验证”吗？此操作无法撤销。|text", "取消|button", "删除|button"],
+      "absent": []
+    },
+    {
+      "id": "R12-cancel-delete",
+      "action": {"kind": "click", "selector": "取消", "scope": "删除“静态验证”吗？此操作无法撤销。"},
+      "required": ["火种：静态验证；类别：生存基础；优先级：3；状态：重建中|group", "完成复原|button", "编辑|button", "删除|button"],
+      "absent": ["删除“静态验证”吗？此操作无法撤销。|text"]
+    },
+    {
+      "id": "R13-open-delete-confirmation-second",
+      "action": {"kind": "click", "selector": "删除", "scope": "火种：静态验证；类别：生存基础；优先级：3；状态：重建中"},
+      "required": ["删除“静态验证”吗？此操作无法撤销。|text", "取消|button", "删除|button"],
+      "absent": []
+    },
+    {
+      "id": "R14-confirm-delete",
+      "action": {"kind": "click", "selector": "删除", "scope": "删除“静态验证”吗？此操作无法撤销。"},
+      "required": ["火种库|heading", "已复原 0 / 0|text", "还没有文明火种|text"],
+      "absent": ["删除“静态验证”吗？此操作无法撤销。|text", "火种：静态验证；类别：生存基础；优先级：3；状态：重建中|group"]
+    }
+  ]
+}

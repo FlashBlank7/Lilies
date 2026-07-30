@@ -1137,6 +1137,38 @@ export type LocalLiliesAssignmentEvent = {
   created_at?: string
 }
 
+export type LocalLiliesMessageContentBlock = {
+  type: 'text' | 'tool_use' | 'tool_result'
+  text?: string | null
+  name?: string | null
+  is_error?: boolean | null
+}
+
+export type LocalLiliesMessage = {
+  message_id: string
+  session_id: string
+  turn_id?: string | null
+  role: 'system' | 'user' | 'assistant' | 'tool'
+  content: LocalLiliesMessageContentBlock[]
+  content_truncated: boolean
+  created_at: string
+}
+
+export type LocalLiliesMessagePage = {
+  session_id: string
+  messages: LocalLiliesMessage[]
+  event_cursor: number
+  has_more: boolean
+  next_before?: string | null
+}
+
+export type LocalLiliesMessageSubmission = {
+  session_id: string
+  status: string
+  event_cursor: number
+  accepted_at: string
+}
+
 export type LocalLiliesPairRequest = {
   idempotency_key: string
   base_url: string
@@ -1864,6 +1896,35 @@ export function localLiliesBuild(buildId: string) {
 export function localLiliesSession(sessionId: string) {
   return api<LocalLiliesAssignment>(
     `/api/v1/local-lilies/sessions/${encodeURIComponent(sessionId)}`,
+  )
+}
+
+export function localLiliesAssignmentMessages(
+  assignmentId: string,
+  options: { limit?: number; before?: string } = {},
+) {
+  const query = new URLSearchParams()
+  query.set('limit', String(options.limit ?? 20))
+  if (options.before) query.set('before', options.before)
+  return api<LocalLiliesMessagePage>(
+    `/api/v1/local-lilies/assignments/${encodeURIComponent(assignmentId)}/messages?${query.toString()}`,
+  )
+}
+
+export function sendLocalLiliesAssignmentMessage(
+  assignmentId: string,
+  content: string,
+) {
+  return api<LocalLiliesMessageSubmission>(
+    `/api/v1/local-lilies/assignments/${encodeURIComponent(assignmentId)}/messages`,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        idempotency_key: idempotency(),
+        message_id: crypto.randomUUID(),
+        content,
+      }),
+    },
   )
 }
 

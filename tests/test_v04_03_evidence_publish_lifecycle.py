@@ -91,7 +91,7 @@ def test_quick_and_guided_missing_evidence_require_explicit_acknowledgement(
             assert publication["evidence_state"] == "missing"
 
 
-def test_governed_hard_gate_blocks_but_advisory_governed_can_be_acknowledged(
+def test_legacy_governed_hard_gate_setting_is_advisory_and_can_be_acknowledged(
     tmp_path: Path,
 ) -> None:
     settings = Settings(
@@ -115,21 +115,20 @@ def test_governed_hard_gate_blocks_but_advisory_governed_can_be_acknowledged(
         )
         assert allowed.status_code == 200, allowed.text
 
-        blocked_id = _create(client, mode="governed", hard_gate=True)
-        blocked = client.get(
-            f"/api/v1/applications/{blocked_id}/publication-decision",
+        legacy_hard_gate_id = _create(client, mode="governed", hard_gate=True)
+        decision = client.get(
+            f"/api/v1/applications/{legacy_hard_gate_id}/publication-decision",
             headers=_headers(),
         ).json()
-        assert blocked["blocked"] is True
-        assert blocked["allowed"] is False
-        assert blocked["policy"]["hard_gate_enabled"] is True
-        rejected = client.post(
-            f"/api/v1/applications/{blocked_id}/versions",
+        assert decision["blocked"] is False
+        assert decision["requires_confirmation"] is True
+        assert decision["policy"]["hard_gate_enabled"] is False
+        published = client.post(
+            f"/api/v1/applications/{legacy_hard_gate_id}/versions",
             headers=_headers(),
             json={"acknowledge_warnings": True},
         )
-        assert rejected.status_code == 409
-        assert rejected.json()["detail"]["publication_decision"]["blocked"] is True
+        assert published.status_code == 200, published.text
 
 
 def test_edit_preserves_prior_report_as_stale_and_revalidation_makes_it_current(

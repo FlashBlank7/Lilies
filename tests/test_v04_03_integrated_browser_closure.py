@@ -238,14 +238,15 @@ def test_integrated_delivery_evidence_repair_and_publication_journey(tmp_path: P
         governed_decision = client.get(
             f"/api/v1/applications/{governed_id}/publication-decision", headers=HEADERS
         ).json()
-        assert governed_decision["blocked"] is True
-        assert governed_decision["policy"]["hard_gate_enabled"] is True
+        assert governed_decision["blocked"] is False
+        assert governed_decision["requires_confirmation"] is True
+        assert governed_decision["policy"]["hard_gate_enabled"] is False
         governed_publish = client.post(
             f"/api/v1/applications/{governed_id}/versions",
             headers=HEADERS,
             json={"acknowledge_warnings": True},
         )
-        assert governed_publish.status_code == 409
+        assert governed_publish.status_code == 200, governed_publish.text
 
         repair_base = client.get(
             f"/api/v1/applications/{quick_id}/draft", headers=HEADERS

@@ -1,0 +1,91 @@
+{
+  "schema_version": "1.0",
+  "project_id": "EXP-LILIES-002",
+  "project_revision": 1,
+  "all_attempts_retained": true,
+  "attempts": [
+    {
+      "order": 1,
+      "phase": "workflow_build",
+      "application_id": "77d3dcbb-f4ec-48ba-ba35-6b4e122c81d6",
+      "result": "failed_before_business_run",
+      "cause": "The iteration edge referenced the iteration output instead of its input item collection.",
+      "classification": "builder_graph_error",
+      "workflow_or_platform_changed": "The Builder corrected the graph reference."
+    },
+    {
+      "order": 2,
+      "phase": "workflow_build",
+      "application_id": "864b7f39-fabe-4343-bbc9-e685b44dfd34",
+      "result": "failed_before_business_run",
+      "cause": "The nested per-source workflow had no terminal node, while the structural assertion also looked for a nested HTTP call at the top level.",
+      "classification": "builder_graph_and_test_error",
+      "workflow_or_platform_changed": "The Builder completed the nested branch and corrected the assertion boundary."
+    },
+    {
+      "order": 3,
+      "phase": "workflow_build",
+      "application_id": "927987e8-5ce0-47e0-8a6d-1ed2d4be4ac4",
+      "result": "platform_test_passed_but_builder_receipt_parser_failed",
+      "cause": "The Builder script read a results field although the public test response exposes tests.",
+      "classification": "builder_client_error",
+      "workflow_or_platform_changed": "Only the Builder-side response parser changed."
+    },
+    {
+      "order": 4,
+      "phase": "public_debug_initialization",
+      "result": "rejected_before_business_run",
+      "business_run_count": 0,
+      "cause": "The debug caller supplied a workspace path before creating the authorized workspace.",
+      "classification": "test_orchestration_error",
+      "workflow_or_platform_changed": "The debug harness now creates an isolated workspace before requesting a run."
+    },
+    {
+      "order": 5,
+      "phase": "public_debug",
+      "result": "partial",
+      "business_cases_passed": 4,
+      "business_cases_total": 7,
+      "lifecycle_checks_passed": 4,
+      "lifecycle_checks_total": 4,
+      "cause": "Non-discriminative English stop words created weak false matches, and the verifier confused a source retrieved before human review with a citation delivered after reviewer rejection.",
+      "classification": "generic_retrieval_gap_and_verifier_error",
+      "workflow_or_platform_changed": "The host-neutral retrieval model was revised to discount stop words and weight lexical specificity; the acceptance logic now separates pre-review retrieval from post-rejection delivery."
+    },
+    {
+      "order": 6,
+      "phase": "sealed_seed_2201",
+      "result": "partial",
+      "business_cases_passed": 5,
+      "business_cases_total": 7,
+      "lifecycle_checks_passed": 4,
+      "lifecycle_checks_total": 4,
+      "cause": "The Seed generator placed a protected marker in a user question and reused a site marker in an unsupported query, so the oracle created false leakage and false relevance failures.",
+      "classification": "seed_design_error",
+      "workflow_or_platform_changed": "Only the Seed generator changed; the published workflow and generic retrieval model did not."
+    },
+    {
+      "order": 7,
+      "phase": "sealed_seed_2201",
+      "result": "aborted",
+      "cause": "A retry reused deterministic source and event identities from the prior attempt and correctly collided with the platform idempotency contract.",
+      "classification": "seed_attempt_identity_error",
+      "workflow_or_platform_changed": "A fresh attempt nonce was added to source and event identities; no ledger was deleted and no project idempotency key was weakened."
+    },
+    {
+      "order": 8,
+      "phase": "final_public_debug_and_sealed_seeds",
+      "result": "passed",
+      "public_business_cases": "7/7",
+      "public_lifecycle_checks": "4/4",
+      "sealed_business_cases": "21/21",
+      "sealed_lifecycle_checks": "12/12",
+      "sealed_run_count": 33,
+      "sealed_human_resume_count": 6,
+      "sealed_artifact_count": 99,
+      "forbidden_chunk_count": 0,
+      "forbidden_term_hit_count": 0
+    }
+  ],
+  "claim": "Failed builds, failed orchestration attempts, partial public runs and flawed Seed attempts remain visible. Only the final controlled-local business evidence is marked passed."
+}

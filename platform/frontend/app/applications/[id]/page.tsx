@@ -21,7 +21,7 @@ import {
   useEdgesState,
   useNodesState,
 } from '@xyflow/react'
-import { use, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type MouseEvent } from 'react'
+import { use, useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type FormEvent, type KeyboardEvent, type MouseEvent } from 'react'
 import {
   api,
   clearClientToken,
@@ -60,17 +60,55 @@ import { EvaluationHarnessPanel } from './evaluation-harness-panel'
 import { ScheduleOperationsPanel } from '@/app/schedule-operations-panel'
 import { ConnectorOperationsPanel } from '@/app/connector-operations-panel'
 import { LocalLiliesBuildPanel } from './local-lilies-build-panel'
+import {
+  BlockCatalogPanel,
+  BlockInstanceDetails,
+  BlockPurpose,
+  UndefinedBusinessWorkflowNotice,
+} from './block-catalog-panel'
+import blockCatalogStyles from './block-catalog-panel.module.css'
 
 type CanvasPoint = { x: number; y: number }
-type StudioNode = Node<{ title: string; blockType: string; description: string; status?: string }>
+type StudioPort = {
+  name: string
+  value_type: string
+}
+type StudioNode = Node<{
+  title: string
+  blockType: string
+  description: string
+  status?: string
+  compositionLabel?: string
+  operationLabel?: string
+  inputPorts: StudioPort[]
+  outputPorts: StudioPort[]
+}>
 type CanvasSelectionBox = { left: number; top: number; width: number; height: number }
 type WorkflowEditContextMenu = WorkflowEditSelection & { x: number; y: number }
+type StudioChromePreferences = {
+  catalogExpanded: boolean
+  guidanceExpanded: boolean
+  headerExpanded: boolean
+  leftPanelExpanded: boolean
+  toolbarExpanded: boolean
+  undefinedBusinessExpanded: boolean
+}
 type Copy = (typeof messages)[Locale]
 const CORE_STUDIO_TABS = ['build', 'edit', 'test', 'automation'] as const
 const VISIBLE_STUDIO_TABS = [...CORE_STUDIO_TABS, 'integrations'] as const
 const STUDIO_TABS = [...VISIBLE_STUDIO_TABS, 'run', 'monitor'] as const
 type StudioTab = typeof STUDIO_TABS[number]
 type ConfigEditorMode = 'form' | 'json'
+const STUDIO_CHROME_STORAGE_KEY = 'lilies.studio.chrome.v1'
+const BLOCK_DRAG_MIME = 'application/x-lilies-block-type'
+const DEFAULT_STUDIO_CHROME: StudioChromePreferences = {
+  catalogExpanded: true,
+  guidanceExpanded: true,
+  headerExpanded: true,
+  leftPanelExpanded: true,
+  toolbarExpanded: true,
+  undefinedBusinessExpanded: true,
+}
 type Version = { version: number; content_hash: string; created_at: string; validation_report: Record<string, unknown>; publication_decision?: PublicationDecision }
 type Build = {
   id: string
@@ -129,13 +167,33 @@ function BrickNode({ data, selected }: NodeProps<StudioNode>) {
   const title = safeText(data?.title, blockType)
   const description = safeText(data?.description, '已配置积木')
   const accent = accents[blockType] || '#64748b'
-  return <div className={`brick-node ${selected ? 'selected' : ''}`} style={{ '--accent': accent } as React.CSSProperties}>
-    <Handle type="target" position={Position.Left} />
+  const inputPorts = Array.isArray(data?.inputPorts) ? data.inputPorts : []
+  const outputPorts = Array.isArray(data?.outputPorts) ? data.outputPorts : []
+  const portRows = Math.max(inputPorts.length, outputPorts.length)
+  const nodeHeight = Math.max(92, 72 + portRows * 22)
+  const portTop = (index: number) => 72 + index * 22
+  return <div
+    className={`brick-node ${selected ? 'selected' : ''}`}
+    data-node-input-port-count={inputPorts.length}
+    data-node-output-port-count={outputPorts.length}
+    style={{ '--accent': accent, minHeight: nodeHeight } as React.CSSProperties}
+  >
+    {inputPorts.map((port, index) => <div className="brick-port brick-port-input" data-node-input-port={port.name} key={`input-${port.name}`} style={{ top: portTop(index) }}>
+      <Handle id={port.name} title={`${port.name}: ${port.value_type}`} type="target" position={Position.Left} />
+      <span>{port.name}</span><small>{port.value_type}</small>
+    </div>)}
     <div className="brick-type">{blockType.replaceAll('_', ' ')}</div>
     <strong>{title}</strong>
     <small>{description}</small>
+    {(data.compositionLabel || data.operationLabel) && <div className={blockCatalogStyles.nodeFacts}>
+      {data.compositionLabel && <span>{data.compositionLabel}</span>}
+      {data.operationLabel && <code>{data.operationLabel}</code>}
+    </div>}
     {data.status && <span className={`node-status ${data.status}`}>{data.status}</span>}
-    <Handle type="source" position={Position.Right} />
+    {outputPorts.map((port, index) => <div className="brick-port brick-port-output" data-node-output-port={port.name} key={`output-${port.name}`} style={{ top: portTop(index) }}>
+      <span>{port.name}</span><small>{port.value_type}</small>
+      <Handle id={port.name} title={`${port.name}: ${port.value_type}`} type="source" position={Position.Right} />
+    </div>)}
   </div>
 }
 
@@ -153,13 +211,144 @@ function safeCanvasPosition(value: unknown, fallback: CanvasPoint = CANVAS_LAYOU
   return { x, y }
 }
 
-function safeStudioNodeData(node: Partial<WorkflowNode>, fallbackDescription: string) {
+function safeStudioNodeData(
+  node: Partial<WorkflowNode>,
+  fallbackDescription: string,
+  locale: Locale,
+  block?: Block,
+) {
   const blockType = safeWorkflowNodeType(node)
   const title = safeText(node.title, blockType)
+  const config = asRecord(node.config)
+  const nestedWorkflow = asRecord(config.workflow)
+  const nestedNodeCount = Array.isArray(nestedWorkflow.nodes) ? nestedWorkflow.nodes.length : 0
+  const operationLabel = typeof config.operation_id === 'string' && config.operation_id
+    ? config.operation_id
+    : undefined
   return {
     title,
     blockType,
     description: safeText(node.description, fallbackDescription),
+    compositionLabel: nestedNodeCount
+      ? (locale === 'zh' ? `内层 ${nestedNodeCount} 个节点` : `${nestedNodeCount} nested nodes`)
+      : undefined,
+    operationLabel,
+    inputPorts: block?.input_ports.map(port => ({ name: port.name, value_type: port.value_type })) || [],
+    outputPorts: block?.output_ports.map(port => ({ name: port.name, value_type: port.value_type })) || [],
+  }
+}
+
+function parseStudioChromePreferences(value: string | null): StudioChromePreferences {
+  if (!value) return DEFAULT_STUDIO_CHROME
+  try {
+    const parsed = JSON.parse(value) as Partial<StudioChromePreferences>
+    return Object.fromEntries(
+      Object.entries(DEFAULT_STUDIO_CHROME).map(([key, fallback]) => [
+        key,
+        typeof parsed[key as keyof StudioChromePreferences] === 'boolean'
+          ? parsed[key as keyof StudioChromePreferences]
+          : fallback,
+      ]),
+    ) as StudioChromePreferences
+  } catch {
+    return DEFAULT_STUDIO_CHROME
+  }
+}
+
+function compatiblePortTypes(source: string, target: string) {
+  return source === 'any' || target === 'any' || source === target
+}
+
+function portByName(ports: StudioPort[], requested: string | null | undefined, conventionalName: string) {
+  if (requested) return ports.find(port => port.name === requested) || null
+  if (ports.length === 1) return ports[0]
+  return ports.find(port => port.name === conventionalName) || null
+}
+
+function connectionWouldCreateCycle(
+  sourceId: string,
+  targetId: string,
+  edges: Draft['snapshot']['workflow']['edges'],
+) {
+  if (sourceId === targetId) return true
+  const outgoing = new Map<string, string[]>()
+  edges.forEach(edge => {
+    const targets = outgoing.get(edge.source) || []
+    targets.push(edge.target)
+    outgoing.set(edge.source, targets)
+  })
+  const pending = [targetId]
+  const visited = new Set<string>()
+  while (pending.length) {
+    const current = pending.pop()
+    if (!current || visited.has(current)) continue
+    if (current === sourceId) return true
+    visited.add(current)
+    pending.push(...(outgoing.get(current) || []))
+  }
+  return false
+}
+
+function resolveConnectionContract(
+  connection: Connection,
+  workflow: Draft['snapshot']['workflow'] | undefined,
+  blocks: Block[],
+) {
+  if (!connection.source || !connection.target || !workflow) {
+    return { error: 'missing_connection_endpoint' } as const
+  }
+  const sourceNode = workflow.nodes.find(node => node.id === connection.source)
+  const targetNode = workflow.nodes.find(node => node.id === connection.target)
+  if (!sourceNode || !targetNode) return { error: 'missing_connection_node' } as const
+  if (connectionWouldCreateCycle(sourceNode.id, targetNode.id, workflow.edges)) {
+    return { error: 'workflow_cycle' } as const
+  }
+  const sourceBlock = blocks.find(block => block.type === sourceNode.type)
+  const targetBlock = blocks.find(block => block.type === targetNode.type)
+  if (!sourceBlock || !targetBlock) return { error: 'missing_block_contract' } as const
+  const sourcePort = portByName(sourceBlock.output_ports, connection.sourceHandle, 'output')
+  const targetPort = portByName(targetBlock.input_ports, connection.targetHandle, 'input')
+  if (!sourcePort) return { error: sourceBlock.output_ports.length ? 'choose_source_port' : 'source_has_no_output' } as const
+  if (!targetPort) return { error: targetBlock.input_ports.length ? 'choose_target_port' : 'target_has_no_input' } as const
+  if (!compatiblePortTypes(sourcePort.value_type, targetPort.value_type)) {
+    return { error: 'incompatible_port_types', sourcePort, targetPort } as const
+  }
+  const duplicate = workflow.edges.some(edge => (
+    edge.source === sourceNode.id
+    && edge.target === targetNode.id
+    && edge.source_port === sourcePort.name
+    && edge.target_port === targetPort.name
+  ))
+  if (duplicate) return { error: 'duplicate_connection' } as const
+  return { sourceNode, targetNode, sourcePort, targetPort, error: null } as const
+}
+
+function connectionErrorMessage(
+  result: ReturnType<typeof resolveConnectionContract>,
+  locale: Locale,
+) {
+  const zh = locale === 'zh'
+  switch (result.error) {
+    case 'workflow_cycle':
+      return zh ? '不能创建循环连线；请使用“循环”积木表达循环。' : 'This edge would create a cycle. Use a Loop brick.'
+    case 'source_has_no_output':
+      return zh ? '起点积木没有输出端口，不能从这里连出。' : 'The source brick has no output port.'
+    case 'target_has_no_input':
+      return zh ? '终点积木没有输入端口，不能连入这里。' : 'The target brick has no input port.'
+    case 'choose_source_port':
+      return zh ? '该积木有多个输出，请从标有名称的输出端口拖线。' : 'Choose one of the named source ports.'
+    case 'choose_target_port':
+      return zh ? '该积木有多个输入，请连到一个明确的输入端口。' : 'Choose one of the named target ports.'
+    case 'incompatible_port_types':
+      return zh
+        ? `端口类型不兼容：${result.sourcePort?.name}:${result.sourcePort?.value_type} → ${result.targetPort?.name}:${result.targetPort?.value_type}`
+        : `Incompatible ports: ${result.sourcePort?.name}:${result.sourcePort?.value_type} → ${result.targetPort?.name}:${result.targetPort?.value_type}`
+    case 'duplicate_connection':
+      return zh ? '这两个端口已经连接。' : 'These ports are already connected.'
+    case 'missing_block_contract':
+      return zh ? '缺少积木端口合同，请刷新积木库后重试。' : 'Block port metadata is unavailable. Refresh and retry.'
+    default:
+      return zh ? '无法识别这次连线的起点或终点。' : 'The connection endpoints could not be resolved.'
   }
 }
 
@@ -435,9 +624,81 @@ function defaultConfig(type: string): Record<string, unknown> {
     template_transform: { template: '{{ value }}', variables: { value: '' } },
     variable_assigner: { assignments: {} }, variable_aggregator: { variables: [null], mode: 'first_non_null' },
     http_request: { method: 'GET', url: 'https://example.com', headers: {}, query: {} },
+    web_collection: {
+      sources: [],
+      allowed_hosts: ['configure.invalid'],
+      permission_basis: 'Configure approved sources and permission basis before running.',
+      respect_robots: true,
+      robots_failure_policy: 'deny',
+      timeout_seconds: 20,
+      max_content_bytes: 1_000_000,
+      max_sources: 20,
+      fail_on_source_error: false,
+    },
+    collection_digest: { collection: [], topic: 'Daily collection', include_unchanged: false, max_items: 20 },
+    json_schema_validate: { value: {}, schema: { type: 'object' }, max_errors: 25 },
+    regex_extract: { text: '', fields: [{ name: 'value', pattern: '^(.{1,1000})$', group: 1, type: 'string', required: true, flags: [] }] },
+    record_deduplicate: { records: [], key_paths: [['id']], missing_key_policy: 'error' },
+    record_match: {
+      source: {},
+      candidates: [],
+      conditions: [{ name: 'id', source_path: ['id'], candidate_path: ['id'], comparator: 'exact', weight: 1, required: true }],
+      conflict_checks: [],
+      min_score: 1,
+      ambiguity_threshold: 0,
+      result_limit: 20,
+    },
+    typed_json_artifact: { value: {}, filename: 'records.json', lineage: [] },
+    typed_workbook: {
+      spec: {
+        sheets: [{
+          name: 'Results',
+          columns: [{ key: 'value', header: 'Value', type: 'string', nullable: false }],
+          rows: [],
+        }],
+      },
+      filename: 'results.xlsx',
+      formula_policy: 'reject',
+      lineage: [],
+    },
     connector_action: { connector_id: '', connector_version: 1, operation_id: '', tenant_id: '', actor_id: '', actor_roles: [], profile_id: '', payload: {}, idempotency_key: '', authorization_id: '', execution_mode: 'dry_run' },
-    iteration: { items: [], workflow: { nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 0.8 } }, output_node_id: '', output_path: [] },
-    loop: { workflow: { nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 0.8 } }, break_condition: { value: false, operator: 'equals', expected: true }, break_value: false, output_node_id: '' },
+    iteration: {
+      items: [],
+      workflow: {
+        nodes: [
+          { id: 'nested-start', type: 'start', title: 'Nested input', config: { inputs: [] }, position: { x: 40, y: 80 } },
+          { id: 'nested-end', type: 'end', title: 'Nested result', config: { outputs: { item: { $ref: { node_id: '$inputs', path: ['item'], optional: true } } } }, position: { x: 300, y: 80 } },
+        ],
+        edges: [{ id: 'nested-start-end', source: 'nested-start', target: 'nested-end', source_port: 'output', target_port: 'input' }],
+        viewport: { x: 0, y: 0, zoom: 0.8 },
+      },
+      variables: {},
+      item_name: 'item',
+      output_node_id: 'nested-end',
+      output_path: [],
+      parallelism: 4,
+    },
+    loop: {
+      workflow: {
+        nodes: [
+          { id: 'loop-start', type: 'start', title: 'Loop input', config: { inputs: [] }, position: { x: 40, y: 80 } },
+          { id: 'loop-end', type: 'end', title: 'Loop result', config: { outputs: { state: { $ref: { node_id: '$inputs', path: ['loop_state'], optional: true } } } }, position: { x: 300, y: 80 } },
+        ],
+        edges: [{ id: 'loop-start-end', source: 'loop-start', target: 'loop-end', source_port: 'output', target_port: 'input' }],
+        viewport: { x: 0, y: 0, zoom: 0.8 },
+      },
+      variables: {},
+      initial_state: null,
+      state_input_name: 'loop_state',
+      state_update: { $ref: { node_id: 'loop-end', path: ['state'], optional: true } },
+      feedback_input_name: 'tool_feedback',
+      feedback_value: null,
+      break_condition: { value: false, operator: 'equals', expected: true },
+      break_value: false,
+      max_iterations: 10,
+      output_node_id: 'loop-end',
+      checkpoint_each_iteration: false,
+    },
     human_input: { title: '需要你的输入', fields: [{ name: 'value', label: 'Value', type: 'string' }] },
     end: { outputs: {} }, answer: { answer: '' },
   }
@@ -494,19 +755,6 @@ function stripRefsToNode(value: unknown, sourceId: string): unknown {
       .map(([key, item]) => [key, stripRefsToNode(item, sourceId)] as const)
       .filter(([, item]) => item !== undefined),
   )
-}
-
-function groupBlocks(blocks: Block[]) {
-  return blocks.reduce<Record<string, Block[]>>((groups, block) => {
-    const category = block.block_kind === 'agent_architecture'
-      ? 'agent_architecture'
-      : block.block_kind === 'legacy_compatibility'
-        ? 'legacy_compatibility'
-        : block.category || 'other'
-    groups[category] ||= []
-    groups[category].push(block)
-    return groups
-  }, {})
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -744,6 +992,8 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   const [tokenInput, setTokenInput] = useState('')
   const [runtimeHealth, setRuntimeHealth] = useState<RuntimeHealth | null>(null)
   const [runtimeUnavailable, setRuntimeUnavailable] = useState(false)
+  const [studioChrome, setStudioChrome] = useState<StudioChromePreferences>(DEFAULT_STUDIO_CHROME)
+  const [studioChromeLoaded, setStudioChromeLoaded] = useState(false)
   const eventSource = useRef<EventSource | null>(null)
   const draftRef = useRef<Draft | null>(null)
   const selectedId = useRef<string | null>(null)
@@ -766,6 +1016,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   const lastFitSignature = useRef('')
   const buildPoll = useRef<number | null>(null)
   const buildRefreshTimer = useRef<number | null>(null)
+  const mutationQueueRef = useRef<Promise<void>>(Promise.resolve())
   const setStudioTab = useCallback((next: StudioTab, options: { replace?: boolean } = {}) => {
     if (next === 'run') {
       router.push(`/runtime/${id}`)
@@ -810,6 +1061,28 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     window.history.replaceState(null, '', `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ''}`)
   }
 
+  function toggleStudioChrome(key: keyof StudioChromePreferences) {
+    setStudioChrome(current => ({ ...current, [key]: !current[key] }))
+  }
+
+  useEffect(() => {
+    try {
+      setStudioChrome(parseStudioChromePreferences(window.localStorage.getItem(STUDIO_CHROME_STORAGE_KEY)))
+    } catch {
+      setStudioChrome(DEFAULT_STUDIO_CHROME)
+    }
+    setStudioChromeLoaded(true)
+  }, [])
+
+  useEffect(() => {
+    if (!studioChromeLoaded) return
+    try {
+      window.localStorage.setItem(STUDIO_CHROME_STORAGE_KEY, JSON.stringify(studioChrome))
+    } catch {
+      // Layout preferences are optional and never block workflow editing.
+    }
+  }, [studioChrome, studioChromeLoaded])
+
   function setSelectedNode(value: WorkflowNode | null) {
     selectedId.current = value?.id || null
     selectedEdgeId.current = null
@@ -844,7 +1117,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     })
   }
 
-  const syncCanvas = useCallback((next: Draft) => {
+  const syncCanvas = useCallback((next: Draft, availableBlocks: Block[] = blocks) => {
     if (next.revision < latestRevision.current) return
     const previousDraft = draftRef.current
     if (draftIdentityChanged(previousDraft, next)) {
@@ -867,11 +1140,12 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     const workflowEditNodeIds = new Set(workflowEditSelection.nodeIds)
     const workflowEditEdgeIds = new Set(workflowEditSelection.edgeIds)
     const positions = visiblePositions(next.snapshot.workflow.nodes, workflowEdges)
+    const blocksByType = new Map(availableBlocks.map(block => [block.type, block]))
     const renderNodes: StudioNode[] = next.snapshot.workflow.nodes.map(item => ({
       id: item.id,
       type: 'brick',
       position: positions.get(item.id) || safeCanvasPosition(item.position),
-      data: safeStudioNodeData(item, t.configuredBrick),
+      data: safeStudioNodeData(item, t.configuredBrick, locale, blocksByType.get(item.type)),
       selected: workflowEditNodeIds.has(item.id),
     }))
     setNodes(renderNodes)
@@ -879,6 +1153,8 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
       const selected = item.id === selectedEdgeId.current || workflowEditEdgeIds.has(item.id)
       return {
         id: item.id, source: item.source, target: item.target, label: item.branch || undefined,
+        sourceHandle: item.source_port,
+        targetHandle: item.target_port,
         selected,
         animated: Boolean(item.branch),
         style: { stroke: selected ? '#ff8a50' : (item.branch ? '#eab308' : '#465166'), strokeWidth: selected ? 3 : 1 },
@@ -890,7 +1166,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
         setSelected(updated)
         setConfigText(JSON.stringify(updated.config || {}, null, 2))
         setConfigEditorBase(cloneConfig(updated.config || {}))
-        const fields = editorFieldsForBlock(blocks.find(block => block.type === updated.type))
+        const fields = editorFieldsForBlock(blocksByType.get(updated.type))
         setConfigFieldValues(configEditorValues(fields, updated.config || {}))
       } else {
         selectedId.current = null
@@ -910,7 +1186,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
       }
     }
     scheduleFitView(renderNodes)
-  }, [blocks, setEdges, setNodes, t.configuredBrick])
+  }, [blocks, locale, setEdges, setNodes, t.configuredBrick])
 
   const refresh = useCallback(async () => {
     try {
@@ -919,8 +1195,8 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
         api<Block[]>('/api/v1/blocks'),
         api<Version[]>(`/api/v1/applications/${id}/versions`),
       ])
-      syncCanvas(next)
       setBlocks(nextBlocks)
+      syncCanvas(next, nextBlocks)
       setVersions(nextVersions)
       setAuthRequired(false)
       return next
@@ -1009,22 +1285,26 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  async function mutation(op: string, data: Record<string, unknown>) {
-    const current = draftRef.current
-    if (!current) return null
-    try {
-      await api(`/api/v1/applications/${id}/draft`, {
-        method: 'POST',
-        body: JSON.stringify({ expected_revision: current.revision, idempotency_key: idempotency(), op, data }),
-      })
-      const next = await refresh()
-      setNotice(t.savedDraft)
-      return next
-    } catch (error) {
-      setNotice(String(error))
-      await refresh()
-      return null
-    }
+  function mutation(op: string, data: Record<string, unknown>) {
+    const queued = mutationQueueRef.current.then(async (): Promise<Draft | null> => {
+      const current = draftRef.current
+      if (!current) return null
+      try {
+        await api(`/api/v1/applications/${id}/draft`, {
+          method: 'POST',
+          body: JSON.stringify({ expected_revision: current.revision, idempotency_key: idempotency(), op, data }),
+        })
+        const next = await refresh()
+        setNotice(t.savedDraft)
+        return next
+      } catch (error) {
+        setNotice(String(error))
+        await refresh().catch(() => undefined)
+        return null
+      }
+    })
+    mutationQueueRef.current = queued.then(() => undefined, () => undefined)
+    return queued
   }
 
   async function updateDeliverySettings(
@@ -1046,30 +1326,70 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   }
 
   const onConnect = useCallback(async (connection: Connection) => {
-    if (!connection.source || !connection.target) return
+    const contract = resolveConnectionContract(connection, draftRef.current?.snapshot.workflow, blocks)
+    if (contract.error) {
+      setNotice(connectionErrorMessage(contract, locale))
+      return
+    }
     const edgeId = idempotency()
-    setEdges(current => addEdge({ ...connection, id: edgeId }, current))
+    const persistedConnection: Edge = {
+      id: edgeId,
+      source: contract.sourceNode.id,
+      target: contract.targetNode.id,
+      sourceHandle: contract.sourcePort.name,
+      targetHandle: contract.targetPort.name,
+    }
+    setEdges(current => addEdge(persistedConnection, current))
     const next = await mutation('add_edge', { edge: {
-      id: edgeId, source: connection.source, target: connection.target,
-      source_port: 'output', target_port: 'input',
+      id: edgeId, source: contract.sourceNode.id, target: contract.targetNode.id,
+      source_port: contract.sourcePort.name, target_port: contract.targetPort.name,
     } })
-    const target = next?.snapshot.workflow.nodes.find(item => item.id === connection.target)
+    const target = next?.snapshot.workflow.nodes.find(item => item.id === contract.targetNode.id)
     if (target) {
-      const config = configAfterConnect(target, connection.source, 'output')
+      const config = configAfterConnect(target, contract.sourceNode.id, contract.sourcePort.name)
       if (config !== target.config) {
         await mutation('update_node', { node_id: target.id, changes: { config }, merge_config: false })
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft])
+  }, [blocks, locale])
 
-  async function addBlock(block: Block) {
-    const index = draft?.snapshot.workflow.nodes.length || 0
-    await mutation('add_node', { node: {
-      id: `${block.type}-${Date.now()}`, type: block.type, block_version: 1, title: blockTitle(block),
-      description: blockDescription(block), config: defaultConfig(block.type), position: { x: 120 + index * 55, y: 120 + (index % 4) * 90 },
+  async function addBlock(block: Block, requestedPosition?: CanvasPoint) {
+    const index = draftRef.current?.snapshot.workflow.nodes.length || 0
+    const nodeId = `${block.type}-${Date.now()}`
+    const position = requestedPosition || { x: 120 + index * 55, y: 120 + (index % 4) * 90 }
+    const next = await mutation('add_node', { node: {
+      id: nodeId, type: block.type, block_version: 1, title: blockTitle(block),
+      description: blockDescription(block), config: defaultConfig(block.type), position,
       retry: { enabled: false, max_attempts: 1, delay_seconds: 0.5 }, error_strategy: 'fail',
     } })
+    const added = next?.snapshot.workflow.nodes.find(item => item.id === nodeId)
+    if (!added) return
+    setSelectedNode(added)
+    setNodes(current => current.map(node => ({ ...node, selected: node.id === nodeId })))
+    setStudioTab('edit')
+    setNotice(locale === 'zh'
+      ? `已添加“${blockTitle(block)}”，请检查用途和配置。`
+      : `Added “${blockTitle(block)}”. Review its purpose and configuration.`)
+  }
+
+  function allowBlockDrop(event: DragEvent<HTMLElement>) {
+    if (!Array.from(event.dataTransfer.types).includes(BLOCK_DRAG_MIME)) return
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'copy'
+  }
+
+  function dropBlockOnCanvas(event: DragEvent<HTMLElement>) {
+    const blockType = event.dataTransfer.getData(BLOCK_DRAG_MIME)
+    if (!blockType) return
+    event.preventDefault()
+    const block = blocks.find(item => item.type === blockType)
+    if (!block) {
+      setNotice(locale === 'zh' ? '找不到这个积木，请刷新积木库。' : 'This brick is no longer available. Refresh the library.')
+      return
+    }
+    const position = flowRef.current?.screenToFlowPosition({ x: event.clientX, y: event.clientY })
+    void addBlock(block, position ? safeCanvasPosition(position) : undefined)
   }
 
   async function insertCapabilityModule(module: CapabilityModule) {
@@ -1772,7 +2092,6 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     }
   }
 
-  const grouped = useMemo(() => groupBlocks(blocks), [blocks])
   const tested = draft?.tested_hash && draft.tested_hash === draft.content_hash
   const evidenceState = draft?.evidence?.state || (tested ? 'current' : 'missing')
   const evidenceStateLabel = evidenceState === 'current' ? t.evidenceStateCurrent : evidenceState === 'stale' ? t.evidenceStateStale : t.evidenceStateMissing
@@ -1934,11 +2253,6 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   function blockDescription(block: Block) {
     return block.editor?.i18n?.[locale]?.description || block.description
   }
-  function blockCategory(block: Block) {
-    if (block.block_kind === 'agent_architecture') return locale === 'zh' ? 'Agent 架构积木' : 'Agent Architecture'
-    if (block.block_kind === 'legacy_compatibility') return locale === 'zh' ? 'Legacy 兼容层' : 'Legacy Compatibility'
-    return block.editor?.i18n?.[locale]?.category || block.category
-  }
   function saveToken(event: FormEvent) {
     event.preventDefault()
     saveClientToken(tokenInput)
@@ -2015,14 +2329,39 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   ]
   const currentDeliveryMode = draft?.snapshot.delivery_mode || 'guided'
   const currentDeliveryModeOption = deliveryModeOptions.find(option => option.id === currentDeliveryMode) || deliveryModeOptions[1]
+  const businessDefinitionMissing = Boolean(draft && !(
+    draft.snapshot.requirement.trim()
+    || draft.snapshot.capability_build_contract?.business_goal?.trim()
+  ))
 
-  return <main className="studio-shell">
-    <header className="studio-header">
+  return <main className="studio-shell" data-studio-chrome="collapsible">
+    <header className="studio-header" data-collapsed={studioChrome.headerExpanded ? 'false' : 'true'} id="studio-header">
       <Link href="/" className="back">←</Link>
       <div className="studio-title"><b className={surfaceStyles.studioLabel}>Engineer Studio</b><strong>{draft?.snapshot.name || t.loading}</strong><span>{draft?.snapshot.mode === 'chat' ? t.modeChat : t.modeWorkflow} · {currentDeliveryModeOption.label} · {t.draft} r{draft?.revision ?? 0}</span></div>
       <div className="header-center"><span className={`evidence-state ${evidenceState}`} data-evidence-state={evidenceState}>{evidenceStateLabel}</span>{activeVersion && <span>{t.activeVersion(activeVersion)}</span>}<span className={`runtime-chip ${runtimeStatus}`} data-runtime-status={runtimeStatus} title={runtimeStatusDetail}>{runtimeStatusText}</span></div>
-      <div className={`header-actions ${surfaceStyles.studioActions}`}><button className="lang-toggle" onClick={toggleLocale}>{t.switchLabel}</button><Link className={surfaceStyles.surfaceLink} href={`/runtime/${id}`}><Play size={14} /><span>{t.debugDraft}</span></Link><Link className={surfaceStyles.surfaceLink} data-global-developer-collaboration="true" href="/developer/collaboration"><MessagesSquare size={14} /><span>Collaboration</span></Link><Link className={`${surfaceStyles.surfaceLink} ${surfaceStyles.studioGovernance}`} href={`/governance?application_id=${id}`}><ShieldCheck size={14} /><span>Governance</span></Link><button data-publication-action="open" onClick={() => void publish()} disabled={publicationBusy}>{publicationBusy ? t.publicationChecking : t.publishVersion}</button></div>
+      <div className={`header-actions ${surfaceStyles.studioActions}`}>
+        <button className="lang-toggle" onClick={toggleLocale}>{t.switchLabel}</button>
+        <Link className={surfaceStyles.surfaceLink} href={`/runtime/${id}`}><Play size={14} /><span>{t.debugDraft}</span></Link>
+        <Link className={surfaceStyles.surfaceLink} data-global-developer-collaboration="true" href="/developer/collaboration"><MessagesSquare size={14} /><span>Collaboration</span></Link>
+        <Link className={`${surfaceStyles.surfaceLink} ${surfaceStyles.studioGovernance}`} href={`/governance?application_id=${id}`}><ShieldCheck size={14} /><span>Governance</span></Link>
+        <button data-publication-action="open" onClick={() => void publish()} disabled={publicationBusy}>{publicationBusy ? t.publicationChecking : t.publishVersion}</button>
+        <button
+          aria-controls="studio-header"
+          aria-expanded={studioChrome.headerExpanded}
+          className="studio-chrome-toggle header-toggle"
+          data-studio-chrome-toggle="header"
+          onClick={() => toggleStudioChrome('headerExpanded')}
+          title={studioChrome.headerExpanded ? (locale === 'zh' ? '收起顶栏' : 'Collapse header') : (locale === 'zh' ? '展开顶栏' : 'Expand header')}
+          type="button"
+        >{studioChrome.headerExpanded ? '⌃' : '⌄'}<span>{locale === 'zh' ? '顶栏' : 'Header'}</span></button>
+      </div>
     </header>
+    {businessDefinitionMissing && <UndefinedBusinessWorkflowNotice
+      expanded={studioChrome.undefinedBusinessExpanded}
+      locale={locale}
+      nodeCount={draft?.snapshot.workflow.nodes.length || 0}
+      onToggle={() => toggleStudioChrome('undefinedBusinessExpanded')}
+    />}
     {publicationDecision && (publicationDecision.requires_confirmation || publicationDecision.blocked) && <section className={`publication-decision-banner ${publicationDecision.blocked ? 'blocked' : 'warning'}`} data-publication-decision={publicationDecision.blocked ? 'blocked' : 'confirmation'}>
       <div><strong>{publicationDecision.blocked ? t.publicationBlockedTitle : t.publicationConfirmationTitle}</strong><span>{publicationDecision.evidence_state === 'stale' ? t.publicationStaleDetail : t.publicationMissingDetail}</span></div>
       <ul>{publicationDecision.warnings.map(warning => <li key={warning.code}>{warning.message}</li>)}</ul>
@@ -2033,8 +2372,21 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
         <button type="button" className="ghost" data-publication-action="dismiss" aria-label={t.publicationDismiss} onClick={() => setPublicationDecision(null)}>×</button>
       </div>
     </section>}
-    <div className="studio-grid">
-      <aside className="left-panel">
+    <div
+      className="studio-grid"
+      data-left-panel={studioChrome.leftPanelExpanded ? 'expanded' : 'collapsed'}
+      data-right-panel={studioChrome.catalogExpanded ? 'expanded' : 'collapsed'}
+    >
+      <aside className="left-panel" data-collapsed={studioChrome.leftPanelExpanded ? 'false' : 'true'} id="studio-left-panel">
+        <button
+          aria-controls="studio-left-panel"
+          aria-expanded={studioChrome.leftPanelExpanded}
+          className="studio-panel-toggle left-panel-toggle"
+          data-studio-chrome-toggle="left-panel"
+          onClick={() => toggleStudioChrome('leftPanelExpanded')}
+          title={studioChrome.leftPanelExpanded ? (locale === 'zh' ? '收起工作区' : 'Collapse workspace') : (locale === 'zh' ? '展开工作区' : 'Expand workspace')}
+          type="button"
+        ><span aria-hidden="true">{studioChrome.leftPanelExpanded ? '‹' : '›'}</span><b>{locale === 'zh' ? '工作区' : 'Workspace'}</b></button>
         <div className={`panel-tabs ${surfaceStyles.threeTabs}`} data-detail-tab-url-state="synced">{VISIBLE_STUDIO_TABS.map(item => <button aria-pressed={tab === item} className={tab === item ? 'active' : ''} data-studio-tab={item} onClick={() => setStudioTab(item)} key={item} type="button">{item === 'build' ? t.buildTab : item === 'edit' ? t.editTab : item === 'test' ? t.testTab : item === 'automation' ? locale === 'zh' ? '自动化' : 'Automation' : locale === 'zh' ? '集成' : 'Integrations'}</button>)}</div>
         {tab === 'build' && <div className="panel-body">
           <LocalLiliesBuildPanel applicationId={id} requirement={requirement} locale={locale} requestedAssignmentId={requestedAssignmentId} capabilityContext={draft?.snapshot.capability_build_contract} onApplicationChanged={refresh} />
@@ -2164,6 +2516,8 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
             {selectedEdge && <div className="edge-summary"><code>{selectedEdge.source} → {selectedEdge.target}</code>{selectedEdge.label && <span>{selectedEdge.label}</span>}</div>}
           </section>
           {selected ? <>
+            {selectedBlockDefinition && <BlockPurpose block={selectedBlockDefinition} locale={locale} />}
+            <BlockInstanceDetails locale={locale} node={selected} />
             <section className="safe-edit-guide" data-node-inspector="safe-edit-guide"><strong>{t.nodeInspectorSafeEditTitle}</strong><span>{t.nodeInspectorSafeEditHelp}</span></section>
             <div className="config-editor-heading"><strong>{t.configLabel}</strong><div className="config-editor-tabs" role="tablist">
               <button type="button" role="tab" aria-selected={configEditorMode === 'form'} data-config-editor-mode="form" disabled={!selectedEditorFields.length} onClick={() => switchConfigEditorMode('form')}>{t.configFormTab}</button>
@@ -2347,6 +2701,9 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
         aria-label={t.canvasKeyboardLabel}
         className="canvas-wrap"
         data-canvas-keyboard="wasd-pan"
+        data-canvas-drop-target="block-catalog"
+        onDragOver={allowBlockDrop}
+        onDrop={dropBlockOnCanvas}
         onKeyDownCapture={handleCanvasKeyDown}
         onMouseDown={focusCanvasForKeyboard}
         onMouseDownCapture={handleCanvasMouseDownCapture}
@@ -2358,7 +2715,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
           <input type="password" value={tokenInput} placeholder={t.authPlaceholder} onChange={event => setTokenInput(event.target.value)} />
           <div className="auth-actions"><button>{t.authSave}</button><button type="button" className="ghost" onClick={() => { clearClientToken(); setTokenInput('') }}>{t.authClear}</button></div>
         </form>}
-        <div className="canvas-toolbar" data-canvas-toolbar="layout-navigation">
+        <div className="canvas-toolbar" data-canvas-toolbar="layout-navigation" data-collapsed={studioChrome.toolbarExpanded ? 'false' : 'true'}>
           <button
             data-canvas-action="natural-language-edit"
             onClick={openWorkflowEditPanel}
@@ -2369,8 +2726,23 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
           <button data-canvas-action="arrange" disabled={!nodes.length || canvasArranging} onClick={arrangeCanvasNodes} type="button">{canvasArranging ? t.canvasArrangeBusy : t.canvasArrangeButton}</button>
           <span className="canvas-keyboard-hint" data-canvas-selection-hint="right-drag">{t.canvasRightDragHint}</span>
           <span className="canvas-keyboard-hint" data-canvas-keyboard-hint="wasd-pan" title={t.canvasKeyboardHintDetail}>{t.canvasKeyboardHint}</span>
+          <button
+            aria-expanded={studioChrome.guidanceExpanded}
+            className="canvas-toolbar-guidance-toggle"
+            data-studio-chrome-toggle="guidance"
+            onClick={() => toggleStudioChrome('guidanceExpanded')}
+            type="button"
+          >{studioChrome.guidanceExpanded ? (locale === 'zh' ? '收起提示' : 'Hide guidance') : (locale === 'zh' ? '展开提示' : 'Show guidance')}</button>
+          <button
+            aria-expanded={studioChrome.toolbarExpanded}
+            className="canvas-toolbar-toggle"
+            data-studio-chrome-toggle="toolbar"
+            onClick={() => toggleStudioChrome('toolbarExpanded')}
+            title={studioChrome.toolbarExpanded ? (locale === 'zh' ? '收起画布工具' : 'Collapse canvas tools') : (locale === 'zh' ? '展开画布工具' : 'Expand canvas tools')}
+            type="button"
+          >{studioChrome.toolbarExpanded ? '×' : (locale === 'zh' ? '工具' : 'Tools')}</button>
         </div>
-        <div className="canvas-guidance">
+        <div className="canvas-guidance" data-collapsed={studioChrome.guidanceExpanded ? 'false' : 'true'}>
           {safeDraftLanding && <section className="safe-draft-landing" data-safe-draft-landing="active">
             <div>
               <strong>{t.safeDraftLandingTitle}</strong>
@@ -2479,7 +2851,13 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
         </div>}
         {notice && <button className="toast" onClick={() => setNotice('')}>{notice}</button>}
       </section>
-      <aside className="block-panel"><div className="block-heading"><span>{t.bricks}</span><small>{t.available(blocks.length)}</small></div>{Object.entries(grouped).map(([category, items]) => <div className="block-group" key={category}><h4>{items?.[0] ? blockCategory(items[0]) : category}</h4>{items?.map(block => <button onClick={() => addBlock(block)} key={block.type}><i style={{ background: accents[block.type] || '#64748b' }}/><span><b>{blockTitle(block)}</b><small>{blockDescription(block)}</small></span><em>+</em></button>)}</div>)}</aside>
+      <BlockCatalogPanel
+        blocks={blocks}
+        expanded={studioChrome.catalogExpanded}
+        locale={locale}
+        onAdd={addBlock}
+        onToggle={() => toggleStudioChrome('catalogExpanded')}
+      />
     </div>
   </main>
 }

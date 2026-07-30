@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import argparse
 import base64
+import hashlib
+import hmac
 import json
 import os
 import secrets
@@ -18,7 +20,7 @@ from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parents[3]
 TASK_ID = "EXP-LILIES-001"
-REVISION = 20
+REVISION = 28
 COMPOSE_PATH = Path(__file__).with_name("compose.yaml")
 ACCOUNT_PROVISION_SCRIPT = Path(__file__).with_name(
     "provision_scoped_account.py"
@@ -32,6 +34,44 @@ DEFAULT_PACKAGE_ROOT = (
     / str(REVISION)
 )
 MAX_RESPONSE_BYTES = 8 * 1024 * 1024
+COMPOSE_PROJECT_NAME = "exp-lilies-001-r7"
+ENVIRONMENT_OWNER_VOLUME = f"{COMPOSE_PROJECT_NAME}-environment-owner"
+ENVIRONMENT_OWNER_SCHEMA_VERSION = "1.0"
+ENVIRONMENT_OWNER_LABEL_PREFIX = "io.lilies.experiment.environment-owner"
+EXPECTED_COMPOSE_SERVICES = frozenset(
+    {
+        "paperless-broker",
+        "paperless-db",
+        "paperless",
+        "inventree-db",
+        "inventree-cache",
+        "inventree",
+        "inventree-worker",
+    }
+)
+EXPECTED_COMPOSE_VOLUME_COUNT = 7
+COMPOSE_SECRET_BINDINGS = {
+    "paperless-db": {
+        "POSTGRES_PASSWORD": "paperless_db_password",
+    },
+    "paperless": {
+        "PAPERLESS_DBPASS": "paperless_db_password",
+        "PAPERLESS_SECRET_KEY": "paperless_secret_key",
+        "PAPERLESS_ADMIN_PASSWORD": "paperless_admin_password",
+    },
+    "inventree-db": {
+        "POSTGRES_PASSWORD": "inventree_db_password",
+    },
+    "inventree": {
+        "INVENTREE_DB_PASSWORD": "inventree_db_password",
+        "INVENTREE_SECRET_KEY": "inventree_secret_key",
+        "INVENTREE_ADMIN_PASSWORD": "inventree_admin_password",
+    },
+    "inventree-worker": {
+        "INVENTREE_DB_PASSWORD": "inventree_db_password",
+        "INVENTREE_SECRET_KEY": "inventree_secret_key",
+    },
+}
 
 
 class EnvironmentControlError(RuntimeError):
@@ -135,6 +175,10 @@ def _secret_state(state_root: Path, *, create: bool) -> dict[str, str]:
 
 def _compose_environment(state_root: Path, *, create: bool) -> dict[str, str]:
     values = _secret_state(state_root, create=create)
+    owner_labels = _environment_owner_labels(
+        state_root,
+        secret_state=values,
+    )
     environment = os.environ.copy()
     environment.update(
         {
@@ -156,9 +200,398 @@ def _compose_environment(state_root: Path, *, create: bool) -> dict[str, str]:
             "EXP_LILIES_INVENTREE_ADMIN_PASSWORD": values[
                 "inventree_admin_password"
             ],
+            "EXP_LILIES_ENVIRONMENT_OWNER_SCHEMA": owner_labels[
+                f"{ENVIRONMENT_OWNER_LABEL_PREFIX}.schema-version"
+            ],
+            "EXP_LILIES_ENVIRONMENT_OWNER_TASK": owner_labels[
+                f"{ENVIRONMENT_OWNER_LABEL_PREFIX}.task-id"
+            ],
+            "EXP_LILIES_ENVIRONMENT_OWNER_PROJECT": owner_labels[
+                f"{ENVIRONMENT_OWNER_LABEL_PREFIX}.compose-project"
+            ],
+            "EXP_LILIES_ENVIRONMENT_OWNER_BINDING": owner_labels[
+                f"{ENVIRONMENT_OWNER_LABEL_PREFIX}.state-root-binding"
+            ],
         }
     )
     return environment
+
+
+def _environment_owner_labels(
+    state_root: Path,
+    *,
+    secret_state: dict[str, str] | None = None,
+    legacy_adopted: bool | None = None,
+) -> dict[str, str]:
+    values = (
+        _secret_state(state_root, create=False)
+        if secret_state is None
+        else secret_state
+    )
+    binding_message = (
+        TASK_ID.encode("utf-8")
+        + b"\0"
+        + COMPOSE_PROJECT_NAME.encode("utf-8")
+        + b"\0"
+        + str(state_root.resolve()).encode("utf-8")
+    )
+    owner_binding = hmac.new(
+        values["attestation_secret"].encode("utf-8"),
+        binding_message,
+        hashlib.sha256,
+    ).hexdigest()
+    labels = {
+        f"{ENVIRONMENT_OWNER_LABEL_PREFIX}.schema-version": (
+            ENVIRONMENT_OWNER_SCHEMA_VERSION
+        ),
+        f"{ENVIRONMENT_OWNER_LABEL_PREFIX}.task-id": TASK_ID,
+        f"{ENVIRONMENT_OWNER_LABEL_PREFIX}.compose-project": (
+            COMPOSE_PROJECT_NAME
+        ),
+        f"{ENVIRONMENT_OWNER_LABEL_PREFIX}.state-root-binding": (
+            owner_binding
+        ),
+    }
+    if legacy_adopted is not None:
+        labels[f"{ENVIRONMENT_OWNER_LABEL_PREFIX}.legacy-adopted"] = (
+            "true" if legacy_adopted else "false"
+        )
+    return labels
+
+
+def _docker_output(arguments: Sequence[str]) -> str:
+    completed = subprocess.run(
+        ["docker", *arguments],
+        cwd=COMPOSE_PATH.parent,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise EnvironmentControlError(
+            f"docker {' '.join(arguments[:2])} failed with "
+            f"status {completed.returncode}"
+        )
+    return completed.stdout
+
+
+def _docker_json(arguments: Sequence[str]) -> Any:
+    output = _docker_output(arguments)
+    try:
+        return json.loads(output)
+    except json.JSONDecodeError as error:
+        raise EnvironmentControlError(
+            f"docker {' '.join(arguments[:2])} returned invalid JSON"
+        ) from error
+
+
+def _docker_lines(arguments: Sequence[str]) -> list[str]:
+    return [
+        line.strip()
+        for line in _docker_output(arguments).splitlines()
+        if line.strip()
+    ]
+
+
+def _environment_owner_volume() -> dict[str, Any] | None:
+    volume_names = _docker_lines(
+        [
+            "volume",
+            "ls",
+            "--quiet",
+            "--filter",
+            f"name={ENVIRONMENT_OWNER_VOLUME}",
+        ]
+    )
+    if ENVIRONMENT_OWNER_VOLUME not in volume_names:
+        return None
+    payload = _docker_json(
+        ["volume", "inspect", ENVIRONMENT_OWNER_VOLUME]
+    )
+    if (
+        not isinstance(payload, list)
+        or len(payload) != 1
+        or not isinstance(payload[0], dict)
+    ):
+        raise EnvironmentControlError(
+            "Docker environment owner volume inspection is invalid"
+        )
+    return payload[0]
+
+
+def _assert_environment_owner(
+    state_root: Path,
+    owner_volume: dict[str, Any],
+) -> bool:
+    labels = owner_volume.get("Labels")
+    expected = _environment_owner_labels(state_root)
+    legacy_label = (
+        labels.get(f"{ENVIRONMENT_OWNER_LABEL_PREFIX}.legacy-adopted")
+        if isinstance(labels, dict)
+        else None
+    )
+    actual_binding = (
+        labels.get(f"{ENVIRONMENT_OWNER_LABEL_PREFIX}.state-root-binding")
+        if isinstance(labels, dict)
+        else None
+    )
+    expected_binding = expected.pop(
+        f"{ENVIRONMENT_OWNER_LABEL_PREFIX}.state-root-binding"
+    )
+    if (
+        owner_volume.get("Name") != ENVIRONMENT_OWNER_VOLUME
+        or not isinstance(labels, dict)
+        or any(labels.get(key) != value for key, value in expected.items())
+        or not isinstance(actual_binding, str)
+        or not hmac.compare_digest(actual_binding, expected_binding)
+        or legacy_label not in {"true", "false"}
+    ):
+        raise EnvironmentControlError(
+            "the fixed Docker experiment environment is owned by another "
+            "state root"
+        )
+    return legacy_label == "true"
+
+
+def _compose_project_containers() -> list[dict[str, Any]]:
+    container_ids = _docker_lines(
+        [
+            "container",
+            "ls",
+            "--all",
+            "--quiet",
+            "--filter",
+            f"label=com.docker.compose.project={COMPOSE_PROJECT_NAME}",
+        ]
+    )
+    if not container_ids:
+        return []
+    payload = _docker_json(["container", "inspect", *container_ids])
+    if not isinstance(payload, list) or any(
+        not isinstance(item, dict) for item in payload
+    ):
+        raise EnvironmentControlError(
+            "Docker experiment container inspection is invalid"
+        )
+    return payload
+
+
+def _compose_project_volumes() -> list[str]:
+    return _docker_lines(
+        [
+            "volume",
+            "ls",
+            "--quiet",
+            "--filter",
+            f"label=com.docker.compose.project={COMPOSE_PROJECT_NAME}",
+        ]
+    )
+
+
+def _container_environment(container: dict[str, Any]) -> dict[str, str]:
+    configuration = container.get("Config")
+    values = configuration.get("Env") if isinstance(configuration, dict) else None
+    if not isinstance(values, list) or any(
+        not isinstance(item, str) for item in values
+    ):
+        raise EnvironmentControlError(
+            "Docker experiment container environment is invalid"
+        )
+    environment: dict[str, str] = {}
+    for item in values:
+        name, separator, value = item.partition("=")
+        if not separator:
+            continue
+        if name in environment:
+            raise EnvironmentControlError(
+                "Docker experiment container has duplicate environment keys"
+            )
+        environment[name] = value
+    return environment
+
+
+def _compose_containers_by_service(
+    containers: Sequence[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    by_service: dict[str, dict[str, Any]] = {}
+    for container in containers:
+        configuration = container.get("Config")
+        labels = (
+            configuration.get("Labels")
+            if isinstance(configuration, dict)
+            else None
+        )
+        service = (
+            labels.get("com.docker.compose.service")
+            if isinstance(labels, dict)
+            and labels.get("com.docker.compose.project")
+            == COMPOSE_PROJECT_NAME
+            else None
+        )
+        if not isinstance(service, str) or service in by_service:
+            raise EnvironmentControlError(
+                "existing Docker experiment container identity is ambiguous"
+            )
+        by_service[service] = container
+    if set(by_service) != EXPECTED_COMPOSE_SERVICES:
+        raise EnvironmentControlError(
+            "existing Docker experiment container set is incomplete or "
+            "unexpected"
+        )
+    return by_service
+
+
+def _validate_legacy_compose_adoption(
+    state_root: Path,
+    *,
+    containers: Sequence[dict[str, Any]],
+    project_volumes: Sequence[str],
+) -> None:
+    if not containers:
+        if project_volumes:
+            raise EnvironmentControlError(
+                "existing Docker experiment data volumes have no container "
+                "identity; refusing ambiguous state-root adoption"
+            )
+        return
+
+    by_service = _compose_containers_by_service(containers)
+    secret_state = _secret_state(state_root, create=False)
+    for service, bindings in COMPOSE_SECRET_BINDINGS.items():
+        environment = _container_environment(by_service[service])
+        if any(
+            not hmac.compare_digest(
+                environment.get(environment_name, ""),
+                secret_state[secret_name],
+            )
+            for environment_name, secret_name in bindings.items()
+        ):
+            raise EnvironmentControlError(
+                "existing Docker experiment containers do not match this "
+                "state root"
+            )
+
+
+def _validate_owned_compose_resources(
+    state_root: Path,
+    *,
+    owner_legacy_adopted: bool,
+    containers: Sequence[dict[str, Any]],
+    project_volumes: Sequence[str],
+) -> None:
+    if not containers:
+        # The durable owner registry is the identity witness while an exact
+        # owner has intentionally stopped containers but retained data.
+        return
+
+    by_service = _compose_containers_by_service(containers)
+    expected_labels = _environment_owner_labels(state_root)
+    label_modes: set[str] = set()
+    for container in by_service.values():
+        configuration = container.get("Config")
+        labels = (
+            configuration.get("Labels")
+            if isinstance(configuration, dict)
+            else None
+        )
+        if not isinstance(labels, dict):
+            raise EnvironmentControlError(
+                "Docker experiment container labels are invalid"
+            )
+        owner_labels = {
+            str(name): str(value)
+            for name, value in labels.items()
+            if isinstance(name, str)
+            and name.startswith(ENVIRONMENT_OWNER_LABEL_PREFIX + ".")
+        }
+        if not owner_labels:
+            label_modes.add("legacy")
+        elif all(owner_labels.get(key) == value for key, value in expected_labels.items()):
+            label_modes.add("bound")
+        else:
+            raise EnvironmentControlError(
+                "Docker experiment resource owner binding is invalid"
+            )
+
+    if label_modes == {"legacy"} and owner_legacy_adopted:
+        _validate_legacy_compose_adoption(
+            state_root,
+            containers=containers,
+            project_volumes=project_volumes,
+        )
+        return
+    if label_modes != {"bound"}:
+        raise EnvironmentControlError(
+            "Docker experiment mixes legacy and owner-bound resources"
+        )
+    if len(project_volumes) != EXPECTED_COMPOSE_VOLUME_COUNT:
+        raise EnvironmentControlError(
+            "Docker experiment data volume set is incomplete or unexpected"
+        )
+    volume_payload = _docker_json(["volume", "inspect", *project_volumes])
+    if (
+        not isinstance(volume_payload, list)
+        or len(volume_payload) != EXPECTED_COMPOSE_VOLUME_COUNT
+        or any(not isinstance(item, dict) for item in volume_payload)
+    ):
+        raise EnvironmentControlError(
+            "Docker experiment data volume inspection is invalid"
+        )
+    for volume in volume_payload:
+        labels = volume.get("Labels")
+        if not isinstance(labels, dict) or any(
+            labels.get(key) != value
+            for key, value in expected_labels.items()
+        ):
+            raise EnvironmentControlError(
+                "Docker experiment data volume owner binding is invalid"
+            )
+
+
+def _claim_environment_owner(state_root: Path) -> None:
+    owner_volume = _environment_owner_volume()
+    if owner_volume is not None:
+        owner_legacy_adopted = _assert_environment_owner(
+            state_root,
+            owner_volume,
+        )
+        _validate_owned_compose_resources(
+            state_root,
+            owner_legacy_adopted=owner_legacy_adopted,
+            containers=_compose_project_containers(),
+            project_volumes=_compose_project_volumes(),
+        )
+        return
+
+    containers = _compose_project_containers()
+    project_volumes = _compose_project_volumes()
+    _validate_legacy_compose_adoption(
+        state_root,
+        containers=containers,
+        project_volumes=project_volumes,
+    )
+    labels = _environment_owner_labels(
+        state_root,
+        # The frozen Compose contract predates resource-level owner labels, so
+        # every current resource set remains in exact in-memory secret-
+        # verification mode. The separate registry is still the global CAS.
+        legacy_adopted=True,
+    )
+    create_arguments = ["volume", "create"]
+    for name, value in sorted(labels.items()):
+        create_arguments.extend(["--label", f"{name}={value}"])
+    create_arguments.append(ENVIRONMENT_OWNER_VOLUME)
+    _docker_output(create_arguments)
+
+    # Docker volume creation is atomic by name. A competing state root can
+    # race the preflight, but only one label set wins; every contender must
+    # inspect the durable result before touching Compose resources.
+    owner_volume = _environment_owner_volume()
+    if owner_volume is None:
+        raise EnvironmentControlError(
+            "Docker environment owner volume was not created"
+        )
+    _assert_environment_owner(state_root, owner_volume)
 
 
 def _compose(
@@ -507,6 +940,22 @@ def _grant_paperless_document_access(
 
 def _initialize(state_root: Path) -> None:
     secrets_state = _secret_state(state_root, create=False)
+    # A listening socket is not an application-readiness signal while these
+    # frozen images are still running first-boot migrations.  In particular,
+    # provisioning scoped users before Django's post_migrate hooks finish can
+    # observe an empty permission inventory.  Wait for both official API roots
+    # before requesting credentials or mutating seed configuration.
+    # Paperless redirects `/api/` to its HTML login page, which is not a JSON
+    # readiness contract.  Its official OpenAPI endpoint is public and only
+    # becomes available after application initialization has completed.
+    _json_request_with_retry(
+        "http://127.0.0.1:18000/api/schema/",
+        timeout_seconds=1_200,
+    )
+    _json_request_with_retry(
+        "http://127.0.0.1:18001/api/",
+        timeout_seconds=1_200,
+    )
     paperless_token = _token_value(
         _json_request_with_retry(
             "http://127.0.0.1:18000/api/token/",
@@ -1132,6 +1581,9 @@ def main() -> int:
     state_root = args.state_root.resolve()
     package_root = args.package_root.resolve()
     state_root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if args.command in {"config", "up"}:
+        _secret_state(state_root, create=True)
+    _claim_environment_owner(state_root)
     if args.command == "config":
         _compose(state_root, ["config", "--quiet"], create_secrets=True)
     elif args.command == "up":

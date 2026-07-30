@@ -702,6 +702,54 @@ async def test_developer_inbox_hides_all_preapproval_report_content() -> None:
 
 
 @pytest.mark.asyncio
+async def test_verification_failed_report_returns_to_developer_inbox_and_is_leaseable() -> None:
+    service, store, lilies, _, developer = await _activated_service(
+        approval_mode="auto_forward"
+    )
+    channel = await store.get_channel(lilies.channel_id)
+    payload = _report_payload()
+    await service.submit_report(
+        principal=lilies,
+        channel_id=lilies.channel_id,
+        request=ReportSubmitRequest(
+            idempotency_key="submit-for-verification-repair-0001",
+            expected_channel_revision=channel["revision"],
+            report=payload,
+        ),
+    )
+    store.reports[payload.report_id].update(
+        {
+            "status": ReportStatus.verification_failed.value,
+            "revision": 9,
+            "updated_at": NOW.isoformat(),
+        }
+    )
+
+    inbox = await service.developer_inbox(
+        principal=developer,
+        after=0,
+        limit=50,
+        route=None,
+    )
+    assert [item["report_id"] for item in inbox["reports"]] == [
+        str(payload.report_id)
+    ]
+    assert inbox["reports"][0]["status"] == "verification_failed"
+
+    lease = await service.acquire_developer_lease(
+        principal=developer,
+        report_id=payload.report_id,
+        request=LeaseAcquireRequest(
+            idempotency_key="reacquire-after-verification-failed-0001",
+            expected_report_revision=9,
+            owner_id="codex-developer",
+        ),
+    )
+    assert lease["status"] == "active"
+    assert lease["report_revision"] == 9
+
+
+@pytest.mark.asyncio
 async def test_lease_owner_body_must_match_authenticated_developer() -> None:
     service, store, lilies, _, developer = await _activated_service(
         approval_mode="auto_forward"

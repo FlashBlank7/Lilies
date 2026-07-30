@@ -260,7 +260,9 @@ def _bridge(
         auth_store=auth,
         client=LocalLiliesHttpClient(timeout_seconds=2),
         platform_base_url=f"http://127.0.0.1:{platform_port}",
-        contract_digest_provider=lambda _scopes, _applications: CONTRACT_DIGEST,
+        contract_digest_provider=lambda _scopes, _applications, _actions: (
+            CONTRACT_DIGEST
+        ),
     )
 
 

@@ -5,7 +5,13 @@ import json
 from typing import Any
 
 from .blocks import BlockRegistry
-from .capability_contracts import CapabilityBuildContract, evaluate_capability_contract
+from .capability_contracts import (
+    CapabilityBuildContract,
+    EvidenceEnvironment,
+    EvidenceLevel,
+    VerificationStatus,
+    evaluate_capability_contract,
+)
 from .models import AgentSpec
 from .workflow_models import (
     ApplicationMode,
@@ -211,19 +217,17 @@ class ApplicationService:
             self.blocks.validate_node(node)
             snapshot.workflow.nodes.append(node)
         elif operation == "update_node":
-            node = self._node(snapshot, str(data["node_id"]))
             changes = dict(data.get("changes") or {})
-            if "config" in changes and data.get("merge_config", True):
-                changes["config"] = self._deep_merge(node.config, changes["config"])
-            updated = NodeSpec.model_validate(
-                {
-                    **node.model_dump(mode="json"),
-                    **changes,
-                }
+            node_path = self._unique_node_path(
+                snapshot.workflow,
+                str(data["node_id"]),
             )
-            self.blocks.validate_node(updated)
-            index = snapshot.workflow.nodes.index(node)
-            snapshot.workflow.nodes[index] = updated
+            self._update_node_at_path(
+                snapshot.workflow,
+                node_path,
+                changes,
+                merge_config=bool(data.get("merge_config", True)),
+            )
         elif operation == "remove_node":
             node_id = str(data["node_id"])
             self._node(snapshot, node_id)
@@ -235,8 +239,35 @@ class ApplicationService:
             edge = EdgeSpec.model_validate(data["edge"])
             if any(item.id == edge.id for item in snapshot.workflow.edges):
                 raise ValueError(f"edge already exists: {edge.id}")
-            self._node(snapshot, edge.source)
-            self._node(snapshot, edge.target)
+            source = self._node(snapshot, edge.source)
+            target = self._node(snapshot, edge.target)
+            if source.id == target.id:
+                raise ValueError("workflow edge cannot connect a node to itself")
+            if any(
+                (
+                    item.source,
+                    item.target,
+                    item.source_port,
+                    item.target_port,
+                    item.branch,
+                )
+                == (
+                    edge.source,
+                    edge.target,
+                    edge.source_port,
+                    edge.target_port,
+                    edge.branch,
+                )
+                for item in snapshot.workflow.edges
+            ):
+                raise ValueError("workflow edge already connects the same ports")
+            edge_errors = self.blocks.validate_edge(source, target, edge)
+            if edge_errors:
+                raise ValueError("workflow edge is invalid: " + "; ".join(edge_errors))
+            if self._edge_would_create_cycle(snapshot.workflow, edge):
+                raise ValueError(
+                    "workflow edge would create a cycle; use an explicit loop block"
+                )
             snapshot.workflow.edges.append(edge)
         elif operation == "remove_edge":
             edge_id = str(data["edge_id"])
@@ -314,6 +345,23 @@ class ApplicationService:
             context["target_id"] = str(nested["id"])[:200]
         return context
 
+    @staticmethod
+    def _edge_would_create_cycle(workflow: WorkflowSpec, edge: EdgeSpec) -> bool:
+        outgoing: dict[str, list[str]] = {}
+        for item in workflow.edges:
+            outgoing.setdefault(item.source, []).append(item.target)
+        pending = [edge.target]
+        visited: set[str] = set()
+        while pending:
+            current = pending.pop()
+            if current == edge.source:
+                return True
+            if current in visited:
+                continue
+            visited.add(current)
+            pending.extend(outgoing.get(current, []))
+        return False
+
     async def validate_draft(self, application_id: str) -> dict[str, Any]:
         draft = await self.store.get_draft(application_id)
         snapshot: ApplicationSnapshot = draft["snapshot"]
@@ -369,6 +417,7 @@ class ApplicationService:
             missing_tool_nodes = [item for item in test.required_tool_nodes if item not in tool_node_names]
             if missing_tool_nodes:
                 errors.append(f"test {test.id} missing required tool nodes: {missing_tool_nodes}")
+        errors.extend(self._validate_simulated_human_inputs(snapshot))
         warnings = self._input_warnings(snapshot)
         return {
             "valid": not errors,
@@ -379,12 +428,384 @@ class ApplicationService:
             "test_count": len(snapshot.tests),
         }
 
+    def _validate_simulated_human_inputs(
+        self,
+        snapshot: ApplicationSnapshot,
+    ) -> list[str]:
+        errors: list[str] = []
+        node_map = self._workflow_nodes_by_id(snapshot.workflow)
+        for test in snapshot.tests:
+            for node_id, values in test.simulated_human_inputs.items():
+                nodes = node_map.get(node_id, [])
+                if not nodes:
+                    errors.append(
+                        f"test {test.id} simulated human input references unknown node: {node_id}"
+                    )
+                    continue
+                if any(node.type != "human_input" for node in nodes):
+                    errors.append(
+                        f"test {test.id} simulated human input references non-human node: {node_id}"
+                    )
+                    continue
+                for node in nodes:
+                    fields = {
+                        str(item.get("name")): item
+                        for item in node.config.get("fields", [])
+                        if isinstance(item, dict) and item.get("name")
+                    }
+                    unknown = sorted(set(values) - set(fields))
+                    if unknown:
+                        error = (
+                            f"test {test.id} simulated human input for {node_id} "
+                            f"contains unknown fields: {unknown}"
+                        )
+                        if error not in errors:
+                            errors.append(error)
+                    missing = sorted(
+                        name
+                        for name, field in fields.items()
+                        if field.get("required", True) and values.get(name) is None
+                    )
+                    if missing:
+                        error = (
+                            f"test {test.id} simulated human input for {node_id} "
+                            f"is missing required fields: {missing}"
+                        )
+                        if error not in errors:
+                            errors.append(error)
+        return errors
+
+    @staticmethod
+    def _workflow_nodes_by_id(
+        workflow: WorkflowSpec,
+    ) -> dict[str, list[NodeSpec]]:
+        nodes_by_id: dict[str, list[NodeSpec]] = {}
+        pending = [workflow]
+        while pending:
+            current = pending.pop()
+            for node in current.nodes:
+                nodes_by_id.setdefault(node.id, []).append(node)
+                nested = node.config.get("workflow")
+                if not isinstance(nested, dict):
+                    continue
+                try:
+                    pending.append(WorkflowSpec.model_validate(nested))
+                except ValueError:
+                    # The normal nested-workflow validation reports the
+                    # structural error. Do not make an invalid nested graph a
+                    # source of accepted simulated-human node identities.
+                    continue
+        return nodes_by_id
+
+    def _validate_governed_business_evidence(
+        self,
+        snapshot: ApplicationSnapshot,
+        mandatory_tests: list[WorkflowTestCase],
+    ) -> list[str]:
+        contract = snapshot.capability_build_contract
+        if (
+            contract is None
+            or not snapshot.governed_hard_gate
+            or contract.risk_level.value not in {"high", "critical"}
+        ):
+            return []
+
+        errors: list[str] = []
+        required = {
+            capability.id
+            for capability in contract.capabilities
+            if capability.required
+        }
+        known = {capability.id for capability in contract.capabilities}
+        for test in mandatory_tests:
+            unknown = sorted(set(test.capability_ids) - known)
+            if unknown:
+                errors.append(
+                    f"test {test.id} references unknown capability ids: {unknown}"
+                )
+            if (
+                test.structural_only
+                and test.evidence_target is not None
+                and self._evidence_level_rank(test.evidence_target.level)
+                > self._evidence_level_rank(EvidenceLevel.H2)
+            ):
+                errors.append(
+                    f"test {test.id} is structural-only and cannot claim "
+                    f"{test.evidence_target.level.value} evidence"
+                )
+
+        covered = {
+            capability_id
+            for test in mandatory_tests
+            for capability_id in test.capability_ids
+        }
+        missing = sorted(required - covered)
+        if missing:
+            errors.append(
+                "mandatory acceptance tests do not cover required capability ids: "
+                f"{missing}"
+            )
+
+        for plan in contract.evidence_plan:
+            for capability_id in plan.capability_ids:
+                candidates = [
+                    test
+                    for test in mandatory_tests
+                    if capability_id in test.capability_ids
+                    and self._test_meets_evidence_plan(test, plan)
+                ]
+                if not candidates:
+                    errors.append(
+                        f"capability {capability_id} lacks a mandatory executable test "
+                        f"meeting {plan.target_level.value}/{plan.environment.value}/"
+                        f"{plan.expected_status.value}"
+                    )
+
+        mutating_external_ids = {
+            capability.id
+            for capability in contract.external_contracts
+            if capability.required and capability.mutating
+        }
+        for capability_id in sorted(mutating_external_ids):
+            candidates = [
+                test
+                for test in mandatory_tests
+                if capability_id in test.capability_ids
+            ]
+            if candidates and not any(
+                not test.structural_only
+                and test.minimum_tool_calls > 0
+                and bool(test.required_tools)
+                for test in candidates
+            ):
+                errors.append(
+                    f"mutating external capability {capability_id} requires a "
+                    "non-structural mandatory test with named tool evidence"
+                )
+
+        human_capabilities = {
+            decision.capability_id
+            for decision in contract.carrier_decisions
+            if decision.capability_id in required
+            and "human_input" in decision.resource_hint.casefold()
+        }
+        human_nodes = {
+            node.id for node in snapshot.workflow.nodes if node.type == "human_input"
+        }
+        if human_capabilities and not human_nodes:
+            errors.append(
+                "required human-review capabilities have no human_input node: "
+                f"{sorted(human_capabilities)}"
+            )
+        for capability_id in sorted(human_capabilities):
+            tests = [
+                test
+                for test in mandatory_tests
+                if capability_id in test.capability_ids
+            ]
+            if tests and not any(
+                set(test.simulated_human_inputs).intersection(human_nodes)
+                for test in tests
+            ):
+                errors.append(
+                    f"human-review capability {capability_id} requires a mandatory "
+                    "test with simulated_human_inputs"
+                )
+
+        edges_by_source: dict[str, list[EdgeSpec]] = {}
+        for edge in snapshot.workflow.edges:
+            edges_by_source.setdefault(edge.source, []).append(edge)
+        for node in snapshot.workflow.nodes:
+            if node.type == "record_match" and node.config.get("candidates") == []:
+                errors.append(
+                    f"{node.id}: governed record_match cannot use an empty literal candidate array"
+                )
+            if node.type != "if_else":
+                continue
+            declared = {
+                str(case.get("id"))
+                for case in node.config.get("cases", [])
+                if isinstance(case, dict) and case.get("id")
+            }
+            default_branch = str(node.config.get("default_branch") or "else")
+            declared.add(default_branch)
+            outgoing = {
+                str(edge.branch)
+                for edge in edges_by_source.get(node.id, [])
+                if edge.branch is not None
+            }
+            missing_branches = sorted(declared - outgoing)
+            if missing_branches:
+                errors.append(
+                    f"{node.id}: governed decision branches are not connected: "
+                    f"{missing_branches}"
+                )
+            condition_values = [
+                condition.get("value")
+                for case in node.config.get("cases", [])
+                if isinstance(case, dict)
+                for condition in case.get("conditions", [])
+                if isinstance(condition, dict)
+            ]
+            if condition_values and not any(
+                self._iter_refs(value) for value in condition_values
+            ):
+                errors.append(
+                    f"{node.id}: governed decision conditions must reference runtime data"
+                )
+        return errors
+
+    @staticmethod
+    def _evidence_level_rank(value: EvidenceLevel) -> int:
+        return list(EvidenceLevel).index(value)
+
+    @staticmethod
+    def _evidence_environment_rank(value: EvidenceEnvironment) -> int:
+        return list(EvidenceEnvironment).index(value)
+
+    @staticmethod
+    def _verification_status_rank(value: VerificationStatus) -> int:
+        ordered = [
+            VerificationStatus.design_only,
+            VerificationStatus.static_verified,
+            VerificationStatus.component_verified,
+            VerificationStatus.integration_verified,
+            VerificationStatus.live_verified,
+            VerificationStatus.production_observed,
+        ]
+        return ordered.index(value) if value in ordered else -1
+
+    @classmethod
+    def _test_meets_evidence_plan(cls, test: WorkflowTestCase, plan: Any) -> bool:
+        target = test.evidence_target
+        if target is None or test.structural_only:
+            return False
+        return (
+            cls._evidence_level_rank(target.level)
+            >= cls._evidence_level_rank(plan.target_level)
+            and cls._evidence_environment_rank(target.environment)
+            >= cls._evidence_environment_rank(plan.environment)
+            and cls._verification_status_rank(target.expected_status)
+            >= cls._verification_status_rank(plan.expected_status)
+        )
+
     @staticmethod
     def _node(snapshot: ApplicationSnapshot, node_id: str) -> NodeSpec:
         try:
             return next(node for node in snapshot.workflow.nodes if node.id == node_id)
         except StopIteration as error:
             raise KeyError(f"node not found: {node_id}") from error
+
+    @classmethod
+    def _node_paths(
+        cls,
+        workflow: WorkflowSpec,
+        node_id: str,
+    ) -> list[tuple[int, ...]]:
+        paths: list[tuple[int, ...]] = []
+        for index, node in enumerate(workflow.nodes):
+            if node.id == node_id:
+                paths.append((index,))
+            nested = node.config.get("workflow")
+            if not isinstance(nested, dict):
+                continue
+            nested_workflow = WorkflowSpec.model_validate(nested)
+            paths.extend(
+                (index, *nested_path)
+                for nested_path in cls._node_paths(nested_workflow, node_id)
+            )
+        return paths
+
+    @classmethod
+    def _unique_node_path(
+        cls,
+        workflow: WorkflowSpec,
+        node_id: str,
+    ) -> tuple[int, ...]:
+        paths = cls._node_paths(workflow, node_id)
+        if not paths:
+            raise KeyError(f"node not found: {node_id}")
+        if len(paths) != 1:
+            raise ValueError(
+                f"node id is ambiguous across nested workflows: {node_id}"
+            )
+        return paths[0]
+
+    @classmethod
+    def _node_at_path(
+        cls,
+        workflow: WorkflowSpec,
+        path: tuple[int, ...],
+    ) -> NodeSpec:
+        node = workflow.nodes[path[0]]
+        if len(path) == 1:
+            return node
+        nested = node.config.get("workflow")
+        if not isinstance(nested, dict):
+            raise ValueError("nested workflow node path is invalid")
+        return cls._node_at_path(
+            WorkflowSpec.model_validate(nested),
+            path[1:],
+        )
+
+    @classmethod
+    def find_draft_node(
+        cls,
+        snapshot: ApplicationSnapshot,
+        node_id: str,
+    ) -> NodeSpec:
+        return cls._node_at_path(
+            snapshot.workflow,
+            cls._unique_node_path(snapshot.workflow, node_id),
+        )
+
+    def _update_node_at_path(
+        self,
+        workflow: WorkflowSpec,
+        path: tuple[int, ...],
+        changes: dict[str, Any],
+        *,
+        merge_config: bool,
+    ) -> None:
+        index = path[0]
+        node = workflow.nodes[index]
+        if len(path) == 1:
+            effective_changes = dict(changes)
+            if "config" in effective_changes and merge_config:
+                effective_changes["config"] = self._deep_merge(
+                    node.config,
+                    effective_changes["config"],
+                )
+            updated = NodeSpec.model_validate(
+                {
+                    **node.model_dump(mode="json"),
+                    **effective_changes,
+                }
+            )
+            self.blocks.validate_node(updated)
+            workflow.nodes[index] = updated
+            return
+
+        nested = node.config.get("workflow")
+        if not isinstance(nested, dict):
+            raise ValueError("nested workflow node path is invalid")
+        nested_workflow = WorkflowSpec.model_validate(nested)
+        self._update_node_at_path(
+            nested_workflow,
+            path[1:],
+            changes,
+            merge_config=merge_config,
+        )
+        parent_config = dict(node.config)
+        parent_config["workflow"] = nested_workflow.model_dump(mode="json")
+        updated_parent = NodeSpec.model_validate(
+            {
+                **node.model_dump(mode="json"),
+                "config": parent_config,
+            }
+        )
+        self.blocks.validate_node(updated_parent)
+        workflow.nodes[index] = updated_parent
 
     @classmethod
     def _deep_merge(cls, original: dict[str, Any], changes: dict[str, Any]) -> dict[str, Any]:

@@ -1797,6 +1797,47 @@ class FormalRunArchiveCoordinator:
         assignment = self._assignment_from_row(row)
         async with self._lock(assignment.assignment_id):
             if (
+                str(row.get("execution_mode")) == "external_builder"
+                and str(row.get("phase")) == "running"
+            ):
+                session_id = UUID(str(row["session_id"]))
+                channel, _, reports = self._assert_channel(
+                    assignment,
+                    session_id,
+                    export,
+                    expected_revision=request.expected_channel_revision,
+                )
+                if channel.status is not ChannelStatus.active:
+                    raise FormalRunArchiveError(
+                        "successful archive requires an active claim channel"
+                    )
+                if any(
+                    report.status not in _RESOLVED_REPORT_STATUSES[report.category]
+                    for report in reports
+                ):
+                    raise FormalRunArchiveError(
+                        "successful archive cannot account for an unresolved report"
+                    )
+                if self._auth_store is None:
+                    raise FormalRunArchiveError(
+                        "external Builder archive has no task credential store"
+                    )
+                await self._auth_store.revoke_credential(
+                    assignment.platform.credential_ref,
+                    reason="external Builder submitted its terminal formal archive",
+                )
+                sealed = await self._bridge_store.seal_external_builder_completion(
+                    assignment.assignment_id
+                )
+                if sealed is None:
+                    raise FormalRunArchiveError(
+                        "external Builder lifecycle disappeared during terminal seal"
+                    )
+                bridge_export = await self._bridge_store.export_assignment(
+                    assignment.assignment_id
+                )
+                row = bridge_export["assignment"]
+            if (
                 str(row.get("phase")) != "completed"
                 or str(row.get("status"))
                 not in {

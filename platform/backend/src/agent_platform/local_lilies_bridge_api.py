@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from .local_lilies_bridge import (
     LocalLiliesBridge,
     LocalLiliesBridgeError,
+    LocalLiliesMessagePage,
     LocalLiliesObservabilitySnapshot,
     LocalLiliesRelayEvent,
     LocalLiliesUsagePage,
@@ -25,13 +26,20 @@ from .local_lilies_bridge import (
     StartFormalLocalLiliesBuildRequest,
     StartLocalLiliesBuildRequest,
 )
-from .lilies_models import PermissionDecisionRequest
+from .lilies_models import (
+    PermissionDecisionRequest,
+    SessionMessageRequest,
+    SessionOperationResult,
+)
 from .platform_blackbox_auth import PlatformBlackboxScope
 
 
 _SSE_EVENT_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,199}$")
 _OBSERVABILITY_SNAPSHOT_PATH = re.compile(
     r"^/api/v1/local-lilies/connections/[^/]+/observability-snapshot$"
+)
+_MESSAGE_HISTORY_PATH = re.compile(
+    r"^/api/v1/local-lilies/assignments/[^/]+/messages$"
 )
 _MAX_EVENT_CURSOR = 2**63 - 1
 _Result = TypeVar("_Result")
@@ -54,17 +62,27 @@ class LocalLiliesRelayRequest(_StrictRequest):
 
 @dataclass(frozen=True, slots=True)
 class _ContractCredentialView:
-    """The two credential fields used to render the published contract."""
+    """Least-authority fields used to render the published contract."""
 
     scopes: tuple[PlatformBlackboxScope, ...]
     application_ids: tuple[UUID, ...]
-    connector_access: bool = False
+    allowed_operations: tuple[Any, ...]
+    connector_access: bool
+    allowed_network_hosts: tuple[str, ...]
+    readable_host_objects: tuple[str, ...]
+    writable_host_operations: tuple[str, ...]
+    permission_required_actions: tuple[str, ...]
+    compensation_actions: tuple[str, ...]
+    max_payload_bytes: int
+    allowed_actions_digest: str
+    budget_digest: str
 
 
 async def published_platform_contract_digest(
     services: Any,
     scopes: tuple[PlatformBlackboxScope, ...],
     application_ids: tuple[UUID, ...],
+    allowed_actions: Any,
 ) -> str:
     """Render through the exact facade used by ``platform-contract``.
 
@@ -76,10 +94,34 @@ async def published_platform_contract_digest(
     # Imported lazily so the thin bridge route module does not take ownership
     # of the public black-box contract or introduce an api.py import cycle.
     from .lilies_platform_api import _current_contract
+    from .platform_blackbox_auth import PlatformBlackboxOperation
 
     contract = await _current_contract(
         services,
-        _ContractCredentialView(scopes=scopes, application_ids=application_ids),
+        _ContractCredentialView(
+            scopes=scopes,
+            application_ids=application_ids,
+            allowed_operations=tuple(
+                PlatformBlackboxOperation(action.value)
+                for action in allowed_actions.platform_actions
+            ),
+            connector_access=allowed_actions.connector_access,
+            allowed_network_hosts=tuple(allowed_actions.network_hosts),
+            readable_host_objects=tuple(allowed_actions.readable_host_objects),
+            writable_host_operations=tuple(
+                allowed_actions.writable_host_operations
+            ),
+            permission_required_actions=tuple(
+                allowed_actions.permission_required_actions
+            ),
+            compensation_actions=tuple(allowed_actions.compensation_actions),
+            max_payload_bytes=allowed_actions.max_payload_bytes,
+            # The published contract needs only the governed/non-governed
+            # distinction.  Exact package digests are bound into the issued
+            # credential and handoff after broker preparation.
+            allowed_actions_digest=f"sha256:{'0' * 64}",
+            budget_digest=f"sha256:{'0' * 64}",
+        ),
     )
     return str(contract["contract_digest"])
 
@@ -173,8 +215,7 @@ def _safe_validation_errors(error: RequestValidationError) -> list[dict[str, Any
     for item in error.errors():
         error_type = str(item.get("type") or "value_error")[:120]
         location = [
-            value if isinstance(value, int) else str(value)[:160]
-            for value in item.get("loc", ())
+            value if isinstance(value, int) else str(value)[:160] for value in item.get("loc", ())
         ]
         safe.append(
             {
@@ -235,28 +276,41 @@ def install_local_lilies_bridge_api(
     previous_validation_handler = app.exception_handlers.get(RequestValidationError)
 
     @app.middleware("http")
-    async def local_lilies_observability_no_store(
+    async def local_lilies_sensitive_projection_no_store(
         request: Request,
         call_next: Callable[[Request], Awaitable[Any]],
     ) -> Any:
-        is_observability_snapshot = _OBSERVABILITY_SNAPSHOT_PATH.fullmatch(
-            request.url.path.rstrip("/")
+        normalized_path = request.url.path.rstrip("/")
+        is_sensitive_projection = any(
+            pattern.fullmatch(normalized_path) is not None
+            for pattern in (_OBSERVABILITY_SNAPSHOT_PATH, _MESSAGE_HISTORY_PATH)
         )
         try:
             response = await call_next(request)
         except Exception:
-            if is_observability_snapshot is None:
+            if not is_sensitive_projection:
                 raise
+            is_observability = (
+                _OBSERVABILITY_SNAPSHOT_PATH.fullmatch(normalized_path) is not None
+            )
             response = JSONResponse(
                 status_code=500,
                 content={
                     "detail": {
-                        "code": "local_lilies_observability_internal_error",
-                        "message": "local Lilies observability request failed",
+                        "code": (
+                            "local_lilies_observability_internal_error"
+                            if is_observability
+                            else "local_lilies_transcript_internal_error"
+                        ),
+                        "message": (
+                            "local Lilies observability request failed"
+                            if is_observability
+                            else "local Lilies transcript request failed"
+                        ),
                     }
                 },
             )
-        if is_observability_snapshot is not None:
+        if is_sensitive_projection:
             response.headers["Cache-Control"] = "no-store"
         return response
 
@@ -399,9 +453,7 @@ def install_local_lilies_bridge_api(
         dependencies=dependencies,
     )
     async def list_local_lilies_assignments(application_id: UUID) -> list[Any]:
-        return await _bridge_call(
-            bridge.list_assignments_for_application(application_id)
-        )
+        return await _bridge_call(bridge.list_assignments_for_application(application_id))
 
     @app.get(
         "/api/v1/local-lilies/assignments/{assignment_id}",
@@ -423,10 +475,7 @@ def install_local_lilies_bridge_api(
                 status_code=409,
                 detail={
                     "code": "formal_assignment_not_completed",
-                    "message": (
-                        "independent verification requires a completed formal "
-                        "assignment"
-                    ),
+                    "message": ("independent verification requires a completed formal assignment"),
                 },
             )
         if formal_verification_provider is None:
@@ -444,9 +493,7 @@ def install_local_lilies_bridge_api(
                 status_code=409,
                 detail={
                     "code": "formal_verification_rejected",
-                    "message": (
-                        "the frozen formal claim could not be independently verified"
-                    ),
+                    "message": ("the frozen formal claim could not be independently verified"),
                 },
             ) from error
 
@@ -474,9 +521,7 @@ def install_local_lilies_bridge_api(
         body: LocalLiliesCancelRequest | None = Body(default=None),
     ) -> Any:
         request_body = body or LocalLiliesCancelRequest()
-        idempotency_key = request_body.idempotency_key or (
-            f"platform.cancel.{assignment_id.hex}"
-        )
+        idempotency_key = request_body.idempotency_key or (f"platform.cancel.{assignment_id.hex}")
         return await _bridge_call(
             bridge.cancel_assignment(
                 assignment_id,
@@ -502,6 +547,37 @@ def install_local_lilies_bridge_api(
             )
         )
 
+    @app.get(
+        "/api/v1/local-lilies/assignments/{assignment_id}/messages",
+        response_model=LocalLiliesMessagePage,
+        dependencies=dependencies,
+    )
+    async def list_local_lilies_assignment_messages(
+        assignment_id: UUID,
+        limit: int = Query(default=20, ge=1, le=20),
+        before: UUID | None = Query(default=None),
+    ) -> Any:
+        return await _bridge_call(
+            bridge.list_assignment_messages(
+                assignment_id,
+                limit=limit,
+                before=before,
+            )
+        )
+
+    @app.post(
+        "/api/v1/local-lilies/assignments/{assignment_id}/messages",
+        response_model=SessionOperationResult,
+        dependencies=dependencies,
+    )
+    async def send_local_lilies_assignment_message(
+        assignment_id: UUID,
+        body: SessionMessageRequest,
+    ) -> Any:
+        return await _bridge_call(
+            bridge.send_assignment_message(assignment_id, body)
+        )
+
     @app.post(
         "/api/v1/local-lilies/assignments/{assignment_id}/relay",
         dependencies=dependencies,
@@ -511,9 +587,7 @@ def install_local_lilies_bridge_api(
         body: LocalLiliesRelayRequest | None = Body(default=None),
     ) -> Any:
         max_events = body.max_events if body is not None else 100
-        return await _bridge_call(
-            bridge.relay_events(assignment_id, max_events=max_events)
-        )
+        return await _bridge_call(bridge.relay_events(assignment_id, max_events=max_events))
 
     @app.get(
         "/api/v1/local-lilies/assignments/{assignment_id}/events",
@@ -528,17 +602,13 @@ def install_local_lilies_bridge_api(
         cursor = _resume_cursor(after, last_event_id)
         assignment = await _bridge_call(bridge.get_assignment(assignment_id))
         replay_boundary = assignment.relay_cursor
-        initial_events = await _bridge_call(
-            bridge.list_events(assignment_id, after=cursor)
-        )
+        initial_events = await _bridge_call(bridge.list_events(assignment_id, after=cursor))
         if not initial_events:
             # Keep startup failures as structured HTTP 503 responses.  If a
             # persisted replay exists, deliver it first and surface any later
             # daemon loss as a cursor-preserving SSE bridge.error event.
             await _bridge_call(bridge.relay_events(assignment_id, max_events=100))
-            initial_events = await _bridge_call(
-                bridge.list_events(assignment_id, after=cursor)
-            )
+            initial_events = await _bridge_call(bridge.list_events(assignment_id, after=cursor))
         return StreamingResponse(
             _assignment_event_stream(
                 bridge,

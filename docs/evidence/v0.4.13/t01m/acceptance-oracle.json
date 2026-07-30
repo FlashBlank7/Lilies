@@ -1,0 +1,767 @@
+{
+  "schema_version": 2,
+  "oracle_id": "T01M-CIVILIZATION-SEED-ANDROID-ORACLE-v1",
+  "task_id": "V04-13-T01M",
+  "brief_id": "T01M-CIVILIZATION-SEED-ANDROID-v1",
+  "candidate_at": "2026-07-27T04:45:00+09:00",
+  "status": "candidate_pending_independent_review",
+  "lanes": {
+    "provenance": {
+      "allowed_inputs": [
+        "Git commit, tree and diff metadata",
+        "Lilies assignment, model, token and tool receipts"
+      ],
+      "application_source_semantics_allowed": false
+    },
+    "deliverable_structure": {
+      "allowed_inputs": [
+        "tracked path list",
+        "README.md",
+        "declared test result receipts"
+      ],
+      "application_source_semantics_allowed": false
+    },
+    "source_policy": {
+      "allowed_inputs": [
+        "Java import and fully-qualified type references",
+        "build description dependency declarations",
+        "Android manifest and resource path inventory"
+      ],
+      "allowed_checks": [
+        "Android platform API plus Java-only dependency boundary",
+        "absence of project scripts, downloaded dependencies and prebuilt third-party binaries",
+        "presence of application and test source"
+      ],
+      "runtime_claims_allowed": false
+    },
+    "package": {
+      "allowed_inputs": [
+        "final APK only",
+        "pinned Android package-analysis tools"
+      ],
+      "application_source_semantics_allowed": false
+    },
+    "runtime": {
+      "black_box": true,
+      "source_access": false,
+      "driver": "external platform-API UiAutomator test artifact plus frozen host controller"
+    }
+  },
+  "enterprise_denominator": false,
+  "target": {
+    "application_id": "dev.lilies.civilizationseed",
+    "version_code": 1,
+    "version_name": "0.1.0",
+    "locale": "zh-CN",
+    "avd_name": "T01M_API37_ARM64",
+    "api_level": 37,
+    "compile_sdk": 37,
+    "target_sdk": 37,
+    "min_sdk": 26,
+    "abi": "arm64-v8a"
+  },
+  "numeric_reference": {
+    "runtime": "The scope of numeric_reference is exactly the complete A08 contrast path plus A09 pixel_preprocessing.srgb conversion; it does not claim to define A09 SVD, detrending, correlation, autocorrelation, silhouette fitting or motion statistics. Within that limited scope, the normative reference is Java 21 strict floating-point evaluation and java.lang.StrictMath under the exact JBR 21 java executable and release-file digests already bound by toolchain-lock.json. A driver adapter or helper is not an authority and may not replace these inline algorithms; its source/class digests are retained only as implementation evidence, while every retained input/output raw-bit record must be reproducible from this frozen contract and the bound JBR.",
+    "binary64_contract": "Within the declared numeric_reference scope, every literal has the written Java double value; every +, -, *, / and comparison is one Java binary64 operation in the written order with round-to-nearest ties-to-even. StrictMath.pow, StrictMath.cbrt and StrictMath.sqrt are the only transcendental operations and provide the unique reproducible StrictMath reference result. Every input, intermediate selected for a branch, and output must be finite; otherwise FAIL. Retained values serialize as exactly 16 lowercase hexadecimal digits from Double.doubleToRawLongBits, with -0.0 normalized to +0.0 before serialization.",
+    "srgb_to_linear_pseudocode": "srgb(q): require integer 0<=q<=255; C=((double)q)/255.0d; if (C<=0.04045d) return C/12.92d; n=C+0.055d; b=n/1.055d; return StrictMath.pow(b,2.4d). No expression reassociation is allowed.",
+    "oklab_and_distance_pseudocode": "Clamp R,G,B independently with ordered comparisons to [0.0d,1.0d]. l0=0.4122214708d*R; l1=0.5363325363d*G; l2=l0+l1; l3=0.0514459929d*B; l=l2+l3. Compute m and s in the identical written two-products-then-add-then-third-product-then-add order from coefficients 0.2119034982/0.6806995451/0.1073969566 and 0.0883024619/0.2817188376/0.6299787005. lp=StrictMath.cbrt(l), mp=StrictMath.cbrt(m), sp=StrictMath.cbrt(s). L=((0.2104542553d*lp)+(0.7936177850d*mp))-(0.0040720468d*sp); a=((1.9779984951d*lp)-(2.4285922050d*mp))+(0.4505937099d*sp); b=((0.0259040371d*lp)+(0.7827717662d*mp))-(0.8086757660d*sp). distance: dL=L1-L2; da=a1-a2; db=b1-b2; q0=dL*dL; q1=da*da; q2=db*db; q3=q0+q1; q4=q3+q2; return StrictMath.sqrt(q4).",
+    "coordinate_pseudocode": "For the retained ring, derive integer xlo=min(px), xhi=max(px), ylo=min(py), yhi=max(py) in ascending-y-then-x enumeration and require xhi>xlo and yhi>ylo. For any retained ring or character-box pixel center (px,py): xd=(double)(px-xlo); xs=(double)(xhi-xlo); x0=2.0d*xd; x1=x0/xs; x=x1-1.0d; compute y by the identical sequence using ylo/yhi. The design row is constructed in order v[0]=1.0d, v[1]=x, v[2]=y, v[3]=x*y.",
+    "weighted_solve_pseudocode": "Set every M[p][q] and z[p] to +0.0d. For i=0..n-1, p=0..3, q=0..3 in that nesting order: t0=w[i]*v[i][p]; t1=t0*v[i][q]; M[p][q]=M[p][q]+t1. After the q loop, u0=w[i]*v[i][p]; u1=u0*channel[i]; z[p]=z[p]+u1. For k=0..3 choose pivot r in k..3 by greatest StrictMath.abs(M[r][k]), lowest r on an exact tie; require abs pivot>1.0e-12d, swap complete rows and z entries; pivot=M[k][k]; for j=k..3 ascending set M[k][j]=M[k][j]/pivot, then z[k]=z[k]/pivot. For r=k+1..3 ascending: factor=M[r][k]; for j=k..3 ascending set product=factor*M[k][j], then M[r][j]=M[r][j]-product; productZ=factor*z[k]; z[r]=z[r]-productZ. Back substitute i=3..0: acc=z[i]; for j=i+1..3 ascending set product=M[i][j]*coef[j], then acc=acc-product; coef[i]=acc/M[i][i]. OLS uses all w=1.0d. Each of exactly ten IRLS refits computes residual=((coef[0]+coef[1]*x)+coef[2]*y)+coef[3]*(x*y) in that order from the preceding fit, ar=StrictMath.abs(channel-residual), and w=1.0d when ar<=2.0d/255.0d else (2.0d/255.0d)/ar; no early exit or alternate solver is allowed."
+  },
+  "cases": [
+    {
+      "id": "A01-baseline",
+      "mandatory": true,
+      "checks": [
+        "baseline commit has no parent",
+        "baseline tree equals 4b825dc642cb6eb9a060e54bf8d69288fbee4904",
+        "baseline has zero tracked files",
+        "first non-empty commit is attributable to the isolated Lilies assignment"
+      ]
+    },
+    {
+      "id": "A02-authorship-and-ledger",
+      "mandatory": true,
+      "checks": [
+        "every non-empty iteration has parent SHA, commit SHA and diff SHA-256",
+        "every non-empty iteration maps to a Lilies work item and model/tool receipts",
+        "token usage is grouped by assignment, stage and model",
+        "unknown usage is never estimated as zero",
+        "no Codex-authored application implementation is present"
+      ]
+    },
+    {
+      "id": "A03-build-and-tests",
+      "mandatory": true,
+      "checks": [
+        "frozen offline build exits zero",
+        "all model-authored deterministic tests exit zero",
+        "the final source mutation is followed by a successful build_test receipt",
+        "repository is clean at the accepted commit",
+        "tracked deliverables include Android source, resources, test source and a root README.md",
+        "README.md begins in Chinese and documents build, install, offline boundary, private data location and verification"
+      ],
+      "pass_condition": "Every check is true at the same accepted commit; a build without executed tests is FAIL."
+    },
+    {
+      "id": "A04-reproducible-apk",
+      "mandatory": true,
+      "checks": [
+        "two clean source snapshots use the same source, toolchain, config and signing digests",
+        "both builds exit zero",
+        "the two final APK SHA-256 digests are identical",
+        "only the declared content-addressed APK is promoted"
+      ]
+    },
+    {
+      "id": "A05-package-security",
+      "mandatory": true,
+      "method": [
+        "run pinned apkanalyzer manifest application-id/version/min-sdk/target-sdk/permissions/debuggable",
+        "run pinned aapt2 dump xmltree on AndroidManifest.xml",
+        "enumerate every APK ZIP central-directory entry, reject duplicate or non-normalized paths, decompress every non-directory entry, and record path, ZIP method, compressed size, uncompressed size, CRC32 and uncompressed-byte SHA-256",
+        "run pinned dexdump separately over every root classes*.dex entry and inventory every defined class plus every type, field, method and string reference",
+        "run pinned aapt2 over the complete resources.arsc table and every compiled XML entry; cross-check every resource-table file reference against the exact ZIP-entry inventory",
+        "classify every decompressed APK entry by path, extension, Unix mode and magic bytes, including DEX 6465780a plus three ASCII digits plus 00, ELF 7f454c46, Mach-O feedface/feedfacf/cefaedfe/cffaedfe/cafebabe/bebafeca, PE 4d5a plus 50450000 at e_lfanew, ar archive 213c617263683e0a, LLVM bitcode 4243c0de, OAT 6f61740a, VDEX 76646578, ART 6172740a, WebAssembly 0061736d, Java class cafebabe, Lua bytecode 1b4c7561 and ZIP 504b0304/504b0506/504b0708 signatures",
+        "before installation, obtain two identical quiescent snapshots of the complete readable regular-file tree rooted at canonical /storage/emulated/0; after A06, obtain two more identical snapshots using relative path, byte size and content SHA-256 for every file",
+        "install APK, snapshot package-owned filesystem observations before and after A06, and retain the exact commands, tool digests and parse outputs"
+      ],
+      "checks": [
+        "application id, version and SDK levels equal the frozen brief",
+        "the complete declared permission set is empty; in particular INTERNET, location, camera, microphone, contacts, notifications, Bluetooth and external-storage permissions are absent",
+        "allowBackup is false",
+        "usesCleartextTraffic is false",
+        "the only exported component is the launcher Activity required by the Android launcher contract",
+        "there are zero service and provider declarations and zero non-launcher receiver declarations",
+        "the ZIP inventory covers every central-directory entry exactly once, has no duplicate, absolute, dot-segment, backslash or Unicode-non-NFC path, and every recorded size, CRC32 and SHA-256 verifies after a second independent read",
+        "every DEX payload is a root entry matching classes.dex or classes([2-9]|[1-9][0-9]+).dex, every such entry is scanned, no other entry has DEX magic, and the union of dexdump results has no unparsed class, method, field, type or string section",
+        "every class defined by application DEX is under dev.lilies.civilizationseed; after array-element normalization, each external type descriptor resolves in the exact frozen android.jar descriptor inventory, so an unresolved or third-party namespace is FAIL",
+        "DEX references do not contain android.webkit.WebView, AdvertisingId, analytics, telemetry, crash-reporting, WorkManager, JobScheduler, AlarmManager, ClipboardManager, TelephonyManager, Settings.Secure.ANDROID_ID or Build.SERIAL",
+        "resources.arsc is parsed completely; every package, type, name, id, configuration, scalar value and file reference is recorded; every compiled XML under res/ and AndroidManifest.xml parses completely; every referenced resource file exists exactly once and every res/ ZIP entry is represented in the resource inventory",
+        "there is no lib/ entry, .so file or ELF magic; there is no Mach-O, PE/COFF, WebAssembly, Java class or native object magic anywhere in decompressed entries",
+        "there is no nested .apk, .aab, .aar, .jar, .zip, .dex, .class, .so, .a, .o, .obj, .bc, .dll, .dylib, .exe, .wasm, .pyc, .oat, .vdex, .art or .prof payload, no prohibited magic, no executable Unix mode and no shebang script in resources, assets or unknown entries",
+        "every APK entry has exactly one allowed classification: manifest, resource table, compiled resource, root DEX, signing metadata or Android packaging metadata; an unclassified entry or a precompiled payload is FAIL",
+        "both before snapshots are byte-for-byte identical and both after snapshots are byte-for-byte identical; the sorted before-versus-after diff over every shared-storage relative path, size and SHA-256 tuple is empty",
+        "no path anywhere in the complete shared-storage inventory contains dev.lilies.civilizationseed or a case-folded package-name variant",
+        "all observed application data paths remain below the package-private sandbox"
+      ],
+      "pass_condition": "All entries, all DEX files, the complete resource table and XML set, every decompressed payload and every readable shared-storage regular file are covered. All values are obtained from the final APK or runtime filesystem observations. An omitted, unreadable, unclassified or unparsable field is FAIL, not unknown."
+    },
+    {
+      "id": "A06-black-box-flow",
+      "mandatory": true,
+      "selector_contract": {
+        "create": "添加火种",
+        "name_field": "火种名称",
+        "category_field": "类别",
+        "priority_field": "优先级",
+        "notes_field": "备注",
+        "save": "保存",
+        "cancel": "取消",
+        "search_field": "搜索火种",
+        "filter": "筛选",
+        "clear_filters": "清除筛选",
+        "offline_statement": "完全离线运行，数据只保存在本机，不会上传。",
+        "edit": "编辑",
+        "delete": "删除",
+        "card_scope": "火种：{名称}；类别：{类别}；优先级：{优先级}；状态：{状态}",
+        "card_actions": [
+          "编辑",
+          "删除",
+          "开始重建",
+          "完成复原",
+          "重新检查"
+        ],
+        "dialog_scope": "the exact full visible confirmation sentence",
+        "scope_algorithm": "resolve one exact card or dialog ancestor first, then resolve one exact visible-text or content-description descendant action; coordinates and global ordinal selection are forbidden"
+      },
+      "driver_rules": [
+        "the external driver is built before seeing application source and reads no repository files",
+        "elements are selected by visible Chinese text, Chinese accessibility name or Android role; screen coordinates alone cannot establish a pass",
+        "every global primary control resolves uniquely at the point of use; repeated card and dialog actions resolve uniquely inside the frozen semantic ancestor scope; a missing, duplicate or stale scoped match is FAIL",
+        "after every mutation the driver dumps the accessibility hierarchy and asserts exact visible records and counts",
+        "all valid-Unicode boundary inputs are injected through UiAutomator ACTION_SET_TEXT, never through clipboard",
+        "the unpaired-surrogate negative cases use the pre-frozen instrumentation argument set_text_utf16_hex: its ASCII value is a non-empty multiple of four lowercase hexadecimal digits, the driver decodes each four-digit group directly to one Java char without normalization or replacement, constructs a CharSequence, sends it with AccessibilityNodeInfo.ACTION_SET_TEXT and ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, then reads the field back as UTF-16 code units and records lowercase hexadecimal only; the field must contain the exact injected code units before save is attempted, so transport rejection or U+FFFD replacement is FAIL"
+      ],
+      "steps": [
+        "clear app data and cold launch",
+        "assert exact product title 文明火种 and each of the three frozen lore sentences is visible",
+        "assert the hero exposes the Chinese accessibility name 莉莉丝，闭着双眼，白发向两侧展开",
+        "assert the exact offline/private-data statement 完全离线运行，数据只保存在本机，不会上传。 is visible",
+        "tap 启动文明重建",
+        "verify 火种库, 已复原 0 / 0 and 还没有文明火种",
+        "attempt an empty name and verify 请输入火种名称 with no saved record",
+        "define White_Space_15 as the exact ordered 25-code-point sequence U+0009 / U+000A / U+000B / U+000C / U+000D / U+0020 / U+0085 / U+00A0 / U+1680 / U+2000 / U+2001 / U+2002 / U+2003 / U+2004 / U+2005 / U+2006 / U+2007 / U+2008 / U+2009 / U+200A / U+2028 / U+2029 / U+202F / U+205F / U+3000; inject White_Space_15 + 已修剪 + reverse(White_Space_15), save, and assert the persisted card name code-point sequence is exactly 已修剪, proving every member is removed from both ends; then delete the fixture",
+        "inject 内 + White_Space_15 + 部 as the name, save, and assert the persisted card name contains exactly 内 followed by all 25 code points in the frozen order followed by 部 with no removal, replacement or normalization change; then delete the fixture",
+        "inject U+200B + 不应修剪 + U+FEFF as the name, save, and assert the persisted name begins with U+200B and ends with U+FEFF exactly, proving adjacent non-members of White_Space_15 are not trimmed; then delete the fixture",
+        "create 备注空白 with notes White_Space_15 + 保留 + reverse(White_Space_15), save, reopen it, and assert the notes code-point sequence is exactly unchanged, proving notes are not trimmed; then delete the fixture",
+        "with an empty library, inject each UTF-16 code-unit sequence d800, dc00, 0041d8000042 and 0041dc000042 into 火种名称 through set_text_utf16_hex; before each save assert the field readback is exactly the same code-unit hex, then tap 保存 and assert no card is created, the library count remains zero and the form remains visible; clear the field through ordinary ACTION_SET_TEXT between cases",
+        "repeat the same four set_text_utf16_hex sequences in 备注 while 火种名称 is the valid text 备注代理项; assert exact notes-field code-unit readback before each save, then assert no card is created, the library count remains zero and the form remains visible; clear the notes field through ordinary ACTION_SET_TEXT between cases",
+        "enter 40 copies of supplementary-plane U+1F331 as the name, save successfully and assert the stored name still contains exactly 40 code points, then delete that boundary fixture",
+        "enter 41 copies of supplementary-plane U+1F331 as the name, assert save is rejected and the library count is unchanged",
+        "enter 40 copies of decomposed e followed by U+0301 as the name, assert NFC stores and displays exactly 40 copies of U+00E9 and save succeeds; enter 41 decomposed copies and assert save is rejected after NFC counting; delete the accepted fixture",
+        "assert the empty notes field shows exact counter 备注 0 / 300; create 备注边界 with exactly 300 copies of supplementary-plane U+1F331 as notes and assert exact counter 备注 300 / 300; save successfully, then edit to 301 copies and assert save is rejected with the stored 300-code-point value unchanged",
+        "edit 备注边界 to exactly 300 copies of decomposed e followed by U+0301, assert NFC stores exactly 300 copies of U+00E9 and the counter remains 备注 300 / 300; attempt 301 decomposed copies and assert rejection with the 300-code-point value unchanged; delete the boundary fixture",
+        "open the category chooser and assert the exact set and order 生存基础 / 知识传承 / 能源设施 / 医疗护理 / 通信网络 with no extra category",
+        "open the priority chooser and assert the exact set 1 / 2 / 3 / 4 / 5 with no value below 1 or above 5",
+        "create A followed by U+030A followed by 火种 at priority 3, then create B火种 at priority 3; assert B火种 is ordered before the first record, whose stored visible name is exactly U+00C5 followed by 火种 after NFC normalization, then delete both normalization fixtures",
+        "create decomposed A followed by U+030A followed by 同名, category 生存基础, priority 3, notes 原始分解; then create composed U+00C5 followed by 同名, category 知识传承, priority 3, notes 原始合成; assert both display the same NFC name but the decomposed-original record is first by the persisted pre-NFC code-point tie-break",
+        "create 同名火种, category 能源设施, priority 3, notes 序号一; then create an otherwise equal 同名火种, category 医疗护理, priority 3, notes 序号二; assert 序号一 is first by persisted creation sequence; force-stop and relaunch and assert both tie orders are unchanged; delete all four tie fixtures through their distinct frozen card scopes",
+        "create 医疗站, 医疗护理, leave priority untouched, then assert displayed priority is 3",
+        "create 净水备份, 能源设施, priority 5",
+        "create 净水基础, 生存基础, priority 5",
+        "create 量子档案, 知识传承, priority 2",
+        "create 通信塔, 通信网络, priority 1",
+        "verify the default ordering 净水基础 then 净水备份 then 医疗站 then 量子档案 then 通信塔 and 已复原 0 / 5; the same-priority order is the frozen NFC plus Unicode-code-point order",
+        "advance 净水基础 through 开始重建 and 完成复原",
+        "verify 已复原 1 / 5",
+        "tap 重新检查 and verify 净水基础 returns to 重建中 and 已复原 0 / 5",
+        "tap 完成复原 again and verify 已复原 1 / 5",
+        "search 净水 and verify exactly 净水基础 then 净水备份 remain",
+        "search 基础 and verify only 净水基础 remains",
+        "search 不存在 and assert exact empty text 没有符合条件的火种",
+        "clear search, filter category 知识传承 and verify only 量子档案 remains",
+        "clear the category filter",
+        "filter status 已复原 and verify only 净水基础 remains",
+        "clear all filters and verify the complete frozen default ordering is restored",
+        "edit 净水基础 to 净水基础 v2, category 通信网络, priority 4 and notes 已校准",
+        "reopen 净水基础 v2 and assert all four edited fields persisted exactly",
+        "request deletion of 量子档案 and assert the exact prompt 删除“量子档案”吗？此操作无法撤销。",
+        "cancel deletion once and verify 量子档案 remains",
+        "delete 量子档案 again, confirm and verify it is absent",
+        "delete the three remaining non-target fixtures through the same confirmation path",
+        "verify only 净水基础 v2 remains and 已复原 1 / 1"
+      ],
+      "evidence_per_step": {
+        "required": [
+          "monotonic step number and timestamp",
+          "action and selector",
+          "before and after accessibility hierarchy SHA-256",
+          "assertion inputs and observed values",
+          "result",
+          "matching sanitized logcat interval"
+        ],
+        "screenshot_rule": "Capture every named milestone and every failure. Intermediate passing steps retain hierarchy plus assertion values; no visual assertion may pass without a screenshot."
+      },
+      "pass_condition": "All steps complete in order on one clean-data run. Any missing element, extra category or priority, changed exact text, unexpected record, wrong order or wrong count is FAIL."
+    },
+    {
+      "id": "A07-offline-and-persistence",
+      "mandatory": true,
+      "setup": [
+        "set airplane_mode_on=1",
+        "disable Wi-Fi and mobile data through emulator controls",
+        "record dumpsys package permission state, package traffic counters, /proc/net snapshots where accessible, logcat and Lilies daemon-global usage before launch"
+      ],
+      "checks": [
+        "the A06 flow runs with emulator network disabled",
+        "force-stop and relaunch preserve 净水基础 v2 and 已复原 1 / 1",
+        "the onboarding does not reappear after force-stop and relaunch",
+        "rotate portrait to landscape and back; all data remains and create, edit, filter and delete controls stay reachable",
+        "clearing app data restores the onboarding",
+        "package traffic counters do not increase, available /proc/net observations add no package socket, and logcat contains no socket connection attempt",
+        "the Lilies daemon-global model call and token counters are byte-for-byte unchanged between the pre-run and post-run observability snapshots"
+      ],
+      "pass_condition": "All checks pass with the network disabled from before installation until after final relaunch."
+    },
+    {
+      "id": "A08-accessibility",
+      "mandatory": true,
+      "talkback_screen_expectations": [
+        {
+          "screen": "onboarding",
+          "expected_focus_sequence": [
+            "文明火种|heading",
+            "莉莉丝，闭着双眼，白发向两侧展开|image",
+            "人类世界已经毁灭。|text",
+            "莉莉丝是留下的最后一个人工智能。|text",
+            "她仍能搭建新的人工智能，并以一枚枚文明火种重塑世界。|text",
+            "offline_private_statement|text",
+            "启动文明重建|button"
+          ]
+        },
+        {
+          "screen": "empty_library",
+          "expected_focus_sequence": [
+            "火种库|heading",
+            "已复原 0 / 0|text",
+            "搜索火种|edit_text",
+            "筛选|button",
+            "添加火种|button",
+            "还没有文明火种|text",
+            "添加第一枚火种|button"
+          ]
+        },
+        {
+          "screen": "create_seed",
+          "expected_focus_sequence": [
+            "添加火种|heading",
+            "火种名称|edit_text",
+            "类别|chooser",
+            "优先级|chooser",
+            "备注|edit_text",
+            "备注 0 / 300|text",
+            "取消|button",
+            "保存|button"
+          ]
+        },
+        {
+          "screen": "category_chooser",
+          "expected_focus_sequence": [
+            "生存基础|choice",
+            "知识传承|choice",
+            "能源设施|choice",
+            "医疗护理|choice",
+            "通信网络|choice"
+          ]
+        },
+        {
+          "screen": "priority_chooser",
+          "expected_focus_sequence": [
+            "1|choice",
+            "2|choice",
+            "3|choice",
+            "4|choice",
+            "5|choice"
+          ]
+        },
+        {
+          "screen": "populated_library",
+          "expected_focus_sequence": [
+            "火种库|heading",
+            "restored_count|text",
+            "搜索火种|edit_text",
+            "筛选|button",
+            "添加火种|button",
+            "each_visible_seed_card_in_frozen_A06_order|group",
+            "each_visible_seed_state_action_then_edit_then_delete|controls"
+          ]
+        },
+        {
+          "screen": "edit_seed",
+          "expected_focus_sequence": [
+            "火种名称|edit_text",
+            "类别|chooser",
+            "优先级|chooser",
+            "备注|edit_text",
+            "notes_counter_for_current_value|text",
+            "取消|button",
+            "保存|button"
+          ]
+        },
+        {
+          "screen": "filter_panel",
+          "expected_focus_sequence": [
+            "category_filter_controls_in_frozen_category_order|controls",
+            "status_filter_controls_in_沉睡_重建中_已复原_order|controls",
+            "清除筛选|button"
+          ]
+        },
+        {
+          "screen": "no_match_library",
+          "expected_focus_sequence": [
+            "火种库|heading",
+            "restored_count|text",
+            "搜索火种|edit_text",
+            "筛选|button",
+            "添加火种|button",
+            "没有符合条件的火种|text"
+          ]
+        },
+        {
+          "screen": "delete_confirmation",
+          "expected_focus_sequence": [
+            "exact_A06_delete_prompt|text",
+            "取消|button",
+            "删除|button"
+          ]
+        }
+      ],
+      "talkback_placeholder_rules": {
+        "offline_private_statement": "expand to the exact frozen text 完全离线运行，数据只保存在本机，不会上传。 and FAIL unless exactly one visible node has that UTF-8 text at both 1.0x and 2.0x",
+        "restored_count": "expand to the exact A06 已复原 X / Y value visible at the captured milestone",
+        "each_visible_seed_card_in_frozen_A06_order": "expand to one group per visible A06 record in current frozen sort/filter order; each group signature is the exact brief format 火种：{名称}；类别：{类别}；优先级：{优先级}；状态：{状态}",
+        "each_visible_seed_state_action_then_edit_then_delete": "for each preceding card group, expand to its one state action from 开始重建 / 完成复原 / 重新检查 followed by 编辑 and 删除, all scoped descendants of that card",
+        "notes_counter_for_current_value": "expand to the exact visible 备注 {used} / 300 value for the frozen A06 fixture",
+        "category_filter_controls_in_frozen_category_order": "expand to the visible category filter controls in 生存基础 / 知识传承 / 能源设施 / 医疗护理 / 通信网络 order, preserving any single leading 类别 label if it is a separately focusable node",
+        "status_filter_controls_in_沉睡_重建中_已复原_order": "expand to the visible status filter controls in 沉睡 / 重建中 / 已复原 order, preserving any single leading 状态 label if it is a separately focusable node",
+        "exact_A06_delete_prompt": "expand to the exact A06 confirmation text for the current record"
+      },
+      "method": [
+        "capture accessibility hierarchy and lossless screenshots for every talkback_screen_expectations screen at font_scale=1.0 and 2.0",
+        "convert node pixel bounds to dp using the runtime display density",
+        "enable the frozen actual TalkBack service; on each expected screen clear prior accessibility focus, use one explore-by-touch gesture at the hierarchy-derived center of the first expected node, then use only TalkBack next-item swipe gestures until focus returns to that first node or one further gesture yields no application-package focus event for 2 seconds; retain all system and application TYPE_VIEW_ACCESSIBILITY_FOCUSED events and record node text or content description, role, package and bounds plus dumpsys accessibility state after each gesture",
+        "at font_scale=2.0, clear application data and re-execute every A06 step in its frozen order without skipping any boundary, normalization, ordering, state, search, filter, edit or deletion assertion",
+        "for contrast, enumerate every visible accessibility node with non-empty AccessibilityNodeInfo text at every retained 1.0x and 2.0x milestone; treat all such rendered text, including titles and statuses, as ordinary text subject to 4.5:1 so no enabled-state or large-text exemption can hide an untested node",
+        "request android.view.accessibility.extra.DATA_TEXT_CHARACTER_LOCATION_KEY for the complete runtime text of each node with android.view.accessibility.extra.DATA_TEXT_CHARACTER_LOCATION_ARG_START_INDEX=0 and android.view.accessibility.extra.DATA_TEXT_CHARACTER_LOCATION_ARG_LENGTH equal to the UTF-16 length, then map returned boxes to Unicode code points and retain every non-whitespace character box; a visible text node that does not return in-bounds boxes for every non-whitespace code point is FAIL",
+        "all contrast arithmetic, sRGB conversion, OKLab conversion and Euclidean distance must conform to numeric_reference under the exact toolchain-locked JBR; any use of host libm, java.lang.Math, expression reassociation or a non-finite intermediate is FAIL, and retained raw-bit inputs and outputs must be independently reproducible without trusting the driver adapter",
+        "decode each lossless screenshot as sRGB and for each character box take the clipped three-pixel exterior ring after excluding every other character box; enumerate ring pixels in ascending y then x, require at least 24 pixels, map every ring and character-box pixel center with numeric_reference.coordinate_pseudocode, set each design row by that same contract, and fit Bc(x,y)=a+b*x+c*y+d*x*y independently for linear R, G and B: initialize all weights to one, solve, then run exactly 10 Huber IRLS refits without early exit using the preceding fit; every accumulation, pivot choice, pivot-row normalization, lower-row update, back-substitution term and coefficient is evaluated in the exact loop nesting and operation order of numeric_reference.weighted_solve_pseudocode; an underspecified or alternate solver, a pivot absolute value <=1e-12 or a non-finite coefficient is FAIL",
+        "inside each non-whitespace character box, form the glyph candidate mask from pixels whose frozen OKLab distance from the fitted local background exceeds 0.04; an isolated pixel means a candidate with zero candidate neighbors among its eight Chebyshev-distance-one neighbors and is removed; enumerate remaining 8-connected components using seed pixels in ascending y then x and neighbors in ascending y then x, retain every component whose pixel count is at least ceil(0.0025*inclusive_character_box_pixel_count), require at least eight retained pixels whose union stays within that character box, and fail if any character has no complete measurable mask",
+        "do not invert antialias alpha or infer a latent foreground color; for the union of retained glyph-mask components in one character box, compute each pixel's OKLab distance d from its fitted local background, sort pixels by descending d then ascending y then x, set core_count=max(5,ceil(0.10*N)) for N retained pixels, require N>=8, and select exactly the first core_count actual screenshot pixels as that character's deterministic core",
+        "for every selected core pixel use its actual linear-light screenshot RGB P and the fitted linear-light background B at the same coordinate, clamp each B channel to [0,1], compute relative luminance as 0.2126R+0.7152G+0.0722B and contrast as (max(Lp,Lb)+0.05)/(min(Lp,Lb)+0.05); retain every selected coordinate, P, B, distance and ratio, and report the minimum ratio over all selected core pixels of every character and then every text node; any selected pixel below 4.5:1 is FAIL"
+      ],
+      "checks": [
+        "every enabled clickable node has width and height at least 48dp",
+        "every enabled clickable node has visible Chinese text or a non-empty Chinese content description",
+        "for each named screen the application-package TalkBack focus-event signatures equal its expected_focus_sequence exactly after expanding the frozen runtime placeholders; no application item is skipped, duplicated, focused out of order or added before the terminal no-next-item condition or cycle",
+        "each placeholder expands exactly once by talkback_placeholder_rules from the visible frozen runtime state before gestures; an expansion based on application source or implementer metadata is FAIL",
+        "沉睡, 重建中 and 已复原 are present as text and each has a non-color shape or icon distinction",
+        "every A06 step and assertion completes in a separate clean-data run at font_scale=2.0",
+        "no focused control or primary button is clipped or hidden at font_scale=2.0",
+        "every visible rendered text node and every non-whitespace character at every required 1.0x and 2.0x milestone has a complete contrast record and its minimum contrast ratio is at least 4.5:1"
+      ],
+      "pass_condition": "The per-screen hierarchy, exact TalkBack focus trace, complete 200-percent A06 rerun, screenshots, glyph masks, background fits and per-node contrast report are all retained. A node with missing bounds/name, a focus sequence mismatch, an unmeasurable glyph mask or any visible text node without a contrast result is FAIL."
+    },
+    {
+      "id": "A09-motion-and-visual",
+      "mandatory": true,
+      "normal_motion_measurement": {
+      "capture": "after a 1 second settle, capture exactly 60 timestamped lossless full-application-content frames at 5.000 fps, one frame every 200ms from t=0.0 through t=11.8 seconds; dimensions, orientation, color profile and application-content bounds must remain identical and any timestamp error above 25ms is FAIL",
+        "hero_roi": "take the accessibility bounds of the node named 莉莉丝，闭着双眼，白发向两侧展开, expand by 8 physical pixels on each side, then clip to the application content bounds",
+        "static_rois": "derive the three lore text nodes, title node, primary button and background-only corner samples from the first hierarchy and retain their exact pixel rectangles",
+        "pixel_preprocessing": "decode PNG bytes to unpremultiplied 8-bit sRGB, require opaque pixels, convert every channel through numeric_reference.srgb_to_linear_pseudocode under the exact toolchain-locked JBR, retain the 256-entry q-to-raw-binary64 lookup actually used, and perform no resize, blur, lossy conversion, optical-flow warp or frame registration",
+        "change_mask": "inside hero_roi, include a pixel-channel vector only when at least one original 8-bit sRGB channel has max(frame)-min(frame) at least 2; subtract its 60-frame temporal mean, concatenate RGB vectors, and fail if the resulting matrix is empty",
+        "pixel_signal": "compute the thin SVD X=U*diag(S)*Vt of the mean-centered changing-pixel matrix, treat S[1] as zero when only one singular value exists, and fail when S[0] is zero or the largest two singular values differ by at most 1e-9 relative to S[0]; define the raw first-component score exactly as U[:,0]*S[0], find the smallest Vt[0] column index among entries having the exact maximum absolute loading, and if that loading is negative multiply both Vt[0,:] and the score by -1; this canonical sign is independent of every silhouette result; remove the score's least-squares linear trend and require S[0]^2/sum(S^2) to be at least 0.60",
+        "autocorrelation": "for detrended samples x[0..59], compute rho(k)=sum(i=0..59-k-1,x[i]*x[i+k])/sqrt(sum(i=0..59-k-1,x[i]^2)*sum(i=0..59-k-1,x[i+k]^2)); among strict local maxima for integer lags 10..30 select the unique largest rho at k, compute delta=0.5*(rho(k-1)-rho(k+1))/(rho(k-1)-2*rho(k)+rho(k+1)), refined_lag=k+delta and period=refined_lag/5.000; a tied maximum, k at a search boundary, abs(delta)>1, zero denominator or rho(k)<0.60 is FAIL",
+        "silhouette_mask": "for each frame, take the 8-pixel hero_roi perimeter and fit Bc(x,y)=a+b*x+c*y+d*x*y independently for sRGB R, G and B using OLS followed by exactly 10 Huber IRLS iterations with delta=2/255 and weight min(1,delta/abs(residual)); convert the fitted field to OKLab, select pixels with distance at least 0.08, remove components smaller than 0.05 percent of hero_roi, close with a Chebyshev-radius-1 square structuring element, fill enclosed holes, retain the largest 8-connected component intersecting the central 20-percent rectangle and containing at least one low-chroma L>=0.70 white-hair seed, and explicitly exclude disconnected glow pixels; missing or edge-clipped masks are FAIL",
+        "silhouette_motion_signal": "for each retained mask compute inclusive width w, height h, area and centroid cx,cy; form rows [w/median(w),h/median(h),(cx-median(cx))/median(w),(cy-median(cy))/median(h)], discard constant columns and center the remainder to matrix Y; compute thin SVD Y=U*diag(S)*Vt, treat S[1] as zero when only one singular value exists, and fail if Y has no column, S[0] is zero or the largest two singular values differ by at most 1e-9 relative to S[0]; define the raw first-component score exactly as U[:,0]*S[0], find the smallest Vt[0] column index among entries having the exact maximum absolute loading, and if that loading is negative multiply both Vt[0,:] and the score by -1; detrend that independently signed score linearly and require its absolute Pearson correlation with pixel_signal to be at least 0.50",
+        "inside_hero_attribution": "form the swept-character mask as the union of all 60 silhouette masks; every changing pixel must either lie in that union or belong to an 8-connected change-mask component that intersects an 8-pixel dilation of the swept-character mask and whose temporal linear-light RGB vector has absolute Pearson correlation at least 0.80 with pixel_signal; these latter components are the only accepted attached-glow pixels",
+        "outside_hero_rule": "the exact pixel complement application_content_bounds minus hero_roi is byte-identical in all 60 frames; the named lore, grid and control ROIs are retained only as diagnostic subsets and cannot substitute for this full-complement comparison",
+        "period_rule": "the dominant normalized-autocorrelation period from the changing-pixel signal is between 4.5 and 5.1 seconds inclusive and agrees within 0.2 seconds with the period produced by the same formula over the silhouette_motion_signal",
+        "amplitude_rule": "let wm, hm, cxm and cym be the medians of mask width, height and centroid; amplitude_percent=100*max over all frames of abs(w-wm)/wm, abs(h-hm)/hm, abs(cx-cxm)/wm and abs(cy-cym)/hm, and require amplitude_percent<=1.5"
+      },
+      "reduced_motion_measurement": {
+        "setup": "set animator_duration_scale, transition_animation_scale and window_animation_scale to 0 before cold launch",
+        "functional_flow": "clear data; cold launch; tap 启动文明重建; open 添加火种; create 静态验证 with category 生存基础, priority 3 and empty notes; edit its notes to 静默层; open 筛选, select category 生存基础 and return with Android back; advance it through 开始重建; open 删除 and 取消 once; open 删除 again and confirm 删除",
+        "event_binding_contract": {
+          "clock": "the instrumentation records action-dispatch immediately before invoking the scoped AccessibilityNodeInfo action or Android back action, action-complete immediately after its successful return, accessibility-event callback, hierarchy capture-start, hierarchy capture-complete, frame capture-start immediately before invoking UiAutomation.takeScreenshot(), and frame capture-complete immediately after the returned pixels have been copied into the immutable lossless frame buffer, all from Android SystemClock.uptimeMillis on the same device for R02-R14; a frame's selection timestamp is its capture-start value, wall-clock timestamps cannot select stable_start, and missing, reversed or reused start/complete pairs are FAIL",
+          "candidate_event_predicate": "event packageName must equal dev.lilies.civilizationseed; eventType must be TYPE_WINDOW_STATE_CHANGED (32) or TYPE_WINDOW_CONTENT_CHANGED (2048); for TYPE_WINDOW_CONTENT_CHANGED the source must be non-null, belong to the application package and have the same windowId as the captured target hierarchy root; for TYPE_WINDOW_STATE_CHANGED a non-null source must meet the same package/window rule and a null source is allowed only when the event windowId equals the target hierarchy root; eventTime must be at or after the action-dispatch timestamp; retain eventType, contentChangeTypes, windowId, source class, source viewId, source text/content-description and callback sequence",
+          "signature_grammar": "each transition signature is exactName|role or exactName|role|selected=true; exactName must match exactly one visible node's text or content-description, role is the frozen controller's Android-class-to-role mapping, selected=true additionally requires AccessibilityNodeInfo.isSelected; required signatures must each resolve once and absent signatures must resolve zero times",
+          "target_match": "after every candidate event, synchronously capture the complete application hierarchy; canonicalize nodes in depth-first child-index order as windowId, class, role, text, content-description, checked, selected, enabled and bounds; a target matches only when every required signature and absence predicate in transition_targets satisfies signature_grammar in that one hierarchy",
+          "selection_and_ties": "the qualifying target event is the first candidate in instrumentation callback sequence whose bound hierarchy matches; callback sequence is a strictly increasing integer assigned before hierarchy capture and resolves equal eventTime ties; a second different hierarchy matching before the selected capture completes, no match within 1000ms after action completion, or any missing event/source/window field required by the predicate is FAIL",
+          "stable_frame_binding": "stable_start is the first frame in capture-request sequence whose capture-start timestamp is at or after the chosen target hierarchy capture-complete timestamp; every retained frame binds its capture-start, capture-complete, immutable pixel-buffer SHA-256 and request sequence, capture-start must precede or equal capture-complete, and at least three frames from stable_start onward must exist"
+        },
+        "initial_state_signature": {
+          "purpose": "R01 cold launch establishes application-content bounds and the reduced-motion onboarding idle capture; it is not a 13-frame transition because no pre-action application content exists",
+          "required": [
+            "文明火种|heading",
+            "莉莉丝，闭着双眼，白发向两侧展开|image",
+            "人类世界已经毁灭。|text",
+            "莉莉丝是留下的最后一个人工智能。|text",
+            "她仍能搭建新的人工智能，并以一枚枚文明火种重塑世界。|text",
+            "完全离线运行，数据只保存在本机，不会上传。|text",
+            "启动文明重建|button"
+          ],
+          "absent": [
+            "火种库|heading"
+          ]
+        },
+        "transition_targets": [
+          {
+            "id": "R02-onboarding-to-empty-library",
+            "action": "tap exact global button 启动文明重建",
+            "required": [
+              "火种库|heading",
+              "已复原 0 / 0|text",
+              "还没有文明火种|text",
+              "添加火种|button",
+              "添加第一枚火种|button"
+            ],
+            "absent": [
+              "启动文明重建|button"
+            ]
+          },
+          {
+            "id": "R03-open-create-form",
+            "action": "tap exact global button 添加火种",
+            "required": [
+              "添加火种|heading",
+              "火种名称|edit_text",
+              "类别|chooser",
+              "优先级|chooser",
+              "备注|edit_text",
+              "备注 0 / 300|text",
+              "取消|button",
+              "保存|button"
+            ],
+            "absent": [
+              "还没有文明火种|text"
+            ]
+          },
+          {
+            "id": "R04-save-created-seed",
+            "action": "tap 保存 after exact values 静态验证 / 生存基础 / 3 / empty notes",
+            "required": [
+              "火种库|heading",
+              "已复原 0 / 1|text",
+              "火种：静态验证；类别：生存基础；优先级：3；状态：沉睡|group",
+              "开始重建|button",
+              "编辑|button",
+              "删除|button"
+            ],
+            "absent": [
+              "添加火种|heading"
+            ]
+          },
+          {
+            "id": "R05-open-edit-form",
+            "action": "inside exact 静态验证 card scope tap 编辑",
+            "required": [
+              "火种名称|edit_text",
+              "类别|chooser",
+              "优先级|chooser",
+              "备注|edit_text",
+              "备注 0 / 300|text",
+              "取消|button",
+              "保存|button"
+            ],
+            "absent": [
+              "还没有文明火种|text"
+            ]
+          },
+          {
+            "id": "R06-save-edited-notes",
+            "action": "set 备注 to 静默层 and tap 保存",
+            "required": [
+              "火种库|heading",
+              "已复原 0 / 1|text",
+              "火种：静态验证；类别：生存基础；优先级：3；状态：沉睡|group",
+              "开始重建|button",
+              "编辑|button",
+              "删除|button"
+            ],
+            "absent": [
+              "备注 3 / 300|text"
+            ]
+          },
+          {
+            "id": "R07-open-filter-panel",
+            "action": "tap exact global button 筛选",
+            "required": [
+              "生存基础|choice",
+              "知识传承|choice",
+              "能源设施|choice",
+              "医疗护理|choice",
+              "通信网络|choice",
+              "沉睡|choice",
+              "重建中|choice",
+              "已复原|choice",
+              "清除筛选|button"
+            ],
+            "absent": []
+          },
+          {
+            "id": "R08-select-survival-category-filter",
+            "action": "tap category choice 生存基础",
+            "required": [
+              "生存基础|choice|selected=true",
+              "清除筛选|button"
+            ],
+            "absent": [
+              "知识传承|choice|selected=true",
+              "能源设施|choice|selected=true",
+              "医疗护理|choice|selected=true",
+              "通信网络|choice|selected=true"
+            ]
+          },
+          {
+            "id": "R09-return-to-filtered-library",
+            "action": "inject one Android back action",
+            "required": [
+              "火种库|heading",
+              "已复原 0 / 1|text",
+              "火种：静态验证；类别：生存基础；优先级：3；状态：沉睡|group",
+              "开始重建|button"
+            ],
+            "absent": [
+              "清除筛选|button"
+            ]
+          },
+          {
+            "id": "R10-advance-to-restoring",
+            "action": "inside exact 静态验证 card scope tap 开始重建",
+            "required": [
+              "火种：静态验证；类别：生存基础；优先级：3；状态：重建中|group",
+              "完成复原|button"
+            ],
+            "absent": [
+              "火种：静态验证；类别：生存基础；优先级：3；状态：沉睡|group",
+              "开始重建|button"
+            ]
+          },
+          {
+            "id": "R11-open-delete-confirmation-first",
+            "action": "inside exact 静态验证 card scope tap 删除",
+            "required": [
+              "删除“静态验证”吗？此操作无法撤销。|text",
+              "取消|button",
+              "删除|button"
+            ],
+            "absent": []
+          },
+          {
+            "id": "R12-cancel-delete",
+            "action": "inside exact delete-dialog scope tap 取消",
+            "required": [
+              "火种：静态验证；类别：生存基础；优先级：3；状态：重建中|group",
+              "完成复原|button",
+              "编辑|button",
+              "删除|button"
+            ],
+            "absent": [
+              "删除“静态验证”吗？此操作无法撤销。|text"
+            ]
+          },
+          {
+            "id": "R13-open-delete-confirmation-second",
+            "action": "inside exact 静态验证 card scope tap 删除",
+            "required": [
+              "删除“静态验证”吗？此操作无法撤销。|text",
+              "取消|button",
+              "删除|button"
+            ],
+            "absent": []
+          },
+          {
+            "id": "R14-confirm-delete",
+            "action": "inside exact delete-dialog scope tap 删除",
+            "required": [
+              "火种库|heading",
+              "已复原 0 / 0|text",
+              "还没有文明火种|text"
+            ],
+            "absent": [
+              "删除“静态验证”吗？此操作无法撤销。|text",
+              "火种：静态验证；类别：生存基础；优先级：3；状态：重建中|group"
+            ]
+          }
+        ],
+        "transition_capture": "for every R02-R14 transition_targets entry, continuously request exactly 13 lossless full-application-content frames at 10.000 fps from 200ms before the recorded action-dispatch timestamp through 1000ms after it; require successive frame capture-start timestamps to have 100ms spacing within 25ms, retain every frame capture-start/capture-complete/request-sequence/pixel-buffer-SHA-256 binding, retain the complete timestamped accessibility-event stream, and retain full hierarchies immediately before the action, for every candidate event until the uniquely selected qualifying target event, and after the final frame; each hierarchy records monotonic capture-start and capture-complete timestamps, the selected target hierarchy capture must start no earlier than its bound event and within 250ms after that event, it must satisfy the exact transition target, and a hierarchy is never substituted for a frame; absence of a qualifying target event or hierarchy is FAIL",
+      "idle_capture": "at both onboarding and the populated library, capture exactly 26 lossless full-application-content frames at 5.000 fps from t=0.0 through t=5.0 seconds with 200ms spacing within 25ms",
+        "pass_rule": "the complete functional flow passes; select stable_start only by event_binding_contract.stable_frame_binding, require it to exist with at least three captured frames from it onward, and require stable_start plus every later application-content frame to be byte-identical; all 26 frames in each idle capture are byte-identical"
+      },
+      "checks": [
+        "the screenshot contains at least 100 exact sRGB pixels of each frozen palette value #0B0714, #171126, #B69CFF and #78E8FF outside antialiased edges",
+        "independent visual review confirms restrained dark-purple technology styling",
+        "independent visual review confirms a calm, non-horror, non-injured and non-sexualized white-haired closed-eye girl with hair spreading to both sides and complete futuristic clothing",
+        "all 60 normal frames and every retained reduced-motion transition and idle frame show closed eyes and no blink/open-eye state",
+        "normal-motion hero frames are not all pixel-identical",
+        "the measured breathing period is 4.8 seconds plus or minus 0.3 seconds",
+        "the measured movement/scale amplitude is at most 1.5 percent",
+        "only pixels inside hero_roi change during normal breathing and the complete application-content complement of hero_roi is static",
+        "the reduced-motion onboarding, create, edit, filter, state and delete flow remains functional and contains no animated page transition",
+        "every reduced-motion transition and both fixed-frame-rate idle captures satisfy the exact pixel-stability rule"
+      ],
+      "pass_condition": "The retained raw frames, timestamps, linear-light preprocessing metadata, change mask, singular values, pixel and silhouette signals, autocorrelation values for every tested lag, parabolic period calculation, per-frame silhouette masks and amplitude terms reproduce both deterministic measurement reports byte-for-byte, and a fresh visual reviewer signs the character/style findings."
+    },
+    {
+      "id": "A10-runtime-and-evidence",
+      "mandatory": true,
+      "evidence_graph": {
+        "artifact_root": "artifacts/",
+        "layer_1": {
+          "path": "evidence-leaves.json",
+          "contents": "sorted entry for every regular file recursively below artifacts/: normalized relative path, byte size, raw-byte SHA-256, media type, producer receipt id and covered A01-A10 case ids",
+          "exclusions": "none below artifacts/; evidence-leaves.json never lists or hashes itself"
+        },
+        "layer_2": {
+          "path": "evidence-manifest.json",
+          "contents": "schema/oracle/brief/baseline/toolchain/assignment ids and digests, accepted commit and tree, final APK path/size/SHA-256, exact raw-byte SHA-256 of evidence-leaves.json, A01-A09 result paths and digests, A10 pre-review runtime/integrity check digests, required-artifact coverage result and status ready_for_independent_review",
+          "exclusions": "does not list or hash evidence-manifest.json, independent-review.json or closure-envelope.json"
+        },
+        "independent_review": {
+          "path": "independent-review.json",
+          "inputs": "frozen Stage Contract, brief, oracle, baseline and toolchain; accepted commit/diff; assignment/model/token/tool ledger; evidence-manifest.json and all files reachable through evidence-leaves.json",
+          "required_fields": "fresh read-only reviewer identity/context, reviewed evidence-manifest raw-byte SHA-256, reconstructed A01-A09 verdicts, reconstructed A10 pre-review runtime/integrity verdict, confirmation that only the review and closure-envelope steps remain, blocker list, independence attestation and final PASS verdict",
+          "rule": "the reviewer does not mutate either manifest; any blocker, missing case or digest mismatch is FAIL"
+        },
+        "closure_envelope": {
+          "path": "closure-envelope.json",
+          "producer": "deterministic closure controller after the independent review",
+          "contents": "task/oracle/brief ids, accepted commit/tree, final APK SHA-256, evidence-manifest raw-byte SHA-256, independent-review raw-byte SHA-256, A01-A09 PASS ids, satisfied A10 pre-review/review/envelope predicates, final A10 PASS, ten total PASS case ids, zero-blocker assertion and terminal closure verdict",
+          "rule": "does not hash itself and is not referenced by either manifest or the independent review"
+        },
+        "acyclicity_rule": "construct directed edges from each JSON control file to every file digest it references; permitted levels are evidence-leaves.json to artifacts, evidence-manifest.json to evidence-leaves.json and artifacts, independent-review.json to evidence-manifest.json, and closure-envelope.json to evidence-manifest.json plus independent-review.json. Reject self-edges, duplicate paths, missing targets, reverse edges, any artifact reference to a control file and every cycle found by full depth-first traversal."
+      },
+      "checks": [
+        "no crash, ANR or FATAL EXCEPTION occurs during the frozen smoke",
+        "sanitized logcat, package dump, UI hierarchy and screenshots are retained",
+        "the repository includes test source and the executed test receipt names each test case and result",
+        "README Chinese-first, offline, storage and verification clauses are reported",
+        "evidence-leaves.json covers every regular file below artifacts/ exactly once and every path, size and raw-byte SHA-256 re-verifies",
+        "evidence-manifest.json binds the exact leaf-manifest digest, frozen inputs, assignment ledger, accepted commit/tree, APK, A01-A09 results and A10 pre-review checks without a self or forward reference and reports ready_for_independent_review rather than a premature terminal PASS",
+        "a fresh independent reviewer reads only the declared review inputs, reconstructs A01-A09 and the A10 pre-review checks, verifies all reachable bytes, confirms that the two post-manifest steps are the only remaining predicates and returns PASS with zero blockers bound to the exact evidence-manifest digest",
+        "the deterministic closure-envelope binds the unchanged evidence-manifest and independent-review digests, ten PASS cases, accepted commit/tree and APK digest without any manifest or review mutation",
+        "the complete reference graph satisfies the frozen level rules and full depth-first traversal reports zero cycles, zero missing targets and zero unreferenced files below artifacts/"
+      ],
+      "pass_condition": "The two-layer manifest verifies byte-for-byte before review, the independent review is PASS with zero blockers, and the final closure-envelope binds both immutable digests. A missing artifact, digest mismatch, graph cycle, self-reference, forward reference, post-review manifest mutation or absent closure-envelope is FAIL."
+    }
+  ],
+  "required_screenshots": [
+    "01_onboarding.png",
+    "02_empty_library.png",
+    "03_created_seeds.png",
+    "04_restoring_detail.png",
+    "05_restored_filter.png",
+    "06_font_scale_200.png",
+    "07_reduced_motion_a.png",
+    "08_reduced_motion_b.png"
+  ],
+  "required_machine_artifacts": [
+    "artifacts/oracle-result.json",
+    "artifacts/package-analysis.json",
+    "artifacts/apk-entry-inventory.json",
+    "artifacts/resource-inventory.json",
+    "artifacts/permission-dump.txt",
+    "artifacts/dex-reference-scan.json",
+    "artifacts/shared-storage-before-1.json",
+    "artifacts/shared-storage-before-2.json",
+    "artifacts/shared-storage-after-1.json",
+    "artifacts/shared-storage-after-2.json",
+    "artifacts/shared-storage-diff.json",
+    "artifacts/ui-flow-trace.json",
+    "artifacts/persistence-trace.json",
+    "artifacts/accessibility-report.json",
+    "artifacts/talkback-focus-trace.json",
+    "artifacts/text-character-boxes.json",
+    "artifacts/contrast-report.json",
+    "artifacts/contrast-masks/",
+    "artifacts/motion-report.json",
+    "artifacts/motion-frames/",
+    "artifacts/motion-masks/",
+    "artifacts/reduced-motion-frames/",
+    "artifacts/runtime-clean-report.json",
+    "artifacts/sanitized-logcat.txt",
+    "artifacts/ui-hierarchy/",
+    "artifacts/screenshots/",
+    "evidence-leaves.json",
+    "evidence-manifest.json",
+    "independent-review.json",
+    "closure-envelope.json"
+  ],
+  "prohibited_substitutions": [
+    "source inspection for a runtime assertion",
+    "model or implementer self-report for a measured assertion",
+    "an unexecuted APK",
+    "an emulator from another project",
+    "a screenshot without the matching package, commit and APK digest",
+    "a test that reads application source or private oracle expectations at runtime"
+  ],
+  "post_oracle_closure_conditions": [
+    "all A01 through A10 cases are PASS",
+    "the immutable two-layer evidence manifest verifies every artifact and contains no reference cycle",
+    "a fresh read-only independent reviewer reconstructs the contract and returns PASS with zero blockers bound to the exact evidence-manifest digest",
+    "a deterministic closure-envelope created after review binds the unchanged evidence-manifest digest and independent-review digest and reports terminal PASS"
+  ],
+  "stop_conditions": [
+    "any hard budget reaches its limit",
+    "provider usage is unknown or cannot be reconciled",
+    "the assignment asks for wider paths, commands, network, secrets or side effects",
+    "the same build or test fingerprint occurs three consecutive times",
+    "two consecutive iterations create no new acceptable diff",
+    "the clean emulator still fails twice after one clean rebuild",
+    "two reproducibility attempts still differ",
+    "any mandatory final oracle case fails",
+    "Codex implementation or baseline pollution is found"
+  ]
+}

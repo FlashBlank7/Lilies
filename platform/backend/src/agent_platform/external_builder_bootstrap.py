@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import hmac
 import json
 import os
 import secrets
@@ -112,16 +113,17 @@ class ExternalBuilderBootstrapReceipt(_FrozenModel):
     expires_at: datetime
     handoff_path: Path
     handoff_digest: str
-    formal_archive_supported: Literal[False] = False
+    formal_archive_supported: Literal[True] = True
 
 
 class ExternalBuilderBootstrapService:
-    """Prepare external Builder authority without creating a bridge lifecycle row.
+    """Prepare one API-native external Builder and its trusted archive lifecycle.
 
     ``services`` is intentionally structural.  The production caller passes
-    ``app.state.services``; tests can provide narrow fakes.  This pilot only
-    prepares authority and writes a private handoff.  It does not claim terminal
-    state or formal archive support.
+    ``app.state.services``; tests can provide narrow fakes.  The Builder never
+    impersonates a local daemon: its separate durable lifecycle only binds the
+    broker-prepared assignment, public request audit, formal draft provenance,
+    collaboration channel, archive, and independent verifier.
     """
 
     def __init__(
@@ -137,9 +139,14 @@ class ExternalBuilderBootstrapService:
         self,
         request: ExternalBuilderBootstrapRequest,
     ) -> ExternalBuilderBootstrapReceipt:
-        _preflight_handoff_target(request.handoff_path)
+        _preflight_handoff_target(
+            request.handoff_path,
+            allow_exact_replay=True,
+        )
         broker = _formal_broker(self._services)
         auth_store = _auth_store(self._services)
+        bridge_store = _external_builder_store(self._services)
+        workflow_store = _workflow_store(self._services)
 
         prepared = PreparedFormalAssignment.model_validate(
             await broker.prepare_async(request.formal_request())
@@ -169,38 +176,118 @@ class ExternalBuilderBootstrapService:
         )
 
         collaboration_access = assignment.collaboration
-        if collaboration_access is None:
-            raise ExternalBuilderBootstrapError(
-                "formal assignment omitted collaboration authority"
+        collaboration_activated = False
+        reservation_created = False
+        try:
+            if collaboration_access is None:
+                raise ExternalBuilderBootstrapError(
+                    "formal assignment omitted collaboration authority"
+                )
+            collaboration_secret = await broker.collaboration_credential_secret(
+                assignment,
+                request.session_id,
             )
-        collaboration_secret = await broker.collaboration_credential_secret(
-            assignment,
-            request.session_id,
-        )
-        if not isinstance(collaboration_secret, SecretStr):
-            raise ExternalBuilderBootstrapError(
-                "formal collaboration provider returned a non-secret credential"
-            )
-        collaboration_token = collaboration_secret.get_secret_value()
-        if (
-            not collaboration_token
-            or secrets.compare_digest(collaboration_token, prepared_task_token)
-        ):
-            raise ExternalBuilderBootstrapError(
-                "formal collaboration credential is empty or aliases task authority"
-            )
+            collaboration_activated = True
+            if not isinstance(collaboration_secret, SecretStr):
+                raise ExternalBuilderBootstrapError(
+                    "formal collaboration provider returned a non-secret credential"
+                )
+            collaboration_token = collaboration_secret.get_secret_value()
+            if (
+                not collaboration_token
+                or secrets.compare_digest(
+                    collaboration_token,
+                    prepared_task_token,
+                )
+            ):
+                raise ExternalBuilderBootstrapError(
+                    "formal collaboration credential is empty or aliases task authority"
+                )
 
-        handoff = _handoff_payload(
-            request=request,
-            prepared=prepared,
-            issued=issued,
-            collaboration_token=collaboration_token,
-        )
-        handoff_digest = await asyncio.to_thread(
-            _write_private_json_once,
-            request.handoff_path,
-            handoff,
-        )
+            safe_request = request.model_dump(
+                mode="json",
+                exclude={"handoff_path"},
+            )
+            request_json = _canonical_json_bytes(safe_request).decode("utf-8")
+            request_digest = (
+                f"sha256:{hashlib.sha256(request_json.encode('utf-8')).hexdigest()}"
+            )
+            await workflow_store.begin_formal_draft_provenance(
+                assignment_id=str(request.assignment_id),
+                session_id=str(request.session_id),
+                application_id=str(request.application_id),
+            )
+            await bridge_store.reserve_external_builder_assignment(
+                assignment=assignment,
+                session_id=request.session_id,
+                connection_id=request.connection_id,
+                request_json=request_json,
+                request_digest=request_digest,
+                credential_ref=issued.credential.credential_ref,
+                collaboration_credential_ref=collaboration_access.credential_ref,
+                task_token_secret_ref=issued.credential.credential_ref,
+                builder_actor=request.builder_actor,
+            )
+            reservation_created = True
+
+            handoff = _handoff_payload(
+                request=request,
+                prepared=prepared,
+                issued=issued,
+                collaboration_token=collaboration_token,
+            )
+            handoff_digest = await asyncio.to_thread(
+                _write_private_json_once,
+                request.handoff_path,
+                handoff,
+            )
+        except Exception as error:
+            if reservation_created:
+                # The exact reservation makes a lost handoff write safely
+                # recoverable with the same request and prepared token.
+                raise
+            cleanup_errors: list[Exception] = []
+            close_collaboration = getattr(
+                broker,
+                "close_collaboration_authority",
+                None,
+            )
+            if collaboration_activated:
+                if not callable(close_collaboration):
+                    cleanup_errors.append(
+                        ExternalBuilderBootstrapError(
+                            "formal collaboration cleanup is unavailable"
+                        )
+                    )
+                else:
+                    try:
+                        await close_collaboration(
+                            assignment,
+                            request.session_id,
+                        )
+                    except Exception as cleanup_error:
+                        cleanup_errors.append(cleanup_error)
+            revoke_credential = getattr(auth_store, "revoke_credential", None)
+            if not callable(revoke_credential):
+                cleanup_errors.append(
+                    ExternalBuilderBootstrapError(
+                        "platform credential cleanup is unavailable"
+                    )
+                )
+            else:
+                try:
+                    await revoke_credential(
+                        issued.credential.credential_ref,
+                        reason="external Builder bootstrap failed before handoff",
+                    )
+                except Exception as cleanup_error:
+                    cleanup_errors.append(cleanup_error)
+            if cleanup_errors:
+                raise ExternalBuilderBootstrapError(
+                    "external Builder bootstrap failed and authority cleanup "
+                    "did not complete"
+                ) from error
+            raise
         return ExternalBuilderBootstrapReceipt(
             builder_actor=request.builder_actor,
             task_id=request.task_id,
@@ -260,6 +347,29 @@ def _auth_store(services: Any) -> Any:
             "platform task credential issuer is unavailable"
         )
     return auth_store
+
+
+def _external_builder_store(services: Any) -> Any:
+    bridge = getattr(services, "local_lilies_bridge", None)
+    store = getattr(bridge, "store", None)
+    if store is None or not callable(
+        getattr(store, "reserve_external_builder_assignment", None)
+    ):
+        raise ExternalBuilderBootstrapError(
+            "external Builder lifecycle store is unavailable"
+        )
+    return store
+
+
+def _workflow_store(services: Any) -> Any:
+    store = getattr(services, "workflow_store", None)
+    if store is None or not callable(
+        getattr(store, "begin_formal_draft_provenance", None)
+    ):
+        raise ExternalBuilderBootstrapError(
+            "formal workflow provenance store is unavailable"
+        )
+    return store
 
 
 def _task_credential_id(assignment_id: UUID) -> UUID:
@@ -457,7 +567,7 @@ def _handoff_payload(
     return {
         "schema_version": "1.0",
         "builder_actor": request.builder_actor,
-        "formal_archive_supported": False,
+        "formal_archive_supported": True,
         "task": {
             "task_id": request.task_id,
             "revision": request.revision,
@@ -495,11 +605,30 @@ def _handoff_payload(
     }
 
 
-def _preflight_handoff_target(path: Path) -> None:
+def _preflight_handoff_target(
+    path: Path,
+    *,
+    allow_exact_replay: bool = False,
+) -> None:
     if not path.is_absolute():
         raise ExternalBuilderBootstrapError(
             "external Builder handoff path must be absolute"
         )
+    parent = path.parent
+    if parent.is_symlink():
+        raise ExternalBuilderBootstrapError(
+            "external Builder handoff parent must not be a symlink"
+        )
+    if parent.exists():
+        try:
+            if parent.resolve(strict=True) != parent:
+                raise ExternalBuilderBootstrapError(
+                    "external Builder handoff parent must not traverse a symlink"
+                )
+        except OSError as error:
+            raise ExternalBuilderBootstrapError(
+                "external Builder handoff parent cannot be resolved safely"
+            ) from error
     try:
         mode = path.lstat().st_mode
     except FileNotFoundError:
@@ -508,6 +637,12 @@ def _preflight_handoff_target(path: Path) -> None:
         raise ExternalBuilderBootstrapError(
             "external Builder handoff path must not be a symlink"
         )
+    if (
+        allow_exact_replay
+        and stat.S_ISREG(mode)
+        and stat.S_IMODE(mode) == 0o600
+    ):
+        return
     raise ExternalBuilderBootstrapError(
         "external Builder handoff path already exists"
     )
@@ -529,11 +664,10 @@ def _canonical_json_bytes(value: Any) -> bytes:
 
 
 def _write_private_json_once(path: Path, value: Any) -> str:
-    _preflight_handoff_target(path)
     parent = path.parent
     parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     try:
-        if parent.resolve(strict=True) != parent:
+        if parent.is_symlink() or parent.resolve(strict=True) != parent:
             raise ExternalBuilderBootstrapError(
                 "external Builder handoff parent must not traverse a symlink"
             )
@@ -543,6 +677,31 @@ def _write_private_json_once(path: Path, value: Any) -> str:
         ) from error
 
     payload = _canonical_json_bytes(value)
+    try:
+        existing_mode = path.lstat().st_mode
+    except FileNotFoundError:
+        existing_mode = None
+    if existing_mode is not None:
+        if (
+            stat.S_ISLNK(existing_mode)
+            or not stat.S_ISREG(existing_mode)
+            or stat.S_IMODE(existing_mode) != 0o600
+        ):
+            raise ExternalBuilderBootstrapError(
+                "external Builder handoff replay target is unsafe"
+            )
+        try:
+            existing = path.read_bytes()
+        except OSError as error:
+            raise ExternalBuilderBootstrapError(
+                "external Builder handoff replay target cannot be read"
+            ) from error
+        if not hmac.compare_digest(existing, payload):
+            raise ExternalBuilderBootstrapError(
+                "external Builder handoff conflicts with the existing authority"
+            )
+        return f"sha256:{hashlib.sha256(existing).hexdigest()}"
+
     temporary = parent / f".{path.name}.{secrets.token_hex(16)}.tmp"
     flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY
     flags |= getattr(os, "O_NOFOLLOW", 0)
@@ -558,9 +717,23 @@ def _write_private_json_once(path: Path, value: Any) -> str:
         try:
             os.link(temporary, path, follow_symlinks=False)
         except FileExistsError as error:
-            raise ExternalBuilderBootstrapError(
-                "external Builder handoff path was concurrently created"
-            ) from error
+            try:
+                concurrent_mode = path.lstat().st_mode
+                concurrent = path.read_bytes()
+            except OSError as read_error:
+                raise ExternalBuilderBootstrapError(
+                    "external Builder handoff path was concurrently created"
+                ) from read_error
+            if (
+                stat.S_ISLNK(concurrent_mode)
+                or not stat.S_ISREG(concurrent_mode)
+                or stat.S_IMODE(concurrent_mode) != 0o600
+                or not hmac.compare_digest(concurrent, payload)
+            ):
+                raise ExternalBuilderBootstrapError(
+                    "external Builder handoff path was concurrently created"
+                ) from error
+            return f"sha256:{hashlib.sha256(concurrent).hexdigest()}"
         os.chmod(path, 0o600, follow_symlinks=False)
         if stat.S_IMODE(path.stat(follow_symlinks=False).st_mode) != 0o600:
             raise ExternalBuilderBootstrapError(

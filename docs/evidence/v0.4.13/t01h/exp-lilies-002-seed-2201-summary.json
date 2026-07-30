@@ -1,0 +1,34 @@
+{
+  "schema_version": "1.0",
+  "project_id": "EXP-LILIES-002",
+  "project_revision": 1,
+  "seed": 2201,
+  "attempt_nonce": "2a01d108",
+  "sealed_content_persisted": false,
+  "independent_blackbox_claim": false,
+  "case_count": 7,
+  "case_passed_count": 7,
+  "cases": [
+    {"case": "authorized_operations", "run_id": "936b2e6b-750b-49b5-9ac9-d34431c301fd", "resume_count": 0, "artifact_count": 3, "status_match": true, "source_match": true, "forbidden_chunk_count": 0, "forbidden_term_hit_count": 0, "passed": true},
+    {"case": "authorized_safety", "run_id": "ddce508f-11d1-4401-9461-563f1f068e28", "resume_count": 0, "artifact_count": 3, "status_match": true, "source_match": true, "forbidden_chunk_count": 0, "forbidden_term_hit_count": 0, "passed": true},
+    {"case": "public_visitor", "run_id": "d7228b02-8899-46b5-bd0a-2d730433ca84", "resume_count": 0, "artifact_count": 3, "status_match": true, "source_match": true, "forbidden_chunk_count": 0, "forbidden_term_hit_count": 0, "passed": true},
+    {"case": "finance_approved", "run_id": "1039c61d-edfa-4d5a-aece-077be4234712", "resume_count": 1, "artifact_count": 3, "status_match": true, "source_match": true, "forbidden_chunk_count": 0, "forbidden_term_hit_count": 0, "passed": true},
+    {"case": "restricted_finance", "run_id": "d648df89-eba5-4965-8e5b-b13a7d31cbbe", "resume_count": 0, "artifact_count": 3, "status_match": true, "source_match": true, "forbidden_chunk_count": 0, "forbidden_term_hit_count": 0, "passed": true},
+    {"case": "unsupported", "run_id": "41e84989-b29e-4fd9-93e6-91e9f1379557", "resume_count": 0, "artifact_count": 3, "status_match": true, "source_match": true, "forbidden_chunk_count": 0, "forbidden_term_hit_count": 0, "passed": true},
+    {"case": "hr_rejected", "run_id": "0ffd31c9-99cd-4777-a190-bf75ad16e820", "resume_count": 1, "artifact_count": 3, "status_match": true, "source_match": true, "forbidden_chunk_count": 0, "forbidden_term_hit_count": 0, "passed": true}
+  ],
+  "lifecycle_checks": {
+    "idempotent_replay": true,
+    "source_update": true,
+    "stale_revision_rejected": true,
+    "source_delete": true
+  },
+  "run_count": 11,
+  "human_resume_count": 2,
+  "artifact_count": 33,
+  "forbidden_chunk_count": 0,
+  "forbidden_term_hit_count": 0,
+  "passed": true,
+  "lilies_model_calls": 0,
+  "lilies_tokens": 0
+}

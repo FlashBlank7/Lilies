@@ -1,0 +1,30 @@
+{
+  "schema_version": "1.0",
+  "report_id": "EXP-LILIES-003-GAP-001",
+  "project_id": "EXP-LILIES-003",
+  "project_revision": 1,
+  "actor": "codex_builder",
+  "evidence_level": "public_platform_contract",
+  "manuals_checked": [
+    "GET /api/v1/blocks",
+    "GET /api/v1/blocks/schedule_trigger/manual",
+    "GET /api/v1/blocks/checkpoint_resume/manual",
+    "GET /api/v1/blocks/http_request/manual",
+    "GET /openapi.json"
+  ],
+  "actual_behavior": {
+    "websocket_event_trigger": false,
+    "per_event_durable_timer": false,
+    "existing_schedule": "IANA-timezone daily schedule only",
+    "existing_checkpoint": "Persists state within an already-started run but does not subscribe to an external event stream or wake a published workflow at a per-event deadline."
+  },
+  "expected_behavior": "A published workflow must receive authorized external WebSocket events, reconnect and resubscribe, create or cancel one durable timer per business subject, wake at its deadline after a platform restart, and retain deduplication evidence.",
+  "missing_contract": "A host-neutral optional event-automation module with a configurable authenticated WebSocket subscription trigger and a durable per-event timer operation. Home Assistant message mapping must remain workflow/source configuration.",
+  "forbidden_assistance": {
+    "hidden_seed_read": false,
+    "oracle_read": false,
+    "platform_database_read": false,
+    "project_specific_platform_code_requested": false
+  },
+  "status": "complete"
+}

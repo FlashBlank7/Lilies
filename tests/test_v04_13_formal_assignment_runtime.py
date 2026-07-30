@@ -86,7 +86,12 @@ async def _runtime_parts(
     package = TaskPackageManager(task_state).freeze_revision(source)
     observed_loops: list[asyncio.AbstractEventLoop] = []
 
-    async def contract_digest(_scopes: object, _applications: object) -> str:
+    async def contract_digest(
+        _scopes: object,
+        _applications: object,
+        _allowed_actions: object,
+    ) -> str:
+        assert _allowed_actions == package.allowed_actions
         observed_loops.append(asyncio.get_running_loop())
         return DIGEST
 
@@ -176,7 +181,11 @@ async def test_runtime_restart_replays_without_rotating_authority(
         request.session_id,
     )
 
-    async def replay_contract(_scopes: object, _applications: object) -> str:
+    async def replay_contract(
+        _scopes: object,
+        _applications: object,
+        _allowed_actions: object,
+    ) -> str:
         raise AssertionError("frozen broker replay must not rerender the contract")
 
     restarted = PlatformFormalAssignmentRuntime(

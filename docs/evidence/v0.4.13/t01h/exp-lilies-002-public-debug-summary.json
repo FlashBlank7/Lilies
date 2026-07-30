@@ -1,0 +1,123 @@
+{
+  "schema_version": "1.0",
+  "project_id": "EXP-LILIES-002",
+  "project_revision": 1,
+  "application_id": "927987e8-5ce0-47e0-8a6d-1ed2d4be4ac4",
+  "draft_revision": 36,
+  "content_hash": "7ba77470ae434590f4bbdc8dc8bf506744b43e8b3e7a6d3f915b84e6d78b0b95",
+  "run_tag": "2d9438363c",
+  "public_case_count": 7,
+  "public_case_passed": 7,
+  "cases": [
+    {
+      "business_case": "authorized_operations_answer",
+      "run_id": "cd3f55ab-012a-4ba1-b1f4-13d6fb95cbe0",
+      "result": "answered",
+      "source_match": true,
+      "forbidden_chunk_count": 0,
+      "artifact_count": 3,
+      "passed": true
+    },
+    {
+      "business_case": "authorized_safety_answer",
+      "run_id": "e484d2c3-9e2d-4c90-b0e6-275a183e6da0",
+      "result": "answered",
+      "source_match": true,
+      "forbidden_chunk_count": 0,
+      "artifact_count": 3,
+      "passed": true
+    },
+    {
+      "business_case": "public_answer_for_visitor",
+      "run_id": "b50e3ee4-30c2-4d23-b153-922af0be31eb",
+      "result": "answered",
+      "source_match": true,
+      "forbidden_chunk_count": 0,
+      "artifact_count": 3,
+      "passed": true
+    },
+    {
+      "business_case": "finance_answer_with_review",
+      "run_id": "980ce571-c367-4e27-aca5-198dfef1fabb",
+      "result": "answered_after_review",
+      "source_match": true,
+      "resume_count": 1,
+      "forbidden_chunk_count": 0,
+      "artifact_count": 3,
+      "passed": true
+    },
+    {
+      "business_case": "restricted_finance_refusal",
+      "run_id": "a090d178-d119-4075-82b7-077273be06e8",
+      "result": "refused",
+      "retrieved_source_count": 0,
+      "forbidden_chunk_count": 0,
+      "artifact_count": 3,
+      "passed": true
+    },
+    {
+      "business_case": "unsupported_question_refusal",
+      "run_id": "33cb4505-3f17-41c4-a4e6-71d853c0979f",
+      "result": "refused",
+      "retrieved_source_count": 0,
+      "forbidden_chunk_count": 0,
+      "artifact_count": 3,
+      "passed": true
+    },
+    {
+      "business_case": "human_rejects_sensitive_answer",
+      "run_id": "da201ee3-67ea-4436-be97-eea86b0313cf",
+      "result": "refused_by_reviewer",
+      "authorized_source_retrieved_before_review": true,
+      "delivered_citation_count": 0,
+      "resume_count": 1,
+      "forbidden_chunk_count": 0,
+      "artifact_count": 3,
+      "passed": true
+    }
+  ],
+  "lifecycle_checks": {
+    "idempotent_replay": {
+      "first_run_id": "05d00dca-8de9-448a-8707-b6137c502e7b",
+      "second_run_id": "5b87a9ee-ae36-49a3-ab3a-c1a441578675",
+      "index_revision_unchanged": true,
+      "second_replayed": true,
+      "passed": true
+    },
+    "source_update": {
+      "run_id": "b495eaf7-ed89-4e10-b89f-9bc1305edd9c",
+      "old_interval_absent": true,
+      "new_interval_present": true,
+      "new_revision_cited": true,
+      "passed": true
+    },
+    "stale_revision_rejection": {
+      "http_status": 409,
+      "passed": true
+    },
+    "source_delete": {
+      "run_id": "bbbf0342-4138-4295-8975-d15ad21248bb",
+      "host_page_status": 404,
+      "index_delete_receipt": true,
+      "old_question_refused": true,
+      "passed": true
+    }
+  },
+  "platform_mandatory_test": {
+    "run_id": "98cac791-2738-4be1-a11c-8207eca5d398",
+    "passed": true,
+    "retrieval_model": "acl-hybrid-retrieval-v2"
+  },
+  "published_version": {
+    "version": 1,
+    "content_hash": "7ba77470ae434590f4bbdc8dc8bf506744b43e8b3e7a6d3f915b84e6d78b0b95",
+    "smoke_run_id": "d13b29e7-ce7f-4fe3-960b-457e4f4c15d3",
+    "smoke_status": "succeeded",
+    "smoke_answer_status": "answered",
+    "smoke_cited_source_match": true,
+    "smoke_artifact_count": 3
+  },
+  "passed": true,
+  "lilies_model_calls": 0,
+  "lilies_tokens": 0
+}

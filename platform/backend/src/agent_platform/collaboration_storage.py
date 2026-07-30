@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import secrets
 import sqlite3
 import threading
@@ -33,7 +34,7 @@ from .collaboration_models import (
 )
 
 
-COLLABORATION_SCHEMA_VERSION = 1
+COLLABORATION_SCHEMA_VERSION = 2
 _WRITABLE_CHANNEL_STATUSES = frozenset({"active", "disconnected"})
 _CLOSED_CHANNEL_STATUSES = frozenset({"closing", "closed", "archived"})
 _DEVELOPER_VISIBLE_REPORT_STATUSES = frozenset(
@@ -41,6 +42,7 @@ _DEVELOPER_VISIBLE_REPORT_STATUSES = frozenset(
         "approved_for_codex",
         "implementing",
         "ready_for_lilies_verification",
+        "verification_failed",
         "routed_to_task_author",
         "task_package_amended",
         "environment_failed",
@@ -527,8 +529,7 @@ class CollaborationStore:
                   created_at TEXT NOT NULL,
                   updated_at TEXT NOT NULL,
                   closed_at TEXT,
-                  retention_until TEXT,
-                  UNIQUE(task_id, task_revision)
+                  retention_until TEXT
                 );
 
                 CREATE TABLE IF NOT EXISTS collaboration_credentials (
@@ -900,6 +901,10 @@ class CollaborationStore:
                   ON collaboration_reports(status, route, updated_at);
                 CREATE INDEX IF NOT EXISTS idx_collaboration_outbox_pending
                   ON collaboration_outbox(status, available_at, created_at);
+                CREATE UNIQUE INDEX IF NOT EXISTS
+                  idx_collaboration_one_open_task_revision
+                  ON collaboration_channels(task_id,task_revision)
+                  WHERE status IN ('created','active','disconnected','closing');
                 """
             )
             message_columns = {
@@ -1015,6 +1020,20 @@ class CollaborationStore:
                     "SET client_request_digest=request_digest "
                     "WHERE client_request_digest=''"
                 )
+            needs_channel_attempt_migration = (
+                current < 2
+                or self._channels_have_legacy_task_revision_uniqueness(
+                    connection
+                )
+            )
+            if needs_channel_attempt_migration:
+                # PRAGMA foreign_keys cannot change inside an open transaction.
+                # Commit the idempotent column/backfill preparation before the
+                # exact transactional parent-table rebuild. The physical
+                # schema check also repairs pre-release databases that recorded
+                # schema v2 before completing this rebuild.
+                connection.commit()
+                self._migrate_channels_for_repeated_attempts(connection)
             self._create_immutable_triggers(connection)
             connection.execute(
                 """
@@ -1049,7 +1068,128 @@ class CollaborationStore:
                     "INSERT INTO collaboration_schema(version,applied_at) VALUES (?,?)",
                     (1, applied_at),
                 )
+            if current < 2:
+                connection.execute(
+                    "INSERT INTO collaboration_schema(version,applied_at) VALUES (?,?)",
+                    (2, applied_at),
+                )
         return {"schema_version": COLLABORATION_SCHEMA_VERSION}
+
+    @staticmethod
+    def _channels_have_legacy_task_revision_uniqueness(
+        connection: sqlite3.Connection,
+    ) -> bool:
+        row = connection.execute(
+            """
+            SELECT sql FROM sqlite_master
+            WHERE type='table' AND name='collaboration_channels'
+            """
+        ).fetchone()
+        if row is None or row["sql"] is None:
+            return False
+        normalized = re.sub(r"\s+", "", str(row["sql"])).upper()
+        return "UNIQUE(TASK_ID,TASK_REVISION)" in normalized
+
+    @staticmethod
+    def _migrate_channels_for_repeated_attempts(
+        connection: sqlite3.Connection,
+    ) -> None:
+        """Preserve closed attempts while allowing one fresh active channel.
+
+        Schema v1 used a table-level ``UNIQUE(task_id, task_revision)``.  That
+        made an immutable closed attempt permanently consume the identity and
+        contradicted the public formal-authority rotation contract.  SQLite
+        cannot drop the implicit unique index, so rebuild only the parent table
+        transactionally and replace it with a partial active-channel index.
+        """
+
+        columns = [
+            str(row["name"])
+            for row in connection.execute(
+                "PRAGMA table_info(collaboration_channels)"
+            ).fetchall()
+        ]
+        expected_columns = [
+            "channel_id",
+            "task_id",
+            "task_revision",
+            "assignment_id",
+            "lilies_session_id",
+            "application_ids_json",
+            "approval_mode",
+            "max_report_evidence_rounds",
+            "status",
+            "revision",
+            "next_seq",
+            "metadata_json",
+            "created_at",
+            "updated_at",
+            "closed_at",
+            "retention_until",
+        ]
+        if (
+            len(columns) != len(expected_columns)
+            or set(columns) != set(expected_columns)
+        ):
+            raise CollaborationStorageError(
+                "collaboration channel schema cannot be migrated exactly"
+            )
+        connection.execute("PRAGMA foreign_keys=OFF")
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute(
+                """
+                CREATE TABLE collaboration_channels_v2 (
+                  channel_id TEXT PRIMARY KEY,
+                  task_id TEXT NOT NULL,
+                  task_revision INTEGER NOT NULL CHECK(task_revision >= 1),
+                  assignment_id TEXT NOT NULL UNIQUE,
+                  lilies_session_id TEXT NOT NULL UNIQUE,
+                  application_ids_json TEXT NOT NULL,
+                  approval_mode TEXT NOT NULL
+                    CHECK(approval_mode IN ('manual','auto_forward')),
+                  max_report_evidence_rounds INTEGER
+                    CHECK(max_report_evidence_rounds BETWEEN 1 AND 100),
+                  status TEXT NOT NULL CHECK(status IN
+                    ('created','active','disconnected','closing','closed','archived')),
+                  revision INTEGER NOT NULL DEFAULT 1 CHECK(revision >= 1),
+                  next_seq INTEGER NOT NULL DEFAULT 1 CHECK(next_seq >= 1),
+                  metadata_json TEXT NOT NULL DEFAULT '{}',
+                  created_at TEXT NOT NULL,
+                  updated_at TEXT NOT NULL,
+                  closed_at TEXT,
+                  retention_until TEXT
+                )
+                """
+            )
+            column_list = ",".join(expected_columns)
+            connection.execute(
+                f"INSERT INTO collaboration_channels_v2({column_list}) "
+                f"SELECT {column_list} FROM collaboration_channels"
+            )
+            connection.execute("DROP TABLE collaboration_channels")
+            connection.execute(
+                "ALTER TABLE collaboration_channels_v2 "
+                "RENAME TO collaboration_channels"
+            )
+            connection.execute(
+                """
+                CREATE UNIQUE INDEX idx_collaboration_one_open_task_revision
+                ON collaboration_channels(task_id,task_revision)
+                WHERE status IN ('created','active','disconnected','closing')
+                """
+            )
+            connection.commit()
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.execute("PRAGMA foreign_keys=ON")
+        violations = connection.execute("PRAGMA foreign_key_check").fetchall()
+        if violations:
+            raise CollaborationStorageError(
+                "collaboration channel migration broke foreign-key bindings"
+            )
 
     @staticmethod
     def _create_immutable_triggers(connection: sqlite3.Connection) -> None:

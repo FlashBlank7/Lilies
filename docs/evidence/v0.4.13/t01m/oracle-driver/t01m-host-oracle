@@ -1,0 +1,4 @@
+#!/usr/bin/env python3
+from t01m_host.cli import main
+
+raise SystemExit(main())

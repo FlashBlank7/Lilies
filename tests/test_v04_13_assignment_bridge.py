@@ -98,6 +98,7 @@ def observability_payload(
             "interrupted_turns": 1,
             "interrupted_development_assignments": 0,
             "reconciliation_required_development_invocations": 0,
+            "unreaped_development_processes": 0,
         },
     }
 
@@ -331,7 +332,10 @@ class FakeDaemonClient:
             "credential_ref": payload["credential_ref"],
             "assignment_id": payload["assignment_id"],
             "kind": payload["kind"],
-            "scopes": payload["scopes"],
+            # The standalone daemon persists scopes as a canonical set and
+            # returns them sorted; authority validation must therefore be
+            # order-insensitive while remaining exact about membership.
+            "scopes": sorted(set(payload["scopes"])),
             "expires_at": payload["expires_at"],
             "provisioned_at": datetime.now(timezone.utc).isoformat(),
             "revoked_at": None,
@@ -591,7 +595,7 @@ def bridge_for(
         auth_store=auth,
         client=daemon,
         platform_base_url="http://127.0.0.1:8001",
-        contract_digest_provider=lambda _scopes, _apps: DIGEST,
+        contract_digest_provider=lambda _scopes, _apps, _actions: DIGEST,
         fault_hook=fault_hook,
     )
 
@@ -759,7 +763,7 @@ async def test_feature_gate_loopback_and_explicit_none_policy_fail_closed(
             auth_store=auth,
             client=daemon,
             platform_base_url="https://example.com",
-            contract_digest_provider=lambda _scopes, _apps: DIGEST,
+            contract_digest_provider=lambda _scopes, _apps, _actions: DIGEST,
         )
 
     bridge = bridge_for(tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon)
@@ -2095,6 +2099,44 @@ async def test_cancel_409_terminal_receipt_mismatch_remains_fail_closed(
 
 
 @pytest.mark.asyncio
+async def test_cancel_accepts_unbound_terminal_session_before_assignment_acceptance(
+    tmp_path: Path,
+) -> None:
+    _, workflow, harness, auth = await platform_parts(tmp_path)
+    daemon = FakeDaemonClient()
+    bridge = bridge_for(tmp_path, workflow=workflow, harness=harness, auth=auth, daemon=daemon)
+    connection = await pair(bridge)
+    application_id = await empty_application(workflow, "cancel-unbound-terminal")
+    assignment = await bridge.start_build(
+        application_id,
+        build_request(connection.connection_id, "cancel-unbound-terminal"),
+    )
+    daemon_session = daemon.sessions[str(assignment.session_id)]
+    daemon_session["status"] = "closed"
+    daemon_session["assignment_id"] = None
+    daemon.events.clear()
+    await bridge.store.update_assignment(
+        assignment.assignment_id,
+        phase="submitting",
+        status="submitting",
+    )
+
+    cancelled = await bridge.cancel_assignment(
+        assignment.assignment_id,
+        idempotency_key="cancel-unbound-terminal-000001",
+    )
+
+    assert cancelled.phase == BridgeAssignmentPhase.cancelled
+    assert cancelled.status == "cancelled"
+    assert cancelled.desired_state.value == "cancelled"
+    assert cancelled.daemon_status is not None
+    assert cancelled.daemon_status.value == "closed"
+    assert daemon.credentials == {}
+    with pytest.raises(PlatformBlackboxCredentialRevoked):
+        await auth.authenticate_credential(daemon.last_task_token)
+
+
+@pytest.mark.asyncio
 async def test_relay_finishes_pending_cancel_before_projecting_daemon_state(
     tmp_path: Path,
 ) -> None:
@@ -2821,7 +2863,7 @@ async def test_real_daemon_asgi_recovers_pair_and_reconnect_response_loss(
             auth_store=auth,
             client=client,
             platform_base_url="http://127.0.0.1:8001",
-            contract_digest_provider=lambda _scopes, _apps: DIGEST,
+            contract_digest_provider=lambda _scopes, _apps, _actions: DIGEST,
             fault_hook=CrashOnce("pairing.exchange_accepted"),
         )
         await crashing_pair_bridge.initialize()
@@ -2836,7 +2878,7 @@ async def test_real_daemon_asgi_recovers_pair_and_reconnect_response_loss(
             auth_store=auth,
             client=client,
             platform_base_url="http://127.0.0.1:8001",
-            contract_digest_provider=lambda _scopes, _apps: DIGEST,
+            contract_digest_provider=lambda _scopes, _apps, _actions: DIGEST,
         )
         await recovered_pair_bridge.initialize()
         connection = (await recovered_pair_bridge.list_connections())[0]
@@ -2874,7 +2916,7 @@ async def test_real_daemon_asgi_recovers_pair_and_reconnect_response_loss(
             auth_store=auth,
             client=client,
             platform_base_url="http://127.0.0.1:8001",
-            contract_digest_provider=lambda _scopes, _apps: DIGEST,
+            contract_digest_provider=lambda _scopes, _apps, _actions: DIGEST,
         )
         await recovered_reconnect_bridge.initialize()
         reconnected = await recovered_reconnect_bridge.get_connection(connection.connection_id)
@@ -3001,7 +3043,7 @@ async def test_real_daemon_asgi_cancel_terminal_events_drain_and_restart_recover
             auth_store=auth,
             client=client,
             platform_base_url="http://127.0.0.1:8001",
-            contract_digest_provider=lambda _scopes, _apps: DIGEST,
+            contract_digest_provider=lambda _scopes, _apps, _actions: DIGEST,
         )
         await bridge.initialize()
         connection = await bridge.pair_connection(
@@ -3063,7 +3105,7 @@ async def test_real_daemon_asgi_cancel_terminal_events_drain_and_restart_recover
             auth_store=auth,
             client=client,
             platform_base_url="http://127.0.0.1:8001",
-            contract_digest_provider=lambda _scopes, _apps: DIGEST,
+            contract_digest_provider=lambda _scopes, _apps, _actions: DIGEST,
         )
         await restarted.initialize()
         recovery = await restarted.recover_pending_assignments()
@@ -3124,7 +3166,7 @@ async def test_real_daemon_asgi_pair_assignment_idempotency_and_no_prebuilt_draf
             auth_store=auth,
             client=client,
             platform_base_url="http://127.0.0.1:8001",
-            contract_digest_provider=lambda _scopes, _apps: DIGEST,
+            contract_digest_provider=lambda _scopes, _apps, _actions: DIGEST,
         )
         await bridge.initialize()
         connection = await bridge.pair_connection(

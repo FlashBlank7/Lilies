@@ -1,0 +1,29 @@
+{
+  "artifact_count": 33,
+  "business_alarm_count": 3,
+  "category_count": 12,
+  "check_count": 85,
+  "claim_ceiling": "controlled-local orchestration correctness; not real-factory model accuracy or long-duration production reliability",
+  "device_rpc_count": 0,
+  "drift_expected": "stable",
+  "expected_terminal_failure_count": 1,
+  "failed_categories": [],
+  "failed_check_counts": {
+    "artifacts_ok": 0,
+    "decision_and_host_ok": 0,
+    "drift_ok": 0,
+    "model_lineage_ok": 0,
+    "resume_ok": 0,
+    "retry_ok": 0,
+    "status_ok": 0
+  },
+  "human_pause_count": 2,
+  "input_count": 12,
+  "passed": true,
+  "passed_check_count": 85,
+  "schema_version": "1.0",
+  "seed": 4101,
+  "seed_fingerprint": "sha256:92b6372688b6625c4814c762d8e13d969fb566a314494e3a70c88bfe6eadc166",
+  "task_id": "EXP-LILIES-004",
+  "workflow_succeeded_count": 11
+}

@@ -5,7 +5,7 @@
   "project_id": "EXP-LILIES-002",
   "sequence": 2,
   "title": "Access-controlled enterprise knowledge assistant",
-  "status": "selected",
+  "status": "passed",
   "cohort": "enterprise",
   "enterprise_denominator": true,
   "capability_family": "enterprise_rag_authorization_citation_update",
@@ -16,17 +16,60 @@
     {
       "name": "BookStack",
       "repository": "https://codeberg.org/bookstack/bookstack",
-      "release": "v26.05",
+      "release": "v26.05.2",
       "official_interfaces": ["REST API", "role and content permissions", "webhooks"]
     }
   ],
   "inputs": ["books, chapters, pages, attachments, tags, revisions", "role and content permissions", "held-out user questions"],
-  "models": ["versioned embedding model", "versioned reranker", "versioned answer model"],
+  "models": ["hashing-embedding-v1", "acl-hybrid-retrieval-v2", "grounded-extractive-answer-v1"],
   "external_systems": ["BookStack"],
   "human_decisions": ["knowledge-owner approval of ingestion scope", "review of sensitive or low-evidence answers"],
   "deliverables": ["cited answer or explicit refusal", "retrieval trace", "ACL decision log", "index update receipt", "evaluation report"],
   "workflow_result": "A generated workflow ingests authorized content, preserves ACL and revision lineage, retrieves and reranks per user identity, cites evidence, refuses unsupported answers, and updates or deletes index entries.",
   "independent_oracle": "A hidden corpus and permission matrix check answer fields, allowed and forbidden sources, citation validity, retrieval metrics, update freshness, deletion, webhook idempotency, and forbidden_chunk_count equals zero.",
+  "public_test_categories": [
+    "authorized operations answer",
+    "authorized safety answer",
+    "public visitor answer",
+    "sensitive finance answer after approval",
+    "restricted-source refusal",
+    "unsupported-question refusal",
+    "sensitive HR refusal after reviewer rejection",
+    "idempotent synchronization replay",
+    "page revision update and fresh citation",
+    "stale revision rejection",
+    "page deletion and index removal"
+  ],
+  "hidden_seed_contract": {
+    "count": 3,
+    "generation": "Deterministic business values per Seed with a fresh attempt nonce for source and event identities; protected values are piped directly to BookStack and public workflow APIs and are not persisted in evidence.",
+    "fresh_host_state_per_seed": "Each Seed creates a distinct BookStack book, six pages, role identities, page identities and event identities. The controlled host process is shared and reported as such.",
+    "varied_dimensions": [
+      "asset and page identities",
+      "business roles",
+      "safety distance and payment threshold",
+      "public contact value",
+      "inspection interval and updated interval",
+      "confidential phrases",
+      "human approval and rejection",
+      "source revision and deletion"
+    ],
+    "pass_meaning": "Every authorized answer, refusal, pre-review source, post-rejection delivery, citation, lifecycle receipt, artifact set, replay, stale rejection and host deletion agrees with the in-process sealed oracle while forbidden_chunk_count and secret-hit count remain zero.",
+    "claim_limit": "The Seed generator and verifier are controlled-local and were authored in the same repository context, so this is sealed regression evidence rather than a third-party independent black-box audit."
+  },
+  "capability_placement": {
+    "domain_module": "enterprise_rag",
+    "platform_service_count": 1,
+    "atomic_block_count": 3,
+    "host_specific_block_count": 0,
+    "merge_recommendation": "Keep synchronization, retrieval and grounded-answer operations as one optional RAG domain module; do not add BookStack-specific blocks."
+  },
+  "published_application": {
+    "application_id": "927987e8-5ce0-47e0-8a6d-1ed2d4be4ac4",
+    "draft_revision": 36,
+    "active_version": 1,
+    "content_hash": "7ba77470ae434590f4bbdc8dc8bf506744b43e8b3e7a6d3f915b84e6d78b0b95"
+  },
   "source_intent_ids": ["EVAL-003", "PRODUCT-001", "PRODUCT-013", "PRODUCT-015", "PRODUCT-016", "PRODUCT-017", "SCENARIO-006", "SCENARIO-011"],
   "selection_gates": {
     "real_user_and_problem": true,
@@ -43,9 +86,8 @@
     "https://github.com/BookStackApp/BookStack/releases/tag/v26.05"
   ],
   "task_package_root": "docs/experiments/lilies-collaboration/EXP-LILIES-002",
-  "latest_revision": 0,
-  "revision_semantics": "Revision 1 will freeze source, image, API schema, corpus, permissions, seeds, budget, and oracle.",
+  "latest_revision": 1,
+  "revision_semantics": "Revision 1 freezes BookStack v26.05.2, the read-only service account boundary, public corpus and permission matrix, lifecycle and human-review acceptance, one-million-token ceiling for any future Lilies run, and three controlled-local sealed Seeds. The published application and all retained failures are described in the completion report.",
   "current_blocker": null,
-  "next_action": "After project 1 closes, freeze revision 1 and run its contract and environment preflight before any model call."
+  "next_action": "Preserve version 1 and the controlled-local evidence. A fresh-context independent review is evidence debt for CAP-LILIES admission, not a reason to rerun the customer workflow."
 }
-

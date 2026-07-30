@@ -15,7 +15,7 @@ from uuid import uuid4
 import httpx
 import httpcore
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .connector_sdk import (
     MAX_CONNECTOR_BLOB_BYTES,
@@ -46,6 +46,10 @@ MAX_OPENAPI_SCHEMA_OVERLAY_ACTIONS = 100
 MAX_OPENAPI_SCHEMA_OVERLAY_BYTES = 64_000
 MAX_OPENAPI_SCHEMA_OVERLAY_POINTER_BYTES = 4_000
 MAX_OPENAPI_SCHEMA_OVERLAY_POINTER_SEGMENTS = 128
+MAX_OPENAPI_OPERATION_CONTRACT_OVERLAYS = 100
+MAX_OPENAPI_OPERATION_CONTRACT_OVERLAY_BYTES = 64_000
+MAX_OPENAPI_OPERATION_SEMANTICS_OVERLAYS = 100
+MAX_OPENAPI_OPERATION_SEMANTICS_OVERLAY_BYTES = 64_000
 
 
 class _PinnedNetworkBackend(httpcore.AsyncNetworkBackend):
@@ -147,6 +151,114 @@ class OpenAPISchemaOverlayProvenance(BaseModel):
     )
 
 
+class OpenAPIOperationContractOverlay(BaseModel):
+    """Bounded contract corrections addressed by an existing live-spec operationId."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    operation_id: str = Field(min_length=1, max_length=300)
+    request_body_schema: dict[str, Any] | None = None
+    request_body_required: Literal[True] | None = None
+    response_schemas: dict[str, dict[str, Any]] = Field(
+        default_factory=dict,
+        max_length=100,
+    )
+
+    @field_validator("request_body_required", mode="before")
+    @classmethod
+    def request_required_must_be_explicit_true(cls, value: Any) -> Any:
+        if value is not True:
+            raise ValueError("request_body_required may only be set to true")
+        return value
+
+    @model_validator(mode="after")
+    def validate_contract_schemas(self) -> OpenAPIOperationContractOverlay:
+        request_schema_present = "request_body_schema" in self.model_fields_set
+        if request_schema_present and self.request_body_schema is None:
+            raise ValueError("request_body_schema must be a JSON Schema object")
+        if self.request_body_required is True and not request_schema_present:
+            raise ValueError(
+                "request_body_required=true requires request_body_schema"
+            )
+        if not request_schema_present and not self.response_schemas:
+            raise ValueError("operation contract overlay requires a request or response schema")
+        for status in self.response_schemas:
+            if re.fullmatch(r"2[0-9]{2}", status) is None:
+                raise ValueError(
+                    "operation contract response schema keys must be explicit 2xx statuses"
+                )
+        return self
+
+
+class OpenAPIOperationContractOverlayProvenance(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    overlay_digest: str = Field(default="", pattern=r"^(|sha256:[0-9a-f]{64})$")
+    operation_count: int = Field(
+        default=0,
+        ge=0,
+        le=MAX_OPENAPI_OPERATION_CONTRACT_OVERLAYS,
+    )
+    request_schema_count: int = Field(default=0, ge=0)
+    request_body_required_count: int = Field(
+        default=0,
+        ge=0,
+        le=MAX_OPENAPI_OPERATION_CONTRACT_OVERLAYS,
+    )
+    response_schema_count: int = Field(default=0, ge=0)
+    effective_contract_digest: str = Field(
+        default="",
+        pattern=r"^(|sha256:[0-9a-f]{64})$",
+    )
+
+
+class OpenAPIOperationSemanticsOverlay(BaseModel):
+    """Governed operation semantics for existing official operationIds."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    operation_id: str = Field(min_length=1, max_length=300)
+    kind: Literal["compensate"] | None = None
+    compensation_operation_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=300,
+    )
+
+    @model_validator(mode="after")
+    def exactly_one_semantic_declaration(
+        self,
+    ) -> OpenAPIOperationSemanticsOverlay:
+        kind_present = "kind" in self.model_fields_set and self.kind is not None
+        compensation_present = (
+            "compensation_operation_id" in self.model_fields_set
+            and self.compensation_operation_id is not None
+        )
+        if kind_present == compensation_present:
+            raise ValueError(
+                "operation semantics overlay requires exactly one of "
+                "kind or compensation_operation_id"
+            )
+        return self
+
+
+class OpenAPIOperationSemanticsOverlayProvenance(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    overlay_digest: str = Field(default="", pattern=r"^(|sha256:[0-9a-f]{64})$")
+    operation_count: int = Field(
+        default=0,
+        ge=0,
+        le=MAX_OPENAPI_OPERATION_SEMANTICS_OVERLAYS,
+    )
+    compensate_count: int = Field(default=0, ge=0)
+    compensation_binding_count: int = Field(default=0, ge=0)
+    effective_manifest_digest: str = Field(
+        default="",
+        pattern=r"^(|sha256:[0-9a-f]{64})$",
+    )
+
+
 class OpenAPISourceProvenance(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -159,6 +271,12 @@ class OpenAPISourceProvenance(BaseModel):
     size_bytes: int
     schema_overlay: OpenAPISchemaOverlayProvenance = Field(
         default_factory=OpenAPISchemaOverlayProvenance
+    )
+    operation_contract_overlay: OpenAPIOperationContractOverlayProvenance = Field(
+        default_factory=OpenAPIOperationContractOverlayProvenance
+    )
+    operation_semantics_overlay: OpenAPIOperationSemanticsOverlayProvenance = Field(
+        default_factory=OpenAPIOperationSemanticsOverlayProvenance
     )
     fetched_at: str = Field(default_factory=utc_now)
 
@@ -194,6 +312,14 @@ class OpenAPIConnectorGenerationRequest(BaseModel):
         default_factory=list,
         max_length=MAX_OPENAPI_SCHEMA_OVERLAY_ACTIONS,
     )
+    operation_contract_overlays: list[OpenAPIOperationContractOverlay] = Field(
+        default_factory=list,
+        max_length=MAX_OPENAPI_OPERATION_CONTRACT_OVERLAYS,
+    )
+    operation_semantics_overlays: list[OpenAPIOperationSemanticsOverlay] = Field(
+        default_factory=list,
+        max_length=MAX_OPENAPI_OPERATION_SEMANTICS_OVERLAYS,
+    )
 
     @model_validator(mode="after")
     def exactly_one_source(self) -> OpenAPIConnectorGenerationRequest:
@@ -228,8 +354,59 @@ class OpenAPIConnectorGenerationRequest(BaseModel):
         except (TypeError, ValueError) as error:
             raise ValueError("schema_overlay values must be finite JSON values") from error
         if len(overlay_bytes) > MAX_OPENAPI_SCHEMA_OVERLAY_BYTES:
+            raise ValueError(f"schema_overlay exceeds {MAX_OPENAPI_SCHEMA_OVERLAY_BYTES} bytes")
+        operation_ids = [overlay.operation_id for overlay in self.operation_contract_overlays]
+        if len(operation_ids) != len(set(operation_ids)):
+            raise ValueError("operation_contract_overlays contains duplicate operationId values")
+        try:
+            operation_overlay_bytes = json.dumps(
+                [
+                    overlay.model_dump(mode="json", exclude_unset=True)
+                    for overlay in sorted(
+                        self.operation_contract_overlays,
+                        key=lambda item: item.operation_id,
+                    )
+                ],
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            ).encode("utf-8")
+        except (TypeError, ValueError) as error:
             raise ValueError(
-                f"schema_overlay exceeds {MAX_OPENAPI_SCHEMA_OVERLAY_BYTES} bytes"
+                "operation_contract_overlays must contain finite JSON values"
+            ) from error
+        if len(operation_overlay_bytes) > MAX_OPENAPI_OPERATION_CONTRACT_OVERLAY_BYTES:
+            raise ValueError(
+                "operation_contract_overlays exceeds "
+                f"{MAX_OPENAPI_OPERATION_CONTRACT_OVERLAY_BYTES} bytes"
+            )
+        semantics_operation_ids = [
+            overlay.operation_id for overlay in self.operation_semantics_overlays
+        ]
+        if len(semantics_operation_ids) != len(set(semantics_operation_ids)):
+            raise ValueError(
+                "operation_semantics_overlays contains duplicate operationId values"
+            )
+        semantics_overlay_bytes = json.dumps(
+            [
+                overlay.model_dump(mode="json", exclude_unset=True)
+                for overlay in sorted(
+                    self.operation_semantics_overlays,
+                    key=lambda item: item.operation_id,
+                )
+            ],
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        if (
+            len(semantics_overlay_bytes)
+            > MAX_OPENAPI_OPERATION_SEMANTICS_OVERLAY_BYTES
+        ):
+            raise ValueError(
+                "operation_semantics_overlays exceeds "
+                f"{MAX_OPENAPI_OPERATION_SEMANTICS_OVERLAY_BYTES} bytes"
             )
         return self
 
@@ -309,6 +486,12 @@ class ConnectorContractRun(BaseModel):
         default="",
         pattern=r"^(|sha256:[0-9a-f]{64})$",
     )
+    operation_contract_overlay: OpenAPIOperationContractOverlayProvenance = Field(
+        default_factory=OpenAPIOperationContractOverlayProvenance
+    )
+    operation_semantics_overlay: OpenAPIOperationSemanticsOverlayProvenance = Field(
+        default_factory=OpenAPIOperationSemanticsOverlayProvenance
+    )
     status: Literal["passed", "failed", "partial", "blocked_by_environment"]
     results: list[ConnectorContractCaseResult]
     passed: int
@@ -326,6 +509,437 @@ class OpenAPIMaterialError(ValueError):
     def __init__(self, gap: OpenAPICapabilityGap) -> None:
         super().__init__(gap.message)
         self.gap = gap
+
+
+class OpenAPIOperationSemanticsOverlayReconciler:
+    """Validate semantics without changing the live OpenAPI document."""
+
+    def reconcile(
+        self,
+        document: dict[str, Any],
+        overlays: list[OpenAPIOperationSemanticsOverlay],
+    ) -> OpenAPIOperationSemanticsOverlayProvenance:
+        ordered = sorted(overlays, key=lambda item: item.operation_id)
+        serialized = self._canonical_json(
+            [item.model_dump(mode="json", exclude_unset=True) for item in ordered]
+        )
+        if len(serialized) > MAX_OPENAPI_OPERATION_SEMANTICS_OVERLAY_BYTES:
+            raise self._error(
+                "operation semantics overlays exceed "
+                f"{MAX_OPENAPI_OPERATION_SEMANTICS_OVERLAY_BYTES} bytes"
+            )
+        operations = self._operation_index(document)
+        by_overlay_id = {item.operation_id: item for item in ordered}
+        primary_writes_by_compensation: dict[str, list[str]] = {}
+        compensate_count = 0
+        compensation_binding_count = 0
+        for index, overlay in enumerate(ordered):
+            location = f"$.operation_semantics_overlays[{index}]"
+            method = self._unique_method(
+                operations,
+                overlay.operation_id,
+                f"{location}.operation_id",
+            )
+            if overlay.kind == "compensate":
+                if method != "delete":
+                    raise self._error(
+                        "kind=compensate may only be declared for an existing "
+                        "DELETE operation",
+                        location=f"{location}.kind",
+                    )
+                compensate_count += 1
+                continue
+            target_id = overlay.compensation_operation_id
+            if target_id is None:
+                raise self._error(
+                    "compensation_operation_id must be present",
+                    location=f"{location}.compensation_operation_id",
+                )
+            if method == "get":
+                raise self._error(
+                    "compensation_operation_id may only be bound to a write operation",
+                    location=f"{location}.compensation_operation_id",
+                )
+            if target_id == overlay.operation_id:
+                raise self._error(
+                    "a write operation cannot compensate itself",
+                    location=f"{location}.compensation_operation_id",
+                )
+            target_method = self._unique_method(
+                operations,
+                target_id,
+                f"{location}.compensation_operation_id",
+            )
+            if target_method != "delete":
+                raise self._error(
+                    "compensation_operation_id must reference an existing DELETE operation",
+                    location=f"{location}.compensation_operation_id",
+                )
+            target_overlay = by_overlay_id.get(target_id)
+            if target_overlay is None or target_overlay.kind != "compensate":
+                raise self._error(
+                    "compensation_operation_id must reference an operation declared "
+                    "kind=compensate in the same overlay",
+                    location=f"{location}.compensation_operation_id",
+                )
+            primary_writes_by_compensation.setdefault(target_id, []).append(
+                overlay.operation_id
+            )
+            compensation_binding_count += 1
+        conflicting_targets = sorted(
+            target_id
+            for target_id, primary_ids in primary_writes_by_compensation.items()
+            if len(primary_ids) > 1
+        )
+        if conflicting_targets:
+            raise self._error(
+                "one compensation operation cannot be bound to multiple primary "
+                f"write operations: {conflicting_targets}"
+            )
+        return OpenAPIOperationSemanticsOverlayProvenance(
+            overlay_digest=f"sha256:{hashlib.sha256(serialized).hexdigest()}",
+            operation_count=len(ordered),
+            compensate_count=compensate_count,
+            compensation_binding_count=compensation_binding_count,
+        )
+
+    @staticmethod
+    def _operation_index(
+        document: dict[str, Any],
+    ) -> dict[str, list[str]]:
+        result: dict[str, list[str]] = {}
+        paths = document.get("paths", {})
+        if not isinstance(paths, dict):
+            return result
+        for path_item in paths.values():
+            if not isinstance(path_item, dict):
+                continue
+            for method, operation in path_item.items():
+                if method not in HTTP_METHODS or not isinstance(operation, dict):
+                    continue
+                operation_id = operation.get("operationId")
+                if isinstance(operation_id, str) and operation_id:
+                    result.setdefault(operation_id, []).append(method)
+        return result
+
+    def _unique_method(
+        self,
+        operations: dict[str, list[str]],
+        operation_id: str,
+        location: str,
+    ) -> str:
+        methods = operations.get(operation_id, [])
+        if not methods:
+            raise self._error(
+                "operation semantics overlay must reference an operationId that "
+                "exists in the live OpenAPI document",
+                location=location,
+            )
+        if len(methods) != 1:
+            raise self._error(
+                "operation semantics overlay operationId is ambiguous in the "
+                "live OpenAPI document",
+                location=location,
+            )
+        return methods[0]
+
+    @staticmethod
+    def _canonical_json(value: Any) -> bytes:
+        return json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+
+    @staticmethod
+    def _error(
+        message: str,
+        *,
+        location: str = "$.operation_semantics_overlays",
+    ) -> OpenAPIMaterialError:
+        return OpenAPIMaterialError(
+            OpenAPICapabilityGap(
+                code="IF-04",
+                capability="operation_semantics_overlay",
+                location=location,
+                message=message,
+                fatal=True,
+            )
+        )
+
+
+class OpenAPIOperationContractOverlayReconciler:
+    """Apply operation-addressed schemas without changing the live API surface."""
+
+    def reconcile(
+        self,
+        document: dict[str, Any],
+        overlays: list[OpenAPIOperationContractOverlay],
+    ) -> tuple[dict[str, Any], OpenAPIOperationContractOverlayProvenance]:
+        ordered = sorted(overlays, key=lambda item: item.operation_id)
+        serialized_overlays = self._canonical_json(
+            [overlay.model_dump(mode="json", exclude_unset=True) for overlay in ordered],
+            "$.operation_contract_overlays",
+        )
+        if len(serialized_overlays) > MAX_OPENAPI_OPERATION_CONTRACT_OVERLAY_BYTES:
+            raise self._error(
+                "$.operation_contract_overlays",
+                "operation contract overlays exceed "
+                f"{MAX_OPENAPI_OPERATION_CONTRACT_OVERLAY_BYTES} bytes",
+            )
+        effective = copy.deepcopy(document)
+        immutable_surface = self._immutable_surface(effective)
+        operations = self._operation_index(effective)
+        request_schema_count = 0
+        request_body_required_count = 0
+        response_schema_count = 0
+        for index, overlay in enumerate(ordered):
+            location = f"$.operation_contract_overlays[{index}]"
+            candidates = operations.get(overlay.operation_id, [])
+            if not candidates:
+                raise self._error(
+                    f"{location}.operation_id",
+                    "operation contract overlay must reference an operationId "
+                    "that exists in the live OpenAPI document",
+                )
+            if len(candidates) != 1:
+                raise self._error(
+                    f"{location}.operation_id",
+                    "operation contract overlay operationId is ambiguous in the "
+                    "live OpenAPI document",
+                )
+            operation = candidates[0]
+            if overlay.request_body_schema is not None:
+                self._set_request_schema(
+                    operation,
+                    overlay.request_body_schema,
+                    f"{location}.request_body_schema",
+                    required=overlay.request_body_required is True,
+                )
+                request_schema_count += 1
+                request_body_required_count += int(
+                    overlay.request_body_required is True
+                )
+            for status, schema in sorted(overlay.response_schemas.items()):
+                self._set_response_schema(
+                    operation,
+                    status,
+                    schema,
+                    f"{location}.response_schemas.{status}",
+                )
+                response_schema_count += 1
+        if self._immutable_surface(effective) != immutable_surface:
+            raise self._error(
+                "$.operation_contract_overlays",
+                "operation contract overlays must not change paths, methods, "
+                "operationIds, security, servers, authentication, or response statuses",
+            )
+        effective_bytes = self._canonical_json(
+            effective,
+            "$.operation_contract_overlays",
+        )
+        return effective, OpenAPIOperationContractOverlayProvenance(
+            overlay_digest=(f"sha256:{hashlib.sha256(serialized_overlays).hexdigest()}"),
+            operation_count=len(ordered),
+            request_schema_count=request_schema_count,
+            request_body_required_count=request_body_required_count,
+            response_schema_count=response_schema_count,
+            effective_contract_digest=(f"sha256:{hashlib.sha256(effective_bytes).hexdigest()}"),
+        )
+
+    @staticmethod
+    def _operation_index(
+        document: dict[str, Any],
+    ) -> dict[str, list[dict[str, Any]]]:
+        result: dict[str, list[dict[str, Any]]] = {}
+        paths = document.get("paths", {})
+        if not isinstance(paths, dict):
+            return result
+        for path_item in paths.values():
+            if not isinstance(path_item, dict):
+                continue
+            for method, operation in path_item.items():
+                if method not in HTTP_METHODS or not isinstance(operation, dict):
+                    continue
+                operation_id = operation.get("operationId")
+                if isinstance(operation_id, str) and operation_id:
+                    result.setdefault(operation_id, []).append(operation)
+        return result
+
+    def _set_request_schema(
+        self,
+        operation: dict[str, Any],
+        schema: dict[str, Any],
+        location: str,
+        *,
+        required: bool,
+    ) -> None:
+        if "requestBody" not in operation:
+            operation["requestBody"] = {
+                "content": {"application/json": {"schema": copy.deepcopy(schema)}}
+            }
+            if required:
+                operation["requestBody"]["required"] = True
+            return
+        request_body = operation["requestBody"]
+        if not isinstance(request_body, dict) or "$ref" in request_body:
+            raise self._error(
+                location,
+                "requestBody must be an inline object before its JSON schema can be overlaid",
+            )
+        content = request_body.get("content")
+        if content is None:
+            content = {}
+            request_body["content"] = content
+        if not isinstance(content, dict):
+            raise self._error(location, "requestBody content must be an object")
+        media = content.get("application/json")
+        if media is None:
+            media = {}
+            content["application/json"] = media
+        if not isinstance(media, dict):
+            raise self._error(
+                location,
+                "requestBody application/json media contract must be an object",
+            )
+        media["schema"] = copy.deepcopy(schema)
+        if required:
+            request_body["required"] = True
+
+    def _set_response_schema(
+        self,
+        operation: dict[str, Any],
+        status: str,
+        schema: dict[str, Any],
+        location: str,
+    ) -> None:
+        if status in {"204", "205"}:
+            raise self._error(
+                location,
+                f"HTTP {status} cannot carry a JSON response schema",
+            )
+        responses = operation.get("responses")
+        if not isinstance(responses, dict):
+            raise self._error(location, "operation responses must be an object")
+        matching_keys = [key for key in responses if str(key) == status]
+        if len(matching_keys) != 1:
+            raise self._error(
+                location,
+                "response schema overlay status must already exist exactly once "
+                "in the live operation",
+            )
+        response = responses[matching_keys[0]]
+        if not isinstance(response, dict) or "$ref" in response:
+            raise self._error(
+                location,
+                "response must be an inline object before its JSON schema can be overlaid",
+            )
+        content = response.get("content")
+        if content is None:
+            content = {}
+            response["content"] = content
+        if not isinstance(content, dict):
+            raise self._error(location, "response content must be an object")
+        media = content.get("application/json")
+        if media is None:
+            media = {}
+            content["application/json"] = media
+        if not isinstance(media, dict):
+            raise self._error(
+                location,
+                "response application/json media contract must be an object",
+            )
+        media["schema"] = copy.deepcopy(schema)
+
+    def _immutable_surface(self, document: dict[str, Any]) -> bytes:
+        paths = document.get("paths", {})
+        path_controls: list[dict[str, Any]] = []
+        if isinstance(paths, dict):
+            for path in sorted(paths, key=str):
+                path_item = paths[path]
+                if not isinstance(path_item, dict):
+                    path_controls.append(
+                        {"path": str(path), "path_item_type": type(path_item).__name__}
+                    )
+                    continue
+                methods: list[dict[str, Any]] = []
+                for method in sorted(
+                    (key for key in path_item if key in HTTP_METHODS),
+                    key=str,
+                ):
+                    operation = path_item[method]
+                    if not isinstance(operation, dict):
+                        methods.append(
+                            {
+                                "method": method,
+                                "operation_type": type(operation).__name__,
+                            }
+                        )
+                        continue
+                    responses = operation.get("responses")
+                    statuses = (
+                        sorted(str(status) for status in responses)
+                        if isinstance(responses, dict)
+                        else None
+                    )
+                    methods.append(
+                        {
+                            "method": method,
+                            "operation_id": operation.get("operationId"),
+                            "security": operation.get("security"),
+                            "servers": operation.get("servers"),
+                            "response_statuses": statuses,
+                        }
+                    )
+                path_controls.append(
+                    {
+                        "path": str(path),
+                        "servers": path_item.get("servers"),
+                        "methods": methods,
+                    }
+                )
+        components = document.get("components")
+        security_schemes = (
+            components.get("securitySchemes") if isinstance(components, dict) else None
+        )
+        return self._canonical_json(
+            {
+                "servers": document.get("servers"),
+                "security": document.get("security"),
+                "security_schemes": security_schemes,
+                "paths": path_controls,
+            },
+            "$.operation_contract_overlays",
+        )
+
+    def _canonical_json(self, value: Any, location: str) -> bytes:
+        try:
+            return json.dumps(
+                value,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            ).encode("utf-8")
+        except (TypeError, ValueError) as error:
+            raise self._error(
+                location,
+                "operation contract overlays and the effective OpenAPI contract "
+                "must contain only finite JSON values",
+            ) from error
+
+    @staticmethod
+    def _error(location: str, message: str) -> OpenAPIMaterialError:
+        return OpenAPIMaterialError(
+            OpenAPICapabilityGap(
+                code="IF-01",
+                capability="operation_contract_overlay",
+                location=location,
+                message=message,
+                fatal=True,
+            )
+        )
 
 
 class OpenAPISchemaOverlayReconciler:
@@ -540,6 +1154,10 @@ class OpenAPISchemaOverlayReconciler:
 
 class OpenAPIMaterialLoader:
     def __init__(self) -> None:
+        self.operation_overlay_reconciler = OpenAPIOperationContractOverlayReconciler()
+        self.operation_semantics_reconciler = (
+            OpenAPIOperationSemanticsOverlayReconciler()
+        )
         self.overlay_reconciler = OpenAPISchemaOverlayReconciler()
 
     async def load(
@@ -576,11 +1194,23 @@ class OpenAPIMaterialLoader:
         source_gaps: list[OpenAPICapabilityGap] = []
         source_resolved = self._resolve_refs(document, document, "$", (), source_gaps)
         self._inspect_unsupported(source_resolved, source_gaps)
+        operation_semantics_provenance = (
+            self.operation_semantics_reconciler.reconcile(
+                source_resolved,
+                request.operation_semantics_overlays,
+            )
+        )
+        operation_effective_document, operation_overlay_provenance = (
+            self.operation_overlay_reconciler.reconcile(
+                document,
+                request.operation_contract_overlays,
+            )
+        )
         effective_document, overlay_provenance = self.overlay_reconciler.reconcile(
-            document,
+            operation_effective_document,
             request.schema_overlay,
         )
-        if request.schema_overlay:
+        if request.operation_contract_overlays or request.schema_overlay:
             effective_gaps: list[OpenAPICapabilityGap] = []
             resolved = self._resolve_refs(
                 effective_document,
@@ -604,6 +1234,8 @@ class OpenAPIMaterialLoader:
             document_version=str(info.get("version") or "unknown"),
             size_bytes=len(raw),
             schema_overlay=overlay_provenance,
+            operation_contract_overlay=operation_overlay_provenance,
+            operation_semantics_overlay=operation_semantics_provenance,
         )
         return resolved, provenance, self._unique_gaps(gaps)
 
@@ -872,6 +1504,7 @@ class OpenAPIConnectorGenerator:
         total_fields = 0
         discovered = 0
         used_ids: set[str] = set()
+        official_to_generated: dict[str, str] = {}
         global_security = document.get("security", [])
         for path, path_item in document.get("paths", {}).items():
             if not isinstance(path_item, dict):
@@ -897,6 +1530,9 @@ class OpenAPIConnectorGenerator:
                 operation, mapped, total = generated
                 operations.append(operation)
                 used_ids.add(operation.id)
+                official_id = raw_operation.get("operationId")
+                if isinstance(official_id, str) and official_id:
+                    official_to_generated[official_id] = operation.id
                 mapped_fields += mapped
                 total_fields += total
         if not operations:
@@ -922,6 +1558,15 @@ class OpenAPIConnectorGenerator:
                     fatal=True,
                 )
             )
+        operations = self._apply_operation_semantics(
+            operations,
+            request.operation_semantics_overlays,
+            official_to_generated,
+        )
+        provenance = self._bind_operation_semantics_provenance(
+            provenance,
+            operations,
+        )
         selected_scheme = request.deployment.auth_scheme_id
         if not selected_scheme:
             selected_scheme = self._first_required_scheme(operations)
@@ -989,6 +1634,131 @@ class OpenAPIConnectorGenerator:
             total_field_count=total_fields,
             parse_ms=parse_ms,
             generate_ms=(time.perf_counter() - started) * 1000,
+        )
+
+    def _apply_operation_semantics(
+        self,
+        operations: list[ConnectorOperation],
+        overlays: list[OpenAPIOperationSemanticsOverlay],
+        official_to_generated: dict[str, str],
+    ) -> list[ConnectorOperation]:
+        if not overlays:
+            return operations
+        by_generated_id = {item.id: item for item in operations}
+        updates: dict[str, dict[str, Any]] = {}
+        ordered = sorted(overlays, key=lambda item: item.operation_id)
+        for index, overlay in enumerate(ordered):
+            location = f"$.operation_semantics_overlays[{index}]"
+            generated_id = official_to_generated.get(overlay.operation_id)
+            if generated_id is None or generated_id not in by_generated_id:
+                raise OpenAPIMaterialError(
+                    OpenAPIMaterialLoader._gap(
+                        "IF-04",
+                        "operation_semantics_overlay",
+                        f"{location}.operation_id",
+                        "operation semantics overlay source must be present in the "
+                        "same generated manifest",
+                        fatal=True,
+                    )
+                )
+            operation = by_generated_id[generated_id]
+            if overlay.kind == "compensate":
+                if operation.method != "DELETE":
+                    raise OpenAPIMaterialError(
+                        OpenAPIMaterialLoader._gap(
+                            "IF-04",
+                            "operation_semantics_overlay",
+                            f"{location}.kind",
+                            "kind=compensate may only be declared for a generated "
+                            "DELETE operation",
+                            fatal=True,
+                        )
+                    )
+                updates.setdefault(generated_id, {})["kind"] = "compensate"
+                continue
+            target_official_id = overlay.compensation_operation_id
+            target_generated_id = (
+                official_to_generated.get(target_official_id)
+                if target_official_id is not None
+                else None
+            )
+            if (
+                target_generated_id is None
+                or target_generated_id not in by_generated_id
+            ):
+                raise OpenAPIMaterialError(
+                    OpenAPIMaterialLoader._gap(
+                        "IF-04",
+                        "operation_semantics_overlay",
+                        f"{location}.compensation_operation_id",
+                        "compensation operation must be present in the same generated "
+                        "manifest",
+                        fatal=True,
+                    )
+                )
+            target = by_generated_id[target_generated_id]
+            if operation.kind != "write" or target.method != "DELETE":
+                raise OpenAPIMaterialError(
+                    OpenAPIMaterialLoader._gap(
+                        "IF-04",
+                        "operation_semantics_overlay",
+                        f"{location}.compensation_operation_id",
+                        "compensation binding requires a generated write operation "
+                        "and a generated DELETE target",
+                        fatal=True,
+                    )
+                )
+            updates.setdefault(generated_id, {})[
+                "compensation_operation_id"
+            ] = target_generated_id
+        updated = [
+            operation.model_copy(update=updates.get(operation.id, {}))
+            for operation in operations
+        ]
+        updated_by_id = {item.id: item for item in updated}
+        for overlay in ordered:
+            if overlay.compensation_operation_id is None:
+                continue
+            target_generated_id = official_to_generated[overlay.compensation_operation_id]
+            if updated_by_id[target_generated_id].kind != "compensate":
+                raise OpenAPIMaterialError(
+                    OpenAPIMaterialLoader._gap(
+                        "IF-04",
+                        "operation_semantics_overlay",
+                        "$.operation_semantics_overlays",
+                        "compensation target must be generated as kind=compensate",
+                        fatal=True,
+                    )
+                )
+        return updated
+
+    @staticmethod
+    def _bind_operation_semantics_provenance(
+        provenance: OpenAPISourceProvenance,
+        operations: list[ConnectorOperation],
+    ) -> OpenAPISourceProvenance:
+        semantics = provenance.operation_semantics_overlay
+        if not semantics.operation_count:
+            return provenance
+        effective = json.dumps(
+            [
+                operation.model_dump(mode="json")
+                for operation in sorted(operations, key=lambda item: item.id)
+            ],
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return provenance.model_copy(
+            update={
+                "operation_semantics_overlay": semantics.model_copy(
+                    update={
+                        "effective_manifest_digest": (
+                            f"sha256:{hashlib.sha256(effective).hexdigest()}"
+                        )
+                    }
+                )
+            }
         )
 
     def _selected_operation_locations(
@@ -2150,7 +2920,15 @@ class OpenAPIConnectorService:
             ],
             "operation_selection": generation.operation_selection.model_dump(mode="json"),
             "schema_overlay": generation.provenance.schema_overlay.model_dump(mode="json"),
+            "operation_contract_overlay": (
+                generation.provenance.operation_contract_overlay.model_dump(mode="json")
+            ),
         }
+        semantics_overlay = generation.provenance.operation_semantics_overlay
+        if semantics_overlay.operation_count:
+            material["operation_semantics_overlay"] = semantics_overlay.model_dump(
+                mode="json"
+            )
         canonical = json.dumps(
             material,
             ensure_ascii=False,
@@ -2178,10 +2956,21 @@ class OpenAPIConnectorService:
 
     @staticmethod
     def _contract_identity(generation: OpenAPIConnectorGeneration) -> str:
-        overlay = generation.provenance.schema_overlay
-        if overlay.action_count == 0:
-            return generation.provenance.source_digest
-        return f"{generation.provenance.source_digest}:{overlay.overlay_digest}"
+        parts = [generation.provenance.source_digest]
+        operation_overlay = generation.provenance.operation_contract_overlay
+        if operation_overlay.operation_count:
+            parts.append(f"operation={operation_overlay.overlay_digest}")
+        schema_overlay = generation.provenance.schema_overlay
+        if schema_overlay.action_count:
+            parts.append(f"schema={schema_overlay.overlay_digest}")
+        semantics_overlay = generation.provenance.operation_semantics_overlay
+        if semantics_overlay.operation_count:
+            parts.append(
+                "semantics="
+                f"{semantics_overlay.overlay_digest}:"
+                f"{semantics_overlay.effective_manifest_digest}"
+            )
+        return ":".join(parts)
 
     async def list_generations(self) -> list[OpenAPIConnectorGeneration]:
         return await asyncio.to_thread(self._list_generations_sync)
@@ -2432,6 +3221,12 @@ class OpenAPIConnectorService:
             effective_contract_digest=(
                 generation.provenance.schema_overlay.effective_contract_digest
             ),
+            operation_contract_overlay=(
+                generation.provenance.operation_contract_overlay
+            ),
+            operation_semantics_overlay=(
+                generation.provenance.operation_semantics_overlay
+            ),
             status=status,
             results=results,
             passed=counts["passed"],
@@ -2486,6 +3281,23 @@ class OpenAPIConnectorService:
         ):
             raise ValueError(
                 "latest contract run does not match the effective overlaid contract"
+            )
+        operation_overlay = generation.provenance.operation_contract_overlay
+        if operation_overlay.operation_count and (
+            runs[0].source_digest != generation.provenance.source_digest
+            or runs[0].operation_contract_overlay != operation_overlay
+        ):
+            raise ValueError(
+                "latest contract run does not match the effective operation contract overlay"
+            )
+        semantics_overlay = generation.provenance.operation_semantics_overlay
+        if semantics_overlay.operation_count and (
+            runs[0].source_digest != generation.provenance.source_digest
+            or runs[0].operation_semantics_overlay != semantics_overlay
+        ):
+            raise ValueError(
+                "latest contract run does not match the effective operation "
+                "semantics overlay"
             )
         expected_case_ids = {
             item.id for item in await self.generate_contract_cases(generation_id)

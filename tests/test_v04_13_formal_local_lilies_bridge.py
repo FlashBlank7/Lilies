@@ -35,13 +35,15 @@ from agent_platform.lilies_models import (
 )
 from agent_platform.local_lilies_bridge import (
     BridgeAssignmentPhase,
-    LocalLiliesBridgeConflict,
     LocalLiliesBridge,
+    LocalLiliesBridgeConflict,
+    LocalLiliesBridgeDaemonRejected,
     LocalLiliesBridgeSecurityError,
     LocalLiliesBridgeStore,
     LocalLiliesBridgeUnavailable,
     StartFormalLocalLiliesBuildRequest,
 )
+from agent_platform.local_lilies_client import LocalLiliesRemoteError
 from agent_platform.platform_blackbox_artifacts import PlatformBlackboxArtifactStore
 from agent_platform.platform_blackbox_auth import PlatformBlackboxAuthStore
 from agent_platform.platform_harness import PlatformHarness
@@ -78,6 +80,7 @@ class FormalProviders:
     def platform(
         request: PrepareFormalAssignmentRequest,
         scopes: tuple[PlatformScope, ...],
+        _allowed_actions: object,
     ) -> PlatformAccess:
         credential_id = uuid5(
             NAMESPACE_URL,
@@ -250,6 +253,56 @@ class FormalDaemonClient(FakeDaemonClient):
         return dict(receipt)
 
 
+class RejectSubmissionOnceFormalDaemon(FormalDaemonClient):
+    def __init__(self) -> None:
+        super().__init__()
+        self.reject_submission = True
+
+    async def submit_assignment(
+        self,
+        base_url: str,
+        access_token: str,
+        session_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        if self.reject_submission:
+            raise LocalLiliesRemoteError(
+                422,
+                "public assignment schema is temporarily incompatible",
+            )
+        return await super().submit_assignment(
+            base_url,
+            access_token,
+            session_id,
+            payload,
+        )
+
+
+class RejectStagingOnceFormalDaemon(FormalDaemonClient):
+    def __init__(self) -> None:
+        super().__init__()
+        self.reject_staging = True
+
+    async def stage_formal_workspace(
+        self,
+        base_url: str,
+        access_token: str,
+        session_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        if self.reject_staging:
+            raise LocalLiliesRemoteError(
+                404,
+                "formal workspace staging is temporarily unavailable",
+            )
+        return await super().stage_formal_workspace(
+            base_url,
+            access_token,
+            session_id,
+            payload,
+        )
+
+
 class RejectingFormalBroker:
     @staticmethod
     def prepare(_: PrepareFormalAssignmentRequest) -> Any:
@@ -286,7 +339,7 @@ def make_bridge(
         auth_store=auth,
         client=daemon,
         platform_base_url="http://127.0.0.1:8001",
-        contract_digest_provider=lambda _scopes, _apps: DIGEST,
+        contract_digest_provider=lambda _scopes, _apps, _actions: DIGEST,
         formal_assignment_broker=broker,
         formal_credential_secret_provider=providers.secret,
         formal_channel_close_provider=providers.close,
@@ -423,6 +476,105 @@ async def test_formal_bridge_runs_prepared_assignment_through_exact_staging(
     assert persisted["collaboration_credential_ref"] == (
         assignment.collaboration.credential_ref if assignment.collaboration is not None else None
     )
+
+
+@pytest.mark.asyncio
+async def test_explicit_resume_retries_same_unbound_preacceptance_assignment(
+    tmp_path: Path,
+) -> None:
+    _, workflow, harness, auth = await platform_parts(tmp_path)
+    providers = FormalProviders()
+    daemon = RejectSubmissionOnceFormalDaemon()
+    broker, package = make_broker(tmp_path, providers)
+    bridge = make_bridge(
+        tmp_path,
+        workflow=workflow,
+        harness=harness,
+        auth=auth,
+        daemon=daemon,
+        broker=broker,
+        providers=providers,
+    )
+    connection = await pair(bridge)
+    application_id = await empty_application(
+        workflow,
+        "formal-preacceptance-resume",
+    )
+
+    with _real_health_endpoints(package):
+        with pytest.raises(LocalLiliesBridgeDaemonRejected):
+            await bridge.start_formal_build(
+                application_id,
+                formal_request(connection.connection_id),
+            )
+        failed = (
+            await bridge.store.list_assignments_for_application(application_id)
+        )[0]
+        assert failed["phase"] == "error"
+        assert failed["last_error_code"] == "daemon_rejected"
+        assert failed["submission_json"] is not None
+        assert daemon.sessions[failed["session_id"]]["status"] == "ready"
+        assert daemon.sessions[failed["session_id"]]["assignment_id"] is None
+
+        await bridge.store.update_assignment(
+            failed["assignment_id"],
+            last_error_code=None,
+            last_error_message=None,
+        )
+        daemon.reject_submission = False
+        recovered = await bridge.resume_assignment(failed["assignment_id"])
+
+    assert recovered.assignment_id == UUID(failed["assignment_id"])
+    assert recovered.session_id == UUID(failed["session_id"])
+    assert recovered.phase is BridgeAssignmentPhase.running
+    assert daemon.assignment_side_effects == 1
+    assert len(daemon.submitted_assignments) == 1
+
+
+@pytest.mark.asyncio
+async def test_explicit_resume_retries_workspace_before_submission(
+    tmp_path: Path,
+) -> None:
+    _, workflow, harness, auth = await platform_parts(tmp_path)
+    providers = FormalProviders()
+    daemon = RejectStagingOnceFormalDaemon()
+    broker, package = make_broker(tmp_path, providers)
+    bridge = make_bridge(
+        tmp_path,
+        workflow=workflow,
+        harness=harness,
+        auth=auth,
+        daemon=daemon,
+        broker=broker,
+        providers=providers,
+    )
+    connection = await pair(bridge)
+    application_id = await empty_application(
+        workflow,
+        "formal-workspace-resume",
+    )
+
+    with _real_health_endpoints(package):
+        with pytest.raises(LocalLiliesBridgeDaemonRejected):
+            await bridge.start_formal_build(
+                application_id,
+                formal_request(connection.connection_id),
+            )
+        failed = (
+            await bridge.store.list_assignments_for_application(application_id)
+        )[0]
+        assert failed["phase"] == "error"
+        assert failed["formal_workspace_receipt_json"] is None
+        assert daemon.sessions[failed["session_id"]]["status"] == "ready"
+        assert daemon.sessions[failed["session_id"]]["assignment_id"] is None
+
+        daemon.reject_staging = False
+        recovered = await bridge.resume_assignment(failed["assignment_id"])
+
+    assert recovered.phase is BridgeAssignmentPhase.running
+    assert daemon.staging_side_effects == 1
+    assert daemon.assignment_side_effects == 1
+    assert len(daemon.submitted_assignments) == 1
 
 
 @pytest.mark.asyncio

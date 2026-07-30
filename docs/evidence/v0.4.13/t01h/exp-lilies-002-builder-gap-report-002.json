@@ -1,0 +1,79 @@
+{
+  "schema_version": "1.0",
+  "report_id": "EXP-LILIES-002-BUILDER-GAP-002",
+  "project_id": "EXP-LILIES-002",
+  "project_revision": 1,
+  "builder_actor": "codex",
+  "builder_role": "user-authorized direct Builder simulation through public platform APIs",
+  "classification": "generic_platform_capability_gap",
+  "expected": [
+    "A query about filtered finance content must refuse when the caller has only operations access.",
+    "An unsupported cafeteria query must refuse instead of borrowing a weakly related public emergency page.",
+    "An authorized payroll query must rank the payroll source above a public page that only shares the word emergency.",
+    "A reviewer rejection must deliver no source citation while the pre-review retrieval evidence still identifies the authorized payroll source."
+  ],
+  "actual": [
+    {
+      "business_case": "restricted_finance_refusal",
+      "run_id": "26e9f30d-a1de-4630-b20e-ae5a29b83c01",
+      "actual_status": "answered",
+      "wrong_source_id": "public-emergency-contacts",
+      "matched_terms": [
+        "is",
+        "the"
+      ],
+      "score": 0.264805
+    },
+    {
+      "business_case": "unsupported_question_refusal",
+      "run_id": "a77ce5b1-aac2-4c8f-b8a5-1b3f81a7ca4d",
+      "actual_status": "answered",
+      "wrong_source_id": "public-emergency-contacts",
+      "matched_terms": [
+        "is",
+        "the"
+      ],
+      "score": 0.264805
+    },
+    {
+      "business_case": "human_rejects_sensitive_answer",
+      "run_id": "2a23f351-098f-45fd-a2fe-6d7c696b445b",
+      "actual_status": "refused_by_reviewer",
+      "top_source_id": "public-emergency-contacts",
+      "authorized_payroll_source_rank": 2,
+      "verifier_issue": "The public verifier incorrectly required a delivered citation even though reviewer rejection intentionally clears citations."
+    }
+  ],
+  "attempted_public_routes": [
+    "POST /api/v1/applications/{application_id}/runs",
+    "GET /api/v1/runs/{run_id}",
+    "POST /api/v1/runs/{run_id}/resume",
+    "POST /api/v1/knowledge-indexes/{index_name}/retrieve"
+  ],
+  "manuals_checked": [
+    "GET /api/v1/blocks/knowledge_retrieval/manual",
+    "GET /api/v1/blocks/grounded_answer/manual",
+    "docs/experiments/lilies-collaboration/EXP-LILIES-002/1/BUILDER_API_MANUAL.json"
+  ],
+  "missing_contract": "The host-neutral retrieval capability needs relevance scoring that discounts non-discriminative query terms before lexical ranking, so shared stop words cannot create an answer and a specific authorized source outranks a generic public source. The acceptance layer must distinguish pre-review retrieval evidence from post-rejection delivery citations.",
+  "evidence": {
+    "public_debug_report": "/private/tmp/exp-lilies-002-public-debug.json",
+    "host_mutations": {
+      "workflow_host_write_count": 0,
+      "fixture_update_count": 1,
+      "fixture_delete_count": 1
+    },
+    "unrelated_lifecycle_checks": {
+      "idempotent_replay": "passed",
+      "source_update": "passed",
+      "stale_revision_rejection": "passed",
+      "source_delete": "passed"
+    }
+  },
+  "forbidden_assistance": {
+    "hidden_seed_read": false,
+    "oracle_read": false,
+    "platform_database_read": false,
+    "project_specific_platform_code_requested": false
+  }
+}

@@ -1,0 +1,52 @@
+{
+  "schema_version": "v0.4.13-t01h-external-builder-api-manual-1",
+  "authority": {
+    "token_source": "Use only the task-issued platform bearer; never print or persist it.",
+    "owner_continuation": "This user-authorized direct Codex run uses the public owner API."
+  },
+  "discovery": {
+    "openapi": "GET /openapi.json",
+    "blocks": [
+      "GET /api/v1/blocks",
+      "GET /api/v1/blocks/{block_type}",
+      "GET /api/v1/blocks/{block_type}/manual"
+    ]
+  },
+  "knowledge_lifecycle": {
+    "operations": [
+      "POST /api/v1/knowledge-indexes",
+      "GET /api/v1/knowledge-indexes/{index_name}",
+      "POST /api/v1/knowledge-indexes/{index_name}/sync",
+      "POST /api/v1/knowledge-indexes/{index_name}/retrieve",
+      "POST /api/v1/knowledge-indexes/{index_name}/answer"
+    ],
+    "rules": [
+      "The index contract is immutable after creation.",
+      "A source revision, ACL and URL travel together.",
+      "ACL filtering occurs before scoring.",
+      "A repeated event_id is replayed; the same event_id with another payload is rejected.",
+      "An older source revision cannot overwrite a newer revision."
+    ]
+  },
+  "workflow": {
+    "operations": [
+      "POST /api/v1/platform/secrets",
+      "POST /api/v1/applications",
+      "GET /api/v1/applications/{application_id}/draft",
+      "POST /api/v1/applications/{application_id}/draft",
+      "POST /api/v1/applications/{application_id}/tests/run",
+      "POST /api/v1/applications/{application_id}/runs",
+      "GET /api/v1/runs/{run_id}",
+      "POST /api/v1/runs/{run_id}/resume",
+      "GET /api/v1/runs/{run_id}/events",
+      "POST /api/v1/applications/{application_id}/versions"
+    ],
+    "rules": [
+      "Read the current revision before every mutation.",
+      "BookStack API authentication must use a platform Secret reference.",
+      "Use the HTTP block only for customer-authorized BookStack GET page calls.",
+      "Project field mapping belongs in the workflow and must not enter platform source.",
+      "Run business tests and inspect actual artifacts before publication."
+    ]
+  }
+}

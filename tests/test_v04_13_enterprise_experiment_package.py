@@ -3,8 +3,10 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
+import yaml
 
 from agent_platform.task_packages import TaskPackageManager
 from scripts.experiments.exp_lilies_001.fault_proxy import (
@@ -13,6 +15,8 @@ from scripts.experiments.exp_lilies_001.fault_proxy import (
 )
 from scripts.experiments.exp_lilies_001.generate_package import (
     EXPECTED_DECISIONS,
+    PARENT_REVISION,
+    REVISION as PACKAGE_REVISION,
     SCENARIO_COUNTS,
     TASK_ID,
     generate,
@@ -21,9 +25,17 @@ from scripts import run_v04_13_enterprise_experiment_preparation as preparation
 
 
 def _generated(tmp_path: Path) -> Path:
-    target = tmp_path / "EXP-LILIES-001" / str(preparation.REVISION)
+    target = tmp_path / "EXP-LILIES-001" / str(PACKAGE_REVISION)
     generate(target)
     return target
+
+
+def _without_keys(value: dict[str, Any], *keys: str) -> dict[str, Any]:
+    return {
+        key: item
+        for key, item in value.items()
+        if key not in keys
+    }
 
 
 def test_preparation_uses_only_validated_runtime_environment_evidence(
@@ -74,13 +86,13 @@ def test_exp_lilies_001_revision_freezes_with_real_host_contract(
 ) -> None:
     source = _generated(tmp_path)
     manager = TaskPackageManager(tmp_path / "state")
-    for revision in range(1, preparation.REVISION):
+    for revision in range(1, PACKAGE_REVISION):
         manager.freeze_revision(preparation.TASK_ROOT.parent / str(revision))
     package = manager.freeze_revision(source)
 
     assert package.task.task_id == TASK_ID
-    assert package.task.revision == preparation.REVISION
-    assert package.task.parent_revision == preparation.REVISION - 1
+    assert package.task.revision == PACKAGE_REVISION
+    assert package.task.parent_revision == PARENT_REVISION
     assert package.task.amendment_reason
     assert package.task.cohort.value == "enterprise"
     assert package.environment.provenance == "real_host"
@@ -98,6 +110,292 @@ def test_exp_lilies_001_revision_freezes_with_real_host_contract(
     assert all(
         str(project.image_digest).startswith("sha256:")
         for project in package.task.source_projects
+    )
+    assert package.allowed_actions.model_access is False
+    assert {
+        "inventree.attachment_list",
+        "inventree.metadata_pk_retrieve",
+    } <= set(package.allowed_actions.readable_host_objects)
+    assert set(package.allowed_actions.writable_host_operations) == {
+        "paperless.documents_partial_update",
+        "inventree.attachment_create",
+        "inventree.metadata_pk_partial_update",
+    }
+    assert set(package.allowed_actions.permission_required_actions) == {
+        "paperless.documents_partial_update",
+        "inventree.attachment_create",
+        "inventree.metadata_pk_partial_update",
+    }
+    assert set(package.allowed_actions.compensation_actions) == {
+        "inventree.attachment_destroy",
+        "inventree.metadata_pk_update",
+    }
+    assert package.allowed_actions.max_write_count == 18
+
+    requirement = (source / "requirement.md").read_text(encoding="utf-8")
+    assert "link-only 外部关联" in requirement
+    assert "不是二进制文件复制" in requirement
+    assert "operation-contract overlay" in requirement
+
+
+def test_revision_twenty_eight_adds_only_external_builder_authority_semantics(
+    tmp_path: Path,
+) -> None:
+    current = _generated(tmp_path)
+    parent = preparation.TASK_ROOT.parent / str(PARENT_REVISION)
+
+    parent_paths = {
+        path.relative_to(parent).as_posix()
+        for path in parent.rglob("*")
+        if path.is_file()
+    }
+    current_paths = {
+        path.relative_to(current).as_posix()
+        for path in current.rglob("*")
+        if path.is_file()
+    }
+    assert current_paths == parent_paths
+    changed_paths = {
+        relative
+        for relative in current_paths
+        if relative not in parent_paths
+        or (current / relative).read_bytes()
+        != (parent / relative).read_bytes()
+    }
+    assert changed_paths == {
+        "allowed-actions.json",
+        "CUSTOMER_REQUIREMENT_PACKAGE.json",
+        "budget.json",
+        "environment.lock",
+        "fixtures/manifest.json",
+        "protected/expected-state/seed-101.json",
+        "protected/expected-state/seed-202.json",
+        "protected/expected-state/seed-303.json",
+        "protected/hidden-inputs/101/seed-plan.json",
+        "protected/hidden-inputs/202/seed-plan.json",
+        "protected/hidden-inputs/303/seed-plan.json",
+        "protected/oracle/host-oracle.json",
+        "protected/oracle/oracle.json",
+        "task.yaml",
+    }
+
+    parent_task = yaml.safe_load((parent / "task.yaml").read_bytes())
+    current_task = yaml.safe_load((current / "task.yaml").read_bytes())
+    assert current_task["revision"] == PACKAGE_REVISION
+    assert current_task["parent_revision"] == PARENT_REVISION
+    assert "fresh external Codex may act as the isolated Builder" in current_task[
+        "amendment_reason"
+    ]
+    assert "uses only Lilies platform public APIs and functions" in current_task[
+        "amendment_reason"
+    ]
+    task_wrapper_keys = (
+        "revision",
+        "parent_revision",
+        "amendment_reason",
+        "created_at",
+        "environment_lock_digest",
+        "fixture_manifest_digest",
+    )
+    assert _without_keys(current_task, *task_wrapper_keys) == _without_keys(
+        parent_task,
+        *task_wrapper_keys,
+    )
+
+    parent_environment = yaml.safe_load(
+        (parent / "environment.lock").read_bytes()
+    )
+    current_environment = yaml.safe_load(
+        (current / "environment.lock").read_bytes()
+    )
+    assert current_environment["revision"] == PACKAGE_REVISION
+    assert (
+        current_environment["source_projects"]
+        == parent_environment["source_projects"]
+    )
+    assert _without_keys(current_environment, "revision") == _without_keys(
+        parent_environment,
+        "revision",
+    )
+
+    parent_public = {
+        path.relative_to(parent / "fixtures/public-inputs").as_posix():
+        path.read_bytes()
+        for path in (parent / "fixtures/public-inputs").rglob("*")
+        if path.is_file()
+    }
+    current_public = {
+        path.relative_to(current / "fixtures/public-inputs").as_posix():
+        path.read_bytes()
+        for path in (current / "fixtures/public-inputs").rglob("*")
+        if path.is_file()
+    }
+    assert current_public == parent_public
+
+    for name in ("budget.json",):
+        parent_value = json.loads((parent / name).read_bytes())
+        current_value = json.loads((current / name).read_bytes())
+        assert current_value["revision"] == PACKAGE_REVISION
+        assert _without_keys(current_value, "revision") == _without_keys(
+            parent_value,
+            "revision",
+        )
+
+    parent_allowed = json.loads(
+        (parent / "allowed-actions.json").read_bytes()
+    )
+    current_allowed = json.loads(
+        (current / "allowed-actions.json").read_bytes()
+    )
+    assert current_allowed["revision"] == PACKAGE_REVISION
+    assert _without_keys(current_allowed, "revision") == _without_keys(
+        parent_allowed,
+        "revision",
+    )
+    for key in (
+        "readable_host_objects",
+        "writable_host_operations",
+        "permission_required_actions",
+        "compensation_actions",
+        "network_hosts",
+        "model_access",
+        "max_write_count",
+    ):
+        assert current_allowed[key] == parent_allowed[key]
+
+    parent_manual = json.loads(
+        (parent / "BUILDER_API_MANUAL.json").read_bytes()
+    )
+    current_manual = json.loads(
+        (current / "BUILDER_API_MANUAL.json").read_bytes()
+    )
+    assert parent_manual["platform"]["operation_count"] == 17
+    assert current_manual["platform"]["operation_count"] == 17
+    assert (
+        current_manual["platform"]["connector_authorization"]["operation_id"]
+        == "platform_connector_authorization_issue"
+    )
+    assert current_manual == parent_manual
+
+    parent_fixture_manifest = json.loads(
+        (parent / "fixtures/manifest.json").read_bytes()
+    )
+    current_fixture_manifest = json.loads(
+        (current / "fixtures/manifest.json").read_bytes()
+    )
+    assert current_fixture_manifest["revision"] == PACKAGE_REVISION
+    assert _without_keys(
+        current_fixture_manifest,
+        "revision",
+    ) == _without_keys(parent_fixture_manifest, "revision")
+
+    parent_debug = json.loads(
+        (parent / "fixtures/public-inputs/debug-records.json").read_bytes()
+    )
+    current_debug = json.loads(
+        (current / "fixtures/public-inputs/debug-records.json").read_bytes()
+    )
+    assert current_debug == parent_debug
+    assert current_debug["revision"] == parent_debug["revision"] == 23
+
+    for seed in ("101", "202", "303"):
+        relative_plan = Path(
+            f"protected/hidden-inputs/{seed}/seed-plan.json"
+        )
+        parent_plan = json.loads((parent / relative_plan).read_bytes())
+        current_plan = json.loads((current / relative_plan).read_bytes())
+        assert current_plan["revision"] == PACKAGE_REVISION
+        assert _without_keys(current_plan, "revision") == _without_keys(
+            parent_plan,
+            "revision",
+        )
+        assert current_plan["records"] == parent_plan["records"]
+        assert current_plan["documents"] == parent_plan["documents"]
+
+        relative_expected = Path(
+            f"protected/expected-state/seed-{seed}.json"
+        )
+        parent_expected = json.loads(
+            (parent / relative_expected).read_bytes()
+        )
+        current_expected = json.loads(
+            (current / relative_expected).read_bytes()
+        )
+        assert current_expected["revision"] == PACKAGE_REVISION
+        assert _without_keys(current_expected, "revision") == _without_keys(
+            parent_expected,
+            "revision",
+        )
+        assert current_expected["records"] == parent_expected["records"]
+
+    for name in ("oracle.json", "host-oracle.json"):
+        relative = Path("protected/oracle") / name
+        parent_oracle = json.loads((parent / relative).read_bytes())
+        current_oracle = json.loads((current / relative).read_bytes())
+        assert current_oracle["revision"] == PACKAGE_REVISION
+        assert _without_keys(current_oracle, "revision") == _without_keys(
+            parent_oracle,
+            "revision",
+        )
+        assert current_oracle["checks"] == parent_oracle["checks"]
+        assert [
+            (check["check_id"], check.get("expected"))
+            for check in current_oracle["checks"]
+        ] == [
+            (check["check_id"], check.get("expected"))
+            for check in parent_oracle["checks"]
+        ]
+
+    parent_pdfs = sorted(
+        path.relative_to(parent)
+        for path in parent.rglob("*.pdf")
+    )
+    current_pdfs = sorted(
+        path.relative_to(current)
+        for path in current.rglob("*.pdf")
+    )
+    assert current_pdfs == parent_pdfs
+    assert len(current_pdfs) == 24 + (3 * 36)
+    for relative in current_pdfs:
+        assert (current / relative).read_bytes() == (parent / relative).read_bytes()
+
+    for relative in (
+        Path("requirement.md"),
+        Path("protected/leak-markers.json"),
+    ):
+        assert (current / relative).read_bytes() == (parent / relative).read_bytes()
+
+    customer_package = json.loads(
+        (current / "CUSTOMER_REQUIREMENT_PACKAGE.json").read_bytes()
+    )
+    assert customer_package["task_id"] == TASK_ID
+    assert customer_package["revision"] == PACKAGE_REVISION
+    assert customer_package["material_completeness"] == "partial"
+    material_paths = {
+        item["path"] for item in customer_package["materials"]
+    }
+    assert {
+        "requirement.md",
+        "fixtures/public-inputs/debug-records.json",
+        "BUILDER_API_MANUAL.json",
+        "allowed-actions.json",
+        "environment.lock",
+        "task.yaml",
+    } <= material_paths
+    assert len(
+        {
+            path
+            for path in material_paths
+            if path.startswith("fixtures/public-inputs/documents/")
+        }
+    ) == 24
+    assert customer_package["missing_materials"]
+    assert "Customer non-provision is not automatically a task gap" in (
+        customer_package["clarification_policy"]
+    )
+    assert any(
+        "required Builder deliverable" in item
+        for item in customer_package["missing_materials"]
     )
 
 

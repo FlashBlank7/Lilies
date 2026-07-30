@@ -192,19 +192,22 @@ def _binding(
     commit_sha: str,
     *,
     response_report_revision: int = 4,
+    response_id: UUID | None = None,
+    approval_message_seq: int = 1,
+    response_message_seq: int = 2,
 ) -> ApprovedDeveloperResponseBinding:
     return ApprovedDeveloperResponseBinding(
         channel_id=context["channel_id"],
         report_id=context["report_id"],
         approval_id=uuid4(),
         approval_message_id=uuid4(),
-        approval_message_seq=1,
+        approval_message_seq=approval_message_seq,
         approval_authority="user",
         approval_payload_digest="sha256:" + "a" * 64,
         approved_report_revision=3,
-        response_id=context["response_id"],
+        response_id=response_id or context["response_id"],
         response_message_id=uuid4(),
-        response_message_seq=2,
+        response_message_seq=response_message_seq,
         response_report_revision=response_report_revision,
         response_payload_digest="sha256:" + "b" * 64,
         commit_sha=commit_sha,
@@ -815,6 +818,187 @@ print(json.dumps({
     )
 
 
+def test_backend_reload_accepts_a_path_disjoint_descendant_commit(
+    tmp_path: Path,
+) -> None:
+    context = _setup_projection(tmp_path)
+    workspace = context["workspace"]
+    repository = context["repository"]
+    assert isinstance(workspace, Path)
+    assert isinstance(repository, Path)
+    _write(
+        workspace / "source/platform/backend/src/agent_platform/example.py",
+        "VALUE = 'path-disjoint descendant'\n",
+    )
+    receipt = _promote(context)
+    assert receipt.reload_status == "restart_required"
+
+    _write(repository / "docs/note.md", "unrelated successor commit\n")
+    _git(repository, "add", "docs/note.md")
+    _git(repository, "commit", "-m", "unrelated successor")
+    descendant = _git(repository, "rev-parse", "HEAD")
+    assert _git(repository, "merge-base", receipt.commit_sha, descendant) == (
+        receipt.commit_sha
+    )
+    assert (
+        _git(
+            repository,
+            "diff",
+            "--name-only",
+            receipt.commit_sha,
+            descendant,
+        )
+        == "docs/note.md"
+    )
+
+    confirmation = _confirm_in_subprocess(
+        context,
+        commit_sha=receipt.commit_sha,
+    )
+    assert confirmation["effective"]
+
+
+def test_backend_reload_rejects_a_descendant_that_touched_a_promoted_path(
+    tmp_path: Path,
+) -> None:
+    context = _setup_projection(tmp_path)
+    workspace = context["workspace"]
+    repository = context["repository"]
+    assert isinstance(workspace, Path)
+    assert isinstance(repository, Path)
+    promoted_path = "platform/backend/src/agent_platform/example.py"
+    target = "VALUE = 'protected target'\n"
+    _write(workspace / "source" / promoted_path, target)
+    receipt = _promote(context)
+
+    _write(repository / promoted_path, "VALUE = 'temporary successor edit'\n")
+    _git(repository, "add", promoted_path)
+    _git(repository, "commit", "-m", "touch promoted path")
+    _write(repository / promoted_path, target)
+    _git(repository, "add", promoted_path)
+    _git(repository, "commit", "-m", "restore promoted path")
+    assert not _git(
+        repository,
+        "diff",
+        "--name-only",
+        receipt.commit_sha,
+        "HEAD",
+        "--",
+        promoted_path,
+    )
+
+    confirmation = _confirm_in_subprocess(
+        context,
+        commit_sha=receipt.commit_sha,
+    )
+    assert not confirmation["effective"]
+
+
+def test_backend_reload_rejects_a_same_tree_non_descendant_commit(
+    tmp_path: Path,
+) -> None:
+    context = _setup_projection(tmp_path)
+    workspace = context["workspace"]
+    repository = context["repository"]
+    projection = context["projection"]
+    assert isinstance(workspace, Path)
+    assert isinstance(repository, Path)
+    _write(
+        workspace / "source/platform/backend/src/agent_platform/example.py",
+        "VALUE = 'same tree sibling'\n",
+    )
+    receipt = _promote(context)
+    sibling = _git(
+        repository,
+        "commit-tree",
+        receipt.tree_sha,
+        "-p",
+        projection.baseline_commit_sha,
+        input_payload=b"same-tree sibling\n",
+    )
+    _git(
+        repository,
+        "update-ref",
+        projection.branch_ref,
+        sibling,
+        receipt.commit_sha,
+    )
+    assert _git(repository, "rev-parse", "HEAD") == sibling
+    assert _git(repository, "rev-parse", "HEAD^{tree}") == receipt.tree_sha
+    assert _git(repository, "merge-base", receipt.commit_sha, sibling) != (
+        receipt.commit_sha
+    )
+
+    confirmation = _confirm_in_subprocess(
+        context,
+        commit_sha=receipt.commit_sha,
+    )
+    assert not confirmation["effective"]
+
+
+@pytest.mark.parametrize("drift_surface", ["index", "worktree"])
+def test_backend_reload_rejects_promoted_path_index_or_worktree_drift(
+    tmp_path: Path,
+    drift_surface: str,
+) -> None:
+    context = _setup_projection(tmp_path)
+    workspace = context["workspace"]
+    repository = context["repository"]
+    assert isinstance(workspace, Path)
+    assert isinstance(repository, Path)
+    promoted_path = "platform/backend/src/agent_platform/example.py"
+    target = "VALUE = 'drift target'\n"
+    _write(workspace / "source" / promoted_path, target)
+    receipt = _promote(context)
+    _write(repository / "docs/note.md", "unrelated successor\n")
+    _git(repository, "add", "docs/note.md")
+    _git(repository, "commit", "-m", "unrelated successor")
+
+    _write(repository / promoted_path, "VALUE = 'uncommitted drift'\n")
+    if drift_surface == "index":
+        _git(repository, "add", promoted_path)
+        _write(repository / promoted_path, target)
+
+    confirmation = _confirm_in_subprocess(
+        context,
+        commit_sha=receipt.commit_sha,
+    )
+    assert not confirmation["effective"]
+
+
+def test_backend_reload_rejects_an_older_formal_receipt(
+    tmp_path: Path,
+) -> None:
+    context = _setup_projection(tmp_path)
+    workspace = context["workspace"]
+    assert isinstance(workspace, Path)
+    _write(
+        workspace / "source/platform/backend/src/agent_platform/example.py",
+        "VALUE = 'first formal target'\n",
+    )
+    first_receipt = _promote(context)
+
+    second_context = dict(context)
+    second_context["report_id"] = uuid4()
+    second_context["lease_id"] = uuid4()
+    second_context["response_id"] = uuid4()
+    _write(
+        workspace / "source/tests/test_example.py",
+        "def test_second_formal_target():\n    assert True\n",
+    )
+    second_receipt = _promote(
+        second_context,
+        idempotency_key="promote:test:second-formal",
+    )
+    assert second_receipt.parent_commit_sha == first_receipt.commit_sha
+
+    confirmation = _confirm_in_subprocess(
+        context,
+        commit_sha=first_receipt.commit_sha,
+    )
+    assert not confirmation["effective"]
+
+
 @pytest.mark.parametrize("attack", ["manifest", "outside_projection"])
 def test_promotion_rejects_workspace_authority_tampering(
     tmp_path: Path,
@@ -843,6 +1027,7 @@ def test_promotion_rejects_workspace_authority_tampering(
         "pyproject.toml",
         "platform/backend/src/agent_platform/independent_verifier.py",
         "platform/backend/src/agent_platform/forbidden_assistance_scanner.py",
+        "platform/backend/src/agent_platform/kernel_boot_identity.py",
         "platform/backend/src/agent_platform/stable_verification.py",
         "platform/backend/src/agent_platform/stable_verification_cli.py",
         "platform/backend/src/agent_platform/stable_verification_coordinator.py",
@@ -965,6 +1150,107 @@ def test_promotion_rebases_once_over_path_disjoint_fast_forward(
         binding=_binding(context, receipt.commit_sha),
     )
     assert record.parent_commit_sha == advanced_head
+
+
+def test_later_promotion_rebases_over_path_disjoint_fast_forward(
+    tmp_path: Path,
+) -> None:
+    context = _setup_projection(tmp_path)
+    repository = context["repository"]
+    workspace = context["workspace"]
+    assert isinstance(repository, Path)
+    assert isinstance(workspace, Path)
+
+    _write(
+        repository / "scripts/check.sh",
+        "#!/bin/sh\nprintf 'evolution before first response\\n'\n",
+    )
+    _git(repository, "add", "scripts/check.sh")
+    _git(repository, "commit", "-m", "advance before first response")
+    _write(
+        workspace / "source/tests/test_example.py",
+        "def test_first_response():\n    assert True\n",
+    )
+    first = _promote(context)
+    coordinator = context["coordinator"]
+    assert isinstance(coordinator, FormalSourceProvenanceCoordinator)
+    first_binding = _binding(context, first.commit_sha)
+    coordinator.record_promoted_response(
+        assignment_id=context["assignment_id"],
+        binding=first_binding,
+    )
+
+    _write(
+        repository / "scripts/after-first.sh",
+        "#!/bin/sh\nprintf 'evolution after first response\\n'\n",
+    )
+    _git(repository, "add", "scripts/after-first.sh")
+    _git(repository, "commit", "-m", "advance after first response")
+    advanced_head = _git(repository, "rev-parse", "HEAD")
+    _write(
+        workspace / "source/tests/test_second.py",
+        "def test_second_response():\n    assert True\n",
+    )
+    second_response_id = uuid4()
+
+    second = _promote(
+        context,
+        report_revision=6,
+        response_id=second_response_id,
+        idempotency_key="promote:test:2",
+    )
+
+    assert first.commit_sha != second.commit_sha
+    assert second.parent_commit_sha == advanced_head
+    assert _git(repository, "rev-parse", "HEAD") == second.commit_sha
+    assert "evolution after first response" in (
+        repository / "scripts/after-first.sh"
+    ).read_text(encoding="utf-8")
+    assert "evolution before first response" in (
+        repository / "scripts/check.sh"
+    ).read_text(encoding="utf-8")
+    assert "test_second_response" in (
+        repository / "tests/test_second.py"
+    ).read_text(encoding="utf-8")
+    assert (
+        _promote(
+            context,
+            report_revision=6,
+            response_id=second_response_id,
+            idempotency_key="promote:test:2",
+        )
+        == second
+    )
+    second_binding = _binding(
+        context,
+        second.commit_sha,
+        response_report_revision=6,
+        response_id=second_response_id,
+        approval_message_seq=3,
+        response_message_seq=4,
+    )
+    second_record = coordinator.record_promoted_response(
+        assignment_id=context["assignment_id"],
+        binding=second_binding,
+    )
+    archive = coordinator.finalize_archive(
+        assignment_id=context["assignment_id"],
+        expected_bindings=[first_binding, second_binding],
+        finalized_at=NOW,
+    )
+    offline = verify_source_provenance_archive_offline(
+        archive_files=archive.files,
+        expected_assignment_id=context["assignment_id"],
+        expected_bindings=[first_binding, second_binding],
+        expected_manifest_digest=archive.manifest.manifest_digest,
+    )
+
+    assert second_record.parent_commit_sha == advanced_head
+    assert [item.commit_sha for item in archive.manifest.intervening_commits] == [
+        first.parent_commit_sha,
+        advanced_head,
+    ]
+    assert offline.manifest_digest == archive.manifest.manifest_digest
 
 
 def test_promotion_rejects_fast_forward_that_touched_target_path(

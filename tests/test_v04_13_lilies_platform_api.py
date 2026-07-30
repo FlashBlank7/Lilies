@@ -6,6 +6,7 @@ import re
 from datetime import datetime, timedelta, timezone
 from functools import partial
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import UUID, uuid4
@@ -24,7 +25,14 @@ from agent_platform.lilies_platform_api import (
     RunStartBody,
     TestsRunBody as _TestsRunBody,
     _path_body_payload,
+    _redact,
+    _register_run_host_receipts,
 )
+from agent_platform.connector_sdk import (
+    ConnectorAssignmentWriteReceipt,
+    ConnectorExecution,
+)
+from agent_platform.platform_blackbox_artifacts import PlatformBlackboxArtifactStore
 from agent_platform.lilies_platform_client import LiliesPlatformClient
 from agent_platform.lilies_platform_tools import build_lilies_platform_registry
 from agent_platform.lilies_tools import LiliesToolContext
@@ -44,6 +52,123 @@ from tests.test_runtime import ScriptedProvider
 
 ALL_SCOPES = list(PlatformBlackboxScope)
 ZERO_DIGEST = "sha256:" + "0" * 64
+
+
+def test_public_redaction_preserves_json_field_paths_but_not_filesystem_paths() -> None:
+    assert _redact(
+        {"source_path": ["supplier", "external_id"]}
+    ) == {"source_path": ["supplier", "external_id"]}
+    assert _redact({"source_path": "/private/task/oracle.json"}) == {
+        "source_path": "[REDACTED]"
+    }
+
+
+@pytest.mark.asyncio
+async def test_terminal_run_registers_only_platform_owned_connector_receipts(
+    tmp_path: Path,
+) -> None:
+    assignment_id = uuid4()
+    session_id = uuid4()
+    application_id = uuid4()
+    run_id = str(uuid4())
+    workspace_root = tmp_path / "workspaces"
+    workspace = (
+        workspace_root
+        / ".lilies_tasks"
+        / str(assignment_id)
+        / str(session_id)
+        / f"run-{run_id}"
+    )
+    workspace.mkdir(parents=True)
+    execution = ConnectorExecution(
+        id="connector-execution:receipt-0001",
+        connector_id="generic.connector",
+        connector_version=1,
+        tenant_id="tenant:formal",
+        actor_id="workflow-runtime",
+        actor_roles=["workflow"],
+        application_id=str(application_id),
+        run_id=run_id,
+        assignment_id=str(assignment_id),
+        session_id=str(session_id),
+        profile_id="profile:test",
+        operation_id="generic.record.update",
+        operation_kind="write",
+        idempotency_key="connector-write-receipt-0001",
+        payload_hash="sha256:" + "9" * 64,
+        request_payload={},
+        status="succeeded",
+        side_effect_state="applied",
+        policy_revision=1,
+        adapter_called=True,
+        attempt_count=2,
+        created_at="2026-07-28T00:00:00Z",
+        updated_at="2026-07-28T00:00:01Z",
+    )
+    write = ConnectorAssignmentWriteReceipt(
+        execution_id=execution.id,
+        connector_id=execution.connector_id,
+        connector_version=execution.connector_version,
+        tenant_id=execution.tenant_id,
+        profile_id=execution.profile_id,
+        operation_id=execution.operation_id,
+        operation_kind=execution.operation_kind,
+        idempotency_key=execution.idempotency_key,
+        payload_hash=execution.payload_hash,
+        status=execution.status,
+        side_effect_state=execution.side_effect_state,
+        authorization_ref_digest=None,
+        adapter_called=execution.adapter_called,
+        attempt_count=execution.attempt_count,
+        retryable=execution.retryable,
+        failure_disposition=execution.failure_disposition,
+        retry_safety=execution.retry_safety,
+        created_at=execution.created_at,
+        updated_at=execution.updated_at,
+    )
+
+    class Connectors:
+        @staticmethod
+        async def export_assignment_budget(_assignment_id: str) -> Any:
+            return SimpleNamespace(writes=[write])
+
+        @staticmethod
+        async def get_execution(_execution_id: str) -> ConnectorExecution:
+            return execution
+
+    artifacts = PlatformBlackboxArtifactStore(tmp_path / "artifact-registry.db")
+    await artifacts.initialize()
+    services = SimpleNamespace(
+        settings=SimpleNamespace(workspace_root=workspace_root),
+        sandboxes=SimpleNamespace(resolve_workspace=lambda value: Path(value)),
+        connectors=Connectors(),
+        platform_blackbox_artifacts=artifacts,
+    )
+    correlation = SimpleNamespace(
+        assignment_id=assignment_id,
+        session_id=session_id,
+    )
+    run = {
+        "id": run_id,
+        "application_id": str(application_id),
+        "state": SimpleNamespace(workspace_path=str(workspace)),
+    }
+
+    first = await _register_run_host_receipts(services, correlation, run)
+    replay = await _register_run_host_receipts(services, correlation, run)
+
+    assert replay == first
+    assert len(first) == 1
+    inventory = await artifacts.export_assignment_inventory(
+        assignment_id=assignment_id,
+        session_id=session_id,
+        application_id=application_id,
+    )
+    assert inventory["count"] == 1
+    provenance = inventory["records"][0]["provenance"]
+    assert provenance["source"] == "platform_host_write"
+    assert provenance["receipt_id"] == execution.id
+    assert provenance["operation"] == execution.operation_id
 
 
 def _settings(tmp_path: Path) -> Settings:
@@ -1201,7 +1326,6 @@ def test_public_draft_and_input_contract_reject_hidden_blocks_and_reserved_keys(
         boundary_codes = {item["code"] for item in contract["known_boundaries"]}
         assert {
             "assigned_runtime_policy",
-            "current_acceptance_required_for_publish",
             "scheduled_publish_not_supported",
         } <= boundary_codes
 
@@ -1643,7 +1767,7 @@ def test_public_run_resources_require_exact_assignment_and_session_binding(
         assert legacy.json()["error"]["code"] == "not_found"
 
 
-def test_blackbox_publish_requires_current_tests_and_rejects_schedules(
+def test_blackbox_publish_is_builder_decided_and_rejects_schedules(
     tmp_path: Path,
 ) -> None:
     app = create_app(_settings(tmp_path), ScriptedProvider())
@@ -1659,15 +1783,19 @@ def test_blackbox_publish_requires_current_tests_and_rejects_schedules(
             key="publish-no-tests-0001",
             json={"acknowledge_warnings": True},
         )
-        assert no_tests.status_code == 409, no_tests.text
-        assert no_tests.json()["error"]["code"] == "publish_gate_failed"
-        assert (
-            client.portal.call(
-                client.app.state.services.workflow_store.list_versions,
-                application_id,
-            )
-            == []
+        assert no_tests.status_code == 200, no_tests.text
+        assert no_tests.json()["data"]["version"] == 1
+        refreshed_contract = _request(
+            client,
+            "GET",
+            "/api/v1/lilies/platform-contract",
+            {**headers, "X-Lilies-Contract-Digest": ZERO_DIGEST},
+            key="publish-no-tests-contract-refresh-0001",
         )
+        assert refreshed_contract.status_code == 200, refreshed_contract.text
+        headers["X-Lilies-Contract-Digest"] = refreshed_contract.json()["data"][
+            "contract_digest"
+        ]
 
         revision = 0
         operations = [
@@ -1768,7 +1896,7 @@ def test_blackbox_publish_requires_current_tests_and_rejects_schedules(
             json={},
         )
         assert published.status_code == 200, published.text
-        assert published.json()["data"]["version"] == 1
+        assert published.json()["data"]["version"] == 2
         refreshed_contract = _request(
             client,
             "GET",
@@ -1803,8 +1931,19 @@ def test_blackbox_publish_requires_current_tests_and_rejects_schedules(
             key="publish-stale-denied-0001",
             json={"acknowledge_warnings": True},
         )
-        assert stale.status_code == 409, stale.text
-        assert stale.json()["error"]["code"] == "publish_gate_failed"
+        assert stale.status_code == 200, stale.text
+        assert stale.json()["data"]["version"] == 3
+        refreshed_contract = _request(
+            client,
+            "GET",
+            "/api/v1/lilies/platform-contract",
+            {**headers, "X-Lilies-Contract-Digest": ZERO_DIGEST},
+            key="publish-stale-contract-refresh-0001",
+        )
+        assert refreshed_contract.status_code == 200, refreshed_contract.text
+        headers["X-Lilies-Contract-Digest"] = refreshed_contract.json()["data"][
+            "contract_digest"
+        ]
 
         schedule = _request(
             client,
@@ -1851,12 +1990,12 @@ def test_blackbox_publish_requires_current_tests_and_rejects_schedules(
             client.app.state.services.workflow_store.list_versions,
             application_id,
         )
-        assert [item["version"] for item in versions] == [1]
+        assert [item["version"] for item in versions] == [3, 2, 1]
         application = client.portal.call(
             client.app.state.services.workflow_store.get_application,
             application_id,
         )
-        assert application["active_version"] == 1
+        assert application["active_version"] == 3
 
 
 def _assert_matches_response_schema(value: object, schema: dict) -> None:

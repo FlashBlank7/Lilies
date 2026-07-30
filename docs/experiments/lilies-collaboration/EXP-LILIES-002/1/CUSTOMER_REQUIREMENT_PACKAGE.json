@@ -1,0 +1,21 @@
+{
+  "schema_version": "v0.4.13-customer-requirement-package-1",
+  "task_id": "EXP-LILIES-002",
+  "revision": 1,
+  "material_completeness": "substantial",
+  "materials": [
+    {"kind": "customer_brief", "path": "requirement.md", "provided_by": "customer", "description": "Business request and authorization boundary."},
+    {"kind": "customer_data", "path": "fixtures/public-inputs/bookstack-pages.json", "provided_by": "customer", "description": "Authorized public debug corpus."},
+    {"kind": "customer_data", "path": "fixtures/public-inputs/permission-matrix.json", "provided_by": "customer", "description": "Public role-to-source contract."},
+    {"kind": "customer_data", "path": "fixtures/public-inputs/debug-cases.json", "provided_by": "customer", "description": "Public business examples."},
+    {"kind": "platform_manual", "path": "BUILDER_API_MANUAL.json", "provided_by": "platform", "description": "Public platform operations and invariants."},
+    {"kind": "permission_contract", "path": "allowed-actions.json", "provided_by": "task_author", "description": "Task-scoped host and platform actions."},
+    {"kind": "system_environment_contract", "path": "environment.lock", "provided_by": "task_author", "description": "Pinned real-host environment."},
+    {"kind": "delivery_contract", "path": "task.yaml", "provided_by": "task_author", "description": "Customer role, outputs and acceptance."}
+  ],
+  "missing_materials": [
+    "No production BookStack corpus or identities are supplied; the business claim is controlled-local.",
+    "No external generative model credential is supplied; the answer route is deterministic evidence extraction.",
+    "Attachments and OCR are outside revision 1."
+  ]
+}

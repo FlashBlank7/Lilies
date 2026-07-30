@@ -103,7 +103,10 @@ services:
     environment:
       INVENTREE_SITE_URL: http://inventree.local:8000
       INVENTREE_LOG_LEVEL: WARNING
-      INVENTREE_AUTO_UPDATE: "True"
+      # The web service owns first-boot migrations. Running the same migration
+      # plan concurrently in the worker can create tables twice on a fresh
+      # database and leave the experiment baseline indeterminate.
+      INVENTREE_AUTO_UPDATE: "False"
       INVENTREE_PLUGINS_ENABLED: "False"
       INVENTREE_DB_ENGINE: postgresql
       INVENTREE_DB_NAME: inventree

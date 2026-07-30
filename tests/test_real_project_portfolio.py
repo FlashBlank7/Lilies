@@ -91,7 +91,7 @@ def test_project_revisions_remain_one_project_not_separate_projects() -> None:
     assert portfolio["required_project_count"] == 6
     assert len(portfolio["projects"]) == 6
     assert first["project_id"] == "EXP-LILIES-001"
-    assert first["latest_revision"] == 20
+    assert first["latest_revision"] == 28
     assert [item["project_id"] for item in portfolio["projects"]] == [
         f"EXP-LILIES-{number:03d}" for number in range(1, 7)
     ]
@@ -160,12 +160,48 @@ def test_later_project_cannot_start_before_previous_project_passes(
         payload["latest_revision"] = 0
 
     rewrite_json(project_path, start_project)
+    portfolio_path = fixture / module.PORTFOLIO_PATH
+
+    def remove_project_override(payload: dict[str, Any]) -> None:
+        payload["execution_policy"]["explicit_user_sequence_overrides"] = [
+            item
+            for item in payload["execution_policy"]["explicit_user_sequence_overrides"]
+            if item["project_id"] != "EXP-LILIES-002"
+        ]
+
+    rewrite_json(portfolio_path, remove_project_override)
     refresh_manifest_locks(fixture, module)
 
     errors = module.validate_portfolio(fixture)
 
     assert "EXP-LILIES-002 started before every previous project passed" in errors
     assert "active project ID and project statuses are inconsistent" in errors
+
+
+def test_explicit_user_sequence_override_preserves_prior_project_results(
+    tmp_path: Path,
+) -> None:
+    module = load_validator()
+    fixture = copy_validation_fixture(tmp_path)
+    portfolio_path = fixture / module.PORTFOLIO_PATH
+    portfolio = json.loads(portfolio_path.read_text(encoding="utf-8"))
+    override = next(
+        item
+        for item in portfolio["execution_policy"]["explicit_user_sequence_overrides"]
+        if item["project_id"] == "EXP-LILIES-003"
+    )
+
+    assert override["project_id"] == "EXP-LILIES-003"
+    assert override["does_not_mark_prior_projects_passed"] is True
+    assert {
+        project["project_id"]: project["status"]
+        for project in portfolio["projects"][:3]
+    } == {
+        "EXP-LILIES-001": "needs_revision",
+        "EXP-LILIES-002": "passed",
+        "EXP-LILIES-003": "active",
+    }
+    assert module.validate_portfolio(fixture) == []
 
 
 def test_replacement_project_requires_baseline_compatibility_and_rollback(

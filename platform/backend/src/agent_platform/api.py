@@ -98,6 +98,10 @@ from .draft_patch_preview import (
     validate_selection_operations,
 )
 from .durable_jobs import DurableJobConflict, DurableJobStore
+from .event_automation import (
+    EventAutomationService,
+    EventSubscriptionCreateRequest,
+)
 from .acceptance_repair import (
     AcceptanceRepairApplyRequest,
     AcceptanceRepairPreviewer,
@@ -130,15 +134,27 @@ from .openapi_connector import (
     OpenAPIConnectorGenerationRequest,
     OpenAPIConnectorService,
 )
-from .platform_blackbox_auth import PlatformBlackboxAuthStore
+from .platform_blackbox_auth import (
+    PlatformBlackboxAuthStore,
+    PlatformBlackboxNotFound,
+)
 from .platform_blackbox_artifacts import PlatformBlackboxArtifactStore
 from .local_lilies_bridge import (
     LocalLiliesBridge,
     LocalLiliesBridgeConflict,
+    LocalLiliesBridgeNotFound,
     LocalLiliesBridgeStore,
 )
 from .local_lilies_client import LocalLiliesHttpClient
 from .local_lilies_discovery import discover_local_lilies
+from .knowledge_rag import (
+    GroundedAnswerRequest,
+    KnowledgeIndexConflict,
+    KnowledgeIndexCreateRequest,
+    KnowledgeIndexService,
+    KnowledgeRetrieveRequest,
+    KnowledgeSyncRequest,
+)
 from .platform_contract_version import (
     PlatformContractVersionStore,
     platform_contract_schema_digest,
@@ -152,6 +168,18 @@ from .sandbox import SandboxManager
 from .scenarios import ScenarioCatalog
 from .scheduler import WorkflowScheduler
 from .storage import Storage
+from .tabular_models import (
+    EvaluateTabularModelRequest,
+    FineTuneTabularModelRequest,
+    ImportTabularModelRequest,
+    PromoteTabularModelRequest,
+    RollbackTabularDeploymentRequest,
+    TabularDriftRequest,
+    TabularInferenceRequest,
+    TabularModelConflict,
+    TabularModelService,
+    TrainTabularModelRequest,
+)
 from .template_models import TemplateCreateRequest
 from .template_strategy import (
     ALLOWED_REUSE_DEPTHS,
@@ -205,6 +233,13 @@ RUNTIME_ROUTE_CHECKS: dict[str, tuple[str, str]] = {
     "connector_generations": ("GET", "/api/v1/connectors/generations"),
     "connector_test_run": ("POST", "/api/v1/applications/{application_id}/connector-test-runs"),
     "embedding_invoke": ("POST", "/api/v1/embedding/invoke"),
+    "knowledge_indexes": ("GET", "/api/v1/knowledge-indexes"),
+    "knowledge_index_retrieve": (
+        "POST",
+        "/api/v1/knowledge-indexes/{index_name}/retrieve",
+    ),
+    "event_subscriptions": ("GET", "/api/v1/event-subscriptions"),
+    "event_timers": ("GET", "/api/v1/event-timers"),
     "governance_connectors": ("GET", "/api/v1/governance/connectors"),
 }
 
@@ -448,6 +483,9 @@ class Services:
     draft_patcher: DraftPatchPreviewer
     acceptance_repairer: AcceptanceRepairPreviewer
     governed_memory: GovernedMemorySurface
+    tabular_models: TabularModelService
+    knowledge_indexes: KnowledgeIndexService
+    event_automation: EventAutomationService
     platform_blackbox_auth: PlatformBlackboxAuthStore
     platform_blackbox_artifacts: PlatformBlackboxArtifactStore
     platform_contract_versions: PlatformContractVersionStore
@@ -511,6 +549,10 @@ class PlatformSecretCreateRequest(BaseModel):
     name: str
     value: str = Field(min_length=1, repr=False)
     description: str = ""
+
+
+class EventSubscriptionStateRequest(BaseModel):
+    enabled: bool
 
 
 class ConnectorBindingUpsertRequest(BaseModel):
@@ -2219,6 +2261,12 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
     durable_jobs = DurableJobStore(storage)
     applications = ApplicationService(workflow_store, blocks, tools)
     governed_memory = GovernedMemorySurface(storage)
+    tabular_models = TabularModelService(storage.db_path)
+    knowledge_indexes = KnowledgeIndexService(storage.db_path)
+    event_automation = EventAutomationService(
+        storage.db_path,
+        harness=harness,
+    )
     platform_blackbox_auth = PlatformBlackboxAuthStore(storage.db_path)
     platform_blackbox_artifacts = PlatformBlackboxArtifactStore(storage.db_path)
     platform_contract_versions = PlatformContractVersionStore(storage.db_path)
@@ -2232,6 +2280,7 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
     async def local_lilies_contract_digest(
         scopes: tuple[Any, ...],
         application_ids: tuple[Any, ...],
+        allowed_actions: Any,
     ) -> str:
         from .local_lilies_bridge_api import (  # pylint: disable=import-outside-toplevel
             published_platform_contract_digest,
@@ -2241,10 +2290,16 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
             services,
             scopes,
             application_ids,
+            allowed_actions,
         )
 
     web_collector = ControlledWebCollector(jobs=durable_jobs, harness=harness)
-    connectors = ConnectorService(storage=storage, harness=harness)
+    connectors = ConnectorService(
+        storage=storage,
+        harness=harness,
+        pre_dispatch_attestations=settings.connector_pre_dispatch_attestations,
+        environment_epoch=settings.connector_environment_epoch,
+    )
     openapi_connectors = OpenAPIConnectorService(
         storage=storage,
         harness=harness,
@@ -2264,7 +2319,27 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         governed_memory=governed_memory,
         web_collector=web_collector,
         connector_service=connectors,
+        tabular_models=tabular_models,
+        knowledge_indexes=knowledge_indexes,
+        event_automation=event_automation,
     )
+
+    async def run_event_workflow(
+        application_id: str,
+        inputs: dict[str, Any],
+        workspace_path: str,
+    ) -> dict[str, Any]:
+        return await workflow_runtime.create_run(
+            application_id,
+            WorkflowRunRequest(
+                inputs=inputs,
+                use_draft=False,
+                workspace_path=workspace_path,
+            ),
+            origin="event_automation",
+        )
+
+    event_automation.bind_run_callback(run_event_workflow)
     evaluation_harness = EvaluationHarness(
         storage=storage,
         workflow_store=workflow_store,
@@ -2335,7 +2410,70 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         idempotency_key: str,
         reason: str,
     ) -> Any:
-        row = await local_lilies_bridge.store.get_assignment(assignment_id)
+        try:
+            row = await local_lilies_bridge.store.get_assignment(
+                assignment_id
+            )
+        except LocalLiliesBridgeNotFound:
+            try:
+                exported = await local_lilies_bridge.store.export_assignment(
+                    assignment_id
+                )
+            except LocalLiliesBridgeNotFound:
+                credentials = (
+                    await platform_blackbox_auth
+                    .list_assignment_credentials(assignment_id)
+                )
+                for credential in credentials:
+                    if credential.revoked_at is not None:
+                        continue
+                    await platform_blackbox_auth.revoke_credential(
+                        credential.credential_ref,
+                        reason=reason[:1_000],
+                    )
+                return {
+                    "assignment_id": str(assignment_id),
+                    "phase": "cancelled",
+                    "status": "cancelled",
+                    "execution_mode": "external_builder_orphan",
+                }
+            row = dict(exported["assignment"])
+            if row.get("execution_mode") != "external_builder":
+                raise LocalLiliesBridgeConflict(
+                    "collaboration assignment is not a known Builder lifecycle"
+                )
+            if str(row.get("phase")) not in {
+                "completed",
+                "cancelled",
+                "error",
+            }:
+                row = (
+                    await local_lilies_bridge.store
+                    .retire_external_builder_assignment(
+                        assignment_id,
+                        session_id=row["session_id"],
+                        application_id=row["application_id"],
+                        credential_ref=row["credential_ref"],
+                        collaboration_credential_ref=(
+                            row["collaboration_credential_ref"]
+                        ),
+                        reason=reason,
+                    )
+                    or row
+                )
+            credential_ref = str(row["credential_ref"])
+            try:
+                credential = await platform_blackbox_auth.get_credential(
+                    credential_ref
+                )
+            except PlatformBlackboxNotFound:
+                return row
+            if credential.revoked_at is None:
+                await platform_blackbox_auth.revoke_credential(
+                    credential_ref,
+                    reason=reason[:1_000],
+                )
+            return row
         if str(row.get("phase")) in {"completed", "cancelled"}:
             return row
         try:
@@ -2668,6 +2806,7 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         require_frozen_verification_evidence=frozen_verification_required,
     )
     if settings.lilies_local_agent_enabled and settings.lilies_collaboration_enabled:
+        from .capability_generality_gate import CapabilityGeneralityGate
         from .formal_assignment_runtime import PlatformFormalAssignmentRuntime
         from .formal_source_provenance import (
             FormalSourceProvenanceCoordinator,
@@ -2676,6 +2815,9 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         formal_source_provenance = FormalSourceProvenanceCoordinator(
             repository_root=repository_root,
             state_root=settings.data_dir / "formal-source-provenance",
+            promotion_generality_gate=CapabilityGeneralityGate.from_repository(
+                repository_root
+            ),
         )
 
         formal_assignment_runtime = PlatformFormalAssignmentRuntime(
@@ -2957,6 +3099,9 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         draft_patcher=draft_patcher,
         acceptance_repairer=acceptance_repairer,
         governed_memory=governed_memory,
+        tabular_models=tabular_models,
+        knowledge_indexes=knowledge_indexes,
+        event_automation=event_automation,
         platform_blackbox_auth=platform_blackbox_auth,
         platform_blackbox_artifacts=platform_blackbox_artifacts,
         platform_contract_versions=platform_contract_versions,
@@ -3006,6 +3151,9 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
     @asynccontextmanager
     async def lifespan(lifespan_app: FastAPI) -> AsyncIterator[None]:
         await services.storage.initialize()
+        await services.tabular_models.initialize()
+        await services.knowledge_indexes.initialize()
+        await services.event_automation.initialize()
         await services.workflow_store.initialize()
         await services.platform_blackbox_auth.initialize()
         await services.platform_blackbox_artifacts.initialize()
@@ -3022,6 +3170,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         await services.openapi_connectors.initialize()
         await services.workflow_store.fail_interrupted_runs()
         services.scheduler.start()
+        await services.event_automation.start()
         local_lilies_recovery_task: asyncio.Task[Any] | None = None
         lifespan_ready = asyncio.Event()
         if settings.lilies_local_agent_enabled:
@@ -3078,6 +3227,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             services.worker_process_manager.stop()
         if services.worker_supervisor is not None and services.worker_supervisor.loop_running:
             await services.worker_supervisor.stop()
+        await services.event_automation.stop()
         await services.scheduler.stop()
         for task in services.background_tasks:
             task.cancel()
@@ -4328,6 +4478,304 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         except Exception as error:
             await services.harness.finish_task(task_id, status="failed", error=str(error))
             raise
+
+    @app.post(
+        "/api/v1/event-subscriptions",
+        status_code=201,
+        dependencies=[Depends(require_token)],
+    )
+    async def create_event_subscription(
+        body: EventSubscriptionCreateRequest,
+    ) -> dict[str, Any]:
+        try:
+            published = await services.workflow_store.get_version(
+                body.application_id
+            )
+            matching_triggers = [
+                node
+                for node in published["snapshot"].workflow.nodes
+                if node.type == "event_subscription_trigger"
+                and node.config.get("subscription_name") == body.name
+            ]
+            if len(matching_triggers) != 1:
+                raise ValueError(
+                    "published workflow must contain exactly one matching "
+                    "event_subscription_trigger"
+                )
+            if not Path(body.workspace_path).resolve().is_dir():
+                raise ValueError("event subscription workspace_path must exist")
+            return await services.event_automation.create_subscription(body)
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+        except (ValueError, PlatformHarnessViolation) as error:
+            raise HTTPException(422, str(error)) from error
+
+    @app.get(
+        "/api/v1/event-subscriptions",
+        dependencies=[Depends(require_token)],
+    )
+    async def list_event_subscriptions(
+        application_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        return await services.event_automation.list_subscriptions(
+            application_id=application_id
+        )
+
+    @app.get(
+        "/api/v1/event-subscriptions/{subscription_id}",
+        dependencies=[Depends(require_token)],
+    )
+    async def get_event_subscription(
+        subscription_id: str,
+    ) -> dict[str, Any]:
+        try:
+            return await services.event_automation.get_subscription(
+                subscription_id
+            )
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+
+    @app.post(
+        "/api/v1/event-subscriptions/{subscription_id}/state",
+        dependencies=[Depends(require_token)],
+    )
+    async def set_event_subscription_state(
+        subscription_id: str,
+        body: EventSubscriptionStateRequest,
+    ) -> dict[str, Any]:
+        try:
+            return await services.event_automation.set_subscription_enabled(
+                subscription_id,
+                body.enabled,
+            )
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+
+    @app.get(
+        "/api/v1/event-timers",
+        dependencies=[Depends(require_token)],
+    )
+    async def list_event_timers(
+        application_id: str | None = None,
+        timer_status: str | None = Query(default=None, alias="status"),
+    ) -> list[dict[str, Any]]:
+        return await services.event_automation.list_timers(
+            application_id=application_id,
+            status=timer_status,
+        )
+
+    @app.get(
+        "/api/v1/event-timers/{timer_key}",
+        dependencies=[Depends(require_token)],
+    )
+    async def get_event_timer(timer_key: str) -> dict[str, Any]:
+        try:
+            return await services.event_automation.get_timer(timer_key)
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+
+    def knowledge_http_exception(error: Exception) -> HTTPException:
+        if isinstance(error, KeyError):
+            return HTTPException(404, str(error))
+        if isinstance(error, KnowledgeIndexConflict):
+            return HTTPException(409, str(error))
+        return HTTPException(422, str(error))
+
+    @app.post("/api/v1/knowledge-indexes", dependencies=[Depends(require_token)])
+    async def create_knowledge_index(
+        body: KnowledgeIndexCreateRequest,
+    ) -> dict[str, Any]:
+        try:
+            return await services.knowledge_indexes.create_index(body)
+        except (KeyError, ValueError) as error:
+            raise knowledge_http_exception(error) from error
+
+    @app.get("/api/v1/knowledge-indexes", dependencies=[Depends(require_token)])
+    async def list_knowledge_indexes() -> list[dict[str, Any]]:
+        return await services.knowledge_indexes.list_indexes()
+
+    @app.get(
+        "/api/v1/knowledge-indexes/{index_name}",
+        dependencies=[Depends(require_token)],
+    )
+    async def get_knowledge_index(index_name: str) -> dict[str, Any]:
+        try:
+            return await services.knowledge_indexes.get_index(index_name)
+        except (KeyError, ValueError) as error:
+            raise knowledge_http_exception(error) from error
+
+    @app.post(
+        "/api/v1/knowledge-indexes/{index_name}/sync",
+        dependencies=[Depends(require_token)],
+    )
+    async def sync_knowledge_index(
+        index_name: str,
+        body: KnowledgeSyncRequest,
+    ) -> dict[str, Any]:
+        try:
+            return await services.knowledge_indexes.sync(index_name, body)
+        except (KeyError, ValueError) as error:
+            raise knowledge_http_exception(error) from error
+
+    @app.post(
+        "/api/v1/knowledge-indexes/{index_name}/retrieve",
+        dependencies=[Depends(require_token)],
+    )
+    async def retrieve_knowledge(
+        index_name: str,
+        body: KnowledgeRetrieveRequest,
+    ) -> dict[str, Any]:
+        try:
+            return await services.knowledge_indexes.retrieve(index_name, body)
+        except (KeyError, ValueError) as error:
+            raise knowledge_http_exception(error) from error
+
+    @app.post(
+        "/api/v1/knowledge-indexes/{index_name}/answer",
+        dependencies=[Depends(require_token)],
+    )
+    async def answer_from_knowledge(
+        index_name: str,
+        body: GroundedAnswerRequest,
+    ) -> dict[str, Any]:
+        try:
+            return await services.knowledge_indexes.answer(index_name, body)
+        except (KeyError, ValueError) as error:
+            raise knowledge_http_exception(error) from error
+
+    def tabular_http_exception(error: Exception) -> HTTPException:
+        if isinstance(error, KeyError):
+            return HTTPException(404, str(error))
+        if isinstance(error, TabularModelConflict):
+            return HTTPException(409, str(error))
+        return HTTPException(422, str(error))
+
+    @app.post("/api/v1/tabular-models/train", dependencies=[Depends(require_token)])
+    async def train_tabular_model(
+        body: TrainTabularModelRequest,
+    ) -> dict[str, Any]:
+        try:
+            return await services.tabular_models.train(body)
+        except (KeyError, ValueError) as error:
+            raise tabular_http_exception(error) from error
+
+    @app.post("/api/v1/tabular-models/import", dependencies=[Depends(require_token)])
+    async def import_tabular_model(
+        body: ImportTabularModelRequest,
+    ) -> dict[str, Any]:
+        try:
+            return await services.tabular_models.import_model(body)
+        except (KeyError, ValueError) as error:
+            raise tabular_http_exception(error) from error
+
+    @app.get("/api/v1/tabular-models", dependencies=[Depends(require_token)])
+    async def list_tabular_models() -> list[dict[str, Any]]:
+        return await services.tabular_models.list_models()
+
+    @app.get(
+        "/api/v1/tabular-models/{model_id}/versions/{version}",
+        dependencies=[Depends(require_token)],
+    )
+    async def get_tabular_model_version(
+        model_id: str,
+        version: int,
+    ) -> dict[str, Any]:
+        try:
+            return await services.tabular_models.get_version(model_id, version)
+        except (KeyError, ValueError) as error:
+            raise tabular_http_exception(error) from error
+
+    @app.post(
+        "/api/v1/tabular-models/{model_id}/versions/{version}/fine-tune",
+        dependencies=[Depends(require_token)],
+    )
+    async def fine_tune_tabular_model(
+        model_id: str,
+        version: int,
+        body: FineTuneTabularModelRequest,
+    ) -> dict[str, Any]:
+        try:
+            return await services.tabular_models.fine_tune(model_id, version, body)
+        except (KeyError, ValueError) as error:
+            raise tabular_http_exception(error) from error
+
+    @app.post(
+        "/api/v1/tabular-models/{model_id}/versions/{version}/evaluate",
+        dependencies=[Depends(require_token)],
+    )
+    async def evaluate_tabular_model(
+        model_id: str,
+        version: int,
+        body: EvaluateTabularModelRequest,
+    ) -> dict[str, Any]:
+        try:
+            return await services.tabular_models.evaluate(model_id, version, body)
+        except (KeyError, ValueError) as error:
+            raise tabular_http_exception(error) from error
+
+    @app.get(
+        "/api/v1/model-deployments/{deployment_name}",
+        dependencies=[Depends(require_token)],
+    )
+    async def get_tabular_model_deployment(
+        deployment_name: str,
+    ) -> dict[str, Any]:
+        try:
+            return await services.tabular_models.get_deployment(deployment_name)
+        except (KeyError, ValueError) as error:
+            raise tabular_http_exception(error) from error
+
+    @app.post(
+        "/api/v1/model-deployments/{deployment_name}/promote",
+        dependencies=[Depends(require_token)],
+    )
+    async def promote_tabular_model(
+        deployment_name: str,
+        body: PromoteTabularModelRequest,
+    ) -> dict[str, Any]:
+        try:
+            return await services.tabular_models.promote(deployment_name, body)
+        except (KeyError, ValueError) as error:
+            raise tabular_http_exception(error) from error
+
+    @app.post(
+        "/api/v1/model-deployments/{deployment_name}/rollback",
+        dependencies=[Depends(require_token)],
+    )
+    async def rollback_tabular_model(
+        deployment_name: str,
+        body: RollbackTabularDeploymentRequest,
+    ) -> dict[str, Any]:
+        try:
+            return await services.tabular_models.rollback(deployment_name, body)
+        except (KeyError, ValueError) as error:
+            raise tabular_http_exception(error) from error
+
+    @app.post(
+        "/api/v1/model-deployments/{deployment_name}/predict",
+        dependencies=[Depends(require_token)],
+    )
+    async def predict_tabular_model(
+        deployment_name: str,
+        body: TabularInferenceRequest,
+    ) -> dict[str, Any]:
+        try:
+            return await services.tabular_models.predict(deployment_name, body)
+        except (KeyError, ValueError) as error:
+            raise tabular_http_exception(error) from error
+
+    @app.post(
+        "/api/v1/model-deployments/{deployment_name}/drift",
+        dependencies=[Depends(require_token)],
+    )
+    async def monitor_tabular_model_drift(
+        deployment_name: str,
+        body: TabularDriftRequest,
+    ) -> dict[str, Any]:
+        try:
+            return await services.tabular_models.drift(deployment_name, body)
+        except (KeyError, ValueError) as error:
+            raise tabular_http_exception(error) from error
 
     @app.get("/api/v1/blocks", dependencies=[Depends(require_token)])
     async def list_blocks() -> list[dict[str, Any]]:

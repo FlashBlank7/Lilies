@@ -1,0 +1,187 @@
+{
+  "clock": {
+    "base_time_ms": 1785326400000,
+    "maximum_age_seconds": 86400
+  },
+  "events": [
+    {
+      "business_case": "low_risk_no_alarm",
+      "device_name": "public-pump-low",
+      "event_id": "pub-low-001",
+      "features": {
+        "current_a": 14.0,
+        "pressure_bar": 5.8,
+        "rpm": 1470.0,
+        "temperature_c": 58.0,
+        "vibration_rms_mm_s": 1.8
+      },
+      "timestamp_ms": 1785326410000,
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "business_case": "high_risk_automatic_alarm",
+      "device_name": "public-pump-high",
+      "event_id": "pub-high-001",
+      "features": {
+        "current_a": 31.0,
+        "pressure_bar": 2.6,
+        "rpm": 1325.0,
+        "temperature_c": 101.0,
+        "vibration_rms_mm_s": 9.8
+      },
+      "timestamp_ms": 1785326420000,
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "business_case": "uncertain_human_approve",
+      "device_name": "public-pump-review-approve",
+      "event_id": "pub-review-approve-001",
+      "features": {
+        "current_a": 21.0,
+        "pressure_bar": 4.2,
+        "rpm": 1425.0,
+        "temperature_c": 77.0,
+        "vibration_rms_mm_s": 4.6
+      },
+      "timestamp_ms": 1785326430000,
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "business_case": "uncertain_human_reject",
+      "device_name": "public-pump-review-reject",
+      "event_id": "pub-review-reject-001",
+      "features": {
+        "current_a": 21.0,
+        "pressure_bar": 4.2,
+        "rpm": 1425.0,
+        "temperature_c": 77.0,
+        "vibration_rms_mm_s": 4.6
+      },
+      "timestamp_ms": 1785326440000,
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "business_case": "invalid_unit_safe_stop",
+      "device_name": "public-pump-invalid",
+      "event_id": "pub-unit-conflict-001",
+      "features": {
+        "current_a": 14.0,
+        "pressure_bar": 5.8,
+        "rpm": 1470.0,
+        "temperature_c": 58.0,
+        "vibration_rms_mm_s": 1.8
+      },
+      "timestamp_ms": 1785326450000,
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "m/s"
+      }
+    },
+    {
+      "business_case": "missing_feature_safe_stop",
+      "device_name": "public-pump-invalid",
+      "event_id": "pub-missing-001",
+      "features": {
+        "pressure_bar": 5.8,
+        "rpm": 1470.0,
+        "temperature_c": 58.0,
+        "vibration_rms_mm_s": 1.8
+      },
+      "timestamp_ms": 1785326460000,
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "business_case": "stale_event_safe_stop",
+      "device_name": "public-pump-stale",
+      "event_id": "pub-stale-001",
+      "features": {
+        "current_a": 31.0,
+        "pressure_bar": 2.6,
+        "rpm": 1325.0,
+        "temperature_c": 101.0,
+        "vibration_rms_mm_s": 9.8
+      },
+      "timestamp_ms": 1785239900000,
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "business_case": "out_of_order_safe_stop",
+      "device_name": "public-pump-order",
+      "event_id": "pub-out-of-order-001",
+      "features": {
+        "current_a": 31.0,
+        "pressure_bar": 2.6,
+        "rpm": 1325.0,
+        "temperature_c": 101.0,
+        "vibration_rms_mm_s": 9.8
+      },
+      "timestamp_ms": 1785326470000,
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    },
+    {
+      "business_case": "duplicate_event_no_duplicate_alarm",
+      "device_name": "public-pump-high",
+      "event_id": "pub-high-001",
+      "features": {
+        "current_a": 31.0,
+        "pressure_bar": 2.6,
+        "rpm": 1325.0,
+        "temperature_c": 101.0,
+        "vibration_rms_mm_s": 9.8
+      },
+      "timestamp_ms": 1785326420000,
+      "units": {
+        "current_a": "A",
+        "pressure_bar": "bar",
+        "rpm": "rpm",
+        "temperature_c": "Cel",
+        "vibration_rms_mm_s": "mm/s"
+      }
+    }
+  ]
+}

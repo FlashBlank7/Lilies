@@ -1,0 +1,34 @@
+{
+  "features": [
+    {
+      "maximum": 180,
+      "minimum": -20,
+      "name": "temperature_c",
+      "unit": "Cel"
+    },
+    {
+      "maximum": 50,
+      "minimum": 0,
+      "name": "vibration_rms_mm_s",
+      "unit": "mm/s"
+    },
+    {
+      "maximum": 100,
+      "minimum": 0,
+      "name": "current_a",
+      "unit": "A"
+    },
+    {
+      "maximum": 30,
+      "minimum": 0,
+      "name": "pressure_bar",
+      "unit": "bar"
+    },
+    {
+      "maximum": 5000,
+      "minimum": 0,
+      "name": "rpm",
+      "unit": "rpm"
+    }
+  ]
+}

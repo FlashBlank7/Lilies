@@ -1,0 +1,111 @@
+{
+  "schema_version": 1,
+  "lock_id": "T01M-OLLAMA-QWEN25-CODER-7B-Q4KM-v1",
+  "task_id": "V04-13-T01M",
+  "locked_at": "2026-07-27T05:40:00+09:00",
+  "status": "provider_and_model_frozen_pending_project_manifest",
+  "project_execution_authorized": false,
+  "runtime": {
+    "provider": "ollama-local",
+    "ollama_version": "0.32.4",
+    "binary_symlink": "/opt/homebrew/bin/ollama",
+    "binary_real_path": "/opt/homebrew/Cellar/ollama/0.32.4/bin/ollama",
+    "binary_sha256": "4e3a32ec51fa24a57ab3e305449e959693ab63cf98b58f9b1131f42dca2dc235",
+    "brew_service_state": "none",
+    "listen_url": "http://127.0.0.1:11435",
+    "launch_environment": {
+      "OLLAMA_HOST": "127.0.0.1:11435",
+      "OLLAMA_KEEP_ALIVE": "0",
+      "OLLAMA_NOHISTORY": "1",
+      "OLLAMA_NO_CLOUD": "1"
+    },
+    "cloud_disabled_log_value": true,
+    "listener_is_numeric_loopback_only": true,
+    "established_external_tcp_connections_after_smoke": 0,
+    "model_runner_offline_flag_observed": true,
+    "model_runner_unloaded_after_keep_alive_zero": true,
+    "persistent_service_installed": false,
+    "post_smoke_server_stopped": true,
+    "post_smoke_listener_count": 0
+  },
+  "model": {
+    "name": "qwen2.5-coder:7b-instruct-q4_K_M",
+    "manifest_digest": "sha256:dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+    "manifest_path": "/Users/zhonghaoyang/.ollama/models/manifests/registry.ollama.ai/library/qwen2.5-coder/7b-instruct-q4_K_M",
+    "manifest_file_sha256": "dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+    "canonical_api_show_sha256_observation": "810a2243bf23ebd9b995c941742e2ac06b0e082d0f8d9e4947f43d7ab69f0117",
+    "format": "gguf",
+    "family": "qwen2",
+    "parameter_count": 7615616512,
+    "parameter_size_label": "7.6B",
+    "quantization": "Q4_K_M",
+    "context_length_tokens": 32768,
+    "capabilities": [
+      "completion",
+      "tools",
+      "insert"
+    ],
+    "layers": {
+      "model": {
+        "path": "/Users/zhonghaoyang/.ollama/models/blobs/sha256-60e05f2100071479f596b964f89f510f057ce397ea22f2833a0cfe029bfc2463",
+        "bytes": 4683074048,
+        "sha256": "60e05f2100071479f596b964f89f510f057ce397ea22f2833a0cfe029bfc2463"
+      },
+      "system": {
+        "bytes": 68,
+        "sha256": "66b9ea09bd5b7099cbb4fc820f31b575c0366fa439b08245566692c6784e281e"
+      },
+      "template": {
+        "bytes": 1615,
+        "sha256": "1e65450c30670713aa47fe23e8b9662bdf4065e81cc8e3cbfaa98924fcc0d320"
+      },
+      "license": {
+        "bytes": 11343,
+        "sha256": "832dd9e00a68dd83b3c3fb9f5588dad7dcf337a0db50f7d9483f310cd292e92e"
+      },
+      "config": {
+        "bytes": 487,
+        "sha256": "d9bb33f2786931fea42f50936a2424818aa2f14500638af2f01861eb2c8fb446"
+      }
+    }
+  },
+  "provider_implementation": {
+    "source_repository": "../LiliesAgent",
+    "source_agent_commit": "0faa575b193f7bb93e9f543874984b8298c55794",
+    "merged_candidate_commit": "100a2c7a2d3756b1b4bde4b525fcf99960a1d18a",
+    "merged_tree": "d2c4b1a950f33ccbc76431221b69ff3328257479",
+    "input_token_bound_method": "frozen-ollama-num-ctx-cap-v1",
+    "input_token_upper_bound_per_call": 32768,
+    "request_binding": "canonical UTF-8 JSON SHA-256 is computed before ledger preparation and revalidated at send time",
+    "usage_source": "prompt_eval_count and eval_count only",
+    "missing_usage_policy": "unknown_and_reconciliation_required",
+    "input_cost_usd_per_million": 0,
+    "output_cost_usd_per_million": 0,
+    "identity_claim_ceiling": "trusted-loopback-daemon-no-atomic-digest-binding-v1",
+    "identity_required_precondition": "no-model-registry-mutation-during-call-v1",
+    "identity_recheck_trigger": "before-every-model-call-v1",
+    "focused_tests": "32 passed",
+    "full_python_tests": "347 passed",
+    "ruff": "pass",
+    "client_contract_check": "pass",
+    "independent_security_review": "pass_after_fixes"
+  },
+  "live_smoke": {
+    "observed_at": "2026-07-27T05:25:30+09:00",
+    "scope": "direct provider smoke only; no Android project file or assignment was written",
+    "request_digest": "sha256:396785a19dab9f83be1c7c0ee062f0f83ae4b0d4c4931f48e1b0d27fa67b3e03",
+    "input_token_upper_bound": 32768,
+    "prompt_eval_count": 34,
+    "eval_count": 4,
+    "total_tokens": 38,
+    "response": "连接正常。",
+    "cost_usd": 0,
+    "provider_credential_loaded": false,
+    "manifest_match": true,
+    "template_match": true,
+    "system_layer_match": true,
+    "context_metadata_match": true,
+    "result": "pass"
+  },
+  "claim_ceiling": "This lock proves one zero-cost loopback provider call against the frozen local manifest and provider implementation. It does not authorize T01M, prove an Android implementation, or provide atomic resistance to a same-user Ollama registry mutation during an in-flight call."
+}

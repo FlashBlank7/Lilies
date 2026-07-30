@@ -148,6 +148,7 @@ class PlatformBlackboxOperation(str, Enum):
     block_search = "platform_block_search"
     block_get = "platform_block_get"
     tool_catalog = "platform_tool_catalog"
+    connector_authorization_issue = "platform_connector_authorization_issue"
     application_create = "platform_application_create"
     application_get = "platform_application_get"
     draft_inspect = "platform_draft_inspect"
@@ -168,6 +169,9 @@ OPERATION_SCOPES: Mapping[PlatformBlackboxOperation, PlatformBlackboxScope] = Ma
         PlatformBlackboxOperation.block_search: PlatformBlackboxScope.catalog_read,
         PlatformBlackboxOperation.block_get: PlatformBlackboxScope.catalog_read,
         PlatformBlackboxOperation.tool_catalog: PlatformBlackboxScope.catalog_read,
+        PlatformBlackboxOperation.connector_authorization_issue: (
+            PlatformBlackboxScope.run_execute
+        ),
         PlatformBlackboxOperation.application_create: PlatformBlackboxScope.application_write,
         PlatformBlackboxOperation.application_get: PlatformBlackboxScope.application_write,
         PlatformBlackboxOperation.draft_inspect: PlatformBlackboxScope.draft_write,
@@ -186,6 +190,7 @@ OPERATION_SCOPES: Mapping[PlatformBlackboxOperation, PlatformBlackboxScope] = Ma
 _APPLICATION_SCOPED_OPERATIONS = frozenset(
     {
         PlatformBlackboxOperation.application_get,
+        PlatformBlackboxOperation.connector_authorization_issue,
         PlatformBlackboxOperation.draft_inspect,
         PlatformBlackboxOperation.draft_apply,
         PlatformBlackboxOperation.tests_run,
@@ -202,6 +207,7 @@ _APPLICATION_SCOPED_OPERATIONS = frozenset(
 _MUTATING_OPERATIONS = frozenset(
     {
         PlatformBlackboxOperation.application_create,
+        PlatformBlackboxOperation.connector_authorization_issue,
         PlatformBlackboxOperation.draft_apply,
         PlatformBlackboxOperation.tests_run,
         PlatformBlackboxOperation.run_start,
@@ -1034,6 +1040,35 @@ class PlatformBlackboxAuthStore:
         with self._connect() as conn:
             row = self._require_credential_conn(conn, credential_ref)
             return self._credential_from_row(conn, row)
+
+    async def list_assignment_credentials(
+        self,
+        assignment_id: UUID | str,
+    ) -> list[TaskCredentialRecord]:
+        """Return secret-free credentials bound to one exact assignment."""
+
+        return await asyncio.to_thread(
+            self._list_assignment_credentials_sync,
+            str(assignment_id),
+        )
+
+    def _list_assignment_credentials_sync(
+        self,
+        assignment_id: str,
+    ) -> list[TaskCredentialRecord]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM platform_task_credentials
+                WHERE assignment_id=?
+                ORDER BY created_at,id
+                """,
+                (assignment_id,),
+            ).fetchall()
+            return [
+                self._credential_from_row(conn, row)
+                for row in rows
+            ]
 
     async def authenticate_credential(
         self,

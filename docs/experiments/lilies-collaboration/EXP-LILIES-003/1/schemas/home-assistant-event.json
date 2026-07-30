@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Authorized Home Assistant state event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "entity_id",
+    "old_state",
+    "new_state",
+    "occurred_at"
+  ],
+  "properties": {
+    "event_id": {"type": "string", "minLength": 1, "maxLength": 160},
+    "entity_id": {"type": "string", "pattern": "^binary_sensor\\.[a-z0-9_]+$"},
+    "old_state": {"type": ["string", "null"]},
+    "new_state": {"enum": ["on", "off", "open", "closed"]},
+    "occurred_at": {"type": "string", "format": "date-time"},
+    "context_id": {"type": ["string", "null"]},
+    "hold_for_seconds": {"type": "number", "minimum": 0.1, "maximum": 86400}
+  }
+}
+

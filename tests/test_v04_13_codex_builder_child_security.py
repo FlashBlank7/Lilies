@@ -50,7 +50,7 @@ def _handoff(
     return {
         "schema_version": "1.0",
         "builder_actor": "codex",
-        "formal_archive_supported": False,
+        "formal_archive_supported": True,
         "task": {
             "task_id": "EXP-LILIES-001",
             "revision": revision,
@@ -180,6 +180,19 @@ def _wait_pid_gone(pid: int, timeout: float = 5.0) -> bool:
             return True
         time.sleep(0.02)
     return not _pid_exists(pid)
+
+
+def test_builder_prompt_requires_side_effect_triangulation_before_repair() -> None:
+    prompt = child._codex_prompt(
+        Path("/runtime/BUILDER_HANDOFF.json"),
+        Path("/workspace/BUILDER_API_MANUAL.json"),
+    )
+
+    assert "business result, public trace branch" in prompt
+    assert "A verifier verdict alone is not proof" in prompt
+    assert "one physical mutation identity into multiple writes" in prompt
+    assert "Never disable idempotency" in prompt
+    assert "supplemental evidence" in prompt
 
 
 def test_private_handoff_uses_nofollow_descriptor_for_every_path_component(
@@ -397,6 +410,123 @@ def test_resume_reuses_exact_isolated_thread_and_never_uses_ephemeral(
     assert "--ephemeral" not in resumed
     assert resumed[resumed.index("exec") + 1] == "resume"
     assert resumed[-2:] == (thread_id, "-")
+
+
+def test_resume_accepts_only_verified_adjacent_revision_authority_transition(
+    tmp_path: Path,
+) -> None:
+    runtime = tmp_path / "runtime"
+    runtime.mkdir(mode=0o700)
+    workspace = tmp_path / "workspace"
+    workspace.mkdir(mode=0o700)
+    predecessor = _handoff(
+        workspace=workspace,
+        manifest_digest=DIGEST,
+        policy_digest=DIGEST,
+        revision=26,
+    )
+    predecessor["platform"]["credential_ref"] = "platform-task:predecessor"  # type: ignore[index]
+    predecessor["collaboration"]["credential_ref"] = "collaboration:predecessor"  # type: ignore[index]
+    successor = json.loads(json.dumps(predecessor))
+    successor["task"]["revision"] = 27
+    successor["assignment"]["assignment_id"] = str(uuid4())
+    successor["assignment"]["session_id"] = str(uuid4())
+    successor["assignment"]["environment_instance_id"] = (
+        "exp-lilies-001:r27:seed-debug"
+    )
+    successor["platform"]["credential_ref"] = "platform-task:successor"
+    successor["collaboration"]["credential_ref"] = "collaboration:successor"
+    successor["collaboration"]["channel_id"] = str(uuid4())
+    runtime_handoff = child._runtime_authority_path(
+        runtime,
+        handoff=predecessor,
+        resume=False,
+    )
+    thread_id = str(uuid4())
+    predecessor_projection = child._authority_transition_projection(
+        predecessor,
+        handoff_digest=child._digest(_canonical(predecessor)),
+    )
+    successor_projection = child._authority_transition_projection(
+        successor,
+        handoff_digest=child._digest(_canonical(successor)),
+    )
+    transition_path = tmp_path / "authority-transition.json"
+    _write_private_json(
+        transition_path,
+        {
+            "schema_version": child.AUTHORITY_TRANSITION_SCHEMA_VERSION,
+            "thread_id": thread_id,
+            "predecessor": predecessor_projection,
+            "successor": successor_projection,
+            "authority_retirement": {
+                "task_id": predecessor_projection["task_id"],
+                "predecessor_revision": 26,
+                "successor_revision": 27,
+                "application_id": predecessor_projection["application_id"],
+                "assignment_id": predecessor_projection["assignment_id"],
+                "session_id": predecessor_projection["session_id"],
+                "collaboration_channel_id": predecessor_projection["channel_id"],
+                "task_credential_ref": predecessor_projection[
+                    "task_credential_ref"
+                ],
+                "collaboration_credential_ref": predecessor_projection[
+                    "collaboration_credential_ref"
+                ],
+                "active_predecessor_retirement_authorized": True,
+                "task_credential_revoked_at": "2026-07-26T00:00:00Z",
+                "collaboration_credential_revoked_at": "2026-07-26T00:00:01Z",
+                "collaboration_channel_closed_at": "2026-07-26T00:00:02Z",
+                "retirement_reason": "verified adjacent revision",
+            },
+            "environment_adoption_receipt_digest": DIGEST,
+        },
+    )
+
+    assert (
+        child._runtime_authority_path(
+            runtime,
+            handoff=successor,
+            resume=True,
+            resume_thread_id=thread_id,
+            authority_transition_path=transition_path,
+        )
+        == runtime_handoff
+    )
+    assert runtime_handoff.read_bytes() == _canonical(successor)
+
+
+def test_resume_rejects_changed_authority_without_transition(
+    tmp_path: Path,
+) -> None:
+    runtime = tmp_path / "runtime"
+    runtime.mkdir(mode=0o700)
+    workspace = tmp_path / "workspace"
+    workspace.mkdir(mode=0o700)
+    predecessor = _handoff(
+        workspace=workspace,
+        manifest_digest=DIGEST,
+        policy_digest=DIGEST,
+        revision=26,
+    )
+    successor = json.loads(json.dumps(predecessor))
+    successor["task"]["revision"] = 27
+    child._runtime_authority_path(
+        runtime,
+        handoff=predecessor,
+        resume=False,
+    )
+
+    with pytest.raises(
+        child.CodexBuilderChildError,
+        match="new authority cannot reuse",
+    ):
+        child._runtime_authority_path(
+            runtime,
+            handoff=successor,
+            resume=True,
+            resume_thread_id=str(uuid4()),
+        )
 
 
 def test_every_initial_and_resumed_codex_argv_enforces_budget_and_single_agent(
