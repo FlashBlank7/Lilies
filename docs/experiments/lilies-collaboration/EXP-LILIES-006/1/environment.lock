@@ -1,0 +1,56 @@
+schema_version: '1.0'
+task_id: EXP-LILIES-006
+revision: 1
+source_projects:
+- name: ERPNext
+  repository_url: https://github.com/frappe/erpnext
+  release: v16.20.0
+  image_digest: sha256:0515daf0d095172776f3acf7f122d48d62c5e8d8d8e67b527c2594610d207431
+  license: GPL-3.0
+compose_digest: sha256:0cfd45c99cdc4c7ca35d460c9d69d10e8607f78fdc09d2961997b9032007a450
+ports:
+- service: erpnext-http
+  host: 127.0.0.1
+  port: 18060
+network_name: exp-lilies-006-r1_default
+volumes:
+- exp-lilies-006-r1-db-data
+- exp-lilies-006-r1-sites
+- exp-lilies-006-r1-logs
+initialization_commands:
+- name: create-site
+  digest: sha256:0cfd45c99cdc4c7ca35d460c9d69d10e8607f78fdc09d2961997b9032007a450
+- name: seed-planning-master-data
+  digest: sha256:8a398a82aaf1b72d5cf1e7a5365dca61630b3b13e1cfd0421cb2965f894d9ae3
+seed_commands:
+- name: reset-public-business-data
+  digest: sha256:8a398a82aaf1b72d5cf1e7a5365dca61630b3b13e1cfd0421cb2965f894d9ae3
+- name: run-protected-seed
+  digest: sha256:b052cf853964d828df47dcca846c00b9c52fef494e70ceb9d50cae9aee2e723c
+health_checks:
+- check_id: http:erpnext
+  kind: http
+  url: http://127.0.0.1:18060
+  expected_status: 200
+  timeout_seconds: 10.0
+  mandatory: true
+secret_refs:
+- secret:exp-lilies-006-db-root-password
+- secret:exp-lilies-006-site-admin-password
+- secret:exp-lilies-006-erpnext-api
+- secret:exp-lilies-006-environment-attestation
+attestation_secret_ref: secret:exp-lilies-006-environment-attestation
+python_version: 3.12.13
+docker_version: 29.4.0
+fixture_files:
+- path: public-inputs/history-and-constraints.json
+  digest: sha256:20b2be5ca77b2777db3a106a3e08358d539e1db5db5659e1a7a61255c320e3e6
+  size_bytes: 4576
+- path: schemas/erpnext-planning.openapi.json
+  digest: sha256:36190a9486d7d2e6acbe5a3b56698af4845c0aaebd9751d779fe22c5c247f47e
+  size_bytes: 2946
+host_setup_evidence:
+- ERPNext v16.20.0 runs from the frozen official image and is reached only through the Frappe REST resource API.
+- Company, warehouse, items, stock reconciliation, and API credentials are prepared through public Frappe endpoints; runtime inventory IDs are discovered rather than embedded in the workflow.
+- No ERPNext-specific platform block, adapter, field mapper, or prepared workflow is supplied.
+provenance: real_host

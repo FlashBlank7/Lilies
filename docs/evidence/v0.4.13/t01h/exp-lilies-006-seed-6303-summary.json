@@ -1,0 +1,22 @@
+{
+  "schema_version": "1.0",
+  "task_id": "EXP-LILIES-006",
+  "seed": 6303,
+  "workflow_version": 1,
+  "deployment_revision": 4,
+  "model_digest": "sha256:1535075e9e6723c260e65b9f1c437b13c900745331225e41e031e22a49c10463",
+  "run_count": 4,
+  "succeeded_runs": 4,
+  "human_pauses": 3,
+  "artifact_count": 12,
+  "material_request_primary_count": 1,
+  "material_request_replay_count": 1,
+  "drift_and_retraining_recommendation_checked": true,
+  "automatic_training_triggered": false,
+  "checks_passed": 16,
+  "checks_total": 16,
+  "failed_check_categories": [],
+  "input_details_exposed": false,
+  "oracle_details_exposed": false,
+  "passed": true
+}

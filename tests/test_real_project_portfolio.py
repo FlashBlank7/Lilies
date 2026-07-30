@@ -175,7 +175,7 @@ def test_later_project_cannot_start_before_previous_project_passes(
     errors = module.validate_portfolio(fixture)
 
     assert "EXP-LILIES-002 started before every previous project passed" in errors
-    assert "active project ID and project statuses are inconsistent" in errors
+    assert "portfolio awaiting prior resolution still has an active project" in errors
 
 
 def test_explicit_user_sequence_override_preserves_prior_project_results(
@@ -199,7 +199,7 @@ def test_explicit_user_sequence_override_preserves_prior_project_results(
     } == {
         "EXP-LILIES-001": "needs_revision",
         "EXP-LILIES-002": "passed",
-        "EXP-LILIES-003": "active",
+        "EXP-LILIES-003": "passed",
     }
     assert module.validate_portfolio(fixture) == []
 

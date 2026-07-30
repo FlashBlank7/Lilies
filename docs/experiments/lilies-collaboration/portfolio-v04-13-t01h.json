@@ -4,13 +4,13 @@
   "stage_task_id": "V04-13-T01H",
   "contract_revision": 3,
   "selection_status": "locked",
-  "execution_status": "project_6_active",
+  "execution_status": "awaiting_prior_project_resolution",
   "approved_at": "2026-07-25",
   "approval_ref": "User approved continuing with approximately six real projects organized by distinct capability families, executed one by one, with iterations under each project and reusable platform supplementation tracked separately.",
   "required_project_count": 6,
   "execution_policy": {
     "mode": "strictly_sequential",
-    "active_project_id": "EXP-LILIES-006",
+    "active_project_id": null,
     "next_project_requires_previous_project_closure": true,
     "explicit_user_sequence_overrides": [
       {
@@ -111,7 +111,7 @@
     "SCENARIO-010",
     "SCENARIO-011"
   ],
-  "member_manifest_set_sha256": "a1746b4c4ac0d8eee11477eee1a5fa2893f2eaae376d3f2059cf7540ea44c36d",
+  "member_manifest_set_sha256": "ad9ac77f306e190e8d490c956a27112e5bf28971aa09f6069ef740ec9b234aba",
   "projects": [
     {
       "project_id": "EXP-LILIES-001",
@@ -157,9 +157,9 @@
       "project_id": "EXP-LILIES-006",
       "sequence": 6,
       "manifest": "docs/experiments/lilies-collaboration/EXP-LILIES-006/project.json",
-      "manifest_sha256": "0674440802313ab6df74d204c1c07948dcb0c69127c5583a6c30a919cd6c8c79",
-      "latest_revision": 0,
-      "status": "active"
+      "manifest_sha256": "27e3895343468973ac9f7e3517afb52730064e860f8d71c3db7ee6548c4bbd3c",
+      "latest_revision": 1,
+      "status": "passed"
     }
   ],
   "generic_capability_lane": {

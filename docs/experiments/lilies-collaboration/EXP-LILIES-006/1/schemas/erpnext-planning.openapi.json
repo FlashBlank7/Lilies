@@ -1,0 +1,81 @@
+{
+  "openapi": "3.0.3",
+  "info": {"title": "ERPNext planning REST subset", "version": "16.20.0"},
+  "servers": [{"url": "http://127.0.0.1:18060"}],
+  "security": [{"FrappeToken": []}],
+  "paths": {
+    "/api/resource/Bin": {
+      "get": {
+        "operationId": "listBins",
+        "parameters": [
+          {"name": "fields", "in": "query", "schema": {"type": "string"}},
+          {"name": "filters", "in": "query", "schema": {"type": "string"}},
+          {"name": "limit_page_length", "in": "query", "schema": {"type": "integer"}}
+        ],
+        "responses": {"200": {"description": "Inventory bins"}}
+      }
+    },
+    "/api/resource/Material Request": {
+      "get": {
+        "operationId": "listMaterialRequests",
+        "parameters": [
+          {"name": "fields", "in": "query", "schema": {"type": "string"}},
+          {"name": "filters", "in": "query", "schema": {"type": "string"}},
+          {"name": "limit_page_length", "in": "query", "schema": {"type": "integer"}}
+        ],
+        "responses": {"200": {"description": "Material Request list"}}
+      },
+      "post": {
+        "operationId": "createMaterialRequestDraft",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["material_request_type", "company", "schedule_date", "items"],
+                "properties": {
+                  "material_request_type": {"type": "string", "enum": ["Purchase"]},
+                  "company": {"type": "string"},
+                  "schedule_date": {"type": "string", "format": "date"},
+                  "title": {"type": "string"},
+                  "docstatus": {"type": "integer", "enum": [0]},
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": ["item_code", "qty", "warehouse", "schedule_date"],
+                      "properties": {
+                        "item_code": {"type": "string"},
+                        "qty": {"type": "number"},
+                        "warehouse": {"type": "string"},
+                        "schedule_date": {"type": "string", "format": "date"}
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {"200": {"description": "Created draft"}}
+      }
+    },
+    "/api/resource/Material Request/{name}": {
+      "get": {
+        "operationId": "getMaterialRequest",
+        "parameters": [{"name": "name", "in": "path", "required": true, "schema": {"type": "string"}}],
+        "responses": {"200": {"description": "Material Request"}}
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "FrappeToken": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "Authorization"
+      }
+    }
+  }
+}

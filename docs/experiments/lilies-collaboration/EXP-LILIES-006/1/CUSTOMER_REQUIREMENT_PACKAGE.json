@@ -1,0 +1,20 @@
+{
+  "schema_version": "v0.4.13-customer-requirement-package-1",
+  "task_id": "EXP-LILIES-006",
+  "revision": 1,
+  "material_completeness": "substantial",
+  "materials": [
+    {"kind": "customer_brief", "path": "requirement.md", "description": "Customer business request, model boundary, human decision, and ERP safety boundary.", "provided_by": "customer"},
+    {"kind": "customer_data", "path": "fixtures/public-inputs/history-and-constraints.json", "description": "Authorized public demand history, units, item identities, and planning constraints; live inventory comes from ERPNext.", "provided_by": "customer"},
+    {"kind": "host_schema", "path": "schemas/erpnext-planning.openapi.json", "description": "Public task-scoped Frappe REST schema for inventory readback and Material Request draft operations.", "provided_by": "task_author"},
+    {"kind": "platform_manual", "path": "BUILDER_API_MANUAL.json", "description": "Public platform, forecast lifecycle, and workflow API guide.", "provided_by": "platform"},
+    {"kind": "permission_contract", "path": "allowed-actions.json", "description": "Task-scoped platform and host action boundary.", "provided_by": "task_author"},
+    {"kind": "system_environment_contract", "path": "environment.lock", "description": "Pinned ERPNext environment and fixtures.", "provided_by": "task_author"},
+    {"kind": "delivery_contract", "path": "task.yaml", "description": "Customer role, deliverables, and acceptance summary.", "provided_by": "task_author"}
+  ],
+  "missing_materials": [
+    "No customer production demand history is supplied; public synthetic history limits the accuracy claim.",
+    "No external forecast-model registry credential is supplied; the completed route trains a new deterministic model.",
+    "No production ERPNext identity or network is supplied; validation is controlled-local only."
+  ]
+}

@@ -1,0 +1,39 @@
+{
+  "schema_version": "1.0",
+  "task_id": "EXP-LILIES-006",
+  "purpose": "same-context experience reuse on a fresh application and fresh business identities",
+  "first_fresh_application_attempt": {
+    "application_id": "c77d36ca-b4b7-4474-a26c-ba2b897dd497",
+    "workflow_validation_failures": 0,
+    "business_test_result": "2/3",
+    "failure_class": "test_environment_business_identity collision",
+    "workflow_changed": false
+  },
+  "successful_fresh_application": {
+    "application_id": "c78d1dd8-ae97-407c-af73-30fd9c890c25",
+    "draft_revision": 70,
+    "active_version": 1,
+    "content_hash": "e2bdbafdfb435d7ab7c0f3eb458ac32c5e94ebb3cb58fc0e7550f17750b6bc45",
+    "node_count": 32,
+    "edge_count": 35,
+    "structural_validation_failures": 0,
+    "public_tests": "3/3",
+    "workflow_repairs": 0,
+    "platform_supplementations": 0,
+    "seconds_from_application_create_to_publish": 25,
+    "seconds_from_application_create_to_new_data_acceptance": 53
+  },
+  "new_data_acceptance": {
+    "seed": 6404,
+    "run_count": 4,
+    "succeeded_runs": 4,
+    "checks": "16/16",
+    "artifact_count": 12,
+    "human_pauses": 3,
+    "model_digest": "sha256:690f43ee1eea78e235d7653386fe8797777f6c323cf60aeb594833343bb17298"
+  },
+  "lilies_model_calls": 0,
+  "lilies_tokens": 0,
+  "lesson": "Fresh workflow construction was clean, but the first acceptance reused an old external business identity. The reusable test kit now requires a fresh identity prefix for every side-effecting run.",
+  "claim_limit": "same Codex context and retained project-level public-API helpers; not independent Skill or model generalization"
+}

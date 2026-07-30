@@ -612,7 +612,18 @@ def validate_portfolio(root: Path = ROOT) -> list[str]:
         for project_id, project in project_manifests.items()
         if str(project.get("status")).startswith("active")
     ]
-    if active_status_projects != [active_project_id]:
+    no_active_project_expected = (
+        active_project_id is None
+        and portfolio.get("execution_status") == "awaiting_prior_project_resolution"
+        and any(
+            project.get("status") != "passed"
+            for project in project_manifests.values()
+        )
+    )
+    if no_active_project_expected:
+        if active_status_projects:
+            errors.append("portfolio awaiting prior resolution still has an active project")
+    elif active_status_projects != [active_project_id]:
         errors.append("active project ID and project statuses are inconsistent")
     for index, project_id in enumerate(EXPECTED_PROJECT_IDS):
         project = project_manifests.get(project_id)
@@ -702,12 +713,20 @@ def main() -> int:
     print("- projects: 6")
     portfolio = load_json(args.root.resolve() / PORTFOLIO_PATH)
     active_project = next(
-        project for project in portfolio["projects"] if project["status"] == "active"
+        (
+            project
+            for project in portfolio["projects"]
+            if str(project["status"]).startswith("active")
+        ),
+        None,
     )
-    print(
-        f"- active: {active_project['project_id']} "
-        f"revision {active_project['latest_revision']}"
-    )
+    if active_project is None:
+        print("- active: none; awaiting prior project resolution")
+    else:
+        print(
+            f"- active: {active_project['project_id']} "
+            f"revision {active_project['latest_revision']}"
+        )
     print("- capability lane enterprise denominator: false")
     print("- provider egress default: disabled")
     return 0

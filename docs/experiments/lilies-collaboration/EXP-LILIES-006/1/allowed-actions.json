@@ -1,0 +1,49 @@
+{
+  "schema_version": "1.0",
+  "task_id": "EXP-LILIES-006",
+  "revision": 1,
+  "connector_access": true,
+  "file_access": true,
+  "model_access": true,
+  "network_hosts": ["127.0.0.1"],
+  "max_payload_bytes": 4194304,
+  "max_write_count": 24,
+  "platform_actions": [
+    "platform_contract_get",
+    "platform_block_search",
+    "platform_block_get",
+    "platform_tool_catalog",
+    "platform_connector_authorization_issue",
+    "platform_application_create",
+    "platform_application_get",
+    "platform_draft_inspect",
+    "platform_draft_apply",
+    "platform_tests_run",
+    "platform_run_start",
+    "platform_run_get",
+    "platform_run_resume",
+    "platform_trace_get",
+    "platform_artifact_read",
+    "platform_publish"
+  ],
+  "readable_host_objects": [
+    "erpnext.listBins",
+    "erpnext.listMaterialRequests",
+    "erpnext.getMaterialRequest"
+  ],
+  "writable_host_operations": ["erpnext.createMaterialRequestDraft"],
+  "permission_required_actions": ["erpnext.createMaterialRequestDraft"],
+  "compensation_actions": [],
+  "prohibited_actions": [
+    "read_platform_source",
+    "read_platform_database",
+    "read_protected",
+    "modify_task_package",
+    "install_unknown_adapter",
+    "erpnext.submitMaterialRequest",
+    "erpnext.createPurchaseOrder",
+    "erpnext.createStockEntry",
+    "erpnext.postLedgerTransaction"
+  ],
+  "validation_mode": "real_host"
+}

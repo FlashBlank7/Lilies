@@ -5,7 +5,7 @@
   "project_id": "EXP-LILIES-006",
   "sequence": 6,
   "title": "Forecast-driven constrained replenishment planning",
-  "status": "active",
+  "status": "passed",
   "cohort": "enterprise",
   "enterprise_denominator": true,
   "capability_family": "forecasting_constrained_optimization_planning",
@@ -43,8 +43,55 @@
     "https://github.com/frappe/erpnext/releases/tag/v16.20.0"
   ],
   "task_package_root": "docs/experiments/lilies-collaboration/EXP-LILIES-006",
-  "latest_revision": 0,
-  "revision_semantics": "EXP-LILIES-005 closed with three protected Seeds and a fresh-application experience regression. The user's explicit instruction to complete the remaining projects now activates EXP-LILIES-006; revision 1 will freeze its public package and independent Seed contract.",
+  "latest_revision": 1,
+  "revision_semantics": "Revision 1 froze the ERPNext v16.20.0 environment, public model/connector/workflow contract, and independent Seed acceptance. The original application published version 1 and passed three protected Seeds; a fresh application published version 1 and passed a fourth new-data experience regression.",
+  "public_test_categories": [
+    "feasible approved plan creates and reads back one unsubmitted Material Request draft",
+    "feasible rejected plan performs no host write",
+    "capacity-and-budget infeasibility is explained without approval or host write"
+  ],
+  "hidden_seed_contract": {
+    "count": 3,
+    "generation": "deterministic seeded weekly histories, planning constraints, model candidates, host business identities, and aggregate-only independent oracle",
+    "fresh_business_identity_per_seed": true,
+    "workflow_runs_per_seed": 4,
+    "business_cases": [
+      "feasible approved plan",
+      "same-input idempotent replay",
+      "feasible human rejection",
+      "shared capacity-and-budget infeasibility",
+      "model drift with retraining recommendation and no online training"
+    ],
+    "pass_meaning": "Chronological model evaluation, immutable deployment lineage, forecast totals, independently recomputed discrete replenishment quantities, one draft-only host effect, zero-effect replay/rejection/infeasibility, monitoring, artifacts, and human pauses all agree.",
+    "claim_limit": "Does not establish production forecast accuracy, procurement authorization, production concurrency, long-duration reliability, or every future ERPNext release."
+  },
+  "capability_placement": {
+    "generic_services": [
+      "forecast model lifecycle and named deployment",
+      "bounded constrained replenishment optimization"
+    ],
+    "atomic_block_count": 2,
+    "host_specific_block_count": 0,
+    "project_specific_configuration_location": "revision-1 OpenAPI connector and published workflow configuration"
+  },
+  "published_application": {
+    "application_id": "9ddd33f5-ecb9-4f07-96e9-cf39435c40b8",
+    "draft_revision": 79,
+    "active_version": 1,
+    "content_hash": "4eb8f40c372bf9d8f5640df22f586bbc1d2145d560ee4146bfe3cf2d0a6a1c29",
+    "public_tests": "3/3",
+    "sealed_seed_checks": "48/48"
+  },
+  "experience_rebuild": {
+    "application_id": "c78d1dd8-ae97-407c-af73-30fd9c890c25",
+    "draft_revision": 70,
+    "active_version": 1,
+    "content_hash": "e2bdbafdfb435d7ab7c0f3eb458ac32c5e94ebb3cb58fc0e7550f17750b6bc45",
+    "new_data_seed": 6404,
+    "checks": "16/16",
+    "seconds_to_publish": 25,
+    "claim_limit": "same-context operational reuse with retained project-level public-API helpers; not independent Skill or model generalization"
+  },
   "current_blocker": null,
-  "next_action": "Freeze ERPNext and Frappe digests, API schema, roles, database seed, historical split, constraints, baseline plan, seeds, and oracle."
+  "next_action": "Preserve both published applications and controlled-local evidence; package the generic playbook as a platform Skill and have a fresh Builder context test it when authorized."
 }

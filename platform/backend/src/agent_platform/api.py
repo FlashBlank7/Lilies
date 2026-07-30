@@ -115,6 +115,17 @@ from .governed_memory import (
     MemoryStatus,
     RetentionClass,
 )
+from .forecast_models import (
+    EvaluateForecastModelRequest,
+    FineTuneForecastModelRequest,
+    ForecastInferenceRequest,
+    ForecastModelConflict,
+    ForecastModelService,
+    ImportForecastModelRequest,
+    PromoteForecastModelRequest,
+    RollbackForecastDeploymentRequest,
+    TrainForecastModelRequest,
+)
 from .governance import (
     GovernanceService,
     GovernanceTaskFilters,
@@ -485,6 +496,7 @@ class Services:
     acceptance_repairer: AcceptanceRepairPreviewer
     governed_memory: GovernedMemorySurface
     tabular_models: TabularModelService
+    forecast_models: ForecastModelService
     knowledge_indexes: KnowledgeIndexService
     event_automation: EventAutomationService
     platform_blackbox_auth: PlatformBlackboxAuthStore
@@ -2263,6 +2275,7 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
     applications = ApplicationService(workflow_store, blocks, tools)
     governed_memory = GovernedMemorySurface(storage)
     tabular_models = TabularModelService(storage.db_path)
+    forecast_models = ForecastModelService(storage.db_path)
     knowledge_indexes = KnowledgeIndexService(storage.db_path)
     event_automation = EventAutomationService(
         storage.db_path,
@@ -2321,6 +2334,7 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         web_collector=web_collector,
         connector_service=connectors,
         tabular_models=tabular_models,
+        forecast_models=forecast_models,
         knowledge_indexes=knowledge_indexes,
         event_automation=event_automation,
     )
@@ -3101,6 +3115,7 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         acceptance_repairer=acceptance_repairer,
         governed_memory=governed_memory,
         tabular_models=tabular_models,
+        forecast_models=forecast_models,
         knowledge_indexes=knowledge_indexes,
         event_automation=event_automation,
         platform_blackbox_auth=platform_blackbox_auth,
@@ -3153,6 +3168,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
     async def lifespan(lifespan_app: FastAPI) -> AsyncIterator[None]:
         await services.storage.initialize()
         await services.tabular_models.initialize()
+        await services.forecast_models.initialize()
         await services.knowledge_indexes.initialize()
         await services.event_automation.initialize()
         await services.workflow_store.initialize()
@@ -4777,6 +4793,127 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             return await services.tabular_models.drift(deployment_name, body)
         except (KeyError, ValueError) as error:
             raise tabular_http_exception(error) from error
+
+    def forecast_http_exception(error: Exception) -> HTTPException:
+        if isinstance(error, KeyError):
+            return HTTPException(404, str(error))
+        if isinstance(error, ForecastModelConflict):
+            return HTTPException(409, str(error))
+        return HTTPException(422, str(error))
+
+    @app.post("/api/v1/forecast-models/train", dependencies=[Depends(require_token)])
+    async def train_forecast_model(
+        body: TrainForecastModelRequest,
+    ) -> dict[str, Any]:
+        try:
+            return await services.forecast_models.train(body)
+        except (KeyError, ValueError) as error:
+            raise forecast_http_exception(error) from error
+
+    @app.post("/api/v1/forecast-models/import", dependencies=[Depends(require_token)])
+    async def import_forecast_model(
+        body: ImportForecastModelRequest,
+    ) -> dict[str, Any]:
+        try:
+            return await services.forecast_models.import_model(body)
+        except (KeyError, ValueError) as error:
+            raise forecast_http_exception(error) from error
+
+    @app.get("/api/v1/forecast-models", dependencies=[Depends(require_token)])
+    async def list_forecast_models() -> list[dict[str, Any]]:
+        return await services.forecast_models.list_models()
+
+    @app.get(
+        "/api/v1/forecast-models/{model_id}/versions/{version}",
+        dependencies=[Depends(require_token)],
+    )
+    async def get_forecast_model_version(
+        model_id: str,
+        version: int,
+    ) -> dict[str, Any]:
+        try:
+            return await services.forecast_models.get_version(model_id, version)
+        except (KeyError, ValueError) as error:
+            raise forecast_http_exception(error) from error
+
+    @app.post(
+        "/api/v1/forecast-models/{model_id}/versions/{version}/fine-tune",
+        dependencies=[Depends(require_token)],
+    )
+    async def fine_tune_forecast_model(
+        model_id: str,
+        version: int,
+        body: FineTuneForecastModelRequest,
+    ) -> dict[str, Any]:
+        try:
+            return await services.forecast_models.fine_tune(model_id, version, body)
+        except (KeyError, ValueError) as error:
+            raise forecast_http_exception(error) from error
+
+    @app.post(
+        "/api/v1/forecast-models/{model_id}/versions/{version}/evaluate",
+        dependencies=[Depends(require_token)],
+    )
+    async def evaluate_forecast_model(
+        model_id: str,
+        version: int,
+        body: EvaluateForecastModelRequest,
+    ) -> dict[str, Any]:
+        try:
+            return await services.forecast_models.evaluate(model_id, version, body)
+        except (KeyError, ValueError) as error:
+            raise forecast_http_exception(error) from error
+
+    @app.get(
+        "/api/v1/forecast-deployments/{deployment_name}",
+        dependencies=[Depends(require_token)],
+    )
+    async def get_forecast_deployment(
+        deployment_name: str,
+    ) -> dict[str, Any]:
+        try:
+            return await services.forecast_models.get_deployment(deployment_name)
+        except (KeyError, ValueError) as error:
+            raise forecast_http_exception(error) from error
+
+    @app.post(
+        "/api/v1/forecast-deployments/{deployment_name}/promote",
+        dependencies=[Depends(require_token)],
+    )
+    async def promote_forecast_model(
+        deployment_name: str,
+        body: PromoteForecastModelRequest,
+    ) -> dict[str, Any]:
+        try:
+            return await services.forecast_models.promote(deployment_name, body)
+        except (KeyError, ValueError) as error:
+            raise forecast_http_exception(error) from error
+
+    @app.post(
+        "/api/v1/forecast-deployments/{deployment_name}/rollback",
+        dependencies=[Depends(require_token)],
+    )
+    async def rollback_forecast_model(
+        deployment_name: str,
+        body: RollbackForecastDeploymentRequest,
+    ) -> dict[str, Any]:
+        try:
+            return await services.forecast_models.rollback(deployment_name, body)
+        except (KeyError, ValueError) as error:
+            raise forecast_http_exception(error) from error
+
+    @app.post(
+        "/api/v1/forecast-deployments/{deployment_name}/predict",
+        dependencies=[Depends(require_token)],
+    )
+    async def predict_forecast_model(
+        deployment_name: str,
+        body: ForecastInferenceRequest,
+    ) -> dict[str, Any]:
+        try:
+            return await services.forecast_models.predict(deployment_name, body)
+        except (KeyError, ValueError) as error:
+            raise forecast_http_exception(error) from error
 
     @app.get("/api/v1/blocks", dependencies=[Depends(require_token)])
     async def list_blocks() -> list[dict[str, Any]]:

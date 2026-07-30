@@ -1,0 +1,42 @@
+{
+  "schema_version": "1.0",
+  "task_id": "EXP-LILIES-006",
+  "source_gap": {
+    "expected": "A Builder can prepare, evaluate, version, promote, invoke, monitor, and roll back a forecast model, then solve a constrained replenishment plan with explicit infeasibility.",
+    "actual_before": "The public platform had no explicit forecast lifecycle service or constrained replenishment optimizer.",
+    "public_routes_checked": [
+      "GET /openapi.json",
+      "GET /api/v1/blocks",
+      "GET /api/v1/blocks/{block_type}/manual"
+    ]
+  },
+  "supplementation": {
+    "generic_services": [
+      "immutable deterministic forecast model/version/evaluation/deployment lifecycle",
+      "bounded constrained replenishment optimizer with feasible and infeasible evidence"
+    ],
+    "atomic_blocks_added": [
+      "deployed_forecast",
+      "replenishment_planner"
+    ],
+    "host_specific_blocks_added": 0,
+    "host_specific_platform_fields": 0,
+    "project_specific_configuration_location": "public project package, generated connector manifest, and published workflow configuration"
+  },
+  "genericity_evidence": {
+    "focused_tests": "4/4",
+    "source_project_names_absent_from_block_definitions": true,
+    "non_source_examples": [
+      "generic multi-series periodic forecast",
+      "generic feasible and shared-resource-infeasible item plans"
+    ]
+  },
+  "affected_project_rerun": {
+    "public_tests": "3/3",
+    "protected_seeds": "3/3",
+    "protected_checks": "48/48",
+    "experience_rebuild_new_data": "16/16"
+  },
+  "capability_placement_reason": "Lifecycle state and optimization are platform services; only the two irreducible runtime invocations are atomic blocks, while model-selection policy and ERPNext mapping remain project configuration.",
+  "claim_ceiling": "generic deterministic lifecycle and bounded optimization behavior; not every forecasting algorithm, solver class, or production-scale workload"
+}

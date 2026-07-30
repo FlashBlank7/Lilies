@@ -193,6 +193,26 @@ class ModelDriftMonitorConfig(BaseModel):
         return self
 
 
+class DeployedForecastConfig(BaseModel):
+    deployment_name: str = Field(min_length=2, max_length=120)
+    series: Any
+    unit: Any
+    horizon: Any
+
+
+class ReplenishmentPlannerConfig(BaseModel):
+    forecasts: Any
+    items: Any
+    capacity: Any
+    budget: Any
+    solver_version: str = Field(
+        default="bounded-planner-v1",
+        pattern=r"^[A-Za-z0-9_.-]+$",
+    )
+    max_candidates_per_item: int = Field(default=100, ge=2, le=1_000)
+    max_states: int = Field(default=100_000, ge=100, le=1_000_000)
+
+
 class ConnectorActionConfig(BaseModel):
     connector_id: str = Field(min_length=2, max_length=120)
     connector_version: int = Field(default=1, ge=1)
@@ -2080,6 +2100,66 @@ def build_block_registry() -> BlockRegistry:
                 ),
             ),
             ModelDriftMonitorConfig,
+        ),
+        (
+            _definition(
+                "deployed_forecast",
+                "Deployed Forecast",
+                "Forecast one or more time series with the currently approved immutable deployment.",
+                "model",
+                DeployedForecastConfig,
+                inputs=[("input", ValueType.object)],
+                outputs=[
+                    ("forecasts", ValueType.array),
+                    ("monitoring", ValueType.object),
+                    ("model_id", ValueType.string),
+                    ("version", ValueType.number),
+                    ("model_digest", ValueType.string),
+                    ("output", ValueType.object),
+                ],
+                error_branch=True,
+                manual=_manual(
+                    "deployed_forecast",
+                    "Deployed Forecast",
+                    (
+                        "Use an approved forecast deployment for production inference. "
+                        "It returns intervals, immutable model lineage, and a retraining "
+                        "recommendation without starting online training."
+                    ),
+                    "approved time-series forecast inference",
+                ),
+            ),
+            DeployedForecastConfig,
+        ),
+        (
+            _definition(
+                "replenishment_planner",
+                "Constrained Replenishment Planner",
+                "Choose lot-sized order quantities under shared capacity and budget constraints.",
+                "logic",
+                ReplenishmentPlannerConfig,
+                inputs=[("input", ValueType.object)],
+                outputs=[
+                    ("status", ValueType.string),
+                    ("lines", ValueType.array),
+                    ("binding_constraints", ValueType.array),
+                    ("plan_digest", ValueType.string),
+                    ("output", ValueType.object),
+                ],
+                error_branch=True,
+                manual=_manual(
+                    "replenishment_planner",
+                    "Constrained Replenishment Planner",
+                    (
+                        "Combine forecast totals with inventory, inbound supply, safety "
+                        "stock, MOQ, lot size, priority, shared capacity, and budget. "
+                        "A feasible result includes auditable balances; an infeasible "
+                        "result explains minimum resource deficits and performs no write."
+                    ),
+                    "bounded and explainable inventory planning",
+                ),
+            ),
+            ReplenishmentPlannerConfig,
         ),
         (
             _definition(

@@ -1,0 +1,43 @@
+{
+  "schema_version": "1.0",
+  "batch_id": "PUBLIC-PLAN-001",
+  "unit": "ea/day",
+  "currency": "USD",
+  "forecast_horizon_days": 7,
+  "history": [
+    {
+      "series_id": "ITEM-A",
+      "points": [
+        {"timestamp": "2026-06-01", "value": 8}, {"timestamp": "2026-06-02", "value": 10}, {"timestamp": "2026-06-03", "value": 12}, {"timestamp": "2026-06-04", "value": 9}, {"timestamp": "2026-06-05", "value": 11}, {"timestamp": "2026-06-06", "value": 6}, {"timestamp": "2026-06-07", "value": 4},
+        {"timestamp": "2026-06-08", "value": 8}, {"timestamp": "2026-06-09", "value": 10}, {"timestamp": "2026-06-10", "value": 12}, {"timestamp": "2026-06-11", "value": 9}, {"timestamp": "2026-06-12", "value": 11}, {"timestamp": "2026-06-13", "value": 6}, {"timestamp": "2026-06-14", "value": 4},
+        {"timestamp": "2026-06-15", "value": 8}, {"timestamp": "2026-06-16", "value": 10}, {"timestamp": "2026-06-17", "value": 12}, {"timestamp": "2026-06-18", "value": 9}, {"timestamp": "2026-06-19", "value": 11}, {"timestamp": "2026-06-20", "value": 6}, {"timestamp": "2026-06-21", "value": 4},
+        {"timestamp": "2026-06-22", "value": 8}, {"timestamp": "2026-06-23", "value": 10}, {"timestamp": "2026-06-24", "value": 12}, {"timestamp": "2026-06-25", "value": 9}, {"timestamp": "2026-06-26", "value": 11}, {"timestamp": "2026-06-27", "value": 6}, {"timestamp": "2026-06-28", "value": 4}
+      ]
+    },
+    {
+      "series_id": "ITEM-B",
+      "points": [
+        {"timestamp": "2026-06-01", "value": 4}, {"timestamp": "2026-06-02", "value": 5}, {"timestamp": "2026-06-03", "value": 4}, {"timestamp": "2026-06-04", "value": 6}, {"timestamp": "2026-06-05", "value": 5}, {"timestamp": "2026-06-06", "value": 3}, {"timestamp": "2026-06-07", "value": 2},
+        {"timestamp": "2026-06-08", "value": 4}, {"timestamp": "2026-06-09", "value": 5}, {"timestamp": "2026-06-10", "value": 4}, {"timestamp": "2026-06-11", "value": 6}, {"timestamp": "2026-06-12", "value": 5}, {"timestamp": "2026-06-13", "value": 3}, {"timestamp": "2026-06-14", "value": 2},
+        {"timestamp": "2026-06-15", "value": 4}, {"timestamp": "2026-06-16", "value": 5}, {"timestamp": "2026-06-17", "value": 4}, {"timestamp": "2026-06-18", "value": 6}, {"timestamp": "2026-06-19", "value": 5}, {"timestamp": "2026-06-20", "value": 3}, {"timestamp": "2026-06-21", "value": 2},
+        {"timestamp": "2026-06-22", "value": 4}, {"timestamp": "2026-06-23", "value": 5}, {"timestamp": "2026-06-24", "value": 4}, {"timestamp": "2026-06-25", "value": 6}, {"timestamp": "2026-06-26", "value": 5}, {"timestamp": "2026-06-27", "value": 3}, {"timestamp": "2026-06-28", "value": 2}
+      ]
+    },
+    {
+      "series_id": "ITEM-C",
+      "points": [
+        {"timestamp": "2026-06-01", "value": 15}, {"timestamp": "2026-06-02", "value": 14}, {"timestamp": "2026-06-03", "value": 16}, {"timestamp": "2026-06-04", "value": 15}, {"timestamp": "2026-06-05", "value": 17}, {"timestamp": "2026-06-06", "value": 10}, {"timestamp": "2026-06-07", "value": 8},
+        {"timestamp": "2026-06-08", "value": 15}, {"timestamp": "2026-06-09", "value": 14}, {"timestamp": "2026-06-10", "value": 16}, {"timestamp": "2026-06-11", "value": 15}, {"timestamp": "2026-06-12", "value": 17}, {"timestamp": "2026-06-13", "value": 10}, {"timestamp": "2026-06-14", "value": 8},
+        {"timestamp": "2026-06-15", "value": 15}, {"timestamp": "2026-06-16", "value": 14}, {"timestamp": "2026-06-17", "value": 16}, {"timestamp": "2026-06-18", "value": 15}, {"timestamp": "2026-06-19", "value": 17}, {"timestamp": "2026-06-20", "value": 10}, {"timestamp": "2026-06-21", "value": 8},
+        {"timestamp": "2026-06-22", "value": 15}, {"timestamp": "2026-06-23", "value": 14}, {"timestamp": "2026-06-24", "value": 16}, {"timestamp": "2026-06-25", "value": 15}, {"timestamp": "2026-06-26", "value": 17}, {"timestamp": "2026-06-27", "value": 10}, {"timestamp": "2026-06-28", "value": 8}
+      ]
+    }
+  ],
+  "items": [
+    {"item_code": "ITEM-A", "warehouse": "Stores - L", "inbound": 10, "safety_stock": 10, "moq": 20, "lot_size": 10, "unit_cost": 250, "minimum_fulfillment": 0.8},
+    {"item_code": "ITEM-B", "warehouse": "Stores - L", "inbound": 0, "safety_stock": 6, "moq": 10, "lot_size": 10, "unit_cost": 400, "minimum_fulfillment": 0.8},
+    {"item_code": "ITEM-C", "warehouse": "Stores - L", "inbound": 10, "safety_stock": 15, "moq": 25, "lot_size": 25, "unit_cost": 100, "minimum_fulfillment": 0.8}
+  ],
+  "constraints": {"capacity": 100, "budget": 22000},
+  "human_review": {"required": true, "approved": true, "reviewer": "public-planner"}
+}

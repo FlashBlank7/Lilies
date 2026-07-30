@@ -29,6 +29,7 @@ from .blocks import (
     ConnectorActionConfig,
     Condition,
     DeployedModelInferenceConfig,
+    DeployedForecastConfig,
     EndConfig,
     EventSubscriptionTriggerConfig,
     HTTPConfig,
@@ -43,6 +44,7 @@ from .blocks import (
     RecordCollectionNormalizeConfig,
     RecordDeduplicateConfig,
     RecordMatchConfig,
+    ReplenishmentPlannerConfig,
     RegexExtractConfig,
     ScheduleTriggerConfig,
     StartConfig,
@@ -91,6 +93,12 @@ from .tabular_models import (
     TabularInferenceRequest,
     TabularModelService,
 )
+from .forecast_models import (
+    ForecastInferenceRequest,
+    ForecastModelService,
+    ForecastSeries,
+)
+from .replenishment import ReplenishmentPlanRequest, solve_replenishment
 from .tools import ToolContext, ToolRegistry
 from .typed_workbook import write_typed_workbook_artifact
 from .workflow_models import (
@@ -205,6 +213,7 @@ class WorkflowRuntime:
         web_collector: ControlledWebCollector | None = None,
         connector_service: ConnectorService | None = None,
         tabular_models: TabularModelService | None = None,
+        forecast_models: ForecastModelService | None = None,
         knowledge_indexes: KnowledgeIndexService | None = None,
         event_automation: EventAutomationService | None = None,
     ) -> None:
@@ -222,6 +231,7 @@ class WorkflowRuntime:
         self.web_collector = web_collector
         self.connector_service = connector_service
         self.tabular_models = tabular_models
+        self.forecast_models = forecast_models
         self.knowledge_indexes = knowledge_indexes
         self.event_automation = event_automation
         self.active_tasks: dict[str, asyncio.Task[None]] = {}
@@ -1761,6 +1771,34 @@ class WorkflowRuntime:
                     warning_threshold=config.warning_threshold,
                     critical_threshold=config.critical_threshold,
                 ),
+            )
+            return {"output": result, **result}
+        if isinstance(config, DeployedForecastConfig):
+            if self.forecast_models is None:
+                raise RuntimeError("forecast model service is not configured")
+            raw_series = self._resolve(config.series, context)
+            if not isinstance(raw_series, list):
+                raise ValueError("forecast series must resolve to an array")
+            result = await self.forecast_models.predict(
+                config.deployment_name,
+                ForecastInferenceRequest(
+                    series=[ForecastSeries.model_validate(item) for item in raw_series],
+                    unit=str(self._resolve(config.unit, context)),
+                    horizon=int(self._resolve(config.horizon, context)),
+                ),
+            )
+            return {"output": result, **result}
+        if isinstance(config, ReplenishmentPlannerConfig):
+            result = solve_replenishment(
+                ReplenishmentPlanRequest(
+                    forecasts=self._resolve(config.forecasts, context),
+                    items=self._resolve(config.items, context),
+                    capacity=float(self._resolve(config.capacity, context)),
+                    budget=float(self._resolve(config.budget, context)),
+                    solver_version=config.solver_version,
+                    max_candidates_per_item=config.max_candidates_per_item,
+                    max_states=config.max_states,
+                )
             )
             return {"output": result, **result}
         if isinstance(config, KnowledgeIndexSyncConfig):

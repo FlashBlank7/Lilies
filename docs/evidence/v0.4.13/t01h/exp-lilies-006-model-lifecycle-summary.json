@@ -1,0 +1,39 @@
+{
+  "schema_version": "1.0",
+  "task_id": "EXP-LILIES-006",
+  "revision": 1,
+  "route": "train_new",
+  "algorithm": "seasonal_naive",
+  "unit": "ea/day",
+  "chronological_split": {
+    "training_days_per_series": 21,
+    "holdout_days_per_series": 7,
+    "series_count": 3,
+    "holdout_observations": 21
+  },
+  "model_id": "bdee617c-8b33-4b56-8450-2368c9a007fb",
+  "model_version": 1,
+  "model_digest": "sha256:13088cf3629a67833a94f232ec2e2d2953c63cc7ab3d4cfc0d26b9313182e249",
+  "evaluation_id": "bcf1d5f6-1678-4eb0-bf80-66c2f74b2acd",
+  "evaluation": {
+    "wape": 0.0,
+    "mae": 0.0,
+    "rmse": 0.0,
+    "mase": 0.0,
+    "interval_coverage": 1.0
+  },
+  "deployment": {
+    "name": "exp006-demand-production",
+    "initial_revision": 1,
+    "promotion_requires_evaluation": true,
+    "rollback_supported": true
+  },
+  "production_inference": {
+    "uses_only_named_deployment": true,
+    "returns_model_lineage": true,
+    "returns_monitoring_signal": true,
+    "automatic_training_triggered": false
+  },
+  "model_supply": "deterministic built-in seasonal baseline, sufficient for the frozen periodic fixture; no paid or external model provider used",
+  "claim_ceiling": "model-lifecycle and orchestration correctness on controlled periodic data; not general demand-forecast accuracy"
+}

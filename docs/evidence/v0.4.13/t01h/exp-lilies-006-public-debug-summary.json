@@ -1,0 +1,29 @@
+{
+  "schema_version": "1.0",
+  "task_id": "EXP-LILIES-006",
+  "revision": 1,
+  "builder_actor": "codex",
+  "application_id": "9ddd33f5-ecb9-4f07-96e9-cf39435c40b8",
+  "draft_revision": 79,
+  "node_count": 32,
+  "edge_count": 35,
+  "public_tests": {
+    "passed": 3,
+    "total": 3,
+    "categories": [
+      "feasible approved plan creates one unsubmitted draft and reads it back",
+      "feasible rejected plan performs no host write",
+      "capacity-and-budget infeasibility is explained without approval or write"
+    ]
+  },
+  "published_version": 1,
+  "content_hash": "4eb8f40c372bf9d8f5640df22f586bbc1d2145d560ee4146bfe3cf2d0a6a1c29",
+  "published_replay_run_id": "185e494c-28b5-4ff5-a1d3-0a3825f62666",
+  "published_replay_status": "succeeded",
+  "published_replay_host_write": false,
+  "published_replay_result": "draft_reused",
+  "artifacts_per_run": 3,
+  "lilies_model_calls": 0,
+  "lilies_tokens": 0,
+  "claim_ceiling": "controlled-local ERPNext v16.20.0 workflow correctness; not customer production, procurement authorization, or future-release certification"
+}

@@ -1,0 +1,34 @@
+schema_version: '1.0'
+task_id: EXP-LILIES-006
+revision: 1
+parent_revision: null
+title: 预测驱动的受约束补货计划与 ERPNext 草稿
+cohort: enterprise
+customer_role: 制造或分销企业库存计划员、采购经理和模型负责人
+business_goal: 使用批准的版本化预测模型和可解释约束规划生成可行补货计划，经人工批准后只写 ERPNext Material Request 草稿。
+source_projects:
+- name: ERPNext
+  repository_url: https://github.com/frappe/erpnext
+  release: v16.20.0
+  image_digest: sha256:0515daf0d095172776f3acf7f122d48d62c5e8d8d8e67b527c2594610d207431
+  license: GPL-3.0
+requirement_file: requirement.md
+environment_lock_digest: sha256:0ceedee701c1f1d2c8e765ff457f2b3df02b9bafbbe471630bf06773f618cd31
+fixture_manifest_digest: sha256:1b3ecc3eaf340c5c9a30ab44dae9cf7d30d6b035cf4fcba1d3ad0bd31f548bc4
+allowed_actions_file: allowed-actions.json
+budget_file: budget.json
+deliverables:
+- name: forecast-evidence
+  description: 各物料点预测、区间、时间回测指标、模型来源、摘要、版本和部署修订。
+  media_type: application/json
+- name: replenishment-plan
+  description: 可行采购量、库存平衡、成本、目标值、生效约束、缺口或不可行解释。
+  media_type: application/json
+- name: erpnext-delivery
+  description: 人工决定、Material Request 草稿创建与公开 API 读回回执。
+  media_type: application/json
+acceptance_summary: 全部输入有可追溯结果；预测来自批准版本；计划满足约束或明确解释不可行；只有批准的可行计划写入一个 ERPNext 草稿；重放不重复且禁止提交或过账。
+no_substitute_validation: true
+collaboration_enabled: true
+author: codex-task-author
+created_at: '2026-07-30T00:00:00Z'
