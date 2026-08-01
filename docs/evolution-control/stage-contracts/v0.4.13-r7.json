@@ -1,0 +1,315 @@
+{
+  "schema_version": "1.0",
+  "stage_version": "v0.4.13",
+  "stage_report": "docs/stage-reports/v0.4.13_lilies_local_agent_and_collaboration_pipeline.md",
+  "contract_revision": 7,
+  "approval_ref": "User instructions through 2026-08-01 to rerun EXP-LILIES-001 through EXP-LILIES-006 with the decoupled sibling ../LiliesAgent as the Builder, retain a queryable observable task chain without private reasoning, enforce a 1,000,000-token cap for each Builder run, report outputs and per-phase elapsed-time shares, complete T01H before T01M, T01N, T01I and T01J, and finish the remaining v0.4.13 work with a total report.",
+  "source_tasks": [
+    {
+      "task_id": "V04-13-T01",
+      "source_intent_ids": [
+        "ARCH-003",
+        "EVAL-003",
+        "PRODUCT-001",
+        "PRODUCT-005",
+        "PRODUCT-008",
+        "PRODUCT-015",
+        "PRODUCT-016",
+        "PRODUCT-017"
+      ],
+      "source_task": "Run Lilies as an independent general local agent whose authority comes from each assignment; verify black-box Builder delivery, expose a reusable cross-software collaborative-development substrate with manual or autonomous handoff, and complete an independently verified enterprise workflow experiment that repairs the platform from actual project gaps.",
+      "disposition": "accepted mandatory",
+      "authority": "User approval on 2026-07-24 of role-scoped general-agent authority, reusable cross-software Lilies-Codex collaborative development, and task-level manual or autonomous collaboration, while retaining the real-project platform experiment as the immediate priority."
+    },
+    {
+      "task_id": "V04-13-T01-PORTFOLIO",
+      "source_intent_ids": [
+        "EVAL-003",
+        "PRODUCT-001",
+        "PRODUCT-010",
+        "PRODUCT-011",
+        "PRODUCT-012",
+        "PRODUCT-013",
+        "PRODUCT-014",
+        "PRODUCT-015",
+        "PRODUCT-016",
+        "PRODUCT-017",
+        "SCENARIO-004",
+        "SCENARIO-005",
+        "SCENARIO-006",
+        "SCENARIO-007",
+        "SCENARIO-008",
+        "SCENARIO-009",
+        "SCENARIO-010",
+        "SCENARIO-011"
+      ],
+      "source_task": "Replace revision-count progress with a six-real-project portfolio: execute distinct customer projects one by one, keep every immutable iteration and failure under its project, and keep reusable platform capability work in a separate non-customer denominator.",
+      "disposition": "accepted mandatory",
+      "authority": "User approval on 2026-07-25 to continue with approximately six real projects organized by distinct capability families, execute them one by one, keep iterations under each project, and track reusable platform supplementation separately."
+    },
+    {
+      "task_id": "V04-13-T01-CODEX-BUILDER",
+      "source_intent_ids": [
+        "EVAL-003",
+        "PRODUCT-001",
+        "PRODUCT-010",
+        "PRODUCT-011",
+        "PRODUCT-012",
+        "PRODUCT-013",
+        "PRODUCT-014",
+        "PRODUCT-015",
+        "PRODUCT-016",
+        "PRODUCT-017"
+      ],
+      "source_task": "Replace Lilies as the remaining six-project Builder with a fresh isolated Codex black-box context that constructs and repairs workflows only through task-scoped public platform interfaces; separate platform development from Builder execution, classify hardware, network, model-supply and software gaps truthfully, supplement general platform capabilities when feasible, retain unresolved gaps, and issue one outcome and supplementation report for each project.",
+      "disposition": "superseded preserved",
+      "authority": "User approval on 2026-07-26 to have Codex replace Lilies for the six tasks, use only platform interfaces to build the workflows, supplement platform limitations when possible, retain gaps that cannot be supplemented, distinguish hardware limits from real software capability gaps, and report each project's completion and platform changes."
+    },
+    {
+      "task_id": "V04-13-T01-SUPPLEMENTATION-LEDGER",
+      "source_intent_ids": [
+        "EVAL-003",
+        "PRODUCT-001",
+        "PRODUCT-005",
+        "PRODUCT-015",
+        "PRODUCT-016",
+        "PRODUCT-017"
+      ],
+      "source_task": "Make the Codex-led six-project supplementation loop causally auditable: every platform gap must be reported by the isolated Builder, every generic developer supplementation and verification must bind that report, and the affected project must rerun with all three records retained in collaboration history before the project may pass.",
+      "disposition": "accepted mandatory",
+      "authority": "User approval on 2026-07-26 that the original T01H task goal must be revised for Codex to replace Lilies through platform interfaces and that all future collaboration and supplementation records must be saved."
+    },
+    {
+      "task_id": "V04-13-T01-STANDALONE",
+      "source_intent_ids": [
+        "ARCH-003",
+        "EVAL-003",
+        "GOV-002",
+        "PRODUCT-001",
+        "PRODUCT-017"
+      ],
+      "source_task": "Extract the decoupled Lilies agent into the sibling ../LiliesAgent repository under the agent directory, give it its own distribution, daemon and CLI, state, tests, Git history, native macOS desktop application and token observability, and let the platform discover it locally without importing its code, sharing private state, or treating discovery as authorization.",
+      "disposition": "accepted mandatory",
+      "authority": "User instructions on 2026-07-26 to make decoupled Lilies a standalone sibling project under the agent directory with a Codex- or Claude Code-like software interface, followed by the explicit location clarification that the project must be created one level above the current platform repository."
+    },
+    {
+      "task_id": "V04-13-T01-CROSS-PLATFORM-DEVELOPMENT",
+      "source_intent_ids": [
+        "EVAL-003",
+        "GOV-002",
+        "PRODUCT-001",
+        "PRODUCT-017"
+      ],
+      "source_task": "After standalone decoupling, use Lilies through separately frozen DevelopmentAssignments to implement one real Android application and one real Windows application as distinct projects, preserving each project's iterations, evidence, budgets and token usage outside the enterprise-workflow denominator.",
+      "disposition": "accepted mandatory",
+      "authority": "User instruction on 2026-07-26 to have the decoupled Lilies undertake separate Android and Windows software-development projects after decoupling."
+    },
+    {
+      "task_id": "V04-13-T01-LILIES-RERUN",
+      "source_intent_ids": [
+        "EVAL-003",
+        "GOV-002",
+        "PRODUCT-001",
+        "PRODUCT-010",
+        "PRODUCT-011",
+        "PRODUCT-012",
+        "PRODUCT-013",
+        "PRODUCT-014",
+        "PRODUCT-015",
+        "PRODUCT-016",
+        "PRODUCT-017",
+        "SCENARIO-004",
+        "SCENARIO-005",
+        "SCENARIO-006",
+        "SCENARIO-007",
+        "SCENARIO-008",
+        "SCENARIO-009",
+        "SCENARIO-010",
+        "SCENARIO-011"
+      ],
+      "source_task": "Rerun the six locked real projects with the decoupled sibling LiliesAgent as a fresh public-interface Builder, record its durable observable work chain, outputs, token use and per-phase elapsed-time shares under a 1,000,000-token cap per Builder run, independently verify one public debug case and three protected seeds per project, and finish this portfolio before T01M, T01N, T01I and T01J while preserving all prior attempts and evidence.",
+      "disposition": "accepted mandatory",
+      "authority": "User instructions through 2026-08-01 to use the decoupled Lilies in the sibling LiliesAgent project to rerun every project, expose a queryable Codex-like observable task session without private reasoning, cap each single Builder run at 1,000,000 tokens, report the debugging path, outputs and phase-time shares, and complete the portfolio before the remaining v0.4.13 work."
+    }
+  ],
+  "mandatory_tasks": [
+    {
+      "task_id": "V04-13-T01A",
+      "source_intent_ids": [
+        "ARCH-003",
+        "PRODUCT-001"
+      ],
+      "surface": "local Lilies core / daemon / CLI",
+      "acceptance": "A standalone loopback Lilies daemon and CLI provide persistent multi-turn sessions, scoped pairing, restart recovery, durable permissions and acknowledgements, budgets and cancellation without importing platform workflow services or sharing the platform data directory or token; pairing-code creation, status, stop, and private credential provision and revoke protocols are included.",
+      "required_evidence": "Strict-schema, session, turn, permission, pairing, acknowledgement, and recovery tests plus independent-process CLI transcripts, a bounded three-turn live-model run, and restart evidence."
+    },
+    {
+      "task_id": "V04-13-T01B",
+      "source_intent_ids": [
+        "ARCH-003",
+        "PRODUCT-001",
+        "PRODUCT-016"
+      ],
+      "surface": "platform black-box contract / scoped HTTP tools / audit",
+      "acceptance": "A versioned public platform contract and task-scoped HTTP tools let an isolated Lilies process create, incrementally edit, test, run, inspect artifacts and traces, and publish only assigned applications; publication scope, application isolation, expiry and revocation, idempotent payload conflict detection, audit correlation, contract drift, role-filtered schemas, and internal-endpoint denial are enforced.",
+      "required_evidence": "Contract digest and drift, scope denial, cross-application, idempotency, audit, trace-redaction, artifact-path-safety, and separate-process HTTP-only minimal-build-and-repair evidence."
+    },
+    {
+      "task_id": "V04-13-T01C",
+      "source_intent_ids": [
+        "PRODUCT-001",
+        "PRODUCT-008"
+      ],
+      "surface": "platform pairing / BuildAssignment / Studio bridge",
+      "acceptance": "The platform securely pairs with the daemon and privately provisions assignment credentials; a strict BuildAssignment without plaintext secrets or oracle data links application, build, assignment, and session, relays persisted acknowledged events across either-process restart, fails explicitly when unavailable, and never silently falls back or prebuilds the final draft.",
+      "required_evidence": "API, storage, credential, assignment-idempotency, event-replay, reconnect, bidirectional-lookup, cancellation, daemon-unavailable, and Studio-browser evidence."
+    },
+    {
+      "task_id": "V04-13-T01D",
+      "source_intent_ids": [
+        "PRODUCT-005",
+        "PRODUCT-008",
+        "PRODUCT-015"
+      ],
+      "surface": "formal collaboration pipeline / approval / Codex isolation / claims",
+      "acceptance": "Only formal tasks receive the experiment report-and-verification channel; dedicated tables and strict state machines implement report creation, evidence supplementation and revision, deterministic routing, user approval and task-local auto-forward, permission separation, reader cursors, idempotent messages, Codex leases and responses, task amendments, environment responses, Lilies reprobe, independently stored claim freeze invalidation and verification, and verifier-only post-close completion while unapproved content remains invisible to developers.",
+      "required_evidence": "Database-migration, state and CAS, access-control, one-hundred-iteration idempotency, reconnect, overflow, and lease-fault tests plus causal export without log scanning."
+    },
+    {
+      "task_id": "V04-13-T01E",
+      "source_intent_ids": [
+        "PRODUCT-005",
+        "PRODUCT-008"
+      ],
+      "surface": "Developer Studio / user approval / developer CLI",
+      "acceptance": "The global developer collaboration workspace explains task, observable Lilies context, tools, contracts, drafts, runs, traces, report causality, ownership, and next actions on desktop and mobile; permission and capability approval remain separate, preapproval developer views reveal no report content, a developer CLI supports inbox lease and response, and Customer Runtime exposes neither development content nor private reasoning.",
+      "required_evidence": "Frontend source, typecheck, build, desktop and mobile browser screenshots, keyboard, overflow, reduced-motion, network, console, approval-idempotency, and developer-isolation evidence."
+    },
+    {
+      "task_id": "V04-13-T01F",
+      "source_intent_ids": [
+        "EVAL-003",
+        "PRODUCT-015"
+      ],
+      "surface": "task packages / environment lock / archive / hidden verifier",
+      "acceptance": "Immutable task revisions, environment preflight, allowed actions, budgets, filtered workspaces, run archives, and an independent verifier are replayable; formal Builder and developer workspaces exclude git metadata, platform data, and protected oracle content, claims bind frozen hashes, and old-revision mutation, oracle leakage, missing health evidence, and unauthorized substitute validation are rejected.",
+      "required_evidence": "Schema, digest, permission, mount, environment-health, archive-manifest, replay, oracle-leak negative, and read-only-verifier-process evidence."
+    },
+    {
+      "task_id": "V04-13-T01G",
+      "source_intent_ids": [
+        "ARCH-003",
+        "EVAL-003",
+        "PRODUCT-005",
+        "PRODUCT-017"
+      ],
+      "surface": "pipeline qualification Q01-Q28 / reusable collaborative development / fault injection",
+      "acceptance": "PIPE-Q01 through Q28 all run without mandatory xfails: Q01-Q23 preserve the formal experiment boundary, ordinary sessions cannot discover collaboration, and one hundred reconnect, idempotency, lease, and concurrency iterations lose no messages and duplicate no side effects; an explicit collaborative-development assignment can target an arbitrary authorized software workspace, assign Lilies and Codex task roles, select manual or autonomous handoff, persist restart-safe work and review, and operate through a platform-neutral API and CLI without a workflow application or Builder dependency, while autonomous execution never widens declared workspace, command, network, side-effect, budget, or hidden-evidence authority and all qualification results remain outside the enterprise-success denominator.",
+      "required_evidence": "A machine qualification bundle records every Q case, iteration, counter, command, digest, API result, browser result, role and authority grant, non-Lilies fixture source diff and test result, durable autonomous-dispatch history, bounded live Lilies-Codex handoff, and an explicit enterprise_denominator=false marker."
+    },
+    {
+      "task_id": "V04-13-T01H",
+      "source_intent_ids": [
+        "EVAL-003",
+        "GOV-002",
+        "PRODUCT-001",
+        "PRODUCT-010",
+        "PRODUCT-011",
+        "PRODUCT-012",
+        "PRODUCT-013",
+        "PRODUCT-014",
+        "PRODUCT-015",
+        "PRODUCT-016",
+        "PRODUCT-017",
+        "SCENARIO-004",
+        "SCENARIO-005",
+        "SCENARIO-006",
+        "SCENARIO-007",
+        "SCENARIO-008",
+        "SCENARIO-009",
+        "SCENARIO-010",
+        "SCENARIO-011"
+      ],
+      "surface": "six real customer projects / decoupled sibling LiliesAgent public-interface Builder / observable rerun telemetry / causal supplementation ledger / independent denominators / generic capability lane",
+      "acceptance": "A fresh isolated instance of the decoupled sibling ../LiliesAgent acts as Builder and reruns EXP-LILIES-001 through EXP-LILIES-006 one by one on fresh empty applications, fresh customer-environment generations, fresh BuildAssignments, fresh sessions and task-scoped credentials. Customer environments run sequentially and stop after evidence capture. The platform safely discovers the exact sibling daemon and then explicitly pairs with it; discovery grants no authority. The Builder receives only the public requirement package, block manual, public schemas, general public Builder guidance and task-scoped public platform contract and APIs. It creates, edits, tests, runs, inspects traces and artifacts, and publishes only through those APIs. It cannot read platform or LiliesAgent source, Git metadata, platform databases, developer workspaces, protected inputs, hidden seeds, expected state, oracle data or expected-versus-actual verifier differences, and the harness cannot prebuild or directly edit the workflow. Every rerun records builder_actor=lilies plus the sibling commit and package digest while preserving every historical Lilies and Codex attempt, revision, actor, failure and evidence. Each Builder assignment or session has max_session_tokens=1000000; exceeding the recorded limit or issuing another model request after it fails the attempt. Usage remains queryable by session, stage and model, with unsupported usage marked unknown. The durable observable record contains public session messages, public tool calls and results, explicit errors, workflow mutations, tests, runs, traces, artifacts, host receipts, publication results and timestamps, but never private chain-of-thought. Every elapsed interval belongs exactly once to environment/bootstrap, daemon discovery, explicit pairing, assignment/provision, Builder execution, host-result verification, platform/archive verification, or cleanup/reporting, and the report records phase start, end, duration and percentage summing to 100 percent within rounding. After publication, a task-author-controlled verifier runs one public debug case and three protected seed cases against the same immutable published version without repair between them; failure requires a new retained attempt. Protected inputs, oracle content and expected-versus-actual differences never enter Builder or developer-visible records. The portfolio retains separate immutable denominators and covers supplier-document reconciliation on Paperless and InvenTree, access-controlled cited RAG on BookStack, durable event automation on Home Assistant, versioned ML or DL maintenance triage on ThingsBoard, structured finance artifact delivery on Actual, and forecast-driven constrained replenishment on ERPNext. EXP-LILIES-006 remains the mandatory primary ML-training denominator and must perform chronological split, fit or train, evaluation and backtest, immutable model version, promotion or deployment, inference and a retraining trigger; import-only or forecast-only evidence cannot satisfy it. Each non-technical project report explains task and seed design, business and natural-language workflow logic, intermediate and final outputs, failures and public repair path, tokens and phase shares, capabilities added, unresolved software or model gaps and environment limits. A platform supplement is allowed only after public evidence proves a reusable capability gap; it must be minimal and generic, contain no host-specific endpoint, field, mapping, adapter, wrapper, hidden answer or final graph, pass the affected-project rerun and a non-source generality check, and remain linked as Builder gap report, developer supplementation and verification, and affected-project rerun or reprobe. T01H passes only when all six r7 LiliesAgent reruns independently pass their public debug case and all three protected seeds with all failures retained. Portfolio averages, mock substitution, capability tests, another project's evidence, prior Codex success or direct host manipulation cannot mask a failure. Only then may execution continue in the fixed order T01M, T01N, T01I and T01J.",
+      "required_evidence": "The locked r7 portfolio and per-project manifests; for every project, a fresh empty application, customer-environment generation, BuildAssignment, isolated sibling Lilies session, safe discovery and explicit-pairing evidence, task-scoped credential, sibling commit and package digest, builder_actor=lilies, public-material manifest and complete public platform API transcript; max_session_tokens=1000000 configuration, persisted session-stage-model usage and hard-stop evidence; forbidden-assistance scans proving no platform or LiliesAgent source, Git, database, developer-workspace, protected-input, hidden-seed, oracle or expected-versus-actual access; durable public messages, tool calls and results, explicit errors, workflow mutations, tests, runs, traces, artifacts, host receipts, publication result and timestamps without private reasoning; non-overlapping environment/bootstrap, daemon-discovery, pairing, assignment/provision, Builder-execution, host-verification, platform/archive-verification and cleanup/reporting spans with start, end, duration and percentage summing to 100 percent within rounding; every frozen package revision, environment, public source and interface digest, budget, draft, test, run, trace, artifact, host receipt, publication, archive, model provider and cost; one public debug result and three independently executed protected-seed results against the same immutable published version, with protected contents withheld from Builder and developer contexts; complete per-project attempt denominators and a non-technical portfolio rerun report covering task and seed design, natural-language business and workflow logic, intermediate and final outputs, failure-to-repair path, token use and phase-time shares; preservation links for all historical Lilies and Codex attempts and failures; and, for every supplementation cycle, the immutable Builder-gap, generic-developer-supplementation and affected-project-rerun triplet with exact report revision, capability provenance, project revision, attempt and digest links, non-source generality verification and bounded history replay."
+    },
+    {
+      "task_id": "V04-13-T01I",
+      "source_intent_ids": [
+        "PRODUCT-008"
+      ],
+      "surface": "CLI ASCII / platform background / accessibility",
+      "acceptance": "After the functional loop, an original low-distraction Lilies persona behaves correctly in wide, narrow, NO_COLOR, non-TTY, and screen-reader CLI modes; the platform background appears only on allowed surfaces, Customer Runtime shows no developer identity, reduced motion is static, and readability and functional state are unchanged.",
+      "required_evidence": "Terminal snapshots, frontend source, typecheck, build, and desktop, mobile, reduced-motion, and contrast browser evidence."
+    },
+    {
+      "task_id": "V04-13-T01J",
+      "source_intent_ids": [
+        "ARCH-003",
+        "EVAL-003",
+        "GOV-002",
+        "PRODUCT-001",
+        "PRODUCT-005",
+        "PRODUCT-008",
+        "PRODUCT-015",
+        "PRODUCT-016",
+        "PRODUCT-017"
+      ],
+      "surface": "release gate / Chinese report / archive",
+      "acceptance": "The machine release gate includes T01A through I and T01K through N focused and full regression, full-scope Ruff or an explicitly truthful baseline, frontend and standalone desktop builds, Docker configuration, browser and native-UI evidence, live-model evidence, Q01-Q28 and reusable-collaboration qualification bundles, real-experiment full-denominator, Android emulator or device and real Windows runtime evidence, token and background-egress audits, forbidden-assistance, archive digests, and evolution-control evidence with no current failure; independent Closure Audit and version size pass, the design moves to historical, and the report never labels partial, not-run, or environment failure as completion.",
+      "required_evidence": "Release-gate JSON, closure review, stage report, collaboration, experiment, standalone-agent, Android and Windows archive manifests and hashes, commits from every repository, and validator outputs."
+    },
+    {
+      "task_id": "V04-13-T01K",
+      "source_intent_ids": [
+        "ARCH-003",
+        "EVAL-003",
+        "GOV-002",
+        "PRODUCT-001",
+        "PRODUCT-017"
+      ],
+      "surface": "standalone sibling repository / daemon and CLI / macOS desktop / safe discovery / token observability",
+      "acceptance": "The decoupled Lilies implementation lives in the sibling ../LiliesAgent repository under the agent directory with its own Python distribution, Git history, daemon and CLI, private state, tests and native macOS SwiftPM application. It runs without importing agent_platform or sharing the platform database or tokens. The platform locates only a same-user, mode-0600, non-symlink discovery record, verifies a loopback public health fingerprint, and requires an explicit one-time pairing code; discovery never grants authority and the platform never reads the daemon bootstrap secret. Provider egress remains disabled by default, no startup or idle workflow consumes model tokens, and persisted usage is reportable by session, stage and model with unknown usage labeled rather than estimated. The desktop application can create, attach, resume and stop sessions, display messages, permissions and token usage, and survive daemon restart.",
+      "required_evidence": "Sibling-repository boundary and import scans; package, Python, CLI, daemon-restart and Swift tests; secure file-mode, owner, no-follow, fingerprint, bootstrap and pairing negative tests; real separate-process platform bridge and event replay; default-egress and idle no-token audit; per-stage and per-model usage fixtures; macOS build, launch and visual inspection; sanitized manifests and independent read-only security review."
+    },
+    {
+      "task_id": "V04-13-T01L",
+      "source_intent_ids": [
+        "ARCH-003",
+        "EVAL-003",
+        "GOV-002",
+        "PRODUCT-001",
+        "PRODUCT-017"
+      ],
+      "surface": "standalone DevelopmentAssignment broker / autonomous agent collaboration / scoped software tools",
+      "acceptance": "The standalone Lilies project can execute an explicitly created DevelopmentAssignment against an arbitrary authorized software workspace through a model-and-tool loop with frozen role, path, command, network, side-effect, deadline and budget grants. Unattended autonomous handoff removes per-message human supervision but never lets an executor mint, resolve or widen its own authority. File and process tools are bounded, cancellable and isolated; complete process groups are reaped; every side effect has a durable prepared record before execution, restart-ambiguous effects require reconciliation instead of blind replay, and stable idempotency prevents duplicate mutations. Model calls use the same persisted stage and model token ledger and remain impossible while provider egress is disabled.",
+      "required_evidence": "Strict assignment and grant schemas; resolver and executor separation with self-approval denial; workspace escape, state-directory, symlink, command, network, output, cancellation and descendant-process negative tests; prepared, running, settled and reconciliation restart tests; stable-idempotency and duplicate-effect tests; independent-process API and CLI transcript; deterministic-provider end-to-end development fixture with complete tool, diff, test and usage evidence; independent security review."
+    },
+    {
+      "task_id": "V04-13-T01M",
+      "source_intent_ids": [
+        "EVAL-003",
+        "GOV-002",
+        "PRODUCT-001",
+        "PRODUCT-017"
+      ],
+      "surface": "separate Android software project / Lilies developer assignment / emulator or device",
+      "acceptance": "After T01K and T01L, Lilies starts from a separately frozen Android project brief and isolated repository, implements the application through its scoped autonomous DevelopmentAssignment, keeps every iteration under that project, and produces source, tests, a reproducible APK or application bundle, and a real emulator or device smoke result matching the frozen acceptance oracle. Direct Codex implementation, a generated skeleton, static source inspection or another project's evidence cannot count as completion; the result is a software-development pressure test with enterprise_denominator=false.",
+      "required_evidence": "Frozen project brief and baseline digest; isolated Lilies session, assignment and grant; complete model, token and tool transcript; per-iteration commits, diffs and tests; pinned Android toolchain and reproducible build command; APK or bundle digest; emulator or device screenshots, logs and acceptance results; security scan and independent review."
+    },
+    {
+      "task_id": "V04-13-T01N",
+      "source_intent_ids": [
+        "EVAL-003",
+        "GOV-002",
+        "PRODUCT-001",
+        "PRODUCT-017"
+      ],
+      "surface": "separate Windows software project / Lilies developer assignment / Windows runtime",
+      "acceptance": "After T01K and T01L, Lilies starts from a separately frozen Windows project brief and isolated repository, implements the application through its scoped autonomous DevelopmentAssignment, keeps every iteration under that project, and produces source, tests, a reproducible Windows application artifact, and a real Windows runtime smoke result matching the frozen acceptance oracle. Direct Codex implementation, a generated skeleton, macOS-only compilation or another project's evidence cannot count as completion; the result is a software-development pressure test with enterprise_denominator=false.",
+      "required_evidence": "Frozen project brief and baseline digest; isolated Lilies session, assignment and grant; complete model, token and tool transcript; per-iteration commits, diffs and tests; pinned Windows toolchain and reproducible build command; artifact digest; real Windows screenshots, logs and acceptance results; security scan and independent review."
+    }
+  ],
+  "optional_tasks": []
+}
