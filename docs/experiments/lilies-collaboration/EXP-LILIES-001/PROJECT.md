@@ -3,10 +3,10 @@
 - Portfolio position: 1 of 6
 - Capability family: document/OCR, procurement matching, Excel, governed host writeback
 - Hosts: Paperless-ngx and InvenTree
-- Current package revision: 27
-- Status: active; customer business acceptance remains `0/3`
+- Current package revision: 28
+- Status: active under r7; no new LiliesAgent rerun exists and historical customer business acceptance remains `0/3`
 
-Directories `1/` through `23/` are immutable revisions of this single project.
+Directories `1/` through `28/` are immutable revisions of this single project.
 They remain in the original location so their digests, attempts, and failure
 denominator are not rewritten by the portfolio correction.
 
