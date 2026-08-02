@@ -1425,6 +1425,12 @@ def _record_pipeline_manual(block_type: str) -> dict[str, Any]:
                 {
                     "description": "Match a customer request with a service account.",
                     "connection": "record_deduplicate -> record_match -> human_input",
+                    "selected_record_reference": {
+                        "$ref": {
+                            "node_id": "match",
+                            "path": ["match", "candidate"],
+                        }
+                    },
                     "config": {
                         "source": {
                             "$ref": {
@@ -1481,6 +1487,15 @@ def _record_pipeline_manual(block_type: str) -> dict[str, Any]:
             "composability_constraints": [
                 "Status is exactly matched, not_found, ambiguous, or conflict.",
                 "Candidate ordering is stable by descending score and original index.",
+                (
+                    "Match is null unless status is matched; a matched value has exactly "
+                    "index, candidate, and score, and the selected source record is at "
+                    "match.candidate."
+                ),
+                (
+                    "Every candidates item keeps the original record at candidate; record "
+                    "is not an output alias."
+                ),
             ],
         },
         "typed_json_artifact": {
@@ -1914,6 +1929,7 @@ def _definition(
     *,
     inputs: list[tuple[str, ValueType]] = [],
     outputs: list[tuple[str, ValueType]] = [("output", ValueType.any)],
+    output_descriptions: dict[str, str] | None = None,
     retry: bool = False,
     error_branch: bool = False,
     block_kind: Literal["business_workflow", "agent_architecture", "legacy_compatibility"] = "business_workflow",
@@ -1921,6 +1937,7 @@ def _definition(
     available: bool = True,
 ) -> BlockDefinition:
     manual = manual or _manual(block_type, title, description, "Business workflow primitive")
+    output_descriptions = output_descriptions or {}
     return BlockDefinition(
         type=block_type,
         title=title,
@@ -1929,7 +1946,14 @@ def _definition(
         block_kind=block_kind,
         config_schema=config.model_json_schema(),
         input_ports=[PortDefinition(name=name, value_type=value_type) for name, value_type in inputs],
-        output_ports=[PortDefinition(name=name, value_type=value_type) for name, value_type in outputs],
+        output_ports=[
+            PortDefinition(
+                name=name,
+                value_type=value_type,
+                description=output_descriptions.get(name, ""),
+            )
+            for name, value_type in outputs
+        ],
         supports_retry=retry,
         supports_error_branch=error_branch,
         available=available,
@@ -2343,6 +2367,16 @@ def build_block_registry() -> BlockRegistry:
                     ("evidence", ValueType.object),
                     ("output", ValueType.object),
                 ],
+                output_descriptions={
+                    "match": (
+                        "Null unless status is matched; otherwise contains index, score, "
+                        "and the selected original record at match.candidate."
+                    ),
+                    "candidates": (
+                        "Ranked candidate evidence; each item keeps the original record "
+                        "under candidate."
+                    ),
+                },
                 error_branch=True,
                 manual=_record_pipeline_manual("record_match"),
             ),

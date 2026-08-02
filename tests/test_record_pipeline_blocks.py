@@ -940,6 +940,12 @@ def test_public_manual_and_runtime_expose_all_generic_record_blocks(
                                             "path": ["output"],
                                         }
                                     },
+                                    "selected_account_id": {
+                                        "$ref": {
+                                            "node_id": "match",
+                                            "path": ["match", "candidate", "account_id"],
+                                        }
+                                    },
                                     "artifact": {
                                         "$ref": {
                                             "node_id": "artifact",
@@ -1017,6 +1023,16 @@ def test_public_manual_and_runtime_expose_all_generic_record_blocks(
             assert manual.status_code == 200, manual.text
             assert manual.json()["data"]["definition"]["type"] == block_type
             assert manual.json()["data"]["manual"]["examples"]
+            if block_type == "record_match":
+                match_port = next(
+                    port
+                    for port in manual.json()["data"]["definition"]["output_ports"]
+                    if port["name"] == "match"
+                )
+                assert "match.candidate" in match_port["description"]
+                assert "record is not an output alias" in " ".join(
+                    manual.json()["data"]["manual"]["composability_constraints"]
+                )
 
         artifact_value = {
             "dataset": "customer-support",
@@ -1101,6 +1117,7 @@ def test_public_manual_and_runtime_expose_all_generic_record_blocks(
             {"account_id": "A-2"},
         ]
         assert data["outputs"]["matching"]["status"] == "matched"
+        assert data["outputs"]["selected_account_id"] == "A-1"
         descriptor = data["outputs"]["artifact"]
         assert descriptor["media_type"] == JSON_MEDIA_TYPE
         assert len(data["artifacts"]) == 1
@@ -1134,5 +1151,7 @@ def test_registry_is_generic_and_contains_a_non_source_business_example() -> Non
     manuals = [registry.manual(block_type) for block_type in block_types]
     serialized = json.dumps(manuals, ensure_ascii=False).casefold()
     assert "customer service request" in serialized
+    assert '"path": ["match", "candidate"]' in serialized
+    assert "record is not an output alias" in serialized
     assert "connector_id" not in serialized
     assert all(registry.get(item).block_kind == "business_workflow" for item in block_types)
