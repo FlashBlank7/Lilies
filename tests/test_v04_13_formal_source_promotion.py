@@ -15,6 +15,7 @@ import pytest
 import httpx
 from fastapi import FastAPI
 
+import agent_platform.formal_source_provenance as formal_source_provenance
 from agent_platform.collaboration_api import install_collaboration_api
 from agent_platform.formal_source_provenance import (
     DEVELOPER_SOURCE_MANIFEST_FILE,
@@ -484,6 +485,96 @@ print(json.dumps({
         for path, content in result["files"].items()
     }
     return result
+
+
+def test_effective_promotion_reuses_projection_when_head_is_promoted_commit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context = _setup_projection(tmp_path)
+    workspace = context["workspace"]
+    coordinator = context["coordinator"]
+    assert isinstance(workspace, Path)
+    assert isinstance(coordinator, FormalSourceProvenanceCoordinator)
+    _write(
+        workspace / "source/tests/test_example.py",
+        "def test_promoted():\n    assert True\n",
+    )
+    receipt = _promote(context)
+
+    calls: list[str] = []
+    original = formal_source_provenance._projected_tree_entries
+
+    def counted_projection(
+        repository: formal_source_provenance._GitRepository,
+        commit_sha: str,
+    ) -> list[formal_source_provenance.DeveloperSourceProjectionEntry]:
+        calls.append(commit_sha)
+        return original(repository, commit_sha)
+
+    monkeypatch.setattr(
+        formal_source_provenance,
+        "_projected_tree_entries",
+        counted_projection,
+    )
+
+    assert coordinator.promoted_response_is_effective(
+        assignment_id=context["assignment_id"],
+        channel_id=context["channel_id"],
+        report_id=context["report_id"],
+        report_revision=4,
+        response_id=context["response_id"],
+        commit_sha=receipt.commit_sha,
+    )
+    assert calls == [receipt.commit_sha]
+
+
+def test_effective_promotion_scans_path_disjoint_descendant_separately(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    context = _setup_projection(tmp_path)
+    repository = context["repository"]
+    workspace = context["workspace"]
+    coordinator = context["coordinator"]
+    assert isinstance(repository, Path)
+    assert isinstance(workspace, Path)
+    assert isinstance(coordinator, FormalSourceProvenanceCoordinator)
+    _write(
+        workspace / "source/tests/test_example.py",
+        "def test_promoted():\n    assert True\n",
+    )
+    receipt = _promote(context)
+    _write(repository / "docs/note.md", "path-disjoint descendant\n")
+    _git(repository, "add", "docs/note.md")
+    _git(repository, "commit", "-m", "path-disjoint descendant")
+    descendant = _git(repository, "rev-parse", "HEAD")
+
+    calls: list[str] = []
+    original = formal_source_provenance._projected_tree_entries
+
+    def counted_projection(
+        git_repository: formal_source_provenance._GitRepository,
+        commit_sha: str,
+    ) -> list[formal_source_provenance.DeveloperSourceProjectionEntry]:
+        calls.append(commit_sha)
+        return original(git_repository, commit_sha)
+
+    monkeypatch.setattr(
+        formal_source_provenance,
+        "_projected_tree_entries",
+        counted_projection,
+    )
+
+    assert coordinator.promoted_response_is_effective(
+        assignment_id=context["assignment_id"],
+        channel_id=context["channel_id"],
+        report_id=context["report_id"],
+        report_revision=4,
+        response_id=context["response_id"],
+        commit_sha=receipt.commit_sha,
+    )
+    assert calls == [receipt.commit_sha, descendant]
 
 
 def test_projection_promotes_exact_delta_and_preserves_unrelated_dirty_state(

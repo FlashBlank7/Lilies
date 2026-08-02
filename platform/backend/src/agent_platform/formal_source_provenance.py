@@ -3965,13 +3965,15 @@ class FormalSourceProvenanceCoordinator:
                 receipt.commit_sha,
             )
         }
-        head_entries = {
-            entry.path: (entry.mode, entry.blob_sha)
-            for entry in _projected_tree_entries(
-                self._repository,
-                head_commit,
-            )
-        }
+        head_entries = target_entries
+        if head_commit != receipt.commit_sha:
+            head_entries = {
+                entry.path: (entry.mode, entry.blob_sha)
+                for entry in _projected_tree_entries(
+                    self._repository,
+                    head_commit,
+                )
+            }
         if self._repository.descendant_history_touches_paths(
             ancestor=receipt.commit_sha,
             descendant=head_commit,
