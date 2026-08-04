@@ -42,6 +42,7 @@ from agent_platform.local_lilies_bridge import (
     LocalLiliesBridgeStore,
     LocalLiliesBridgeUnavailable,
     StartFormalLocalLiliesBuildRequest,
+    _safe_daemon_rejection_details,
 )
 from agent_platform.local_lilies_client import LocalLiliesRemoteError
 from agent_platform.platform_blackbox_artifacts import PlatformBlackboxArtifactStore
@@ -269,6 +270,16 @@ class RejectSubmissionOnceFormalDaemon(FormalDaemonClient):
             raise LocalLiliesRemoteError(
                 422,
                 "public assignment schema is temporarily incompatible",
+                {
+                    "detail": [
+                        {
+                            "type": "missing",
+                            "loc": ["body", "constraints", "deadline_at"],
+                            "msg": "SENSITIVE prose must not cross the bridge",
+                            "input": {"SENSITIVE": "value"},
+                        }
+                    ]
+                },
             )
         return await super().submit_assignment(
             base_url,
@@ -502,11 +513,19 @@ async def test_explicit_resume_retries_same_unbound_preacceptance_assignment(
     )
 
     with _real_health_endpoints(package):
-        with pytest.raises(LocalLiliesBridgeDaemonRejected):
+        with pytest.raises(LocalLiliesBridgeDaemonRejected) as captured:
             await bridge.start_formal_build(
                 application_id,
                 formal_request(connection.connection_id),
             )
+        assert captured.value.details["daemon_status_code"] == 422
+        assert captured.value.details["validation_issues"] == [
+            {
+                "location": ["body", "constraints", "deadline_at"],
+                "type": "missing",
+            }
+        ]
+        assert "SENSITIVE" not in json.dumps(captured.value.public_detail())
         failed = (
             await bridge.store.list_assignments_for_application(application_id)
         )[0]
@@ -529,6 +548,18 @@ async def test_explicit_resume_retries_same_unbound_preacceptance_assignment(
     assert recovered.phase is BridgeAssignmentPhase.running
     assert daemon.assignment_side_effects == 1
     assert len(daemon.submitted_assignments) == 1
+
+
+def test_daemon_rejection_projection_omits_unstructured_sensitive_payload() -> None:
+    projected = _safe_daemon_rejection_details(
+        LocalLiliesRemoteError(
+            409,
+            "SENSITIVE daemon message",
+            {"detail": "SENSITIVE unstructured detail"},
+        )
+    )
+
+    assert projected == {"daemon_status_code": 409}
 
 
 @pytest.mark.asyncio

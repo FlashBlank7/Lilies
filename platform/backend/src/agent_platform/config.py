@@ -7,6 +7,8 @@ from typing import Literal
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from .lilies_platform_contract import PLATFORM_CONTRACT_VERSION
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
@@ -89,7 +91,11 @@ class Settings(BaseSettings):
     complexity_router_default_mode: Literal["disabled", "shadow_only", "operator_opt_in", "limited_default"] = "limited_default"
     complexity_router_limited_default_enabled: bool = True
     complexity_router_limited_default_min_confidence: float = 0.55
-    lilies_platform_contract_version: int = Field(default=1, ge=1, le=2**63 - 1)
+    lilies_platform_contract_version: int = Field(
+        default=PLATFORM_CONTRACT_VERSION,
+        ge=1,
+        le=2**63 - 1,
+    )
     # v0.4.13 rollout gates.  The local daemon route remains opt-in until its
     # deterministic and browser evidence is complete; collaboration and the
     # product-wide default have later, independent gates.
@@ -99,6 +105,7 @@ class Settings(BaseSettings):
     lilies_collaboration_developer_token: str = Field(default="", repr=False)
     lilies_collaboration_verifier_token: str = Field(default="", repr=False)
     lilies_formal_hidden_seed_key: str = Field(default="", repr=False)
+    lilies_formal_public_guidance_path: Path | None = None
     lilies_developer_worker_executable: Path | None = None
     lilies_collaborative_development_enabled: bool = False
     lilies_collaborative_development_signing_key: str = Field(

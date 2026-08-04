@@ -2513,7 +2513,11 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
     from .independent_verifier_broker import (
         run_independent_verifier_subprocess,
     )
-    from .task_packages import TaskPackageError, TaskPackageManager
+    from .task_packages import (
+        PUBLIC_BUILDER_GUIDANCE_FILE,
+        TaskPackageError,
+        TaskPackageManager,
+    )
 
     task_packages = TaskPackageManager(settings.data_dir / "task-packages")
     collaboration_store = CollaborationStore(
@@ -2846,6 +2850,15 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
             developer_source_root=repository_root,
             developer_workspace_root=(settings.workspace_root / "formal-developer-assignments"),
             source_provenance=formal_source_provenance,
+            supplemental_public_materials=(
+                {
+                    PUBLIC_BUILDER_GUIDANCE_FILE: (
+                        settings.lilies_formal_public_guidance_path
+                    )
+                }
+                if settings.lilies_formal_public_guidance_path is not None
+                else None
+            ),
         )
 
         from .formal_developer_worker_broker import (

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any
 from uuid import uuid4
@@ -12,6 +13,7 @@ import pytest
 from pydantic import ValidationError
 
 import agent_platform.formal_assignment_broker as formal_assignment_broker_module
+import agent_platform.task_packages as task_packages_module
 from agent_platform.formal_assignment_broker import (
     FormalAssignmentBroker,
     FormalAssignmentBrokerConflict,
@@ -25,11 +27,13 @@ from agent_platform.lilies_models import (
     PlatformScope,
 )
 from agent_platform.task_packages import (
+    PUBLIC_BUILDER_GUIDANCE_FILE,
     TaskPackageManager,
     TaskPackageNotReady,
     TaskPackageSecurityError,
     WorkspaceMountManifest,
     formal_platform_scopes,
+    workspace_supplemental_materials_digest,
 )
 from tests.test_v04_13_task_packages import (
     ORACLE_MARKER,
@@ -101,6 +105,8 @@ def _request(**updates: Any) -> PrepareFormalAssignmentRequest:
 def _setup(
     tmp_path: Path,
     providers: _Providers | None = None,
+    *,
+    supplemental_public_materials: dict[str, Path] | None = None,
 ) -> tuple[FormalAssignmentBroker, Any, Path, Path, _Providers]:
     task_state = tmp_path / "sealed-task-state"
     source = _make_task_source(tmp_path / "task-source")
@@ -143,6 +149,7 @@ def _setup(
         environment_secret_resolver=_environment_secret_resolver,
         developer_source_root=developer_source_root,
         developer_workspace_root=tmp_path / "developer-workspaces",
+        supplemental_public_materials=supplemental_public_materials,
     )
     return broker, package, task_state, workspace_root, selected
 
@@ -217,6 +224,8 @@ def test_broker_prepares_exact_public_bundle_from_sealed_package(
         )
     )
     assert "sealed_package_digest" not in public_manifest
+    assert "supplemental_public_materials" not in public_manifest
+    assert "supplemental_public_materials_digest" not in public_manifest
     assert prepared.digests.public_summary_digest == task_ref.public_summary_digest
     assert prepared.digests.environment_ready_digest == task_ref.environment_ready_digest
     assert prepared.workspace.manifest_digest == task_ref.workspace_mount_digest
@@ -256,6 +265,115 @@ def test_broker_workspace_has_no_protected_repository_or_platform_data(
         )
     assert not (workspace / ".git").exists()
     assert not (workspace / "protected").exists()
+
+
+def test_broker_adds_digest_bound_guidance_without_changing_frozen_package(
+    tmp_path: Path,
+) -> None:
+    guidance = tmp_path / "public-builder-guidance.md"
+    guidance_payload = (
+        b"# Public Builder Operating Guide\n\nVersion: 1.0\n\n"
+        b"Discover public descriptors, plan the whole flow, and stop on new "
+        b"error categories.\n"
+    )
+    guidance.write_bytes(guidance_payload)
+    broker, package, task_state, _, _ = _setup(
+        tmp_path,
+        supplemental_public_materials={
+            PUBLIC_BUILDER_GUIDANCE_FILE: guidance,
+        },
+    )
+    frozen_digests = (
+        package.record.public_summary_digest,
+        package.record.sealed_package_digest,
+    )
+    request = _request()
+
+    with _real_health_endpoints(package):
+        prepared = broker.prepare(request)
+
+    reloaded = TaskPackageManager(task_state).load_frozen(
+        package.task.task_id,
+        package.task.revision,
+    )
+    assert (
+        reloaded.record.public_summary_digest,
+        reloaded.record.sealed_package_digest,
+    ) == frozen_digests
+    workspace = Path(prepared.workspace.path)
+    manifest = WorkspaceMountManifest.model_validate_json(
+        (workspace / ".lilies-mount-manifest.json").read_bytes()
+    )
+    manifest_payload = manifest.model_dump(mode="json", exclude_none=True)
+    legacy_projection = dict(manifest_payload)
+    legacy_projection.pop("supplemental_public_materials")
+    legacy_projection.pop("supplemental_public_materials_digest")
+    legacy_digest = "sha256:" + hashlib.sha256(
+        json.dumps(
+            legacy_projection,
+            ensure_ascii=False,
+            allow_nan=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()
+    assert legacy_digest != prepared.workspace.manifest_digest
+    assert PUBLIC_BUILDER_GUIDANCE_FILE not in {
+        entry.target_path for entry in manifest.entries
+    }
+    assert manifest.supplemental_public_materials is not None
+    assert [
+        entry.target_path for entry in manifest.supplemental_public_materials
+    ] == [PUBLIC_BUILDER_GUIDANCE_FILE]
+    assert manifest.supplemental_public_materials[0].digest == (
+        "sha256:"
+        + hashlib.sha256(guidance_payload).hexdigest()
+    )
+    assert manifest.supplemental_public_materials_digest == (
+        workspace_supplemental_materials_digest(
+            manifest.supplemental_public_materials
+        )
+    )
+    assert (workspace / PUBLIC_BUILDER_GUIDANCE_FILE).read_bytes() == (
+        guidance_payload
+    )
+    forbidden = {
+        ".git",
+        "source",
+        "database",
+        "protected",
+        "oracle",
+    }
+    assert not any(
+        forbidden.intersection(
+            part.casefold() for part in path.relative_to(workspace).parts
+        )
+        for path in workspace.rglob("*")
+    )
+
+
+def test_broker_rejects_forbidden_assistance_in_public_guidance(
+    tmp_path: Path,
+) -> None:
+    guidance = tmp_path / "unsafe-public-builder-guidance.md"
+    guidance.write_text(
+        "# Public Builder Operating Guide\n\nVersion: 1.0\n\n"
+        "Use the oracle answer directly.\n",
+        encoding="utf-8",
+    )
+    broker, package, _, _, _ = _setup(
+        tmp_path,
+        supplemental_public_materials={
+            PUBLIC_BUILDER_GUIDANCE_FILE: guidance,
+        },
+    )
+    request = _request()
+
+    with _real_health_endpoints(package), pytest.raises(
+        TaskPackageSecurityError,
+        match="scenario-specific or forbidden assistance",
+    ):
+        broker.prepare(request)
 
 
 def test_developer_workspace_is_private_filtered_and_bound_to_the_lease_session(
@@ -301,6 +419,40 @@ def test_developer_workspace_is_private_filtered_and_bound_to_the_lease_session(
         broker.resolve_developer_workspace(
             assignment_id=request.assignment_id,
             session_id=uuid4(),
+        )
+
+
+def test_developer_workspace_replay_does_not_require_live_customer_health(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FrozenDateTime(datetime):
+        current = datetime(2030, 1, 1, tzinfo=timezone.utc)
+
+        @classmethod
+        def now(cls, tz: object | None = None) -> datetime:
+            value = cls.current
+            return value if tz is not None else value.replace(tzinfo=None)
+
+    monkeypatch.setattr(task_packages_module, "datetime", FrozenDateTime)
+    broker, package, _, _, _ = _setup(tmp_path)
+    request = _request()
+    with _real_health_endpoints(package):
+        prepared = broker.prepare(request)
+
+    FrozenDateTime.current = (
+        prepared.assignment.constraints.deadline_at + timedelta(seconds=1)
+    )
+
+    developer = broker.resolve_developer_workspace(
+        assignment_id=request.assignment_id,
+        session_id=request.session_id,
+    )
+    assert developer.assignment_id == request.assignment_id
+    with pytest.raises(TaskPackageNotReady, match="environment-ready is stale"):
+        broker.resolve_prepared_assignment(
+            assignment_id=request.assignment_id,
+            session_id=request.session_id,
         )
 
 

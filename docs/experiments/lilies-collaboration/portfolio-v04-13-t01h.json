@@ -1,12 +1,15 @@
 {
-  "schema_version": "1.0",
+  "schema_version": "1.1",
   "portfolio_id": "PORT-LILIES-V04-13-T01H",
   "stage_task_id": "V04-13-T01H",
-  "contract_revision": 3,
+  "contract_revision": 8,
+  "selection_contract_revision": 3,
   "selection_status": "locked",
-  "execution_status": "awaiting_prior_project_resolution",
-  "approved_at": "2026-07-25",
-  "approval_ref": "User approved continuing with approximately six real projects organized by distinct capability families, executed one by one, with iterations under each project and reusable platform supplementation tracked separately.",
+  "execution_status": "r8_codex_fallback_in_progress",
+  "approved_at": "2026-08-02",
+  "approval_ref": "User instructions through 2026-08-02 authorize one bounded Lilies-first attempt followed by fresh isolated Codex fallback Builders under contract revision 8; historical actors and outcomes remain unchanged.",
+  "selection_approval_ref": "User approved continuing with approximately six real projects organized by distinct capability families, executed one by one, with iterations under each project and reusable platform supplementation tracked separately.",
+  "selection_approved_at": "2026-07-25",
   "required_project_count": 6,
   "execution_policy": {
     "mode": "strictly_sequential",
@@ -60,6 +63,34 @@
     "portfolio_average_cannot_mask_project_failure": true,
     "provider_egress_default": "disabled"
   },
+  "r8_builder_actor_policy": {
+    "historical_attempt_relabeling_forbidden": true,
+    "lilies": {
+      "formal_builder_actor": "lilies",
+      "builder_actor": "lilies",
+      "daemon_access_required": true,
+      "daemon_discovery_phase": "required",
+      "explicit_pairing_phase": "required"
+    },
+    "codex_fallback": {
+      "formal_builder_actor": "codex",
+      "builder_actor": "codex_fallback",
+      "daemon_access_required": false,
+      "daemon_discovery_phase": "zero_duration_not_applicable",
+      "explicit_pairing_phase": "zero_duration_not_applicable",
+      "requires_bounded_failed_lilies_attempt": true,
+      "requires_fresh_empty_application_environment_assignment_session": true,
+      "requires_fresh_isolated_public_only_context": true
+    }
+  },
+  "project_status_semantics": {
+    "projects_status_field": "historical_pre_r8_manifest_status",
+    "r8_final_status_source": "fresh signed per-attempt evidence only",
+    "pre_r8_pass_cannot_satisfy_r8_final": true
+  },
+  "r8_final_receipt_trust_root": null,
+  "r8_final_receipt_trust_root_digest": null,
+  "r8_final_attempt_records": [],
   "cohort_policy": {
     "primary_target": "traditional_enterprise",
     "enterprise_projects": [
@@ -93,6 +124,7 @@
   ],
   "authorized_intent_ids": [
     "EVAL-003",
+    "GOV-002",
     "PRODUCT-001",
     "PRODUCT-010",
     "PRODUCT-011",

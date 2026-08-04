@@ -1098,6 +1098,66 @@ def test_operation_semantics_overlay_is_deterministic_and_binds_registration(
             )
 
 
+def test_operation_runtime_semantics_overlay_is_public_and_applied(
+    tmp_path: Path,
+) -> None:
+    body = operation_semantics_generation_body(
+        "https://lease.example",
+        overlays=[
+            {
+                "operation_id": "createLease",
+                "idempotency_semantics": "request_key",
+                "retryable_status_codes": [409, 503],
+                "max_attempts": 5,
+            }
+        ],
+    )
+    body["include_operation_ids"] = ["createLease"]
+
+    with TestClient(create_app(settings(tmp_path))) as client:
+        public_schema = client.get("/openapi.json").json()["components"]["schemas"]
+        overlay_schema = public_schema["OpenAPIOperationSemanticsOverlay"]
+        properties = overlay_schema["properties"]
+        assert properties["idempotency_semantics"]["anyOf"][0]["enum"] == [
+            "none",
+            "request_key",
+        ]
+        retry_schema = properties["retryable_status_codes"]["anyOf"][0]
+        assert retry_schema["maxItems"] == 20
+        assert properties["retryable_status_codes"]["uniqueItems"] is True
+        assert retry_schema["items"] == {
+            "maximum": 599,
+            "minimum": 400,
+            "type": "integer",
+        }
+        attempts_schema = properties["max_attempts"]["anyOf"][0]
+        assert attempts_schema["minimum"] == 1
+        assert attempts_schema["maximum"] == 20
+
+        response = client.post(
+            "/api/v1/connectors/generations",
+            headers=HEADERS,
+            json=body,
+        )
+
+    assert response.status_code == 201, response.text
+    generated = response.json()
+    assert generated["operation_selection"]["generated_operation_ids"] == [
+        "createLease"
+    ]
+    operation = generated["manifest"]["operations"][0]
+    assert operation["id"] == "createLease"
+    assert operation["idempotency_semantics"] == "request_key"
+    assert operation["retryable_status_codes"] == [409, 503]
+    assert operation["max_attempts"] == 5
+    provenance = generated["provenance"]["operation_semantics_overlay"]
+    assert provenance["operation_count"] == 1
+    assert provenance["compensate_count"] == 0
+    assert provenance["compensation_binding_count"] == 0
+    assert provenance["overlay_digest"].startswith("sha256:")
+    assert provenance["effective_manifest_digest"].startswith("sha256:")
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("overlays", "message"),
@@ -1224,18 +1284,29 @@ def test_operation_semantics_overlay_rejects_invalid_shape_and_surface_fields() 
             }
         )
 
-    for overlay in (
-        {"operation_id": "deleteLease"},
-        {
-            "operation_id": "deleteLease",
-            "kind": "compensate",
-            "compensation_operation_id": "createLease",
-        },
-    ):
-        with pytest.raises(ValidationError, match="exactly one"):
-            OpenAPIConnectorGenerationRequest.model_validate(
-                {**body, "operation_semantics_overlays": [overlay]}
-            )
+    with pytest.raises(ValidationError, match="at least one"):
+        OpenAPIConnectorGenerationRequest.model_validate(
+            {
+                **body,
+                "operation_semantics_overlays": [
+                    {"operation_id": "deleteLease"}
+                ],
+            }
+        )
+
+    with pytest.raises(ValidationError, match="at most one"):
+        OpenAPIConnectorGenerationRequest.model_validate(
+            {
+                **body,
+                "operation_semantics_overlays": [
+                    {
+                        "operation_id": "deleteLease",
+                        "kind": "compensate",
+                        "compensation_operation_id": "createLease",
+                    }
+                ],
+            }
+        )
 
     with pytest.raises(ValidationError):
         OpenAPIConnectorGenerationRequest.model_validate(
@@ -1252,7 +1323,6 @@ def test_operation_semantics_overlay_rejects_invalid_shape_and_surface_fields() 
         {"path": "/replacement"},
         {"security": []},
         {"success_status_codes": [200]},
-        {"idempotency_semantics": "request_key"},
     ):
         with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
             OpenAPIConnectorGenerationRequest.model_validate(
@@ -1263,6 +1333,28 @@ def test_operation_semantics_overlay_rejects_invalid_shape_and_surface_fields() 
                             "operation_id": "deleteLease",
                             "kind": "compensate",
                             **unsafe_field,
+                        }
+                    ],
+                }
+            )
+
+    for invalid_runtime_semantics in (
+        {"idempotency_semantics": "best_effort"},
+        {"retryable_status_codes": [399]},
+        {"retryable_status_codes": [600]},
+        {"retryable_status_codes": [503, 503]},
+        {"retryable_status_codes": list(range(400, 421))},
+        {"max_attempts": 0},
+        {"max_attempts": 21},
+    ):
+        with pytest.raises(ValidationError):
+            OpenAPIConnectorGenerationRequest.model_validate(
+                {
+                    **body,
+                    "operation_semantics_overlays": [
+                        {
+                            "operation_id": "createLease",
+                            **invalid_runtime_semantics,
                         }
                     ],
                 }

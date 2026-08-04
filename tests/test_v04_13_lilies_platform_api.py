@@ -433,7 +433,7 @@ def test_draft_contract_drift_and_payload_aware_exact_once(tmp_path: Path) -> No
         assert conflict.status_code == 409
         assert conflict.json()["error"]["code"] == "idempotency_conflict"
 
-        settings.lilies_platform_contract_version = 2
+        settings.lilies_platform_contract_version += 1
         drift = _request(
             client,
             "GET",
@@ -761,6 +761,7 @@ def test_contract_version_gate_persists_upgrade_and_rejects_process_rollback(
     tmp_path: Path,
 ) -> None:
     first_settings = _settings(tmp_path)
+    first_settings.lilies_platform_contract_version = 1
     first_app = create_app(first_settings, ScriptedProvider())
     with TestClient(first_app) as client:
         headers, _, _, _, _ = _issue(client)
@@ -789,7 +790,9 @@ def test_contract_version_gate_persists_upgrade_and_rejects_process_rollback(
         assert upgraded.status_code == 200, upgraded.text
         assert upgraded.json()["data"]["contract_version"] == 2
 
-    rolled_back_app = create_app(_settings(tmp_path), ScriptedProvider())
+    rolled_back_settings = _settings(tmp_path)
+    rolled_back_settings.lilies_platform_contract_version = 1
+    rolled_back_app = create_app(rolled_back_settings, ScriptedProvider())
     with pytest.raises(PlatformContractVersionRollback):
         with TestClient(rolled_back_app):
             pass
@@ -799,6 +802,7 @@ def test_contract_version_gate_rejects_same_version_schema_drift_at_startup(
     tmp_path: Path,
 ) -> None:
     settings = _settings(tmp_path)
+    settings.lilies_platform_contract_version = 1
     seeded = PlatformContractVersionStore(settings.data_dir / "agent_platform.db")
     asyncio.run(seeded.initialize())
     asyncio.run(seeded.observe(contract_version=1, schema_digest="sha256:" + "f" * 64))
@@ -2115,6 +2119,10 @@ def test_all_sixteen_public_response_schemas_match_real_http_success_data(
             key="response-block-search-0001",
             params={"query": "template"},
         )
+        search_rows = actual["platform_block_search"].json()["data"]  # type: ignore[attr-defined]
+        assert search_rows
+        assert all("config_schema" not in row for row in search_rows)
+        assert all("manual_summary" in row for row in search_rows)
         actual["platform_block_get"] = _request(
             client,
             "GET",

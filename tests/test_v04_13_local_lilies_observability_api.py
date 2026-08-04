@@ -28,6 +28,7 @@ def _snapshot() -> LocalLiliesObservabilitySnapshot:
             "captured_at": "2026-07-26T12:00:00+00:00",
             "activity_revision": 4,
             "model_egress_enabled": False,
+            "max_session_tokens": 1_000_000,
             "usage": {
                 "ledger_cursor": 1,
                 "attempted_calls": 1,
@@ -164,7 +165,17 @@ def test_observability_proxy_requires_platform_token_and_publishes_strict_schema
     assert "credential-bearing internal detail" not in internal_error.text
     assert authenticated.json()["scope"] == "daemon_global"
     assert authenticated.json()["daemon_fingerprint"] == FINGERPRINT
+    assert authenticated.json()["max_session_tokens"] == 1_000_000
     assert schema == {"$ref": "#/components/schemas/LocalLiliesObservabilitySnapshot"}
+    snapshot_schema = openapi["components"]["schemas"][
+        "LocalLiliesObservabilitySnapshot"
+    ]
+    max_session_schema = snapshot_schema["properties"]["max_session_tokens"]
+    assert {
+        "type": "integer",
+        "minimum": 0.0,
+        "maximum": float(4_000_000_000),
+    } in max_session_schema["anyOf"]
     usage_schema = openapi["components"]["schemas"]["LocalLiliesObservabilityUsage"]
     assert usage_schema["properties"]["attempted_calls"]["maximum"] == float(2**63 - 1)
     assert usage_schema["properties"]["input_tokens"]["maximum"] == float(2**63 - 1)

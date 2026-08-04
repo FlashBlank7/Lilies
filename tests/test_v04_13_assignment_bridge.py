@@ -29,6 +29,7 @@ from agent_platform.local_lilies_bridge import (
     LocalLiliesBridgeStore,
     LocalLiliesBridgeUnavailable,
     LocalLiliesAssignment,
+    LocalLiliesBuildConstraints,
     LocalLiliesRelayCursorGap,
     LocalLiliesUsagePage,
     OBSERVABILITY_DAEMON_SCOPES,
@@ -146,6 +147,7 @@ class FakeDaemonClient:
         self.provision_side_effects = 0
         self.assignment_calls = 0
         self.assignment_side_effects = 0
+        self.last_assignment_payload: dict[str, Any] | None = None
         self.resume_calls = 0
         self.cancel_calls = 0
         self.pairing_calls = 0
@@ -393,6 +395,7 @@ class FakeDaemonClient:
         if prior is not None:
             return {**prior, "replayed": True}
         self.assignment_side_effects += 1
+        self.last_assignment_payload = json.loads(json.dumps(payload))
         now = datetime.now(timezone.utc).isoformat()
         receipt = {
             "schema_version": "1.0",
@@ -688,8 +691,8 @@ async def test_bridge_store_migrates_v1_operations_and_rejects_future_schema(
         )
     store = LocalLiliesBridgeStore(db_path)
 
-    assert await store.initialize() == {"schema_version": 8}
-    assert await store.initialize() == {"schema_version": 8}
+    assert await store.initialize() == {"schema_version": 9}
+    assert await store.initialize() == {"schema_version": 9}
     with sqlite3.connect(db_path) as conn:
         columns = {
             str(row[1])
@@ -733,7 +736,7 @@ async def test_bridge_store_migrates_v1_operations_and_rejects_future_schema(
         "formal_terminal_archive_manifest_digest",
         "formal_terminal_archive_completed_at",
     } <= assignment_columns
-    assert versions == [1, 2, 3, 4, 5, 6, 7, 8]
+    assert versions == [1, 2, 3, 4, 5, 6, 7, 8, 9]
     with pytest.raises(RuntimeError, match="newer than supported"):
         await store.initialize()
 
@@ -783,6 +786,81 @@ async def test_feature_gate_loopback_and_explicit_none_policy_fail_closed(
     )
     with pytest.raises(ValueError, match="forbidden plaintext"):
         StartLocalLiliesBuildRequest.model_validate(secret_payload)
+
+
+@pytest.mark.asyncio
+async def test_customer_build_projects_explicit_connector_authority(
+    tmp_path: Path,
+) -> None:
+    _, workflow, harness, auth = await platform_parts(tmp_path)
+    daemon = FakeDaemonClient()
+    bridge = bridge_for(
+        tmp_path,
+        workflow=workflow,
+        harness=harness,
+        auth=auth,
+        daemon=daemon,
+    )
+    connection = await pair(bridge)
+    application_id = await empty_application(workflow, "customer-connectors")
+    request = build_request(connection.connection_id, "customer-connectors")
+    request.constraints = LocalLiliesBuildConstraints(
+        allowed_hosts=["127.0.0.1"],
+        model_access=False,
+        connector_access=True,
+        readable_host_objects=["erp.orders.list"],
+        writable_host_operations=["erp.orders.update"],
+        permission_required_actions=["erp.orders.update"],
+        max_write_count=12,
+        max_payload_bytes=2 * 1024 * 1024,
+    )
+
+    assignment = await bridge.start_build(application_id, request)
+
+    credential_ref = (
+        "platform-task-credential:"
+        f"{uuid5(NAMESPACE_URL, f'lilies:platform-task-credential:{assignment.assignment_id}')}"
+    )
+    credential = await auth.get_credential(credential_ref)
+    assert credential.connector_access is True
+    assert credential.model_access is False
+    assert credential.allowed_network_hosts == ["127.0.0.1"]
+    assert credential.readable_host_objects == ["erp.orders.list"]
+    assert credential.writable_host_operations == ["erp.orders.update"]
+    assert credential.permission_required_actions == ["erp.orders.update"]
+    assert credential.max_write_count == 12
+    assert credential.max_payload_bytes == 2 * 1024 * 1024
+    assert credential.allowed_actions_digest is not None
+    assert credential.budget_digest is not None
+    assert "platform_connector_authorization_issue" in {
+        operation.value for operation in credential.allowed_operations
+    }
+    assert daemon.last_assignment_payload is not None
+    constraints = daemon.last_assignment_payload["constraints"]
+    assert constraints["connector_access"] is True
+    assert constraints["model_access"] is False
+    assert constraints["readable_host_objects"] == ["erp.orders.list"]
+    assert constraints["writable_host_operations"] == ["erp.orders.update"]
+    assert constraints["max_write_count"] == 12
+    assert "platform_connector_authorization_issue" in constraints["allowed_actions"]
+
+
+def test_customer_connector_constraints_fail_closed() -> None:
+    with pytest.raises(ValueError, match="requires connector_access"):
+        LocalLiliesBuildConstraints(
+            readable_host_objects=["crm.accounts.get"],
+        )
+    with pytest.raises(ValueError, match="require max_write_count"):
+        LocalLiliesBuildConstraints(
+            connector_access=True,
+            writable_host_operations=["crm.accounts.update"],
+        )
+    with pytest.raises(ValueError, match="must be writable host operations"):
+        LocalLiliesBuildConstraints(
+            connector_access=True,
+            readable_host_objects=["crm.accounts.get"],
+            permission_required_actions=["crm.accounts.update"],
+        )
 
 
 @pytest.mark.asyncio

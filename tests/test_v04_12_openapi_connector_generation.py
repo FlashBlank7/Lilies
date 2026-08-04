@@ -156,6 +156,40 @@ class MultipartContractHandler(BaseHTTPRequestHandler):
         del format, args
 
 
+class IsolatedLiveMutationContractHandler(BaseHTTPRequestHandler):
+    received_authorization: list[str] = []
+    received_bodies: list[dict[str, Any]] = []
+    response_secret = "isolated-live-response-secret"
+
+    def do_POST(self) -> None:  # noqa: N802
+        if self.path != "/items":
+            self.send_response(404)
+            self.end_headers()
+            return
+        length = int(self.headers.get("Content-Length", "0"))
+        body = json.loads(self.rfile.read(length) if length else b"{}")
+        type(self).received_bodies.append(body)
+        type(self).received_authorization.append(
+            self.headers.get("Authorization", "")
+        )
+        payload = json.dumps(
+            {
+                "id": "isolated-live-created",
+                "name": body.get("name", ""),
+                "meta": {"source": "contract"},
+                "secret_token": type(self).response_secret,
+            }
+        ).encode()
+        self.send_response(201)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def log_message(self, format: str, *args: Any) -> None:
+        del format, args
+
+
 @contextmanager
 def generated_contract_server() -> Iterator[str]:
     GeneratedContractHandler.received_headers = []
@@ -181,6 +215,24 @@ def multipart_contract_server() -> Iterator[str]:
     MultipartContractHandler.received_content_type = ""
     MultipartContractHandler.received_body = b""
     server = ThreadingHTTPServer(("127.0.0.1", 0), MultipartContractHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_port}"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)
+
+
+@contextmanager
+def isolated_live_mutation_contract_server() -> Iterator[str]:
+    IsolatedLiveMutationContractHandler.received_authorization = []
+    IsolatedLiveMutationContractHandler.received_bodies = []
+    server = ThreadingHTTPServer(
+        ("127.0.0.1", 0),
+        IsolatedLiveMutationContractHandler,
+    )
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
@@ -666,6 +718,170 @@ def test_api_generates_tests_and_registers_without_authored_manifest(tmp_path: P
             assert repeated.json()["id"] == generation_id
 
 
+def test_live_mutation_contract_requires_double_opt_in_and_redacts_evidence(
+    tmp_path: Path,
+) -> None:
+    owner_secret = "isolated-live-owner-secret"
+    with isolated_live_mutation_contract_server() as base_url:
+        document = openapi_document()
+        item_schema = document["components"]["schemas"]["Item"]
+        item_schema["properties"]["secret_token"] = {"type": "string"}
+        item_schema["required"].append("secret_token")
+        body = generation_body(base_url, document)
+        body.update(
+            {
+                "connector_id": "generated_isolated_live_inventory",
+                "include_operation_ids": ["createItem"],
+            }
+        )
+        body["deployment"].update(
+            {
+                "environment": "live",
+                "claim_ceiling": "H4",
+            }
+        )
+
+        with TestClient(create_app(settings(tmp_path))) as client:
+            request_schema = client.get("/openapi.json").json()["components"][
+                "schemas"
+            ]["ConnectorContractRunRequest"]
+            isolation_flag_schema = request_schema["properties"][
+                "allow_isolated_live_mutations"
+            ]
+            assert isolation_flag_schema["default"] is False
+            assert isolation_flag_schema["type"] == "boolean"
+            assert "second opt-in" in isolation_flag_schema["description"]
+
+            generation_response = client.post(
+                "/api/v1/connectors/generations",
+                headers=HEADERS,
+                json=body,
+            )
+            assert generation_response.status_code == 201, generation_response.text
+            generation = generation_response.json()
+            generation_id = generation["id"]
+
+            secret_response = client.post(
+                "/api/v1/platform/secrets",
+                headers=HEADERS,
+                json={
+                    "owner_id": "contract-test",
+                    "name": "isolated-live",
+                    "value": owner_secret,
+                },
+            )
+            assert secret_response.status_code == 201, secret_response.text
+            run_base = {
+                "operation_ids": ["createItem"],
+                "owner_id": "contract-test",
+                "secret_ref": "secret://contract-test/isolated-live",
+            }
+
+            default_response = client.post(
+                f"/api/v1/connectors/generations/{generation_id}/contract-runs",
+                headers=HEADERS,
+                json=run_base,
+            )
+            assert default_response.status_code == 201, default_response.text
+            default_run = default_response.json()
+            assert default_run["status"] == "partial"
+            assert default_run["skipped"] == 1
+            assert default_run["unsupported"] == 0
+            default_positive = next(
+                item
+                for item in default_run["results"]
+                if item["case"]["kind"] == "positive"
+            )
+            assert default_positive["actual"] == (
+                "mutating contract requires explicit allow_mutating_operations"
+            )
+
+            generic_only_response = client.post(
+                f"/api/v1/connectors/generations/{generation_id}/contract-runs",
+                headers=HEADERS,
+                json={**run_base, "allow_mutating_operations": True},
+            )
+            assert generic_only_response.status_code == 201
+            generic_only_run = generic_only_response.json()
+            assert generic_only_run["status"] == "partial"
+            assert generic_only_run["skipped"] == 0
+            assert generic_only_run["unsupported"] == 1
+            generic_only_positive = next(
+                item
+                for item in generic_only_run["results"]
+                if item["case"]["kind"] == "positive"
+            )
+            assert generic_only_positive["actual"] == (
+                "live/private mutation contracts require explicit "
+                "allow_isolated_live_mutations"
+            )
+
+            isolation_only_response = client.post(
+                f"/api/v1/connectors/generations/{generation_id}/contract-runs",
+                headers=HEADERS,
+                json={**run_base, "allow_isolated_live_mutations": True},
+            )
+            assert isolation_only_response.status_code == 201
+            isolation_only_run = isolation_only_response.json()
+            assert isolation_only_run["skipped"] == 1
+            assert isolation_only_run["unsupported"] == 0
+            assert IsolatedLiveMutationContractHandler.received_bodies == []
+
+            double_opt_in_response = client.post(
+                f"/api/v1/connectors/generations/{generation_id}/contract-runs",
+                headers=HEADERS,
+                json={
+                    **run_base,
+                    "allow_mutating_operations": True,
+                    "allow_isolated_live_mutations": True,
+                },
+            )
+            assert double_opt_in_response.status_code == 201, double_opt_in_response.text
+            double_opt_in_run = double_opt_in_response.json()
+            assert double_opt_in_run["status"] == "passed"
+            assert double_opt_in_run["passed"] == 2
+            assert double_opt_in_run["skipped"] == 0
+            assert double_opt_in_run["unsupported"] == 0
+            positive = next(
+                item
+                for item in double_opt_in_run["results"]
+                if item["case"]["kind"] == "positive"
+            )
+            assert positive["response_evidence"]["body_preview"]["secret_token"] == "***"
+            assert positive["response_evidence"]["redacted_fields"] == [
+                "$.secret_token"
+            ]
+            assert IsolatedLiveMutationContractHandler.received_bodies == [
+                {"name": "Created"}
+            ]
+            assert IsolatedLiveMutationContractHandler.received_authorization == [
+                "Basic aXNvbGF0ZWQtbGl2ZS1vd25lci1zZWNyZXQ="
+            ]
+
+            listed_response = client.get(
+                f"/api/v1/connectors/generations/{generation_id}/contract-runs",
+                headers=HEADERS,
+            )
+            assert listed_response.status_code == 200
+            for response_text in (
+                generation_response.text,
+                secret_response.text,
+                default_response.text,
+                generic_only_response.text,
+                isolation_only_response.text,
+                double_opt_in_response.text,
+                listed_response.text,
+            ):
+                assert owner_secret not in response_text
+                assert IsolatedLiveMutationContractHandler.response_secret not in response_text
+
+            register_response = client.post(
+                f"/api/v1/connectors/generations/{generation_id}/register",
+                headers=HEADERS,
+            )
+            assert register_response.status_code == 201, register_response.text
+
+
 def test_source_drift_marks_prior_contract_evidence_stale(tmp_path: Path) -> None:
     with generated_contract_server() as base_url:
         with TestClient(create_app(settings(tmp_path))) as client:
@@ -694,6 +910,120 @@ def test_source_drift_marks_prior_contract_evidence_stale(tmp_path: Path) -> Non
             )
             assert stale_run.status_code == 422
             assert "source document changed" in stale_run.text
+
+
+def test_generation_staleness_is_scoped_to_connector_version(tmp_path: Path) -> None:
+    with generated_contract_server() as base_url:
+        with TestClient(create_app(settings(tmp_path))) as client:
+            v1_body = generation_body(
+                base_url,
+                openapi_document(title="Version one inventory API"),
+            )
+            v2_body = generation_body(
+                base_url,
+                openapi_document(title="Version two inventory API"),
+            )
+            v2_body["version"] = 2
+
+            v1_response = client.post(
+                "/api/v1/connectors/generations",
+                headers=HEADERS,
+                json=v1_body,
+            )
+            v2_response = client.post(
+                "/api/v1/connectors/generations",
+                headers=HEADERS,
+                json=v2_body,
+            )
+            assert v1_response.status_code == 201, v1_response.text
+            assert v2_response.status_code == 201, v2_response.text
+            v1 = v1_response.json()
+            v2 = v2_response.json()
+            assert v1["provenance"]["source_digest"] != v2["provenance"]["source_digest"]
+
+            listed = {
+                item["id"]: item
+                for item in client.get(
+                    "/api/v1/connectors/generations",
+                    headers=HEADERS,
+                ).json()
+            }
+            assert listed[v1["id"]]["evidence_stale"] is False
+            assert listed[v2["id"]]["evidence_stale"] is False
+
+            secret_response = client.post(
+                "/api/v1/platform/secrets",
+                headers=HEADERS,
+                json={
+                    "owner_id": "contract-test",
+                    "name": "versioned-generation",
+                    "value": "test:secret",
+                },
+            )
+            assert secret_response.status_code == 201, secret_response.text
+            contract_request = {
+                "allow_mutating_operations": True,
+                "owner_id": "contract-test",
+                "secret_ref": "secret://contract-test/versioned-generation",
+            }
+            for generation in (v1, v2):
+                current_response = client.get(
+                    f"/api/v1/connectors/generations/{generation['id']}",
+                    headers=HEADERS,
+                )
+                assert current_response.status_code == 200, current_response.text
+                assert current_response.json()["evidence_stale"] is False
+                run_response = client.post(
+                    f"/api/v1/connectors/generations/{generation['id']}/contract-runs",
+                    headers=HEADERS,
+                    json=contract_request,
+                )
+                assert run_response.status_code == 201, run_response.text
+                assert run_response.json()["status"] == "passed"
+                register_response = client.post(
+                    f"/api/v1/connectors/generations/{generation['id']}/register",
+                    headers=HEADERS,
+                )
+                assert register_response.status_code == 201, register_response.text
+                assert register_response.json()["version"] == generation["version"]
+
+            drifted_v1_response = client.post(
+                "/api/v1/connectors/generations",
+                headers=HEADERS,
+                json=generation_body(
+                    base_url,
+                    openapi_document(title="Version one inventory API drifted"),
+                ),
+            )
+            assert drifted_v1_response.status_code == 201, drifted_v1_response.text
+            drifted_v1 = drifted_v1_response.json()
+
+            listed_after_drift = {
+                item["id"]: item
+                for item in client.get(
+                    "/api/v1/connectors/generations",
+                    headers=HEADERS,
+                ).json()
+            }
+            assert listed_after_drift[v1["id"]]["evidence_stale"] is True
+            assert listed_after_drift[drifted_v1["id"]]["evidence_stale"] is False
+            assert listed_after_drift[v2["id"]]["evidence_stale"] is False
+
+            stale_v1_run = client.post(
+                f"/api/v1/connectors/generations/{v1['id']}/contract-runs",
+                headers=HEADERS,
+                json=contract_request,
+            )
+            assert stale_v1_run.status_code == 422
+            assert "source document changed" in stale_v1_run.text
+
+            still_valid_v2_registration = client.post(
+                f"/api/v1/connectors/generations/{v2['id']}/register",
+                headers=HEADERS,
+            )
+            assert still_valid_v2_registration.status_code == 201, (
+                still_valid_v2_registration.text
+            )
 
 
 def test_negative_contract_failure_blocks_verified_registration(
@@ -815,6 +1145,65 @@ def test_generated_runtime_preserves_bearer_and_api_key_security(
             assert run["status"] == "passed"
             assert GeneratedContractHandler.received_authorization == [expected_authorization]
             assert GeneratedContractHandler.received_api_keys == [expected_api_key]
+
+
+@pytest.mark.parametrize("auth_prefix", ["Token", "Token "])
+def test_generated_contract_qualification_separates_word_style_api_key_prefixes(
+    tmp_path: Path,
+    auth_prefix: str,
+) -> None:
+    secret = "qualification-secret"
+    with generated_contract_server() as base_url:
+        document = openapi_document()
+        document["security"] = [{"tokenAuth": []}]
+        document["components"]["securitySchemes"] = {
+            "tokenAuth": {
+                "type": "apiKey",
+                "in": "header",
+                "name": "Authorization",
+            }
+        }
+        with TestClient(create_app(settings(tmp_path))) as client:
+            body = generation_body(base_url, document)
+            body["connector_id"] = "generated_token_auth"
+            body["deployment"]["auth_prefix"] = auth_prefix
+            generation_response = client.post(
+                "/api/v1/connectors/generations",
+                headers=HEADERS,
+                json=body,
+            )
+            assert generation_response.status_code == 201
+            generation = generation_response.json()
+
+            secret_response = client.post(
+                "/api/v1/platform/secrets",
+                headers=HEADERS,
+                json={
+                    "owner_id": "contract-test",
+                    "name": "token-auth-secret",
+                    "value": secret,
+                },
+            )
+            assert secret_response.status_code == 201
+
+            run_response = client.post(
+                f"/api/v1/connectors/generations/{generation['id']}/contract-runs",
+                headers=HEADERS,
+                json={
+                    "operation_ids": ["getItem"],
+                    "owner_id": "contract-test",
+                    "secret_ref": "secret://contract-test/token-auth-secret",
+                },
+            )
+            assert run_response.status_code == 201
+            run = run_response.json()
+            assert run["status"] == "passed"
+            assert GeneratedContractHandler.received_authorization == [
+                "Token qualification-secret"
+            ]
+            assert secret not in generation_response.text
+            assert secret not in secret_response.text
+            assert secret not in run_response.text
 
 
 @pytest.mark.parametrize(

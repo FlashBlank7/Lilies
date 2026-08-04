@@ -32,6 +32,7 @@ from .task_packages import (
     WorkspaceMountManifest,
     WorkspaceRole,
     parse_task_package_yaml,
+    workspace_supplemental_materials_digest,
 )
 
 
@@ -224,6 +225,25 @@ def _validate_public_assignment_projection(
         raise FormalWorkspaceRejected(
             "formal workspace public package digest differs from the assignment"
         )
+
+    supplemental = manifest.supplemental_public_materials or []
+    supplemental_paths = [entry.target_path for entry in supplemental]
+    if supplemental_paths != sorted(supplemental_paths) or any(
+        entry.logical_source != f"runner-public:{entry.target_path}"
+        for entry in supplemental
+    ):
+        raise FormalWorkspaceRejected(
+            "supplemental public materials are not the canonical runner projection"
+        )
+    if supplemental:
+        aggregate_digest = manifest.supplemental_public_materials_digest
+        if aggregate_digest is None or not hmac.compare_digest(
+            workspace_supplemental_materials_digest(supplemental),
+            aggregate_digest,
+        ):
+            raise FormalWorkspaceRejected(
+                "supplemental public materials changed after projection"
+            )
 
     required_controls = {
         "task.yaml",
@@ -515,7 +535,11 @@ def validate_public_formal_workspace(
     files, directories = _scan_workspace(root)
     declared_paths: set[str] = set()
     allowed_directories = set(_FORMAL_WRITABLE_PREFIXES)
-    for entry in manifest.entries:
+    all_public_entries = [
+        *manifest.entries,
+        *(manifest.supplemental_public_materials or []),
+    ]
+    for entry in all_public_entries:
         relative = _safe_relative(entry.target_path)
         if (
             not entry.read_only
@@ -601,4 +625,13 @@ def validate_public_formal_workspace(
         "environment_ready_digest": task_ref.environment_ready_digest,
         "workspace_mount_digest": manifest_digest,
         "workspace_policy_digest": policy_digest,
+        **(
+            {
+                "supplemental_public_materials_digest": (
+                    manifest.supplemental_public_materials_digest
+                )
+            }
+            if manifest.supplemental_public_materials_digest is not None
+            else {}
+        ),
     }

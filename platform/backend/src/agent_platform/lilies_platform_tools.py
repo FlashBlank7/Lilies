@@ -11,6 +11,7 @@ from .lilies_models import IdempotencyKey
 from .lilies_platform_contract import (
     DEFAULT_ARTIFACT_CHUNK_BYTES,
     MAX_ARTIFACT_CHUNK_BYTES,
+    PUBLIC_OPERATION_DESCRIPTIONS,
     operation_request_schema,
 )
 from .lilies_platform_client import (
@@ -40,7 +41,12 @@ class ContractGetInput(StrictToolInput):
 
 class BlockSearchInput(StrictToolInput):
     query: str = Field(default="", max_length=500)
-    block_kind: str | None = Field(default=None, max_length=120)
+    block_kind: Literal[
+        "business_workflow",
+        "agent_architecture",
+        "legacy_compatibility",
+    ] | None = None
+    limit: int = Field(default=12, ge=1, le=50)
 
 
 class BlockGetInput(StrictToolInput):
@@ -183,35 +189,6 @@ class PublishInput(StrictToolInput):
     idempotency_key: IdempotencyKey
 
 
-_TOOL_DESCRIPTIONS = {
-    "platform_contract_get": "Read and verify the scoped public platform capability contract.",
-    "platform_block_search": "Search public workflow blocks and their manuals.",
-    "platform_block_get": "Read one public block schema, ports, examples, and anti-patterns.",
-    "platform_tool_catalog": "List public workflow-runtime tool contracts.",
-    "platform_connector_authorization_issue": (
-        "Issue one task-policy-bound, exact-payload, single-use connector authorization."
-    ),
-    "platform_application_create": "Create one application owned by this assignment.",
-    "platform_application_get": "Read an assigned application's version summary.",
-    "platform_draft_inspect": "Inspect an assigned draft, revision, graph, tests, and validation.",
-    "platform_draft_apply": "Apply exactly one incremental public DraftOperation.",
-    "platform_tests_run": "Run the assigned draft's complete acceptance suite.",
-    "platform_run_start": "Start an assigned draft or published workflow run.",
-    "platform_run_get": "Inspect an assigned workflow run and its outputs or wait state.",
-    "platform_run_resume": "Resume an assigned run waiting for human or permission input.",
-    "platform_run_cancel": "Cancel an assigned workflow run.",
-    "platform_trace_get": "Read a bounded, secret-redacted structured run trace.",
-    "platform_artifact_read": (
-        "Read one digest-verified, bounded chunk of a run artifact through "
-        "assignment-safe path containment."
-    ),
-    "platform_publish": (
-        "Publish an immutable assigned application version after the Builder's explicit "
-        "decision; platform structural, permission, and execution-safety checks still apply."
-    ),
-}
-
-
 class PlatformHttpTool(LiliesTool):
     requires_permission = False
     handles_input_validation = True
@@ -232,7 +209,7 @@ class PlatformHttpTool(LiliesTool):
     ) -> None:
         self.client = client
         self.name = name
-        self.description = _TOOL_DESCRIPTIONS[name]
+        self.description = PUBLIC_OPERATION_DESCRIPTIONS[name]
         self.input_model = input_model
         self.mutating = mutating
         self.side_effecting = side_effecting

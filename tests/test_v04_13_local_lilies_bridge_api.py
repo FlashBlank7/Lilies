@@ -103,6 +103,42 @@ def test_published_contract_digest_uses_exact_frozen_action_policy(
     assert _governed_host_actions(credential) is True
 
 
+def test_published_contract_digest_accepts_customer_action_tuple(
+    monkeypatch: Any,
+) -> None:
+    observed: dict[str, Any] = {}
+
+    async def current_contract(_services: Any, credential: Any) -> dict[str, str]:
+        observed["credential"] = credential
+        return {"contract_digest": ZERO_DIGEST}
+
+    monkeypatch.setattr(
+        "agent_platform.lilies_platform_api._current_contract",
+        current_contract,
+    )
+    application_id = uuid4()
+    actions = (
+        PlatformBlackboxOperation.contract_get,
+        PlatformBlackboxOperation.draft_apply,
+    )
+
+    digest = asyncio.run(
+        published_platform_contract_digest(
+            object(),
+            PLATFORM_SCOPES,
+            (application_id,),
+            actions,
+        )
+    )
+
+    credential = observed["credential"]
+    assert digest == ZERO_DIGEST
+    assert credential.allowed_operations == tuple(PlatformBlackboxOperation)
+    assert credential.connector_access is False
+    assert credential.allowed_network_hosts == ()
+    assert _governed_host_actions(credential) is False
+
+
 def _settings(
     tmp_path: Path,
     *,
@@ -155,6 +191,7 @@ def _observability_snapshot() -> LocalLiliesObservabilitySnapshot:
             "captured_at": "2026-07-26T12:00:00+00:00",
             "activity_revision": 7,
             "model_egress_enabled": False,
+            "max_session_tokens": 1_000_000,
             "usage": {
                 "ledger_cursor": 3,
                 "attempted_calls": 3,

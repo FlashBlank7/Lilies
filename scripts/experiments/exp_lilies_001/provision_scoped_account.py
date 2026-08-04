@@ -80,6 +80,7 @@ elif HOST == "inventree":
     )
     related_model_permissions = (
         {
+            ("common", "delete_attachment"),
             ("order", "change_purchaseorder"),
         }
         if ROLE == "builder"

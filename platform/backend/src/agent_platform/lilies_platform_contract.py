@@ -21,10 +21,50 @@ from .workflow_models import (
 
 
 PLATFORM_CONTRACT_SCHEMA_VERSION = "1.0"
-PLATFORM_CONTRACT_VERSION = 2
+PLATFORM_CONTRACT_VERSION = 4
 MAX_ARTIFACT_CHUNK_BYTES = 64 * 1024
 DEFAULT_ARTIFACT_CHUNK_BYTES = MAX_ARTIFACT_CHUNK_BYTES
 MAX_REGISTERED_ARTIFACT_BYTES = 2_000_000
+
+
+PUBLIC_OPERATION_DESCRIPTIONS = {
+    "platform_contract_get": (
+        "Read and verify the scoped public platform capability contract."
+    ),
+    "platform_block_search": (
+        "Search a bounded public workflow-block summary catalog; read exact manuals "
+        "with platform_block_get."
+    ),
+    "platform_block_get": (
+        "Read one public block schema, ports, examples, and anti-patterns."
+    ),
+    "platform_tool_catalog": "List public workflow-runtime tool contracts.",
+    "platform_connector_authorization_issue": (
+        "Issue one task-policy-bound, exact-payload, single-use connector authorization."
+    ),
+    "platform_application_create": "Create one application owned by this assignment.",
+    "platform_application_get": "Read an assigned application's version summary.",
+    "platform_draft_inspect": (
+        "Inspect an assigned draft, revision, graph, tests, and validation."
+    ),
+    "platform_draft_apply": "Apply exactly one incremental public DraftOperation.",
+    "platform_tests_run": "Run the assigned draft's complete acceptance suite.",
+    "platform_run_start": "Start an assigned draft or published workflow run.",
+    "platform_run_get": "Inspect an assigned workflow run and its outputs or wait state.",
+    "platform_run_resume": (
+        "Resume an assigned run waiting for human or permission input."
+    ),
+    "platform_run_cancel": "Cancel an assigned workflow run.",
+    "platform_trace_get": "Read a bounded, secret-redacted structured run trace.",
+    "platform_artifact_read": (
+        "Read one digest-verified, bounded chunk of a run artifact through "
+        "assignment-safe path containment."
+    ),
+    "platform_publish": (
+        "Publish an immutable assigned application version after the Builder's explicit "
+        "decision; platform structural, permission, and execution-safety checks still apply."
+    ),
+}
 
 
 def canonical_json(value: Any) -> str:
@@ -205,6 +245,38 @@ def _block_definition_data_schema() -> dict[str, Any]:
     return _model_dump_schema(BlockDefinition)
 
 
+def _block_search_item_data_schema() -> dict[str, Any]:
+    return _closed_schema(
+        {
+            "type": _string(maximum=160),
+            "title": _string(maximum=500),
+            "description": {"type": "string", "maxLength": 4_000},
+            "category": {
+                "enum": [
+                    "input",
+                    "model",
+                    "agent",
+                    "logic",
+                    "transform",
+                    "integration",
+                    "output",
+                ]
+            },
+            "block_kind": {
+                "enum": [
+                    "business_workflow",
+                    "agent_architecture",
+                    "legacy_compatibility",
+                ]
+            },
+            "supports_retry": {"type": "boolean"},
+            "supports_error_branch": {"type": "boolean"},
+            "manual_summary": {"type": "string", "maxLength": 4_000},
+            "when_to_use": _array_schema({"type": "string"}),
+        }
+    )
+
+
 def _block_manual_data_schema() -> dict[str, Any]:
     port = _port_data_schema()
     return _closed_schema(
@@ -290,6 +362,7 @@ def _contract_operation_data_schema() -> dict[str, Any]:
     return _closed_schema(
         {
             "name": _string(maximum=160),
+            "description": _string(maximum=1_000),
             "method": {"enum": ["GET", "POST"]},
             "path": _string(maximum=500),
             "scope": _string(maximum=160),
@@ -1197,6 +1270,7 @@ def _operation(
     error_codes.update(errors)
     return {
         "name": name,
+        "description": PUBLIC_OPERATION_DESCRIPTIONS[name],
         "method": method,
         "path": path,
         "scope": scope.value,
@@ -1239,10 +1313,22 @@ PUBLIC_OPERATION_SPECS: tuple[dict[str, Any], ...] = (
         request_schema=_object_schema(
             {
                 "query": {"type": "string", "maxLength": 500},
-                "block_kind": {"anyOf": [{"type": "string", "maxLength": 120}, {"type": "null"}]},
+                "block_kind": {
+                    "enum": [
+                        "business_workflow",
+                        "agent_architecture",
+                        "legacy_compatibility",
+                    ]
+                },
+                "limit": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 50,
+                    "default": 12,
+                },
             }
         ),
-        data_schema=_array_schema(_block_definition_data_schema()),
+        data_schema=_array_schema(_block_search_item_data_schema()),
         errors=("invalid_request",),
     ),
     _operation(
@@ -1587,6 +1673,29 @@ def public_block_catalog(blocks: Any) -> list[dict[str, Any]]:
         payload["config_schema"] = public_json_schema(payload["config_schema"])
         catalog.append(payload)
     return catalog
+
+
+def public_block_search_catalog(blocks: Any) -> list[dict[str, Any]]:
+    """Return bounded-discovery fields; exact schemas stay on block_get."""
+
+    fields = (
+        "type",
+        "title",
+        "description",
+        "category",
+        "block_kind",
+        "supports_retry",
+        "supports_error_branch",
+        "manual_summary",
+        "when_to_use",
+    )
+    return sorted(
+        (
+            {field: item[field] for field in fields}
+            for item in public_block_catalog(blocks)
+        ),
+        key=lambda item: item["type"],
+    )
 
 
 def public_block_manual(blocks: Any, block_type: str) -> dict[str, Any]:

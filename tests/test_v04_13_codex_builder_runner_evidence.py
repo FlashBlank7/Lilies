@@ -356,6 +356,7 @@ async def test_evidence_bearing_child_is_accounted_without_business_success(
                 "usage": usage,
                 "rollout_budget": _rollout_budget(),
                 "public_api_manual_digest": _digest(b"manual"),
+                "public_builder_guidance_digest": _digest(b"guidance"),
                 "transcript_digest": transcript_digest,
                 "stderr_digest": stderr_digest,
                 "formal_archive_supported": True,
@@ -556,6 +557,7 @@ async def test_tampered_rollout_budget_receipt_fails_closed(
                 "usage": {},
                 "rollout_budget": bad_budget,
                 "public_api_manual_digest": _digest(b"manual"),
+                "public_builder_guidance_digest": _digest(b"guidance"),
                 "formal_archive_supported": True,
             },
         )

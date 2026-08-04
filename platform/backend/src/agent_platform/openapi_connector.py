@@ -8,7 +8,7 @@ import json
 import re
 import socket
 import time
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from urllib.parse import unquote, urlsplit
 from uuid import uuid4
 
@@ -224,9 +224,28 @@ class OpenAPIOperationSemanticsOverlay(BaseModel):
         min_length=1,
         max_length=300,
     )
+    idempotency_semantics: Literal["none", "request_key"] | None = None
+    retryable_status_codes: list[
+        Annotated[int, Field(ge=400, le=599)]
+    ] | None = Field(
+        default=None,
+        max_length=20,
+        json_schema_extra={"uniqueItems": True},
+    )
+    max_attempts: int | None = Field(default=None, ge=1, le=20)
+
+    @field_validator("retryable_status_codes")
+    @classmethod
+    def retryable_status_codes_must_be_unique(
+        cls,
+        value: list[int] | None,
+    ) -> list[int] | None:
+        if value is not None and len(value) != len(set(value)):
+            raise ValueError("retryable_status_codes must contain unique values")
+        return value
 
     @model_validator(mode="after")
-    def exactly_one_semantic_declaration(
+    def validate_semantic_declarations(
         self,
     ) -> OpenAPIOperationSemanticsOverlay:
         kind_present = "kind" in self.model_fields_set and self.kind is not None
@@ -234,10 +253,22 @@ class OpenAPIOperationSemanticsOverlay(BaseModel):
             "compensation_operation_id" in self.model_fields_set
             and self.compensation_operation_id is not None
         )
-        if kind_present == compensation_present:
+        if kind_present and compensation_present:
             raise ValueError(
-                "operation semantics overlay requires exactly one of "
+                "operation semantics overlay allows at most one of "
                 "kind or compensation_operation_id"
+            )
+        runtime_semantics_present = any(
+            field in self.model_fields_set and getattr(self, field) is not None
+            for field in (
+                "idempotency_semantics",
+                "retryable_status_codes",
+                "max_attempts",
+            )
+        )
+        if not kind_present and not compensation_present and not runtime_semantics_present:
+            raise ValueError(
+                "operation semantics overlay requires at least one semantic declaration"
             )
         return self
 
@@ -473,6 +504,14 @@ class ConnectorContractRunRequest(BaseModel):
     secret_ref: str = ""
     external_tenant_id: str = "contract-test"
     allow_mutating_operations: bool = False
+    allow_isolated_live_mutations: bool = Field(
+        default=False,
+        description=(
+            "Owner-controlled second opt-in for mutating contract cases on "
+            "isolated live/private deployments; allow_mutating_operations must "
+            "also be true."
+        ),
+    )
 
 
 class ConnectorContractRun(BaseModel):
@@ -551,10 +590,7 @@ class OpenAPIOperationSemanticsOverlayReconciler:
                 continue
             target_id = overlay.compensation_operation_id
             if target_id is None:
-                raise self._error(
-                    "compensation_operation_id must be present",
-                    location=f"{location}.compensation_operation_id",
-                )
+                continue
             if method == "get":
                 raise self._error(
                     "compensation_operation_id may only be bound to a write operation",
@@ -1662,6 +1698,33 @@ class OpenAPIConnectorGenerator:
                     )
                 )
             operation = by_generated_id[generated_id]
+            operation_updates = updates.setdefault(generated_id, {})
+            if overlay.idempotency_semantics is not None:
+                operation_updates["idempotency_semantics"] = (
+                    overlay.idempotency_semantics
+                )
+            if overlay.retryable_status_codes is not None:
+                overlap = sorted(
+                    set(overlay.retryable_status_codes).intersection(
+                        operation.success_status_codes
+                    )
+                )
+                if overlap:
+                    raise OpenAPIMaterialError(
+                        OpenAPIMaterialLoader._gap(
+                            "IF-04",
+                            "operation_semantics_overlay",
+                            f"{location}.retryable_status_codes",
+                            "retryable status codes overlap generated success "
+                            f"statuses: {overlap}",
+                            fatal=True,
+                        )
+                    )
+                operation_updates["retryable_status_codes"] = list(
+                    overlay.retryable_status_codes
+                )
+            if overlay.max_attempts is not None:
+                operation_updates["max_attempts"] = overlay.max_attempts
             if overlay.kind == "compensate":
                 if operation.method != "DELETE":
                     raise OpenAPIMaterialError(
@@ -1674,14 +1737,12 @@ class OpenAPIConnectorGenerator:
                             fatal=True,
                         )
                     )
-                updates.setdefault(generated_id, {})["kind"] = "compensate"
+                operation_updates["kind"] = "compensate"
                 continue
             target_official_id = overlay.compensation_operation_id
-            target_generated_id = (
-                official_to_generated.get(target_official_id)
-                if target_official_id is not None
-                else None
-            )
+            if target_official_id is None:
+                continue
+            target_generated_id = official_to_generated.get(target_official_id)
             if (
                 target_generated_id is None
                 or target_generated_id not in by_generated_id
@@ -1708,9 +1769,7 @@ class OpenAPIConnectorGenerator:
                         fatal=True,
                     )
                 )
-            updates.setdefault(generated_id, {})[
-                "compensation_operation_id"
-            ] = target_generated_id
+            operation_updates["compensation_operation_id"] = target_generated_id
         updated = [
             operation.model_copy(update=updates.get(operation.id, {}))
             for operation in operations
@@ -2981,13 +3040,18 @@ class OpenAPIConnectorService:
                 "SELECT record_json FROM openapi_connector_generations ORDER BY created_at DESC"
             ).fetchall()
         items = [OpenAPIConnectorGeneration.model_validate_json(row["record_json"]) for row in rows]
-        latest_identity: dict[str, str] = {}
+        latest_identity: dict[tuple[str, int], str] = {}
         for item in items:
-            latest_identity.setdefault(item.connector_id, self._contract_identity(item))
+            latest_identity.setdefault(
+                (item.connector_id, item.version),
+                self._contract_identity(item),
+            )
         return [
             item.model_copy(
                 update={
-                    "evidence_stale": latest_identity[item.connector_id]
+                    "evidence_stale": latest_identity[
+                        (item.connector_id, item.version)
+                    ]
                     != self._contract_identity(item)
                 }
             )
@@ -3007,8 +3071,9 @@ class OpenAPIConnectorService:
             item = OpenAPIConnectorGeneration.model_validate_json(row["record_json"])
             newest = conn.execute(
                 "SELECT record_json FROM openapi_connector_generations "
-                "WHERE connector_id=? ORDER BY created_at DESC LIMIT 1",
-                (item.connector_id,),
+                "WHERE connector_id=? AND version=? "
+                "ORDER BY created_at DESC LIMIT 1",
+                (item.connector_id, item.version),
             ).fetchone()
         newest_item = (
             OpenAPIConnectorGeneration.model_validate_json(newest["record_json"])
@@ -3135,12 +3200,19 @@ class OpenAPIConnectorService:
                     )
                 )
                 continue
-            if operation.mutating and profile.environment in {"live", "private"}:
+            if (
+                operation.mutating
+                and profile.environment in {"live", "private"}
+                and not request.allow_isolated_live_mutations
+            ):
                 results.append(
                     ConnectorContractCaseResult(
                         case=case,
                         status="unsupported",
-                        actual="automatic mutation contracts are restricted to mock/test deployments",
+                        actual=(
+                            "live/private mutation contracts require explicit "
+                            "allow_isolated_live_mutations"
+                        ),
                         executed_input_evidence=executed_input_evidence,
                         duration_ms=0,
                     )

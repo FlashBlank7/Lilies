@@ -5,8 +5,11 @@ import hashlib
 import json
 import shutil
 import sys
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
+
+from tests import test_v04_13_portfolio_rerun as rerun_test_support
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -37,8 +40,8 @@ def copy_validation_fixture(tmp_path: Path) -> Path:
         evolution / "report_intents.json",
     )
     shutil.copy2(
-        ROOT / "docs/evolution-control/stage-contracts/v0.4.13-r3.json",
-        evolution / "stage-contracts/v0.4.13-r3.json",
+        ROOT / "docs/evolution-control/stage-contracts/v0.4.13-r8.json",
+        evolution / "stage-contracts/v0.4.13-r8.json",
     )
     return tmp_path
 
@@ -270,10 +273,25 @@ def test_capability_entry_requires_bound_origin_review_and_rerun(
     assert any("has no affected-project rerun" in error for error in errors)
 
 
-def test_portfolio_cannot_close_with_unpassed_projects(tmp_path: Path) -> None:
+def test_historical_project_passes_cannot_close_r8_without_final_attempts(
+    tmp_path: Path,
+) -> None:
     module = load_validator()
     fixture = copy_validation_fixture(tmp_path)
     portfolio_path = fixture / module.PORTFOLIO_PATH
+
+    for project_id in module.EXPECTED_PROJECT_IDS:
+        project_path = (
+            fixture
+            / "docs/experiments/lilies-collaboration"
+            / project_id
+            / "project.json"
+        )
+        rewrite_json(
+            project_path,
+            lambda payload: payload.__setitem__("status", "passed"),
+        )
+    refresh_manifest_locks(fixture, module)
 
     rewrite_json(
         portfolio_path,
@@ -282,7 +300,181 @@ def test_portfolio_cannot_close_with_unpassed_projects(tmp_path: Path) -> None:
 
     errors = module.validate_portfolio(fixture)
 
-    assert "closed portfolio contains a project that did not pass" in errors
+    assert "closed r8 portfolio requires six signed final attempt records" in errors
+
+
+def test_six_r8_final_records_close_without_relabeling_historical_statuses(
+    tmp_path: Path,
+) -> None:
+    module = load_validator()
+    fixture = copy_validation_fixture(tmp_path)
+    portfolio_path = fixture / module.PORTFOLIO_PATH
+    records: list[dict[str, Any]] = []
+    phase_percentages = (10.0, 0.0, 0.0, 20.0, 30.0, 15.0, 15.0, 10.0)
+    for index, project_id in enumerate(module.EXPECTED_PROJECT_IDS, start=1):
+        attempt_id = f"00000000-0000-0000-0000-{index:012d}"
+        workflow_hash = rerun_test_support._digest(f"workflow-{project_id}")
+        prerequisite_digest = rerun_test_support._digest(
+            f"prerequisite-{project_id}"
+        )
+        scan_digest = rerun_test_support._digest(f"scan-{project_id}")
+        report = {
+            "schema_version": "v0.4.13-portfolio-rerun-report-body-r8-1",
+            "project_id": project_id,
+            "attempt_id": attempt_id,
+            "formal_builder_actor": "codex",
+            "builder_actor": "codex_fallback",
+            "status": "completed",
+            "timing_complete": True,
+            "max_session_tokens": None,
+            "final_token_checkpoint": None,
+            "final_codex_token_usage": {
+                "availability": "unavailable",
+                "attempted_calls": None,
+                "input_tokens": None,
+                "output_tokens": None,
+                "total_tokens": None,
+                "reason": "authoritative counter unavailable",
+            },
+            "phases": [
+                {
+                    "phase": phase,
+                    "duration_seconds": phase_percentages[phase_index],
+                    "duration_percentage": phase_percentages[phase_index],
+                    "outcome": (
+                        "not_applicable"
+                        if phase_index in {1, 2}
+                        else "completed"
+                    ),
+                }
+                for phase_index, phase in enumerate(
+                    (
+                        "environment_bootstrap",
+                        "daemon_discovery",
+                        "explicit_pairing",
+                        "assignment_provision",
+                        "builder_execution",
+                        "host_result_verification",
+                        "platform_archive_verification",
+                        "cleanup_reporting",
+                    )
+                )
+            ],
+            "execution_evidence": {
+                "published_version": 1,
+                "published_content_hash": workflow_hash,
+                "fallback_eligibility": {
+                    "prerequisite_payload_digest": prerequisite_digest,
+                    "forbidden_assistance_scan_digest": scan_digest,
+                },
+                "acceptance_receipts": [
+                    {
+                        "case_id": case_id,
+                        "status": "passed",
+                        "published_version": 1,
+                        "published_content_hash": workflow_hash,
+                    }
+                    for case_id in ("debug", "seed-1", "seed-2", "seed-3")
+                ]
+            },
+        }
+        evidence_relative = Path(
+            f"docs/evidence/v0.4.13/t01h/runs/attempts/{project_id}.json"
+        )
+        evidence_path = fixture / evidence_relative
+        evidence_path.parent.mkdir(parents=True, exist_ok=True)
+        evidence_path.write_text(
+            json.dumps(report, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        payload = {
+            "project_id": project_id,
+            "attempt_id": attempt_id,
+            "contract_revision": 8,
+            "formal_builder_actor": "codex",
+            "builder_actor": "codex_fallback",
+            "status": "passed",
+            "eligible_for_final": True,
+            "published_version": 1,
+            "workflow_content_hash": workflow_hash,
+            "prerequisite_receipt_digest": prerequisite_digest,
+            "forbidden_assistance_scan_digest": scan_digest,
+            "signed_report_digest": module.canonical_digest(report),
+            "evidence_path": evidence_relative.as_posix(),
+            "evidence_sha256": module.sha256(evidence_path),
+            "debug_passed": True,
+            "protected_seed_pass_count": 3,
+            "phase_percentage_sum": 100.0,
+        }
+        records.append(
+            asdict(
+                rerun_test_support._sign_envelope(
+                    f"00000000-0000-0000-1000-{index:012d}",
+                    "r8_final_attempt",
+                    payload,
+                    float(index),
+                )
+            )
+        )
+
+    def close_with_r8_records(payload: dict[str, Any]) -> None:
+        payload["execution_status"] = "closed"
+        payload["r8_final_receipt_trust_root"] = asdict(
+            rerun_test_support.TEST_TRUST_ROOT
+        )
+        payload["r8_final_receipt_trust_root_digest"] = (
+            rerun_test_support.TEST_TRUST_ROOT.verifier_digest
+        )
+        payload["r8_final_attempt_records"] = records
+
+    rewrite_json(portfolio_path, close_with_r8_records)
+
+    portfolio = json.loads(portfolio_path.read_text(encoding="utf-8"))
+    assert portfolio["projects"][0]["status"] == "needs_revision"
+    assert module.validate_portfolio(fixture) == []
+
+
+def test_hand_authored_r8_summary_hashes_cannot_close_portfolio(
+    tmp_path: Path,
+) -> None:
+    module = load_validator()
+    fixture = copy_validation_fixture(tmp_path)
+    portfolio_path = fixture / module.PORTFOLIO_PATH
+
+    def add_unsigned_rows(payload: dict[str, Any]) -> None:
+        payload["execution_status"] = "closed"
+        payload["r8_final_receipt_trust_root"] = asdict(
+            rerun_test_support.TEST_TRUST_ROOT
+        )
+        payload["r8_final_receipt_trust_root_digest"] = (
+            rerun_test_support.TEST_TRUST_ROOT.verifier_digest
+        )
+        payload["r8_final_attempt_records"] = [
+            {
+                "project_id": project_id,
+                "attempt_id": f"00000000-0000-0000-0000-{index:012d}",
+                "contract_revision": 8,
+                "formal_builder_actor": "codex",
+                "builder_actor": "codex_fallback",
+                "status": "passed",
+                "eligible_for_final": True,
+                "published_version": 1,
+                "workflow_content_hash": "0" * 64,
+                "prerequisite_receipt_digest": "1" * 64,
+                "forbidden_assistance_scan_digest": "2" * 64,
+                "signed_report_digest": "3" * 64,
+                "debug_passed": True,
+                "protected_seed_pass_count": 3,
+                "phase_percentage_sum": 100.0,
+            }
+            for index, project_id in enumerate(module.EXPECTED_PROJECT_IDS, start=1)
+        ]
+
+    rewrite_json(portfolio_path, add_unsigned_rows)
+    errors = module.validate_portfolio(fixture)
+
+    assert any("final attempt record 1" in error for error in errors)
+    assert "closed r8 portfolio requires six signed final attempt records" in errors
 
 
 def test_negative_latest_revision_is_rejected(tmp_path: Path) -> None:

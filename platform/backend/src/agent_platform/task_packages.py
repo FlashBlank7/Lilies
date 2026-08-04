@@ -86,6 +86,7 @@ WORKSPACE_POLICY_FILE = ".lilies-workspace-policy.json"
 WORKSPACE_MANIFEST_FILE = ".lilies-mount-manifest.json"
 BUILDER_API_MANUAL_FILE = "BUILDER_API_MANUAL.json"
 CUSTOMER_REQUIREMENT_PACKAGE_FILE = "CUSTOMER_REQUIREMENT_PACKAGE.json"
+PUBLIC_BUILDER_GUIDANCE_FILE = "PUBLIC_BUILDER_GUIDANCE.md"
 _IMMUTABLE_TOP_LEVEL_FILES = frozenset(
     {
         "task.yaml",
@@ -1312,6 +1313,24 @@ class WorkspaceMountEntry(StrictFrozenModel):
         return _normalize_relative_path(value)
 
 
+def workspace_supplemental_materials_digest(
+    entries: Sequence[WorkspaceMountEntry],
+) -> str:
+    """Bind runner-owned public additions without changing the task package."""
+
+    return _digest_bytes(
+        _canonical_json(
+            {
+                "schema_version": "1.0",
+                "entries": [
+                    entry.model_dump(mode="json", exclude_none=True)
+                    for entry in entries
+                ],
+            }
+        )
+    )
+
+
 class WorkspaceMountManifest(StrictFrozenModel):
     schema_version: Literal["1.0"]
     task_id: TaskId
@@ -1325,6 +1344,12 @@ class WorkspaceMountManifest(StrictFrozenModel):
     environment_instance_id: OpaqueReference | None = None
     archive_manifest_digest: Digest | None = None
     entries: list[WorkspaceMountEntry] = Field(min_length=1, max_length=100_000)
+    supplemental_public_materials: list[WorkspaceMountEntry] | None = Field(
+        default=None,
+        min_length=1,
+        max_length=20,
+    )
+    supplemental_public_materials_digest: Digest | None = None
     denied_segments: list[str] = Field(min_length=1, max_length=100)
     writable_prefixes: list[RelativePath] = Field(default_factory=list, max_length=20)
     created_at: datetime
@@ -1340,6 +1365,22 @@ class WorkspaceMountManifest(StrictFrozenModel):
         _unique_paths([entry.target_path for entry in value])
         return value
 
+    @field_validator("supplemental_public_materials")
+    @classmethod
+    def supplemental_paths_are_canonical(
+        cls,
+        value: list[WorkspaceMountEntry] | None,
+    ) -> list[WorkspaceMountEntry] | None:
+        if value is None:
+            return None
+        paths = [entry.target_path for entry in value]
+        _unique_paths(paths)
+        if paths != sorted(paths):
+            raise ValueError(
+                "supplemental public material paths must be sorted"
+            )
+        return value
+
     @field_validator("writable_prefixes")
     @classmethod
     def writable_prefixes_are_safe(cls, value: list[str]) -> list[str]:
@@ -1347,6 +1388,50 @@ class WorkspaceMountManifest(StrictFrozenModel):
 
     @model_validator(mode="after")
     def role_bindings_are_complete(self) -> WorkspaceMountManifest:
+        supplemental = self.supplemental_public_materials
+        if (supplemental is None) != (
+            self.supplemental_public_materials_digest is None
+        ):
+            raise ValueError(
+                "supplemental public materials require their aggregate digest"
+            )
+        if supplemental is not None:
+            if self.role is not WorkspaceRole.lilies:
+                raise ValueError(
+                    "only a Lilies workspace can carry supplemental public materials"
+                )
+            if any(
+                not entry.read_only
+                or entry.logical_source
+                != f"runner-public:{entry.target_path}"
+                for entry in supplemental
+            ):
+                raise ValueError(
+                    "supplemental public materials must be immutable runner projections"
+                )
+            package_identities = {
+                unicodedata.normalize("NFC", entry.target_path).casefold()
+                for entry in self.entries
+            }
+            supplemental_identities = {
+                unicodedata.normalize("NFC", entry.target_path).casefold()
+                for entry in supplemental
+            }
+            if package_identities & supplemental_identities:
+                raise ValueError(
+                    "supplemental public material shadows a package entry"
+                )
+            expected_digest = workspace_supplemental_materials_digest(
+                supplemental
+            )
+            assert self.supplemental_public_materials_digest is not None
+            if not hmac.compare_digest(
+                expected_digest,
+                self.supplemental_public_materials_digest,
+            ):
+                raise ValueError(
+                    "supplemental public materials digest does not match"
+                )
         if self.role is WorkspaceRole.lilies:
             if (
                 self.sealed_package_digest is not None
@@ -3684,6 +3769,7 @@ class TaskPackageManager:
         environment_ready_path: Path | None = None,
         run_archive: Path | None = None,
         developer_source_root: Path | None = None,
+        supplemental_public_materials: Mapping[str, Path] | None = None,
     ) -> WorkspaceMountManifest:
         package = self.load_frozen(
             package.task.task_id,
@@ -3696,6 +3782,7 @@ class TaskPackageManager:
         destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         temporary = Path(tempfile.mkdtemp(prefix=f".{destination.name}.", dir=destination.parent))
         entries: list[WorkspaceMountEntry] = []
+        supplemental_entries: list[WorkspaceMountEntry] = []
         try:
             ready_digest: str | None = None
             environment_instance_id: str | None = None
@@ -3730,6 +3817,99 @@ class TaskPackageManager:
                     or developer_source_root is not None
                 ):
                     raise TaskPackageError("verifier workspace requires only a sealed run archive")
+            if supplemental_public_materials is not None:
+                if role is not WorkspaceRole.lilies:
+                    raise TaskPackageError(
+                        "supplemental public materials are only valid for Lilies"
+                    )
+                if not supplemental_public_materials or len(
+                    supplemental_public_materials
+                ) > 20:
+                    raise TaskPackageError(
+                        "supplemental public material inventory is invalid"
+                    )
+                normalized_supplemental: dict[str, Path] = {}
+                for raw_target, source in supplemental_public_materials.items():
+                    target_relative = _normalize_relative_path(raw_target)
+                    if (
+                        target_relative != PUBLIC_BUILDER_GUIDANCE_FILE
+                        or _contains_forbidden_workspace_segment(target_relative)
+                        or target_relative in _GENERATED_TOP_LEVEL
+                        or target_relative in {
+                            WORKSPACE_MANIFEST_FILE,
+                            WORKSPACE_POLICY_FILE,
+                        }
+                    ):
+                        raise TaskPackageSecurityError(
+                            "supplemental public material is outside the runner allowlist"
+                        )
+                    identity = unicodedata.normalize(
+                        "NFC",
+                        target_relative,
+                    ).casefold()
+                    if identity in {
+                        unicodedata.normalize("NFC", entry.path).casefold()
+                        for entry in package.record.immutable_files
+                    } or identity in {
+                        unicodedata.normalize("NFC", item).casefold()
+                        for item in normalized_supplemental
+                    }:
+                        raise TaskPackageSecurityError(
+                            "supplemental public material shadows another input"
+                        )
+                    normalized_supplemental[target_relative] = Path(source)
+                for target_relative in sorted(normalized_supplemental):
+                    source = normalized_supplemental[target_relative]
+                    copied = _copy_regular(
+                        source,
+                        _resolved_child(temporary, target_relative),
+                    )
+                    payload = _read_bytes(
+                        _resolved_child(temporary, target_relative),
+                        limit=MAX_CONTROL_FILE_BYTES,
+                    )
+                    if not payload.startswith(
+                        b"# Public Builder Operating Guide\n\nVersion: 1.0\n"
+                    ):
+                        raise TaskPackageSecurityError(
+                            "public Builder guidance identity is invalid"
+                        )
+                    forbidden_markers = (
+                        b"/api/",
+                        b"http://",
+                        b"https://",
+                        b"/Users/",
+                        b"/private/",
+                        b"oracle",
+                        b"protected",
+                        b"expected-vs-actual",
+                        b"final graph",
+                        b"platform database",
+                    )
+                    folded_payload = payload.lower()
+                    if re.search(
+                        rb"\b[A-Z][A-Z0-9]*(?:-[A-Z0-9]+){2,}\b",
+                        payload,
+                    ) or any(
+                        marker.lower() in folded_payload
+                        for marker in forbidden_markers
+                    ):
+                        raise TaskPackageSecurityError(
+                            "public Builder guidance contains scenario-specific or forbidden assistance"
+                        )
+                    os.chmod(
+                        _resolved_child(temporary, target_relative),
+                        0o400,
+                    )
+                    supplemental_entries.append(
+                        WorkspaceMountEntry(
+                            logical_source=f"runner-public:{target_relative}",
+                            target_path=target_relative,
+                            digest=copied.digest,
+                            size_bytes=copied.size_bytes,
+                            read_only=True,
+                        )
+                    )
             for entry in package.record.immutable_files:
                 protected = entry.path.startswith("protected/")
                 if role in {WorkspaceRole.lilies, WorkspaceRole.developer} and protected:
@@ -3869,6 +4049,16 @@ class TaskPackageManager:
                 environment_instance_id=environment_instance_id,
                 archive_manifest_digest=archive_digest,
                 entries=sorted(entries, key=lambda item: item.target_path),
+                supplemental_public_materials=(
+                    supplemental_entries or None
+                ),
+                supplemental_public_materials_digest=(
+                    workspace_supplemental_materials_digest(
+                        supplemental_entries
+                    )
+                    if supplemental_entries
+                    else None
+                ),
                 denied_segments=sorted(_FORBIDDEN_WORKSPACE_SEGMENTS),
                 writable_prefixes=writable_prefixes,
                 created_at=manifest_created_at,

@@ -56,6 +56,13 @@ TASK_ROOT = enterprise_runner.TASK_ROOT
 DEFAULT_PLATFORM_PORT = enterprise_runner.DEFAULT_PLATFORM_PORT
 DEFAULT_OWNER_UI_URL = "http://127.0.0.1:3000"
 CODEX_CHILD = ROOT / "scripts" / "run_v04_13_codex_builder_child.py"
+PUBLIC_BUILDER_GUIDANCE = (
+    ROOT
+    / "docs"
+    / "experiments"
+    / "lilies-collaboration"
+    / "PUBLIC_BUILDER_GUIDANCE.md"
+)
 MAX_CODEX_ROLLOUT_TOKEN_LIMIT = 1_000_000
 CODEX_ROLLOUT_TOKEN_LIMIT = 1_000_000
 MAX_COLLABORATION_REPLAY_MESSAGES = 50_000
@@ -1460,6 +1467,7 @@ def _platform_settings(
         lilies_collaboration_developer_token=environment["LILIES_COLLABORATION_DEVELOPER_TOKEN"],
         lilies_collaboration_verifier_token=environment["LILIES_COLLABORATION_VERIFIER_TOKEN"],
         lilies_formal_hidden_seed_key=environment["LILIES_FORMAL_HIDDEN_SEED_KEY"],
+        lilies_formal_public_guidance_path=PUBLIC_BUILDER_GUIDANCE,
         lilies_collaborative_development_enabled=True,
         lilies_collaborative_development_signing_key=environment[
             "LILIES_COLLABORATIVE_DEVELOPMENT_SIGNING_KEY"
@@ -1467,7 +1475,7 @@ def _platform_settings(
         lilies_autonomous_collaboration_enabled=True,
         lilies_local_builder_default=False,
         lilies_platform_base_url=environment["LILIES_PLATFORM_BASE_URL"],
-        lilies_platform_contract_version=5,
+        lilies_platform_contract_version=6,
         adaptive_monitoring_refresh_interval_seconds=0,
     )
 
@@ -3008,6 +3016,10 @@ async def _launch_codex_child(
         or result.get("formal_archive_supported") is not True
         or not isinstance(result.get("usage"), dict)
         or not isinstance(result.get("public_api_manual_digest"), str)
+        or not isinstance(
+            result.get("public_builder_guidance_digest"),
+            str,
+        )
     ):
         raise CodexBuilderRunnerError("isolated Codex result binding is invalid")
     result["rollout_budget"] = _validated_codex_rollout_budget(
@@ -3543,6 +3555,9 @@ def _attach_codex_result(
             "cumulative_resume_budget_eligible": (weighted_rollout_tokens is not None),
             "cost_support": "unsupported",
             "public_api_manual_digest": result.get("public_api_manual_digest"),
+            "public_builder_guidance_digest": result.get(
+                "public_builder_guidance_digest"
+            ),
             "formal_archive_supported": True,
             "finished_at": enterprise_runner._now(),
         }
@@ -3578,6 +3593,9 @@ def _attach_codex_result(
         "cumulative_resume_budget_eligible": (weighted_rollout_tokens is not None),
         "cost_support": "unsupported",
         "public_api_manual_digest": result.get("public_api_manual_digest"),
+        "public_builder_guidance_digest": result.get(
+            "public_builder_guidance_digest"
+        ),
         "formal_archive_supported": True,
         "transcript_path": str(paths["transcript"]),
         "stderr_log_path": str(paths["stderr_log"]),

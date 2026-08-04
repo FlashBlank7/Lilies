@@ -72,6 +72,18 @@ COMPOSE_SECRET_BINDINGS = {
         "INVENTREE_SECRET_KEY": "inventree_secret_key",
     },
 }
+WORKFLOW_INPUT_FIELDS = (
+    "record_id",
+    "source_id",
+    "supplier",
+    "purchase_order",
+    "part_number",
+    "lot_number",
+    "quantity",
+    "document_date",
+    "certificate_type",
+    "ocr_confidence",
+)
 
 
 class EnvironmentControlError(RuntimeError):
@@ -120,6 +132,98 @@ def _read_private_json(path: Path) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise EnvironmentControlError("private state must be a JSON object")
     return value
+
+
+def _write_new_private_json_within_state_root(
+    state_root: Path,
+    path: Path,
+    value: Any,
+) -> None:
+    """Create one private file below state_root without following symlinks."""
+
+    try:
+        resolved_state_root = state_root.resolve(strict=True)
+    except (FileNotFoundError, NotADirectoryError, OSError) as error:
+        raise EnvironmentControlError("state root is unavailable") from error
+    if not resolved_state_root.is_dir():
+        raise EnvironmentControlError("state root is not a directory")
+
+    absolute_path = Path(os.path.abspath(os.fspath(path)))
+    try:
+        relative_path = absolute_path.relative_to(resolved_state_root)
+    except ValueError as error:
+        raise EnvironmentControlError(
+            "workflow input output must be located within the state root"
+        ) from error
+    if not relative_path.parts:
+        raise EnvironmentControlError("workflow input output must name a file")
+
+    payload = _canonical_json(value)
+    directory_flags = (
+        os.O_RDONLY
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_CLOEXEC", 0)
+    )
+    file_flags = (
+        os.O_WRONLY
+        | os.O_CREAT
+        | os.O_EXCL
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_CLOEXEC", 0)
+    )
+    directory_descriptors: list[int] = []
+    output_descriptor: int | None = None
+    try:
+        directory_descriptor = os.open(resolved_state_root, directory_flags)
+        directory_descriptors.append(directory_descriptor)
+        for component in relative_path.parts[:-1]:
+            directory_descriptor = os.open(
+                component,
+                directory_flags,
+                dir_fd=directory_descriptor,
+            )
+            directory_descriptors.append(directory_descriptor)
+        try:
+            output_descriptor = os.open(
+                relative_path.name,
+                file_flags,
+                0o600,
+                dir_fd=directory_descriptor,
+            )
+        except FileExistsError as error:
+            raise EnvironmentControlError(
+                "workflow input output must not already exist or be a symlink"
+            ) from error
+        try:
+            os.fchmod(output_descriptor, 0o600)
+            remaining = memoryview(payload)
+            while remaining:
+                written = os.write(output_descriptor, remaining)
+                if written <= 0:
+                    raise OSError("private workflow input write made no progress")
+                remaining = remaining[written:]
+            os.fsync(output_descriptor)
+        except BaseException:
+            os.close(output_descriptor)
+            output_descriptor = None
+            try:
+                os.unlink(relative_path.name, dir_fd=directory_descriptor)
+            except OSError:
+                pass
+            raise
+    except EnvironmentControlError:
+        raise
+    except OSError as error:
+        raise EnvironmentControlError(
+            "workflow input output parent must be an existing non-symlink "
+            "directory within the state root"
+        ) from error
+    finally:
+        if output_descriptor is not None:
+            os.close(output_descriptor)
+        for descriptor in reversed(directory_descriptors):
+            os.close(descriptor)
 
 
 def _secret_state(state_root: Path, *, create: bool) -> dict[str, str]:
@@ -592,6 +696,35 @@ def _claim_environment_owner(state_root: Path) -> None:
             "Docker environment owner volume was not created"
         )
     _assert_environment_owner(state_root, owner_volume)
+
+
+def _release_environment_owner(state_root: Path) -> None:
+    owner_volume = _environment_owner_volume()
+    if owner_volume is None:
+        raise EnvironmentControlError(
+            "Docker environment owner volume is missing; ownership cannot "
+            "be verified and nothing was released"
+        )
+    _assert_environment_owner(state_root, owner_volume)
+
+    containers = _compose_project_containers()
+    project_volumes = _compose_project_volumes()
+    if containers or project_volumes:
+        remaining: list[str] = []
+        if containers:
+            remaining.append(f"{len(containers)} container(s)")
+        if project_volumes:
+            remaining.append(f"{len(project_volumes)} data volume(s)")
+        raise EnvironmentControlError(
+            "cannot release the Docker environment owner while Compose "
+            f"project resources remain: {', '.join(remaining)}"
+        )
+
+    _docker_output(["volume", "rm", ENVIRONMENT_OWNER_VOLUME])
+    if _environment_owner_volume() is not None:
+        raise EnvironmentControlError(
+            "Docker environment owner volume deletion could not be verified"
+        )
 
 
 def _compose(
@@ -1085,6 +1218,37 @@ def _load_seed_plan(
     return records, document_root
 
 
+def _write_workflow_input(
+    state_root: Path,
+    package_root: Path,
+    *,
+    seed: str,
+    output: Path,
+) -> None:
+    records, _document_root = _load_seed_plan(package_root, seed=seed)
+    projected_records: list[dict[str, Any]] = []
+    for index, record in enumerate(records):
+        missing_fields = [
+            field for field in WORKFLOW_INPUT_FIELDS if field not in record
+        ]
+        if missing_fields:
+            raise EnvironmentControlError(
+                "seed record "
+                f"{index} is missing required workflow input fields"
+            )
+        projected_records.append(
+            {field: record[field] for field in WORKFLOW_INPUT_FIELDS}
+        )
+    _write_new_private_json_within_state_root(
+        state_root,
+        output,
+        {
+            "records": projected_records,
+            "run_label": "formal",
+        },
+    )
+
+
 def _seed(
     state_root: Path,
     package_root: Path,
@@ -1559,10 +1723,15 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("down")
     reset = subparsers.add_parser("reset")
     reset.add_argument("--confirm-task-id", required=True)
+    release = subparsers.add_parser("release")
+    release.add_argument("--confirm-task-id", required=True)
     subparsers.add_parser("initialize")
     subparsers.add_parser("serve")
     seed = subparsers.add_parser("seed")
     seed.add_argument("--seed", required=True)
+    workflow_input = subparsers.add_parser("workflow-input")
+    workflow_input.add_argument("--seed", required=True)
+    workflow_input.add_argument("--output", type=Path, required=True)
     snapshot = subparsers.add_parser("snapshot")
     snapshot.add_argument("--seed", required=True)
     snapshot.add_argument(
@@ -1580,6 +1749,13 @@ def main() -> int:
     args = build_parser().parse_args()
     state_root = args.state_root.resolve()
     package_root = args.package_root.resolve()
+    if args.command == "release":
+        if args.confirm_task_id != TASK_ID:
+            raise EnvironmentControlError(
+                f"release requires --confirm-task-id {TASK_ID}"
+            )
+        _release_environment_owner(state_root)
+        return 0
     state_root.mkdir(parents=True, exist_ok=True, mode=0o700)
     if args.command in {"config", "up"}:
         _secret_state(state_root, create=True)
@@ -1607,6 +1783,13 @@ def main() -> int:
             state_root,
             package_root,
             seed=args.seed,
+        )
+    elif args.command == "workflow-input":
+        _write_workflow_input(
+            state_root,
+            package_root,
+            seed=args.seed,
+            output=args.output,
         )
     elif args.command == "snapshot":
         _snapshot_host_state(

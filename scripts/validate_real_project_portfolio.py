@@ -4,12 +4,17 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import hashlib
+import hmac
 import json
+import math
 import re
 import sys
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -31,7 +36,7 @@ GAP_PATH = Path(
 )
 REGISTRY_PATH = Path("docs/evolution-control/report_intents.json")
 CONTRACT_PATH = Path(
-    "docs/evolution-control/stage-contracts/v0.4.13-r3.json"
+    "docs/evolution-control/stage-contracts/v0.4.13-r8.json"
 )
 
 EXPECTED_PROJECT_IDS = [f"EXP-LILIES-{number:03d}" for number in range(1, 7)]
@@ -108,6 +113,41 @@ REPLACEMENT_FIELDS = {
 }
 CAPABILITY_STATUSES = {"proposed", "accepted", "implemented_verified", "rejected"}
 SHA256_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+SHA256_HEX_RE = re.compile(r"^[0-9a-f]{64}$")
+SAFE_IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$")
+FINAL_EVIDENCE_ROOT = Path("docs/evidence/v0.4.13/t01h/runs/attempts")
+RSA_SHA256_DIGEST_INFO_PREFIX = bytes.fromhex(
+    "3031300d060960864801650304020105000420"
+)
+FINAL_ATTEMPT_ENVELOPE_FIELDS = {
+    "receipt_id",
+    "issuer",
+    "key_id",
+    "issued_at",
+    "semantic_type",
+    "semantic_payload",
+    "payload_digest",
+    "signature",
+}
+FINAL_ATTEMPT_PAYLOAD_FIELDS = {
+    "project_id",
+    "attempt_id",
+    "contract_revision",
+    "formal_builder_actor",
+    "builder_actor",
+    "status",
+    "eligible_for_final",
+    "published_version",
+    "workflow_content_hash",
+    "prerequisite_receipt_digest",
+    "forbidden_assistance_scan_digest",
+    "signed_report_digest",
+    "evidence_path",
+    "evidence_sha256",
+    "debug_passed",
+    "protected_seed_pass_count",
+    "phase_percentage_sum",
+}
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -119,6 +159,433 @@ def load_json(path: Path) -> dict[str, Any]:
 
 def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def canonical_json_bytes(value: Any) -> bytes:
+    return json.dumps(
+        value,
+        ensure_ascii=True,
+        allow_nan=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+
+
+def canonical_digest(value: Any) -> str:
+    return f"sha256:{hashlib.sha256(canonical_json_bytes(value)).hexdigest()}"
+
+
+def is_canonical_uuid(value: Any) -> bool:
+    if not isinstance(value, str):
+        return False
+    try:
+        return str(UUID(value)) == value
+    except ValueError:
+        return False
+
+
+def is_utc_timestamp(value: Any) -> bool:
+    if not isinstance(value, str):
+        return False
+    candidate = value[:-1] + "+00:00" if value.endswith("Z") else value
+    try:
+        parsed = datetime.fromisoformat(candidate)
+    except ValueError:
+        return False
+    return parsed.tzinfo is not None and parsed.utcoffset() == timedelta(0)
+
+
+def validate_final_receipt_trust_root(
+    portfolio: dict[str, Any],
+    records: list[Any],
+    errors: list[str],
+) -> dict[str, Any] | None:
+    trust_root = portfolio.get("r8_final_receipt_trust_root")
+    if trust_root is None:
+        if (
+            records
+            or portfolio.get("execution_status") == "closed"
+            or portfolio.get("r8_final_receipt_trust_root_digest") is not None
+        ):
+            errors.append("r8 final attempt records have no task-author trust root")
+        return None
+    if not isinstance(trust_root, dict) or set(trust_root) != {
+        "issuer",
+        "key_id",
+        "rsa_modulus",
+        "rsa_exponent",
+    }:
+        errors.append("r8 final attempt trust root schema is invalid")
+        return None
+    issuer = trust_root.get("issuer")
+    key_id = trust_root.get("key_id")
+    modulus = trust_root.get("rsa_modulus")
+    exponent = trust_root.get("rsa_exponent")
+    if (
+        not isinstance(issuer, str)
+        or SAFE_IDENTIFIER_RE.fullmatch(issuer) is None
+        or not isinstance(key_id, str)
+        or SAFE_IDENTIFIER_RE.fullmatch(key_id) is None
+        or not isinstance(modulus, int)
+        or isinstance(modulus, bool)
+        or modulus.bit_length() < 2_048
+        or not isinstance(exponent, int)
+        or isinstance(exponent, bool)
+        or exponent < 3
+        or exponent % 2 == 0
+    ):
+        errors.append("r8 final attempt trust root is invalid")
+        return None
+    trust_root_material = (
+        f"rsa-sha256:{issuer}:{key_id}:{modulus}:{exponent}"
+    ).encode("ascii")
+    expected_digest = f"sha256:{hashlib.sha256(trust_root_material).hexdigest()}"
+    if portfolio.get("r8_final_receipt_trust_root_digest") != expected_digest:
+        errors.append("r8 final attempt trust root digest is not pinned")
+        return None
+    return trust_root
+
+
+def verify_final_attempt_signature(
+    envelope: dict[str, Any],
+    trust_root: dict[str, Any],
+) -> bool:
+    if (
+        envelope.get("issuer") != trust_root["issuer"]
+        or envelope.get("key_id") != trust_root["key_id"]
+        or envelope.get("semantic_type") != "r8_final_attempt"
+    ):
+        return False
+    signature_value = envelope.get("signature")
+    if (
+        not isinstance(signature_value, str)
+        or re.fullmatch(r"[A-Za-z0-9_-]+", signature_value) is None
+    ):
+        return False
+    try:
+        signature = base64.urlsafe_b64decode(signature_value + "==")
+    except (TypeError, ValueError):
+        return False
+    modulus = trust_root["rsa_modulus"]
+    modulus_bytes = (modulus.bit_length() + 7) // 8
+    if len(signature) != modulus_bytes:
+        return False
+    signature_integer = int.from_bytes(signature, "big")
+    if signature_integer >= modulus:
+        return False
+    encoded = pow(
+        signature_integer,
+        trust_root["rsa_exponent"],
+        modulus,
+    ).to_bytes(modulus_bytes, "big")
+    digest_info = RSA_SHA256_DIGEST_INFO_PREFIX + hashlib.sha256(
+        canonical_json_bytes(
+            {
+                field: envelope[field]
+                for field in (
+                    "receipt_id",
+                    "issuer",
+                    "key_id",
+                    "issued_at",
+                    "semantic_type",
+                    "semantic_payload",
+                    "payload_digest",
+                )
+            }
+        )
+    ).digest()
+    padding_size = modulus_bytes - len(digest_info) - 3
+    if padding_size < 8:
+        return False
+    expected = b"\x00\x01" + b"\xff" * padding_size + b"\x00" + digest_info
+    return hmac.compare_digest(encoded, expected)
+
+
+def validate_final_report_evidence(
+    root: Path,
+    payload: dict[str, Any],
+    index: int,
+    errors: list[str],
+) -> bool:
+    relative_value = payload.get("evidence_path")
+    relative_path = Path(str(relative_value))
+    expected_root = (root / FINAL_EVIDENCE_ROOT).resolve()
+    if (
+        not isinstance(relative_value, str)
+        or relative_path.is_absolute()
+        or ".." in relative_path.parts
+        or relative_path.suffix != ".json"
+        or not relative_path.is_relative_to(FINAL_EVIDENCE_ROOT)
+        or any(
+            fragment in part.lower()
+            for part in relative_path.parts
+            for fragment in ("protected", "hidden", "oracle", "seed")
+        )
+    ):
+        errors.append(f"r8 final attempt record {index} has an unsafe evidence path")
+        return False
+    evidence_path = root / relative_path
+    if evidence_path.is_symlink() or not evidence_path.is_file():
+        errors.append(f"r8 final attempt record {index} evidence file is missing")
+        return False
+    if evidence_path.stat().st_size > 16 * 1024 * 1024:
+        errors.append(f"r8 final attempt record {index} evidence file is too large")
+        return False
+    if not evidence_path.resolve().is_relative_to(expected_root):
+        errors.append(f"r8 final attempt record {index} evidence path escapes its root")
+        return False
+    if sha256(evidence_path) != payload.get("evidence_sha256"):
+        errors.append(f"r8 final attempt record {index} evidence file digest is invalid")
+        return False
+    try:
+        evidence = load_json(evidence_path)
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError):
+        errors.append(f"r8 final attempt record {index} evidence file is invalid")
+        return False
+    try:
+        evidence_digest = canonical_digest(evidence)
+    except (TypeError, ValueError):
+        evidence_digest = None
+    if evidence_digest != payload.get("signed_report_digest"):
+        errors.append(f"r8 final attempt record {index} report digest is not bound to evidence")
+        return False
+    if (
+        evidence.get("schema_version")
+        != "v0.4.13-portfolio-rerun-report-body-r8-1"
+        or evidence.get("project_id") != payload.get("project_id")
+        or evidence.get("attempt_id") != payload.get("attempt_id")
+        or evidence.get("formal_builder_actor") != "codex"
+        or evidence.get("builder_actor") != "codex_fallback"
+        or evidence.get("status") != "completed"
+        or evidence.get("timing_complete") is not True
+        or evidence.get("max_session_tokens") is not None
+        or evidence.get("final_token_checkpoint") is not None
+    ):
+        errors.append(f"r8 final attempt record {index} evidence identity is invalid")
+        return False
+    phases = evidence.get("phases")
+    expected_phases = [
+            "environment_bootstrap",
+            "daemon_discovery",
+            "explicit_pairing",
+            "assignment_provision",
+            "builder_execution",
+            "host_result_verification",
+            "platform_archive_verification",
+            "cleanup_reporting",
+    ]
+    try:
+        phase_percentages = [
+            float(item["duration_percentage"])
+            for item in phases
+            if isinstance(item, dict)
+        ]
+    except (KeyError, TypeError, ValueError):
+        phase_percentages = []
+    try:
+        expected_phase_sum = float(payload["phase_percentage_sum"])
+    except (KeyError, TypeError, ValueError):
+        expected_phase_sum = math.nan
+    if (
+        not isinstance(phases, list)
+        or len(phases) != 8
+        or not all(isinstance(item, dict) for item in phases)
+        or [item.get("phase") for item in phases] != expected_phases
+        or len(phase_percentages) != 8
+        or not all(math.isfinite(value) and value >= 0 for value in phase_percentages)
+        or not math.isclose(
+            math.fsum(phase_percentages),
+            expected_phase_sum,
+            rel_tol=0.0,
+            abs_tol=1e-6,
+        )
+        or any(
+            phases[position].get("duration_seconds") != 0.0
+            or phases[position].get("duration_percentage") != 0.0
+            or phases[position].get("outcome") != "not_applicable"
+            for position in (1, 2)
+        )
+    ):
+        errors.append(f"r8 final attempt record {index} evidence timing is invalid")
+        return False
+    execution = evidence.get("execution_evidence")
+    receipts = (
+        execution.get("acceptance_receipts") if isinstance(execution, dict) else None
+    )
+    if (
+        not isinstance(execution, dict)
+        or execution.get("published_version") != payload.get("published_version")
+        or execution.get("published_content_hash")
+        != payload.get("workflow_content_hash")
+        or not isinstance(execution.get("fallback_eligibility"), dict)
+        or execution["fallback_eligibility"].get("prerequisite_payload_digest")
+        != payload.get("prerequisite_receipt_digest")
+        or execution["fallback_eligibility"].get("forbidden_assistance_scan_digest")
+        != payload.get("forbidden_assistance_scan_digest")
+        or not isinstance(receipts, list)
+        or len(receipts) != 4
+        or not all(isinstance(item, dict) for item in receipts)
+        or receipts[0].get("case_id") != "debug"
+        or len({item.get("case_id") for item in receipts}) != 4
+        or any(item.get("status") != "passed" for item in receipts)
+        or any(
+            item.get("published_version") != payload.get("published_version")
+            or item.get("published_content_hash")
+            != payload.get("workflow_content_hash")
+            for item in receipts
+        )
+    ):
+        errors.append(f"r8 final attempt record {index} acceptance evidence is invalid")
+        return False
+    usage = evidence.get("final_codex_token_usage")
+    if not isinstance(usage, dict) or usage.get("availability") not in {
+        "exact",
+        "unknown",
+        "unavailable",
+    }:
+        errors.append(f"r8 final attempt record {index} Codex usage evidence is invalid")
+        return False
+    counters = tuple(
+        usage.get(name)
+        for name in ("attempted_calls", "input_tokens", "output_tokens", "total_tokens")
+    )
+    if usage["availability"] == "exact":
+        if (
+            usage.get("reason") is not None
+            or
+            any(
+                not isinstance(value, int) or isinstance(value, bool) or value < 0
+                for value in counters
+            )
+            or usage.get("total_tokens")
+            != usage.get("input_tokens") + usage.get("output_tokens")
+        ):
+            errors.append(f"r8 final attempt record {index} exact Codex usage is invalid")
+            return False
+    elif (
+        any(value is not None for value in counters)
+        or not isinstance(usage.get("reason"), str)
+        or not usage["reason"].strip()
+    ):
+        errors.append(f"r8 final attempt record {index} unavailable Codex usage is invalid")
+        return False
+    return True
+
+
+def validate_r8_final_attempt_records(
+    root: Path,
+    portfolio: dict[str, Any],
+    errors: list[str],
+) -> set[str]:
+    records = portfolio.get("r8_final_attempt_records")
+    if not isinstance(records, list):
+        errors.append("r8 final attempt records must be a list")
+        return set()
+
+    trust_root = validate_final_receipt_trust_root(portfolio, records, errors)
+    project_ids: list[str] = []
+    attempt_ids: list[str] = []
+    digest_fields = {
+        "workflow_content_hash",
+        "prerequisite_receipt_digest",
+        "forbidden_assistance_scan_digest",
+        "signed_report_digest",
+    }
+    for index, record in enumerate(records, start=1):
+        record_valid = True
+        if not isinstance(record, dict) or set(record) != FINAL_ATTEMPT_ENVELOPE_FIELDS:
+            errors.append(f"r8 final attempt record {index} is not an object")
+            continue
+        payload = record.get("semantic_payload")
+        if not isinstance(payload, dict) or set(payload) != FINAL_ATTEMPT_PAYLOAD_FIELDS:
+            errors.append(f"r8 final attempt record {index} payload schema is invalid")
+            continue
+        if not is_canonical_uuid(record.get("receipt_id")):
+            errors.append(f"r8 final attempt record {index} has an invalid receipt id")
+            record_valid = False
+        if not is_utc_timestamp(record.get("issued_at")):
+            errors.append(f"r8 final attempt record {index} has an invalid issue time")
+            record_valid = False
+        try:
+            expected_payload_digest = canonical_digest(payload)
+        except (TypeError, ValueError):
+            expected_payload_digest = None
+        if record.get("payload_digest") != expected_payload_digest:
+            errors.append(f"r8 final attempt record {index} payload digest is invalid")
+            record_valid = False
+        try:
+            signature_valid = (
+                trust_root is not None
+                and verify_final_attempt_signature(record, trust_root)
+            )
+        except (KeyError, TypeError, ValueError, OverflowError):
+            signature_valid = False
+        if not signature_valid:
+            errors.append(f"r8 final attempt record {index} signature is invalid")
+            record_valid = False
+        project_id = payload.get("project_id")
+        attempt_id = payload.get("attempt_id")
+        if project_id not in EXPECTED_PROJECT_IDS:
+            errors.append(f"r8 final attempt record {index} has an unknown project")
+            record_valid = False
+        if not is_canonical_uuid(attempt_id):
+            errors.append(f"r8 final attempt record {index} has an invalid attempt id")
+            record_valid = False
+        if payload.get("contract_revision") != 8:
+            errors.append(f"r8 final attempt record {index} is not bound to contract r8")
+            record_valid = False
+        if (
+            payload.get("formal_builder_actor") != "codex"
+            or payload.get("builder_actor") != "codex_fallback"
+        ):
+            errors.append(f"r8 final attempt record {index} has an invalid Builder actor")
+            record_valid = False
+        if payload.get("status") != "passed" or payload.get("eligible_for_final") is not True:
+            errors.append(f"r8 final attempt record {index} is not a final eligible pass")
+            record_valid = False
+        published_version = payload.get("published_version")
+        if (
+            not isinstance(published_version, int)
+            or isinstance(published_version, bool)
+            or published_version < 1
+        ):
+            errors.append(f"r8 final attempt record {index} has an invalid published version")
+            record_valid = False
+        for field in digest_fields:
+            if SHA256_RE.fullmatch(str(payload.get(field, ""))) is None:
+                errors.append(f"r8 final attempt record {index} has an invalid {field}")
+                record_valid = False
+        if SHA256_HEX_RE.fullmatch(str(payload.get("evidence_sha256", ""))) is None:
+            errors.append(f"r8 final attempt record {index} has an invalid evidence digest")
+            record_valid = False
+        if payload.get("debug_passed") is not True:
+            errors.append(f"r8 final attempt record {index} did not pass public debug")
+            record_valid = False
+        if payload.get("protected_seed_pass_count") != 3:
+            errors.append(f"r8 final attempt record {index} did not pass three protected seeds")
+            record_valid = False
+        phase_sum = payload.get("phase_percentage_sum")
+        if (
+            not isinstance(phase_sum, (int, float))
+            or isinstance(phase_sum, bool)
+            or not math.isfinite(float(phase_sum))
+            or abs(float(phase_sum) - 100.0) > 1e-6
+        ):
+            errors.append(f"r8 final attempt record {index} phase percentages do not sum to 100")
+            record_valid = False
+        if not validate_final_report_evidence(root, payload, index, errors):
+            record_valid = False
+        if record_valid:
+            assert isinstance(project_id, str)
+            assert isinstance(attempt_id, str)
+            project_ids.append(project_id)
+            attempt_ids.append(attempt_id)
+
+    if len(set(project_ids)) != len(project_ids):
+        errors.append("r8 final attempt records contain duplicate projects")
+    if len(set(attempt_ids)) != len(attempt_ids):
+        errors.append("r8 final attempt records reuse an attempt id")
+    return set(project_ids)
 
 
 def scalar_from_task_yaml(text: str, field: str) -> str | None:
@@ -355,8 +822,10 @@ def validate_portfolio(root: Path = ROOT) -> list[str]:
         errors.append("portfolio must require exactly six real projects")
     if portfolio.get("stage_task_id") != "V04-13-T01H":
         errors.append("portfolio must remain under V04-13-T01H")
-    if portfolio.get("contract_revision") != 3:
-        errors.append("portfolio must bind stage contract revision 3")
+    if portfolio.get("contract_revision") != 8:
+        errors.append("portfolio must bind stage contract revision 8")
+    if portfolio.get("selection_contract_revision") != 3:
+        errors.append("portfolio must preserve its original selection contract revision")
     projects = portfolio.get("projects")
     if not isinstance(projects, list):
         return [*errors, "portfolio projects must be a list"]
@@ -392,14 +861,54 @@ def validate_portfolio(root: Path = ROOT) -> list[str]:
         None,
     )
     if t01h is None:
-        errors.append("contract revision 3 has no V04-13-T01H")
+        errors.append("contract revision 8 has no V04-13-T01H")
         contract_intents: set[str] = set()
     else:
         contract_intents = set(t01h.get("source_intent_ids", []))
         if authorized_intents != contract_intents:
             errors.append(
-                "portfolio authorized intents differ from contract revision 3 T01H"
+                "portfolio authorized intents differ from contract revision 8 T01H"
             )
+
+    actor_policy = portfolio.get("r8_builder_actor_policy", {})
+    lilies_actor = actor_policy.get("lilies", {})
+    codex_actor = actor_policy.get("codex_fallback", {})
+    if actor_policy.get("historical_attempt_relabeling_forbidden") is not True:
+        errors.append("r8 actor policy allows historical attempt relabeling")
+    if (
+        lilies_actor.get("formal_builder_actor") != "lilies"
+        or lilies_actor.get("builder_actor") != "lilies"
+        or lilies_actor.get("daemon_access_required") is not True
+        or lilies_actor.get("daemon_discovery_phase") != "required"
+        or lilies_actor.get("explicit_pairing_phase") != "required"
+    ):
+        errors.append("r8 Lilies actor profile is invalid")
+    if (
+        codex_actor.get("formal_builder_actor") != "codex"
+        or codex_actor.get("builder_actor") != "codex_fallback"
+        or codex_actor.get("daemon_access_required") is not False
+        or codex_actor.get("daemon_discovery_phase")
+        != "zero_duration_not_applicable"
+        or codex_actor.get("explicit_pairing_phase")
+        != "zero_duration_not_applicable"
+        or codex_actor.get("requires_bounded_failed_lilies_attempt") is not True
+        or codex_actor.get(
+            "requires_fresh_empty_application_environment_assignment_session"
+        )
+        is not True
+        or codex_actor.get("requires_fresh_isolated_public_only_context") is not True
+    ):
+        errors.append("r8 Codex fallback actor profile is invalid")
+    status_semantics = portfolio.get("project_status_semantics", {})
+    if (
+        status_semantics.get("projects_status_field")
+        != "historical_pre_r8_manifest_status"
+        or status_semantics.get("r8_final_status_source")
+        != "fresh signed per-attempt evidence only"
+        or status_semantics.get("pre_r8_pass_cannot_satisfy_r8_final") is not True
+    ):
+        errors.append("r8 project status semantics are invalid")
+    r8_final_project_ids = validate_r8_final_attempt_records(root, portfolio, errors)
 
     manifest_bytes: list[bytes] = []
     capability_families: set[str] = set()
@@ -614,10 +1123,19 @@ def validate_portfolio(root: Path = ROOT) -> list[str]:
     ]
     no_active_project_expected = (
         active_project_id is None
-        and portfolio.get("execution_status") == "awaiting_prior_project_resolution"
-        and any(
-            project.get("status") != "passed"
-            for project in project_manifests.values()
+        and (
+            portfolio.get("execution_status") == "closed"
+            or (
+                portfolio.get("execution_status")
+                in {
+                    "awaiting_prior_project_resolution",
+                    "r8_codex_fallback_in_progress",
+                }
+                and any(
+                    project.get("status") != "passed"
+                    for project in project_manifests.values()
+                )
+            )
         )
     )
     if no_active_project_expected:
@@ -689,11 +1207,8 @@ def validate_portfolio(root: Path = ROOT) -> list[str]:
     if closure.get("version_closure_may_average_projects") is not False:
         errors.append("version closure may average project results")
     if portfolio.get("execution_status") == "closed":
-        if any(
-            project.get("status") != "passed"
-            for project in project_manifests.values()
-        ):
-            errors.append("closed portfolio contains a project that did not pass")
+        if r8_final_project_ids != set(EXPECTED_PROJECT_IDS):
+            errors.append("closed r8 portfolio requires six signed final attempt records")
         if any(entry.get("status") == "accepted" for entry in gap_entries):
             errors.append("closed portfolio contains a nonterminal accepted capability")
     return errors
@@ -721,7 +1236,7 @@ def main() -> int:
         None,
     )
     if active_project is None:
-        print("- active: none; awaiting prior project resolution")
+        print(f"- active: none; status={portfolio['execution_status']}")
     else:
         print(
             f"- active: {active_project['project_id']} "

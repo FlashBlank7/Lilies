@@ -293,6 +293,19 @@ class LocalLiliesBuildConstraints(StrictBridgeModel):
     max_tool_calls: int = Field(default=400, ge=1, le=1_000)
     network_policy: AssignmentNetworkPolicy = AssignmentNetworkPolicy.allowlist
     allowed_hosts: list[str] = Field(default_factory=list, max_length=100)
+    model_access: bool = True
+    file_access: bool = True
+    connector_access: bool = False
+    readable_host_objects: list[str] = Field(default_factory=list, max_length=500)
+    writable_host_operations: list[str] = Field(default_factory=list, max_length=500)
+    permission_required_actions: list[str] = Field(default_factory=list, max_length=500)
+    max_write_count: int = Field(default=0, ge=0, le=1_000_000)
+    max_payload_bytes: int = Field(
+        default=100 * 1024 * 1024,
+        ge=1,
+        le=100 * 1024 * 1024,
+    )
+    compensation_actions: list[str] = Field(default_factory=list, max_length=500)
 
     @field_validator("deadline_at")
     @classmethod
@@ -302,6 +315,56 @@ class LocalLiliesBuildConstraints(StrictBridgeModel):
         if value.tzinfo is None or value.utcoffset() != timedelta(0):
             raise ValueError("deadline_at must use UTC")
         return value
+
+    @field_validator(
+        "allowed_hosts",
+        "readable_host_objects",
+        "writable_host_operations",
+        "permission_required_actions",
+        "compensation_actions",
+    )
+    @classmethod
+    def policy_values_are_non_empty_and_unique(cls, value: list[str]) -> list[str]:
+        if any(not item for item in value) or len(value) != len(set(value)):
+            raise ValueError("build constraint policy values must be non-empty and unique")
+        return value
+
+    @model_validator(mode="after")
+    def connector_policy_is_coherent(self) -> LocalLiliesBuildConstraints:
+        if not set(self.permission_required_actions).issubset(
+            self.writable_host_operations
+        ):
+            raise ValueError(
+                "permission-required actions must be writable host operations"
+            )
+        connector_lanes = (
+            self.readable_host_objects
+            or self.writable_host_operations
+            or self.permission_required_actions
+            or self.compensation_actions
+        )
+        if not self.connector_access and (connector_lanes or self.max_write_count):
+            raise ValueError("connector policy requires connector_access")
+        if self.connector_access and not connector_lanes:
+            raise ValueError(
+                "connector_access requires an explicit host object or operation policy"
+            )
+        if self.writable_host_operations and self.max_write_count < 1:
+            raise ValueError("writable connector operations require max_write_count")
+        return self
+
+
+class _CustomerConnectorActionPolicy(StrictBridgeModel):
+    """Public customer-task authority projected into the platform contract."""
+
+    platform_actions: list[AllowedAction]
+    connector_access: Literal[True]
+    network_hosts: list[str]
+    readable_host_objects: list[str]
+    writable_host_operations: list[str]
+    permission_required_actions: list[str]
+    compensation_actions: list[str]
+    max_payload_bytes: int
 
 
 class StartLocalLiliesBuildRequest(StrictBridgeModel):
@@ -538,6 +601,11 @@ class LocalLiliesObservabilitySnapshot(StrictObservabilityBridgeModel):
     captured_at: datetime
     activity_revision: int = Field(ge=0, le=_MAX_SQLITE_INTEGER)
     model_egress_enabled: bool
+    max_session_tokens: int | None = Field(
+        default=None,
+        ge=0,
+        le=4_000_000_000,
+    )
     usage: LocalLiliesObservabilityUsage
     runtime: LocalLiliesObservabilityRuntime
     startup: LocalLiliesObservabilityStartup
@@ -775,6 +843,44 @@ class LocalLiliesRelayCursorGap(LocalLiliesBridgeSecurityError):
 class LocalLiliesBridgeDaemonRejected(LocalLiliesBridgeError):
     code = "daemon_rejected"
     status_code = 502
+
+
+def _safe_daemon_rejection_details(error: LocalLiliesClientError) -> dict[str, Any]:
+    """Project bounded validation locations without echoing daemon inputs or prose."""
+
+    if not isinstance(error, LocalLiliesRemoteError):
+        return {}
+    details: dict[str, Any] = {"daemon_status_code": error.status_code}
+    payload = error.payload
+    raw_issues = payload.get("detail") if isinstance(payload, dict) else None
+    if not isinstance(raw_issues, list):
+        return details
+    issues: list[dict[str, Any]] = []
+    for item in raw_issues[:20]:
+        if not isinstance(item, dict):
+            continue
+        raw_location = item.get("loc")
+        issue_type = item.get("type")
+        if not isinstance(raw_location, list) or not isinstance(issue_type, str):
+            continue
+        location = [
+            segment
+            for segment in raw_location[:12]
+            if isinstance(segment, int)
+            or (
+                isinstance(segment, str)
+                and 0 < len(segment) <= 100
+                and re.fullmatch(r"[A-Za-z0-9_.-]+", segment) is not None
+            )
+        ]
+        if len(location) != len(raw_location[:12]):
+            continue
+        if re.fullmatch(r"[a-z0-9_.-]{1,100}", issue_type) is None:
+            continue
+        issues.append({"location": location, "type": issue_type})
+    if issues:
+        details["validation_issues"] = issues
+    return details
 
 
 class _AssignmentCancellationWon(RuntimeError):
@@ -6306,9 +6412,57 @@ class LocalLiliesBridge:
                 )
         else:
             request = StartLocalLiliesBuildRequest.model_validate_json(row["request_json"])
+            effective = self._effective_constraints(request.constraints)
             scopes = self._platform_scopes(request.auto_publish)
             deadline = self._assignment_deadline(row, request)
-            credential_policy = {}
+            if effective.connector_access:
+                allowed_actions = self._customer_allowed_actions(request.auto_publish, effective)
+                credential_policy = {
+                    "allowed_operations": [
+                        PlatformBlackboxOperation(action.value)
+                        for action in allowed_actions
+                    ],
+                    "allowed_actions_digest": _digest(
+                        {
+                            "platform_actions": [
+                                action.value for action in allowed_actions
+                            ],
+                            "allowed_network_hosts": effective.allowed_hosts,
+                            "readable_host_objects": effective.readable_host_objects,
+                            "writable_host_operations": (
+                                effective.writable_host_operations
+                            ),
+                            "permission_required_actions": (
+                                effective.permission_required_actions
+                            ),
+                            "compensation_actions": effective.compensation_actions,
+                        }
+                    ),
+                    "budget_digest": _digest(
+                        {
+                            "deadline_at": deadline.isoformat(),
+                            "max_turns": effective.max_turns,
+                            "max_budget_usd": effective.max_budget_usd,
+                            "max_tool_calls": effective.max_tool_calls,
+                            "max_write_count": effective.max_write_count,
+                            "max_payload_bytes": effective.max_payload_bytes,
+                        }
+                    ),
+                    "allowed_network_hosts": effective.allowed_hosts,
+                    "model_access": effective.model_access,
+                    "file_access": effective.file_access,
+                    "connector_access": True,
+                    "readable_host_objects": effective.readable_host_objects,
+                    "writable_host_operations": effective.writable_host_operations,
+                    "permission_required_actions": (
+                        effective.permission_required_actions
+                    ),
+                    "max_write_count": effective.max_write_count,
+                    "max_payload_bytes": effective.max_payload_bytes,
+                    "compensation_actions": effective.compensation_actions,
+                }
+            else:
+                credential_policy = {}
         issued = await self.auth_store.issue_credential(
             TaskCredentialGrant(
                 assignment_id=assignment_id,
@@ -6493,28 +6647,23 @@ class LocalLiliesBridge:
         request = StartLocalLiliesBuildRequest.model_validate_json(row["request_json"])
         effective = self._effective_constraints(request.constraints)
         scopes = self._platform_scopes(request.auto_publish)
-        allowed_actions = [
-            AllowedAction.platform_contract_get,
-            AllowedAction.platform_block_search,
-            AllowedAction.platform_block_get,
-            AllowedAction.platform_tool_catalog,
-            AllowedAction.platform_application_get,
-            AllowedAction.platform_draft_inspect,
-            AllowedAction.platform_draft_apply,
-            AllowedAction.platform_tests_run,
-            AllowedAction.platform_run_start,
-            AllowedAction.platform_run_get,
-            AllowedAction.platform_run_resume,
-            AllowedAction.platform_run_cancel,
-            AllowedAction.platform_trace_get,
-            AllowedAction.platform_artifact_read,
-        ]
-        if request.auto_publish:
-            allowed_actions.append(AllowedAction.platform_publish)
+        allowed_actions = self._customer_allowed_actions(request.auto_publish, effective)
+        contract_policy: Any = tuple(allowed_actions)
+        if effective.connector_access:
+            contract_policy = _CustomerConnectorActionPolicy(
+                platform_actions=allowed_actions,
+                connector_access=True,
+                network_hosts=effective.allowed_hosts,
+                readable_host_objects=effective.readable_host_objects,
+                writable_host_operations=effective.writable_host_operations,
+                permission_required_actions=effective.permission_required_actions,
+                compensation_actions=effective.compensation_actions,
+                max_payload_bytes=effective.max_payload_bytes,
+            )
         digest_result = self.contract_digest_provider(
             scopes,
             (UUID(row["application_id"]),),
-            tuple(allowed_actions),
+            contract_policy,
         )
         contract_digest = (
             await digest_result if inspect.isawaitable(digest_result) else digest_result
@@ -6553,6 +6702,15 @@ class LocalLiliesBridge:
                 allowed_actions=allowed_actions,
                 prohibited_actions=list(ProhibitedAction),
                 no_substitute_validation=False,
+                readable_host_objects=effective.readable_host_objects,
+                writable_host_operations=effective.writable_host_operations,
+                model_access=effective.model_access,
+                file_access=effective.file_access,
+                connector_access=effective.connector_access,
+                permission_required_actions=effective.permission_required_actions,
+                max_write_count=effective.max_write_count,
+                max_payload_bytes=effective.max_payload_bytes,
+                compensation_actions=effective.compensation_actions,
             ),
             deliverables=request.deliverables,
             created_at=_parse_time(row["created_at"]),
@@ -7431,7 +7589,10 @@ class LocalLiliesBridge:
             await self._archive_formal_terminal(terminal)
         raise LocalLiliesBridgeDaemonRejected(
             "local Lilies rejected the persisted operation",
-            details=self._safe_assignment_ids(row),
+            details={
+                **self._safe_assignment_ids(row),
+                **_safe_daemon_rejection_details(error),
+            },
         ) from error
 
     async def _save_encrypted_secret(
@@ -7506,6 +7667,35 @@ class LocalLiliesBridge:
                 "assignment allowlist must include the platform origin host"
             )
         return supplied
+
+    @staticmethod
+    def _customer_allowed_actions(
+        auto_publish: bool,
+        constraints: LocalLiliesBuildConstraints,
+    ) -> list[AllowedAction]:
+        allowed_actions = [
+            AllowedAction.platform_contract_get,
+            AllowedAction.platform_block_search,
+            AllowedAction.platform_block_get,
+            AllowedAction.platform_tool_catalog,
+            AllowedAction.platform_application_get,
+            AllowedAction.platform_draft_inspect,
+            AllowedAction.platform_draft_apply,
+            AllowedAction.platform_tests_run,
+            AllowedAction.platform_run_start,
+            AllowedAction.platform_run_get,
+            AllowedAction.platform_run_resume,
+            AllowedAction.platform_run_cancel,
+            AllowedAction.platform_trace_get,
+            AllowedAction.platform_artifact_read,
+        ]
+        if constraints.connector_access and constraints.writable_host_operations:
+            allowed_actions.append(
+                AllowedAction.platform_connector_authorization_issue
+            )
+        if auto_publish:
+            allowed_actions.append(AllowedAction.platform_publish)
+        return allowed_actions
 
     def _assignment_deadline(
         self,

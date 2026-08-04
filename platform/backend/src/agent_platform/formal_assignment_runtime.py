@@ -6,7 +6,7 @@ import inspect
 import re
 import secrets
 import threading
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -80,6 +80,7 @@ class PlatformFormalAssignmentRuntime(FormalAssignmentBroker):
         developer_source_root: Path | None = None,
         developer_workspace_root: Path | None = None,
         source_provenance: FormalSourceProvenanceCoordinator | None = None,
+        supplemental_public_materials: Mapping[str, Path] | None = None,
         environment_secret_owner: str = "formal-environment",
         provider_timeout_seconds: float = 30.0,
     ) -> None:
@@ -114,6 +115,7 @@ class PlatformFormalAssignmentRuntime(FormalAssignmentBroker):
                 if source_provenance is not None
                 else None
             ),
+            supplemental_public_materials=supplemental_public_materials,
         )
 
     async def prepare_async(

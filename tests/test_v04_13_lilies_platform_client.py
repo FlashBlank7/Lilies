@@ -21,10 +21,12 @@ from agent_platform.lilies_platform_client import (
     PlatformToolEnvelope,
 )
 from agent_platform.lilies_platform_contract import (
+    PLATFORM_CONTRACT_VERSION,
     PUBLIC_CLIENT_COMMON_ERROR_CODES,
     PUBLIC_CONTRACT_DEPENDENT_ERROR_CODES,
     PUBLIC_FACADE_COMMON_ERROR_CODES,
     PUBLIC_FACADE_OPERATION_ERROR_CODES,
+    PUBLIC_OPERATION_DESCRIPTIONS,
     PUBLIC_OPERATION_SPECS,
     build_platform_contract,
     public_digest,
@@ -73,7 +75,7 @@ class _Blocks:
     def __init__(self) -> None:
         self.record = _CatalogRecord(
             type="start",
-            block_kind="workflow",
+            block_kind="business_workflow",
             category="control",
             title="Start",
             config_schema={
@@ -231,6 +233,8 @@ def test_public_contract_and_local_registry_expose_exactly_the_seventeen_http_to
 
     assert len(PUBLIC_OPERATION_SPECS) == 17
     assert {operation["name"] for operation in PUBLIC_OPERATION_SPECS} == PLATFORM_TOOL_NAMES
+    assert PLATFORM_CONTRACT_VERSION == 4
+    assert set(PUBLIC_OPERATION_DESCRIPTIONS) == PLATFORM_TOOL_NAMES
     assert set(platform_only.names()) == PLATFORM_TOOL_NAMES
     assert {
         name for name in combined.names() if name.startswith("platform_")
@@ -239,6 +243,40 @@ def test_public_contract_and_local_registry_expose_exactly_the_seventeen_http_to
         definition.input_schema.get("additionalProperties") is False
         for definition in platform_only.definitions()
     )
+    contract_operations = {item["name"]: item for item in PUBLIC_OPERATION_SPECS}
+    registry_definitions = {item.name: item for item in platform_only.definitions()}
+    assert all(
+        contract_operations[name]["description"]
+        == PUBLIC_OPERATION_DESCRIPTIONS[name]
+        == registry_definitions[name].description
+        for name in PLATFORM_TOOL_NAMES
+    )
+    block_search_schema = contract_operations["platform_block_search"]["request_schema"]
+    assert "block_kind" not in block_search_schema["required"]
+    assert block_search_schema["properties"]["block_kind"] == {
+        "enum": [
+            "business_workflow",
+            "agent_architecture",
+            "legacy_compatibility",
+        ]
+    }
+    assert block_search_schema["properties"]["limit"] == {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 50,
+        "default": 12,
+    }
+    block_search_tool = platform_only.get("platform_block_search")
+    assert (
+        block_search_tool.input_model.model_validate(
+            {"block_kind": "business_workflow"}
+        ).block_kind
+        == "business_workflow"
+    )
+    with pytest.raises(ValidationError):
+        block_search_tool.input_model.model_validate({"block_kind": "workflow"})
+    with pytest.raises(ValidationError):
+        block_search_tool.input_model.model_validate({"limit": 51})
     draft_schema = platform_only.get("platform_draft_apply").definition().input_schema
     assert "replace_workflow" not in draft_schema["properties"]["op"]["enum"]
     assert "replace_tests" not in draft_schema["properties"]["op"]["enum"]

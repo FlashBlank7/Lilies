@@ -7,8 +7,9 @@ import json
 import os
 import re
 import shutil
+import stat
 from collections import defaultdict, deque
-from collections.abc import Collection
+from collections.abc import Callable, Collection
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -1425,8 +1426,10 @@ class WorkflowRuntime:
                         "fallback_used": True,
                         "state": {"fallback": True, "error": str(error)},
                     }
-                else:
+                elif node.error_strategy == ErrorStrategy.error_branch:
                     output = {"error": str(error), "branch": "error"}
+                else:
+                    output = {"error": str(error)}
 
             # Contract validation (post-execution, non-blocking)
             if node.contract and node.contract.enforce:
@@ -3887,6 +3890,11 @@ class WorkflowRuntime:
                 safe_test_id = re.sub(r"[^A-Za-z0-9_.-]", "-", str(test.id))[:48]
                 case_workspace = suite_workspace / f"case-{index:03d}-{safe_test_id or 'test'}"
                 case_workspace.mkdir(parents=False, exist_ok=False)
+                self._stage_test_declared_workspaces(
+                    snapshot.workflow,
+                    suite_base,
+                    case_workspace,
+                )
                 self._stage_test_workspace_tools(suite_base, case_workspace)
                 self._validate_execution_policy(
                     snapshot.workflow,
@@ -4338,6 +4346,174 @@ class WorkflowRuntime:
         await self._emit(application_id, "tests.completed", report)
         return report
 
+    @classmethod
+    def _stage_test_declared_workspaces(
+        cls,
+        workflow: WorkflowSpec,
+        suite_base: Path,
+        case_workspace: Path,
+    ) -> None:
+        """Copy declared writable project roots into one isolated test case."""
+
+        suite_base = suite_base.resolve(strict=True)
+        case_workspace = case_workspace.resolve(strict=True)
+        if case_workspace == suite_base or suite_base not in case_workspace.parents:
+            raise WorkflowWorkspaceBoundaryViolation(
+                "test case workspace must stay inside its suite workspace"
+            )
+
+        declared = cls._declared_test_workspace_paths(workflow)
+        roots: list[Path] = []
+        for value in declared:
+            relative = cls._safe_test_workspace_relative(value)
+            if any(root == relative or root in relative.parents for root in roots):
+                continue
+            roots = [root for root in roots if relative not in root.parents]
+            roots.append(relative)
+            roots.sort(key=lambda item: (len(item.parts), item.as_posix()))
+
+        for relative in roots:
+            source = suite_base.joinpath(*relative.parts)
+            cursor = suite_base
+            for part in relative.parts:
+                cursor /= part
+                if cursor.is_symlink():
+                    raise WorkflowWorkspaceBoundaryViolation(
+                        "declared test workspace path contains a symbolic link"
+                    )
+            try:
+                resolved_source = source.resolve(strict=True)
+            except (OSError, RuntimeError) as error:
+                raise WorkflowWorkspaceBoundaryViolation(
+                    "declared test workspace is unavailable inside the suite workspace"
+                ) from error
+            if (
+                resolved_source != suite_base
+                and suite_base not in resolved_source.parents
+            ):
+                raise WorkflowWorkspaceBoundaryViolation(
+                    "declared test workspace escapes the suite workspace"
+                )
+            if not resolved_source.is_dir():
+                raise WorkflowWorkspaceBoundaryViolation(
+                    "declared test workspace must be a directory"
+                )
+            cls._validate_test_workspace_snapshot_source(
+                resolved_source,
+                suite_base=suite_base,
+                suite_workspace=case_workspace.parent,
+            )
+            destination = case_workspace.joinpath(*relative.parts)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(
+                resolved_source,
+                destination,
+                copy_function=shutil.copy2,
+                dirs_exist_ok=relative == Path("."),
+                ignore=cls._test_workspace_copy_ignore(
+                    suite_base=suite_base,
+                    suite_workspace=case_workspace.parent,
+                ),
+            )
+
+    @staticmethod
+    def _safe_test_workspace_relative(value: str) -> Path:
+        if not value or "\x00" in value or "\\" in value:
+            raise WorkflowWorkspaceBoundaryViolation(
+                "declared test workspace must be a relative POSIX path"
+            )
+        candidate = Path(value)
+        if candidate.is_absolute() or any(part == ".." for part in candidate.parts):
+            raise WorkflowWorkspaceBoundaryViolation(
+                "declared test workspace must stay relative to the suite workspace"
+            )
+        normalized = Path(*[part for part in candidate.parts if part != "."])
+        if not normalized.parts:
+            return Path(".")
+        first = normalized.parts[0]
+        if first == ".workflow-run-artifacts" or first.startswith("test-suite-"):
+            raise WorkflowWorkspaceBoundaryViolation(
+                "declared test workspace uses a reserved runtime path"
+            )
+        return normalized
+
+    @classmethod
+    def _declared_test_workspace_paths(cls, workflow: WorkflowSpec) -> list[str]:
+        declared: list[str] = []
+        pending = [workflow]
+        while pending:
+            current = pending.pop()
+            for node in current.nodes:
+                workspace_key = {
+                    "tool_executor": "workspace_path",
+                    "sandbox_boundary": "workspace",
+                    "subagent_spawn": "workspace_path",
+                }.get(node.type)
+                settings = node.config.get("settings", {})
+                if workspace_key is not None and isinstance(settings, dict):
+                    value = settings.get(workspace_key)
+                    if isinstance(value, str):
+                        declared.append(value)
+                nested = node.config.get("workflow")
+                if isinstance(nested, dict):
+                    pending.append(WorkflowSpec.model_validate(nested))
+        return declared
+
+    @staticmethod
+    def _validate_test_workspace_snapshot_source(
+        source: Path,
+        *,
+        suite_base: Path,
+        suite_workspace: Path,
+    ) -> None:
+        for current, directory_names, file_names in os.walk(
+            source,
+            topdown=True,
+            followlinks=False,
+        ):
+            current_path = Path(current)
+            if current_path == suite_base:
+                directory_names[:] = [
+                    name
+                    for name in directory_names
+                    if name != suite_workspace.name
+                    and not name.startswith("test-suite-")
+                    and name != ".workflow-run-artifacts"
+                ]
+            for name in directory_names:
+                candidate = current_path / name
+                metadata = candidate.lstat()
+                if candidate.is_symlink() or not stat.S_ISDIR(metadata.st_mode):
+                    raise WorkflowWorkspaceBoundaryViolation(
+                        "declared test workspace contains a symlink or special directory"
+                    )
+            for name in file_names:
+                candidate = current_path / name
+                metadata = candidate.lstat()
+                if candidate.is_symlink() or not stat.S_ISREG(metadata.st_mode):
+                    raise WorkflowWorkspaceBoundaryViolation(
+                        "declared test workspace contains a symlink or special file"
+                    )
+
+    @staticmethod
+    def _test_workspace_copy_ignore(
+        *,
+        suite_base: Path,
+        suite_workspace: Path,
+    ) -> Callable[[str, list[str]], set[str]]:
+        def ignore(current: str, names: list[str]) -> set[str]:
+            if Path(current).resolve() != suite_base:
+                return set()
+            return {
+                name
+                for name in names
+                if name == suite_workspace.name
+                or name.startswith("test-suite-")
+                or name == ".workflow-run-artifacts"
+            }
+
+        return ignore
+
     @staticmethod
     def _stage_test_workspace_tools(
         suite_base: Path,
@@ -4357,16 +4533,17 @@ class WorkflowRuntime:
                     f"test tool symlink escapes workspace tools: {candidate}"
                 )
         destination = case_workspace / "tools"
-        try:
-            shutil.copytree(
-                source,
-                destination,
-                symlinks=True,
-                copy_function=os.link,
-            )
-        except OSError:
-            shutil.rmtree(destination, ignore_errors=True)
-            shutil.copytree(source, destination, symlinks=True)
+        if not destination.exists():
+            try:
+                shutil.copytree(
+                    source,
+                    destination,
+                    symlinks=True,
+                    copy_function=os.link,
+                )
+            except OSError:
+                shutil.rmtree(destination, ignore_errors=True)
+                shutil.copytree(source, destination, symlinks=True)
         cache_source = (suite_base / ".program-cache").resolve()
         if not cache_source.is_dir():
             return
@@ -4378,11 +4555,13 @@ class WorkflowRuntime:
                 raise WorkflowWorkspaceBoundaryViolation(
                     f"test program cache symlink escapes workspace: {candidate}"
                 )
-        shutil.copytree(
-            cache_source,
-            case_workspace / ".program-cache",
-            symlinks=True,
-        )
+        cache_destination = case_workspace / ".program-cache"
+        if not cache_destination.exists():
+            shutil.copytree(
+                cache_source,
+                cache_destination,
+                symlinks=True,
+            )
 
     async def _validate_contract(
         self, node: NodeSpec, output: dict[str, Any], scoped_id: str, run_id: str

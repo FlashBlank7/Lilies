@@ -17,6 +17,7 @@ import pytest
 
 from agent_platform.task_packages import (
     BUILDER_API_MANUAL_FILE,
+    PUBLIC_BUILDER_GUIDANCE_FILE,
     WORKSPACE_MANIFEST_FILE,
     WORKSPACE_POLICY_FILE,
 )
@@ -94,6 +95,10 @@ def _workspace_fixture(
     (workspace / "work").mkdir(mode=0o700)
     (workspace / "artifacts").mkdir(mode=0o700)
     manual = _canonical(child._public_api_manual())
+    guidance = (
+        b"# Public Builder Operating Guide\n\nVersion: 1.0\n\n"
+        b"General test fixture.\n"
+    )
     requirement = b"Build the frozen public workflow through the platform API.\n"
     public_files = {
         BUILDER_API_MANUAL_FILE: manual,
@@ -113,6 +118,20 @@ def _workspace_fixture(
                 "target_path": relative,
             }
         )
+    guidance_target = workspace / PUBLIC_BUILDER_GUIDANCE_FILE
+    guidance_target.write_bytes(guidance)
+    guidance_target.chmod(0o400)
+    supplemental = [
+        {
+            "digest": child._digest(guidance),
+            "logical_source": (
+                f"runner-public:{PUBLIC_BUILDER_GUIDANCE_FILE}"
+            ),
+            "read_only": True,
+            "size_bytes": len(guidance),
+            "target_path": PUBLIC_BUILDER_GUIDANCE_FILE,
+        }
+    ]
     assignment_id = str(uuid4())
     build_id = str(uuid4())
     manifest = {
@@ -129,6 +148,15 @@ def _workspace_fixture(
         "denied_segments": sorted(child._REQUIRED_DENIED_SEGMENTS),
         "writable_prefixes": ["work", "artifacts"],
         "entries": entries,
+        "supplemental_public_materials": supplemental,
+        "supplemental_public_materials_digest": child._digest(
+            _canonical(
+                {
+                    "schema_version": "1.0",
+                    "entries": supplemental,
+                }
+            )
+        ),
     }
     policy = {
         "schema_version": "1.0",
@@ -182,17 +210,31 @@ def _wait_pid_gone(pid: int, timeout: float = 5.0) -> bool:
     return not _pid_exists(pid)
 
 
-def test_builder_prompt_requires_side_effect_triangulation_before_repair() -> None:
+def test_builder_prompt_keeps_the_public_task_fast_and_bounded() -> None:
+    guidance_digest = child._digest(b"verified guidance")
+    guidance_text = (
+        "# Public Builder Operating Guide\n\nVersion: 1.0\n\n"
+        "Use the verified public contract.\n"
+    )
     prompt = child._codex_prompt(
         Path("/runtime/BUILDER_HANDOFF.json"),
         Path("/workspace/BUILDER_API_MANUAL.json"),
+        Path("/workspace/PUBLIC_BUILDER_GUIDANCE.md"),
+        guidance_digest,
+        guidance_text,
     )
 
-    assert "business result, public trace branch" in prompt
-    assert "A verifier verdict alone is not proof" in prompt
-    assert "one physical mutation identity into multiple writes" in prompt
-    assert "Never disable idempotency" in prompt
-    assert "supplemental evidence" in prompt
+    assert "complete public work directory" in prompt
+    assert "launcher already checked the work directory" in prompt
+    assert "Do not audit manifests" in prompt
+    assert "within ten minutes" in prompt
+    assert "run the public debug case" in prompt
+    assert "Use only the task-scoped public APIs" in prompt
+    assert guidance_digest in prompt
+    assert guidance_text.rstrip() in prompt
+    assert prompt.index(guidance_text.rstrip()) < prompt.index(
+        "Fetch the public platform contract"
+    )
 
 
 def test_private_handoff_uses_nofollow_descriptor_for_every_path_component(
@@ -230,6 +272,15 @@ def test_workspace_preflight_rechecks_every_manifest_file_and_rejects_symlink(
     assert verified.manual_digest == child._digest(
         _canonical(child._public_api_manual())
     )
+    assert verified.guidance_path == (
+        workspace / PUBLIC_BUILDER_GUIDANCE_FILE
+    )
+    assert verified.guidance_digest == child._digest(
+        (workspace / PUBLIC_BUILDER_GUIDANCE_FILE).read_bytes()
+    )
+    assert verified.guidance_text == (
+        workspace / PUBLIC_BUILDER_GUIDANCE_FILE
+    ).read_text(encoding="utf-8")
 
     workspace.chmod(0o700)
     requirement = workspace / "requirement.md"
@@ -237,6 +288,103 @@ def test_workspace_preflight_rechecks_every_manifest_file_and_rejects_symlink(
     requirement.symlink_to(ROOT / "pyproject.toml")
     workspace.chmod(0o500)
     with pytest.raises(child.CodexBuilderChildError):
+        child._verify_public_workspace(
+            handoff=handoff,
+            public_workspace=public_workspace,
+        )
+
+
+def test_workspace_preflight_rejects_guidance_digest_drift(
+    tmp_path: Path,
+) -> None:
+    workspace, handoff = _workspace_fixture(tmp_path)
+    public_workspace, _, _, _ = child._validate_handoff(handoff)
+    guidance = workspace / PUBLIC_BUILDER_GUIDANCE_FILE
+    workspace.chmod(0o700)
+    guidance.chmod(0o600)
+    guidance.write_bytes(
+        b"# Public Builder Operating Guide\n\nVersion: 1.0\n\nDrift.\n"
+    )
+    guidance.chmod(0o400)
+    workspace.chmod(0o500)
+
+    with pytest.raises(
+        child.CodexBuilderChildError,
+        match="entry bytes or permissions changed",
+    ):
+        child._verify_public_workspace(
+            handoff=handoff,
+            public_workspace=public_workspace,
+        )
+
+
+def test_workspace_preflight_rejects_manifest_bound_non_utf8_guidance(
+    tmp_path: Path,
+) -> None:
+    workspace, handoff = _workspace_fixture(tmp_path)
+    guidance_path = workspace / PUBLIC_BUILDER_GUIDANCE_FILE
+    manifest_path = workspace / WORKSPACE_MANIFEST_FILE
+    invalid_guidance = (
+        b"# Public Builder Operating Guide\n\nVersion: 1.0\n\n\xff\n"
+    )
+    workspace.chmod(0o700)
+    guidance_path.chmod(0o600)
+    guidance_path.write_bytes(invalid_guidance)
+    guidance_path.chmod(0o400)
+    manifest_path.chmod(0o600)
+    manifest = json.loads(manifest_path.read_bytes())
+    supplemental = manifest["supplemental_public_materials"]
+    supplemental[0]["digest"] = child._digest(invalid_guidance)
+    supplemental[0]["size_bytes"] = len(invalid_guidance)
+    manifest["supplemental_public_materials_digest"] = child._digest(
+        _canonical(
+            {
+                "schema_version": "1.0",
+                "entries": supplemental,
+            }
+        )
+    )
+    manifest_payload = _canonical(manifest)
+    manifest_path.write_bytes(manifest_payload)
+    manifest_path.chmod(0o400)
+    workspace.chmod(0o500)
+    handoff["workspace"]["manifest_digest"] = child._digest(  # type: ignore[index]
+        manifest_payload
+    )
+    public_workspace, _, _, _ = child._validate_handoff(handoff)
+
+    with pytest.raises(
+        child.CodexBuilderChildError,
+        match="not valid UTF-8",
+    ):
+        child._verify_public_workspace(
+            handoff=handoff,
+            public_workspace=public_workspace,
+        )
+
+
+def test_workspace_preflight_rejects_supplemental_aggregate_digest_drift(
+    tmp_path: Path,
+) -> None:
+    workspace, handoff = _workspace_fixture(tmp_path)
+    manifest_path = workspace / WORKSPACE_MANIFEST_FILE
+    workspace.chmod(0o700)
+    manifest_path.chmod(0o600)
+    manifest = json.loads(manifest_path.read_bytes())
+    manifest["supplemental_public_materials_digest"] = "sha256:" + "0" * 64
+    manifest_payload = _canonical(manifest)
+    manifest_path.write_bytes(manifest_payload)
+    manifest_path.chmod(0o400)
+    workspace.chmod(0o500)
+    handoff["workspace"]["manifest_digest"] = child._digest(  # type: ignore[index]
+        manifest_payload
+    )
+    public_workspace, _, _, _ = child._validate_handoff(handoff)
+
+    with pytest.raises(
+        child.CodexBuilderChildError,
+        match="supplemental public material binding is invalid",
+    ):
         child._verify_public_workspace(
             handoff=handoff,
             public_workspace=public_workspace,

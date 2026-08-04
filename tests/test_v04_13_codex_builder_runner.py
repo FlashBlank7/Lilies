@@ -289,6 +289,54 @@ def test_platform_settings_scrub_inherited_model_authority(
     assert settings.lilies_collaboration_enabled is True
     assert settings.lilies_autonomous_collaboration_enabled is True
     assert settings.lilies_local_builder_default is False
+    assert settings.lilies_formal_public_guidance_path == (
+        runner.PUBLIC_BUILDER_GUIDANCE
+    )
+    assert settings.lilies_formal_public_guidance_path.is_file()
+
+
+def test_public_builder_guidance_is_generic_and_covers_operating_rules() -> None:
+    guidance = runner.PUBLIC_BUILDER_GUIDANCE.read_text(encoding="utf-8")
+    required = (
+        "workspace.path",
+        ".lilies-mount-manifest.json",
+        "byte size, and SHA-256 digest",
+        "connector descriptors",
+        "node, branch, port, reference, and terminal path",
+        "`[REDACTED]`",
+        "independent, order-safe, and safe to run concurrently",
+        "restore a measured zero baseline",
+        "persist after compensation or deletion",
+        "Reserve enough mutation capacity",
+        "exact canonical mutation identity",
+        "An exact replay reuses the same key",
+        "different payload uses a different deterministic key",
+        "conflicts separately from permission denials",
+        "Excel serial date",
+        "`attempt_count` is greater than one",
+        "Stop on a new error category",
+        "Do not repeat speculative edits",
+    )
+    assert all(item in guidance for item in required)
+    forbidden = (
+        "EXP-LILIES",
+        "Paperless",
+        "InvenTree",
+        "ThingsBoard",
+        "http://",
+        "https://",
+        "/api/",
+        "/Users/",
+        "/private/",
+        "oracle",
+        "protected",
+        "expected-vs-actual",
+        "final graph",
+        ".git",
+        "source code",
+        "platform database",
+    )
+    assert not any(item.casefold() in guidance.casefold() for item in forbidden)
 
 
 def test_managed_attestation_rejects_an_exited_boundary() -> None:

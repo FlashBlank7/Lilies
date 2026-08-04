@@ -74,8 +74,8 @@ class _ContractCredentialView:
     permission_required_actions: tuple[str, ...]
     compensation_actions: tuple[str, ...]
     max_payload_bytes: int
-    allowed_actions_digest: str
-    budget_digest: str
+    allowed_actions_digest: str | None
+    budget_digest: str | None
 
 
 async def published_platform_contract_digest(
@@ -96,6 +96,42 @@ async def published_platform_contract_digest(
     from .lilies_platform_api import _current_contract
     from .platform_blackbox_auth import PlatformBlackboxOperation
 
+    # Formal assignments carry a frozen host-action policy object, while the
+    # ordinary customer Builder route carries only its public platform action
+    # tuple.  Both routes use this callback, so project the latter as an
+    # intentionally connector-free credential instead of assuming the formal
+    # shape.
+    if hasattr(allowed_actions, "platform_actions"):
+        platform_actions = allowed_actions.platform_actions
+        connector_access = allowed_actions.connector_access
+        allowed_network_hosts = tuple(allowed_actions.network_hosts)
+        readable_host_objects = tuple(allowed_actions.readable_host_objects)
+        writable_host_operations = tuple(
+            allowed_actions.writable_host_operations
+        )
+        permission_required_actions = tuple(
+            allowed_actions.permission_required_actions
+        )
+        compensation_actions = tuple(allowed_actions.compensation_actions)
+        max_payload_bytes = allowed_actions.max_payload_bytes
+        allowed_actions_digest = f"sha256:{'0' * 64}"
+        budget_digest = f"sha256:{'0' * 64}"
+    else:
+        # Customer credentials are issued with the public operation enum's
+        # defaults and are narrowed by scopes plus application binding.  The
+        # digest must mirror that issued credential exactly; the assignment's
+        # allowed-actions tuple separately narrows the daemon tool registry.
+        platform_actions = tuple(PlatformBlackboxOperation)
+        connector_access = False
+        allowed_network_hosts = ()
+        readable_host_objects = ()
+        writable_host_operations = ()
+        permission_required_actions = ()
+        compensation_actions = ()
+        max_payload_bytes = 100 * 1024 * 1024
+        allowed_actions_digest = None
+        budget_digest = None
+
     contract = await _current_contract(
         services,
         _ContractCredentialView(
@@ -103,24 +139,20 @@ async def published_platform_contract_digest(
             application_ids=application_ids,
             allowed_operations=tuple(
                 PlatformBlackboxOperation(action.value)
-                for action in allowed_actions.platform_actions
+                for action in platform_actions
             ),
-            connector_access=allowed_actions.connector_access,
-            allowed_network_hosts=tuple(allowed_actions.network_hosts),
-            readable_host_objects=tuple(allowed_actions.readable_host_objects),
-            writable_host_operations=tuple(
-                allowed_actions.writable_host_operations
-            ),
-            permission_required_actions=tuple(
-                allowed_actions.permission_required_actions
-            ),
-            compensation_actions=tuple(allowed_actions.compensation_actions),
-            max_payload_bytes=allowed_actions.max_payload_bytes,
+            connector_access=connector_access,
+            allowed_network_hosts=allowed_network_hosts,
+            readable_host_objects=readable_host_objects,
+            writable_host_operations=writable_host_operations,
+            permission_required_actions=permission_required_actions,
+            compensation_actions=compensation_actions,
+            max_payload_bytes=max_payload_bytes,
             # The published contract needs only the governed/non-governed
             # distinction.  Exact package digests are bound into the issued
             # credential and handoff after broker preparation.
-            allowed_actions_digest=f"sha256:{'0' * 64}",
-            budget_digest=f"sha256:{'0' * 64}",
+            allowed_actions_digest=allowed_actions_digest,
+            budget_digest=budget_digest,
         ),
     )
     return str(contract["contract_digest"])

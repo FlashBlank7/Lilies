@@ -41,9 +41,11 @@ from .execution_policy import (
 from .lilies_platform_contract import (
     DEFAULT_ARTIFACT_CHUNK_BYTES,
     MAX_ARTIFACT_CHUNK_BYTES,
+    PLATFORM_CONTRACT_VERSION,
     build_platform_contract,
     public_block_catalog,
     public_block_manual,
+    public_block_search_catalog,
     public_digest,
     public_runtime_tool_catalog,
 )
@@ -768,7 +770,74 @@ def _connector_policy_match(
         f"{connector_id}.{operation_id}",
         f"{connector_id}:{operation_id}",
     }
-    return len(candidates.intersection(values)) == 1
+    if candidates.intersection(values):
+        return True
+
+    action_tokens = {
+        "create",
+        "delete",
+        "destroy",
+        "fetch",
+        "get",
+        "list",
+        "partial",
+        "patch",
+        "read",
+        "restore",
+        "retrieve",
+        "update",
+        "write",
+    }
+
+    def resource_tokens(
+        value: str,
+        *,
+        drop_connector: bool,
+        include_acronyms: bool,
+    ) -> set[str]:
+        raw_tokens = [
+            token
+            for token in re.split(r"[^a-z0-9]+", value.casefold())
+            if token
+        ]
+        connector_tokens = {
+            token
+            for token in re.split(r"[^a-z0-9]+", connector_id.casefold())
+            if token
+        }
+        normalized: list[str] = []
+        for token in raw_tokens:
+            if token in action_tokens or token == "pk":
+                continue
+            if drop_connector and token in connector_tokens:
+                continue
+            if len(token) > 3 and token.endswith("s"):
+                token = token[:-1]
+            normalized.append(token)
+        enriched = set(normalized)
+        if include_acronyms:
+            for start in range(len(normalized)):
+                for end in range(start + 2, len(normalized) + 1):
+                    enriched.add("".join(token[0] for token in normalized[start:end]))
+        return enriched
+
+    operation_resources = resource_tokens(
+        operation_id,
+        drop_connector=False,
+        include_acronyms=False,
+    )
+    if not operation_resources:
+        return False
+    return any(
+        operation_resources
+        <= resource_tokens(
+            value,
+            drop_connector=True,
+            include_acronyms=True,
+        )
+        for value in values
+        if isinstance(value, str) and value
+    )
 
 
 async def _task_scoped_connector_tools(
@@ -1225,7 +1294,11 @@ async def _issue_task_connector_authorization(
 async def _current_contract(
     services: Any, credential: TaskCredentialRecord
 ) -> dict[str, Any]:
-    contract_version = getattr(services.settings, "lilies_platform_contract_version", 1)
+    contract_version = getattr(
+        services.settings,
+        "lilies_platform_contract_version",
+        PLATFORM_CONTRACT_VERSION,
+    )
     await services.platform_contract_versions.observe(
         contract_version=contract_version,
         schema_digest=platform_contract_schema_digest(),
@@ -2230,14 +2303,20 @@ def install_lilies_platform_api(app: FastAPI, services: Any) -> None:
     async def platform_block_search(
         request: Request,
         query: str = Query(default="", max_length=500),
-        block_kind: str | None = Query(default=None, max_length=120),
+        block_kind: Literal[
+            "business_workflow",
+            "agent_architecture",
+            "legacy_compatibility",
+        ]
+        | None = Query(default=None),
+        limit: int = Query(default=12, ge=1, le=50),
     ) -> JSONResponse:
         async def execute(
             _: _Correlation, __: TaskCredentialRecord
         ) -> list[dict[str, Any]]:
             needle = query.casefold().strip()
             result = []
-            for item in public_block_catalog(services.blocks):
+            for item in public_block_search_catalog(services.blocks):
                 if block_kind and item.get("block_kind") != block_kind:
                     continue
                 if (
@@ -2245,18 +2324,27 @@ def install_lilies_platform_api(app: FastAPI, services: Any) -> None:
                     and needle
                     not in " ".join(
                         str(item.get(key, ""))
-                        for key in ("type", "title", "description", "category")
+                        for key in (
+                            "type",
+                            "title",
+                            "description",
+                            "category",
+                            "manual_summary",
+                            "when_to_use",
+                        )
                     ).casefold()
                 ):
                     continue
                 result.append(item)
+                if len(result) >= limit:
+                    break
             return result
 
         return await _invoke(
             services,
             request,
             PlatformBlackboxOperation.block_search,
-            payload={"query": query, "block_kind": block_kind},
+            payload={"query": query, "block_kind": block_kind, "limit": limit},
             callback=execute,
         )
 

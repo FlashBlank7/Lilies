@@ -60,6 +60,19 @@ MAX_CONNECTOR_REQUEST_CONSTRAINT_JSON_NODES = 512
 MAX_CONNECTOR_REQUEST_CONSTRAINT_STRING_BYTES = 4 * 1024
 
 
+def _render_api_key_auth_value(prefix: str, secret: str) -> str:
+    """Render an API-key value while preserving explicit prefix delimiters.
+
+    A prefix ending in an ASCII letter or digit is a bare word-style scheme and
+    receives one separating space. Empty prefixes and prefixes that already end
+    in whitespace or punctuation are concatenated exactly as configured. The
+    secret remains opaque; its contents never influence prefix rendering.
+    """
+
+    separator = " " if prefix and re.search(r"[A-Za-z0-9]\Z", prefix) else ""
+    return f"{prefix}{separator}{secret}"
+
+
 class ConnectorConflict(RuntimeError):
     pass
 
@@ -3598,7 +3611,7 @@ class ConnectorService:
             headers["Authorization"] = f"Basic {encoded}"
         elif profile.auth_type == "api_key":
             secret = await self._tenant_secret(binding)
-            auth_value = f"{profile.auth_prefix}{secret}"
+            auth_value = _render_api_key_auth_value(profile.auth_prefix, secret)
             if profile.auth_location == "header":
                 headers[profile.auth_wire_name] = auth_value
             elif profile.auth_location == "query":

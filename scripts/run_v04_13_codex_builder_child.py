@@ -31,6 +31,7 @@ for import_root in (ROOT, BACKEND_SRC):
 
 from agent_platform.task_packages import (  # noqa: E402
     BUILDER_API_MANUAL_FILE,
+    PUBLIC_BUILDER_GUIDANCE_FILE,
     WORKSPACE_MANIFEST_FILE,
     WORKSPACE_POLICY_FILE,
 )
@@ -48,6 +49,7 @@ from scripts.run_v04_13_live_development_handoff import (  # noqa: E402
 MAX_HANDOFF_BYTES = 2 * 1024 * 1024
 MAX_TRANSCRIPT_BYTES = 64 * 1024 * 1024
 MAX_PUBLIC_FILE_BYTES = 64 * 1024 * 1024
+MAX_PUBLIC_GUIDANCE_BYTES = 32 * 1024
 MAX_SESSION_STATE_BYTES = 512 * 1024 * 1024
 DEFAULT_MODEL = "gpt-5.6-terra"
 MACOS_SANDBOX = Path("/usr/bin/sandbox-exec")
@@ -117,6 +119,9 @@ class _ForwardedTermination(CodexBuilderChildError):
 class WorkspaceVerification:
     manual_path: Path
     manual_digest: str
+    guidance_path: Path
+    guidance_digest: str
+    guidance_text: str
     public_probe_path: Path
 
 
@@ -619,8 +624,39 @@ def _verify_public_workspace(
             raise CodexBuilderChildError(
                 "public workspace manifest entries are invalid"
             )
+        supplemental = manifest.get("supplemental_public_materials")
+        supplemental_digest = manifest.get(
+            "supplemental_public_materials_digest"
+        )
+        if (
+            not isinstance(supplemental, list)
+            or not supplemental
+            or len(supplemental) > 20
+            or not isinstance(supplemental_digest, str)
+            or _DIGEST_PATTERN.fullmatch(supplemental_digest) is None
+            or not hmac.compare_digest(
+                _digest(
+                    _canonical_json(
+                        {
+                            "schema_version": "1.0",
+                            "entries": supplemental,
+                        }
+                    )
+                ),
+                supplemental_digest,
+            )
+        ):
+            raise CodexBuilderChildError(
+                "supplemental public material binding is invalid"
+            )
         declared: dict[str, tuple[str, int, bytes]] = {}
-        for raw_entry in entries:
+        bound_entries = [
+            (item, "task-package") for item in entries
+        ]
+        bound_entries.extend(
+            (item, "runner-public") for item in supplemental
+        )
+        for raw_entry, source_prefix in bound_entries:
             if not isinstance(raw_entry, dict):
                 raise CodexBuilderChildError(
                     "public workspace manifest entry is invalid"
@@ -635,6 +671,8 @@ def _verify_public_workspace(
             if (
                 relative_value in {WORKSPACE_MANIFEST_FILE, WORKSPACE_POLICY_FILE}
                 or relative_value in declared
+                or raw_entry.get("logical_source")
+                != f"{source_prefix}:{relative_value}"
                 or raw_entry.get("read_only") is not True
                 or not isinstance(digest, str)
                 or _DIGEST_PATTERN.fullmatch(digest) is None
@@ -703,14 +741,44 @@ def _verify_public_workspace(
             raise CodexBuilderChildError(
                 "public Builder API manual identity is invalid"
             )
+        guidance = declared.get(PUBLIC_BUILDER_GUIDANCE_FILE)
+        if guidance is None:
+            raise CodexBuilderChildError(
+                "public Builder guidance is not manifest-bound"
+            )
+        if len(guidance[2]) > MAX_PUBLIC_GUIDANCE_BYTES:
+            raise CodexBuilderChildError(
+                "public Builder guidance exceeds its prompt limit"
+            )
+        try:
+            guidance_text = guidance[2].decode("utf-8")
+        except UnicodeDecodeError as error:
+            raise CodexBuilderChildError(
+                "public Builder guidance is not valid UTF-8"
+            ) from error
+        if not guidance_text.startswith(
+            "# Public Builder Operating Guide\n\nVersion: 1.0\n"
+        ):
+            raise CodexBuilderChildError(
+                "public Builder guidance identity is invalid"
+            )
         public_probe_path = next(
             public_workspace / relative
             for relative in sorted(declared)
-            if relative != BUILDER_API_MANUAL_FILE
+            if relative
+            not in {
+                BUILDER_API_MANUAL_FILE,
+                PUBLIC_BUILDER_GUIDANCE_FILE,
+            }
         )
         return WorkspaceVerification(
             manual_path=public_workspace / BUILDER_API_MANUAL_FILE,
             manual_digest=manual[0],
+            guidance_path=(
+                public_workspace / PUBLIC_BUILDER_GUIDANCE_FILE
+            ),
+            guidance_digest=guidance[0],
+            guidance_text=guidance_text,
             public_probe_path=public_probe_path,
         )
     finally:
@@ -2252,6 +2320,9 @@ def _public_api_manual() -> dict[str, Any]:
 def _codex_prompt(
     handoff_path: Path,
     manual_path: Path,
+    guidance_path: Path,
+    guidance_digest: str,
+    guidance_text: str,
     *,
     resume_thread_id: str | None = None,
 ) -> str:
@@ -2263,30 +2334,25 @@ def _codex_prompt(
     )
     return (
         continuity
-        + "You are the isolated external Codex Builder for a frozen enterprise "
-        "workflow assignment. Work only in the current filtered public workspace "
-        "and through the public platform and collaboration APIs described by the "
-        f"0600 handoff at {handoff_path}. Read that handoff once; never print or "
-        f"persist either bearer. Read the public API manual at {manual_path}; do "
-        "not inspect source code to guess schemas. Fetch and obey the public "
-        "contract before acting. "
-        "Do not inspect parent directories, repository source, platform databases, "
-        "protected/oracle paths, owner state, or host secrets. Execute the assigned "
-        "current frozen project and keep every side effect inside the public "
-        "contract. If a missing platform capability blocks a project, submit a "
-        "Builder capability report through the collaboration API and stop that "
-        "attempt so the owner can record development enablement and rerun the same "
-        "project. Before changing or republishing a workflow after an acceptance "
-        "failure, triangulate the business result, public trace branch, and distinct "
-        "customer-host mutation receipts. A verifier verdict alone is not proof of "
-        "a workflow defect, and records sharing one business key must not turn one "
-        "physical mutation identity into multiple writes. Never disable idempotency "
-        "or change its keys to hide an evidence mismatch. Treat formal archive and "
-        "independent verification as supplemental evidence: honor the support level "
-        "advertised by the handoff, record the claim ceiling, and do not describe an "
-        "otherwise successful customer workflow as undeliverable solely because that "
-        "surface is unavailable. Finish with a concise factual summary containing "
-        "public IDs and evidence references only."
+        + "You are the Builder for one enterprise workflow task. The current "
+        "directory is your complete public work directory. Read the task requirement, "
+        f"the public API manual at {manual_path}, and the operating guide at "
+        f"{guidance_path} (verified digest {guidance_digest}). The guide is:\n"
+        "<public_builder_operating_guide>\n"
+        f"{guidance_text.rstrip()}\n"
+        "</public_builder_operating_guide>\n"
+        f"Read the private API handoff once at {handoff_path}; never print or save "
+        "its bearers. The launcher already checked the work directory and its two "
+        "platform control files. Do not audit manifests, inventory files, or inspect "
+        "parent directories. Do not read source code, databases, hidden seeds, "
+        "or oracle data. Fetch the public platform contract, then build the smallest "
+        "safe workflow that fully meets the task. Aim to finish within ten minutes: "
+        "apply coherent draft changes with few API round trips, validate immediately, "
+        "run the public debug case, inspect public traces and customer-system receipts, "
+        "repair factual failures, and publish. Use only the task-scoped public APIs. "
+        "If those APIs genuinely cannot express a required reusable capability, "
+        "submit one concise capability-gap report and stop. Finish with the public "
+        "application, run, artifact, and version IDs."
     )
 
 
@@ -2599,9 +2665,15 @@ def _run(args: argparse.Namespace) -> int:
     )
     manual_path = workspace_verification.manual_path
     manual_digest = workspace_verification.manual_digest
+    guidance_path = workspace_verification.guidance_path
+    guidance_digest = workspace_verification.guidance_digest
+    guidance_text = workspace_verification.guidance_text
     prompt = _codex_prompt(
         handoff_path,
         manual_path,
+        guidance_path,
+        guidance_digest,
+        guidance_text,
         resume_thread_id=args.resume_thread_id,
     )
     invocation_binding = InvocationBinding.create(
@@ -2732,6 +2804,8 @@ def _run(args: argparse.Namespace) -> int:
         },
         "public_api_manual_digest": manual_digest,
         "public_api_manual_source": "workspace_manifest",
+        "public_builder_guidance_digest": guidance_digest,
+        "public_builder_guidance_source": "workspace_manifest",
         "transcript_digest": _digest(sanitized_stdout),
         "stderr_digest": _digest(sanitized_stderr),
         "sandbox": "macos-seatbelt",

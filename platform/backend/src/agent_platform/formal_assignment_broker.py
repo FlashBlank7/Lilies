@@ -450,6 +450,7 @@ class FormalAssignmentBroker:
         developer_source_root: Path | None = None,
         developer_workspace_root: Path | None = None,
         developer_projection_provider: DeveloperProjectionProvider | None = None,
+        supplemental_public_materials: Mapping[str, Path] | None = None,
     ) -> None:
         lexical_task_root = Path(task_state_root)
         if lexical_task_root.exists() and lexical_task_root.is_symlink():
@@ -527,6 +528,11 @@ class FormalAssignmentBroker:
         self.__lock_path = self.__broker_root / ".prepare.lock"
         self.__platform_access_provider = platform_access_provider
         self.__collaboration_access_provider = collaboration_access_provider
+        self.__supplemental_public_materials = (
+            dict(supplemental_public_materials)
+            if supplemental_public_materials is not None
+            else None
+        )
 
     @contextmanager
     def _prepare_lock(self) -> Any:
@@ -561,6 +567,8 @@ class FormalAssignmentBroker:
         request: PrepareFormalAssignmentRequest,
         expected_request_digest: str,
         record: _PreparedRecord,
+        *,
+        require_live_environment_ready: bool = True,
     ) -> PreparedFormalAssignment:
         if (
             not hmac.compare_digest(record.request_digest, expected_request_digest)
@@ -581,7 +589,13 @@ class FormalAssignmentBroker:
             raise TaskPackageSecurityError(
                 "formal broker prepared record points outside its public workspace"
             )
-        self.__manager.authorize_formal_assignment(prepared.assignment)
+        if require_live_environment_ready:
+            self.__manager.authorize_formal_assignment(prepared.assignment)
+        else:
+            self.__manager._authorize_formal_assignment(  # noqa: SLF001
+                prepared.assignment,
+                at=prepared.assignment.created_at,
+            )
         self._assert_public_workspace(
             Path(prepared.workspace.path),
             prepared.assignment,
@@ -757,6 +771,7 @@ class FormalAssignmentBroker:
                 record.request,
                 _request_digest(record.request),
                 record,
+                require_live_environment_ready=False,
             )
             return self._assert_developer_workspace(
                 self.__developer_workspace_root / str(assignment_id),
@@ -1114,6 +1129,9 @@ class FormalAssignmentBroker:
                     run_id=run_id,
                     assignment_id=parsed.assignment_id,
                     environment_ready_path=ready_path,
+                    supplemental_public_materials=(
+                        self.__supplemental_public_materials
+                    ),
                 )
             _, workspace_digest, policy_digest = self.__manager.require_workspace_manifest(
                 package,

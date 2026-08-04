@@ -33,6 +33,7 @@ from agent_platform.lilies_platform_contract import (
     PLATFORM_CONTRACT_VERSION,
     public_contract_schema_digest,
 )
+from agent_platform.lilies_platform_api import _connector_policy_match
 from agent_platform.platform_blackbox_auth import (
     PlatformBlackboxScope,
     TaskCredentialGrant,
@@ -41,6 +42,44 @@ from tests.test_runtime import ScriptedProvider
 
 
 ZERO_DIGEST = "sha256:" + "0" * 64
+
+
+def test_connector_policy_matches_business_resources_without_fuzzy_overreach() -> None:
+    assert _connector_policy_match(
+        "warehouse",
+        "records_list",
+        ["warehouse.records"],
+    )
+    assert _connector_policy_match(
+        "warehouse",
+        "order_po_line_list",
+        ["warehouse.purchase_order_lines"],
+    )
+    assert _connector_policy_match(
+        "warehouse",
+        "attachment_create",
+        ["warehouse.purchase_order.attachments.create"],
+    )
+    assert not _connector_policy_match(
+        "warehouse",
+        "records_list",
+        ["warehouse.inventory_items"],
+    )
+    assert not _connector_policy_match(
+        "warehouse",
+        "company_part_list",
+        ["warehouse.companies"],
+    )
+    assert _connector_policy_match(
+        "paperless",
+        "documents_partial_update",
+        ["paperless.document.custom_fields.update"],
+    )
+    assert _connector_policy_match(
+        "inventree",
+        "order_po_list",
+        ["inventree.purchase_orders"],
+    )
 
 
 def _settings(tmp_path: Path) -> Settings:
@@ -82,7 +121,7 @@ def _credential_headers(
         {
             "allowed_network_hosts": ["127.0.0.1"],
             "connector_access": True,
-            "readable_host_objects": ["warehouse.records.list"],
+            "readable_host_objects": ["warehouse.records"],
             "writable_host_operations": ["warehouse.records.update"],
             "permission_required_actions": ["warehouse.records.update"],
             "compensation_actions": ["warehouse.records.restore"],
@@ -335,10 +374,10 @@ async def _register_generic_connector(
 
 def test_generic_manifest_validates_declared_union_response_shape() -> None:
     manifest = _generic_manifest()
-    assert PLATFORM_CONTRACT_VERSION == 2
+    assert PLATFORM_CONTRACT_VERSION == 4
     assert (
         public_contract_schema_digest()
-        == "sha256:fb5eb4e446973ff559718d0250d2f560262832f808b6ea23133a68a5765fab40"
+        == "sha256:9b3edbd7b9039d3796c0c462f1a69efc7b94e5d516b7d00ea6a9f26134ab599d"
     )
     operation = manifest.operation("records.list")
     ConnectorService.validate_operation_response(

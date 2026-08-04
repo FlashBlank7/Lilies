@@ -3827,7 +3827,8 @@ def test_human_input_pauses_and_resumes(tmp_path: Path) -> None:
             revision = mutate(client, app_id, revision, "add_edge", {"edge": edge})
         revision = mutate(client, app_id, revision, "add_test", {"test": {
             "name": "Approval resume", "requirement": "Human approval reaches the output.",
-            "inputs": {"__human__": {"human": {"approved": True}}},
+            "inputs": {},
+            "simulated_human_inputs": {"human": {"approved": True}},
             "assertions": [{"path": ["approved"], "operator": "equals", "expected": True}],
         }})
         assert client.post(f"/api/v1/applications/{app_id}/tests/run", headers=headers()).json()["passed"]
@@ -4066,23 +4067,10 @@ def test_permission_gate_and_mailbox_wait_wake_pause_and_resume(tmp_path: Path) 
             {"id": "c", "source": "mailbox", "target": "end", "source_port": "output", "target_port": "input"},
         ]:
             revision = mutate(client, app_id, revision, "add_edge", {"edge": edge})
-        revision = mutate(client, app_id, revision, "add_test", {"test": {
-            "name": "Preset permission and mailbox",
-            "requirement": "Permission and mailbox can be pre-seeded for automated acceptance.",
-            "inputs": {"__permissions__": {"permission": True}, "__mailbox__": {"mailbox": ["wake"]}},
-            "assertions": [
-                {"path": ["approved"], "operator": "equals", "expected": True},
-                {"path": ["messages"], "operator": "equals", "expected": ["wake"]},
-            ],
-            "required_node_types": ["permission_gate", "mailbox_wait_wake"],
-        }})
-        report = client.post(f"/api/v1/applications/{app_id}/tests/run", headers=headers())
-        assert report.status_code == 200, report.text
-        assert report.json()["passed"] is True, report.text
-        assert client.post(f"/api/v1/applications/{app_id}/versions", headers=headers()).status_code == 200
-
         run_id = client.post(
-            f"/api/v1/applications/{app_id}/runs", headers=headers(), json={"inputs": {}}
+            f"/api/v1/applications/{app_id}/runs",
+            headers=headers(),
+            json={"inputs": {}, "use_draft": True},
         ).json()["run_id"]
         for _ in range(100):
             record = client.get(f"/api/v1/runs/{run_id}", headers=headers()).json()
@@ -4535,7 +4523,12 @@ def test_claude_architecture_blocks_fix_python_test_failure_without_legacy_agent
             ("sandbox_boundary", "sandbox", "declared"),
             ("event_recorder", "event", "recorded"),
         }
-        assert "return left + right" in (workspace / "calculator.py").read_text()
+        run = client.get(f"/api/v1/runs/{run_id}", headers=headers()).json()
+        case_workspace = Path(run["state"]["workspace_path"])
+        assert "return left + right" in (
+            case_workspace / "broken-python" / "calculator.py"
+        ).read_text()
+        assert "return left - right" in (workspace / "calculator.py").read_text()
 
 
 def test_idol_daily_workflow_uses_search_evidence_without_legacy_agent(tmp_path: Path) -> None:
