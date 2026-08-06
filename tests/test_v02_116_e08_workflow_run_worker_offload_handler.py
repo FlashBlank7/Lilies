@@ -58,8 +58,12 @@ def _wait_for_run(client: TestClient, run_id: str) -> dict[str, Any]:
     return run
 
 
-def test_v02_116_catalog_marks_workflow_run_implemented() -> None:
-    settings = Settings(api_token="workflow-test")
+def test_v02_116_catalog_marks_workflow_run_implemented(tmp_path: Path) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+    )
     app = create_app(settings, ScriptedProvider())
     with TestClient(app) as client:
         handlers = build_platform_worker_handlers(client.app.state.services)

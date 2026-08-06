@@ -1628,6 +1628,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         await services.connectors.initialize()
         await services.openapi_connectors.initialize()
         await services.workflow_store.fail_interrupted_runs()
+        await services.workflow_store.fail_interrupted_builds()
         services.scheduler.start()
         await services.event_automation.start()
         local_lilies_recovery_task: asyncio.Task[Any] | None = None

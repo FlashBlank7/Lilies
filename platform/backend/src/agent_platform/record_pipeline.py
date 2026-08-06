@@ -325,7 +325,10 @@ class ConflictCheck(BaseModel):
 class RecordMatchConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
-    source: Any
+    # Exactly one of source (single record) / sources (batch reconciliation).
+    source: Any = None
+    sources: Any = None
+    consume_candidates: bool = True
     candidates: Any
     conditions: list[MatchCondition] = Field(
         min_length=1,
@@ -354,6 +357,11 @@ class RecordMatchConfig(BaseModel):
         conflict_names = [item.name for item in self.conflict_checks]
         if len(conflict_names) != len(set(conflict_names)):
             raise ValueError("conflict check names must be unique")
+        if (self.source is None) == (self.sources is None):
+            raise ValueError(
+                "record_match requires exactly one of source (single record) "
+                "or sources (batch list)"
+            )
         return self
 
 
@@ -962,6 +970,115 @@ def match_record(
             "qualified_count": len(qualified),
             "clean_count": len(clean),
             "conflicting_count": len(conflicting),
+        },
+    }
+
+
+MAX_BATCH_COMPARISONS = 250_000
+
+
+def match_records(
+    sources: Any,
+    candidates: Any,
+    *,
+    conditions: list[MatchCondition],
+    conflict_checks: list[ConflictCheck],
+    min_score: float,
+    ambiguity_threshold: float,
+    result_limit: int,
+    consume_candidates: bool = True,
+) -> dict[str, Any]:
+    """Batch reconciliation: match every source against a shared candidate pool.
+
+    With ``consume_candidates`` (default) each candidate is matched at most
+    once — the one-to-one shape of 对账. Sources are processed in input order,
+    so results are deterministic for identical inputs.
+    """
+
+    validated_sources = _validate_records(sources, label="record_match sources")
+    validated_candidates = _validate_records(
+        candidates,
+        label="record_match candidates",
+    )
+    if len(validated_sources) * len(validated_candidates) > MAX_BATCH_COMPARISONS:
+        raise ValueError(
+            "record_match batch is too large: "
+            f"{len(validated_sources)}×{len(validated_candidates)} comparisons "
+            f"exceed {MAX_BATCH_COMPARISONS}"
+        )
+
+    consumed: set[int] = set()
+    results: list[dict[str, Any]] = []
+    matched: list[dict[str, Any]] = []
+    unmatched_sources: list[dict[str, Any]] = []
+    ambiguous_sources: list[dict[str, Any]] = []
+    conflict_sources: list[dict[str, Any]] = []
+
+    for source_index, source in enumerate(validated_sources):
+        pool_indexes = [
+            index
+            for index in range(len(validated_candidates))
+            if index not in consumed
+        ]
+        pool = [validated_candidates[index] for index in pool_indexes]
+        outcome = match_record(
+            source,
+            pool,
+            conditions=conditions,
+            conflict_checks=conflict_checks,
+            min_score=min_score,
+            ambiguity_threshold=ambiguity_threshold,
+            result_limit=result_limit,
+        )
+        selected = outcome["match"]
+        if selected is not None:
+            original_index = pool_indexes[selected["index"]]
+            selected = {**selected, "index": original_index}
+            if consume_candidates:
+                consumed.add(original_index)
+        entry = {
+            "source_index": source_index,
+            "source": source,
+            "status": outcome["status"],
+            "match": selected,
+        }
+        results.append(entry)
+        if outcome["status"] == "matched":
+            matched.append({
+                "source_index": source_index,
+                "source": source,
+                "candidate_index": selected["index"],
+                "candidate": selected["candidate"],
+                "score": selected["score"],
+            })
+        elif outcome["status"] == "ambiguous":
+            ambiguous_sources.append(entry)
+        elif outcome["status"] == "conflict":
+            conflict_sources.append(entry)
+        else:
+            unmatched_sources.append(entry)
+
+    matched_candidate_indexes = {item["candidate_index"] for item in matched}
+    unmatched_candidates = [
+        {"index": index, "candidate": candidate}
+        for index, candidate in enumerate(validated_candidates)
+        if index not in matched_candidate_indexes
+    ]
+    return {
+        "results": results,
+        "matched": matched,
+        "unmatched_sources": unmatched_sources,
+        "ambiguous_sources": ambiguous_sources,
+        "conflict_sources": conflict_sources,
+        "unmatched_candidates": unmatched_candidates,
+        "summary": {
+            "total_sources": len(validated_sources),
+            "total_candidates": len(validated_candidates),
+            "matched": len(matched),
+            "unmatched_sources": len(unmatched_sources),
+            "ambiguous": len(ambiguous_sources),
+            "conflicts": len(conflict_sources),
+            "unmatched_candidates": len(unmatched_candidates),
         },
     }
 

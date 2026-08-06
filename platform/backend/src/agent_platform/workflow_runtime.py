@@ -81,6 +81,7 @@ from .record_pipeline import (
     deduplicate_records,
     extract_regex_fields,
     match_record,
+    match_records,
     normalize_record_collection,
     validate_json_value,
     write_typed_json_artifact,
@@ -1873,15 +1874,27 @@ class WorkflowRuntime:
             )
             return {"output": result, **result}
         if isinstance(config, RecordMatchConfig):
-            result = match_record(
-                self._resolve(config.source, context),
-                self._resolve(config.candidates, context),
-                conditions=config.conditions,
-                conflict_checks=config.conflict_checks,
-                min_score=config.min_score,
-                ambiguity_threshold=config.ambiguity_threshold,
-                result_limit=config.result_limit,
-            )
+            if config.sources is not None:
+                result = match_records(
+                    self._resolve(config.sources, context),
+                    self._resolve(config.candidates, context),
+                    conditions=config.conditions,
+                    conflict_checks=config.conflict_checks,
+                    min_score=config.min_score,
+                    ambiguity_threshold=config.ambiguity_threshold,
+                    result_limit=config.result_limit,
+                    consume_candidates=config.consume_candidates,
+                )
+            else:
+                result = match_record(
+                    self._resolve(config.source, context),
+                    self._resolve(config.candidates, context),
+                    conditions=config.conditions,
+                    conflict_checks=config.conflict_checks,
+                    min_score=config.min_score,
+                    ambiguity_threshold=config.ambiguity_threshold,
+                    result_limit=config.result_limit,
+                )
             return {"output": result, **result}
         if isinstance(config, TypedJsonArtifactConfig):
             serialized = config.model_dump(mode="python", by_alias=True)

@@ -32,8 +32,12 @@ def _create_preview_workflow(client: TestClient) -> tuple[str, dict]:
     return app_id, before
 
 
-def test_v02_120_catalog_marks_draft_patch_preview_implemented() -> None:
-    settings = Settings(api_token="workflow-test")
+def test_v02_120_catalog_marks_draft_patch_preview_implemented(tmp_path: Path) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+    )
     app = create_app(settings, ScriptedProvider())
     with TestClient(app) as client:
         handlers = build_platform_worker_handlers(client.app.state.services)

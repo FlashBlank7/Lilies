@@ -765,10 +765,24 @@ _EDITOR_FIELDS: dict[str, list[dict[str, Any]]] = {
     "record_match": [
         {
             "path": "source",
-            "label": "Source record",
-            "label_zh": "来源记录",
+            "label": "Source record (single mode)",
+            "label_zh": "来源记录（单条模式）",
             "control": "json",
-            "required": True,
+            "description": "Provide exactly one of source / sources.",
+        },
+        {
+            "path": "sources",
+            "label": "Source records (batch mode)",
+            "label_zh": "来源记录数组（批量对账）",
+            "control": "json",
+            "description": "List of records matched one-to-one against candidates.",
+        },
+        {
+            "path": "consume_candidates",
+            "label": "One-to-one matching",
+            "label_zh": "候选一次性消耗",
+            "control": "boolean",
+            "description": "Batch mode: a matched candidate cannot match again.",
         },
         {
             "path": "candidates",
@@ -1414,14 +1428,57 @@ def _record_pipeline_manual(block_type: str) -> dict[str, Any]:
         },
         "record_match": {
             "summary": (
-                "Compare one source record with bounded candidates using weighted exact, "
-                "casefold, or numeric conditions plus hard conflict checks."
+                "Deterministic record matching. Single mode: compare one source record "
+                "with bounded candidates using weighted exact, casefold, or numeric "
+                "conditions plus hard conflict checks. Batch mode: pass sources (a list) "
+                "instead of source and every row is matched one-to-one against the "
+                "candidate pool — reconciliation (对账) in one node, no iteration and "
+                "no LLM arithmetic."
             ),
             "when_to_use": [
                 "Use it when record alignment needs explainable deterministic scoring.",
                 "Use it when ties, near ties, and contradictory identifiers must not auto-match.",
+                "Use batch mode (sources) whenever two record sets must be reconciled "
+                "row by row — bank statements vs ledger, shipments vs purchase orders. "
+                "Audit-grade requirements (same input → identical result) make this "
+                "node mandatory; an LLM comparing rows is an audit finding.",
             ],
             "examples": [
+                {
+                    "description": (
+                        "Batch reconciliation: bank statement lines vs receivable ledger, "
+                        "matched by reference (exact) and amount (numeric)."
+                    ),
+                    "connection": "start -> record_match -> template_transform/typed_json_artifact -> end",
+                    "config": {
+                        "sources": {"$ref": {"node_id": "$inputs", "path": ["bank_lines"]}},
+                        "candidates": {"$ref": {"node_id": "$inputs", "path": ["ledger_entries"]}},
+                        "conditions": [
+                            {
+                                "name": "reference",
+                                "source_path": ["ref_no"],
+                                "candidate_path": ["invoice_no"],
+                                "comparator": "exact",
+                                "weight": 60,
+                                "required": True,
+                            },
+                            {
+                                "name": "amount",
+                                "source_path": ["amount"],
+                                "candidate_path": ["amount_due"],
+                                "comparator": "numeric",
+                                "weight": 40,
+                                "required": True,
+                            },
+                        ],
+                        "min_score": 1.0,
+                    },
+                    "downstream_references": {
+                        "matched_pairs": {"$ref": {"node_id": "match", "path": ["matched"]}},
+                        "exceptions": {"$ref": {"node_id": "match", "path": ["unmatched_sources"]}},
+                        "counts": {"$ref": {"node_id": "match", "path": ["summary"]}},
+                    },
+                },
                 {
                     "description": "Match a customer request with a service account.",
                     "connection": "record_deduplicate -> record_match -> human_input",
@@ -2365,7 +2422,8 @@ def build_block_registry() -> BlockRegistry:
             _definition(
                 "record_match",
                 "Record Match",
-                "Match records with weighted comparisons, ambiguity, and conflicts.",
+                "Match records deterministically: one source or a batch (sources) "
+                "against candidates — reconciliation without an LLM.",
                 "transform",
                 RecordMatchConfig,
                 inputs=[("input", ValueType.any)],
@@ -2373,18 +2431,29 @@ def build_block_registry() -> BlockRegistry:
                     ("status", ValueType.string),
                     ("match", ValueType.object),
                     ("candidates", ValueType.array),
+                    ("matched", ValueType.array),
+                    ("unmatched_sources", ValueType.array),
+                    ("unmatched_candidates", ValueType.array),
+                    ("summary", ValueType.object),
                     ("evidence", ValueType.object),
                     ("output", ValueType.object),
                 ],
                 output_descriptions={
                     "match": (
-                        "Null unless status is matched; otherwise contains index, score, "
-                        "and the selected original record at match.candidate."
+                        "Single mode: null unless status is matched; otherwise contains "
+                        "index, score, and the selected original record at match.candidate."
                     ),
                     "candidates": (
-                        "Ranked candidate evidence; each item keeps the original record "
-                        "under candidate."
+                        "Single mode: ranked candidate evidence; each item keeps the "
+                        "original record under candidate."
                     ),
+                    "matched": (
+                        "Batch mode (config.sources): one entry per matched pair with "
+                        "source, candidate, and score."
+                    ),
+                    "unmatched_sources": "Batch mode: sources with no qualifying candidate.",
+                    "unmatched_candidates": "Batch mode: candidates no source matched.",
+                    "summary": "Batch mode: counts for matched/unmatched/ambiguous/conflicts.",
                 },
                 error_branch=True,
                 manual=_record_pipeline_manual("record_match"),

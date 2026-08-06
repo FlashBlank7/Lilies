@@ -353,6 +353,21 @@ class WorkflowBuilder:
     async def _run(self, build_id: str, *, manage_harness_task: bool = True) -> dict[str, Any]:
         build = await self.workflow_store.get_build(build_id)
         state: BuildTeamState = build["team_state"]
+        if (
+            build["status"] == "needs_attention"
+            and state.pending_question
+            and build_id not in self._resume_messages
+        ):
+            # Paused waiting for the owner. Lease reconciliation and other
+            # recovery paths must not self-revive this build — only the resume
+            # API (which queues the owner's reply and resets status) may.
+            await self.harness.finish_task(build_id, status="paused")
+            return {
+                "build_id": build_id,
+                "application_id": build["application_id"],
+                "status": "needs_attention",
+                "skipped": "waiting_owner",
+            }
         build_started_at = time.time()
         max_elapsed_seconds = self._coerce_max_elapsed_seconds(build.get("max_elapsed_seconds"))
         task_metadata: dict[str, Any] = {

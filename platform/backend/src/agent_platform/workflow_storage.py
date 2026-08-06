@@ -1351,6 +1351,23 @@ class WorkflowStorage:
                 (utc_now(),),
             )
 
+    async def fail_interrupted_builds(self) -> None:
+        """Builds left queued/building by a dead process become resumable."""
+
+        async with self._lock:
+            await asyncio.to_thread(self._fail_interrupted_builds_sync)
+
+    def _fail_interrupted_builds_sync(self) -> None:
+        with self.storage._connect() as conn:
+            conn.execute(
+                """UPDATE builds
+                   SET status='needs_attention',
+                       error='platform restarted while building — resume to continue',
+                       updated_at=?
+                   WHERE status IN ('queued','building')""",
+                (utc_now(),),
+            )
+
     async def update_run(
         self,
         run_id: str,

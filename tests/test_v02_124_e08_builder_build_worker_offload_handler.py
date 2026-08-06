@@ -26,8 +26,12 @@ def _create_application(client: TestClient, *, name: str = "Worker build") -> st
     return response.json()["id"]
 
 
-def test_v02_124_catalog_marks_builder_build_implemented() -> None:
-    settings = Settings(api_token="workflow-test")
+def test_v02_124_catalog_marks_builder_build_implemented(tmp_path: Path) -> None:
+    settings = Settings(
+        api_token="workflow-test",
+        data_dir=tmp_path / "data",
+        workspace_root=tmp_path / "workspaces",
+    )
     app = create_app(settings, IncrementalBuilderProvider())
     with TestClient(app) as client:
         handlers = build_platform_worker_handlers(client.app.state.services)
