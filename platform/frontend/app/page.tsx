@@ -10,7 +10,6 @@ import {
   isAuthError,
   PlatformApiError,
   saveClientToken,
-  type DeliveryMode,
   type DraftEvidence,
 } from '@/lib/platform'
 import { defaultLocale, isLocale, messages, nextLocale, type Locale } from '@/lib/i18n'
@@ -22,7 +21,6 @@ type Application = {
   description: string
   display_description?: string
   mode: string
-  delivery_mode: DeliveryMode
   active_version?: number | null
   draft_revision: number
   content_hash: string
@@ -476,7 +474,6 @@ export default function Home() {
   const buildButtonRef = useRef<HTMLButtonElement>(null)
   const [apps, setApps] = useState<Application[]>([])
   const [requirement, setRequirement] = useState<string>(t.requirementPlaceholder)
-  const [deliveryMode, setDeliveryMode] = useState<DeliveryMode>('guided')
   const [selectedExampleId, setSelectedExampleId] = useState<string | null>(null)
   const [appFilter, setAppFilter] = useState<AppFilter>('all')
   const [appSearch, setAppSearch] = useState('')
@@ -628,12 +625,6 @@ export default function Home() {
     { id: 'revision', label: t.appSortRevision },
     { id: 'name', label: t.appSortName },
   ]
-  const deliveryModeOptions: Array<{ id: DeliveryMode; label: string; detail: string }> = [
-    { id: 'quick', label: t.deliveryModeQuick, detail: t.deliveryModeQuickDetail },
-    { id: 'guided', label: t.deliveryModeGuided, detail: t.deliveryModeGuidedDetail },
-    { id: 'governed', label: t.deliveryModeGoverned, detail: t.deliveryModeGovernedDetail },
-  ]
-  const selectedDeliveryMode = deliveryModeOptions.find(option => option.id === deliveryMode) || deliveryModeOptions[1]
   const appFilterCount = (filter: AppFilter) => filter === 'all' ? apps.length : apps.filter(item => appReadinessState(item) === filter).length
   const statusFilteredApps = appFilter === 'all' ? apps : apps.filter(item => appReadinessState(item) === appFilter)
   const normalizedAppSearch = appSearch.trim().toLocaleLowerCase()
@@ -787,7 +778,7 @@ export default function Home() {
       const name = deriveApplicationName(requirement)
       const app = await api<Application>('/api/v1/applications', {
         method: 'POST',
-        body: JSON.stringify({ name, description: deriveApplicationDescription(requirement, launchContract), requirement, mode: 'workflow', delivery_mode: deliveryMode, capability_build_contract: launchContract }),
+        body: JSON.stringify({ name, description: deriveApplicationDescription(requirement, launchContract), requirement, mode: 'workflow', capability_build_contract: launchContract }),
       })
       createdApp = app
       setApps(current => [app, ...current.filter(item => item.id !== app.id)])
@@ -809,7 +800,7 @@ export default function Home() {
       const name = deriveApplicationName(requirement)
       const app = await api<Application>('/api/v1/applications', {
         method: 'POST',
-        body: JSON.stringify({ name, description: deriveApplicationDescription(requirement, capabilityBuildContract), requirement, mode: 'workflow', delivery_mode: deliveryMode, capability_build_contract: capabilityBuildContract }),
+        body: JSON.stringify({ name, description: deriveApplicationDescription(requirement, capabilityBuildContract), requirement, mode: 'workflow', capability_build_contract: capabilityBuildContract }),
       })
       if (isCodexWorkspaceRequirement(requirement) && !capabilityBuildContract) {
         await applyCodexWorkspaceScenario(app)
@@ -867,13 +858,6 @@ export default function Home() {
         <p>{t.heroCopy}</p>
         <form className="create-card" onSubmit={create}>
           <textarea ref={requirementInputRef} aria-label={t.requirementAria} value={requirement} onChange={event => { setRequirement(event.target.value); setRequirementIntake(null); setRequirementSelections({}); setRequirementAnswerHistory([]); setCapabilityBuildContract(null); setBuildIntentConfirmed(false) }} />
-          <section className="delivery-mode-picker" data-delivery-mode={deliveryMode}>
-            <div className="delivery-mode-heading"><strong>{t.deliveryModeTitle}</strong><small>{t.deliveryModeHelp}</small></div>
-            <div className="delivery-mode-segments" role="group" aria-label={t.deliveryModeTitle}>
-              {deliveryModeOptions.map(option => <button aria-pressed={deliveryMode === option.id} className={deliveryMode === option.id ? 'active' : ''} key={option.id} onClick={() => { setDeliveryMode(option.id); setBuildIntentConfirmed(false) }} type="button">{option.label}</button>)}
-            </div>
-            <small className="delivery-mode-detail">{selectedDeliveryMode.detail}</small>
-          </section>
           {selectedCustomerExample && <section className="selected-scenario-summary" data-selected-scenario-summary="active">
             <div><span>{t.selectedScenarioSummaryTitle} · {selectedCustomerExample.role}</span><strong>{selectedCustomerExample.title}</strong><p>{selectedCustomerExample.need}</p><small>{selectedCustomerExample.acceptanceSignal}</small></div>
             <button onClick={clearCustomerExample} type="button">{t.clearSelectedScenario}</button>
@@ -1079,7 +1063,7 @@ export default function Home() {
           {visibleApps.map(item => <article className="app-card" data-app-card-action-state={appReadinessState(item)} key={item.id}>
             <Link className="app-card-main" href={`/applications/${item.id}`} aria-label={`${t.appActionOpen}: ${item.name}`}>
               <div className="app-icon">{item.name.slice(0, 1).toUpperCase()}</div>
-              <div><h3>{item.name}</h3><span className="delivery-mode-chip">{item.delivery_mode === 'quick' ? t.deliveryModeQuick : item.delivery_mode === 'governed' ? t.deliveryModeGoverned : t.deliveryModeGuided}</span><p>{item.display_description || item.description || t.fallbackDescription}</p>
+              <div><h3>{item.name}</h3><p>{item.display_description || item.description || t.fallbackDescription}</p>
                 <div className="app-readiness" data-app-card-guidance="readiness">{appCardReadiness(item).map(signal => <span className={signal.ready ? 'ready' : ''} key={signal.label}><b>{signal.label}</b>{signal.value}</span>)}</div>
                 <small className="app-next-action" data-app-card-guidance="next-action">{appCardNextAction(item)}</small>
               </div>

@@ -91,9 +91,12 @@ def test_quick_and_guided_missing_evidence_require_explicit_acknowledgement(
             assert publication["evidence_state"] == "missing"
 
 
-def test_legacy_governed_hard_gate_setting_is_advisory_and_can_be_acknowledged(
+def test_legacy_delivery_settings_are_inert_and_publication_is_always_advisory(
     tmp_path: Path,
 ) -> None:
+    """Legacy delivery_mode / governed_hard_gate values are accepted but never
+    gate publication: evidence warnings ask for acknowledgement, nothing more."""
+
     settings = Settings(
         api_token="workflow-test",
         data_dir=tmp_path / "data",
@@ -122,7 +125,8 @@ def test_legacy_governed_hard_gate_setting_is_advisory_and_can_be_acknowledged(
         ).json()
         assert decision["blocked"] is False
         assert decision["requires_confirmation"] is True
-        assert decision["policy"]["hard_gate_enabled"] is False
+        assert decision["allowed"] is True
+        assert "policy" not in decision
         published = client.post(
             f"/api/v1/applications/{legacy_hard_gate_id}/versions",
             headers=_headers(),

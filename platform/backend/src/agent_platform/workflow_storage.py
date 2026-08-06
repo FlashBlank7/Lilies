@@ -10,7 +10,6 @@ from typing import Any
 from uuid import uuid4
 
 from .capability_contracts import CapabilityBuildContract
-from .delivery_policy import resolve_delivery_policy
 from .execution_policy import ExecutionPolicySnapshot
 from .models import utc_now
 from .storage import Storage
@@ -560,11 +559,6 @@ class WorkflowStorage:
             result = dict(row)
             result["snapshot"] = ApplicationSnapshot.model_validate_json(result.pop("snapshot_json"))
             result["validation_report"] = json.loads(result.pop("validation_report_json"))
-            result["governed_hard_gate"] = bool(result["governed_hard_gate"])
-            result["delivery_policy"] = resolve_delivery_policy(
-                result["delivery_mode"],
-                governed_hard_gate=result["governed_hard_gate"],
-            ).model_dump(mode="json")
             result["evidence"] = self._evidence_result(result, result["validation_report"])
             return result
 
@@ -823,11 +817,6 @@ class WorkflowStorage:
             snapshot_json,
             fallback=str(result.get("description") or result.get("requirement") or ""),
         )
-        result["governed_hard_gate"] = bool(result["governed_hard_gate"])
-        result["delivery_policy"] = resolve_delivery_policy(
-            result["delivery_mode"],
-            governed_hard_gate=result["governed_hard_gate"],
-        ).model_dump(mode="json")
         validation_report_json = result.pop("validation_report_json", None)
         report = json.loads(validation_report_json) if validation_report_json else None
         result["evidence"] = WorkflowStorage._evidence_result(result, report)
@@ -1001,10 +990,6 @@ class WorkflowStorage:
 
     @classmethod
     def _publication_decision_from_row(cls, row: dict[str, Any]) -> dict[str, Any]:
-        policy = resolve_delivery_policy(
-            row["delivery_mode"],
-            governed_hard_gate=bool(row["governed_hard_gate"]),
-        ).model_dump(mode="json")
         evidence = cls._evidence_result(row)
         warnings: list[dict[str, str]] = []
         if evidence["latest_validation_failed"]:
@@ -1022,21 +1007,18 @@ class WorkflowStorage:
                 "code": "stale_evidence",
                 "message": "The draft changed after its latest successful acceptance run.",
             })
-        blocked = bool(warnings and policy["hard_gate_enabled"])
-        requires_confirmation = bool(
-            warnings and policy["warning_ack_required"] and not blocked
-        )
+        # Business acceptance belongs to the owner: the platform surfaces
+        # evidence warnings and asks for an explicit acknowledgement, but never
+        # blocks publication on its own diagnostics.
         return {
             "application_id": row["application_id"],
-            "allowed": not blocked,
-            "requires_confirmation": requires_confirmation,
-            "blocked": blocked,
+            "allowed": True,
+            "requires_confirmation": bool(warnings),
+            "blocked": False,
             "warning_codes": [item["code"] for item in warnings],
             "warnings": warnings,
             "evidence_state": evidence["state"],
             "evidence": evidence,
-            "policy": policy,
-            "policy_source": f"application.delivery_mode:{row['delivery_mode']}",
         }
 
     async def publish(
@@ -1071,8 +1053,6 @@ class WorkflowStorage:
             if not draft:
                 raise KeyError(f"application draft not found: {application_id}")
             decision = self._publication_decision_from_row(dict(draft))
-            if decision["blocked"]:
-                raise PublishGateError("publication blocked by governed evidence policy", decision)
             if decision["requires_confirmation"] and not acknowledge_warnings:
                 raise PublishGateError("publication warnings require explicit acknowledgement", decision)
             decision["acknowledged_warnings"] = bool(

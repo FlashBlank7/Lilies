@@ -9,13 +9,10 @@ Provides answers to:
 
 from __future__ import annotations
 
-import json
-from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from typing import Any
 
 from .storage import Storage
-from .workflow_models import WorkflowRunState
 
 
 @dataclass
@@ -224,7 +221,7 @@ def _parse_timestamp(ts_str: str | None) -> float:
         return 0.0
     import time as _time
     try:
-        from datetime import datetime, timezone
+        from datetime import datetime
         dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
         return dt.timestamp()
     except (ValueError, TypeError):

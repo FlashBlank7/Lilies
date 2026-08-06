@@ -1,5 +1,4 @@
 export type Position = { x: number; y: number }
-export type DeliveryMode = 'quick' | 'guided' | 'governed'
 export type EvidenceState = 'current' | 'stale' | 'missing'
 
 export type DraftEvidence = {
@@ -13,19 +12,6 @@ export type DraftEvidence = {
   last_validation_report?: Record<string, unknown>
 }
 
-export type DeliveryPolicy = {
-  mode: DeliveryMode
-  title: string
-  summary: string
-  publication_behavior: 'advisory' | 'advisory_confirmation' | 'hard_gate'
-  missing_evidence_action: 'warn' | 'confirm' | 'block'
-  stale_evidence_action: 'warn' | 'confirm' | 'block'
-  recommended_evidence: string[]
-  visible_controls: string[]
-  warning_ack_required: boolean
-  hard_gate_enabled: boolean
-}
-
 export type PublicationDecision = {
   application_id: string
   allowed: boolean
@@ -35,8 +21,6 @@ export type PublicationDecision = {
   warnings: Array<{ code: string; message: string }>
   evidence_state: EvidenceState
   evidence: DraftEvidence
-  policy: DeliveryPolicy
-  policy_source: string
   acknowledged_warnings?: boolean
   decided_at?: string
 }
@@ -81,8 +65,6 @@ export type Snapshot = {
   name: string
   description: string
   mode: 'workflow' | 'chat'
-  delivery_mode: DeliveryMode
-  governed_hard_gate: boolean
   requirement: string
   workflow: { nodes: WorkflowNode[]; edges: WorkflowEdge[]; viewport: Record<string, number> }
   agents: Record<string, unknown>
@@ -96,9 +78,6 @@ export type Draft = {
   content_hash: string
   tested_hash?: string | null
   validation_report: Record<string, unknown>
-  delivery_mode: DeliveryMode
-  governed_hard_gate: boolean
-  delivery_policy: DeliveryPolicy
   evidence: DraftEvidence
   snapshot: Snapshot
 }

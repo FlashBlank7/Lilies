@@ -35,7 +35,6 @@ import {
   type CapabilityModule,
   type CapabilityModuleInsertResult,
   type Draft,
-  type DeliveryMode,
   type NaturalLanguageWorkflowEditResult,
   type PublicationDecision,
   type WorkflowNode,
@@ -962,7 +961,6 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   const [requirement, setRequirement] = useState('')
   const [buildDeadlineSeconds, setBuildDeadlineSeconds] = useState('')
   const [buildIntentConfirmed, setBuildIntentConfirmed] = useState(false)
-  const [deliveryModeSaving, setDeliveryModeSaving] = useState(false)
   const [publicationDecision, setPublicationDecision] = useState<PublicationDecision | null>(null)
   const [publicationBusy, setPublicationBusy] = useState(false)
   const [testReport, setTestReport] = useState<Record<string, unknown> | null>(null)
@@ -1303,24 +1301,6 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     })
     mutationQueueRef.current = queued.then(() => undefined, () => undefined)
     return queued
-  }
-
-  async function updateDeliverySettings(
-    deliveryMode: DeliveryMode,
-    governedHardGate = draftRef.current?.snapshot.governed_hard_gate || false,
-  ) {
-    if (!draftRef.current || deliveryModeSaving) return
-    setDeliveryModeSaving(true)
-    setNotice(t.deliveryModeSaving)
-    try {
-      const next = await mutation('set_metadata', {
-        delivery_mode: deliveryMode,
-        governed_hard_gate: governedHardGate,
-      })
-      if (next) setNotice(t.deliveryModeSaved)
-    } finally {
-      setDeliveryModeSaving(false)
-    }
   }
 
   const onConnect = useCallback(async (connection: Connection) => {
@@ -2320,13 +2300,6 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   const detailBuildReadiness = detailBuildRequirementReadiness(requirement, t)
   const detailBuildAction = detailBuildActionState(requirement, detailBuildReadiness.ready, build, buildIntentConfirmed, t)
   const detailBuildRecommendedAction = recommendedDetailBuildAction(detailBuildAction.id, t)
-  const deliveryModeOptions: Array<{ id: DeliveryMode; label: string; detail: string }> = [
-    { id: 'quick', label: t.deliveryModeQuick, detail: t.deliveryModeQuickDetail },
-    { id: 'guided', label: t.deliveryModeGuided, detail: t.deliveryModeGuidedDetail },
-    { id: 'governed', label: t.deliveryModeGoverned, detail: t.deliveryModeGovernedDetail },
-  ]
-  const currentDeliveryMode = draft?.snapshot.delivery_mode || 'guided'
-  const currentDeliveryModeOption = deliveryModeOptions.find(option => option.id === currentDeliveryMode) || deliveryModeOptions[1]
   const businessDefinitionMissing = Boolean(draft && !(
     draft.snapshot.requirement.trim()
     || draft.snapshot.capability_build_contract?.business_goal?.trim()
@@ -2335,7 +2308,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   return <main className="studio-shell" data-studio-chrome="collapsible">
     <header className="studio-header" data-collapsed={studioChrome.headerExpanded ? 'false' : 'true'} id="studio-header">
       <Link href="/" className="back">←</Link>
-      <div className="studio-title"><b className={surfaceStyles.studioLabel}>Engineer Studio</b><strong>{draft?.snapshot.name || t.loading}</strong><span>{draft?.snapshot.mode === 'chat' ? t.modeChat : t.modeWorkflow} · {currentDeliveryModeOption.label} · {t.draft} r{draft?.revision ?? 0}</span></div>
+      <div className="studio-title"><b className={surfaceStyles.studioLabel}>Engineer Studio</b><strong>{draft?.snapshot.name || t.loading}</strong><span>{draft?.snapshot.mode === 'chat' ? t.modeChat : t.modeWorkflow} · {t.draft} r{draft?.revision ?? 0}</span></div>
       <div className="header-center"><span className={`evidence-state ${evidenceState}`} data-evidence-state={evidenceState}>{evidenceStateLabel}</span>{activeVersion && <span>{t.activeVersion(activeVersion)}</span>}<span className={`runtime-chip ${runtimeStatus}`} data-runtime-status={runtimeStatus} title={runtimeStatusDetail}>{runtimeStatusText}</span></div>
       <div className={`header-actions ${surfaceStyles.studioActions}`}>
         <button className="lang-toggle" onClick={toggleLocale}>{t.switchLabel}</button>
@@ -2387,17 +2360,6 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
         {tab === 'build' && <div className="panel-body">
           <div className="panel-kicker">{locale === 'zh' ? '莉莉丝 Builder' : 'Lilies Builder'}</div><h2>{t.continueBuild}</h2>
           <textarea ref={detailBuildRequirementRef} className="requirement-input" value={requirement} onChange={event => { setRequirement(event.target.value); setBuildIntentConfirmed(false) }} />
-          <section className="delivery-mode-picker studio-delivery-mode" data-delivery-mode={currentDeliveryMode}>
-            <div className="delivery-mode-heading"><strong>{t.deliveryModeTitle}</strong><small>{t.deliveryModeHelp}</small></div>
-            <div className="delivery-mode-segments" role="group" aria-label={t.deliveryModeTitle}>
-              {deliveryModeOptions.map(option => <button aria-pressed={currentDeliveryMode === option.id} className={currentDeliveryMode === option.id ? 'active' : ''} data-delivery-mode-option={option.id} disabled={deliveryModeSaving} key={option.id} onClick={() => void updateDeliverySettings(option.id)} type="button">{option.label}</button>)}
-            </div>
-            <small className="delivery-mode-detail">{currentDeliveryModeOption.detail}</small>
-            {currentDeliveryMode === 'governed' && <label className="delivery-mode-governed-toggle">
-              <input checked={Boolean(draft?.snapshot.governed_hard_gate)} disabled={deliveryModeSaving} onChange={event => void updateDeliverySettings('governed', event.target.checked)} type="checkbox" />
-              <span><strong>{t.governedHardGateLabel}</strong><small>{t.governedHardGateHelp}</small></span>
-            </label>}
-          </section>
           <section className={`requirement-readiness detail-build-readiness ${detailBuildReadiness.ready ? 'ready' : 'needs-detail'}`} data-detail-build-readiness="summary">
             <div className="requirement-readiness-head"><strong>{t.requirementReadinessTitle}</strong><span>{t.requirementReadinessScore(detailBuildReadiness.readyCount, detailBuildReadiness.total)}</span></div>
             <p>{detailBuildReadiness.ready ? t.requirementReadinessReady : t.requirementReadinessNeedsDetail}</p>

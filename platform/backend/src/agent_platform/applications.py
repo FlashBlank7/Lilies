@@ -16,7 +16,6 @@ from .models import AgentSpec
 from .workflow_models import (
     ApplicationMode,
     ApplicationSnapshot,
-    DeliveryMode,
     DraftOperation,
     EdgeSpec,
     NodeSpec,
@@ -275,22 +274,11 @@ class ApplicationService:
                 raise KeyError(f"edge not found: {edge_id}")
             snapshot.workflow.edges = [edge for edge in snapshot.workflow.edges if edge.id != edge_id]
         elif operation == "set_metadata":
-            for field in (
-                "name",
-                "description",
-                "mode",
-                "delivery_mode",
-                "governed_hard_gate",
-                "requirement",
-            ):
+            for field in ("name", "description", "mode", "requirement"):
                 if field in data:
                     value = data[field]
                     if field == "mode":
                         value = ApplicationMode(value)
-                    elif field == "delivery_mode":
-                        value = DeliveryMode(value)
-                    elif field == "governed_hard_gate" and not isinstance(value, bool):
-                        raise ValueError("governed_hard_gate must be a boolean")
                     setattr(snapshot, field, value)
         elif operation == "upsert_agent":
             agent = AgentSpec.model_validate(data["agent"])
@@ -497,163 +485,6 @@ class ApplicationService:
                     continue
         return nodes_by_id
 
-    def _validate_governed_business_evidence(
-        self,
-        snapshot: ApplicationSnapshot,
-        mandatory_tests: list[WorkflowTestCase],
-    ) -> list[str]:
-        contract = snapshot.capability_build_contract
-        if (
-            contract is None
-            or not snapshot.governed_hard_gate
-            or contract.risk_level.value not in {"high", "critical"}
-        ):
-            return []
-
-        errors: list[str] = []
-        required = {
-            capability.id
-            for capability in contract.capabilities
-            if capability.required
-        }
-        known = {capability.id for capability in contract.capabilities}
-        for test in mandatory_tests:
-            unknown = sorted(set(test.capability_ids) - known)
-            if unknown:
-                errors.append(
-                    f"test {test.id} references unknown capability ids: {unknown}"
-                )
-            if (
-                test.structural_only
-                and test.evidence_target is not None
-                and self._evidence_level_rank(test.evidence_target.level)
-                > self._evidence_level_rank(EvidenceLevel.H2)
-            ):
-                errors.append(
-                    f"test {test.id} is structural-only and cannot claim "
-                    f"{test.evidence_target.level.value} evidence"
-                )
-
-        covered = {
-            capability_id
-            for test in mandatory_tests
-            for capability_id in test.capability_ids
-        }
-        missing = sorted(required - covered)
-        if missing:
-            errors.append(
-                "mandatory acceptance tests do not cover required capability ids: "
-                f"{missing}"
-            )
-
-        for plan in contract.evidence_plan:
-            for capability_id in plan.capability_ids:
-                candidates = [
-                    test
-                    for test in mandatory_tests
-                    if capability_id in test.capability_ids
-                    and self._test_meets_evidence_plan(test, plan)
-                ]
-                if not candidates:
-                    errors.append(
-                        f"capability {capability_id} lacks a mandatory executable test "
-                        f"meeting {plan.target_level.value}/{plan.environment.value}/"
-                        f"{plan.expected_status.value}"
-                    )
-
-        mutating_external_ids = {
-            capability.id
-            for capability in contract.external_contracts
-            if capability.required and capability.mutating
-        }
-        for capability_id in sorted(mutating_external_ids):
-            candidates = [
-                test
-                for test in mandatory_tests
-                if capability_id in test.capability_ids
-            ]
-            if candidates and not any(
-                not test.structural_only
-                and test.minimum_tool_calls > 0
-                and bool(test.required_tools)
-                for test in candidates
-            ):
-                errors.append(
-                    f"mutating external capability {capability_id} requires a "
-                    "non-structural mandatory test with named tool evidence"
-                )
-
-        human_capabilities = {
-            decision.capability_id
-            for decision in contract.carrier_decisions
-            if decision.capability_id in required
-            and "human_input" in decision.resource_hint.casefold()
-        }
-        human_nodes = {
-            node.id for node in snapshot.workflow.nodes if node.type == "human_input"
-        }
-        if human_capabilities and not human_nodes:
-            errors.append(
-                "required human-review capabilities have no human_input node: "
-                f"{sorted(human_capabilities)}"
-            )
-        for capability_id in sorted(human_capabilities):
-            tests = [
-                test
-                for test in mandatory_tests
-                if capability_id in test.capability_ids
-            ]
-            if tests and not any(
-                set(test.simulated_human_inputs).intersection(human_nodes)
-                for test in tests
-            ):
-                errors.append(
-                    f"human-review capability {capability_id} requires a mandatory "
-                    "test with simulated_human_inputs"
-                )
-
-        edges_by_source: dict[str, list[EdgeSpec]] = {}
-        for edge in snapshot.workflow.edges:
-            edges_by_source.setdefault(edge.source, []).append(edge)
-        for node in snapshot.workflow.nodes:
-            if node.type == "record_match" and node.config.get("candidates") == []:
-                errors.append(
-                    f"{node.id}: governed record_match cannot use an empty literal candidate array"
-                )
-            if node.type != "if_else":
-                continue
-            declared = {
-                str(case.get("id"))
-                for case in node.config.get("cases", [])
-                if isinstance(case, dict) and case.get("id")
-            }
-            default_branch = str(node.config.get("default_branch") or "else")
-            declared.add(default_branch)
-            outgoing = {
-                str(edge.branch)
-                for edge in edges_by_source.get(node.id, [])
-                if edge.branch is not None
-            }
-            missing_branches = sorted(declared - outgoing)
-            if missing_branches:
-                errors.append(
-                    f"{node.id}: governed decision branches are not connected: "
-                    f"{missing_branches}"
-                )
-            condition_values = [
-                condition.get("value")
-                for case in node.config.get("cases", [])
-                if isinstance(case, dict)
-                for condition in case.get("conditions", [])
-                if isinstance(condition, dict)
-            ]
-            if condition_values and not any(
-                self._iter_refs(value) for value in condition_values
-            ):
-                errors.append(
-                    f"{node.id}: governed decision conditions must reference runtime data"
-                )
-        return errors
 
     @staticmethod
     def _evidence_level_rank(value: EvidenceLevel) -> int:

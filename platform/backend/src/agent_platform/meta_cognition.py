@@ -16,7 +16,6 @@ Example (from our DingTalk journey):
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Literal
 from uuid import uuid4
 
 from .workflow_models import EdgeSpec, NodeSpec, WorkflowSpec
