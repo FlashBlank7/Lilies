@@ -3,7 +3,7 @@
 import '@xyflow/react/dist/style.css'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { MessagesSquare, Play, ShieldCheck } from 'lucide-react'
+import { Play } from 'lucide-react'
 import {
   Background,
   Controls,
@@ -2340,8 +2340,6 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
       <div className={`header-actions ${surfaceStyles.studioActions}`}>
         <button className="lang-toggle" onClick={toggleLocale}>{t.switchLabel}</button>
         <Link className={surfaceStyles.surfaceLink} href={`/runtime/${id}`}><Play size={14} /><span>{t.debugDraft}</span></Link>
-        <Link className={surfaceStyles.surfaceLink} data-global-developer-collaboration="true" href="/developer/collaboration"><MessagesSquare size={14} /><span>Collaboration</span></Link>
-        <Link className={`${surfaceStyles.surfaceLink} ${surfaceStyles.studioGovernance}`} href={`/governance?application_id=${id}`}><ShieldCheck size={14} /><span>Governance</span></Link>
         <button data-publication-action="open" onClick={() => void publish()} disabled={publicationBusy}>{publicationBusy ? t.publicationChecking : t.publishVersion}</button>
         <button
           aria-controls="studio-header"

@@ -39,6 +39,12 @@ from .capability_evidence import (
     ArtifactCategory,
     CapabilityEvidenceCreateRequest,
 )
+from .customer_runtime_projection import (
+    project_runtime_application,
+    project_runtime_definition,
+    project_runtime_events,
+    project_runtime_run,
+)
 from .connector_sdk import (
     ConnectorAdapterError,
     ConnectorCallback,
@@ -5097,6 +5103,77 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
 
+
+    async def customer_runtime_definition(application_id: str) -> dict[str, Any]:
+        application = await services.workflow_store.get_application(application_id)
+        active_version = application.get("active_version")
+        if active_version is not None:
+            published = await services.workflow_store.get_version(
+                application_id,
+                int(active_version),
+            )
+            definition = {
+                "application_id": application_id,
+                "source": "published",
+                "version": int(published["version"]),
+                "draft_revision": None,
+                "content_hash": published["content_hash"],
+                "snapshot": published["snapshot"],
+            }
+        else:
+            draft = await services.workflow_store.get_draft(application_id)
+            definition = {
+                "application_id": application_id,
+                "source": "draft",
+                "version": None,
+                "draft_revision": int(draft["revision"]),
+                "content_hash": draft["content_hash"],
+                "snapshot": draft["snapshot"],
+            }
+        return project_runtime_definition(definition)
+
+    @app.get(
+        "/api/v1/customer-runtime/applications/{application_id}",
+        dependencies=[Depends(require_token)],
+    )
+    async def get_customer_runtime_application(application_id: str) -> dict[str, Any]:
+        """Return the complete Customer Runtime read model without engineering data."""
+
+        try:
+            application = await services.workflow_store.get_application(application_id)
+            definition = await customer_runtime_definition(application_id)
+            runs = await services.workflow_store.list_runs(application_id, limit=1)
+            latest_run = runs[0] if runs else None
+            events = (
+                await services.storage.list_events(str(latest_run["id"]))
+                if latest_run is not None
+                else []
+            )
+            return {
+                "application": project_runtime_application(application),
+                "definition": definition,
+                "latest_run": (project_runtime_run(latest_run) if latest_run is not None else None),
+                "latest_events": project_runtime_events(events),
+            }
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+
+    @app.get(
+        "/api/v1/customer-runtime/runs/{run_id}",
+        dependencies=[Depends(require_token)],
+    )
+    async def get_customer_runtime_run(run_id: str) -> dict[str, Any]:
+        """Return a run projection that cannot expose raw model or developer events."""
+
+        try:
+            run = await services.workflow_store.get_run(run_id)
+            events = await services.storage.list_events(run_id)
+            return {
+                "run": project_runtime_run(run),
+                "events": project_runtime_events(events),
+            }
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
 
     @app.get(
         "/api/v1/applications/{application_id}/runs",
