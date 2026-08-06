@@ -238,3 +238,5 @@
 .home-shell .app-list-view-actions button:disabled{opacity:.45}
 .home-shell .app-icon{background:linear-gradient(135deg,#12b886,#0e7a5f);color:#fff;border-radius:10px}
 .home-shell .app-card-main{color:inherit}
+.builder-transcript-actions{display:flex;align-items:center;gap:10px}
+.builder-transcript-actions a{font-size:11px;color:#7fa4ff;text-decoration:none}

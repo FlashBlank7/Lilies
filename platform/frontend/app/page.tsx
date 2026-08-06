@@ -559,13 +559,15 @@ export default function Home() {
   const appCardQuickActions = (item: Application): AppQuickAction[] => {
     const state = appReadinessState(item)
     if (state === 'published') return [
+      { id: 'session', href: `/applications/${item.id}/session`, label: locale === 'zh' ? '会话' : 'Session' },
       { id: 'try', href: `/runtime/${item.id}`, label: t.appActionTry },
     ]
     if (state === 'ready_to_publish') return [
+      { id: 'session', href: `/applications/${item.id}/session`, label: locale === 'zh' ? '会话' : 'Session' },
       { id: 'acceptance', href: `/applications/${item.id}?tab=test`, label: t.appActionAcceptance },
-      { id: 'publish_check', href: `/applications/${item.id}?tab=test`, label: t.appActionPublishCheck },
     ]
     return [
+      { id: 'session', href: `/applications/${item.id}/session`, label: locale === 'zh' ? '会话' : 'Session' },
       { id: 'edit', href: `/applications/${item.id}?tab=edit`, label: t.appActionEdit },
       { id: 'acceptance', href: `/applications/${item.id}?tab=test`, label: t.appActionAcceptance },
     ]

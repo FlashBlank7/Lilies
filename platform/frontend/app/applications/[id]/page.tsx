@@ -1219,6 +1219,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
       if (!items[0]) return
       setBuild(items[0])
       if (['queued', 'building'].includes(items[0].status)) watchBuild(items[0].id)
+      else api<BuildTranscript>(`/api/v1/builds/${items[0].id}/transcript`).then(setTranscript).catch(() => undefined)
     }).catch(() => undefined)
     return () => {
       eventSource.current?.close()
@@ -2222,9 +2223,12 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
                   ? '莉莉丝每一轮的思考、工具参数和工具返回。构建卡住时先看这里。'
                   : "Lilies' reasoning, tool arguments, and tool results for every turn. Start here when a build stalls."}</small>
               </div>
-              <button type="button" onClick={() => setTranscriptOpen(current => !current)}>
-                {transcriptOpen ? (locale === 'zh' ? '收起' : 'Collapse') : (locale === 'zh' ? '展开' : 'Expand')}
-              </button>
+              <span className="builder-transcript-actions">
+                <Link href={`/applications/${id}/session`}>{locale === 'zh' ? '打开会话空间 ↗' : 'Open session space ↗'}</Link>
+                <button type="button" onClick={() => setTranscriptOpen(current => !current)}>
+                  {transcriptOpen ? (locale === 'zh' ? '收起' : 'Collapse') : (locale === 'zh' ? '展开' : 'Expand')}
+                </button>
+              </span>
             </header>
             {transcript?.summary.available
               ? <>

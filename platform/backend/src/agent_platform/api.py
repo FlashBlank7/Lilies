@@ -362,6 +362,10 @@ class Services:
     background_tasks: set[asyncio.Task[Any]]
 
 
+class ResumeBuildRequest(BaseModel):
+    message: str = Field(default="", max_length=8_000)
+
+
 class PlatformTaskLeaseRequest(BaseModel):
     worker_id: str | None = None
     lease_seconds: float | None = Field(default=None, gt=0)
@@ -4289,11 +4293,13 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         return {"build_id": build_id, "summary": summary, "records": records}
 
     @app.post("/api/v1/builds/{build_id}/resume", dependencies=[Depends(require_token)])
-    async def resume_build(build_id: str) -> dict[str, Any]:
+    async def resume_build(build_id: str, body: ResumeBuildRequest | None = None) -> dict[str, Any]:
         try:
             build = await services.workflow_store.get_build(build_id)
-            if build["status"] not in {"needs_attention", "cancelled"}:
+            if build["status"] not in {"needs_attention", "cancelled", "ready", "published"}:
                 raise HTTPException(409, f"build cannot resume from {build['status']}")
+            if body and body.message:
+                services.builder.queue_resume_message(build_id, body.message)
             await services.workflow_store.update_build(build_id, status="queued", error="")
             services.builder.start(build_id)
             return {"build_id": build_id, "status": "queued"}

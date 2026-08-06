@@ -288,6 +288,14 @@ class WorkflowBuilder:
         self.transcripts = transcripts
         self.active: dict[str, asyncio.Task[Any]] = {}
         self._trackers: dict[str, DecisionTracker] = {}  # build_id → tracker
+        self._resume_messages: dict[str, str] = {}  # build_id → pending user note
+
+    def queue_resume_message(self, build_id: str, message: str) -> None:
+        """Attach a user instruction that the resumed loop will read first."""
+
+        text = message.strip()
+        if text:
+            self._resume_messages[build_id] = text[:8_000]
 
     def start(self, build_id: str) -> None:
         if build_id in self.active and not self.active[build_id].done():
@@ -346,12 +354,18 @@ class WorkflowBuilder:
                 "max_elapsed_seconds": max_elapsed_seconds,
             })
         contract_context = ""
+        resume_note = self._resume_messages.pop(build_id, None)
         if state.coordinator_messages:
             messages = [ChatMessage.model_validate(item) for item in state.coordinator_messages]
             messages.append(ChatMessage(role="user", content=[ContentBlock(
                 type="text",
                 text=(
-                    "Resume the same build from its persisted draft and team state. Inspect current status, "
+                    (
+                        "The owner sent this instruction — treat it as the top priority for this "
+                        f"continuation:\n\n{resume_note}\n\n"
+                        if resume_note else ""
+                    )
+                    + "Resume the same build from its persisted draft and team state. Inspect current status, "
                     "resolve remaining failures, and complete the original acceptance criteria."
                     + contract_context
                 ),
