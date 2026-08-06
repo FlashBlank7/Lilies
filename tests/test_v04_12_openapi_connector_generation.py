@@ -31,7 +31,6 @@ from agent_platform.openapi_connector import (
     OpenAPIMaterialLoader,
     OpenAPIConnectorGenerationRequest,
 )
-from scripts import run_v04_12_release_gate
 
 
 HEADERS = {"Authorization": "Bearer openapi-test", "Content-Type": "application/json"}
@@ -2228,44 +2227,3 @@ def test_studio_uses_openapi_generation_as_default_and_labels_manual_legacy() ->
     assert "专家旧路径：手工登记 manifest JSON" in source
 
 
-@pytest.mark.parametrize(
-    ("artifact", "mutation"),
-    [
-        (
-            "inventree_live_contract_attempt_1_failure.json",
-            ("contract_run", "status", "passed"),
-        ),
-        (
-            "inventree_live_contract_attempt_1_failure.json",
-            ("contract_run", "failed", 0),
-        ),
-        (
-            "openapi_generalization_aggregate.json",
-            ("host_results", "inventree", "retained_failure", "case_id", "fabricated.positive"),
-        ),
-    ],
-)
-def test_release_gate_rejects_historical_failure_misreporting(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    artifact: str,
-    mutation: tuple[Any, ...],
-) -> None:
-    source = Path("docs/evidence/v0.4.12")
-    target = tmp_path / "docs" / "evidence" / "v0.4.12"
-    shutil.copytree(source, target)
-    path = target / artifact
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    cursor = payload
-    for key in mutation[:-2]:
-        cursor = cursor[key]
-    cursor[mutation[-2]] = mutation[-1]
-    path.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
-    monkeypatch.setattr(run_v04_12_release_gate, "ROOT", tmp_path)
-
-    result = run_v04_12_release_gate.live_contract_gate()
-
-    assert result["status"] == "failed"

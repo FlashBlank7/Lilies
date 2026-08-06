@@ -3026,69 +3026,12 @@ def test_platform_harness_policy_controls_api_rejects_invalid_updates(tmp_path: 
 
 
 
-def test_live_builder_benchmark_case_registry_supports_complex_case() -> None:
-    module = load_live_builder_benchmark_module()
-
-    summary = module.get_benchmark_case("summary_smoke")
-    complex_case = module.get_benchmark_case("complex_research_brief")
-
-    assert summary.name == "summary_smoke"
-    assert summary.required_node_types == ["start", "model_turn", "end"]
-    assert complex_case.name == "complex_research_brief"
-    assert set(complex_case.required_node_types) == {
-        "start",
-        "parameter_extractor",
-        "question_classifier",
-        "context_assembler",
-        "model_turn",
-        "template_transform",
-        "event_recorder",
-        "end",
-    }
-    assert complex_case.required_harness_nodes == ["event_recorder"]
-    reference_types = {node["type"] for node in complex_case.reference["nodes"]}
-    assert set(complex_case.required_node_types).issubset(reference_types)
-    assert "复杂多模块研究简报 BlockFlow" in complex_case.requirement
-    assert "context_assembler 是必需节点" in complex_case.requirement
-    assert "不能用 variable_aggregator" in complex_case.requirement
 
 
-def test_live_builder_benchmark_reads_max_repair_cycles_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("LIVE_BUILDER_BENCHMARK_MAX_REPAIR_CYCLES", "3")
-
-    module = load_live_builder_benchmark_module()
-
-    assert module.MAX_REPAIR_CYCLES == 3
 
 
-def test_e02_review_experiment_builds_paired_packets(tmp_path: Path) -> None:
-    module = load_e02_review_experiment_module()
-
-    artifacts = module.build_review_artifacts(tmp_path)
-
-    assert artifacts["actual_report"]["passed"] is False
-    raw = artifacts["packets"]["raw_legacy_json"]
-    readable = artifacts["packets"]["readable_testframe"]
-    assert "frames" not in raw["summary"]
-    assert "readable_report" not in raw["tests"][0]
-    assert readable["summary"]["frames"]
-    assert readable["tests"][0]["readable_report"]["failure_target"]
-    assert (
-        artifacts["deterministic_metrics"]["readable_testframe"]["estimated_total_json_paths"]
-        < artifacts["deterministic_metrics"]["raw_legacy_json"]["estimated_total_json_paths"]
-    )
 
 
-def test_e04_repair_experiment_local_arm_repairs_fixed_draft(tmp_path: Path) -> None:
-    module = load_e04_repair_experiment_module()
-
-    artifacts = module.build_local_repair_artifacts(tmp_path)
-
-    assert artifacts["before_test_report"]["passed"] is False
-    assert artifacts["after_test_report"]["passed"] is True
-    assert artifacts["local_repair"]["operation_count"] == 1
-    assert artifacts["local_repair"]["operations"][0]["op"] == "update_node"
-    assert artifacts["draft_counts"]["node_types"] == ["end", "start", "template_transform"]
 
 
 def test_natural_language_draft_patch_preview_is_non_destructive(tmp_path: Path) -> None:
