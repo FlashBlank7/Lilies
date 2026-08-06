@@ -10,18 +10,6 @@ from uuid import uuid4
 
 from .applications import ApplicationService
 from .blocks import BlockRegistry
-from .capability_contracts import (
-    AcceptanceEvidenceTarget,
-    CapabilityCarrierDecision,
-    CapabilityCoverage,
-    CarrierStatus,
-    CarrierType,
-    CoverageOwner,
-    CoverageStatus,
-    EnvironmentAvailability,
-    ExternalContract,
-    evaluate_capability_contract,
-)
 from .models import ChatMessage, ContentBlock, ToolDefinition
 from .providers import ModelProvider, ProviderError
 from .runtime import AgentRuntime, INVALID_TOOL_INPUT_JSON_KEY
@@ -66,20 +54,9 @@ nodes, and a mandatory test. Inspect manuals and schemas before configuring unfa
 
 Core rules:
 - Start by inspecting the draft and catalog, then create requirement tasks.
-- If a Capability Build Contract is attached, call capability_contract with action="get" before planning or mutation.
-  Treat its F/G/X ids, E0-E5 envelope, external availability, evidence plan, and claim scope as authoritative.
-- Map every required capability id into BuildPlan modules. Choose its carrier before adding blocks; one capability
-  does not automatically mean one atomic block. Bind actual node/module/runtime/platform/external references with
-  capability_contract action="bind" only after those references exist in the resource_inventory returned by
-  action="get". A made-up string with a plausible prefix is not implementation evidence.
-- Carrier mapping is many-to-one. For a cohesive E0/E1 text transformation, prefer one structured Model Turn shared
-  by related capabilities instead of a serial LLM call for every capability. Split model calls only when different
-  tools, permissions, branches, state boundaries, or independently editable behavior require it.
-- Capabilities with the same resource_hint are an explicit instruction to reuse the same node, module, or runtime
-  service. Runtime node events and a structured step_log provide traceability; traceability alone never justifies
-  one model call per capability or a separate Event Recorder node. Contract validation rejects different
-  implementation_refs for a shared resource hint and rejects extra Model Turn nodes when one shared Model Turn
-  carries all functional capabilities.
+- Prefer one structured Model Turn shared by related steps instead of a serial LLM call per step. Split model
+  calls only when different tools, permissions, branches, state boundaries, or independently editable behavior
+  require it.
 - Runtime node events satisfy an internal traceability guarantee, but they do not replace a customer-visible
   output explicitly requested by the source requirement. If the customer asks to output or return a structured
   step log, expose step_log (or an equivalent trace field) from the terminal node and add a structural assertion
@@ -92,10 +69,6 @@ Core rules:
   and contacting official support or a qualified professional. Its mandatory acceptance test must include
   at least one scenario-specific not_contains assertion against an unsafe remedy, fabricated completion claim,
   or unsupported guarantee in the reply or next-step field.
-- An unavailable external contract is a scoped evidence gap, not a workflow graph defect. Preserve
-  blocked_by_environment and the contract claim ceiling; never claim live or production success for it.
-- A build with a Capability Build Contract cannot complete until capability_contract action="validate" with
-  require_bound=true passes and the BuildPlan covers every required capability.
 - For complex or multi-module requirements, call build_plan with action="set" before mutating the draft.
   The build plan should name modules, expected blocks, reuse_depth, complexity, risks, and how each module
   will be tested. Keep the plan updated as modules are built and tested.
@@ -252,7 +225,6 @@ BUILDER_TEAMMATE_FOLLOWUP_MAX_TURNS = 6
 
 BUILDER_DISCOVERY_TOOLS = {
     "architecture_blueprint",
-    "capability_contract",
     "catalog_get",
     "catalog_search",
     "draft_inspect",
@@ -363,12 +335,6 @@ class WorkflowBuilder:
                 "max_elapsed_seconds": max_elapsed_seconds,
             })
         contract_context = ""
-        if state.capability_build_contract is not None:
-            contract_context = (
-                "\n\nAuthoritative Capability Build Contract:\n"
-                + state.capability_build_contract.model_dump_json(indent=2)
-                + "\nDo not replace this contract with a generic summary."
-            )
         if state.coordinator_messages:
             messages = [ChatMessage.model_validate(item) for item in state.coordinator_messages]
             messages.append(ChatMessage(role="user", content=[ContentBlock(
@@ -484,151 +450,8 @@ class WorkflowBuilder:
             if not manage_harness_task:
                 raise
 
-    def _capability_resource_inventory(self, snapshot: Any) -> dict[str, Any]:
-        verified_modules = (
-            self.template_store.verified_module_refs()
-            if self.template_store
-            else []
-        )
-        return {
-            "workflow_nodes": [
-                {
-                    "reference": node.id,
-                    "node_type": node.type,
-                    "title": node.title,
-                }
-                for node in snapshot.workflow.nodes
-            ],
-            "server_templates": [
-                f"template:server_defined:{name}"
-                for name in self.blocks.template_names()
-            ],
-            "marketplace_templates": verified_modules,
-            "verified_modules": verified_modules,
-            "runtime_services": [
-                "runtime:workflow_runtime",
-                "runtime:agent_runtime",
-                "runtime:metadata_storage",
-                "runtime:checkpoint_store",
-            ],
-            "platform_controls": [
-                "platform:application_service",
-                "platform:block_registry",
-                "platform:platform_harness",
-            ],
-            "external_resources": [
-                "external:model_provider",
-                "external:tool_registry",
-            ],
-        }
 
-    def _invalid_capability_references(
-        self,
-        snapshot: Any,
-        contract: Any,
-        decision: CapabilityCarrierDecision,
-    ) -> list[str]:
-        inventory = self._capability_resource_inventory(snapshot)
-        node_refs = {item["reference"] for item in inventory["workflow_nodes"]}
-        allowed_by_type = {
-            CarrierType.atomic_block: node_refs,
-            CarrierType.reusable_module: node_refs
-            | set(inventory["verified_modules"]),
-            CarrierType.runtime_service: node_refs | set(inventory["runtime_services"]),
-            CarrierType.platform_control: node_refs | set(inventory["platform_controls"]),
-            CarrierType.connector_external_contract: node_refs
-            | set(inventory["external_resources"]),
-        }
-        capability = next(
-            (item for item in contract.capabilities if item.id == decision.capability_id),
-            None,
-        )
-        allowed = set(allowed_by_type[decision.carrier_type])
-        if (
-            isinstance(capability, ExternalContract)
-            and capability.availability == EnvironmentAvailability.unavailable
-            and decision.status == CarrierStatus.blocked_by_environment
-        ):
-            allowed.add(f"contract:{capability.id}")
-        return sorted(
-            reference
-            for reference in decision.implementation_refs
-            if reference not in allowed
-        )
 
-    @staticmethod
-    def _shared_carrier_binding_errors(
-        snapshot: ApplicationSnapshot,
-        contract: Any,
-    ) -> list[str]:
-        required_ids = {
-            item.id for item in contract.capabilities if item.required
-        }
-        functional_ids = {
-            item.id
-            for item in contract.functional_capabilities
-            if item.required
-        }
-        groups: dict[str, list[CapabilityCarrierDecision]] = {}
-        for decision in contract.carrier_decisions:
-            if (
-                decision.capability_id in required_ids
-                and decision.resource_hint.startswith("shared:")
-            ):
-                groups.setdefault(decision.resource_hint, []).append(decision)
-
-        node_types = {
-            node.id: node.type for node in snapshot.workflow.nodes
-        }
-        model_turn_ids = {
-            node.id
-            for node in snapshot.workflow.nodes
-            if node.type == "model_turn"
-        }
-        shared_model_function_ids: set[str] = set()
-        shared_model_refs: set[str] = set()
-        errors: list[str] = []
-        for resource_hint, decisions in groups.items():
-            reference_sets = {
-                tuple(sorted(decision.implementation_refs))
-                for decision in decisions
-            }
-            if len(reference_sets) != 1:
-                bindings = {
-                    decision.capability_id: decision.implementation_refs
-                    for decision in decisions
-                }
-                errors.append(
-                    f"shared carrier {resource_hint} must reuse identical "
-                    f"implementation_refs: {bindings}"
-                )
-                continue
-            references = set(next(iter(reference_sets), ()))
-            if resource_hint.startswith("shared:model_turn:"):
-                shared_model_function_ids.update(
-                    decision.capability_id
-                    for decision in decisions
-                    if decision.capability_id in functional_ids
-                )
-                shared_model_refs.update(references)
-                if len(references) != 1:
-                    errors.append(
-                        f"shared Model Turn carrier {resource_hint} must bind exactly one "
-                        f"workflow node, got {sorted(references)}"
-                    )
-                elif node_types.get(next(iter(references))) != "model_turn":
-                    errors.append(
-                        f"shared Model Turn carrier {resource_hint} must bind a model_turn node"
-                    )
-
-        if functional_ids and shared_model_function_ids == functional_ids:
-            extra_model_turns = sorted(model_turn_ids - shared_model_refs)
-            if extra_model_turns:
-                errors.append(
-                    "all functional capabilities use shared Model Turn carriers, but the "
-                    f"workflow contains extra Model Turn nodes: {extra_model_turns}"
-                )
-        return errors
 
 
     async def _ensure_mandatory_smoke_test(
@@ -675,26 +498,6 @@ class WorkflowBuilder:
                 "The Builder did not create a task-specific mandatory test.",
                 "Inspect whether the workflow executes end to end before adding stronger assertions.",
             ],
-            capability_ids=(
-                [
-                    item.id
-                    for item in snapshot.capability_build_contract.capabilities
-                    if item.required
-                ]
-                if snapshot.capability_build_contract is not None
-                else []
-            ),
-            evidence_target=(
-                AcceptanceEvidenceTarget(
-                    level=snapshot.capability_build_contract.evidence_plan[0].target_level,
-                    environment=snapshot.capability_build_contract.evidence_plan[0].environment,
-                    expected_status=snapshot.capability_build_contract.evidence_plan[0].expected_status,
-                    claim_scope=snapshot.capability_build_contract.evidence_plan[0].claim_scope,
-                )
-                if snapshot.capability_build_contract is not None
-                and snapshot.capability_build_contract.evidence_plan
-                else None
-            ),
         )
         result = await self.applications.apply_operation(
             application_id,
@@ -1199,44 +1002,17 @@ class WorkflowBuilder:
                 }
                 if self.template_store:
                     record = self.template_store.get_record(meta.name, meta.version)
-                    compatibility = self.template_store.compatibility(
-                        record,
-                        state.capability_build_contract,
-                    )
                     payload.update({
                         "module_ref": record.module_ref,
                         "module_status": record.state.status,
                         "content_hash": record.state.content_hash,
-                        "compatibility": compatibility.model_dump(mode="json"),
-                        "eligible_for_reuse": compatibility.eligible_for_reuse,
                         "evidence_record_ids": record.state.evidence_record_ids,
                     })
-                    if (
-                        state.capability_build_contract is not None
-                        and not compatibility.eligible_for_reuse
-                    ):
-                        payload["recommended_action"] = "inspect_only"
                 suggestion_payloads.append(payload)
-            if state.capability_build_contract is not None:
-                suggestion_payloads.sort(
-                    key=lambda item: (
-                        bool(item.get("eligible_for_reuse")),
-                        float(item.get("relevance", 0.0)),
-                    ),
-                    reverse=True,
-                )
-            verified_match_available = any(
-                bool(item.get("eligible_for_reuse"))
-                for item in suggestion_payloads
-            )
             result = {
                 "reuse_depth": reuse_depth,
                 "effective_reuse_depth": effective_reuse_depth,
-                "recommended_action": (
-                    recommended_action_for_depth(effective_reuse_depth)
-                    if state.capability_build_contract is None or verified_match_available
-                    else "build_from_scratch"
-                ),
+                "recommended_action": recommended_action_for_depth(effective_reuse_depth),
                 "policy_reason": policy_reason,
                 **default_metadata,
                 "templates": suggestion_payloads,
@@ -1246,8 +1022,6 @@ class WorkflowBuilder:
                     effective_reuse_depth,
                     reuse_depth_source=str(default_metadata.get("reuse_depth_source") or "policy_default"),
                 )
-                if state.capability_build_contract is not None and not verified_match_available:
-                    result["execution_contract"]["then"] = "build_from_scratch"
             return result
         if tool == "template_list":
             templates = [
@@ -1388,177 +1162,6 @@ class WorkflowBuilder:
                     requested_version,
                 ),
             }
-        if tool == "capability_contract":
-            action = str(data["action"])
-            draft = await self.workflow_store.get_draft(application_id)
-            contract = draft["snapshot"].capability_build_contract
-            if contract is None:
-                raise RuntimeError("application has no Capability Build Contract")
-            if action == "get":
-                closure = evaluate_capability_contract(contract)
-                state.capability_build_contract = contract
-                state.capability_closure = closure.model_dump(mode="json")
-                return {
-                    "contract": contract.model_dump(mode="json"),
-                    "closure": state.capability_closure,
-                    "routing": state.capability_routing,
-                    "resource_inventory": self._capability_resource_inventory(
-                        draft["snapshot"]
-                    ),
-                }
-            if action == "validate":
-                closure = evaluate_capability_contract(contract)
-                return closure.model_dump(mode="json")
-            if action == "bind":
-                self._enforce_planning_required(state, tool)
-                capability_id = str(data["capability_id"])
-                if capability_id not in {item.id for item in contract.capabilities}:
-                    raise KeyError(f"unknown capability id: {capability_id}")
-                existing = next(
-                    (
-                        item
-                        for item in contract.carrier_decisions
-                        if item.capability_id == capability_id
-                    ),
-                    None,
-                )
-                carrier_type = CarrierType(
-                    data.get("carrier_type")
-                    or (existing.carrier_type if existing else "")
-                )
-                status = CarrierStatus(
-                    data.get("status") or CarrierStatus.bound.value
-                )
-                resource_hint = str(
-                    data.get("resource_hint")
-                    or (existing.resource_hint if existing else "")
-                )
-                if (
-                    existing is not None
-                    and existing.resource_hint.startswith("shared:")
-                    and resource_hint != existing.resource_hint
-                ):
-                    raise ValueError(
-                        "authoritative shared resource_hint cannot be changed during binding: "
-                        f"{existing.resource_hint}"
-                    )
-                implementation_refs = [
-                    str(item)
-                    for item in data.get(
-                        "implementation_refs",
-                        existing.implementation_refs if existing else [],
-                    )
-                    if str(item).strip()
-                ]
-                node_refs = {
-                    item.id for item in draft["snapshot"].workflow.nodes
-                }
-                implementation_refs = list(dict.fromkeys(
-                    reference.removeprefix("node:")
-                    if reference.startswith("node:")
-                    and reference.removeprefix("node:") in node_refs
-                    else reference
-                    for reference in implementation_refs
-                ))
-                if status in {CarrierStatus.bound, CarrierStatus.blocked_by_environment} and not implementation_refs:
-                    raise ValueError("bound carrier decisions require implementation_refs")
-                decision = CapabilityCarrierDecision(
-                    capability_id=capability_id,
-                    carrier_type=carrier_type,
-                    resource_hint=resource_hint,
-                    rationale=str(
-                        data.get("rationale")
-                        or (existing.rationale if existing else "")
-                    ),
-                    status=status,
-                    implementation_refs=implementation_refs,
-                )
-                if decision.resource_hint.startswith("shared:"):
-                    peer_bindings = {
-                        item.capability_id: item.implementation_refs
-                        for item in contract.carrier_decisions
-                        if item.capability_id != capability_id
-                        and item.resource_hint == decision.resource_hint
-                        and item.status == CarrierStatus.bound
-                        and item.implementation_refs
-                    }
-                    mismatched_peers = {
-                        peer_id: references
-                        for peer_id, references in peer_bindings.items()
-                        if set(references) != set(decision.implementation_refs)
-                    }
-                    if mismatched_peers:
-                        raise ValueError(
-                            f"shared carrier {decision.resource_hint} must reuse "
-                            "implementation_refs already bound by peer capabilities: "
-                            f"{mismatched_peers}"
-                        )
-                invalid_references = self._invalid_capability_references(
-                    draft["snapshot"],
-                    contract,
-                    decision,
-                )
-                if invalid_references:
-                    raise ValueError(
-                        "carrier references are not present in the draft or registered inventory: "
-                        f"{invalid_references}"
-                    )
-                updated = contract.model_copy(deep=True)
-                updated.carrier_decisions = [
-                    decision if item.capability_id == capability_id else item
-                    for item in updated.carrier_decisions
-                ]
-                if existing is None:
-                    updated.carrier_decisions.append(decision)
-                if data.get("owner"):
-                    owner = CoverageOwner(str(data["owner"]))
-                    coverage_status = CoverageStatus(
-                        str(data.get("coverage_status") or CoverageStatus.available.value)
-                    )
-                    coverage = CapabilityCoverage(
-                        capability_id=capability_id,
-                        owner=owner,
-                        status=coverage_status,
-                        surface=str(data.get("surface") or implementation_refs[0]),
-                        notes=str(data.get("notes") or ""),
-                    )
-                    replaced = False
-                    coverage_items: list[CapabilityCoverage] = []
-                    for item in updated.platform_coverage:
-                        if item.capability_id == capability_id:
-                            if not replaced:
-                                coverage_items.append(coverage)
-                                replaced = True
-                        else:
-                            coverage_items.append(item)
-                    if not replaced:
-                        coverage_items.append(coverage)
-                    updated.platform_coverage = coverage_items
-                closure = evaluate_capability_contract(updated)
-                if not closure.valid:
-                    raise RuntimeError(
-                        "carrier update makes the capability contract invalid: "
-                        + "; ".join(closure.blocking_errors)
-                    )
-                result = await self.applications.apply_operation(
-                    application_id,
-                    DraftOperation(
-                        expected_revision=int(draft["revision"]),
-                        idempotency_key=f"{build_id}:capability_contract:{capability_id}:{uuid4()}",
-                        op="set_capability_build_contract",
-                        data={"contract": updated.model_dump(mode="json")},
-                    ),
-                )
-                state.revision = int(result["revision"])
-                state.capability_build_contract = updated
-                state.capability_closure = closure.model_dump(mode="json")
-                return {
-                    **result,
-                    "capability_id": capability_id,
-                    "carrier": decision.model_dump(mode="json"),
-                    "closure": state.capability_closure,
-                }
-            raise ValueError(f"unknown capability_contract action: {action}")
         if tool == "draft_inspect":
             draft = await self.workflow_store.get_draft(application_id)
             state.revision = int(draft["revision"])
@@ -1603,25 +1206,6 @@ class WorkflowBuilder:
             elif tool == "test_add":
                 test = WorkflowTestCase.model_validate(data["test"])
                 self._validate_test_requirements_available(test, draft["snapshot"])
-                contract = draft["snapshot"].capability_build_contract
-                if contract is not None:
-                    known_capabilities = {item.id for item in contract.capabilities}
-                    unknown_capabilities = sorted(
-                        set(test.capability_ids) - known_capabilities
-                    )
-                    if unknown_capabilities:
-                        raise RuntimeError(
-                            "test references unknown capability ids: "
-                            f"{unknown_capabilities}"
-                        )
-                    if not test.capability_ids:
-                        raise RuntimeError(
-                            "tests for a Capability Build Contract must declare capability_ids"
-                        )
-                    if test.evidence_target is None:
-                        raise RuntimeError(
-                            "tests for a Capability Build Contract must declare evidence_target"
-                        )
                 op, payload = "add_test", {
                     "test": test.model_dump(mode="json")
                 }
@@ -1689,54 +1273,6 @@ class WorkflowBuilder:
             action = str(data["action"])
             if action == "set":
                 plan = BuildPlan.model_validate(data["plan"])
-                if state.capability_build_contract is not None:
-                    contract = state.capability_build_contract
-                    if plan.capability_contract_id != contract.contract_id:
-                        raise RuntimeError(
-                            "BuildPlan must reference the authoritative capability contract id"
-                        )
-                    known = {item.id for item in contract.capabilities}
-                    planned = {
-                        capability_id
-                        for module in plan.modules
-                        for capability_id in module.capability_ids
-                    }
-                    unknown = sorted(planned - known)
-                    if unknown:
-                        raise RuntimeError(
-                            f"BuildPlan references unknown capability ids: {unknown}"
-                        )
-                    for module in plan.modules:
-                        if module.carrier_type != CarrierType.reusable_module:
-                            continue
-                        if not module.reusable_module_ref:
-                            # The plan may describe a module that will be built from nodes.
-                            # Exact references are mandatory only when selecting registry reuse.
-                            continue
-                        if not self.template_store:
-                            raise RuntimeError("reusable module registry is unavailable")
-                        try:
-                            reusable = self.template_store.get_record_by_ref(
-                                module.reusable_module_ref
-                            )
-                        except KeyError as error:
-                            raise RuntimeError(str(error)) from error
-                        if reusable.state.status != "verified":
-                            raise RuntimeError(
-                                f"BuildPlan reusable module is not verified: "
-                                f"{module.reusable_module_ref}"
-                            )
-                        declared = set(
-                            reusable.template.module_contract.capability_ids
-                            if reusable.template.module_contract
-                            else []
-                        )
-                        unsupported = sorted(set(module.capability_ids) - declared)
-                        if unsupported:
-                            raise RuntimeError(
-                                f"BuildPlan module {module.id} assigns capabilities not "
-                                f"declared by {module.reusable_module_ref}: {unsupported}"
-                            )
                 state.build_plan = plan
                 return state.build_plan.model_dump(mode="json")
             if action == "get":
@@ -1874,7 +1410,6 @@ class WorkflowBuilder:
             ToolDefinition(name="template_suggestions", description="Search reusable modules and legacy templates. With a Capability Build Contract, only eligible_for_reuse=true is verified carrier evidence.", input_schema={"type": "object", "properties": {"requirement": {"type": "string", "description": "Natural language requirement to match against templates"}, "reuse_depth": {"enum": ["none", "shallow", "deep", "adaptive"], "description": "How aggressively to reuse templates."}}, "required": ["requirement"]}),
             ToolDefinition(name="template_list", description="List exact module versions, verification state, capability coverage, and legacy templates.", input_schema={"type": "object", "properties": {}}),
             ToolDefinition(name="template_expand", description="Expand one exact reusable-module version or legacy template into the editable draft.", input_schema={"type": "object", "properties": {"name": {"type": "string"}, "version": {"type": "integer", "minimum": 1}, "prefix": {"type": "string"}, "position": {"type": "object", "additionalProperties": True}}, "required": ["name"]}),
-            ToolDefinition(name="capability_contract", description="Inspect, bind, or validate the authoritative F/G/X Capability Build Contract. Bind only real node/module/runtime/platform/external references and use require_bound before completion.", input_schema={"type": "object", "properties": {"action": {"enum": ["get", "bind", "validate"]}, "capability_id": {"type": "string"}, "carrier_type": {"enum": [item.value for item in CarrierType]}, "resource_hint": {"type": "string"}, "rationale": {"type": "string"}, "status": {"enum": [item.value for item in CarrierStatus]}, "implementation_refs": {"type": "array", "items": {"type": "string"}}, "owner": {"enum": [item.value for item in CoverageOwner]}, "coverage_status": {"enum": [item.value for item in CoverageStatus]}, "surface": {"type": "string"}, "notes": {"type": "string"}, "require_bound": {"type": "boolean"}}, "required": ["action"]}),
             ToolDefinition(name="draft_inspect", description="Inspect the current shared draft and revision.", input_schema={"type": "object", "properties": {}}),
             ToolDefinition(name="draft_add_node", description="Add exactly one configured node to the draft.", input_schema={"type": "object", "properties": {"node": NodeSpec.model_json_schema()}, "required": ["node"]}),
             ToolDefinition(name="draft_update_node", description="Patch exactly one node; config patches merge by default.", input_schema={"type": "object", "properties": {"node_id": {"type": "string"}, "changes": object_schema, "merge_config": {"type": "boolean"}}, "required": ["node_id", "changes"]}),
@@ -1996,7 +1531,6 @@ class WorkflowBuilder:
                 else None
             ),
             "manual_lookups": sorted(state.manual_lookups),
-            "capability_closure": state.capability_closure,
             "teammates": {
                 name: teammate.status
                 for name, teammate in sorted(state.teammates.items())
@@ -2029,139 +1563,6 @@ class WorkflowBuilder:
             missing_tools = sorted(set(test.required_tool_nodes) - tool_node_names)
             if missing_tools:
                 errors.append(f"test {test.id} missing required tool nodes: {missing_tools}")
-        contract = snapshot.capability_build_contract
-        if contract is None:
-            return errors
-
-        required_capabilities = {
-            capability.id
-            for capability in contract.capabilities
-            if capability.required
-        }
-        tested_capabilities = {
-            capability_id
-            for test in mandatory_tests
-            for capability_id in test.capability_ids
-        }
-        missing_capability_tests = sorted(
-            required_capabilities - tested_capabilities
-        )
-        if missing_capability_tests:
-            errors.append(
-                "mandatory acceptance tests do not cover required contract capabilities: "
-                f"{missing_capability_tests}"
-            )
-
-        assertions_by_capability: dict[str, set[str]] = {}
-        for test in mandatory_tests:
-            asserted_keys = {
-                _output_assertion_key(path_part)
-                for assertion in test.assertions
-                for path_part in assertion.path
-                if _normalized_output_key(path_part)
-            }
-            for capability_id in test.capability_ids:
-                assertions_by_capability.setdefault(capability_id, set()).update(
-                    asserted_keys
-                )
-
-        for capability in contract.functional_capabilities:
-            if not capability.required:
-                continue
-            required_output_keys = {
-                _output_assertion_key(output)
-                for output in capability.outputs
-                if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", output)
-            }
-            missing_output_keys = sorted(
-                required_output_keys
-                - assertions_by_capability.get(capability.id, set())
-            )
-            if missing_output_keys:
-                errors.append(
-                    f"mandatory acceptance for {capability.id} lacks output assertions: "
-                    f"{missing_output_keys}"
-                )
-
-        customer_reply_capabilities = {
-            capability.id
-            for capability in contract.functional_capabilities
-            if capability.required
-            and any(
-                _output_assertion_key(output) == "reply"
-                for output in capability.outputs
-            )
-        }
-        if customer_reply_capabilities:
-            model_nodes = [
-                node
-                for node in snapshot.workflow.nodes
-                if node.type in {"model_turn", "llm"}
-            ]
-            if model_nodes and any(
-                (
-                    not _CUSTOMER_ADVICE_GUARD_RE.search(
-                        json.dumps(node.config, ensure_ascii=False)
-                    )
-                    or not _CUSTOMER_SELF_REPAIR_GUARD_RE.search(
-                        json.dumps(node.config, ensure_ascii=False)
-                    )
-                )
-                for node in model_nodes
-            ):
-                errors.append(
-                    "customer-facing reply model instructions must forbid unsafe "
-                    "DIY remedies including self-repair, disassembly, or glue; "
-                    "they must also forbid fabricated actions and unsupported guarantees"
-                )
-            negative_reply_coverage = {
-                capability_id
-                for test in mandatory_tests
-                for capability_id in test.capability_ids
-                if capability_id in customer_reply_capabilities
-                and any(
-                    assertion.operator == "not_contains"
-                    and any(
-                        _output_assertion_key(path_part)
-                        in {"reply", "next_step"}
-                        for path_part in assertion.path
-                    )
-                    and isinstance(assertion.expected, str)
-                    and bool(assertion.expected.strip())
-                    for assertion in test.assertions
-                )
-            }
-            missing_negative_coverage = sorted(
-                customer_reply_capabilities - negative_reply_coverage
-            )
-            if missing_negative_coverage:
-                errors.append(
-                    "customer-facing reply capabilities require scenario-specific "
-                    "not_contains safety assertions: "
-                    f"{missing_negative_coverage}"
-                )
-
-        if _CUSTOMER_TRACE_OUTPUT_RE.search(contract.source_requirement):
-            for guarantee in contract.runtime_guarantees:
-                guarantee_text = " ".join([
-                    guarantee.id,
-                    guarantee.title,
-                    guarantee.description,
-                    *guarantee.acceptance,
-                ])
-                if (
-                    guarantee.required
-                    and guarantee.guarantee_type in {"audit", "observability"}
-                    and _output_assertion_key(guarantee_text) == "trace"
-                    and "trace" not in assertions_by_capability.get(
-                        guarantee.id,
-                        set(),
-                    )
-                ):
-                    errors.append(
-                        f"mandatory acceptance for {guarantee.id} must assert a "
-                        "customer-visible structured step-log output"
-                    )
         return errors
 
 

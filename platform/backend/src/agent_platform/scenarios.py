@@ -1,37 +1,18 @@
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any
 
 from pydantic import BaseModel, Field
 
 from .blocks import BlockRegistry
-from .capability_contracts import (
-    AcceptanceEvidenceTarget,
-    CapabilityBuildContract,
-    CarrierStatus,
-    CoverageStatus,
-    EvidenceEnvironment,
-    EvidenceLevel,
-    EnvironmentAvailability,
-    VerificationStatus,
-    reference_capability_contract,
-)
 from .connector_sdk import ConnectorService
 from .workflow_models import TestAssertion, TestFrameSpec, WorkflowSpec, WorkflowTestCase
 
 
 class ScenarioEvidenceProfile(BaseModel):
     profile_id: str
-    selected_level: Literal["H0", "H1", "H2", "H3", "H4", "H5"]
-    status: Literal[
-        "design_only",
-        "static_verified",
-        "component_verified",
-        "contract_verified",
-        "integration_verified",
-        "live_verified",
-        "production_observed",
-    ]
+    selected_level: str
+    status: str
     model_boundary: str
     tool_boundary: str
     environment_boundary: str
@@ -50,7 +31,6 @@ class ScenarioDefinition(BaseModel):
     runtime_inputs: list[dict[str, Any]]
     structural_contract: dict[str, Any]
     evidence_profile: ScenarioEvidenceProfile
-    capability_build_contract: CapabilityBuildContract
     workflow: WorkflowSpec
     acceptance_cases: list[WorkflowTestCase]
 
@@ -86,21 +66,6 @@ class ScenarioCatalog:
         if scenario_id != "codex_like_workspace_agent":
             raise KeyError(f"unknown scenario: {scenario_id}")
         prefix = "codex"
-        capability_contract = reference_capability_contract(scenario_id)
-        binding_refs = {
-            "F.plan_act_observe": ["codex_loop"],
-            "F.workspace_result": ["codex_answer"],
-            "G.permission_boundary": ["codex_permission"],
-            "G.loop_trace": ["codex_loop", "codex_trace"],
-            "X.workspace": ["codex_sandbox"],
-            "X.model": ["codex_plan"],
-        }
-        for decision in capability_contract.carrier_decisions:
-            decision.status = CarrierStatus.bound
-            decision.implementation_refs = binding_refs[decision.capability_id]
-        for coverage in capability_contract.platform_coverage:
-            coverage.status = CoverageStatus.available
-            coverage.surface = "codex scenario component replay"
         workflow = self.blocks.expand_template(scenario_id, prefix=prefix)
         validation_errors = self.blocks.validate_workflow(workflow)
         if validation_errors:
@@ -113,14 +78,14 @@ class ScenarioCatalog:
                 "the declared boundary, feed tool evidence into the next model turn, and return a final result."
             ),
             customer_outcome="Give one workspace task and receive an inspectable plan, live progress, and a final answer.",
-            capability_set=[item.id for item in capability_contract.capabilities],
+            capability_set=[],
             required_envelope=(
-                f"{capability_contract.required_envelope.value} local interactive workspace; "
+                "E2 local interactive workspace; "
                 "E3 only when durable cross-process execution is configured"
             ),
             external_contracts=[
-                f"{item.id}: {item.description} [{item.availability.value}]"
-                for item in capability_contract.external_contracts
+                "workspace: sandboxed local workspace access",
+                "model: provider-neutral model calls",
             ],
             runtime_inputs=[
                 {"name": "task", "type": "string", "required": True, "customer_visible": True},
@@ -181,57 +146,12 @@ class ScenarioCatalog:
                     "production reliability or SLO",
                 ],
             ),
-            capability_build_contract=capability_contract,
             workflow=workflow,
             acceptance_cases=self._codex_acceptance_cases(prefix),
         )
 
     def _daily_web_collection(self) -> ScenarioDefinition:
         prefix = "daily"
-        contract = reference_capability_contract("daily_web_collection")
-        binding_refs = {
-            "F.collect_sources": ["daily_collect"],
-            "F.digest_notify": ["daily_digest", "daily_answer"],
-            "G.daily_schedule": ["daily_schedule", "platform.durable_jobs"],
-            "G.retry_resume_dedupe": ["platform.durable_jobs", "daily_collect"],
-            "G.provenance": ["daily_collect", "platform.collection_receipts"],
-            "X.site_access": ["daily_collect"],
-            "X.digest_storage": ["platform.collection_receipts"],
-            "X.notification": ["daily_answer", "customer_runtime"],
-        }
-        for decision in contract.carrier_decisions:
-            decision.status = CarrierStatus.bound
-            decision.implementation_refs = binding_refs[decision.capability_id]
-        for external in contract.external_contracts:
-            external.availability = EnvironmentAvailability.available
-            if external.id == "X.site_access":
-                external.provider = "controlled allowlisted HTTP fixture"
-                external.interface = "web_collection block"
-                external.availability_reason = (
-                    "Available only for explicitly allowlisted controlled sources; arbitrary sites remain excluded."
-                )
-            elif external.id == "X.digest_storage":
-                external.provider = "Lilies local durable store"
-                external.interface = "collection receipt registry"
-                external.availability_reason = "Available in the local integration environment."
-            else:
-                external.provider = "Customer Runtime"
-                external.interface = "latest digest result"
-                external.availability_reason = (
-                    "Customer Runtime delivery is available; external push channels remain excluded."
-                )
-        for coverage in contract.platform_coverage:
-            coverage.status = CoverageStatus.available
-            coverage.surface = "daily collection local H3 integration"
-        contract.claim_scope.excluded = sorted(
-            set(contract.claim_scope.excluded)
-            | {
-                "permission to scrape arbitrary sites",
-                "external push notification delivery",
-                "distributed exactly-once side effects",
-                "production unattended reliability or SLO",
-            }
-        )
         workflow = self.blocks.expand_template("daily_web_collection", prefix=prefix)
         validation_errors = self.blocks.validate_workflow(workflow)
         if validation_errors:
@@ -247,11 +167,10 @@ class ScenarioCatalog:
                 "See when the collection runs, what changed, which sources were denied or failed, and the "
                 "latest digest without operating worker internals."
             ),
-            capability_set=[item.id for item in contract.capabilities],
+            capability_set=[],
             required_envelope="E3 local durable integration; E4 for multi-tenant production operation",
             external_contracts=[
-                f"{item.id}: {item.description} [{item.availability.value}] {item.availability_reason}"
-                for item in contract.external_contracts
+                "customer_system: governed writeback through a versioned Connector contract",
             ],
             runtime_inputs=[
                 {
@@ -307,16 +226,14 @@ class ScenarioCatalog:
                 claim_scope=(
                     "restart-safe local durable jobs and controlled-source collection at H3 integration"
                 ),
-                excluded_claims=list(contract.claim_scope.excluded),
+                excluded_claims=[],
             ),
-            capability_build_contract=contract,
             workflow=workflow,
             acceptance_cases=self._daily_acceptance_cases(prefix),
         )
 
     def _customer_system_embedding(self) -> ScenarioDefinition:
         prefix = "customer"
-        contract = reference_capability_contract("customer_system_embedding")
         availability = (
             self.connectors.contract_availability("customer_system", 1)
             if self.connectors is not None
@@ -335,88 +252,11 @@ class ScenarioCatalog:
             else 1
         )
         selected_level = f"H{max(level_number, 1)}"
-        status_by_level: dict[str, VerificationStatus] = {
-            "H1": VerificationStatus.static_verified,
-            "H2": VerificationStatus.component_verified,
-            "H3": VerificationStatus.integration_verified,
-        }
-        selected_status = status_by_level[selected_level]
-        external_ids = {item.id for item in contract.external_contracts}
-        binding_refs = {
-            "F.embedded_request": ["customer_request", "customer_read"],
-            "F.governed_writeback": ["customer_writeback", "customer_answer"],
-            "G.tenant_isolation": ["platform.connector_identity", "customer_read"],
-            "G.idempotent_write": ["platform.connector_idempotency", "customer_writeback"],
-            "G.compensation": ["platform.connector_compensation", "customer_writeback"],
-            "G.audit": ["platform.connector_audit", "customer_answer"],
-            "X.customer_identity": ["platform.connector_embedding_ingress"],
-            "X.customer_schema": ["platform.connector_manifest", "customer_read"],
-            "X.customer_writeback": ["customer_writeback"],
-            "X.customer_callback": ["platform.connector_callback"],
-            "X.deployment": ["platform.connector_deployment_profile"],
-        }
-        for decision in contract.carrier_decisions:
-            if decision.capability_id in external_ids and not environment_available:
-                decision.status = CarrierStatus.blocked_by_environment
-            else:
-                decision.status = CarrierStatus.bound
-            decision.implementation_refs = binding_refs[decision.capability_id]
-        for external in contract.external_contracts:
-            if environment_available:
-                external.availability = EnvironmentAvailability.available
-                external.provider = "configured controlled Connector test tenant"
-                external.interface = {
-                    "X.customer_identity": "signed embedding ingress",
-                    "X.customer_schema": "Connector manifest schema",
-                    "X.customer_writeback": "idempotent Connector adapter",
-                    "X.customer_callback": "signed ordered callback endpoint",
-                    "X.deployment": "versioned Connector deployment profile",
-                }[external.id]
-                external.availability_reason = (
-                    "A configured controlled-test tenant and available profile are attached."
-                )
-        for coverage in contract.platform_coverage:
-            if coverage.capability_id in external_ids and not environment_available:
-                coverage.status = CoverageStatus.missing
-                coverage.surface = "connector environment not configured"
-            else:
-                coverage.status = CoverageStatus.available
-                coverage.surface = "Connector SDK and controlled embedding integration"
-        for evidence in contract.evidence_plan:
-            external_evidence = any(
-                capability_id in external_ids
-                for capability_id in evidence.capability_ids
-            )
-            if external_evidence and not environment_available:
-                evidence.target_level = EvidenceLevel.H1
-                evidence.expected_status = VerificationStatus.blocked_by_environment
-                evidence.claim_scope = (
-                    "Typed external contract only; no eligible controlled-test tenant is configured."
-                )
-            else:
-                evidence.target_level = EvidenceLevel(selected_level)
-                evidence.expected_status = selected_status
-                evidence.claim_scope = (
-                    "Configured Lilies Connector mechanics inside one controlled test tenant only."
-                )
-        contract.claim_scope.ceiling = selected_status
-        contract.claim_scope.verified = [
-            "versioned Connector contract and editable workflow carriers",
-            *(
-                ["controlled-test tenant identity, dry-run, writeback, callback, and compensation evidence"]
-                if environment_available and selected_level == "H3"
-                else []
-            ),
-        ]
-        contract.claim_scope.excluded = sorted(
-            set(contract.claim_scope.excluded)
-            | {
-                "real customer production identity",
-                "unobserved customer tenants",
-                "production writeback reliability or SLO",
-                "production deployment compliance",
-            }
-        )
+        selected_status = {
+            "H1": "static_verified",
+            "H2": "component_verified",
+            "H3": "integration_verified",
+        }[selected_level]
         workflow = self.blocks.expand_template(
             "customer_system_embedding",
             prefix=prefix,
@@ -436,14 +276,13 @@ class ScenarioCatalog:
                 "Use the workflow from a customer system while operators can inspect the exact tenant, "
                 "policy, receipt, callback, and recovery state without exposing credentials."
             ),
-            capability_set=[item.id for item in contract.capabilities],
+            capability_set=[],
             required_envelope=(
                 "E5 contract shape; current evidence is capped at controlled local H3 and does not "
                 "establish customer-production readiness"
             ),
             external_contracts=[
-                f"{item.id}: {item.description} [{item.availability.value}] {item.availability_reason}"
-                for item in contract.external_contracts
+                "customer_system: governed writeback through a versioned Connector contract",
             ],
             runtime_inputs=[
                 {
@@ -484,7 +323,7 @@ class ScenarioCatalog:
             evidence_profile=ScenarioEvidenceProfile(
                 profile_id="customer_embedding_controlled_boundary",
                 selected_level=selected_level,
-                status=selected_status.value,
+                status=selected_status,
                 model_boundary="configured runtime model; no general model-quality claim",
                 tool_boundary=(
                     "versioned Connector operations through tenant policy, preauthorization, and "
@@ -500,9 +339,8 @@ class ScenarioCatalog:
                     if selected_level == "H3"
                     else "Editable Connector contract and workflow structure only"
                 ),
-                excluded_claims=list(contract.claim_scope.excluded),
+                excluded_claims=[],
             ),
-            capability_build_contract=contract,
             workflow=workflow,
             acceptance_cases=self._customer_embedding_acceptance_cases(
                 environment_available=environment_available,
@@ -560,12 +398,6 @@ class ScenarioCatalog:
                     "G.compensation",
                     "G.audit",
                 ],
-                evidence_target=AcceptanceEvidenceTarget(
-                    level=EvidenceLevel.H1,
-                    environment=EvidenceEnvironment.mock,
-                    expected_status=VerificationStatus.static_verified,
-                    claim_scope="Editable workflow and platform-control references only.",
-                ),
             )
         ]
         if not environment_available:
@@ -608,12 +440,6 @@ class ScenarioCatalog:
                     "X.customer_schema",
                     "X.customer_writeback",
                 ],
-                evidence_target=AcceptanceEvidenceTarget(
-                    level=EvidenceLevel.H3,
-                    environment=EvidenceEnvironment.contract,
-                    expected_status=VerificationStatus.integration_verified,
-                    claim_scope="One configured controlled-test tenant; production remains excluded.",
-                ),
             )
         )
         return cases
@@ -659,12 +485,6 @@ class ScenarioCatalog:
                     "G.daily_schedule",
                     "G.retry_resume_dedupe",
                 ],
-                evidence_target=AcceptanceEvidenceTarget(
-                    level=EvidenceLevel.H1,
-                    environment=EvidenceEnvironment.mock,
-                    expected_status=VerificationStatus.static_verified,
-                    claim_scope="Editable workflow and durable-carrier structure only.",
-                ),
             ),
             WorkflowTestCase(
                 id="daily_local_contract_runtime",
@@ -692,12 +512,6 @@ class ScenarioCatalog:
                 mandatory=True,
                 structural_only=False,
                 capability_ids=["F.collect_sources", "F.digest_notify", "X.digest_storage"],
-                evidence_target=AcceptanceEvidenceTarget(
-                    level=EvidenceLevel.H3,
-                    environment=EvidenceEnvironment.contract,
-                    expected_status=VerificationStatus.integration_verified,
-                    claim_scope="Local workflow, durable storage, and Customer Runtime result integration.",
-                ),
             ),
             WorkflowTestCase(
                 id="daily_source_provenance_boundary",
@@ -721,12 +535,6 @@ class ScenarioCatalog:
                 mandatory=True,
                 structural_only=True,
                 capability_ids=["G.provenance", "X.site_access", "X.notification"],
-                evidence_target=AcceptanceEvidenceTarget(
-                    level=EvidenceLevel.H3,
-                    environment=EvidenceEnvironment.contract,
-                    expected_status=VerificationStatus.integration_verified,
-                    claim_scope="Controlled-source contract and provenance shape; live sites excluded.",
-                ),
             ),
         ]
 
@@ -785,12 +593,6 @@ class ScenarioCatalog:
                     "X.workspace",
                     "X.model",
                 ],
-                evidence_target=AcceptanceEvidenceTarget(
-                    level=EvidenceLevel.H2,
-                    environment=EvidenceEnvironment.sandbox,
-                    expected_status=VerificationStatus.component_verified,
-                    claim_scope="Isolated workspace tool-feedback behavior only.",
-                ),
             ),
             WorkflowTestCase(
                 id="codex_workspace_permission_boundary",
@@ -810,12 +612,6 @@ class ScenarioCatalog:
                 mandatory=True,
                 structural_only=True,
                 capability_ids=["G.permission_boundary", "X.workspace"],
-                evidence_target=AcceptanceEvidenceTarget(
-                    level=EvidenceLevel.H2,
-                    environment=EvidenceEnvironment.sandbox,
-                    expected_status=VerificationStatus.component_verified,
-                    claim_scope="Visible permission and workspace boundary declarations.",
-                ),
             ),
             WorkflowTestCase(
                 id="codex_workspace_customer_result",
@@ -835,11 +631,5 @@ class ScenarioCatalog:
                 mandatory=True,
                 structural_only=True,
                 capability_ids=["F.workspace_result"],
-                evidence_target=AcceptanceEvidenceTarget(
-                    level=EvidenceLevel.H2,
-                    environment=EvidenceEnvironment.sandbox,
-                    expected_status=VerificationStatus.component_verified,
-                    claim_scope="Customer result shape inside the deterministic replay.",
-                ),
             ),
         ]

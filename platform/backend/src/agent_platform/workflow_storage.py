@@ -9,7 +9,6 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 from uuid import uuid4
 
-from .capability_contracts import CapabilityBuildContract
 from .execution_policy import ExecutionPolicySnapshot
 from .models import utc_now
 from .storage import Storage
@@ -321,7 +320,6 @@ class WorkflowStorage:
             delivery_mode=request.delivery_mode,
             governed_hard_gate=request.governed_hard_gate,
             requirement=request.requirement,
-            capability_build_contract=request.capability_build_contract,
         )
         async with self._lock:
             await asyncio.to_thread(self._create_application_sync, application_id, snapshot)
@@ -828,12 +826,7 @@ class WorkflowStorage:
             snapshot = json.loads(snapshot_json or "{}")
         except json.JSONDecodeError:
             snapshot = {}
-        contract = snapshot.get("capability_build_contract")
-        if isinstance(contract, dict) and str(contract.get("business_goal") or "").strip():
-            source = str(contract["business_goal"])
-        else:
-            source = fallback
-        return re.sub(r"\s+", " ", source).strip()[:500]
+        return re.sub(r"\s+", " ", fallback).strip()[:500]
 
     @staticmethod
     def _json_list(value: str | None) -> list[dict[str, Any]]:
@@ -1218,18 +1211,12 @@ class WorkflowStorage:
         planning_mode: str = "auto",
         complexity_router: dict[str, Any] | None = None,
         runtime_builder_policy: dict[str, Any] | None = None,
-        capability_build_contract: CapabilityBuildContract | None = None,
-        capability_closure: dict[str, Any] | None = None,
-        capability_routing: dict[str, Any] | None = None,
     ) -> None:
         now = utc_now()
         team_state = BuildTeamState(
             planning_mode=planning_mode,
             complexity_router=complexity_router,
             runtime_builder_policy=runtime_builder_policy,
-            capability_build_contract=capability_build_contract,
-            capability_closure=capability_closure,
-            capability_routing=capability_routing,
         )
         async with self._lock:
             await asyncio.to_thread(

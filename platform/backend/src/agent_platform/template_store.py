@@ -12,8 +12,8 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .capability_contracts import CapabilityBuildContract, ExecutionEnvelope, VerificationStatus
 from .capability_evidence import (
+    VerificationStatus,
     CapabilityEvidenceCreateRequest,
     CapabilityEvidenceRecord,
     CapabilityEvidenceRegistry,
@@ -524,53 +524,6 @@ class TemplateStore:
         self._states[(module_id, version)] = state
         self._persist_state(state)
         return ModuleVersionRecord(state=state, template=record.template)
-
-    def compatibility(
-        self,
-        record: ModuleVersionRecord,
-        contract: CapabilityBuildContract | None,
-    ) -> ModuleCompatibility:
-        module_contract = record.template.module_contract
-        required = sorted(
-            item.id for item in contract.capabilities if item.required
-        ) if contract else []
-        module_capabilities = sorted(module_contract.capability_ids) if module_contract else []
-        covered = sorted(set(required).intersection(module_capabilities))
-        missing = sorted(set(required) - set(module_capabilities))
-        extra = sorted(set(module_capabilities) - set(required))
-        envelope_compatible = True
-        if contract and module_contract:
-            order = {item: index for index, item in enumerate(ExecutionEnvelope)}
-            envelope_compatible = (
-                order[module_contract.required_envelope]
-                <= order[contract.required_envelope]
-            )
-        verified = record.state.status == "verified"
-        eligible = bool(module_contract) and verified and not missing and envelope_compatible
-        reasons: list[str] = []
-        if not module_contract:
-            reasons.append("module contract is missing")
-        if not verified:
-            reasons.append(f"module status is {record.state.status}")
-        if missing:
-            reasons.append(f"missing capabilities: {', '.join(missing)}")
-        if not envelope_compatible:
-            reasons.append("module requires a stronger execution envelope")
-        return ModuleCompatibility(
-            module_ref=record.module_ref,
-            verified=verified,
-            envelope_compatible=envelope_compatible,
-            required_capability_ids=required,
-            covered_capability_ids=covered,
-            missing_capability_ids=missing,
-            extra_capability_ids=extra,
-            known_boundaries=[
-                item.model_dump(mode="json")
-                for item in (module_contract.known_boundaries if module_contract else [])
-            ],
-            eligible_for_reuse=eligible,
-            reason="compatible verified module" if eligible else "; ".join(reasons),
-        )
 
     @staticmethod
     def _update_refs(value: Any, id_map: dict[str, str]) -> Any:

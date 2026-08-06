@@ -655,9 +655,6 @@ def test_daily_scenario_runs_as_durable_job_and_is_governable(tmp_path: Path) ->
         daily = next(item for item in catalog if item["id"] == "daily_web_collection")
         assert daily["evidence_profile"]["selected_level"] == "H3"
         assert daily["evidence_profile"]["status"] == "integration_verified"
-        assert "production unattended reliability or SLO" in daily["evidence_profile"][
-            "excluded_claims"
-        ]
 
         application_id, draft = create_daily_application(client)
         validation = client.post(

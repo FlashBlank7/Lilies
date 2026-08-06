@@ -352,8 +352,7 @@ function connectionErrorMessage(
 function readableWorkflowPurpose(snapshot: Draft['snapshot'] | undefined, fallback: string) {
   if (!snapshot) return fallback
   const goalMatch = snapshot.requirement.match(/(?:^|\n)\s{0,3}#{0,4}\s*(?:业务目标|Business goal)\s*[:：]?\s*\n+([\s\S]*?)(?=\n\s{0,3}#{1,6}\s+|$)/i)
-  const source = snapshot.capability_build_contract?.business_goal?.trim()
-    || goalMatch?.[1]?.trim()
+  const source = goalMatch?.[1]?.trim()
     || snapshot.description.trim()
     || snapshot.requirement.trim()
   return source
@@ -2284,10 +2283,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   ] : []
   const detailBuildAction = detailBuildActionState(requirement, build, buildIntentConfirmed, t)
   const detailBuildRecommendedAction = recommendedDetailBuildAction(detailBuildAction.id, t)
-  const businessDefinitionMissing = Boolean(draft && !(
-    draft.snapshot.requirement.trim()
-    || draft.snapshot.capability_build_contract?.business_goal?.trim()
-  ))
+  const businessDefinitionMissing = Boolean(draft && !draft.snapshot.requirement.trim())
 
   return <main className="studio-shell" data-studio-chrome="collapsible">
     <header className="studio-header" data-collapsed={studioChrome.headerExpanded ? 'false' : 'true'} id="studio-header">

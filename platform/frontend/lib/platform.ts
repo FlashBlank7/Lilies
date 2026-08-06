@@ -52,15 +52,6 @@ export type LocalLiliesCapabilityItem = {
   description?: string
 }
 
-export type LocalLiliesCapabilityContext = {
-  target_user?: string
-  business_goal?: string
-  functional_capabilities?: LocalLiliesCapabilityItem[]
-  runtime_guarantees?: LocalLiliesCapabilityItem[]
-  external_contracts?: LocalLiliesCapabilityItem[]
-  unresolved_decisions?: string[]
-}
-
 export type Snapshot = {
   name: string
   description: string
@@ -69,7 +60,6 @@ export type Snapshot = {
   workflow: { nodes: WorkflowNode[]; edges: WorkflowEdge[]; viewport: Record<string, number> }
   agents: Record<string, unknown>
   tests: Array<Record<string, unknown>>
-  capability_build_contract?: LocalLiliesCapabilityContext | null
 }
 
 export type Draft = {

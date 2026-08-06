@@ -257,7 +257,6 @@ def project_runtime_snapshot(snapshot: Any) -> dict[str, Any]:
                 "target_port": str(edge.get("target_port") or "input"),
             }
         )
-    capability_contract = _mapping(source.get("capability_build_contract"))
     projected_snapshot: dict[str, Any] = {
         "name": str(source.get("name") or ""),
         "description": str(source.get("description") or ""),
@@ -273,11 +272,6 @@ def project_runtime_snapshot(snapshot: Any) -> dict[str, Any]:
         "agents": {},
         "tests": [],
     }
-    business_goal = capability_contract.get("business_goal")
-    if isinstance(business_goal, str) and business_goal.strip():
-        projected_snapshot["capability_build_contract"] = {
-            "business_goal": business_goal.strip()
-        }
     return projected_snapshot
 
 

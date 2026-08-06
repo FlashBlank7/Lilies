@@ -116,8 +116,6 @@ type RequirementIntakeResponse = {
   missing: string[]
   questions: RequirementIntakeQuestion[]
   completed_requirement?: string | null
-  capability_build_contract?: CapabilityBuildContract | null
-  capability_closure?: { valid: boolean; scoped_gaps?: string[]; blocking_errors?: string[] } | null
   workflow_intent: Record<string, unknown>
   usage: Record<string, unknown>
 }
@@ -150,12 +148,9 @@ function deriveApplicationName(requirement: string) {
   return (cleaned || first || text).slice(0, 32).replace(/[\s，,：:；;]+$/g, '') || '新智能体'
 }
 
-function deriveApplicationDescription(
-  requirement: string,
-  contract: CapabilityBuildContract | null,
-) {
+function deriveApplicationDescription(requirement: string) {
   const goalMatch = requirement.match(/(?:^|\n)\s{0,3}#{0,4}\s*(?:业务目标|Business goal)\s*[:：]?\s*\n+([\s\S]*?)(?=\n\s{0,3}#{1,6}\s+|$)/i)
-  const source = contract?.business_goal?.trim() || goalMatch?.[1]?.trim() || requirement.trim()
+  const source = goalMatch?.[1]?.trim() || requirement.trim()
   return source
     .replace(/^\s{0,3}#{1,6}\s*/gm, '')
     .replace(/^\s*[-*+]\s*/gm, '')
@@ -202,8 +197,8 @@ async function applyCodexWorkspaceScenario(application: Application) {
   )
 }
 
-async function launchBuilder(application: Application, requirement: string, capabilityBuildContract: CapabilityBuildContract | null) {
-  if (isCodexWorkspaceRequirement(requirement) && !capabilityBuildContract) {
+async function launchBuilder(application: Application, requirement: string) {
+  if (isCodexWorkspaceRequirement(requirement)) {
     await applyCodexWorkspaceScenario(application)
   }
   return api<{ build_id: string }>(`/api/v1/applications/${application.id}/builds`, {
@@ -471,7 +466,6 @@ export default function Home() {
   const [requirementSelections, setRequirementSelections] = useState<RequirementClarificationSelections>({})
   const [requirementAnswerHistory, setRequirementAnswerHistory] = useState<RequirementIntakeAnswer[]>([])
   const [requirementIntake, setRequirementIntake] = useState<RequirementIntakeResponse | null>(null)
-  const [capabilityBuildContract, setCapabilityBuildContract] = useState<CapabilityBuildContract | null>(null)
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
   const [authRequired, setAuthRequired] = useState(false)
@@ -549,7 +543,6 @@ export default function Home() {
   const hasRequirementSelections = Object.values(requirementSelections).some(selection => selection.selectedOptionIds.length > 0 || selection.customAnswer.trim())
   const requirementMissingLabels = requirementIntake?.missing || []
   const requirementCompletionReady = requirementIntake?.status === 'ready' && Boolean(requirementIntake.completed_requirement?.trim())
-  const displayedCapabilityContract = requirementIntake?.capability_build_contract || capabilityBuildContract
   const createAction = createActionState(requirement, busy || requirementIntakeBusy, draftBusy, buildIntentConfirmed, t)
   const recommendedAction = recommendedCreateAction(createAction.id, t)
   const runtimeStatus = classifyRuntimeStatus(runtimeHealth, { authRequired, unavailable: runtimeUnavailable })
@@ -727,7 +720,6 @@ export default function Home() {
       return
     }
     setRequirement(completed)
-    setCapabilityBuildContract(requirementIntake?.capability_build_contract || null)
     setSelectedExampleId(null)
     setBuildIntentConfirmed(true)
     setRequirementIntake(null)
@@ -740,7 +732,6 @@ export default function Home() {
     setRequirementSelections({})
     setRequirementAnswerHistory([])
     setRequirementIntake(null)
-    setCapabilityBuildContract(null)
     setBuildIntentConfirmed(false)
     clearFeedback()
   }
@@ -756,17 +747,16 @@ export default function Home() {
     clearFeedback()
     let createdApp: Application | null = null
     try {
-      const launchContract = displayedCapabilityContract || null
       const name = deriveApplicationName(requirement)
       const app = await api<Application>('/api/v1/applications', {
         method: 'POST',
-        body: JSON.stringify({ name, description: deriveApplicationDescription(requirement, launchContract), requirement, mode: 'workflow', capability_build_contract: launchContract }),
+        body: JSON.stringify({ name, description: deriveApplicationDescription(requirement), requirement, mode: 'workflow' }),
       })
       createdApp = app
       setApps(current => [app, ...current.filter(item => item.id !== app.id)])
       setCreatedApplicationId(app.id)
       resetAppListView()
-      const build = await launchBuilder(app, requirement, launchContract)
+      const build = await launchBuilder(app, requirement)
       window.location.href = `/applications/${app.id}?build=${build.build_id}`
     } catch (cause) {
       const context = createdApp ? ` application_id=${createdApp.id}` : ''
@@ -782,9 +772,9 @@ export default function Home() {
       const name = deriveApplicationName(requirement)
       const app = await api<Application>('/api/v1/applications', {
         method: 'POST',
-        body: JSON.stringify({ name, description: deriveApplicationDescription(requirement, capabilityBuildContract), requirement, mode: 'workflow', capability_build_contract: capabilityBuildContract }),
+        body: JSON.stringify({ name, description: deriveApplicationDescription(requirement), requirement, mode: 'workflow' }),
       })
-      if (isCodexWorkspaceRequirement(requirement) && !capabilityBuildContract) {
+      if (isCodexWorkspaceRequirement(requirement)) {
         await applyCodexWorkspaceScenario(app)
       } else {
         await seedSafeDraftSkeleton(app.id, app.draft_revision, requirement)
@@ -825,7 +815,6 @@ export default function Home() {
     setRequirementSelections({})
     setRequirementAnswerHistory([])
     setRequirementIntake(null)
-    setCapabilityBuildContract(null)
     setSelectedExampleId(example.id)
     setBuildIntentConfirmed(false)
     clearFeedback()
@@ -839,7 +828,7 @@ export default function Home() {
         <h1>{t.heroTitleA}<br/><em>{t.heroTitleB}</em></h1>
         <p>{t.heroCopy}</p>
         <form className="create-card" onSubmit={create}>
-          <textarea ref={requirementInputRef} aria-label={t.requirementAria} value={requirement} onChange={event => { setRequirement(event.target.value); setRequirementIntake(null); setRequirementSelections({}); setRequirementAnswerHistory([]); setCapabilityBuildContract(null); setBuildIntentConfirmed(false) }} />
+          <textarea ref={requirementInputRef} aria-label={t.requirementAria} value={requirement} onChange={event => { setRequirement(event.target.value); setRequirementIntake(null); setRequirementSelections({}); setRequirementAnswerHistory([]); setBuildIntentConfirmed(false) }} />
           {selectedCustomerExample && <section className="selected-scenario-summary" data-selected-scenario-summary="active">
             <div><span>{t.selectedScenarioSummaryTitle} · {selectedCustomerExample.role}</span><strong>{selectedCustomerExample.title}</strong><p>{selectedCustomerExample.need}</p><small>{selectedCustomerExample.acceptanceSignal}</small></div>
             <button onClick={clearCustomerExample} type="button">{t.clearSelectedScenario}</button>
@@ -900,52 +889,12 @@ export default function Home() {
                 ? <pre>{requirementIntake.completed_requirement}</pre>
                 : <p>{requirementIntake ? t.requirementCompletionNoDraft : t.requirementCompletionStartHint}</p>}
             </div>
-            {displayedCapabilityContract && <section className="capability-build-contract" data-capability-build-contract={displayedCapabilityContract.contract_id}>
-              <header>
-                <div><strong>Capability Build Contract</strong><small>{displayedCapabilityContract.contract_id}</small></div>
-                <span>{displayedCapabilityContract.required_envelope} · {displayedCapabilityContract.risk_level} · {displayedCapabilityContract.claim_scope.ceiling}</span>
-              </header>
-              <p>{displayedCapabilityContract.target_user} · {displayedCapabilityContract.business_goal}</p>
-              <div className="capability-contract-groups">
-                {([
-                  ['F', displayedCapabilityContract.functional_capabilities],
-                  ['G', displayedCapabilityContract.runtime_guarantees],
-                  ['X', displayedCapabilityContract.external_contracts],
-                ] as const).map(([kind, items]) => <article key={kind} data-capability-kind={kind}>
-                  <b>{kind}</b>
-                  {items.map(item => <span key={item.id}><code>{item.id}</code>{item.title}<small>{item.required_envelope}{item.availability ? ` · ${item.availability}` : ''}</small></span>)}
-                </article>)}
-              </div>
-              <div className="capability-contract-ownership" data-capability-ownership="separated-harness-layers">
-                <strong>{locale === 'zh' ? '责任归属' : 'Responsibility ownership'}</strong>
-                <dl>
-                  {displayedCapabilityContract.platform_coverage.map(coverage => <div key={`${coverage.capability_id}-${coverage.owner}`} data-capability-coverage-owner={coverage.owner}>
-                    <dt><code>{coverage.capability_id}</code></dt>
-                    <dd>{coverage.owner} · {coverage.status}<small>{coverage.surface}</small></dd>
-                  </div>)}
-                </dl>
-              </div>
-              <div className="capability-contract-evidence" data-capability-evidence-plan="scoped">
-                <strong>{locale === 'zh' ? '证据目标' : 'Evidence targets'}</strong>
-                <dl>
-                  {displayedCapabilityContract.evidence_plan.map((evidence, index) => <div key={`${evidence.capability_ids.join('-')}-${index}`}>
-                    <dt>{evidence.capability_ids.join(', ')}</dt>
-                    <dd>{evidence.target_level} · {evidence.environment} · {evidence.expected_status}<small>{evidence.claim_scope}</small></dd>
-                  </div>)}
-                </dl>
-              </div>
-              <footer>
-                <span>{displayedCapabilityContract.carrier_decisions.length} carriers</span>
-                <span>{displayedCapabilityContract.unresolved_decisions.length} unresolved</span>
-                <span>{displayedCapabilityContract.claim_scope.excluded.length} excluded claims</span>
-              </footer>
-            </section>}
             <div className="requirement-completion-actions">
               <button type="button" className="secondary-action" onClick={resetRequirementCompletion} disabled={!hasRequirementSelections && !requirementIntake}>{t.requirementCompletionReset}</button>
-              <button type="button" className="secondary-action" onClick={() => void runRequirementIntake()} disabled={requirementIntakeBusy || !requirement.trim() || (requirementIntake?.status === 'needs_input' && !requirementChoicesComplete)}>
+              <button type="button" className="secondary-action" onClick={() => void runRequirementIntake()} disabled={requirementIntakeBusy || !requirement.trim()}>
                 {requirementIntakeBusy ? t.requirementCompletionBusy : requirementIntake?.status === 'needs_input' ? t.requirementCompletionContinue : t.requirementCompletionRun}
               </button>
-              <button type="button" onClick={applyRequirementCompletion} disabled={!requirementCompletionReady}>{t.requirementCompletionApply}</button>
+              <button type="button" onClick={applyRequirementCompletion} disabled={!requirementIntake?.completed_requirement?.trim()}>{t.requirementCompletionApply}</button>
             </div>
             {requirementQuestions.length > 0 && <small className="requirement-completion-count">{t.requirementCompletionQuestionCount(requirementAnsweredCount, requirementQuestions.length)}</small>}
           </section>

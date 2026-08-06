@@ -614,8 +614,7 @@ export default function CustomerRuntimePage() {
   }, [run, watchRun])
 
   const displaySnapshot = run?.state.snapshot || definition?.snapshot || null
-  const purposeDescription = displaySnapshot?.capability_build_contract?.business_goal
-    || displaySnapshot?.description
+  const purposeDescription = displaySnapshot?.description
     || application?.description
     || displaySnapshot?.requirement
   const scheduledWorkflow = Boolean(

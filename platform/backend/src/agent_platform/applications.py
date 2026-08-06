@@ -5,13 +5,6 @@ import json
 from typing import Any
 
 from .blocks import BlockRegistry
-from .capability_contracts import (
-    CapabilityBuildContract,
-    EvidenceEnvironment,
-    EvidenceLevel,
-    VerificationStatus,
-    evaluate_capability_contract,
-)
 from .models import AgentSpec
 from .workflow_models import (
     ApplicationMode,
@@ -301,15 +294,6 @@ class ApplicationService:
             if not any(test.mandatory for test in tests):
                 raise ValueError("replacement tests require at least one mandatory case")
             snapshot.tests = tests
-        elif operation == "set_capability_build_contract":
-            contract = CapabilityBuildContract.model_validate(data["contract"])
-            closure = evaluate_capability_contract(contract)
-            if not closure.valid:
-                raise ValueError(
-                    "capability build contract is invalid: "
-                    + "; ".join(closure.blocking_errors)
-                )
-            snapshot.capability_build_contract = contract
         else:
             raise ValueError(f"unsupported draft operation: {operation}")
 
@@ -486,39 +470,9 @@ class ApplicationService:
         return nodes_by_id
 
 
-    @staticmethod
-    def _evidence_level_rank(value: EvidenceLevel) -> int:
-        return list(EvidenceLevel).index(value)
 
-    @staticmethod
-    def _evidence_environment_rank(value: EvidenceEnvironment) -> int:
-        return list(EvidenceEnvironment).index(value)
 
-    @staticmethod
-    def _verification_status_rank(value: VerificationStatus) -> int:
-        ordered = [
-            VerificationStatus.design_only,
-            VerificationStatus.static_verified,
-            VerificationStatus.component_verified,
-            VerificationStatus.integration_verified,
-            VerificationStatus.live_verified,
-            VerificationStatus.production_observed,
-        ]
-        return ordered.index(value) if value in ordered else -1
 
-    @classmethod
-    def _test_meets_evidence_plan(cls, test: WorkflowTestCase, plan: Any) -> bool:
-        target = test.evidence_target
-        if target is None or test.structural_only:
-            return False
-        return (
-            cls._evidence_level_rank(target.level)
-            >= cls._evidence_level_rank(plan.target_level)
-            and cls._evidence_environment_rank(target.environment)
-            >= cls._evidence_environment_rank(plan.environment)
-            and cls._verification_status_rank(target.expected_status)
-            >= cls._verification_status_rank(plan.expected_status)
-        )
 
     @staticmethod
     def _node(snapshot: ApplicationSnapshot, node_id: str) -> NodeSpec:

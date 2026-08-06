@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from .blocks import BlockRegistry
-from .capability_contracts import EvidenceEnvironment, VerificationStatus
 from .capability_evidence import (
+    EvidenceEnvironment,
+    VerificationStatus,
     CapabilityEvidenceCreateRequest,
     EvidenceArtifact,
     ModuleCapabilityClaim,

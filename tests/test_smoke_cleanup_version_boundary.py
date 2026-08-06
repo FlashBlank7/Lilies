@@ -5,7 +5,6 @@ from typing import AsyncIterator
 from fastapi.testclient import TestClient
 
 from agent_platform.api import create_app
-from agent_platform.capability_contracts import reference_capability_contract
 from agent_platform.config import Settings
 from agent_platform.models import ChatMessage, StreamEvent, ToolDefinition
 from agent_platform.providers.base import ModelProvider, ProviderCapabilities
@@ -97,9 +96,6 @@ def test_smoke_cleanup_rejects_an_unversioned_marker(tmp_path: Path) -> None:
 
 def test_smoke_cleanup_accepts_marker_preserved_only_in_draft_contract(tmp_path: Path) -> None:
     marker = "v0.4.11-smoke"
-    contract = reference_capability_contract("codex_like_workspace_agent").model_copy(
-        update={"source_requirement": f"{marker}: temporary full customer journey"},
-    )
     with make_client(tmp_path) as client:
         response = client.post(
             "/api/v1/applications",
@@ -107,9 +103,8 @@ def test_smoke_cleanup_accepts_marker_preserved_only_in_draft_contract(tmp_path:
             json={
                 "name": "AI completed workflow plan",
                 "description": "The visible fields no longer contain the fixture marker.",
-                "requirement": "Build a bounded workspace workflow.",
+                "requirement": f"{marker}: temporary full customer journey",
                 "mode": "workflow",
-                "capability_build_contract": contract.model_dump(mode="json"),
             },
         )
         assert response.status_code == 201, response.text

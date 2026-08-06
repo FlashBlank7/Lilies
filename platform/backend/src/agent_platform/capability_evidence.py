@@ -3,18 +3,56 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import datetime, timezone
+from enum import Enum
 from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from .capability_contracts import (
-    EvidenceEnvironment,
-    EvidenceLevel,
-    ExecutionEnvelope,
-    RiskLevel,
-    VerificationStatus,
-)
+
+class ExecutionEnvelope(str, Enum):
+    E0 = "E0"
+    E1 = "E1"
+    E2 = "E2"
+    E3 = "E3"
+    E4 = "E4"
+    E5 = "E5"
+
+
+class RiskLevel(str, Enum):
+    low = "low"
+    medium = "medium"
+    high = "high"
+    critical = "critical"
+
+
+class EvidenceLevel(str, Enum):
+    H0 = "H0"
+    H1 = "H1"
+    H2 = "H2"
+    H3 = "H3"
+    H4 = "H4"
+    H5 = "H5"
+
+
+class EvidenceEnvironment(str, Enum):
+    mock = "mock"
+    contract = "contract"
+    sandbox = "sandbox"
+    live = "live"
+    production_observation = "production_observation"
+
+
+class VerificationStatus(str, Enum):
+    design_only = "design_only"
+    static_verified = "static_verified"
+    component_verified = "component_verified"
+    integration_verified = "integration_verified"
+    live_verified = "live_verified"
+    production_observed = "production_observed"
+    blocked_by_environment = "blocked_by_environment"
+    unsupported = "unsupported"
+
 
 
 ArtifactCategory = Literal[
