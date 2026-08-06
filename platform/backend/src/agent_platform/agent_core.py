@@ -9,6 +9,8 @@ from .models import ContentBlock, ModelResponse, StreamEvent, Usage
 from .providers.base import ProviderError
 
 
+from .json_repair import parse_tool_input
+
 INVALID_TOOL_INPUT_JSON_KEY = "_invalid_tool_input_json"
 
 AgentCoreEventEmitter: TypeAlias = Callable[[str, dict[str, Any]], Awaitable[None]]
@@ -205,13 +207,27 @@ async def collect_model_stream(
                 index = int(data.get("index", 0))
                 block = blocks.get(index)
                 if block and block.type == "tool_use" and input_json.get(index):
-                    try:
-                        block.input = json.loads(input_json[index])
-                    except json.JSONDecodeError as error:
-                        raw = input_json[index]
+                    raw = input_json[index]
+                    parsed, repaired = parse_tool_input(raw)
+                    if parsed is not None:
+                        block.input = parsed
+                        if repaired:
+                            await emit_event(
+                                "tool.input_json.repaired",
+                                {
+                                    "tool": block.name,
+                                    "raw_length": len(raw),
+                                },
+                            )
+                    else:
+                        try:
+                            json.loads(raw)
+                            error_text = "tool input JSON is not an object"
+                        except json.JSONDecodeError as error:
+                            error_text = str(error)
                         block.input = {
                             INVALID_TOOL_INPUT_JSON_KEY: {
-                                "error": str(error),
+                                "error": error_text,
                                 "raw_preview": raw[:2_000],
                                 "raw_length": len(raw),
                             }
@@ -220,7 +236,7 @@ async def collect_model_stream(
                             "tool.input_json.invalid",
                             {
                                 "tool": block.name,
-                                "error": str(error),
+                                "error": error_text,
                                 "raw_length": len(raw),
                                 "raw_preview": raw[:500],
                             },

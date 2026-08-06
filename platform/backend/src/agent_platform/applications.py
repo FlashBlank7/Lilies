@@ -210,6 +210,15 @@ class ApplicationService:
             snapshot.workflow.nodes.append(node)
         elif operation == "update_node":
             changes = dict(data.get("changes") or {})
+            # Models sometimes nest merge_config inside changes; the intent is
+            # unambiguous, so hoist it instead of failing NodeSpec validation.
+            misplaced_merge = changes.pop("merge_config", None)
+            if "merge_config" in data:
+                merge_config = bool(data["merge_config"])
+            elif misplaced_merge is not None:
+                merge_config = bool(misplaced_merge)
+            else:
+                merge_config = True
             node_path = self._unique_node_path(
                 snapshot.workflow,
                 str(data["node_id"]),
@@ -218,7 +227,7 @@ class ApplicationService:
                 snapshot.workflow,
                 node_path,
                 changes,
-                merge_config=bool(data.get("merge_config", True)),
+                merge_config=merge_config,
             )
         elif operation == "remove_node":
             node_id = str(data["node_id"])

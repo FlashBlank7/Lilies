@@ -1062,8 +1062,13 @@ def validate_safe_regex(pattern: str) -> None:
             index += 1
             continue
         if character == "|":
-            raise ValueError("regex alternation is not supported")
+            index += 1
+            continue
         if character == "(":
+            if pattern.startswith("(?:", index):
+                group_stack.append(index)
+                index += 3
+                continue
             if pattern.startswith("(?P<", index):
                 end = pattern.find(">", index + 4)
                 if end < 0 or not _SAFE_GROUP_NAME.fullmatch(
@@ -2028,10 +2033,18 @@ def _reject_overlapping_variable_repeats(pattern: str) -> None:
             index = end + 1
             continue
         if character == "(":
-            if pattern.startswith("(?P<", index):
+            if pattern.startswith("(?:", index):
+                index += 3
+            elif pattern.startswith("(?P<", index):
                 index = pattern.find(">", index + 4) + 1
             else:
                 index += 1
+            continue
+        if character == "|":
+            # Alternation branches are independent; a repeat chain never
+            # spans them.
+            atoms.clear()
+            index += 1
             continue
         if character in {")", "^", "$"}:
             index += 1
