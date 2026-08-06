@@ -21,7 +21,6 @@ PLATFORM_WORKER_TASK_KINDS = (
     "test_suite",
     "scheduler_trigger",
     "scheduler_manual_trigger",
-    "benchmark",
     "draft_patch_preview",
 )
 
@@ -50,11 +49,6 @@ IMPLEMENTED_WORKER_HANDLERS: dict[str, dict[str, str]] = {
         "label": "Draft patch preview",
         "implementation": "draft_patch_preview_handler",
         "evidence": "docs/stage-report-archives/v0.2.x/v0.2.120_e08_draft_patch_preview_worker_offload_handler.md",
-    },
-    "benchmark": {
-        "label": "Benchmark",
-        "implementation": "benchmark_handler",
-        "evidence": "docs/stage-report-archives/v0.2.x/v0.2.122_e08_benchmark_worker_offload_handler.md",
     },
     "builder_build": {
         "label": "Builder build",
@@ -764,68 +758,6 @@ def draft_patch_preview_handler(workflow_store: Any, draft_patcher: Any) -> Plat
     return handler
 
 
-def benchmark_handler(benchmark: Any, harness: PlatformHarness) -> PlatformTaskHandler:
-    async def handler(task: PlatformTaskRecord) -> dict[str, Any]:
-        from .builder_benchmark import (  # pylint: disable=import-outside-toplevel
-            BuilderBenchmarkCase,
-            BuilderBenchmarkSuiteCase,
-        )
-
-        case_payload = task.metadata.get("case_payload")
-        suite_payload = task.metadata.get("suite_payload")
-        if case_payload is None and isinstance(task.metadata.get("case"), dict):
-            case_payload = task.metadata.get("case")
-        if suite_payload is None and isinstance(task.metadata.get("suite"), dict):
-            suite_payload = task.metadata.get("suite")
-        if case_payload is not None and suite_payload is not None:
-            raise ValueError("benchmark task metadata requires exactly one of case_payload or suite_payload")
-        if suite_payload is not None:
-            suite = BuilderBenchmarkSuiteCase.model_validate(suite_payload)
-            await harness.record_usage(
-                task.id,
-                "node_execution",
-                amount=max(1, len(suite.cases)),
-                metadata={"operation": "builder_benchmark_suite", "case_count": len(suite.cases)},
-            )
-            report = benchmark.evaluate_suite(suite)
-            result = {
-                "mode": "suite",
-                "name": suite.name,
-                "passed": report.passed,
-                "score": report.score,
-                "pass_rate": report.pass_rate,
-                "case_count": report.case_count,
-                "failed_cases": report.failed_cases,
-                "report": report.model_dump(mode="json"),
-            }
-            if not report.passed:
-                raise PlatformWorkerHandlerFailed(
-                    f"worker benchmark suite failed: {suite.name}",
-                    result,
-                )
-            return result
-        if case_payload is not None:
-            case = BuilderBenchmarkCase.model_validate(case_payload)
-            report = benchmark.evaluate(case)
-            result = {
-                "mode": "case",
-                "name": case.name,
-                "passed": report.passed,
-                "score": report.score,
-                "missing": report.missing,
-                "report": report.model_dump(mode="json"),
-            }
-            if not report.passed:
-                raise PlatformWorkerHandlerFailed(
-                    f"worker benchmark case failed: {case.name}",
-                    result,
-                )
-            return result
-        raise ValueError("benchmark task metadata requires case_payload or suite_payload")
-
-    return handler
-
-
 def builder_build_handler(builder: Any) -> PlatformTaskHandler:
     async def handler(task: PlatformTaskRecord) -> dict[str, Any]:
         build_id = task.metadata.get("build_id") or task.resource_id or task.id
@@ -923,6 +855,7 @@ def unavailable_worker_handler(kind: str) -> PlatformTaskHandler:
     return handler
 
 
+
 def build_platform_worker_handlers(services: Any) -> dict[str, PlatformTaskHandler]:
     handlers: dict[str, PlatformTaskHandler] = {
         "workflow_run": workflow_run_handler(services.workflow_runtime),
@@ -930,7 +863,6 @@ def build_platform_worker_handlers(services: Any) -> dict[str, PlatformTaskHandl
         "scheduler_trigger": scheduler_trigger_handler(services.scheduler),
         "scheduler_manual_trigger": scheduler_manual_trigger_handler(services.scheduler),
         "draft_patch_preview": draft_patch_preview_handler(services.workflow_store, services.draft_patcher),
-        "benchmark": benchmark_handler(services.benchmark, services.harness),
         "builder_build": builder_build_handler(services.builder),
     }
     for kind in UNAVAILABLE_WORKER_HANDLERS:

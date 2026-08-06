@@ -7,8 +7,6 @@ from typing import Literal
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from .lilies_platform_contract import PLATFORM_CONTRACT_VERSION
-
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
@@ -48,10 +46,6 @@ class Settings(BaseSettings):
     event_queue_size: int = 1000
     scheduler_poll_seconds: float = 30.0
     scheduler_worker_offload_enabled: bool = False
-    adaptive_monitoring_refresh_interval_seconds: float = 0.0
-    evaluation_live_enabled: bool = False
-    evaluation_production_observation_enabled: bool = False
-    evaluation_production_observation_evidence_path: Path | None = None
     templates_dir: Path | None = None
     platform_harness_max_active_tasks: int = 100
     platform_harness_max_model_calls_per_task: int = 100
@@ -88,34 +82,6 @@ class Settings(BaseSettings):
     platform_harness_worker_process_command: list[str] = Field(default_factory=list)
     platform_harness_worker_process_cwd: Path | None = None
     platform_harness_worker_process_stop_timeout_seconds: float = 5.0
-    complexity_router_default_mode: Literal["disabled", "shadow_only", "operator_opt_in", "limited_default"] = "limited_default"
-    complexity_router_limited_default_enabled: bool = True
-    complexity_router_limited_default_min_confidence: float = 0.55
-    lilies_platform_contract_version: int = Field(
-        default=PLATFORM_CONTRACT_VERSION,
-        ge=1,
-        le=2**63 - 1,
-    )
-    # v0.4.13 rollout gates.  The local daemon route remains opt-in until its
-    # deterministic and browser evidence is complete; collaboration and the
-    # product-wide default have later, independent gates.
-    lilies_local_agent_enabled: bool = False
-    lilies_local_discovery_file: Path = Path("~/.lilies/daemon.json")
-    lilies_collaboration_enabled: bool = False
-    lilies_collaboration_developer_token: str = Field(default="", repr=False)
-    lilies_collaboration_verifier_token: str = Field(default="", repr=False)
-    lilies_formal_hidden_seed_key: str = Field(default="", repr=False)
-    lilies_formal_public_guidance_path: Path | None = None
-    lilies_developer_worker_executable: Path | None = None
-    lilies_collaborative_development_enabled: bool = False
-    lilies_collaborative_development_signing_key: str = Field(
-        default="",
-        repr=False,
-    )
-    lilies_autonomous_collaboration_enabled: bool = False
-    lilies_local_builder_default: bool = False
-    lilies_platform_base_url: str = ""
-
     def prepare(self) -> None:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.workspace_root.mkdir(parents=True, exist_ok=True)

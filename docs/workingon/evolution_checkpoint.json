@@ -1,0 +1,29 @@
+{
+  "schema_version": "1.0",
+  "generated_at": "2026-08-01T07:30:36.991317+00:00",
+  "purpose": "intermediate resume evidence only; not a next-stage task source",
+  "hook_event": "manual",
+  "campaign_objective": "Implement and verify the Product North Star through platform-generated workflows that automatically align official interfaces and augment or replace flows in real enterprise host projects and separately reported individual workflows; span data, ML/DL, RAG, prediction, optimization, document processing, artifact delivery, and continuous operation while preserving completed capability-boundary work only as enabling infrastructure.",
+  "campaign_priority_rule": "latest_user_instruction > product_north_star > report_campaign_and_intent_registry > stage_report_sequence > stage_contract > current_design > working_evidence",
+  "campaign_completion_status": "open",
+  "open_intent_ids": "PRODUCT-010, PRODUCT-011, PRODUCT-012, PRODUCT-013, PRODUCT-014, PRODUCT-015, PRODUCT-016, PRODUCT-017, SCENARIO-004, SCENARIO-005, SCENARIO-006, SCENARIO-007, SCENARIO-008, SCENARIO-009, SCENARIO-010, SCENARIO-011",
+  "stage_report": "docs/stage-reports/v0.4.13_lilies_local_agent_and_collaboration_pipeline.md",
+  "current_task_id": "V04-13-T01H",
+  "closure_verdict": "pending",
+  "contract_status": "locked",
+  "validation_status": "valid",
+  "invalid_newer_reports": "none",
+  "git": {
+    "head": "fcfe94b28b2f946d0d20c77e315f72ad85c58571",
+    "status": [
+      " M docs/stage-reports/v0.4.13_lilies_local_agent_and_collaboration_pipeline.md",
+      " M scripts/run_v04_13_enterprise_experiment.py",
+      " M tests/test_v04_13_enterprise_experiment_runner.py",
+      "?? .vscode/",
+      "?? artifacts/",
+      "?? hs_err_pid24085.log",
+      "?? scripts/dev_multi_platform_proxy.py",
+      "?? scripts/run_v04_13_portfolio_rerun.py"
+    ]
+  }
+}

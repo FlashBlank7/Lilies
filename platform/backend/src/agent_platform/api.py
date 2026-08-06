@@ -12,7 +12,7 @@ from dataclasses import asdict, dataclass
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, AsyncIterator, Literal
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, status
@@ -24,19 +24,11 @@ from . import PRODUCT_PHASE, __version__
 from .config import Settings, get_settings
 from .applications import ApplicationService
 from .agent_runtime_factory import build_agent_runtime_core
-from .adaptive_monitoring import (
-    adaptive_monitoring_refresh_loop,
-    adaptive_monitoring_schedule_status,
-    adaptive_monitoring_status_with_history,
-    record_adaptive_monitoring_refresh,
-)
 from .blocks import BlockRegistry, build_block_registry
 from .builder import WorkflowBuilder
-from .builder_benchmark import BuilderBenchmark, BuilderBenchmarkCase, BuilderBenchmarkSuiteCase
 from .capability_contracts import (
     CapabilityBuildContract,
     VerificationStatus,
-    capability_contract_routing,
     complete_capability_contract_scaffolding,
     evaluate_capability_contract,
     legacy_intake_capability_contract,
@@ -46,29 +38,6 @@ from .capability_contracts import (
 from .capability_evidence import (
     ArtifactCategory,
     CapabilityEvidenceCreateRequest,
-)
-from .complexity_router import (
-    classify_requirement,
-    complexity_router_default_safety_gate,
-    limited_default_enablement_plan_status,
-    operator_override_plan_status,
-    requirement_classification_contract_status,
-    rollout_metrics_prerequisites_status,
-    runtime_activation_for_build,
-    runtime_activation_rollout_metrics,
-    validate_operator_override,
-)
-from .collaboration_service import (
-    CollaborationConflict,
-    CollaborationPrincipal,
-    CollaborationService,
-)
-from .collaboration_storage import CollaborationStore
-from .customer_runtime_projection import (
-    project_runtime_application,
-    project_runtime_definition,
-    project_runtime_events,
-    project_runtime_run,
 )
 from .connector_sdk import (
     ConnectorAdapterError,
@@ -83,12 +52,6 @@ from .connector_sdk import (
     ConnectorTenantBinding,
 )
 from .factory import AgentFactory
-from .evaluation_harness import (
-    EvaluationApplyRequest,
-    EvaluationHarness,
-    EvaluationPlanRequest,
-    EvaluationRunRequest,
-)
 from .draft_patch_preview import (
     DraftPatchPreviewer,
     DraftPatchPreviewRequest,
@@ -101,11 +64,6 @@ from .durable_jobs import DurableJobConflict, DurableJobStore
 from .event_automation import (
     EventAutomationService,
     EventSubscriptionCreateRequest,
-)
-from .acceptance_repair import (
-    AcceptanceRepairApplyRequest,
-    AcceptanceRepairPreviewer,
-    AcceptanceRepairPreviewRequest,
 )
 from .governed_memory import (
     GovernedMemoryPermission,
@@ -126,11 +84,6 @@ from .forecast_models import (
     RollbackForecastDeploymentRequest,
     TrainForecastModelRequest,
 )
-from .governance import (
-    GovernanceService,
-    GovernanceTaskFilters,
-    ensure_platform_capability_evidence,
-)
 from .models import (
     ChatMessage,
     ContentBlock,
@@ -145,19 +98,6 @@ from .openapi_connector import (
     OpenAPIConnectorGenerationRequest,
     OpenAPIConnectorService,
 )
-from .platform_blackbox_auth import (
-    PlatformBlackboxAuthStore,
-    PlatformBlackboxNotFound,
-)
-from .platform_blackbox_artifacts import PlatformBlackboxArtifactStore
-from .local_lilies_bridge import (
-    LocalLiliesBridge,
-    LocalLiliesBridgeConflict,
-    LocalLiliesBridgeNotFound,
-    LocalLiliesBridgeStore,
-)
-from .local_lilies_client import LocalLiliesHttpClient
-from .local_lilies_discovery import discover_local_lilies
 from .knowledge_rag import (
     GroundedAnswerRequest,
     KnowledgeIndexConflict,
@@ -166,17 +106,12 @@ from .knowledge_rag import (
     KnowledgeRetrieveRequest,
     KnowledgeSyncRequest,
 )
-from .platform_contract_version import (
-    PlatformContractVersionStore,
-    platform_contract_schema_digest,
-)
 from .permissions import PermissionBroker
 from .platform_harness import PlatformHarness, PlatformHarnessViolation
 from .providers import ModelProvider
 from .runtime import AgentRuntime
 from .reference_modules import ensure_codex_reference_module
 from .sandbox import SandboxManager
-from .scenarios import ScenarioCatalog
 from .scheduler import WorkflowScheduler
 from .storage import Storage
 from .tabular_models import (
@@ -203,7 +138,6 @@ from .tools import ToolRegistry
 from .workflow_models import (
     ApplicationCreateRequest,
     ApplicationSnapshot,
-    BuildRequest,
     DraftOperation,
     ResumeRunRequest,
     ManualScheduleTriggerRequest,
@@ -485,28 +419,15 @@ class Services:
     openapi_connectors: OpenAPIConnectorService
     applications: ApplicationService
     workflow_runtime: WorkflowRuntime
-    evaluation_harness: EvaluationHarness
     builder: WorkflowBuilder
     scheduler: WorkflowScheduler
     templates: TemplateStore
-    governance: GovernanceService
-    scenarios: ScenarioCatalog
-    benchmark: BuilderBenchmark
     draft_patcher: DraftPatchPreviewer
-    acceptance_repairer: AcceptanceRepairPreviewer
     governed_memory: GovernedMemorySurface
     tabular_models: TabularModelService
     forecast_models: ForecastModelService
     knowledge_indexes: KnowledgeIndexService
     event_automation: EventAutomationService
-    platform_blackbox_auth: PlatformBlackboxAuthStore
-    platform_blackbox_artifacts: PlatformBlackboxArtifactStore
-    platform_contract_versions: PlatformContractVersionStore
-    local_lilies_bridge: LocalLiliesBridge
-    collaboration: CollaborationService
-    collaborative_development: Any
-    formal_run_archiver: Any | None
-    formal_independent_verification: Any | None
     worker_supervisor: Any | None
     worker_process_manager: Any | None
     background_tasks: set[asyncio.Task[Any]]
@@ -662,32 +583,6 @@ class PlatformPolicyControlsUpdateRequest(BaseModel):
     reason: str = Field(min_length=1, max_length=1000)
 
 
-def governance_task_filters(
-    task_id: str | None = None,
-    kind: str | None = None,
-    status: str | None = None,
-    owner_id: str | None = None,
-    application_id: str | None = None,
-    workflow_id: str | None = None,
-    model: str | None = None,
-    parent_task_id: str | None = None,
-    created_from: str | None = None,
-    created_to: str | None = None,
-    query: str = "",
-) -> GovernanceTaskFilters:
-    return GovernanceTaskFilters(
-        task_id=task_id,
-        kind=kind,
-        status=status,
-        owner_id=owner_id,
-        application_id=application_id,
-        workflow_id=workflow_id,
-        model=model,
-        parent_task_id=parent_task_id,
-        created_from=created_from,
-        created_to=created_to,
-        query=query,
-    )
 
 
 class RequirementClassificationRequest(BaseModel):
@@ -2220,46 +2115,11 @@ def _collaboration_secret_registry(
     return tuple(fields), tuple(values)
 
 
-def _validate_collaboration_role_tokens(settings: Settings) -> None:
-    if not settings.lilies_collaboration_enabled:
-        return
-    tokens = (
-        settings.api_token,
-        settings.lilies_collaboration_developer_token,
-        settings.lilies_collaboration_verifier_token,
-    )
-    if any(not token.strip() for token in tokens):
-        raise ValueError("enabled collaboration requires all three role tokens")
-    if len(set(tokens)) != len(tokens):
-        raise ValueError("collaboration role tokens must differ")
 
 
-def _validate_collaborative_development_settings(settings: Settings) -> None:
-    if not settings.lilies_collaborative_development_enabled:
-        return
-    signing_key = settings.lilies_collaborative_development_signing_key
-    if len(signing_key.encode("utf-8")) < 32:
-        raise ValueError(
-            "enabled collaborative development requires a signing key of at least 32 bytes"
-        )
-    if hmac.compare_digest(signing_key, settings.api_token):
-        raise ValueError(
-            "collaborative development signing key must differ from the user API token"
-        )
-    for label, token in (
-        ("formal developer", settings.lilies_collaboration_developer_token),
-        ("formal verifier", settings.lilies_collaboration_verifier_token),
-    ):
-        if token and hmac.compare_digest(signing_key, token):
-            raise ValueError(
-                "collaborative development signing key must differ from the "
-                f"{label} token"
-            )
 
 
 def build_services(settings: Settings, provider: ModelProvider | None = None) -> Services:
-    _validate_collaboration_role_tokens(settings)
-    _validate_collaborative_development_settings(settings)
     agent_core = build_agent_runtime_core(settings, provider)
     storage = agent_core.storage
     tools = agent_core.tools
@@ -2281,31 +2141,8 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         storage.db_path,
         harness=harness,
     )
-    platform_blackbox_auth = PlatformBlackboxAuthStore(storage.db_path)
-    platform_blackbox_artifacts = PlatformBlackboxArtifactStore(storage.db_path)
-    platform_contract_versions = PlatformContractVersionStore(storage.db_path)
     services: Services
-    local_lilies_bridge: LocalLiliesBridge
-    local_lilies_platform_base_url = (
-        settings.lilies_platform_base_url.strip() or f"http://127.0.0.1:{settings.port}"
-    )
-    local_lilies_bridge_store = LocalLiliesBridgeStore(settings.data_dir / "local-lilies-bridge.db")
 
-    async def local_lilies_contract_digest(
-        scopes: tuple[Any, ...],
-        application_ids: tuple[Any, ...],
-        allowed_actions: Any,
-    ) -> str:
-        from .local_lilies_bridge_api import (  # pylint: disable=import-outside-toplevel
-            published_platform_contract_digest,
-        )
-
-        return await published_platform_contract_digest(
-            services,
-            scopes,
-            application_ids,
-            allowed_actions,
-        )
 
     web_collector = ControlledWebCollector(jobs=durable_jobs, harness=harness)
     connectors = ConnectorService(
@@ -2355,27 +2192,12 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         )
 
     event_automation.bind_run_callback(run_event_workflow)
-    evaluation_harness = EvaluationHarness(
-        storage=storage,
-        workflow_store=workflow_store,
-        applications=applications,
-        workflow_runtime=workflow_runtime,
-        harness=harness,
-        live_enabled=settings.evaluation_live_enabled,
-        production_observation_enabled=settings.evaluation_production_observation_enabled,
-        production_observation_evidence_path=(
-            settings.evaluation_production_observation_evidence_path
-        ),
-    )
     templates = TemplateStore(
         settings.data_dir / "module_registry",
         evidence_root=_repo_root() or Path.cwd(),
         workflow_validator=blocks.validate_workflow,
     )
-    scenarios = ScenarioCatalog(blocks, connectors=connectors)
-    benchmark = BuilderBenchmark()
     draft_patcher = DraftPatchPreviewer()
-    acceptance_repairer = AcceptanceRepairPreviewer(blocks)
     templates_dir = settings.templates_dir
     if templates_dir and templates_dir.is_dir():
         loaded = templates.load_builtins(templates_dir)
@@ -2384,10 +2206,6 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
     print(
         f"[api] Reference module {reference_module.module_ref} "
         f"status={reference_module.state.status}"
-    )
-    ensure_platform_capability_evidence(
-        templates.evidence,
-        evidence_root=_repo_root() or Path.cwd(),
     )
     collaboration_secret_fields, collaboration_secret_values = _collaboration_secret_registry(
         settings
@@ -2409,291 +2227,24 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
             evidence,
         )
 
-    async def collaboration_studio_context(channel: Any) -> Any:
-        from .collaboration_studio_context import (
-            build_collaboration_studio_context,
-        )
 
-        return await build_collaboration_studio_context(
-            channel=channel,
-            bridge=local_lilies_bridge,
-            workflow_storage=workflow_store,
-        )
 
-    async def cancel_collaboration_assignment(
-        assignment_id: Any,
-        idempotency_key: str,
-        reason: str,
-    ) -> Any:
-        try:
-            row = await local_lilies_bridge.store.get_assignment(
-                assignment_id
-            )
-        except LocalLiliesBridgeNotFound:
-            try:
-                exported = await local_lilies_bridge.store.export_assignment(
-                    assignment_id
-                )
-            except LocalLiliesBridgeNotFound:
-                credentials = (
-                    await platform_blackbox_auth
-                    .list_assignment_credentials(assignment_id)
-                )
-                for credential in credentials:
-                    if credential.revoked_at is not None:
-                        continue
-                    await platform_blackbox_auth.revoke_credential(
-                        credential.credential_ref,
-                        reason=reason[:1_000],
-                    )
-                return {
-                    "assignment_id": str(assignment_id),
-                    "phase": "cancelled",
-                    "status": "cancelled",
-                    "execution_mode": "external_builder_orphan",
-                }
-            row = dict(exported["assignment"])
-            if row.get("execution_mode") != "external_builder":
-                raise LocalLiliesBridgeConflict(
-                    "collaboration assignment is not a known Builder lifecycle"
-                )
-            if str(row.get("phase")) not in {
-                "completed",
-                "cancelled",
-                "error",
-            }:
-                row = (
-                    await local_lilies_bridge.store
-                    .retire_external_builder_assignment(
-                        assignment_id,
-                        session_id=row["session_id"],
-                        application_id=row["application_id"],
-                        credential_ref=row["credential_ref"],
-                        collaboration_credential_ref=(
-                            row["collaboration_credential_ref"]
-                        ),
-                        reason=reason,
-                    )
-                    or row
-                )
-            credential_ref = str(row["credential_ref"])
-            try:
-                credential = await platform_blackbox_auth.get_credential(
-                    credential_ref
-                )
-            except PlatformBlackboxNotFound:
-                return row
-            if credential.revoked_at is None:
-                await platform_blackbox_auth.revoke_credential(
-                    credential_ref,
-                    reason=reason[:1_000],
-                )
-            return row
-        if str(row.get("phase")) in {"completed", "cancelled"}:
-            return row
-        try:
-            return await local_lilies_bridge.cancel_assignment(
-                assignment_id,
-                idempotency_key=idempotency_key,
-                reason=reason,
-            )
-        except LocalLiliesBridgeConflict:
-            current = await local_lilies_bridge.store.get_assignment(assignment_id)
-            if str(current.get("phase")) in {"completed", "cancelled"}:
-                return current
-            raise
 
-    from .collaboration_models import (
-        CollaborationChannel,
-        DeveloperWorkspaceBinding,
-        SenderRole,
-        VerificationClaimRequest,
-        VerificationResultPayload,
-    )
-    from .independent_verifier_broker import (
-        run_independent_verifier_subprocess,
-    )
-    from .task_packages import (
-        PUBLIC_BUILDER_GUIDANCE_FILE,
-        TaskPackageError,
-        TaskPackageManager,
-    )
 
-    task_packages = TaskPackageManager(settings.data_dir / "task-packages")
-    collaboration_store = CollaborationStore(
-        storage.db_path,
-        registered_secret_fields=collaboration_secret_fields,
-        registered_secret_values=collaboration_secret_values,
-    )
-    from .collaborative_development_service import (
-        CollaborativeDevelopmentService,
-    )
-    from .collaborative_development_storage import (
-        CollaborativeDevelopmentStore,
-    )
 
-    collaborative_development = CollaborativeDevelopmentService(
-        store=CollaborativeDevelopmentStore(
-            settings.data_dir / "collaborative-development.db"
-        ),
-        enabled=settings.lilies_collaborative_development_enabled,
-        autonomous_enabled=settings.lilies_autonomous_collaboration_enabled,
-    )
 
-    def frozen_verification_required(_channel: CollaborationChannel) -> bool:
-        # Collaboration channels are created only for formal assignments.
-        # Absence of a registered frozen revision is therefore a rejection,
-        # never a reason to fall back to the legacy, caller-supplied verdict.
-        return True
 
-    def resolve_frozen_claim(channel: Any, claim: Any) -> bool:
-        try:
-            manifest = task_packages.validate_claim_binding(
-                task_id=channel.task_id,
-                revision=channel.task_revision,
-                claim=claim,
-            )
-        except (TaskPackageError, ValueError):
-            return False
-        return (
-            claim.channel_id == channel.channel_id
-            and claim.assignment_id == channel.assignment_id
-            and manifest.claim_binding is not None
-            and manifest.claim_binding.assignment_id == channel.assignment_id
-        )
-
-    async def resolve_verifier_result(claim: Any, result: Any) -> bool:
-        try:
-            channel = CollaborationChannel.model_validate(
-                await collaboration_store.get_channel(claim.channel_id)
-            )
-            expected = await asyncio.to_thread(
-                run_independent_verifier_subprocess,
-                state_root=settings.data_dir / "task-packages",
-                task_id=channel.task_id,
-                revision=channel.task_revision,
-                claim=claim,
-                broker_root=settings.data_dir / "verifier-broker",
-            )
-            payload_fields = set(VerificationResultPayload.model_fields)
-            supplied = VerificationResultPayload.model_validate(
-                {
-                    key: value
-                    for key, value in result.model_dump(
-                        mode="json",
-                        exclude_none=True,
-                    ).items()
-                    if key in payload_fields
-                }
-            )
-        except Exception:
-            return False
-        return supplied == expected
 
     formal_assignment_runtime = None
     formal_developer_worker_broker = None
     formal_run_archiver = None
     formal_independent_verification = None
     formal_source_provenance = None
-    local_lilies_bridge: LocalLiliesBridge | None = None
 
-    async def resolve_developer_workspace(channel: CollaborationChannel) -> dict[str, Any]:
-        runtime = formal_assignment_runtime
-        if runtime is None:
-            raise TaskPackageError("formal developer workspace is unavailable")
-        resolved = await runtime.developer_workspace_for_channel(channel)
-        return _developer_workspace_binding(resolved).model_dump(
-            mode="json",
-            exclude_none=True,
-        )
 
-    def _developer_workspace_binding(resolved: Any) -> DeveloperWorkspaceBinding:
-        return DeveloperWorkspaceBinding.model_validate(
-            {
-                "schema_version": resolved.schema_version,
-                "task_id": resolved.task_id,
-                "task_revision": resolved.task_revision,
-                "run_id": resolved.run_id,
-                "assignment_id": str(resolved.assignment_id),
-                "path": resolved.workspace.path,
-                "manifest_digest": resolved.workspace.manifest_digest,
-                "policy_digest": resolved.workspace.policy_digest,
-                "source_manifest_digest": resolved.source_manifest_digest,
-                "baseline_commit_sha": resolved.baseline_commit_sha,
-                "baseline_tree_sha": resolved.baseline_tree_sha,
-                "branch_ref": resolved.branch_ref,
-                "allowed_new_prefixes": list(resolved.allowed_new_prefixes),
-                "allowed_new_files": list(resolved.allowed_new_files),
-            }
-        )
 
-    async def run_formal_developer_worker(
-        channel: Any,
-        report: Any,
-        lease: Any,
-        request: Any,
-    ) -> Any:
-        runtime = formal_assignment_runtime
-        broker = formal_developer_worker_broker
-        if runtime is None or broker is None:
-            raise TaskPackageError("formal developer worker is unavailable")
-        resolved = await runtime.developer_workspace_for_channel(channel)
-        binding = _developer_workspace_binding(resolved)
-        return await asyncio.to_thread(
-            broker.run,
-            channel=channel,
-            report=report,
-            lease=lease,
-            workspace=binding,
-            request=request,
-        )
 
-    async def resolve_formal_developer_worker_receipt(
-        channel: Any,
-        report: Any,
-        lease: Any,
-        response_id: UUID,
-        reference: Any,
-        require_success: bool,
-    ) -> bool:
-        runtime = formal_assignment_runtime
-        broker = formal_developer_worker_broker
-        if runtime is None or broker is None:
-            return False
-        try:
-            resolved = await runtime.developer_workspace_for_channel(channel)
-            binding = _developer_workspace_binding(resolved)
-            return await asyncio.to_thread(
-                broker.validate_receipt,
-                channel=channel,
-                report=report,
-                lease=lease,
-                workspace=binding,
-                response_id=response_id,
-                receipt_id=reference.receipt_id,
-                receipt_digest=reference.receipt_digest,
-                require_success=require_success,
-            )
-        except Exception:
-            return False
 
-    async def promote_developer_source(
-        channel: Any,
-        report: Any,
-        lease: Any,
-        request: Any,
-    ) -> Any:
-        runtime = formal_assignment_runtime
-        if runtime is None:
-            raise TaskPackageError(
-                "formal developer source promotion is unavailable"
-            )
-        return await runtime.promote_developer_workspace(
-            channel=channel,
-            report=report,
-            lease=lease,
-            request=request,
-        )
 
     async def resolve_developer_promotion(
         channel: Any,
@@ -2712,244 +2263,8 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
             commit_sha=response.commit_sha,
         )
 
-    async def prepare_formal_archive(
-        channel: CollaborationChannel,
-        request: Any,
-        actor_id: str,
-    ) -> Any:
-        bridge = local_lilies_bridge
-        archiver = formal_run_archiver
-        if bridge is None or archiver is None:
-            raise TaskPackageError("formal archive intent bridge is unavailable")
-        from .formal_run_archiver import FormalRunArchiveIntentInvalid
 
-        try:
-            return await bridge.freeze_formal_run_archive_intent(
-                channel=channel,
-                request=request,
-                actor_id=actor_id,
-            )
-        except FormalRunArchiveIntentInvalid as error:
-            raise CollaborationConflict(error.code, str(error)) from error
 
-    async def record_formal_source_response(
-        channel_id: UUID,
-        response_id: UUID,
-    ) -> None:
-        coordinator = formal_source_provenance
-        if coordinator is None:
-            raise TaskPackageError(
-                "formal developer source provenance is unavailable"
-            )
-        from .formal_source_provenance import (
-            approved_developer_response_bindings,
-        )
-
-        export = await collaboration_store.export_channel(channel_id)
-        bindings = approved_developer_response_bindings(
-            export.get("messages", []),
-            channel_id=channel_id,
-        )
-        matching = [
-            binding
-            for binding in bindings
-            if binding.response_id == response_id
-        ]
-        if not matching:
-            # Non-implemented DeveloperResponses intentionally carry no source
-            # commit and therefore create no Git provenance record.
-            return
-        if len(matching) != 1:
-            raise TaskPackageError(
-                "formal developer response has ambiguous source provenance"
-            )
-        await asyncio.to_thread(
-            coordinator.record_promoted_response,
-            assignment_id=UUID(str(export["channel"]["assignment_id"])),
-            binding=matching[0],
-        )
-
-    collaboration = CollaborationService(
-        store=collaboration_store,
-        enabled=settings.lilies_collaboration_enabled,
-        developer_token=settings.lilies_collaboration_developer_token,
-        verifier_token=settings.lilies_collaboration_verifier_token,
-        reserved_role_tokens=(settings.api_token,),
-        draft_state_provider=workflow_store.get_draft,
-        developer_commit_resolver=resolve_developer_commit,
-        developer_promotion_resolver=(
-            resolve_developer_promotion
-            if settings.lilies_local_agent_enabled
-            and settings.lilies_collaboration_enabled
-            else None
-        ),
-        developer_evidence_resolver=resolve_developer_evidence,
-        studio_context_provider=collaboration_studio_context,
-        developer_workspace_provider=(
-            resolve_developer_workspace
-            if settings.lilies_local_agent_enabled and settings.lilies_collaboration_enabled
-            else None
-        ),
-        developer_source_promotion_provider=(
-            promote_developer_source
-            if settings.lilies_local_agent_enabled
-            and settings.lilies_collaboration_enabled
-            else None
-        ),
-        developer_worker_provider=(
-            run_formal_developer_worker
-            if settings.lilies_local_agent_enabled
-            and settings.lilies_collaboration_enabled
-            else None
-        ),
-        developer_worker_receipt_resolver=(
-            resolve_formal_developer_worker_receipt
-            if settings.lilies_local_agent_enabled
-            and settings.lilies_collaboration_enabled
-            else None
-        ),
-        formal_archive_provider=(
-            prepare_formal_archive
-            if settings.lilies_local_agent_enabled and settings.lilies_collaboration_enabled
-            else None
-        ),
-        formal_source_response_recorder=(
-            record_formal_source_response
-            if settings.lilies_local_agent_enabled
-            and settings.lilies_collaboration_enabled
-            else None
-        ),
-        assignment_cancel_handler=cancel_collaboration_assignment,
-        verification_claim_resolver=resolve_frozen_claim,
-        verification_result_resolver=resolve_verifier_result,
-        require_frozen_verification_evidence=frozen_verification_required,
-    )
-    if settings.lilies_local_agent_enabled and settings.lilies_collaboration_enabled:
-        from .capability_generality_gate import CapabilityGeneralityGate
-        from .formal_assignment_runtime import PlatformFormalAssignmentRuntime
-        from .formal_source_provenance import (
-            FormalSourceProvenanceCoordinator,
-        )
-
-        formal_source_provenance = FormalSourceProvenanceCoordinator(
-            repository_root=repository_root,
-            state_root=settings.data_dir / "formal-source-provenance",
-            promotion_generality_gate=CapabilityGeneralityGate.from_repository(
-                repository_root
-            ),
-        )
-
-        formal_assignment_runtime = PlatformFormalAssignmentRuntime(
-            task_state_root=settings.data_dir / "task-packages",
-            broker_state_root=settings.data_dir / "formal-assignment-broker",
-            public_workspace_root=(settings.workspace_root / "formal-lilies-assignments"),
-            platform_base_url=local_lilies_platform_base_url,
-            contract_digest_provider=local_lilies_contract_digest,
-            harness=harness,
-            collaboration=collaboration,
-            developer_source_root=repository_root,
-            developer_workspace_root=(settings.workspace_root / "formal-developer-assignments"),
-            source_provenance=formal_source_provenance,
-            supplemental_public_materials=(
-                {
-                    PUBLIC_BUILDER_GUIDANCE_FILE: (
-                        settings.lilies_formal_public_guidance_path
-                    )
-                }
-                if settings.lilies_formal_public_guidance_path is not None
-                else None
-            ),
-        )
-
-        from .formal_developer_worker_broker import (
-            FormalDeveloperWorkerBroker,
-        )
-
-        configured_worker = settings.lilies_developer_worker_executable
-        discovered_worker = shutil.which("codex")
-        worker_executable = (
-            configured_worker
-            if configured_worker is not None
-            else Path(discovered_worker)
-            if discovered_worker is not None
-            else None
-        )
-        if worker_executable is not None:
-            explicit_runtime_roots = tuple(
-                path
-                for path in (
-                    Path("/bin/bash"),
-                    Path("/bin/cat"),
-                    Path("/bin/chmod"),
-                    Path("/bin/cp"),
-                    Path("/bin/ln"),
-                    Path("/bin/ls"),
-                    Path("/bin/mkdir"),
-                    Path("/bin/mv"),
-                    Path("/bin/pwd"),
-                    Path("/bin/rm"),
-                    Path("/bin/sh"),
-                    Path("/bin/test"),
-                    Path("/usr/bin/clang"),
-                    Path("/usr/bin/env"),
-                    Path("/usr/bin/find"),
-                    Path("/usr/bin/git"),
-                    Path("/usr/bin/grep"),
-                    Path("/usr/bin/make"),
-                    Path("/usr/bin/patch"),
-                    Path("/usr/bin/python3"),
-                    Path("/usr/bin/sed"),
-                    Path("/usr/bin/xargs"),
-                    Path(
-                        "/Library/Developer/CommandLineTools/usr/bin/git"
-                    ),
-                    Path(
-                        "/Library/Developer/CommandLineTools/usr/libexec/git-core"
-                    ),
-                )
-                if path.exists()
-            )
-            formal_developer_worker_broker = FormalDeveloperWorkerBroker(
-                state_root=settings.data_dir / "formal-developer-worker",
-                runtime_executable=worker_executable,
-                runtime_read_roots=tuple(
-                    path
-                    for path in (
-                        Path(worker_executable).resolve(strict=True).parent,
-                        Path("/private/var/select"),
-                    )
-                    if path.exists()
-                ),
-                runtime_executable_roots=explicit_runtime_roots,
-            )
-
-        from .formal_run_archiver import (
-            FormalRunArchiveCoordinator,
-            FormalRunArchivePreparationResult,
-        )
-
-        formal_run_archiver = FormalRunArchiveCoordinator(
-            task_state_root=settings.data_dir / "task-packages",
-            public_workspace_root=(settings.workspace_root / "formal-lilies-assignments"),
-            bridge_store=local_lilies_bridge_store,
-            collaboration_store=collaboration_store,
-            workflow_storage=workflow_store,
-            artifact_store=platform_blackbox_artifacts,
-            auth_store=platform_blackbox_auth,
-            connector_service=connectors,
-            source_provenance=formal_source_provenance,
-        )
-        from .formal_independent_verification import (
-            FormalIndependentVerificationService,
-        )
-
-        formal_independent_verification = FormalIndependentVerificationService(
-            collaboration=collaboration,
-            state_root=settings.data_dir / "task-packages",
-            broker_root=settings.data_dir / "verifier-broker",
-            verifier_token=settings.lilies_collaboration_verifier_token,
-            hidden_seed_key=settings.lilies_formal_hidden_seed_key,
-        )
 
     async def archive_formal_terminal(assignment_id: Any) -> Any:
         archiver = formal_run_archiver
@@ -2957,125 +2272,10 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
             return None
         return await archiver.archive_terminal_assignment(assignment_id)
 
-    async def archive_formal_success(channel_id: Any, request: Any) -> Any:
-        archiver = formal_run_archiver
-        if archiver is None:
-            raise TaskPackageError("formal run archiver is unavailable")
-        return await archiver.prepare_success_archive(
-            channel_id=channel_id,
-            request=request,
-        )
 
-    async def freeze_formal_verification_claim(
-        channel_id: Any,
-        actor_id: str,
-        request: Any,
-        archive_result: Any,
-    ) -> Any:
-        archived = FormalRunArchivePreparationResult.model_validate(archive_result)
-        resolved_channel_id = UUID(str(channel_id))
-        if (
-            archived.channel_id != resolved_channel_id
-            or archived.verification_claim.claim_id != request.claim_id
-            or archived.claim_binding.claim_id != request.claim_id
-        ):
-            raise TaskPackageError(
-                "formal archive claim changed its frozen assignment binding"
-            )
-        principal = CollaborationPrincipal(
-            role=SenderRole.lilies,
-            sender_id=actor_id,
-            scopes=frozenset({"collaboration.report:write"}),
-            channel_id=resolved_channel_id,
-            assignment_id=archived.assignment_id,
-        )
-        return await collaboration.submit_verification_claim(
-            principal=principal,
-            channel_id=resolved_channel_id,
-            request=VerificationClaimRequest(
-                idempotency_key=f"formal.claim.{request.claim_id.hex}",
-                expected_channel_revision=request.expected_channel_revision,
-                claim=archived.verification_claim,
-            ),
-        )
 
-    local_lilies_http_client = LocalLiliesHttpClient()
-    local_lilies_bridge = LocalLiliesBridge(
-        enabled=settings.lilies_local_agent_enabled,
-        store=local_lilies_bridge_store,
-        workflow_storage=workflow_store,
-        harness=harness,
-        auth_store=platform_blackbox_auth,
-        client=local_lilies_http_client,
-        platform_base_url=local_lilies_platform_base_url,
-        contract_digest_provider=local_lilies_contract_digest,
-        formal_assignment_broker=formal_assignment_runtime,
-        formal_credential_secret_provider=(
-            formal_assignment_runtime.collaboration_credential_secret
-            if formal_assignment_runtime is not None
-            else None
-        ),
-        formal_channel_close_provider=(
-            formal_assignment_runtime.close_collaboration_authority
-            if formal_assignment_runtime is not None
-            else None
-        ),
-        formal_terminal_archive_provider=(
-            archive_formal_terminal if formal_run_archiver is not None else None
-        ),
-        formal_success_archive_provider=(
-            archive_formal_success if formal_run_archiver is not None else None
-        ),
-        formal_archive_intent_validator=(
-            (
-                lambda channel_id, request: (
-                    formal_run_archiver.validate_success_archive_intent(
-                        channel_id=channel_id,
-                        request=request,
-                    )
-                )
-            )
-            if formal_run_archiver is not None
-            else None
-        ),
-        discovery_provider=lambda: discover_local_lilies(
-            settings.lilies_local_discovery_file,
-            local_lilies_http_client,
-        ),
-        formal_verification_claim_provider=(
-            freeze_formal_verification_claim
-            if formal_run_archiver is not None
-            else None
-        ),
-        default_route=settings.lilies_local_builder_default,
-    )
 
-    def invalidate_collaboration_claims_with_draft_write(
-        connection: Any,
-        application_id: str,
-        draft: dict[str, Any],
-    ) -> None:
-        if not settings.lilies_collaboration_enabled:
-            return
-        collaboration.store.invalidate_verification_claims_in_transaction(
-            connection,
-            application_id=application_id,
-            current_draft_revision=int(draft["revision"]),
-            current_content_hash=str(draft["content_hash"]),
-            reason="application draft revision or content changed",
-        )
 
-    workflow_store.on_draft_changed_in_transaction = (
-        invalidate_collaboration_claims_with_draft_write
-    )
-    governance = GovernanceService(
-        storage=storage,
-        harness=harness,
-        workflow_store=workflow_store,
-        templates=templates,
-        durable_jobs=durable_jobs,
-        connectors=connectors,
-    )
 
     builder = WorkflowBuilder(
         storage=storage,
@@ -3117,28 +2317,15 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         openapi_connectors=openapi_connectors,
         applications=applications,
         workflow_runtime=workflow_runtime,
-        evaluation_harness=evaluation_harness,
         builder=builder,
         scheduler=scheduler,
         templates=templates,
-        governance=governance,
-        scenarios=scenarios,
-        benchmark=benchmark,
         draft_patcher=draft_patcher,
-        acceptance_repairer=acceptance_repairer,
         governed_memory=governed_memory,
         tabular_models=tabular_models,
         forecast_models=forecast_models,
         knowledge_indexes=knowledge_indexes,
         event_automation=event_automation,
-        platform_blackbox_auth=platform_blackbox_auth,
-        platform_blackbox_artifacts=platform_blackbox_artifacts,
-        platform_contract_versions=platform_contract_versions,
-        local_lilies_bridge=local_lilies_bridge,
-        collaboration=collaboration,
-        collaborative_development=collaborative_development,
-        formal_run_archiver=formal_run_archiver,
-        formal_independent_verification=formal_independent_verification,
         worker_supervisor=None,
         worker_process_manager=None,
         background_tasks=set(),
@@ -3185,15 +2372,6 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         await services.knowledge_indexes.initialize()
         await services.event_automation.initialize()
         await services.workflow_store.initialize()
-        await services.platform_blackbox_auth.initialize()
-        await services.platform_blackbox_artifacts.initialize()
-        await services.platform_contract_versions.initialize()
-        await services.platform_contract_versions.observe(
-            contract_version=settings.lilies_platform_contract_version,
-            schema_digest=platform_contract_schema_digest(),
-        )
-        await services.local_lilies_bridge.initialize()
-        await services.collaboration.initialize()
         await services.collaborative_development.initialize()
         await services.durable_jobs.initialize()
         await services.connectors.initialize()
@@ -3203,51 +2381,7 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         await services.event_automation.start()
         local_lilies_recovery_task: asyncio.Task[Any] | None = None
         lifespan_ready = asyncio.Event()
-        if settings.lilies_local_agent_enabled:
-            lifespan_app.state.local_lilies_recovery = {"status": "scheduled"}
-
-            async def recover_local_lilies_after_startup() -> None:
-                try:
-                    # The daemon can immediately call the platform black-box API
-                    # while recovering an assignment.  Do not begin until the
-                    # lifespan has yielded and the ASGI server has had a turn to
-                    # publish readiness.
-                    await lifespan_ready.wait()
-                    await asyncio.sleep(0.05)
-                    recovery = await services.local_lilies_bridge.recover_pending_assignments()
-                    lifespan_app.state.local_lilies_recovery = {
-                        "status": "completed",
-                        **recovery.model_dump(mode="json"),
-                    }
-                except asyncio.CancelledError:
-                    lifespan_app.state.local_lilies_recovery = {"status": "cancelled"}
-                    raise
-                except Exception:
-                    # Recovery is deliberately total and non-blocking.  Keep the
-                    # public diagnostic free of exception text or local secrets.
-                    lifespan_app.state.local_lilies_recovery = {
-                        "status": "failed",
-                        "error": {
-                            "code": "local_lilies_recovery_failed",
-                            "message": "local Lilies startup recovery failed",
-                        },
-                    }
-
-            local_lilies_recovery_task = asyncio.create_task(
-                recover_local_lilies_after_startup(),
-                name="local-lilies-startup-recovery",
-            )
-            services.background_tasks.add(local_lilies_recovery_task)
         adaptive_refresh_task: asyncio.Task[Any] | None = None
-        if settings.adaptive_monitoring_refresh_interval_seconds > 0:
-            adaptive_refresh_task = asyncio.create_task(
-                adaptive_monitoring_refresh_loop(
-                    services.settings.data_dir,
-                    settings.adaptive_monitoring_refresh_interval_seconds,
-                ),
-                name="adaptive-monitoring-refresh-loop",
-            )
-            services.background_tasks.add(adaptive_refresh_task)
         lifespan_ready.set()
         yield
         if (
@@ -3374,99 +2508,6 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
 
-    @app.get("/api/v1/governance/overview", dependencies=[Depends(require_token)])
-    async def governance_overview(
-        filters: GovernanceTaskFilters = Depends(governance_task_filters),
-    ) -> dict[str, Any]:
-        return await services.governance.overview(filters)
-
-    @app.get("/api/v1/governance/tasks", dependencies=[Depends(require_token)])
-    async def governance_tasks(
-        offset: int = 0,
-        limit: int = 50,
-        filters: GovernanceTaskFilters = Depends(governance_task_filters),
-    ) -> dict[str, Any]:
-        page = await services.governance.tasks(filters, offset=offset, limit=limit)
-        return page.model_dump(mode="json")
-
-    @app.get("/api/v1/governance/usage", dependencies=[Depends(require_token)])
-    async def governance_usage(
-        provider: str | None = None,
-        interval: Literal["hour", "day"] = "hour",
-        limit: int = 1000,
-        filters: GovernanceTaskFilters = Depends(governance_task_filters),
-    ) -> dict[str, Any]:
-        return await services.governance.usage(
-            filters,
-            provider=provider,
-            interval=interval,
-            limit=limit,
-        )
-
-    @app.get("/api/v1/governance/reliability", dependencies=[Depends(require_token)])
-    async def governance_reliability(
-        filters: GovernanceTaskFilters = Depends(governance_task_filters),
-    ) -> dict[str, Any]:
-        return await services.governance.reliability(filters)
-
-    @app.get("/api/v1/governance/durable-jobs", dependencies=[Depends(require_token)])
-    async def governance_durable_jobs(
-        application_id: str | None = None,
-        status: str | None = None,
-        limit: int = Query(default=100, ge=1, le=200),
-        offset: int = Query(default=0, ge=0),
-    ) -> dict[str, Any]:
-        try:
-            return await services.governance.durable_job_operations(
-                application_id=application_id,
-                status=status,
-                limit=limit,
-                offset=offset,
-            )
-        except ValueError as error:
-            raise HTTPException(422, str(error)) from error
-
-    @app.get("/api/v1/governance/connectors", dependencies=[Depends(require_token)])
-    async def governance_connectors(
-        connector_id: str | None = None,
-        tenant_id: str | None = None,
-        operation_id: str | None = None,
-        execution_status: str | None = Query(default=None, alias="status"),
-        emergency_stop: bool | None = None,
-        limit: int = Query(default=100, ge=1, le=200),
-        offset: int = Query(default=0, ge=0),
-    ) -> dict[str, Any]:
-        return await services.governance.connector_operations(
-            connector_id=connector_id,
-            tenant_id=tenant_id,
-            operation_id=operation_id,
-            status=execution_status,
-            emergency_stop=emergency_stop,
-            limit=limit,
-            offset=offset,
-        )
-
-    @app.get("/api/v1/governance/traces/{task_id}", dependencies=[Depends(require_token)])
-    async def governance_trace(task_id: str) -> dict[str, Any]:
-        try:
-            return await services.governance.trace(task_id)
-        except KeyError as error:
-            raise HTTPException(404, str(error)) from error
-
-    @app.get("/api/v1/governance/policy", dependencies=[Depends(require_token)])
-    async def governance_policy() -> dict[str, Any]:
-        return await services.governance.policy()
-
-    @app.get("/api/v1/governance/capability-evidence", dependencies=[Depends(require_token)])
-    async def governance_capability_evidence() -> dict[str, Any]:
-        return await services.governance.capability_evidence()
-
-    @app.get("/api/v1/governance/alerts", dependencies=[Depends(require_token)])
-    async def governance_alerts(
-        filters: GovernanceTaskFilters = Depends(governance_task_filters),
-    ) -> dict[str, Any]:
-        return await services.governance.alerts(filters)
-
     @app.get("/api/v1/platform/harness/policy-controls", dependencies=[Depends(require_token)])
     async def get_platform_harness_policy_controls() -> dict[str, Any]:
         return services.harness.policy_controls()
@@ -3478,59 +2519,6 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         from .worker_runner import build_platform_worker_handlers, platform_worker_handler_catalog
 
         return platform_worker_handler_catalog(build_platform_worker_handlers(services))
-
-    @app.patch("/api/v1/platform/harness/policy-controls", dependencies=[Depends(require_token)])
-    async def patch_platform_harness_policy_controls(
-        body: PlatformPolicyControlsUpdateRequest,
-    ) -> dict[str, Any]:
-        patch_fields = {
-            "network_egress_policy": body.network_egress_policy,
-            "network_egress_allowlist": body.network_egress_allowlist,
-            "cancellation_policy": body.cancellation_policy,
-            "secret_policy_enabled": body.secret_policy_enabled,
-            "worker_lease_seconds": body.worker_lease_seconds,
-            "limits": body.limits,
-        }
-        if all(value is None for value in patch_fields.values()):
-            raise HTTPException(422, "policy controls update requires at least one mutable field")
-        try:
-            result = services.harness.update_policy_controls(reason=body.reason, **patch_fields)
-            await services.governance.record_policy_audit(result)
-            return result
-        except PlatformHarnessViolation as error:
-            raise HTTPException(422, str(error)) from error
-
-    @app.get(
-        "/api/v1/platform/complexity-router/default-safety", dependencies=[Depends(require_token)]
-    )
-    async def get_complexity_router_default_safety() -> dict[str, Any]:
-        return complexity_router_default_safety_gate(
-            default_enabled=(
-                services.settings.complexity_router_default_mode == "limited_default"
-                and services.settings.complexity_router_limited_default_enabled
-            )
-        )
-
-    @app.get(
-        "/api/v1/platform/complexity-router/requirement-classification",
-        dependencies=[Depends(require_token)],
-    )
-    async def get_complexity_router_requirement_classification_contract() -> dict[str, Any]:
-        return requirement_classification_contract_status()
-
-    @app.post(
-        "/api/v1/platform/complexity-router/classify-requirement",
-        dependencies=[Depends(require_token)],
-    )
-    async def post_complexity_router_classify_requirement(
-        body: RequirementClassificationRequest,
-    ) -> dict[str, Any]:
-        return classify_requirement(
-            body.requirement,
-            default_mode=services.settings.complexity_router_default_mode,
-            limited_default_enabled=services.settings.complexity_router_limited_default_enabled,
-            min_confidence=services.settings.complexity_router_limited_default_min_confidence,
-        )
 
     @app.post("/api/v1/requirements/complete", dependencies=[Depends(require_token)])
     async def post_requirement_intake_completion(
@@ -3565,50 +2553,6 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             }
             for contract in reference_capability_contracts()
         ]
-
-    @app.get(
-        "/api/v1/platform/complexity-router/default-enableable-plan",
-        dependencies=[Depends(require_token)],
-    )
-    async def get_complexity_router_default_enableable_plan() -> dict[str, Any]:
-        return limited_default_enablement_plan_status(
-            default_mode=services.settings.complexity_router_default_mode,
-            limited_default_enabled=services.settings.complexity_router_limited_default_enabled,
-            min_confidence=services.settings.complexity_router_limited_default_min_confidence,
-        )
-
-    @app.get(
-        "/api/v1/platform/complexity-router/runtime-activation-metrics",
-        dependencies=[Depends(require_token)],
-    )
-    async def get_complexity_router_runtime_activation_metrics(limit: int = 100) -> dict[str, Any]:
-        builds = await services.workflow_store.list_recent_builds(limit=max(1, min(limit, 500)))
-        return runtime_activation_rollout_metrics(builds)
-
-    @app.get(
-        "/api/v1/platform/complexity-router/operator-override-plan",
-        dependencies=[Depends(require_token)],
-    )
-    async def get_complexity_router_operator_override_plan() -> dict[str, Any]:
-        return operator_override_plan_status()
-
-    @app.post(
-        "/api/v1/platform/complexity-router/validate-operator-override",
-        dependencies=[Depends(require_token)],
-    )
-    async def post_complexity_router_validate_operator_override(
-        body: OperatorOverrideRequest,
-    ) -> dict[str, Any]:
-        return validate_operator_override(body.mode, body.reason)
-
-    @app.get(
-        "/api/v1/platform/complexity-router/rollout-metrics-prerequisites",
-        dependencies=[Depends(require_token)],
-    )
-    async def get_complexity_router_rollout_metrics_prerequisites(
-        sample_count: int = 0,
-    ) -> dict[str, Any]:
-        return rollout_metrics_prerequisites_status(sample_count)
 
     @app.post(
         "/api/v1/platform/harness/tasks/{task_id}/lease", dependencies=[Depends(require_token)]
@@ -4447,68 +3391,6 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             for task in tasks
         ]
 
-    @app.post("/api/v1/builder-benchmark/evaluate", dependencies=[Depends(require_token)])
-    async def evaluate_builder_benchmark(body: BuilderBenchmarkCase) -> dict[str, Any]:
-        task_id = str(uuid4())
-        await services.harness.start_task(
-            task_id,
-            kind="benchmark",
-            owner_id="builder-benchmark",
-            resource_id=body.name,
-            metadata={"case": body.name},
-        )
-        try:
-            report = services.benchmark.evaluate(body)
-            await services.harness.finish_task(
-                task_id,
-                status="succeeded" if report.passed else "failed",
-                metadata={"score": report.score},
-            )
-            return {"task_id": task_id, "report": report.model_dump(mode="json")}
-        except Exception as error:
-            await services.harness.finish_task(task_id, status="failed", error=str(error))
-            raise
-
-    @app.post("/api/v1/builder-benchmark/suites/evaluate", dependencies=[Depends(require_token)])
-    async def evaluate_builder_benchmark_suite(body: BuilderBenchmarkSuiteCase) -> dict[str, Any]:
-        task_id = str(uuid4())
-        await services.harness.start_task(
-            task_id,
-            kind="benchmark",
-            owner_id="builder-benchmark-suite",
-            resource_id=body.name,
-            metadata={
-                "suite": body.name,
-                "case_count": len(body.cases),
-                "minimum_score": body.minimum_score,
-                "minimum_pass_rate": body.minimum_pass_rate,
-            },
-        )
-        try:
-            await services.harness.record_usage(
-                task_id,
-                "node_execution",
-                amount=max(1, len(body.cases)),
-                metadata={
-                    "operation": "builder_benchmark_suite",
-                    "case_count": len(body.cases),
-                },
-            )
-            report = services.benchmark.evaluate_suite(body)
-            await services.harness.finish_task(
-                task_id,
-                status="succeeded" if report.passed else "failed",
-                metadata={
-                    "score": report.score,
-                    "pass_rate": report.pass_rate,
-                    "failed_cases": report.failed_cases,
-                },
-            )
-            return {"task_id": task_id, "report": report.model_dump(mode="json")}
-        except Exception as error:
-            await services.harness.finish_task(task_id, status="failed", error=str(error))
-            raise
-
     @app.post(
         "/api/v1/event-subscriptions",
         status_code=201,
@@ -5250,46 +4132,6 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             )
         return payloads
 
-    @app.get("/api/v1/templates/adaptive-monitoring", dependencies=[Depends(require_token)])
-    async def get_adaptive_template_monitoring() -> dict[str, Any]:
-        return adaptive_monitoring_status_with_history(services.settings.data_dir)
-
-    @app.post(
-        "/api/v1/templates/adaptive-monitoring/refresh", dependencies=[Depends(require_token)]
-    )
-    async def refresh_adaptive_template_monitoring() -> dict[str, Any]:
-        return record_adaptive_monitoring_refresh(services.settings.data_dir)
-
-    @app.get(
-        "/api/v1/templates/adaptive-monitoring/schedule", dependencies=[Depends(require_token)]
-    )
-    async def get_adaptive_template_monitoring_schedule() -> dict[str, Any]:
-        interval = services.settings.adaptive_monitoring_refresh_interval_seconds
-        running = any(
-            task.get_name() == "adaptive-monitoring-refresh-loop" and not task.done()
-            for task in services.background_tasks
-        )
-        return adaptive_monitoring_schedule_status(
-            services.settings.data_dir, interval, running=running
-        )
-
-    @app.post(
-        "/api/v1/templates/adaptive-monitoring/schedule/run-once",
-        dependencies=[Depends(require_token)],
-    )
-    async def run_adaptive_template_monitoring_schedule_once() -> dict[str, Any]:
-        record_adaptive_monitoring_refresh(
-            services.settings.data_dir, trigger="manual_schedule_run"
-        )
-        interval = services.settings.adaptive_monitoring_refresh_interval_seconds
-        running = any(
-            task.get_name() == "adaptive-monitoring-refresh-loop" and not task.done()
-            for task in services.background_tasks
-        )
-        return adaptive_monitoring_schedule_status(
-            services.settings.data_dir, interval, running=running
-        )
-
     @app.get("/api/v1/templates/{name}", dependencies=[Depends(require_token)])
     async def get_template(name: str, version: int | None = None) -> dict[str, Any]:
         try:
@@ -5799,17 +4641,6 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         except DurableJobConflict as error:
             raise HTTPException(409, str(error)) from error
 
-    @app.get("/api/v1/scenarios", dependencies=[Depends(require_token)])
-    async def list_scenarios() -> list[dict[str, Any]]:
-        return services.scenarios.list()
-
-    @app.get("/api/v1/scenarios/{scenario_id}", dependencies=[Depends(require_token)])
-    async def get_scenario(scenario_id: str) -> dict[str, Any]:
-        try:
-            return services.scenarios.get(scenario_id).model_dump(mode="json")
-        except KeyError as error:
-            raise HTTPException(404, str(error)) from error
-
     @app.post("/api/v1/applications", status_code=201, dependencies=[Depends(require_token)])
     async def create_application(body: ApplicationCreateRequest) -> dict[str, Any]:
         if body.capability_build_contract is not None:
@@ -5912,65 +4743,6 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             "contract": contract.model_dump(mode="json"),
             "closure": evaluate_capability_contract(contract).model_dump(mode="json"),
         }
-
-    @app.post(
-        "/api/v1/applications/{application_id}/scenarios/{scenario_id}/apply",
-        dependencies=[Depends(require_token)],
-    )
-    async def apply_scenario_to_application(
-        application_id: str,
-        scenario_id: str,
-        body: ScenarioApplyRequest,
-    ) -> dict[str, Any]:
-        try:
-            scenario = services.scenarios.get(scenario_id)
-            draft = await services.workflow_store.get_draft(application_id)
-            snapshot = draft["snapshot"]
-            if (
-                snapshot.workflow.nodes or snapshot.workflow.edges or snapshot.tests
-            ) and not body.replace_existing:
-                raise ValueError(
-                    "draft already contains workflow content; set replace_existing=true to replace it atomically"
-                )
-            result = await services.applications.apply_operations_atomically(
-                application_id,
-                expected_revision=body.expected_revision,
-                expected_content_hash=body.expected_content_hash,
-                operations=[
-                    {
-                        "op": "set_capability_build_contract",
-                        "data": {
-                            "contract": scenario.capability_build_contract.model_dump(mode="json")
-                        },
-                    },
-                    {
-                        "op": "replace_workflow",
-                        "data": {"workflow": scenario.workflow.model_dump(mode="json")},
-                    },
-                    {
-                        "op": "replace_tests",
-                        "data": {
-                            "tests": [
-                                test.model_dump(mode="json") for test in scenario.acceptance_cases
-                            ]
-                        },
-                    },
-                ],
-                idempotency_key=body.idempotency_key,
-                change_context_operation="scenario_apply",
-            )
-            validation = await services.applications.validate_draft(application_id)
-            return {
-                **result,
-                "scenario": scenario.summary(),
-                "validation": validation,
-            }
-        except RevisionConflict as error:
-            raise HTTPException(409, str(error)) from error
-        except KeyError as error:
-            raise HTTPException(404, str(error)) from error
-        except ValueError as error:
-            raise HTTPException(422, str(error)) from error
 
     @app.post("/api/v1/applications/{application_id}/draft", dependencies=[Depends(require_token)])
     async def mutate_application_draft(application_id: str, body: DraftOperation) -> dict[str, Any]:
@@ -6171,65 +4943,6 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
 
-    @app.post(
-        "/api/v1/applications/{application_id}/builds",
-        status_code=202,
-        dependencies=[Depends(require_token)],
-    )
-    async def create_build(application_id: str, body: BuildRequest) -> dict[str, Any]:
-        try:
-            await services.workflow_store.get_application(application_id)
-            draft = await services.workflow_store.get_draft(application_id)
-        except KeyError as error:
-            raise HTTPException(404, str(error)) from error
-        build_id = str(uuid4())
-        capability_contract = draft["snapshot"].capability_build_contract
-        if capability_contract is not None:
-            router_activation = capability_contract_routing(
-                capability_contract,
-                requested_planning_mode=body.planning_mode,
-            )
-            complexity_router = None
-            capability_closure = evaluate_capability_contract(capability_contract).model_dump(
-                mode="json"
-            )
-        else:
-            router_activation = runtime_activation_for_build(
-                body.requirement,
-                default_mode=services.settings.complexity_router_default_mode,
-                limited_default_enabled=services.settings.complexity_router_limited_default_enabled,
-                min_confidence=services.settings.complexity_router_limited_default_min_confidence,
-                requested_planning_mode=body.planning_mode,
-            )
-            complexity_router = router_activation
-            capability_closure = None
-        await services.workflow_store.create_build(
-            build_id,
-            application_id,
-            body.requirement,
-            body.auto_publish,
-            body.max_turns,
-            body.max_repair_cycles,
-            body.max_elapsed_seconds,
-            router_activation["effective_planning_mode"],
-            complexity_router=complexity_router,
-            runtime_builder_policy=router_activation["runtime_builder_policy"],
-            capability_build_contract=capability_contract,
-            capability_closure=capability_closure,
-            capability_routing=router_activation if capability_contract is not None else None,
-        )
-        services.builder.start(build_id)
-        return {
-            "build_id": build_id,
-            "application_id": application_id,
-            "status": "queued",
-            "max_elapsed_seconds": body.max_elapsed_seconds,
-            "deadline": deadline_summary(body.max_elapsed_seconds),
-            "complexity_router": router_activation,
-            "routing_source": router_activation.get("routing_source", "legacy_complexity_router"),
-            "capability_routing": (router_activation if capability_contract is not None else None),
-        }
-
     @app.get(
         "/api/v1/applications/{application_id}/builds",
         dependencies=[Depends(require_token)],
@@ -6286,208 +4999,6 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             )
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
-
-    @app.get("/api/v1/evaluation/profiles", dependencies=[Depends(require_token)])
-    async def list_evaluation_profiles() -> list[dict[str, Any]]:
-        return [item.model_dump(mode="json") for item in services.evaluation_harness.profiles()]
-
-    @app.get("/api/v1/evaluation/environments", dependencies=[Depends(require_token)])
-    async def list_evaluation_environments() -> list[dict[str, Any]]:
-        return [item.model_dump(mode="json") for item in services.evaluation_harness.environments()]
-
-    @app.post(
-        "/api/v1/applications/{application_id}/evaluation/plan",
-        dependencies=[Depends(require_token)],
-    )
-    async def preview_evaluation_plan(
-        application_id: str,
-        body: EvaluationPlanRequest,
-    ) -> dict[str, Any]:
-        try:
-            plan = await services.evaluation_harness.plan(application_id, body)
-            return plan.model_dump(mode="json")
-        except KeyError as error:
-            raise HTTPException(404, str(error)) from error
-
-    @app.post(
-        "/api/v1/applications/{application_id}/evaluation/tests/apply",
-        dependencies=[Depends(require_token)],
-    )
-    async def apply_evaluation_tests(
-        application_id: str,
-        body: EvaluationApplyRequest,
-    ) -> dict[str, Any]:
-        try:
-            return await services.evaluation_harness.apply_generated_tests(
-                application_id,
-                body,
-            )
-        except RevisionConflict as error:
-            raise HTTPException(409, str(error)) from error
-        except KeyError as error:
-            raise HTTPException(404, str(error)) from error
-        except ValueError as error:
-            raise HTTPException(422, str(error)) from error
-
-    @app.post(
-        "/api/v1/applications/{application_id}/evaluation/runs",
-        dependencies=[Depends(require_token)],
-    )
-    async def run_evaluation(
-        application_id: str,
-        body: EvaluationRunRequest,
-    ) -> dict[str, Any]:
-        try:
-            record = await services.evaluation_harness.run(application_id, body)
-            return record.model_dump(mode="json")
-        except RevisionConflict as error:
-            raise HTTPException(409, str(error)) from error
-        except KeyError as error:
-            raise HTTPException(404, str(error)) from error
-
-    @app.get(
-        "/api/v1/applications/{application_id}/evaluation/runs",
-        dependencies=[Depends(require_token)],
-    )
-    async def list_application_evaluation_runs(
-        application_id: str,
-        limit: int = Query(default=50, ge=1, le=500),
-    ) -> list[dict[str, Any]]:
-        try:
-            await services.workflow_store.get_application(application_id)
-            records = await services.evaluation_harness.list_runs(
-                application_id,
-                limit=limit,
-            )
-            return [item.model_dump(mode="json") for item in records]
-        except KeyError as error:
-            raise HTTPException(404, str(error)) from error
-
-    @app.get(
-        "/api/v1/evaluation/runs/{run_id}",
-        dependencies=[Depends(require_token)],
-    )
-    async def get_evaluation_run(run_id: str) -> dict[str, Any]:
-        try:
-            record = await services.evaluation_harness.get_run(run_id)
-            return record.model_dump(mode="json")
-        except KeyError as error:
-            raise HTTPException(404, str(error)) from error
-
-    @app.post(
-        "/api/v1/applications/{application_id}/tests/repair-preview",
-        dependencies=[Depends(require_token)],
-    )
-    async def preview_application_test_repair(
-        application_id: str, body: AcceptanceRepairPreviewRequest
-    ) -> dict[str, Any]:
-        task_id = str(uuid4())
-        await services.harness.start_task(
-            task_id,
-            kind="draft_patch_preview",
-            owner_id=application_id,
-            resource_id=application_id,
-            metadata={
-                "origin": "acceptance_repair",
-                "test_id": body.test_id or "",
-            },
-        )
-        try:
-            draft = await services.workflow_store.get_draft(application_id)
-            trace_excerpts: list[str] = []
-            report = body.report or {}
-            for item in report.get("tests", []) if isinstance(report.get("tests"), list) else []:
-                if not isinstance(item, dict) or item.get("passed") is not False:
-                    continue
-                run_id = str(item.get("run_id") or "")
-                if not run_id:
-                    continue
-                for event in (await services.storage.list_events(run_id))[-12:]:
-                    details = {
-                        key: event.data[key]
-                        for key in ("node_id", "status", "error", "tool")
-                        if key in event.data
-                    }
-                    trace_excerpts.append(
-                        f"{event.type}: {json.dumps(details, ensure_ascii=False, default=str)}"
-                    )
-            response = services.acceptance_repairer.preview(
-                draft["snapshot"],
-                int(draft["revision"]),
-                report,
-                content_hash=draft["content_hash"],
-                test_id=body.test_id,
-                instruction=body.instruction,
-                reference_node_ids=body.reference_node_ids,
-                trace_excerpts=trace_excerpts,
-            )
-            try:
-                workflow_edit = services.draft_patcher.preview(
-                    draft["snapshot"],
-                    int(draft["revision"]),
-                    response.instruction,
-                    response.reference_node_ids,
-                )
-                response.workflow_edit_preview = workflow_edit.model_dump(mode="json")
-                response.preview_source = "acceptance_structural+whole_workflow_context"
-                workflow_edit_intent = workflow_edit.intent
-            except (
-                Exception
-            ) as error:  # Preview failure must remain visible without mutating the draft.
-                response.workflow_edit_preview = {
-                    "supported": False,
-                    "intent": "unsupported",
-                    "message": f"whole-workflow edit preview failed: {error}",
-                    "operations": [],
-                    "warnings": [str(error)],
-                    "reference_node_ids": response.reference_node_ids,
-                }
-                response.preview_source = "acceptance_structural+whole_workflow_preview_failed"
-                response.warnings.append(f"Whole-workflow edit preview failed: {error}")
-                workflow_edit_intent = "unsupported"
-            await services.harness.finish_task(
-                task_id,
-                status="succeeded" if response.supported else "failed",
-                metadata={
-                    "origin": "acceptance_repair",
-                    "test_id": response.repair_context.test_id,
-                    "operation_count": len(response.operations),
-                    "workflow_edit_intent": workflow_edit_intent,
-                },
-                error="" if response.supported else response.message,
-            )
-            return {"task_id": task_id, **response.model_dump(mode="json")}
-        except KeyError as error:
-            await services.harness.finish_task(task_id, status="failed", error=str(error))
-            raise HTTPException(404, str(error)) from error
-
-    @app.post(
-        "/api/v1/applications/{application_id}/tests/repair-apply",
-        dependencies=[Depends(require_token)],
-    )
-    async def apply_application_test_repair(
-        application_id: str, body: AcceptanceRepairApplyRequest
-    ) -> dict[str, Any]:
-        try:
-            result = await services.applications.apply_operations_atomically(
-                application_id,
-                expected_revision=body.expected_revision,
-                expected_content_hash=body.expected_content_hash,
-                operations=body.operations,
-                idempotency_key=body.idempotency_key,
-            )
-            draft = await services.workflow_store.get_draft(application_id)
-            return {
-                **result,
-                "evidence_state": draft["evidence"]["state"],
-                "evidence": draft["evidence"],
-            }
-        except RevisionConflict as error:
-            raise HTTPException(409, str(error)) from error
-        except KeyError as error:
-            raise HTTPException(404, str(error)) from error
-        except ValueError as error:
-            raise HTTPException(422, str(error)) from error
 
     @app.get(
         "/api/v1/applications/{application_id}/versions",
@@ -6570,76 +5081,6 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
 
-    async def customer_runtime_definition(application_id: str) -> dict[str, Any]:
-        application = await services.workflow_store.get_application(application_id)
-        active_version = application.get("active_version")
-        if active_version is not None:
-            published = await services.workflow_store.get_version(
-                application_id,
-                int(active_version),
-            )
-            definition = {
-                "application_id": application_id,
-                "source": "published",
-                "version": int(published["version"]),
-                "draft_revision": None,
-                "content_hash": published["content_hash"],
-                "snapshot": published["snapshot"],
-            }
-        else:
-            draft = await services.workflow_store.get_draft(application_id)
-            definition = {
-                "application_id": application_id,
-                "source": "draft",
-                "version": None,
-                "draft_revision": int(draft["revision"]),
-                "content_hash": draft["content_hash"],
-                "snapshot": draft["snapshot"],
-            }
-        return project_runtime_definition(definition)
-
-    @app.get(
-        "/api/v1/customer-runtime/applications/{application_id}",
-        dependencies=[Depends(require_token)],
-    )
-    async def get_customer_runtime_application(application_id: str) -> dict[str, Any]:
-        """Return the complete Customer Runtime read model without engineering data."""
-
-        try:
-            application = await services.workflow_store.get_application(application_id)
-            definition = await customer_runtime_definition(application_id)
-            runs = await services.workflow_store.list_runs(application_id, limit=1)
-            latest_run = runs[0] if runs else None
-            events = (
-                await services.storage.list_events(str(latest_run["id"]))
-                if latest_run is not None
-                else []
-            )
-            return {
-                "application": project_runtime_application(application),
-                "definition": definition,
-                "latest_run": (project_runtime_run(latest_run) if latest_run is not None else None),
-                "latest_events": project_runtime_events(events),
-            }
-        except KeyError as error:
-            raise HTTPException(404, str(error)) from error
-
-    @app.get(
-        "/api/v1/customer-runtime/runs/{run_id}",
-        dependencies=[Depends(require_token)],
-    )
-    async def get_customer_runtime_run(run_id: str) -> dict[str, Any]:
-        """Return a run projection that cannot expose raw model or developer events."""
-
-        try:
-            run = await services.workflow_store.get_run(run_id)
-            events = await services.storage.list_events(run_id)
-            return {
-                "run": project_runtime_run(run),
-                "events": project_runtime_events(events),
-            }
-        except KeyError as error:
-            raise HTTPException(404, str(error)) from error
 
     @app.get(
         "/api/v1/applications/{application_id}/runs",
@@ -7017,74 +5458,19 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
     async def debug_page() -> str:
         return DEBUG_HTML
 
-    from .lilies_platform_api import (  # pylint: disable=import-outside-toplevel
-        install_lilies_platform_api,
-    )
 
-    install_lilies_platform_api(app, services)
 
-    from .local_lilies_bridge_api import (  # pylint: disable=import-outside-toplevel
-        install_local_lilies_bridge_api,
-    )
 
-    install_local_lilies_bridge_api(
-        app,
-        services.local_lilies_bridge,
-        require_token=require_local_lilies_token,
-        formal_verification_provider=(
-            services.formal_independent_verification.verify_assignment
-            if services.formal_independent_verification is not None
-            else None
-        ),
-    )
 
-    from .collaboration_api import (  # pylint: disable=import-outside-toplevel
-        install_collaboration_api,
-    )
 
-    install_collaboration_api(
-        app,
-        services.collaboration,
-        require_user_token=require_local_lilies_token,
-    )
 
-    from .formal_authority_continuation_api import (
-        install_formal_authority_continuation_api,
-    )
 
-    install_formal_authority_continuation_api(
-        app,
-        services,
-        require_user_token=require_local_lilies_token,
-        handoff_root=settings.data_dir.parent / "formal-authority-rotations",
-        token_derivation_key=(
-            settings.platform_harness_secret_envelope_key
-            or settings.api_token
-        ),
-    )
 
-    from .collaborative_development_api import (
-        install_collaborative_development_api,
-    )
-    from .collaborative_development_auth import (
-        DevelopmentCredentialIssuer,
-    )
 
-    development_signing_key = (
-        settings.lilies_collaborative_development_signing_key
-        or "disabled-collaborative-development-signing-key-v1"
-    )
 
     def validate_collaborative_development_user_token(supplied: str) -> bool:
         return hmac.compare_digest(supplied, settings.api_token)
 
-    install_collaborative_development_api(
-        app,
-        services.collaborative_development,
-        credential_issuer=DevelopmentCredentialIssuer(development_signing_key),
-        user_token_validator=validate_collaborative_development_user_token,
-        include_in_schema=False,
-    )
 
     return app
 
