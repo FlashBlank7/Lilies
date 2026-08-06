@@ -2241,10 +2241,12 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
                   {transcript.summary.last_stop_reason && <span>{locale === 'zh' ? '停止原因' : 'Stop'} <b>{transcript.summary.last_stop_reason}</b></span>}
                 </div>
                 {transcriptOpen && <ol className="builder-transcript-turns">
-                  {transcript.records.map(record => <li key={`${record.actor}-${record.turn}`} data-transcript-turn={record.turn}>
+                  {transcript.records.map((record, recordIndex) => <li key={recordIndex} data-transcript-turn={record.turn}>
                     <div className="builder-transcript-turn-head">
-                      <b>{locale === 'zh' ? `第 ${record.turn} 轮` : `Turn ${record.turn}`}</b>
-                      <span>{record.actor}</span>
+                      <b>{record.kind === 'owner'
+                        ? locale === 'zh' ? '你' : 'Owner'
+                        : locale === 'zh' ? `第 ${record.turn} 轮` : `Turn ${record.turn}`}</b>
+                      {record.kind !== 'owner' && <span>{record.actor}</span>}
                       <small>r{record.draft_revision}</small>
                     </div>
                     {record.thinking && <details className="builder-transcript-thinking">

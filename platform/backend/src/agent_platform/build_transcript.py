@@ -158,6 +158,27 @@ def turn_record(
     }
 
 
+def owner_record(*, text: str, draft_revision: int) -> dict[str, Any]:
+    """Record one owner (human) message so the transcript shows both sides.
+
+    ``turn`` is fixed at 1 so the default ``after_turn=0`` read filter keeps it;
+    chronology comes from append order, and renderers key on ``kind``/``actor``.
+    """
+
+    return {
+        "kind": "owner",
+        "turn": 1,
+        "actor": "owner",
+        "model": "",
+        "thinking": "",
+        "text": redact(text),
+        "tool_calls": [],
+        "stop_reason": None,
+        "usage": {},
+        "draft_revision": draft_revision,
+    }
+
+
 def tool_call_record(
     *,
     name: str,

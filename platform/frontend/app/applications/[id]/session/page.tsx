@@ -15,7 +15,7 @@ type Build = {
   id: string
   status: string
   error?: string | null
-  team_state: { revision: number; tasks: unknown[] }
+  team_state: { revision: number; tasks: unknown[]; pending_question?: string | null }
 }
 
 type Application = { id: string; name: string; requirement: string }
@@ -91,11 +91,18 @@ export default function Session({ params }: { params: Promise<{ id: string }> })
 
   async function send() {
     const text = message.trim()
-    if (sending || building) return
+    if (sending) return
+    if (building && !text) return
     setSending(true)
     setNotice('')
     try {
-      if (build) {
+      if (build && building) {
+        await api(`/api/v1/builds/${build.id}/messages`, {
+          method: 'POST',
+          body: JSON.stringify({ message: text }),
+        })
+        setNotice('已送达，莉莉丝下一轮开工前会读到。')
+      } else if (build) {
         await api(`/api/v1/builds/${build.id}/resume`, {
           method: 'POST',
           body: JSON.stringify({ message: text }),
@@ -159,7 +166,12 @@ export default function Session({ params }: { params: Promise<{ id: string }> })
     return merged
   }, [latestRun, draft])
 
-  const statusLabel = build ? STATUS_LABEL[build.status] || build.status : '未开始'
+  const pendingQuestion = build?.status === 'needs_attention'
+    ? build.team_state.pending_question || ''
+    : ''
+  const statusLabel = pendingQuestion
+    ? '等你回复'
+    : build ? STATUS_LABEL[build.status] || build.status : '未开始'
 
   return <main className={styles.shell}>
     <header className={styles.topbar}>
@@ -189,7 +201,11 @@ export default function Session({ params }: { params: Promise<{ id: string }> })
           {!transcript?.summary.available && <div className={styles.empty}>
             <p>发一句话，莉莉丝就开始搭建；她的每一轮思考、每次工具调用都会出现在这里。</p>
           </div>}
-          {transcript?.records.map(record => <article className={styles.turn} key={`${record.actor}-${record.turn}`}>
+          {transcript?.records.map((record, index) => record.kind === 'owner'
+            ? <article className={styles.ownerTurn} key={index}>
+                <div className={styles.ownerBubble}>{record.text}</div>
+              </article>
+            : <article className={styles.turn} key={index}>
             <div className={styles.turnHead}>
               <b>第 {record.turn} 轮</b>
               <span>{record.actor}</span>
@@ -214,6 +230,10 @@ export default function Session({ params }: { params: Promise<{ id: string }> })
               </div>
             </details>)}
           </article>)}
+          {pendingQuestion && <div className={styles.question}>
+            <b>莉莉丝在等你回复</b>
+            <p>{pendingQuestion}</p>
+          </div>}
           {building && <div className={styles.working}><span/>莉莉丝正在搭建…</div>}
         </div>
         <div className={styles.composer}>
@@ -221,19 +241,20 @@ export default function Session({ params }: { params: Promise<{ id: string }> })
           <div className={styles.composerRow}>
             <textarea
               placeholder={building
-                ? '莉莉丝搭建中，完成后可以继续对话…'
-                : build
-                  ? '想调整什么？直接说，莉莉丝会在当前工作流上继续。'
-                  : '直接开始搭建，或补充一句要求再开始。'}
+                ? '她正在搭建。想调整就直接说，下一轮开工前她会读到。'
+                : pendingQuestion
+                  ? '回答她的问题，构建会继续。'
+                  : build
+                    ? '想调整什么？直接说，莉莉丝会在当前工作流上继续。'
+                    : '直接开始搭建，或补充一句要求再开始。'}
               value={message}
-              disabled={building}
               onChange={event => setMessage(event.target.value)}
               onKeyDown={event => {
                 if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) void send()
               }}
             />
-            <button disabled={building || sending} onClick={() => void send()} type="button">
-              {sending ? '发送中…' : build ? '继续搭建' : '开始搭建'}
+            <button disabled={sending || (building && !message.trim())} onClick={() => void send()} type="button">
+              {sending ? '发送中…' : building ? '插话' : build ? '继续搭建' : '开始搭建'}
             </button>
           </div>
         </div>

@@ -482,3 +482,5 @@ class BuildTeamState(BaseModel):
     repair_cycles: int = 0
     last_failed_test_revision: int | None = None
     planning_mode: Literal["auto", "required", "disabled"] = "auto"
+    # Set by the ask_owner tool: the build pauses until the owner replies via resume.
+    pending_question: str | None = None

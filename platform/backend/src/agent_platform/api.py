@@ -25,7 +25,7 @@ from .config import Settings, get_settings
 from .applications import ApplicationService
 from .agent_runtime_factory import build_agent_runtime_core
 from .blocks import BlockRegistry, build_block_registry
-from .build_transcript import BuildTranscriptStore
+from .build_transcript import BuildTranscriptStore, owner_record
 from .builder import WorkflowBuilder
 from .capability_evidence import (
     ArtifactCategory,
@@ -364,6 +364,10 @@ class Services:
 
 class ResumeBuildRequest(BaseModel):
     message: str = Field(default="", max_length=8_000)
+
+
+class BuildMessageRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=8_000)
 
 
 class PlatformTaskLeaseRequest(BaseModel):
@@ -4246,6 +4250,11 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             body.max_elapsed_seconds,
             body.planning_mode,
         )
+        await asyncio.to_thread(
+            services.build_transcripts.append,
+            build_id,
+            owner_record(text=body.requirement, draft_revision=0),
+        )
         services.builder.start(build_id)
         return {
             "build_id": build_id,
@@ -4292,6 +4301,27 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         summary = await asyncio.to_thread(services.build_transcripts.summary, build_id)
         return {"build_id": build_id, "summary": summary, "records": records}
 
+    @app.post("/api/v1/builds/{build_id}/messages", dependencies=[Depends(require_token)])
+    async def post_build_message(build_id: str, body: BuildMessageRequest) -> dict[str, Any]:
+        """Deliver an owner note into a running build; the Builder reads it at its next turn."""
+
+        try:
+            build = await services.workflow_store.get_build(build_id)
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+        if build["status"] not in {"queued", "building"}:
+            raise HTTPException(409, f"build is {build['status']} — use /resume to continue it")
+        try:
+            services.builder.post_live_message(build_id, body.message)
+        except RuntimeError as error:
+            raise HTTPException(409, str(error)) from error
+        await asyncio.to_thread(
+            services.build_transcripts.append,
+            build_id,
+            owner_record(text=body.message, draft_revision=build["team_state"].revision),
+        )
+        return {"build_id": build_id, "status": build["status"], "delivered": True}
+
     @app.post("/api/v1/builds/{build_id}/resume", dependencies=[Depends(require_token)])
     async def resume_build(build_id: str, body: ResumeBuildRequest | None = None) -> dict[str, Any]:
         try:
@@ -4300,6 +4330,11 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
                 raise HTTPException(409, f"build cannot resume from {build['status']}")
             if body and body.message:
                 services.builder.queue_resume_message(build_id, body.message)
+                await asyncio.to_thread(
+                    services.build_transcripts.append,
+                    build_id,
+                    owner_record(text=body.message, draft_revision=build["team_state"].revision),
+                )
             await services.workflow_store.update_build(build_id, status="queued", error="")
             services.builder.start(build_id)
             return {"build_id": build_id, "status": "queued"}

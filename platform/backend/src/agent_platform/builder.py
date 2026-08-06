@@ -61,6 +61,15 @@ Core rules:
 - The complete block catalog (one line per block) is already in the build request. Inspect the draft, then go
   straight to catalog_get/manual_get for the few blocks you will actually use — broad catalog_search sweeps
   waste turns you need for building.
+- You build for a human owner who often cannot state everything upfront. When information you genuinely need
+  is missing and cannot be responsibly inferred (target output fields, matching tolerances, external system
+  access, sample data), call ask_owner ONCE with a single batched, concrete list of questions instead of
+  guessing. Never ask about details you can decide yourself; at most two ask_owner pauses per build.
+- The owner may send new instructions at any moment; they arrive as user messages marked as owner
+  instructions. Fold them in immediately as top priority — they override your earlier assumptions.
+- End every build with a delivery note written in the owner's language (中文需求 → 中文说明): what the
+  workflow does, what inputs it needs, what it outputs, key assumptions, and what it explicitly cannot do
+  (for example no real email/ERP connection — placeholder steps). Make it the final text of your last turn.
 - When the requirement fixes named output fields, terminate with an end node exposing exactly those fields;
   use answer only for conversational replies with no declared output schema.
 - Prefer one structured Model Turn shared by related steps instead of a serial LLM call per step. Split model
@@ -82,9 +91,7 @@ Core rules:
   The build plan should name modules, expected blocks, reuse_depth, complexity, risks, and how each module
   will be tested. Keep the plan updated as modules are built and tested.
 - **Before building a workflow from scratch**, call template_suggestions with the requirement text and intended
-  reuse_depth. A name, keyword score, usage count, or confidence value is not implementation evidence. When a
-  Capability Build Contract exists, only a suggestion with eligible_for_reuse=true may satisfy a reusable-module
-  carrier. Preserve its exact module:<id>@<version> reference in the BuildPlan and carrier binding.
+  reuse_depth. A name, keyword score, usage count, or confidence value is not implementation evidence.
 - Unless the requirement or an experiment explicitly asks for a fixed reuse depth, prefer
   template_suggestions with reuse_depth="adaptive" as the default suggestion mode.
   If it returns effective_reuse_depth and policy_reason, update the BuildPlan to that concrete depth
@@ -144,8 +151,7 @@ Core rules:
   reference so a skipped branch resolves to null instead of failing.
 - A valid graph has exactly one start, at least one end/answer, no implicit cycles, and no unreachable nodes.
 - Add mandatory tests that demonstrate the user's actual acceptance criteria. Run them with test_run.
-- Close and validate every required Capability Build Contract carrier before test_run. Acceptance is the final
-  executable proof, not a checkpoint followed by contract mutations.
+  Acceptance is the final executable proof, not a checkpoint followed by later mutations.
 - Each test should include a readable frame with category, purpose, reviewer_guidance, reference, and failure_target.
   The frame should explain where the test sits in the acceptance framework, for example outline adherence,
   tool evidence, safety, or human review.
@@ -159,8 +165,8 @@ Core rules:
   changing the test. Once acceptance is first executed, its assertion semantics are frozen: do not remove,
   replace, or weaken assertions merely to make the build green.
 - Once test_run passes all mandatory tests, the delivery is frozen. Do not inspect more catalogs, change nodes,
-  edges, agents, templates, or tests, or delegate more work. Finish task and plan bookkeeping, close the Capability
-  Build Contract before testing; after a passing test the platform auto-publishes when auto_publish is enabled.
+  edges, agents, templates, or tests, or delegate more work. Finish task and plan bookkeeping; after a passing
+  test the platform auto-publishes when auto_publish is enabled, then write your delivery note.
 - Treat draft_validate warnings about disconnected inputs as issues to repair before publishing.
 - Publish only after draft_validate and all mandatory tests pass for the exact current content hash.
 - Do not claim completion before draft_publish returns a version (unless auto-publish is disabled).
@@ -289,6 +295,10 @@ class WorkflowBuilder:
         self.active: dict[str, asyncio.Task[Any]] = {}
         self._trackers: dict[str, DecisionTracker] = {}  # build_id → tracker
         self._resume_messages: dict[str, str] = {}  # build_id → pending user note
+        # build_id → owner notes sent while the build is running; drained at the
+        # next coordinator turn. In-process only: builds started by this API
+        # process run in this process (worker claiming is opt-in via /workers).
+        self._live_messages: dict[str, list[str]] = {}
 
     def queue_resume_message(self, build_id: str, message: str) -> None:
         """Attach a user instruction that the resumed loop will read first."""
@@ -296,6 +306,17 @@ class WorkflowBuilder:
         text = message.strip()
         if text:
             self._resume_messages[build_id] = text[:8_000]
+
+    def post_live_message(self, build_id: str, message: str) -> None:
+        """Deliver an owner note into a running build's next coordinator turn."""
+
+        text = message.strip()
+        if not text:
+            return
+        inbox = self._live_messages.setdefault(build_id, [])
+        if len(inbox) >= 20:
+            raise RuntimeError("live message inbox is full — wait for the Builder to catch up")
+        inbox.append(text[:8_000])
 
     def start(self, build_id: str) -> None:
         if build_id in self.active and not self.active[build_id].done():
@@ -355,16 +376,31 @@ class WorkflowBuilder:
             })
         contract_context = ""
         resume_note = self._resume_messages.pop(build_id, None)
+        answered_question = None
+        if resume_note and state.pending_question:
+            answered_question = state.pending_question
+        if resume_note:
+            state.pending_question = None
         if state.coordinator_messages:
             messages = [ChatMessage.model_validate(item) for item in state.coordinator_messages]
+            if answered_question:
+                priority_frame = (
+                    "You paused this build to ask the owner:\n\n"
+                    f"{answered_question}\n\n"
+                    f"The owner replied:\n\n{resume_note}\n\n"
+                    "Treat the reply as the top priority for this continuation.\n\n"
+                )
+            elif resume_note:
+                priority_frame = (
+                    "The owner sent this instruction — treat it as the top priority for this "
+                    f"continuation:\n\n{resume_note}\n\n"
+                )
+            else:
+                priority_frame = ""
             messages.append(ChatMessage(role="user", content=[ContentBlock(
                 type="text",
                 text=(
-                    (
-                        "The owner sent this instruction — treat it as the top priority for this "
-                        f"continuation:\n\n{resume_note}\n\n"
-                        if resume_note else ""
-                    )
+                    priority_frame
                     + "Resume the same build from its persisted draft and team state. Inspect current status, "
                     "resolve remaining failures, and complete the original acceptance criteria."
                     + contract_context
@@ -412,6 +448,24 @@ class WorkflowBuilder:
             else:
                 await agent_loop
             self._trackers[build_id] = tracker
+            if state.pending_question:
+                # The Builder paused to ask the owner. Skip validation/publish —
+                # the draft is intentionally unfinished until the owner replies,
+                # and the harness task pauses so resume can revive it.
+                if manage_harness_task:
+                    await self.harness.finish_task(build_id, status="paused")
+                await self._emit(build_id, "build.waiting_owner", {
+                    "question": state.pending_question,
+                })
+                await self.workflow_store.update_build(
+                    build_id, status="needs_attention", team_state=state, error=""
+                )
+                return {
+                    "build_id": build_id,
+                    "application_id": build["application_id"],
+                    "status": "needs_attention",
+                    "pending_question": state.pending_question,
+                }
             if state.published_version is not None:
                 status = "published"
             else:
@@ -702,6 +756,17 @@ class WorkflowBuilder:
         seen_progress_evidence: set[str] = set()
         for turn in range(1, max_turns + 1):
             teammate_stop_reason: str | None = None
+            if teammate is None:
+                live_notes = self._live_messages.pop(build_id, None)
+                if live_notes:
+                    messages.append(ChatMessage(role="user", content=[ContentBlock(
+                        type="text",
+                        text=(
+                            "The owner sent new instructions while you were building — fold them "
+                            "into the current plan as top priority before continuing:\n\n"
+                            + "\n\n".join(live_notes)
+                        ),
+                    )]))
             await self.harness.record_usage(
                 build_id,
                 "model_call",
@@ -845,6 +910,9 @@ class WorkflowBuilder:
                 ]
             self._record_turn(build_id, turn, teammate, response, turn_tool_records, state)
             await self.workflow_store.update_build(build_id, team_state=state)
+            if teammate is None and state.pending_question:
+                final = state.pending_question
+                break
             next_fingerprint = self._durable_progress_fingerprint(state)
             durable_progress = next_fingerprint != progress_fingerprint
             if durable_progress:
@@ -922,6 +990,18 @@ class WorkflowBuilder:
     ) -> Any:
         if state.planning_mode == "disabled" and tool == "build_plan":
             raise RuntimeError("build_plan is disabled for this build planning_mode")
+        if tool == "ask_owner":
+            question = str(data.get("question", "")).strip()
+            if not question:
+                raise RuntimeError("ask_owner requires a non-empty question")
+            state.pending_question = question[:4_000]
+            return {
+                "status": "question_delivered",
+                "note": (
+                    "The build pauses after this turn so the owner can reply. "
+                    "End your turn now with a short status message; do not call more tools."
+                ),
+            }
         if tool == "catalog_search":
             query = str(data.get("query", "")).casefold()
             normalized_query = " ".join(query.split())
@@ -1463,7 +1543,7 @@ class WorkflowBuilder:
             ToolDefinition(name="manual_search", description="Search block manuals before selecting agent architecture bricks.", input_schema={"type": "object", "properties": {"query": {"type": "string"}, "block_kind": {"enum": ["business_workflow", "agent_architecture", "legacy_compatibility"]}}}),
             ToolDefinition(name="manual_get", description="Read one block manual, including when to use it, examples, anti-patterns, and Claude architecture mapping.", input_schema={"type": "object", "properties": {"type": {"type": "string"}}, "required": ["type"]}),
             ToolDefinition(name="architecture_blueprint", description="Read the Claude-like runtime blueprint made from explicit composable bricks.", input_schema={"type": "object", "properties": {}}),
-            ToolDefinition(name="template_suggestions", description="Search reusable modules and legacy templates. With a Capability Build Contract, only eligible_for_reuse=true is verified carrier evidence.", input_schema={"type": "object", "properties": {"requirement": {"type": "string", "description": "Natural language requirement to match against templates"}, "reuse_depth": {"enum": ["none", "shallow", "deep", "adaptive"], "description": "How aggressively to reuse templates."}}, "required": ["requirement"]}),
+            ToolDefinition(name="template_suggestions", description="Search reusable modules and legacy templates before building from scratch.", input_schema={"type": "object", "properties": {"requirement": {"type": "string", "description": "Natural language requirement to match against templates"}, "reuse_depth": {"enum": ["none", "shallow", "deep", "adaptive"], "description": "How aggressively to reuse templates."}}, "required": ["requirement"]}),
             ToolDefinition(name="template_list", description="List exact module versions, verification state, capability coverage, and legacy templates.", input_schema={"type": "object", "properties": {}}),
             ToolDefinition(name="template_expand", description="Expand one exact reusable-module version or legacy template into the editable draft.", input_schema={"type": "object", "properties": {"name": {"type": "string"}, "version": {"type": "integer", "minimum": 1}, "prefix": {"type": "string"}, "position": {"type": "object", "additionalProperties": True}}, "required": ["name"]}),
             ToolDefinition(name="draft_inspect", description="Inspect the current shared draft and revision.", input_schema={"type": "object", "properties": {}}),
@@ -1488,6 +1568,7 @@ class WorkflowBuilder:
             definitions.extend([
                 ToolDefinition(name="spawn_teammate", description="Create an isolated persistent teammate for a bounded task.", input_schema={"type": "object", "properties": {"name": {"type": "string"}, "task": {"type": "string"}, "max_turns": {"type": "integer"}}, "required": ["name", "task"]}),
                 ToolDefinition(name="send_message", description="Wake an existing teammate with a follow-up message while retaining its context.", input_schema={"type": "object", "properties": {"name": {"type": "string"}, "message": {"type": "string"}, "max_turns": {"type": "integer"}}, "required": ["name", "message"]}),
+                ToolDefinition(name="ask_owner", description="Pause the build and ask the owner one batched set of blocking questions. Use only when required information cannot be responsibly inferred; the build stops until the owner replies.", input_schema={"type": "object", "properties": {"question": {"type": "string"}}, "required": ["question"]}),
             ])
         return definitions
 

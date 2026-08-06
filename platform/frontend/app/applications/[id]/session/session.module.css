@@ -33,6 +33,11 @@
 .tool div{margin-top:6px}
 .tool small{color:#68717f;font-size:10.5px}
 .tool pre{margin:3px 0 8px;padding:8px 10px;background:#f2f4f7;border-radius:8px;font-size:11px;line-height:1.55;white-space:pre-wrap;word-break:break-word;max-height:200px;overflow:auto}
+.ownerTurn{display:flex;justify-content:flex-end}
+.ownerBubble{max-width:82%;background:#0e7a5f;color:#fff;border-radius:14px 14px 4px 14px;padding:9px 13px;font-size:13px;line-height:1.65;white-space:pre-wrap;word-break:break-word;max-height:240px;overflow-y:auto}
+.question{border:1px solid #f2c76b;background:#fffaeb;border-radius:12px;padding:11px 13px}
+.question b{display:block;font-size:12px;color:#b54708;margin-bottom:5px}
+.question p{margin:0;font-size:13px;line-height:1.65;white-space:pre-wrap}
 .working{display:flex;align-items:center;gap:9px;color:#b54708;font-size:12.5px;padding:4px 2px}
 .working span{width:8px;height:8px;border-radius:50%;background:#f79009;animation:pulse 1.2s ease-in-out infinite}
 @keyframes pulse{0%,100%{opacity:.35}50%{opacity:1}}
