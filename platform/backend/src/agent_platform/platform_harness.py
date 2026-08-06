@@ -626,7 +626,7 @@ class PlatformHarness:
                 leased_workers[task.worker_id] = leased_workers.get(task.worker_id, 0) + 1
         return {
             "version": "v0.2.128",
-            "source": "docs/stage-report-archives/v0.2.x/v0.2.127_e08_remaining_sidecar_architecture_reselection.md",
+            "source": "docs/archive/stage-report-archives/v0.2.x/v0.2.127_e08_remaining_sidecar_architecture_reselection.md",
             "queue_mode": "storage_backed_claim_next_with_requeue",
             "claim_next_atomic": True,
             "expired_lease_requeue": True,
@@ -1657,8 +1657,8 @@ class PlatformHarness:
         }
         return {
             "current_slice": "e08_policy_controls_surface",
-            "source": "docs/experiment-status/ledgers/E08_harness_sidecar_passmode.md",
-            "comparison_evidence": "docs/experiment-status/evidence/experiment_v0.2.55_e08_sidecar_passmode_2026_07_10_summary.md",
+            "source": "docs/archive/experiment-status/ledgers/E08_harness_sidecar_passmode.md",
+            "comparison_evidence": "docs/archive/experiment-status/evidence/experiment_v0.2.55_e08_sidecar_passmode_2026_07_10_summary.md",
             "soft_passmode": {
                 "layer": "workflow_internal",
                 "enforcement": "soft_configurable",
@@ -1733,7 +1733,7 @@ class PlatformHarness:
                 "enforcement": "soft_configurable",
                 "status": "available",
                 "signal": "permission_gate modes can pause or pass by workflow configuration",
-                "source": "docs/experiment-status/ledgers/E08_harness_sidecar_passmode.md",
+                "source": "docs/archive/experiment-status/ledgers/E08_harness_sidecar_passmode.md",
             },
             {
                 "id": "cancellation_checkpoint",

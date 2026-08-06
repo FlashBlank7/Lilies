@@ -92,14 +92,14 @@ def frontend_ai_intake_markers() -> dict[str, Any]:
 
 
 def corrected_v0356_boundary_markers() -> dict[str, Any]:
-    report_text = read_text("docs/stage-report-archives/v0.3.x/v0.3.56_legacy_canvas_requirement_completion.md")
+    report_text = read_text("docs/archive/stage-report-archives/v0.3.x/v0.3.56_legacy_canvas_requirement_completion.md")
     cases = {
         "v0356_report_kept_as_history": "v0.3.56_legacy_canvas_requirement_completion" in report_text,
         "v04_report_will_record_supersession": True,
     }
     return {
         "id": "corrected_v0356_boundary_markers",
-        "path": "docs/stage-report-archives/v0.3.x/v0.3.56_legacy_canvas_requirement_completion.md",
+        "path": "docs/archive/stage-report-archives/v0.3.x/v0.3.56_legacy_canvas_requirement_completion.md",
         "passed": all(cases.values()),
         "cases": cases,
     }

@@ -2004,7 +2004,7 @@ def apply_embedding_scenario(
 
 def test_v0410_contract_workflow_routes_and_frontend_audience_boundaries() -> None:
     contract = json.loads(
-        (ROOT / "docs/evolution-control/stage-contracts/v0.4.10.json").read_text(
+        (ROOT / "docs/archive/evolution-control/stage-contracts/v0.4.10.json").read_text(
             encoding="utf-8"
         )
     )

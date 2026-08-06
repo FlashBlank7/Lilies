@@ -1,329 +1,147 @@
 # 智能体/工作流生成平台
 
-> **面向传统企业的 AI 工作流生成、编辑、运行与复用平台。莉莉丝是平台中的工作流 Builder 智能体。**
+> **让企业和个人用自然语言得到能真正运行的 AI 工作流。莉莉丝是平台的 Builder 智能体。**
 
-本平台对标 Dify 类可视化 AI 工作流产品，并增加由莉莉丝根据自然语言需求自动询问、搭建和修复工作流的能力。首要客户是尚未完成 AI 化、但有明确业务或技术流程需要自动化和智能化的传统企业。
+平台对标 Dify 类可视化工作流产品，差异化在于：莉莉丝根据自然语言需求自动询问、搭建、测试和修复工作流。产出不是黑箱代码，而是一张**可编辑、可运行、可版本化**的工作流画布。
 
-产品最高意图见 [`docs/PRODUCT_NORTH_STAR.md`](docs/PRODUCT_NORTH_STAR.md)。Claude/Codex 式智能体架构、Harness、调度、Connector 和治理是支撑能力，不是产品本身或默认客户场景。
+产品意图见 [`docs/PRODUCT_NORTH_STAR.md`](docs/PRODUCT_NORTH_STAR.md)，业务设计见 [`docs/BUSINESS_LOGIC.md`](docs/BUSINESS_LOGIC.md)。
 
-平台的核心洞察是：
+## 核心洞察
 
 > *人和人工作能力的差距，往往不是智力或经验的差距，而是工作流的差距。好流程让普通人产出好结果，坏流程让聪明人也寸步难行。*
 
-平台把企业专家的做事方式和技术方案变成**可执行、可复用、可迭代、可组合**的积木工作流。工作流不仅包括 LLM，也应逐步覆盖数据接入、ML/DL、RAG、确定性规则、人工复核、Excel/文件工件和企业 API 交付。
+平台把专家的做事方式变成**可执行、可复用、可迭代、可组合**的积木工作流。
 
----
+### 三个设计原则
 
-## 架构哲学
+1. **工作流是模块，模块是工作流** — 已发布的工作流可以通过 `$ref` + 版本锁定被其他工作流当积木调用，系统具备分形组合能力。
+2. **文本即智能** — 模块输出是 LLM 天然理解的结构化文本信封（`result` + `structured`），下游语义靠模型理解，结构靠 `$ref` 精确引用。
+3. **能跑起来的工作流 > 机制展示** — 平台价值由生成的工作流是否解决真实问题决定。验收手段（测试、冒烟、校验）服务于这个目标，而不是反过来。
 
-```
-传统 AI 平台:  问题 → [更好的 LLM/Agent] → 答案
-                       ↑
-                   关注"大脑"
+## 2026-08 lean-core 重构
 
-本平台:        企业需求 → [莉莉丝自动搭建] → [可编辑工作流] → 业务结果/工件/API
-                              ↑                  ↑
-                         需求与缺口理解       LLM/ML/RAG/规则/人工
-```
+平台曾经积累了大量治理、正式实验、协作开发和证据审计机器，验收压过了构建，简单工作流也难以生成。`refactor/lean-core` 分支做了一次大刀阔斧的裁撤：
 
-### 三个核心设计原则
+- 删除 77 个后端治理/协作/桥模块（约 11 万行）与 190+ 战役脚本、审计测试
+- Builder 去门禁：失败的构建**保留半成品草稿**供检查续作，不再回滚；交付缺口降级为警告
+- 修复端口默认值缺陷：普通连线不再要求记住每种积木的端口名
+- 历史战役文档全部归档至 [`docs/archive/`](docs/archive/)
+- 测试全绿：401 passed / 0 failed
 
-**1. 工作流是模块，模块是工作流**
-任何已发布的工作流都可以作为积木被其他工作流调用。通过 `$ref` 引用机制和 Version 锁定，工作流之间实现零耦合组合。这使系统具有分形能力——一个复杂工作流可以由若干子工作流构成，而每个子工作流本身就是可独立运行的完整单元。
-
-**2. 模块间通过结构化文本通信 — "文本即智能"**
-模块的输出不是黑箱 JSON，而是 LLM 天然理解的结构化文本。下游模块可以读取上游的自然语言结果继续推理。这降低了集成成本：不需要为每个模块定义精确的 Schema，语义靠 LLM 自己理解，结构靠 `$ref` 精确引用。
-
-**3. 客户工作流结果 > 技术机制展示**
-莉莉丝和 Agent Runtime 提供理解、规划、工具调用与修复能力，但平台价值最终由生成工作流是否解决真实企业问题决定。代码智能体、爬虫、Connector 和治理可以验证底座，不能代替工业 ML、RAG、数据与系统交付结果。
-
----
+保留的核心保证：端口/图结构校验、强制冒烟测试、发布前测试套件、修复循环与轮次预算、Docker 沙盒、revision 乐观锁、幂等键。
 
 ## 已实现的核心能力
 
-### 积木系统 — 当前注册 46 个积木
+### 积木系统
 
-| 类别 | 数量 | 示例 |
-|------|------|------|
-| 业务工作流积木 | 19 | LLM, If/Else, Iteration, Loop, Human Input, HTTP Request, Connector Action, Web Collection... |
-| Agent 架构积木 | 26 | Context Assembler, Model Turn, Tool Executor, Permission Gate, Subagent Spawn, Budget Gate, Checkpoint/Resume... |
-| 历史兼容积木 | 1 | Claude Agent (Legacy) |
+46 个积木分三类：**业务积木**（LLM、If/Else、Iteration、Loop、Human Input、HTTP、Connector、受控网页采集、知识检索、typed workbook、记录管线……）、**Agent 架构积木**（Context Assembler、Model Turn、Tool Executor、Permission Gate、Subagent Spawn、Budget Gate、Checkpoint/Resume……）以及 soft block 元积木。Agent 的内部循环被拆解为画布上可编排、可审计的一等节点。
 
-当前目录在 Agent 架构、调度和集成底座上投入较多，但尚没有一等的 ML/DL 生命周期、RAG 检索链、工业数据处理和 Excel 工件积木或服务。这是明确的产品能力缺口，不能用通用 `llm`、`tool` 或 `http_request` 节点冒充。
+### 莉莉丝自动搭建
 
-### 模板市场 — 历史样例，不等于已验证行业能力
+自然语言需求 → 分析拆解 → 搜索积木目录 → 逐节点增量搭建（不允许直接输出整图 JSON，每条边实时按端口契约校验）→ 生成验收测试 → 运行、失败自修 → 通过后发布。
 
-根目录 `templates/` 当前有 10 个可加载的历史模板，状态均为 `legacy_unverified`；另有 1 个无人机模板因 schema 不兼容无法加载。`data_analyzer` 只让 LLM 分析一段数据描述，并没有读取 CSV、训练模型或运行统计计算，不能作为真实数据工作流证据。
+### 场景快速启动
 
-`BlockRegistry` 另提供 4 个代码级快捷模板：两个代码智能体、每日采集和客户系统嵌入。它们是当前技术能力样例，不构成传统企业场景组合。后续模板市场必须以真实企业项目、业务验收和明确证据等级为准。
+`GET /api/v1/scenarios` 提供可一键应用的场景包（每日受控采集摘要、Codex 式工作区智能体、客户系统嵌入），应用后立即可编辑、可运行。
 
-### 莉莉丝 — AI 自动搭建工作流
+### 运行时
 
-输入自然语言需求 → 莉莉丝（Builder Team）自动：
-1. 分析需求，拆解为任务
-2. 搜索积木目录，阅读使用手册
-3. 逐个添加节点、连线（不允许直接输出整图 JSON）
-4. 生成验收测试
-5. 运行测试，失败则修复后重试
-6. 全部通过后发布
+- DAG 拓扑执行、迭代/循环子图、Human Input 持久暂停与表单恢复
+- Checkpoint/Resume（SQLite）、崩溃恢复、5/10 并发运行零交叉污染
+- 定时触发 + 持久任务队列（租约、重试、审计事件、幂等回执）
+- SSE 事件流全程可观测
 
-### Agent Factory — 自动生成专项 Agent
+### 安全
 
-输入自然语言需求 → DeepSeek V4 Pro 自动生成包含 system_prompt、工具集、权限配置、预算限制的完整 AgentSpec → Docker 沙盒验证 → 发布。已验证可生成代码审查、数据分析、系统设计、测试工程等多种专项 Agent。
-
-### 多 Agent 团队协作
-
-通过 Subagent Spawn + Task Dispatcher + Dependency Gate + Mailbox 积木组合，可以编排多个专项 Agent 按依赖顺序协作。已验证的场景：需求拆解 Agent → 系统设计 Agent → 测试方案 Agent → 代码编写 Agent → 测试执行 Agent。
-
-### Harness 级安全与治理
-
-| 能力 | 实现 |
-|------|------|
-| 权限门 | 3 级模式：auto_approve / plan_first / always_ask |
-| 预算控制 | Budget Gate — 基于 token 成本的硬限制 |
-| 轮次限制 | Round Limit — 最大迭代次数硬限制 |
-| 沙盒隔离 | Docker 容器，非特权，CPU/内存/PID 限制 |
-| 钩子系统 | Hook Point — 外部系统可通过 SSE 监听工作流事件 |
-| 检查点/恢复 | Checkpoint/Resume — 持久化到 SQLite，支持崩溃恢复 |
-| 事件追踪 | Event Recorder — 结构化 SSE 事件流，完整审计轨迹 |
-
-### 并发安全与确定性
-
-- Revision 乐观锁：并发编辑草稿时，旧 revision 被 409 拒绝
-- 幂等键保护：相同 idempotency_key 的重复操作被安全拒绝
-- 运行隔离：已验证 5/10 并发运行零交叉污染
-- 确定性保证：非 LLM 工作流 5 次同输入运行输出完全一致
-- LLM 非确定性隔离：`structural_only` 模式只检查结构属性（exists/type/length），不检查内容相等
-
----
+- API 默认绑定 `127.0.0.1` + Bearer Token；密钥仅存于 API 进程环境
+- 每个会话独立非特权 Docker 容器，CPU/内存/PID 受限
+- `MODEL_EGRESS_ENABLED=false` 默认阻断真实模型 HTTP，杜绝意外扣费
 
 ## 快速开始
 
-### 方式 A: Docker Compose（推荐，前置条件最少）
-
-**只需要 Docker。**
+### Docker Compose
 
 ```bash
-# 1. 配置 API Key
-cp .env.example .env
-# 编辑 .env，设置 DEEPSEEK_API_KEY（从 https://platform.deepseek.com 获取）
-# 默认 MODEL_EGRESS_ENABLED=false；确认监控和队列后，只有真实运行时才设为 true
-
-# 2. 一键启动（首次 3-5 分钟构建镜像）
+cp .env.example .env      # 设置 DEEPSEEK_API_KEY；确认后再开 MODEL_EGRESS_ENABLED=true
 ./scripts/docker-up.sh
-
-# 打开 http://localhost:8000/debug 即可测试
+# 打开 http://localhost:8000/debug
 ```
 
-管理命令：
-```bash
-./scripts/docker-up.sh --status   # 查看运行状态
-./scripts/docker-up.sh --logs     # 查看实时日志
-./scripts/docker-up.sh --down     # 停止服务
-```
-
-### 方式 B: 本地开发（热重载）
+### 本地开发
 
 需要 Python 3.12+、Node.js 20+、Docker。
 
 ```bash
-# 1. 配置
 cp .env.example .env
-# 编辑 .env，设置 DEEPSEEK_API_KEY 和 API_TOKEN
-# 保持 MODEL_EGRESS_ENABLED=false 可启动只读/确定性功能但禁止真实模型 HTTP
-
-# 2. 构建沙盒镜像
 docker build --build-arg SANDBOX_UID=$(id -u) --build-arg SANDBOX_GID=$(id -g) \
   -t agent-platform-sandbox:latest -f Dockerfile.sandbox .
-
-# 3. 安装依赖
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-
-# 4. 启动（自动检查 Docker、端口、依赖）
 ./scripts/dev_platform.sh
-
-# API: http://127.0.0.1:8001
-# 调试页: http://127.0.0.1:8001/debug
-# OpenAPI: http://127.0.0.1:8001/docs
+# API: http://127.0.0.1:8001  Studio: 随脚本启动  OpenAPI: /docs
 ```
 
-本地开发请优先使用 `./scripts/dev_platform.sh` 同时启动 API 和 Studio。该脚本会把 Studio 代理和 Local Lilies assignment 回调都指向实际的 API host/port（默认 `http://127.0.0.1:8001`）；显式设置 `LILIES_PLATFORM_BASE_URL` 时则保留该值。不要手动把后端启动在另一个端口后再打开 Studio，否则前端代理或本地 daemon 回调会连到错误端口。
-
-本地 Lilies 已作为同级独立项目维护在 `../LiliesAgent/`。平台不得通过
-Python import、源码相对路径或共享数据库调用该项目，只能读取同一用户的
-`~/.lilies/daemon.json` 公开发现记录并通过版本化 `/local/v1` HTTP 合同连接。
-发现只会预填 loopback 地址与指纹；配对仍需在 Lilies 软件中生成一次性码，
-不会因自动发现而自动授予平台权限。开发环境需要把
-`LILIES_LOCAL_AGENT_ENABLED=true`，自定义状态目录时同步设置
-`LILIES_LOCAL_DISCOVERY_FILE`。
-
-### 模型出口与 token 监控
-
-真实 provider HTTP 默认由 `MODEL_EGRESS_ENABLED=false` 阻断。充值、核对余额或
-检查历史 usage 不需要打开它。确认要执行模型任务时再临时设置
-`MODEL_EGRESS_ENABLED=true`；T01H 正式 runner 还要求
-`--enable-model-egress`。外部 Codex Builder 则必须在同一条新命令中同时给出
-`--launch-codex` 与 `--authorize-external-codex-token-spend`；遗留命令或只恢复
-平台不会自动重启扣量进程。若某个隔离 state root 中存在
-`EXTERNAL_CODEX_SPEND_DISABLED`，任何 CLI 旗标都不能覆盖它；只能在再次获得明确
-的用户扣量授权后，由操作者显式移除该哨兵。
-
-监控只读平台/实验自己拥有的 SQLite 账本、进程表和独立 daemon 的公开
-discovery/health，不会发出模型调用，也不会读取 `../LiliesAgent/` 的私有
-SQLite、bootstrap 或 bearer：
+### 测试
 
 ```bash
-python3 scripts/monitor_lilies_tokens.py
-python3 scripts/monitor_lilies_tokens.py --watch 5
-python3 scripts/monitor_lilies_tokens.py --state-root /path/to/experiment-state --watch 5
-python3 scripts/monitor_lilies_tokens.py \
-  --state-root /path/to/experiment-state \
-  --standalone-discovery-record ~/.lilies/daemon.json \
-  --watch 5
-python3 scripts/monitor_lilies_tokens.py --fail-on-risk
+python -m pytest tests -q
 ```
-
-输出按平台 Builder、Local Lilies Builder、工作流模型节点、需求补全、协作开发等
-阶段拆分 input/output/cache/reasoning token、模型调用次数和估算费用，同时检查
-模型进程、定时工作流、durable retry、可恢复 assignment 与 autonomous 开发任务。
-`--state-root` 选择隔离实验账本；`--standalone-discovery-record` 只增加独立
-daemon 的进程、回环地址和默认出口证明，不会越过 HTTP 配对边界读取其 Token
-明细。当前 CLI 身份 ACL 内的 session/stage/model 明细应在 `../LiliesAgent/`
-运行 `lilies usage` 查看；跨客户端全局汇总仍需经平台已配对的 authenticated
-usage bridge 提供，缺少该快照时监控会把独立 daemon 的完整安全结论保留为
-`unknown`，不会把未知误报为零。`--platform-owned-legacy-lilies-db` 仅用于明确
-属于平台的旧账本，不能指向独立 Lilies 私有状态。
-账本缺失时安全结论显示 `unknown` 并让 `--fail-on-risk` 非零退出；没有 usage
-回执的失败/重试调用单独计为 `unknown-usage-calls`，不会伪装成零 Token。
-
-### 莉莉丝与 Codex 的跨软件协同开发
-
-协同开发是独立于工作流应用和 Builder 的任务模式。每个
-`DevelopmentAssignment` 都要冻结目标、Git baseline、莉莉丝与 Codex
-各自的工作区、允许路径、精确命令、网络主机、秘密引用、副作用、预算、
-截止时间，以及 `manual_dispatch` 或 `autonomous` 交接方式。自主交接只省去
-逐条转发，不会扩大这些授权。
-
-平台内使用：
-
-```bash
-# 创建 assignment；token 建议来自 mode 0600 文件，不放在命令行
-lilies develop \
-  --base-url http://127.0.0.1:8001 \
-  --token-file .secrets/platform-owner-token \
-  --assignment-file assignment.json \
-  --idempotency-key create-project-repair-0001
-
-lilies develop --base-url http://127.0.0.1:8001 \
-  --token-file .secrets/platform-owner-token status <assignment-id>
-
-# manual 模式批准一个 work item；autonomous 模式由持久 worker 自动交接
-lilies develop --base-url http://127.0.0.1:8001 \
-  --token-file .secrets/platform-owner-token approve <assignment-id> \
-  --work-item <work-item-id> --idempotency-key dispatch-repair-0001
-```
-
-若其他软件不需要启动工作流平台，可单独运行：
-
-```bash
-lilies-collab serve \
-  --data-dir .local/lilies-collaboration \
-  --owner-token-file .secrets/collaboration-owner-token \
-  --signing-key-file .secrets/collaboration-signing-key
-
-LILIES_AUTONOMOUS_COLLABORATION_ENABLED=true \
-lilies-collab worker \
-  --data-dir .local/lilies-collaboration \
-  --continuous \
-  --lilies-handler-argv-file .secrets/lilies-handler-argv.json \
-  --codex-handler-argv-file .secrets/codex-handler-argv.json
-```
-
-`lilies-collab --help` 列出创建、状态、授权、停止、归档、工作项、结果、
-复验、事件和游标命令。协同开发产生的代码任务证据始终带
-`enterprise_denominator=false`，不能替代平台生成企业工作流的业务验收。
-CLI 只允许在 loopback 使用明文 HTTP；连接其他主机必须使用 HTTPS，避免
-assignment bearer 在传输中泄漏。
-
----
 
 ## 目录结构
 
-```
+```text
 Lilies/
 ├── platform/
 │   ├── backend/src/agent_platform/
-│   │   ├── api.py                FastAPI、SSE、模板 API
-│   │   ├── blocks.py             46 积木定义、Schema、端口、图校验
-│   │   ├── builder.py            莉莉丝 Builder Team（协调者+队友+任务+mailbox）
-│   │   ├── factory.py            Agent 自动生成（需求→AgentSpec→验证→发布）
-│   │   ├── runtime.py            Agent 多轮循环、工具执行、子Agent、权限
-│   │   ├── workflow_runtime.py   DAG 拓扑执行、25 架构积木逻辑、checkpoint
-│   │   ├── workflow_storage.py   草稿/版本/Build/Run 持久化、乐观锁
-│   │   ├── template_store.py     模板市场（加载/搜索/展开/注册）
-│   │   ├── template_models.py    模板数据模型
-│   │   ├── providers/            ModelProvider 抽象 + DeepSeek 适配器
-│   │   ├── tools/                核心工具（Read/Write/Bash/WebSearch...）
-│   │   ├── sandbox.py            Docker 会话管理
-│   │   └── storage.py            SQLite WAL + JSONL 事件
+│   │   ├── api.py                FastAPI、SSE、全部路由
+│   │   ├── blocks.py             积木定义、端口契约、图校验
+│   │   ├── builder.py            莉莉丝 Builder（协调者+队友+任务）
+│   │   ├── workflow_runtime.py   DAG 执行、架构积木、checkpoint
+│   │   ├── workflow_storage.py   草稿/版本/Build/Run、乐观锁
+│   │   ├── scenarios.py          场景快速启动包
+│   │   ├── template_store.py     模块注册表（workflow-as-module）
+│   │   ├── knowledge_rag.py      SQLite RAG（ACL 前置、确定性）
+│   │   ├── typed_workbook.py     确定性 XLSX 工件（sha256 + 血缘）
+│   │   ├── record_pipeline.py    记录去重/归一/匹配
+│   │   ├── durable_jobs.py       持久任务队列（租约/重试/审计）
+│   │   ├── scheduler.py          定时触发
+│   │   ├── connector_sdk.py      企业连接器 + OpenAPI 生成
+│   │   ├── runtime.py            Agent 多轮循环
+│   │   ├── sandbox.py            Docker 沙盒
+│   │   └── providers/            ModelProvider 抽象 + DeepSeek
 │   └── frontend/                 Next.js + React Flow Studio
-├── templates/                    历史工作流样例；加载不等于验证
-├── tests/                        28 个单元/集成测试
-├── docs/                         设计文档、迁移矩阵
-├── examples/                     测试用示例项目
-├── Dockerfile.sandbox            Agent 沙盒镜像
-└── compose.yaml                  Docker Compose 编排
+├── templates/                    历史工作流样例
+├── tests/                        行为测试（401 项，全绿）
+├── docs/                         北极星、业务逻辑；archive/ 存历史
+└── compose.yaml                  Docker Compose
 ```
-
----
-
-## 已验证的能力矩阵
-
-| 维度 | 测试覆盖 | 结果 |
-|------|---------|------|
-| 单元测试 | 28 项 | 100% |
-| 结构能力评估 | 49 项 (积木链/DAG/错误/并发/确定性) | 100% |
-| 专家级测试 | 35 项 (嵌套/故障注入/权限矩阵/组合爆发) | 100% |
-| 生产级增强 | 18 项 (非确定性隔离/并发/checkpoint) | 100% |
-| 多 Agent 团队 | Agent 生成 100% + Agent 链执行 | 验证通过 |
-| 产物工程可用 | 代码质量 + pytest + 冒烟测试 | 91.7% |
-
----
 
 ## API 速览
 
-### 模板
 ```bash
-GET  /api/v1/templates                     # 模板列表
-GET  /api/v1/templates/{name}              # 模板详情
-POST /api/v1/templates/{name}/expand       # 展开为可编辑工作流
-POST /api/v1/apps/{id}/publish-template    # 发布草稿为新模板
-```
-
-### 工作流
-```bash
+# 工作流
 POST /api/v1/applications                  # 创建应用
-POST /api/v1/applications/{id}/draft       # 编辑草稿
-POST /api/v1/applications/{id}/builds      # Builder 自动搭建
-POST /api/v1/applications/{id}/tests/run   # 运行测试
+POST /api/v1/applications/{id}/draft       # 编辑草稿（乐观锁 + 幂等键）
+POST /api/v1/applications/{id}/builds      # 莉莉丝自动搭建
+POST /api/v1/applications/{id}/tests/run   # 运行验收测试
 POST /api/v1/applications/{id}/versions    # 发布版本
 POST /api/v1/applications/{id}/runs        # 运行工作流
+
+# 场景与模板
+GET  /api/v1/scenarios                     # 场景快速启动包
+GET  /api/v1/templates                     # 模板列表
+POST /api/v1/templates/{name}/expand       # 展开为可编辑工作流
+
+# 需求补全与 Agent
+POST /api/v1/requirements/complete         # 需求澄清
+POST /v1/agent-generations                 # Agent Factory
+POST /v1/sessions                          # Agent 会话
 ```
 
-### Agent
-```bash
-POST /v1/agent-generations                 # 自动生成 Agent
-POST /v1/sessions                          # 创建 Agent 会话
-POST /v1/sessions/{id}/messages            # 发送任务
-```
+## 已知边界（诚实清单）
 
----
-
-## 安全
-
-- API 默认绑定 `127.0.0.1`，需 Bearer Token
-- 密钥仅存在于 API 进程环境，不入库、不入容器
-- 每个 Session 独立 Docker 容器，非特权，限制资源
-- 沙盒 UID/GID 可通过 `.env` 配置（`SANDBOX_UID`, `SANDBOX_GID`）
-- 生产部署建议接入独立 egress proxy 进行网络层域名过滤
+- 生成工作流的验收测试由莉莉丝自己生成，与客户真实需求可能存在偏移
+- RAG 使用确定性哈希 embedding（零网络、可精确断言），语义召回有限，真实企业语料需要接入真模型 embedding
+- typed workbook 只写不读，2MB 上限，无公式
+- 本地莉莉丝（`../LiliesAgent/`）的平台桥已在重构中移除，待按更薄的 HTTP 合同重新接入
+- Builder 会话 transcript 尚未落盘，构建失败的归因仍依赖事件流

@@ -2904,7 +2904,7 @@ def test_platform_harness_policy_controls_api_reports_stdio_mcp_decisions(tmp_pa
 
         e08 = body["e08_boundary"]
         assert e08["current_slice"] == "e08_policy_controls_surface"
-        assert e08["source"] == "docs/experiment-status/ledgers/E08_harness_sidecar_passmode.md"
+        assert e08["source"] == "docs/archive/experiment-status/ledgers/E08_harness_sidecar_passmode.md"
         assert e08["soft_passmode"]["enforcement"] == "soft_configurable"
         assert e08["hard_boundary"]["enforcement"] == "hard_boundary"
         assert e08["not_full_sidecar_completion"] is True
