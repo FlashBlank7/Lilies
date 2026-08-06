@@ -252,10 +252,7 @@ class WorkflowTestCase(BaseModel):
 
 
 class ApplicationSnapshot(BaseModel):
-    # Snapshots persisted before a field was retired must still load. Unknown
-    # keys (e.g. the removed capability_build_contract) are dropped on read
-    # instead of failing the whole application.
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
     name: str
     description: str
