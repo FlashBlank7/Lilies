@@ -433,25 +433,10 @@ function requirementQuestionAnswered(question: RequirementIntakeQuestion, select
   return Boolean(selection?.selectedOptionIds.length || selection?.customAnswer.trim())
 }
 
-function createActionState(requirement: string, busy: boolean, draftBusy: boolean, buildIntentConfirmed: boolean, t: Copy) {
-  if (busy || draftBusy) return { id: 'busy', tone: 'busy', title: t.createActionBusyTitle, detail: t.createActionBusyDetail }
-  if (requirement.trim().length < 10) return { id: 'add_detail', tone: 'attention', title: t.createActionAddDetailTitle, detail: t.createActionAddDetailDetail }
-  if (buildIntentConfirmed) return { id: 'confirm_team', tone: 'warning', title: t.createActionConfirmTeamTitle, detail: t.createActionConfirmTeamDetail }
-  return { id: 'save_draft', tone: 'ready', title: t.createActionSaveDraftTitle, detail: t.createActionSaveDraftDetail }
-}
-
-function recommendedCreateAction(actionId: string, t: Copy) {
-  if (actionId === 'busy') return { target: 'wait', tone: 'busy', label: t.recommendedActionBusyLabel, detail: t.recommendedActionBusyDetail, disabled: true }
-  if (actionId === 'save_draft') return { target: 'safe_draft', tone: 'ready', label: t.recommendedActionSaveDraftLabel, detail: t.recommendedActionSaveDraftDetail, disabled: false }
-  if (actionId === 'confirm_team') return { target: 'guarded_build_button', tone: 'warning', label: t.recommendedActionTeamGuardLabel, detail: t.recommendedActionTeamGuardDetail, disabled: false }
-  return { target: 'requirement_focus', tone: 'attention', label: t.recommendedActionAddDetailLabel, detail: t.recommendedActionAddDetailDetail, disabled: false }
-}
-
 export default function Home() {
   const [locale, setLocale] = useState<Locale>(defaultLocale)
   const t = messages[locale]
   const requirementInputRef = useRef<HTMLTextAreaElement>(null)
-  const buildButtonRef = useRef<HTMLButtonElement>(null)
   const [apps, setApps] = useState<Application[]>([])
   const [requirement, setRequirement] = useState<string>(t.requirementPlaceholder)
   const [selectedExampleId, setSelectedExampleId] = useState<string | null>(null)
@@ -461,7 +446,6 @@ export default function Home() {
   const [busy, setBusy] = useState(false)
   const [draftBusy, setDraftBusy] = useState(false)
   const [requirementIntakeBusy, setRequirementIntakeBusy] = useState(false)
-  const [buildIntentConfirmed, setBuildIntentConfirmed] = useState(false)
   const [createdApplicationId, setCreatedApplicationId] = useState('')
   const [requirementSelections, setRequirementSelections] = useState<RequirementClarificationSelections>({})
   const [requirementAnswerHistory, setRequirementAnswerHistory] = useState<RequirementIntakeAnswer[]>([])
@@ -543,8 +527,6 @@ export default function Home() {
   const hasRequirementSelections = Object.values(requirementSelections).some(selection => selection.selectedOptionIds.length > 0 || selection.customAnswer.trim())
   const requirementMissingLabels = requirementIntake?.missing || []
   const requirementCompletionReady = requirementIntake?.status === 'ready' && Boolean(requirementIntake.completed_requirement?.trim())
-  const createAction = createActionState(requirement, busy || requirementIntakeBusy, draftBusy, buildIntentConfirmed, t)
-  const recommendedAction = recommendedCreateAction(createAction.id, t)
   const runtimeStatus = classifyRuntimeStatus(runtimeHealth, { authRequired, unavailable: runtimeUnavailable })
   const runtimeStatusText = runtimeStatus === 'connected'
     ? t.runtimeStatusConnected(runtimeVersion(runtimeHealth))
@@ -651,7 +633,6 @@ export default function Home() {
   }
   function clearCustomerExample() {
     setSelectedExampleId(null)
-    setBuildIntentConfirmed(false)
   }
 
   function updateRequirementOption(question: RequirementIntakeQuestion, optionId: string, checked: boolean) {
@@ -666,7 +647,6 @@ export default function Home() {
           : []
       return { ...current, [question.id]: { ...existing, selectedOptionIds } }
     })
-    setBuildIntentConfirmed(false)
   }
 
   function updateRequirementCustomAnswer(id: string, value: string) {
@@ -674,7 +654,6 @@ export default function Home() {
       const existing = current[id] || { selectedOptionIds: [], customAnswer: '' }
       return { ...current, [id]: { ...existing, customAnswer: value } }
     })
-    setBuildIntentConfirmed(false)
   }
 
   async function runRequirementIntake() {
@@ -721,8 +700,7 @@ export default function Home() {
     }
     setRequirement(completed)
     setSelectedExampleId(null)
-    setBuildIntentConfirmed(true)
-    setRequirementIntake(null)
+        setRequirementIntake(null)
     setRequirementSelections({})
     setRequirementAnswerHistory([])
     showNotice(t.requirementCompletionApplied)
@@ -732,17 +710,11 @@ export default function Home() {
     setRequirementSelections({})
     setRequirementAnswerHistory([])
     setRequirementIntake(null)
-    setBuildIntentConfirmed(false)
     clearFeedback()
   }
 
   async function create(event: FormEvent) {
     event.preventDefault()
-    if (!buildIntentConfirmed) {
-      setBuildIntentConfirmed(true)
-      showNotice(t.buildIntentHomeConfirm)
-      return
-    }
     setBusy(true)
     clearFeedback()
     let createdApp: Application | null = null
@@ -786,23 +758,6 @@ export default function Home() {
     }
   }
 
-  async function runRecommendedCreateAction() {
-    if (recommendedAction.disabled) return
-    clearFeedback()
-    if (recommendedAction.target === 'requirement_focus') {
-      requirementInputRef.current?.focus()
-      return
-    }
-    if (recommendedAction.target === 'safe_draft') {
-      await saveDraftOnly()
-      return
-    }
-    if (recommendedAction.target === 'guarded_build_button') {
-      buildButtonRef.current?.focus()
-      showNotice(t.recommendedActionTeamGuardDetail)
-    }
-  }
-
   function saveToken(event: FormEvent) {
     event.preventDefault()
     saveClientToken(tokenInput)
@@ -816,7 +771,6 @@ export default function Home() {
     setRequirementAnswerHistory([])
     setRequirementIntake(null)
     setSelectedExampleId(example.id)
-    setBuildIntentConfirmed(false)
     clearFeedback()
   }
 
@@ -828,7 +782,7 @@ export default function Home() {
         <h1>{t.heroTitleA}<br/><em>{t.heroTitleB}</em></h1>
         <p>{t.heroCopy}</p>
         <form className="create-card" onSubmit={create}>
-          <textarea ref={requirementInputRef} aria-label={t.requirementAria} value={requirement} onChange={event => { setRequirement(event.target.value); setRequirementIntake(null); setRequirementSelections({}); setRequirementAnswerHistory([]); setBuildIntentConfirmed(false) }} />
+          <textarea ref={requirementInputRef} aria-label={t.requirementAria} value={requirement} onChange={event => { setRequirement(event.target.value); setRequirementIntake(null); setRequirementSelections({}); setRequirementAnswerHistory([]); }} />
           {selectedCustomerExample && <section className="selected-scenario-summary" data-selected-scenario-summary="active">
             <div><span>{t.selectedScenarioSummaryTitle} · {selectedCustomerExample.role}</span><strong>{selectedCustomerExample.title}</strong><p>{selectedCustomerExample.need}</p><small>{selectedCustomerExample.acceptanceSignal}</small></div>
             <button onClick={clearCustomerExample} type="button">{t.clearSelectedScenario}</button>
@@ -898,19 +852,11 @@ export default function Home() {
             </div>
             {requirementQuestions.length > 0 && <small className="requirement-completion-count">{t.requirementCompletionQuestionCount(requirementAnsweredCount, requirementQuestions.length)}</small>}
           </section>
-          <section className={`create-action-explainer ${createAction.tone}`} data-create-action-state={createAction.id}>
-            <strong>{createAction.title}</strong>
-            <span>{createAction.detail}</span>
-          </section>
-          <section className={`recommended-create-action ${recommendedAction.tone}`} data-recommended-create-action={createAction.id} data-recommended-action-target={recommendedAction.target}>
-            <div><strong>{t.recommendedActionTitle}</strong><span>{recommendedAction.detail}</span></div>
-            <button type="button" disabled={recommendedAction.disabled || busy || draftBusy} onClick={() => void runRecommendedCreateAction()}>{recommendedAction.label}</button>
-          </section>
           <div className="create-footer">
-            <div className="create-copy"><span>{t.createHint}</span><small>{t.safeDraftHint}</small><small className="build-intent-copy" data-build-intent={buildIntentConfirmed ? 'confirmed' : 'needs-confirmation'}>{buildIntentConfirmed ? t.buildIntentHomeArmed : t.buildIntentHomeSafe}</small></div>
+            <div className="create-copy"><span>{t.createHint}</span><small>{t.safeDraftHint}</small></div>
             <div className="create-actions">
               <button className="secondary-action" disabled={busy || draftBusy || requirement.length < 10} onClick={saveDraftOnly} type="button">{draftBusy ? t.saveDraftOnlyBusy : t.saveDraftOnlyButton}</button>
-              <button ref={buildButtonRef} className={`build-action ${buildIntentConfirmed ? 'armed' : ''}`} data-build-action="home-start-builder-team" data-build-intent={buildIntentConfirmed ? 'confirmed' : 'needs-confirmation'} disabled={busy || draftBusy || requirement.length < 10}>{busy ? t.createBusy : (locale === 'zh' ? '让莉莉丝搭建' : 'Let Lilies build it')}</button>
+              <button className="build-action" data-build-action="home-start-builder-team" disabled={busy || draftBusy || requirement.length < 10}>{busy ? t.createBusy : (locale === 'zh' ? '让莉莉丝搭建' : 'Let Lilies build it')}</button>
             </div>
           </div>
         </form>

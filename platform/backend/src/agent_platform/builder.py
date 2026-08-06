@@ -58,7 +58,9 @@ using the supplied block-catalog and incremental draft tools. Every requirement 
 nodes, and a mandatory test. Inspect manuals and schemas before configuring unfamiliar blocks.
 
 Core rules:
-- Start by inspecting the draft and catalog, then create requirement tasks.
+- The complete block catalog (one line per block) is already in the build request. Inspect the draft, then go
+  straight to catalog_get/manual_get for the few blocks you will actually use — broad catalog_search sweeps
+  waste turns you need for building.
 - Prefer one structured Model Turn shared by related steps instead of a serial LLM call per step. Split model
   calls only when different tools, permissions, branches, state boundaries, or independently editable behavior
   require it.
@@ -357,7 +359,8 @@ class WorkflowBuilder:
                 type="text",
                 text=(
                     f"Build and verify this application:\n\n{build['requirement']}\n\n"
-                    f"Application id: {build['application_id']}. Auto publish: {build['auto_publish']}."
+                    f"Application id: {build['application_id']}. Auto publish: {build['auto_publish']}.\n\n"
+                    + self._catalog_overview()
                     + contract_context
                 ),
             )])]
@@ -905,6 +908,23 @@ class WorkflowBuilder:
             raise RuntimeError("build_plan is disabled for this build planning_mode")
         if tool == "catalog_search":
             query = str(data.get("query", "")).casefold()
+            normalized_query = " ".join(query.split())
+            if normalized_query in state.catalog_queries:
+                return {
+                    "note": (
+                        "This exact query already ran in this build; its results are unchanged. "
+                        "The complete catalog is in your first message — use catalog_get or "
+                        "manual_get for a specific block instead of searching again."
+                    ),
+                    "matching_types": sorted(
+                        item.type
+                        for item in self.blocks.list()
+                        if not normalized_query
+                        or normalized_query
+                        in f"{item.type} {item.title} {item.description} {item.category}".casefold()
+                    ),
+                }
+            state.catalog_queries.append(normalized_query)
             definitions = [
                 item for item in self.blocks.list()
                 if not query or query in f"{item.type} {item.title} {item.description} {item.category}".casefold()
@@ -1740,6 +1760,20 @@ class WorkflowBuilder:
                 "timeout_like": timeout_like,
             }
         return {"failure": failure}
+
+    def _catalog_overview(self) -> str:
+        """One compact line per block so the Builder never has to search blind."""
+
+        by_category: dict[str, list[str]] = {}
+        for item in self.blocks.list():
+            by_category.setdefault(item.category, []).append(f"{item.type} — {item.title}")
+        lines = ["Complete block catalog (type — title). Call catalog_get or manual_get for schemas:"]
+        for category in sorted(by_category):
+            lines.append(f"[{category}] " + "; ".join(sorted(by_category[category])))
+        core = sorted(self.core_tools.names())
+        if core:
+            lines.append("[core tools] " + "; ".join(core))
+        return "\n".join(lines)
 
     def _record_turn(
         self,

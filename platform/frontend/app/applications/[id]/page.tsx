@@ -94,7 +94,7 @@ type StudioChromePreferences = {
 type Copy = (typeof messages)[Locale]
 const CORE_STUDIO_TABS = ['build', 'edit', 'test', 'automation'] as const
 const VISIBLE_STUDIO_TABS = [...CORE_STUDIO_TABS, 'integrations'] as const
-const STUDIO_TABS = [...VISIBLE_STUDIO_TABS, 'run', 'monitor'] as const
+const STUDIO_TABS = [...VISIBLE_STUDIO_TABS, 'run'] as const
 type StudioTab = typeof STUDIO_TABS[number]
 type ConfigEditorMode = 'form' | 'json'
 const STUDIO_CHROME_STORAGE_KEY = 'lilies.studio.chrome.v1'
@@ -909,19 +909,6 @@ function acceptanceRunErrorReport(draft: Draft | null, error: unknown): Record<s
   }
 }
 
-function detailBuildActionState(requirement: string, build: Build | null, buildIntentConfirmed: boolean, t: Copy) {
-  if (build && ['queued', 'building'].includes(build.status)) return { id: 'busy', tone: 'busy', title: t.detailBuildActionBusyTitle, detail: t.detailBuildActionBusyDetail }
-  if (requirement.trim().length < 10) return { id: 'add_detail', tone: 'attention', title: t.detailBuildActionAddDetailTitle, detail: t.detailBuildActionAddDetailDetail }
-  if (buildIntentConfirmed) return { id: 'confirm_team', tone: 'warning', title: t.detailBuildActionConfirmTitle, detail: t.detailBuildActionConfirmDetail }
-  return { id: 'arm_team', tone: 'ready', title: t.detailBuildActionArmTitle, detail: t.detailBuildActionArmDetail }
-}
-
-function recommendedDetailBuildAction(actionId: string, t: Copy) {
-  if (actionId === 'busy') return { target: 'wait', tone: 'busy', label: t.detailBuildRecommendedBusyLabel, detail: t.detailBuildRecommendedBusyDetail, disabled: true }
-  if (actionId === 'arm_team' || actionId === 'confirm_team') return { target: 'guarded_build_button', tone: actionId === 'confirm_team' ? 'warning' : 'ready', label: t.detailBuildRecommendedGuardLabel, detail: t.detailBuildRecommendedGuardDetail, disabled: false }
-  return { target: 'requirement_focus', tone: 'attention', label: t.detailBuildRecommendedAddDetailLabel, detail: t.detailBuildRecommendedAddDetailDetail, disabled: false }
-}
-
 export default function Studio({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
   const router = useRouter()
@@ -943,11 +930,9 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   const [transcriptOpen, setTranscriptOpen] = useState(true)
   const [events, setEvents] = useState<Array<{ type: string; data: Record<string, unknown> }>>([])
   const [tab, setTab] = useState<StudioTab>('build')
-  const [safeDraftLanding, setSafeDraftLanding] = useState(false)
   const [requestedAssignmentId, setRequestedAssignmentId] = useState('')
   const [requirement, setRequirement] = useState('')
   const [buildDeadlineSeconds, setBuildDeadlineSeconds] = useState('')
-  const [buildIntentConfirmed, setBuildIntentConfirmed] = useState(false)
   const [publicationDecision, setPublicationDecision] = useState<PublicationDecision | null>(null)
   const [publicationBusy, setPublicationBusy] = useState(false)
   const [testReport, setTestReport] = useState<Record<string, unknown> | null>(null)
@@ -992,7 +977,6 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   const rightDragCleanupRef = useRef<(() => void) | null>(null)
   const suppressPaneContextMenuRef = useRef(false)
   const detailBuildRequirementRef = useRef<HTMLTextAreaElement>(null)
-  const detailBuildStartButtonRef = useRef<HTMLButtonElement>(null)
   const acceptanceRepairRef = useRef<HTMLElement>(null)
   const initialLoadStartedRef = useRef(false)
   const latestRevision = useRef(0)
@@ -1003,10 +987,6 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   const setStudioTab = useCallback((next: StudioTab, options: { replace?: boolean } = {}) => {
     if (next === 'run') {
       router.push(`/runtime/${id}`)
-      return
-    }
-    if (next === 'monitor') {
-      router.push(`/governance?application_id=${id}`)
       return
     }
     setTab(next)
@@ -1026,23 +1006,9 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
       router.replace(`/runtime/${id}`)
       return
     }
-    if (requestedTab === 'monitor') {
-      router.replace(`/governance?application_id=${id}`)
-      return
-    }
     if (isStudioTab(requestedTab)) setTab(requestedTab)
-    setSafeDraftLanding(query.get('safeDraft') === '1')
     setRequestedAssignmentId(query.get('assignment') || '')
   }, [id, router])
-
-  function dismissSafeDraftLanding() {
-    setSafeDraftLanding(false)
-    if (typeof window === 'undefined') return
-    const query = new URLSearchParams(window.location.search)
-    query.delete('safeDraft')
-    const nextQuery = query.toString()
-    window.history.replaceState(null, '', `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ''}`)
-  }
 
   function toggleStudioChrome(key: keyof StudioChromePreferences) {
     setStudioChrome(current => ({ ...current, [key]: !current[key] }))
@@ -1935,11 +1901,6 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   }
 
   async function startBuild() {
-    if (!buildIntentConfirmed) {
-      setBuildIntentConfirmed(true)
-      setNotice(t.buildIntentDetailConfirm)
-      return
-    }
     const trimmedDeadline = buildDeadlineSeconds.trim()
     let maxElapsedSeconds: number | undefined
     if (trimmedDeadline) {
@@ -1958,7 +1919,6 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
       }),
     })
     history.replaceState(null, '', `?build=${result.build_id}`)
-    setBuildIntentConfirmed(false)
     watchBuild(result.build_id)
   }
 
@@ -2099,11 +2059,6 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
       ready: Boolean(draft),
       detail: t.nextActionRunReady,
     },
-    {
-      label: t.readinessMonitor,
-      ready: true,
-      detail: t.nextActionMonitorHelp,
-    },
   ]
   const detailSignals = [
     {
@@ -2120,61 +2075,6 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
       label: t.detailSignalRun,
       value: t.nextActionRunReady,
       ready: Boolean(draft),
-    },
-    {
-      label: t.detailSignalMonitor,
-      value: t.nextActionMonitorHelp,
-      ready: true,
-    },
-  ]
-  const nextActionCards: Array<{
-    id: string
-    label: string
-    detail: string
-    ready: boolean
-    target: StudioTab
-  }> = [
-    {
-      id: 'inspect',
-      label: t.nextActionInspect,
-      detail: canvasStats.nodes ? t.nextActionInspectReady(canvasStats.nodes, canvasStats.edges) : t.nextActionInspectEmpty,
-      ready: canvasStats.nodes > 0,
-      target: 'edit',
-    },
-    {
-      id: 'build',
-      label: t.nextActionBuild,
-      detail: build ? `${build.status} · ${build.team_state.tasks.length} ${t.tasksTitle}` : t.nextActionBuildHelp,
-      ready: Boolean(build),
-      target: 'build',
-    },
-    {
-      id: 'test',
-      label: t.nextActionTest,
-      detail: tested ? t.testsPassed : t.nextActionTestHelp,
-      ready: Boolean(tested),
-      target: 'test',
-    },
-    {
-      id: 'run',
-      label: t.nextActionRun,
-      detail: t.nextActionRunReady,
-      ready: Boolean(draft),
-      target: 'run',
-    },
-    {
-      id: 'publish',
-      label: t.nextActionPublish,
-      detail: activeVersion ? t.activeVersion(activeVersion) : tested ? t.nextActionPublishReady : t.nextActionPublishBlocked,
-      ready: Boolean(activeVersion),
-      target: 'test',
-    },
-    {
-      id: 'monitor',
-      label: t.nextActionMonitor,
-      detail: t.nextActionMonitorHelp,
-      ready: true,
-      target: 'monitor',
     },
   ]
   const acceptancePassedCount = acceptanceCaseViews.filter(test => test.result?.passed).length
@@ -2229,17 +2129,6 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     setNotice(t.authSaved)
     void refresh().catch(error => setNotice(String(error)))
   }
-  function runDetailBuildRecommendedAction() {
-    if (detailBuildRecommendedAction.disabled) return
-    if (detailBuildRecommendedAction.target === 'requirement_focus') {
-      detailBuildRequirementRef.current?.focus()
-      return
-    }
-    if (detailBuildRecommendedAction.target === 'guarded_build_button') {
-      detailBuildStartButtonRef.current?.focus()
-      setNotice(t.detailBuildRecommendedGuardDetail)
-    }
-  }
 
   function refreshRuntimeStatus() {
     return api<RuntimeHealth>('/health').then(health => {
@@ -2289,8 +2178,6 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     { label: t.nodeInspectorConfig, value: t.nodeConfigSummary(selectedConfigKeys.length), detail: selectedConfigKeys.length ? selectedConfigKeys.slice(0, 4).join(', ') : t.nodeInspectorNoConfig },
     { label: t.nodeInspectorSafeNext, value: t.nodeInspectorSafeNextValue, detail: t.nodeInspectorSafeNextDetail },
   ] : []
-  const detailBuildAction = detailBuildActionState(requirement, build, buildIntentConfirmed, t)
-  const detailBuildRecommendedAction = recommendedDetailBuildAction(detailBuildAction.id, t)
   const businessDefinitionMissing = Boolean(draft && !draft.snapshot.requirement.trim())
 
   return <main className="studio-shell" data-studio-chrome="collapsible">
@@ -2347,24 +2234,12 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
         <div className={`panel-tabs ${surfaceStyles.threeTabs}`} data-detail-tab-url-state="synced">{VISIBLE_STUDIO_TABS.map(item => <button aria-pressed={tab === item} className={tab === item ? 'active' : ''} data-studio-tab={item} onClick={() => setStudioTab(item)} key={item} type="button">{item === 'build' ? t.buildTab : item === 'edit' ? t.editTab : item === 'test' ? t.testTab : item === 'automation' ? locale === 'zh' ? '自动化' : 'Automation' : locale === 'zh' ? '集成' : 'Integrations'}</button>)}</div>
         {tab === 'build' && <div className="panel-body">
           <div className="panel-kicker">{locale === 'zh' ? '莉莉丝 Builder' : 'Lilies Builder'}</div><h2>{t.continueBuild}</h2>
-          <textarea ref={detailBuildRequirementRef} className="requirement-input" value={requirement} onChange={event => { setRequirement(event.target.value); setBuildIntentConfirmed(false) }} />
-          <section className={`create-action-explainer detail-build-action-explainer ${detailBuildAction.tone}`} data-detail-build-action-state={detailBuildAction.id}>
-            <strong>{detailBuildAction.title}</strong>
-            <span>{detailBuildAction.detail}</span>
-          </section>
-          <section className={`recommended-create-action detail-build-recommended-action ${detailBuildRecommendedAction.tone}`} data-detail-build-recommended-action={detailBuildAction.id} data-detail-build-recommended-target={detailBuildRecommendedAction.target}>
-            <div><strong>{t.detailBuildRecommendedTitle}</strong><span>{detailBuildRecommendedAction.detail}</span></div>
-            <button type="button" disabled={detailBuildRecommendedAction.disabled} onClick={runDetailBuildRecommendedAction}>{detailBuildRecommendedAction.label}</button>
-          </section>
+          <textarea ref={detailBuildRequirementRef} className="requirement-input" value={requirement} onChange={event => { setRequirement(event.target.value); }} />
           <label className="run-field">
             <span>{t.buildDeadlineLabel}<em>{t.buildDeadlineHelp}</em></span>
-            <input type="number" min="0.001" step="0.1" value={buildDeadlineSeconds} onChange={event => { setBuildDeadlineSeconds(event.target.value); setBuildIntentConfirmed(false) }} />
+            <input type="number" min="0.001" step="0.1" value={buildDeadlineSeconds} onChange={event => { setBuildDeadlineSeconds(event.target.value); }} />
           </label>
-          <section className={`build-intent-guard ${buildIntentConfirmed ? 'armed' : ''}`} data-build-intent={buildIntentConfirmed ? 'confirmed' : 'needs-confirmation'}>
-            <strong>{t.buildIntentGuardTitle}</strong>
-            <span>{buildIntentConfirmed ? t.buildIntentGuardArmed : t.buildIntentGuardSafe}</span>
-          </section>
-          <button ref={detailBuildStartButtonRef} className={`wide build-action ${buildIntentConfirmed ? 'armed' : ''}`} data-build-action="detail-start-legacy-builder" data-build-route="legacy_builder" data-build-intent={buildIntentConfirmed ? 'confirmed' : 'needs-confirmation'} onClick={startBuild}>{buildIntentConfirmed ? (locale === 'zh' ? `确认启动旧 Builder · ${t.startTeamConfirm}` : `Confirm legacy Builder · ${t.startTeamConfirm}`) : (locale === 'zh' ? `旧 Builder（开发） · ${t.startTeam}` : `Legacy Builder (developer) · ${t.startTeam}`)}</button>
+          <button className="wide build-action" data-build-action="detail-start-builder" onClick={startBuild}>{locale === 'zh' ? '让莉莉丝搭建' : 'Let Lilies build it'}</button>
           {build && <div className="build-status"><b>{build.status}</b><span>{Object.keys(build.team_state.teammates).length} teammates · {build.team_state.tasks.length} tasks · {build.team_state.repair_cycles} repairs</span><span>{build.deadline?.enabled && build.deadline.max_elapsed_seconds ? t.buildDeadlineActive(build.deadline.max_elapsed_seconds) : t.buildDeadlineInactive}</span>{build.error && <p>{build.error}</p>}</div>}
           <section className="module-registry" data-module-registry="versioned-evidence">
             <div className="module-registry-head"><div><strong>{t.moduleRegistryTitle}</strong><small>{t.moduleRegistryHelp}</small></div><button type="button" onClick={() => void refreshCapabilityModules()} disabled={capabilityModulesLoading}>{capabilityModulesLoading ? t.moduleRegistryLoading : t.moduleRegistryRefresh}</button></div>
@@ -2718,20 +2593,6 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
           >{studioChrome.toolbarExpanded ? '×' : (locale === 'zh' ? '工具' : 'Tools')}</button>
         </div>
         <div className="canvas-guidance" data-collapsed={studioChrome.guidanceExpanded ? 'false' : 'true'}>
-          {safeDraftLanding && <section className="safe-draft-landing" data-safe-draft-landing="active">
-            <div>
-              <strong>{t.safeDraftLandingTitle}</strong>
-              <p>{t.safeDraftLandingCopy}</p>
-              <small>{t.safeDraftLandingNoModel}</small>
-            </div>
-            <div className="safe-draft-actions">
-              <button data-safe-draft-action="inspect" onClick={() => setStudioTab('edit')} type="button">{t.safeDraftActionInspect}</button>
-              <button data-safe-draft-action="acceptance" onClick={() => setStudioTab('test')} type="button">{t.safeDraftActionAcceptance}</button>
-              <button data-safe-draft-action="try" onClick={() => setStudioTab('run')} type="button">{t.safeDraftActionTry}</button>
-              <button data-safe-draft-action="build_later" onClick={() => setStudioTab('build')} type="button">{t.safeDraftActionBuildLater}</button>
-              <button className="dismiss" data-safe-draft-action="dismiss" onClick={dismissSafeDraftLanding} type="button">{t.safeDraftActionDismiss}</button>
-            </div>
-          </section>}
           <section className="draft-readiness">
             <div className="draft-readiness-head"><strong>{t.draftReadinessTitle}</strong><small>{t.draftReadinessHelp}</small></div>
             <div className="readiness-grid">{readinessCards.map(card => <article className={card.ready ? 'ready' : 'needs-action'} key={card.label}>
@@ -2748,21 +2609,6 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
               <b>{signal.value}</b>
             </article>)}</div>
             <ul>{t.canvasGuideSteps.map(item => <li key={item}>{item}</li>)}</ul>
-          </section>
-          <section className="next-action-checklist" data-detail-guidance="next-action-checklist">
-            <div className="next-action-head"><strong>{t.nextActionTitle}</strong><small>{t.nextActionHelp}</small></div>
-            <div className="next-action-list">{nextActionCards.map(action => <button
-              className={action.ready ? 'ready' : 'needs-action'}
-              data-next-action={action.id}
-              key={action.id}
-              onClick={() => setStudioTab(action.target)}
-              type="button"
-            >
-              <span>{action.label}</span>
-              <b>{action.ready ? t.readyLabel : t.needsActionLabel}</b>
-              <small>{action.detail}</small>
-              <em>{t.nextActionOpen}</em>
-            </button>)}</div>
           </section>
         </div>
         <ReactFlow

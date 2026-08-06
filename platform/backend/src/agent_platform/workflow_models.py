@@ -476,6 +476,7 @@ class BuildTeamState(BaseModel):
     teammates: dict[str, TeammateState] = Field(default_factory=dict)
     coordinator_messages: list[dict[str, Any]] = Field(default_factory=list)
     manual_lookups: list[str] = Field(default_factory=list)
+    catalog_queries: list[str] = Field(default_factory=list)
     revision: int = 0
     published_version: int | None = None
     repair_cycles: int = 0
