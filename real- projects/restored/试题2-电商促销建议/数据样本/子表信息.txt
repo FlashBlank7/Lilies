@@ -1,0 +1,122 @@
+子表名称: Sales Transaction
+表头: ['KEY_VBELN', 'KEY_POSNR', 'RU_DATE', 'RU_TIME', 'RU_TCODE', 'RU_UNAME', 'LAST_MOD_DT', 'LIFNR', 'WERKS', 'VBELN', 'POSNR', 'MATNR', 'CHARG', 'FKIMG', 'VRKME', 'BRTWR', 'BRTWRPER', 'RTLPC', 'RTLPC_C', 'WAVWR', 'DISCNT', 'DISCNTPER', 'MWSBP', 'ERNAM', 'ERDAT', 'FKDAT', 'SPTAG', 'BONNR', 'CONDNR', 'PRVBT', 'XBLNR', 'KVORG', 'ZBKCH', 'ZAFCH', 'ZBFCH', 'VKFNR', 'KBDNR', 'VKORG', 'ALAND', 'ZSTONE', 'ZCATEG', 'ZSHAPE', 'ZMATER', 'ZMETAL', 'ZCOLORG', 'ZMSSUB', 'ZFASHI', 'ZSIZE', 'ZEWJMODEL', 'ZEWJVER', 'ZCERTI', 'ZOTHERS', 'ZBRAND', 'ZCARAT', 'ZMSMES', 'ZCLARI', 'ZCUTSTY', 'ZCUTGRADE', 'ZPOLISH', 'ZSYMME', 'ZFLORES', 'ZTDWEIG', 'ZTGWEIG', 'ZTPWEIG', 'ZSTOCK', 'ZLBSAL', 'ZGDCAT', 'ZWEIGH', 'ZLABOUR', 'ZMODELNO', 'ZSERIES', 'ZGENDER', 'ZMOVENT', 'ZDDIAL', 'ZDBEZEL', 'ZDBRACE', 'ZBRACE', 'ZDCOLOR', 'ZDPATTE', 'ZDNUMER', 'ZSCOLOR', 'ZSTGRP', 'ZTBRACE', 'ZCOLOR', 'ZSCATE', 'ZDIAMOND', 'ZCOLLECTION', 'ZDETAILCAT', 'ZGR_DATE', 'ZCASE_NO', 'ZCERT_NO', 'MTART', 'MATKL', 'MTBEZ', 'BRTWR_A', 'BRTWRPER_A', 'VIPNA', 'VIPNR', 'ZNS04', 'TRANS_TIME', 'REGIO', 'ZCCP', 'ZZSD', 'TRANS_IRS', 'POSINVNR_R', 'POSINVDA_R', 'ZEVENTID', 'ZPROCODE', 'POSGRPNO', 'SALESM2', 'SALESM3', 'SALESM4', 'SALESM5', 'RFPPL', 'RFSHOP', 'ESA', 'ZSPCOST', 'ZSPBFGP', 'ZSPAFGP', 'SACH2', 'ECTRX', 'ECTENDER', 'ZPROFLAG', 'ZAFCH_XP', 'ZBFCH_XP', 'BRTWR_XP', 'BRTWR_A_XP', 'REFST', 'ZLGORT', 'ZLOC_DAT']
+子表名称: Site Master
+表头: ['WERKS', 'NAME1', 'BWKEY', 'NAME2', 'ORT01', 'EKORG', 'VKORG', 'LAND1', 'VLFKZ']
+子表名称: Article master (Standard)
+表头: ['MATNR', 'ERSDA', 'MTART', 'MEINS']
+子表名称: Article master (Custom)
+表头: ['MATNR', 'ZSTONE', 'ZCATEG', 'ZSHAPE', 'ZMATER', 'ZMETAL', 'ZCOLORG', 'ZMSSUB', 'ZFASHI', 'ZSIZE', 'ZSIZE_UOM', 'ZEWJMODEL', 'ZEWJVER', 'ZCERTI', 'ZOTHERS', 'ZBRAND', 'ZCARAT', 'ZCARAT_FR', 'ZCARAT_TO', 'ZMSMES', 'ZCLARI', 'ZCUTSTY', 'ZCUTGRADE', 'ZPOLISH', 'ZSYMME', 'ZFLORES', 'ZTDWEIG', 'ZTDWEIG_UOM', 'ZTGWEIG', 'ZTGWEIG_UOM', 'ZTPWEIG', 'ZTPWEIG_UOM', 'ZSTOCK', 'ZLBSAL', 'ZGDCAT', 'ZWEIGH', 'ZWEIGH_UOM', 'ZLABOUR', 'ZMODELNO', 'ZSERIES', 'ZGENDER', 'ZMOVENT', 'ZDDIAL', 'ZDBEZEL', 'ZDBRACE', 'ZBRACE', 'ZDCOLOR', 'ZDPATTE', 'ZDNUMER', 'ZSCOLOR', 'ZSTGRP', 'ZTBRACE', 'ZCOLOR', 'ZSCATE', 'ZDIAMOND', 'ZCOLLECTION', 'ZPDTSTATUS', 'ZDETAILCAT', 'ZPRODUCTCODE', 'ZEXPPERIOD', 'ZEXPDATE', 'ZMARKUP', 'ZKEYWORD', 'ZCRAFTS', 'ZCOMPL', 'ZFUNCT', 'ZSUB_COLLECTION', 'ZORIGIN', 'ZCOMMENT', 'ZEXTENSION', 'ZCERTI_TYPE', 'ZBRANDSUB', 'ZSIZETEXT', 'ZSDISCG', 'ZECOM_MODELNO', 'ZCOUPTY', 'ZREF_CODE', 'ZBUSTY', 'ZOTHER_COST', 'ZCCOBUO', 'ZDL', 'ZXL', 'JV_FLAG', 'ZORI_CODE']
+子表名称: Article Description
+表头: ['MATNR', 'SPRAS', 'VKORG', 'ZDESC']
+子表名称: Main Stone (Text)
+表头: ['Language', 'Article Type', 'Main Stone Code', 'Main Stone Description']
+子表名称: Category (Text)
+表头: ['Language', 'Article Type', 'Category Code', 'Category Description']
+子表名称: Shape (Text)
+表头: ['Language', 'Article Type', 'Shape Code', 'Shape Description']
+子表名称: Material (Text)
+表头: ['Language', 'Article Type', 'Material Code', 'Material Description']
+子表名称: Metal (Text)
+表头: ['Language', 'Article Type', 'Metal Code', 'Metal Description']
+子表名称: Color Grade (Text)
+表头: ['Language', 'Article Type', 'Color Grade Code', 'Color Grade Description']
+子表名称: Main Stone Sub-category (Text)
+表头: ['Language', 'Article Type', 'Main Stone Sub-category Code', 'Main Stone Sub-category Description']
+子表名称: Style Type (Text)
+表头: ['Language', 'Article Type', 'Style Type Code', 'Style Type Description']
+子表名称: Brand (Text)
+表头: ['Language', 'Article Type', 'Brand Code', 'Brand Description']
+子表名称: Clarity (Text)
+表头: ['Language', 'Article Type', 'Clarity Code', 'Clarity Description']
+子表名称: Cutting Style (Text)
+表头: ['Language', 'Article Type', 'Cutting Style Code', 'Cutting Style Description']
+子表名称: Cut Grade (Text)
+表头: ['Language', 'Article Type', 'Cut Grade Code', 'Cut Grade Description']
+子表名称: Polish (Text)
+表头: ['Language', 'Article Type', 'Polish Code', 'Polish Description']
+子表名称: Symmetry (Text)
+表头: ['Language', 'Article Type', 'Symmetry Code', 'Symmetry Description']
+子表名称: Fluorescence (Text)
+表头: ['Language', 'Article Type', 'Fluorescence Code', 'Fluorescence Description']
+子表名称: Stock Source (Text)
+表头: ['Language', 'Article Type', 'Stock Source Code', 'Stock Source Description']
+子表名称: Type (Text)
+表头: ['Language', 'Article Type', 'Type Code', 'Type Description']
+子表名称: Gender (Text)
+表头: ['Language', 'Article Type', 'Gender Code', 'Gender Description']
+子表名称: Movement (Text)
+表头: ['Language', 'Article Type', 'Movement Code', 'Movement Description']
+子表名称: Diamond Dial (Text)
+表头: ['Language', 'Article Type', 'Diamond Dial Code', 'Diamond Dial Description']
+子表名称: Diamond Bezel (Text)
+表头: ['Language', 'Article Type', 'Diamond Bezel Code', 'Diamond Bezel Description']
+子表名称: Diamond Bracelet (Text)
+表头: ['Language', 'Article Type', 'Diamond Bracelet Code', 'Diamond Bracelet Description']
+子表名称: Bracelet (Text)
+表头: ['Language', 'Article Type', 'Bracelet Code', 'Bracelet Description']
+子表名称: Dial Color (Text)
+表头: ['Language', 'Article Type', 'Dial Color Code', 'Dial Color Description']
+子表名称: Dial Pattern (Text)
+表头: ['Language', 'Article Type', 'Dial Pattern Code', 'Dial Pattern Description']
+子表名称: Dial Numerals (Text)
+表头: ['Language', 'Article Type', 'Dial Numerals Code', 'Dial Numerals Description']
+子表名称: Strap Color (Text)
+表头: ['Language', 'Article Type', 'Strap Color Code', 'Strap Color Description']
+子表名称: Stock Turnover Group (Text)
+表头: ['Language', 'Article Type', 'Stock Turnover Group Code', 'Stock Turnover Group Description']
+子表名称: Type of Bracelet (Text)
+表头: ['Language', 'Article Type', 'Type of Bracelet Code', 'Type of Bracelet Description']
+子表名称: Color (Text)
+表头: ['Language', 'Article Type', 'Color Code', 'Color Description']
+子表名称: Sub Category (Text)
+表头: ['Language', 'Article Type', 'Sub Category Code', 'Sub Category Description']
+子表名称: Diamond (Text)
+表头: ['Language', 'Article Type', 'Diamond Code', 'Diamond Description']
+子表名称:  Certificate (Text)
+表头: ['Language', 'Article Type', 'Certificate Code', 'Certificate Description']
+子表名称: Collection (Text)
+表头: ['Language', 'Article Type', 'Collection Code', 'Collection Description']
+子表名称: Product Status (Text)
+表头: ['Language', 'Article Type', 'Product Status Code', 'Product Status Description']
+子表名称: Segment (Text)
+表头: ['Language', 'Article Type', 'Segment Code', 'Segment Description']
+子表名称: Mark Up Rate (Text)
+表头: ['Language', 'Article Type', 'Mark Up Rate Code', 'Mark Up Rate Description']
+子表名称: Craftsmanship (Text)
+表头: ['Language', 'Article Type', 'Craftsmanship Code', 'Craftsmanship Description']
+子表名称: Complication (Text)
+表头: ['Language', 'Article Type', 'Complication Code', 'Complication Description']
+子表名称: Function (Text)
+表头: ['Language', 'Article Type', 'Function Code', 'Function Description']
+子表名称: Fixed Price Type (Text)
+表头: ['Language', 'Article Type', 'Fixed Price Type Code', 'Fixed Price Type Description']
+子表名称: PRPO Reason Category (Text)
+表头: ['Language', 'Article Type', 'Reason Category Code', 'Reason Category Description']
+子表名称: Sub Collection (Text)
+表头: ['Language', 'Article Type', 'Sub Collection Code', 'Sub Collection Description']
+子表名称: Origin (Text)
+表头: ['Language', 'Article Type', 'Origin Code', 'Origin Description']
+子表名称: Comment (Text)
+表头: ['Language', 'Article Type', 'Comment Code', 'Comment Description']
+子表名称: Certificate Type (Text)
+表头: ['Language', 'Article Type', 'Certificate Type Code', 'Certificate Type Description']
+子表名称: Sub Product Line (Text)
+表头: ['Language', 'Article Type', 'Sub Product Line Code', 'Sub Product Line Description']
+子表名称: Sales Discount Group(Text)
+表头: ['Language', 'Article Type', 'Sales Discount Group Code', 'Sales Discount Group Description']
+子表名称: Coupon Type (Text)
+表头: ['Language', 'Article Type', 'Coupon Type Code', 'Coupon Type Description']
+子表名称: Business Type (Text)
+表头: ['Language', 'Article Type', 'Business Type  Code', 'Business Type Description']
+子表名称: Monthly Staff List
+表头: ['STAFFCODE', 'YEAR_MONTH', 'WERKS', 'ZCOMM_BUSTYPE', 'STAFFNAME', 'STAFFALIAS', 'CHINESENAME', 'TITLE', 'ZEMP_TYPE', 'GRADING', 'DIVISION', 'ZBRAND', 'DATEJOIN', 'SHOPPOINT', 'GROUPPOINT', 'TEMPGROUPPOINT', 'TMP_GP_EFFDATE', 'PL_DAYS', 'NPL_DAYS', 'ZLAST_MOD_DT', 'RU_TCODE', 'RU_UNAME', 'RU_DATE', 'ZDEL']
+子表名称: Position Rate
+表头: ['WERKS', 'ZCOMM_BUSTYPE', 'TITLE', 'ZVALID_TO_YM', 'ZVALID_FR_YM', 'ZPOS_RATE', 'ZAWARD_FLG', 'ZLAST_MOD_DT', 'RU_TCODE', 'RU_UNAME', 'RU_DATE', 'ZDEL']
+子表名称: Sales Promotion Item
+表头: ['IDOCNR', 'ITEM', 'PRO_CODE', 'PRO_DESC']
+子表名称: Sales Header
+表头: ['IDOCNR', 'IDOCTYP', 'POSINVNR', 'IDOCDAT', 'IDOCTIM', 'IDOCSTA', 'WERKS', 'POSINTYP', 'POSDCURR', 'POSKREIS', 'KASSID', 'KASSIERER', 'POSREDOC', 'POSMNINV', 'POSINVDA', 'POSVIPNR', 'POSVIPNA', 'POSBILNR', 'POSARTNR', 'POSHAGOLD', 'POSZCGST', 'POSGRPNO', 'SALESM2', 'SALESM3', 'SALESM4', 'SALESM5', 'RFPPL', 'RFSHOP', 'ESA', 'SACH2', 'ECTRX', 'REFST']
+子表名称: Sales Item Details
+表头: ['IDOCNR', 'ITEM', 'KSCHL', 'VORGANGART', 'MATNR', 'CHARG', 'MENGE', 'MENGE2', 'VERKAEUFER', 'APPVID', 'WAVWR', 'ZLGORT', 'ZLOC_DAT']
+子表名称: Promotion Header
+表头: ['pmt_no', 'pmt_date', 'pmt_start', 'pmt_end', 'pmt_status', 'pmt_remark', 'pmt_level', 'type_id', 'updated_on', 'ho_upd_on']

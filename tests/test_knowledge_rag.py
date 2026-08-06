@@ -518,3 +518,27 @@ def test_public_api_and_workflow_blocks_form_a_grounded_rag_path(
         )
         assert test_run.status_code == 200, test_run.text
         assert test_run.json()["passed"] is True, test_run.text
+
+
+@pytest.mark.asyncio
+async def test_sync_auto_creates_missing_index_so_workflows_are_self_contained(
+    tmp_path: Path,
+) -> None:
+    service = KnowledgeIndexService(tmp_path / "knowledge.db")
+    await service.initialize()
+
+    synchronized = await service.sync(
+        "runtime-provided-kb",
+        KnowledgeSyncRequest(documents=_documents(), event_id="auto-create-001"),
+    )
+    assert synchronized["inserted"] == ["finance", "holidays", "safety"]
+
+    result = await service.retrieve(
+        "runtime-provided-kb",
+        KnowledgeRetrieveRequest(
+            query="forklift spotter",
+            principal_roles=["warehouse"],
+            minimum_score=0.01,
+        ),
+    )
+    assert result["results"], "auto-created index must serve retrieval after sync"

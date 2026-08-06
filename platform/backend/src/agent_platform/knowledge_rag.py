@@ -508,7 +508,22 @@ class KnowledgeIndexService:
                 (name,),
             ).fetchone()
             if index is None:
-                raise KeyError(f"knowledge index not found: {name}")
+                # Workflows must be self-contained: a knowledge_index_sync step
+                # provisions its index on first sync with default parameters.
+                now = _utc_now()
+                connection.execute(
+                    """
+                    INSERT INTO knowledge_indexes(
+                      name, embedding_model, chunk_size, chunk_overlap, revision,
+                      content_digest, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, 0, ?, ?, ?)
+                    """,
+                    (name, EMBEDDING_MODEL, 1_000, 120, _sha256([]), now, now),
+                )
+                index = connection.execute(
+                    "SELECT * FROM knowledge_indexes WHERE name = ?",
+                    (name,),
+                ).fetchone()
             replay = connection.execute(
                 """
                 SELECT request_digest, response_json

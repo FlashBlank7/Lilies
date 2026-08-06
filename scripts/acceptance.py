@@ -152,13 +152,27 @@ def main() -> None:
         print(f"build={build['build_id']}")
         final = follow_build(args.base_url, token, build["build_id"], spec.get("max_elapsed_seconds", 1800))
         report["build_id"] = build["build_id"]
+        conversation = []
+        # 她 ask_owner 提问且规格备好了甲方答复时，自动回信继续（最多两轮）。
+        for _ in range(2):
+            question = (final.get("team_state") or {}).get("pending_question")
+            reply = spec.get("owner_reply_when_asked")
+            if final["status"] != "needs_attention" or not question or not reply:
+                break
+            print(f"莉莉丝提问：{question[:200]}…\n→ 以甲方口吻自动回复，继续搭建")
+            conversation.append({"question": question, "reply": reply})
+            request(args.base_url, token, "POST", f"/api/v1/builds/{build['build_id']}/resume", {
+                "message": reply,
+            })
+            final = follow_build(args.base_url, token, build["build_id"], spec.get("max_elapsed_seconds", 1800))
+        if conversation:
+            report["conversation"] = conversation
         report["build_status"] = final["status"]
         report["build_error"] = final.get("error")
-        if final["status"] not in {"ready", "published"}:
-            question = (final.get("team_state") or {}).get("pending_question")
-            if question:
-                report["pending_question"] = question
-                print(f"莉莉丝提问，等待回复：{question}")
+        question = (final.get("team_state") or {}).get("pending_question")
+        if final["status"] not in {"ready", "published"} and question:
+            report["pending_question"] = question
+            print(f"莉莉丝仍在等待回复：{question}")
 
     draft = request(args.base_url, token, "GET", f"/api/v1/applications/{app_id}/draft")
     node_types = {node["type"] for node in draft["snapshot"]["workflow"]["nodes"]}
