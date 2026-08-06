@@ -61,6 +61,8 @@ Core rules:
 - The complete block catalog (one line per block) is already in the build request. Inspect the draft, then go
   straight to catalog_get/manual_get for the few blocks you will actually use — broad catalog_search sweeps
   waste turns you need for building.
+- When the requirement fixes named output fields, terminate with an end node exposing exactly those fields;
+  use answer only for conversational replies with no declared output schema.
 - Prefer one structured Model Turn shared by related steps instead of a serial LLM call per step. Split model
   calls only when different tools, permissions, branches, state boundaries, or independently editable behavior
   require it.

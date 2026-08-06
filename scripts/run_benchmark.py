@@ -76,7 +76,14 @@ def terminal_outputs(base: str, token: str, application_id: str, run: dict) -> d
     return merged
 
 
-def run_workflow(base: str, token: str, application_id: str, inputs: dict, timeout_s: float = 300) -> dict:
+def run_workflow(
+    base: str,
+    token: str,
+    application_id: str,
+    inputs: dict,
+    human_input: dict | None = None,
+    timeout_s: float = 300,
+) -> dict:
     started = request(
         base, token, "POST",
         f"/api/v1/applications/{application_id}/runs",
@@ -84,8 +91,14 @@ def run_workflow(base: str, token: str, application_id: str, inputs: dict, timeo
     )
     run_id = started["run_id"] if isinstance(started, dict) and "run_id" in started else started.get("id")
     t0 = time.time()
+    resumed = False
     while time.time() - t0 < timeout_s:
         run = request(base, token, "GET", f"/api/v1/runs/{run_id}")
+        if run["status"] == "paused" and human_input is not None and not resumed:
+            # Play the on-duty human: answer the waiting human_input node once.
+            request(base, token, "POST", f"/api/v1/runs/{run_id}/resume", {"values": human_input})
+            resumed = True
+            continue
         if run["status"] in {"succeeded", "failed", "cancelled", "paused"}:
             return run
         time.sleep(5)
@@ -165,7 +178,11 @@ def main() -> None:
 
         if not args.skip_run and final["status"] in {"ready", "published"}:
             try:
-                run = run_workflow(args.base_url, token, app["id"], task["sample_inputs"])
+                run = run_workflow(
+                    args.base_url, token, app["id"],
+                    task["sample_inputs"],
+                    human_input=task.get("sample_human_input"),
+                )
                 report["run_status"] = run.get("status")
                 outputs = terminal_outputs(args.base_url, token, app["id"], run)
                 report["terminal_output_keys"] = sorted(outputs.keys())

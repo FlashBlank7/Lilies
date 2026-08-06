@@ -113,7 +113,7 @@
       "id": "T3-alarm-triage",
       "family": "混合智能流程自动化",
       "legacy_ref": "EXP-LILIES-003",
-      "requirement": "我是设备运维班长。做一个告警分诊工作流：输入一条设备告警（设备编号、指标名、当前值、阈值、持续分钟数）。超过阈值 50% 以上或持续超过 30 分钟算严重告警，必须停下来等值班人确认后才继续；其余算一般告警，自动给出处理建议。不管哪种，最后都要输出一份处置记录：告警级别、判定原因、处理建议、是否经过人工确认。 系统对接说明:输入字段名固定为 alarm,一个对象,含 device_id、metric、value、threshold、duration_minutes。输出字段名固定为:severity（critical 或 normal）、reason（判定原因）、recommendation（处理建议）、human_confirmed（布尔值）。",
+      "requirement": "我是设备运维班长。做一个告警分诊工作流：输入一条设备告警（设备编号、指标名、当前值、阈值、持续分钟数）。超过阈值 50% 以上或持续超过 30 分钟算严重告警，必须停下来等值班人确认后才继续；其余算一般告警，自动给出处理建议。不管哪种，最后都要输出一份处置记录：告警级别、判定原因、处理建议、是否经过人工确认。 系统对接说明:输入字段名固定为 alarm,一个对象,含 device_id、metric、value、threshold、duration_minutes。输出字段名固定为:severity（critical 或 normal）、reason（判定原因）、recommendation（处理建议）、human_confirmed（布尔值）。人工确认表单字段名固定为:confirmed(布尔)、operator(确认人)、note(备注)。",
       "sample_inputs": {
         "alarm": {
           "device_id": "PUMP-07",
@@ -137,7 +137,12 @@
         "human_input 持久暂停",
         "simulated_human_inputs 测试",
         "模型建议不虚构已完成动作"
-      ]
+      ],
+      "sample_human_input": {
+        "confirmed": true,
+        "operator": "值班-张工",
+        "note": "已到场检查，同意继续处置"
+      }
     },
     {
       "id": "T4-predictive-maintenance",
