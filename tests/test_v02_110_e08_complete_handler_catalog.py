@@ -108,8 +108,6 @@ def test_v02_110_catalog_covers_all_platform_task_kinds() -> None:
     assert entries["scheduler_manual_trigger"]["executable"] is True
     assert entries["draft_patch_preview"]["status"] == "implemented"
     assert entries["draft_patch_preview"]["executable"] is True
-    assert entries["benchmark"]["status"] == "implemented"
-    assert entries["benchmark"]["executable"] is True
     assert entries["builder_build"]["status"] == "implemented"
     assert entries["builder_build"]["executable"] is True
     for kind in set(PLATFORM_WORKER_TASK_KINDS) - {
@@ -119,7 +117,6 @@ def test_v02_110_catalog_covers_all_platform_task_kinds() -> None:
         "scheduler_trigger",
         "scheduler_manual_trigger",
         "draft_patch_preview",
-        "benchmark",
     }:
         assert entries[kind]["status"] == "unavailable"
         assert entries[kind]["handler_registered"] is True

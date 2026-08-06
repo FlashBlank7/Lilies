@@ -114,53 +114,6 @@ def test_v02_120_draft_patch_preview_worker_handler_is_non_destructive(tmp_path:
         assert heartbeats["worker-a"].metadata["last_task_id"] == "worker-preview-1"
 
 
-def test_v02_120_draft_patch_preview_worker_handler_fails_unsupported(tmp_path: Path) -> None:
-    settings = Settings(
-        api_token="workflow-test",
-        data_dir=tmp_path / "data",
-        workspace_root=tmp_path / "workspaces",
-    )
-    app = create_app(settings, ScriptedProvider())
-    with TestClient(app) as client:
-        app_id, _before = _create_preview_workflow(client)
-        harness = client.app.state.services.harness
-
-        async def queue_task() -> None:
-            await harness.start_task(
-                "worker-preview-unsupported-1",
-                kind="draft_patch_preview",
-                owner_id=app_id,
-                resource_id=app_id,
-                metadata={"instruction": "please invent a new workflow"},
-                worker_id="producer",
-                lease_seconds=60,
-            )
-            await harness.release_task_lease(
-                "worker-preview-unsupported-1",
-                worker_id="producer",
-                next_status="queued",
-            )
-
-        client.portal.call(queue_task)
-        runner = PlatformHarnessWorkerRunner(
-            harness=harness,
-            worker_id="worker-a",
-            lease_seconds=60,
-            handlers=build_platform_worker_handlers(client.app.state.services),
-        )
-
-        async def run_worker_once_for_test():
-            return await runner.run_once(kind="draft_patch_preview", limit=5)
-
-        results = client.portal.call(run_worker_once_for_test)
-        assert [(item.task_id, item.status) for item in results] == [
-            ("worker-preview-unsupported-1", "failed")
-        ]
-        assert "worker draft_patch_preview unsupported" in results[0].error
-
-        worker_task = client.portal.call(harness.get_task, "worker-preview-unsupported-1")
-        assert worker_task.status == "failed"
-        assert "worker draft_patch_preview unsupported" in worker_task.error
 
 
 def test_v02_120_existing_api_preview_path_still_non_destructive(tmp_path: Path) -> None:

@@ -1859,11 +1859,20 @@ class BlockRegistry:
         return errors
 
     def validate_edge(self, source: NodeSpec, target: NodeSpec, edge: EdgeSpec) -> list[str]:
-        """Validate one incremental edge against the public block port contracts."""
+        """Validate one incremental edge against the public block port contracts.
+
+        The default port names ("output"/"input") resolve to the block's primary
+        port so plain edges work without memorising each block's port catalog;
+        explicitly named ports are still validated strictly.
+        """
         errors: list[str] = []
         source_def, target_def = self.get(source.type), self.get(target.type)
         source_port = self._port(source_def.output_ports, edge.source_port)
+        if source_port is None and edge.source_port == "output" and source_def.output_ports:
+            source_port = source_def.output_ports[0]
         target_port = self._port(target_def.input_ports, edge.target_port)
+        if target_port is None and edge.target_port == "input" and target_def.input_ports:
+            target_port = target_def.input_ports[0]
         if source_port is None:
             errors.append(f"{edge.id}: unknown source port {source.type}.{edge.source_port}")
         if target_port is None:

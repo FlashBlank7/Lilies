@@ -56,11 +56,25 @@ def test_block_registry_validates_named_and_typed_incremental_ports() -> None:
             id="bad-name",
             source="iteration",
             target="end",
+            source_port="bogus",
+            target_port="input",
+        ),
+    )
+    assert missing == ["bad-name: unknown source port iteration.bogus"]
+
+    # The default port name resolves to the block's primary output port.
+    defaulted = registry.validate_edge(
+        iteration,
+        end,
+        EdgeSpec(
+            id="default-name",
+            source="iteration",
+            target="end",
             source_port="output",
             target_port="input",
         ),
     )
-    assert missing == ["bad-name: unknown source port iteration.output"]
+    assert defaulted == []
 
     incompatible = registry.validate_edge(
         llm,
@@ -142,13 +156,13 @@ def test_add_edge_rejects_bad_port_before_persisting_it(tmp_path: Path) -> None:
                     "id": "llm-end",
                     "source": "llm",
                     "target": "end",
-                    "source_port": "output",
+                    "source_port": "bogus",
                     "target_port": "input",
                 }
             },
         )
         assert invalid.status_code == 422
-        assert "unknown source port llm.output" in invalid.text
+        assert "unknown source port llm.bogus" in invalid.text
         unchanged = client.get(
             f"/api/v1/applications/{application_id}/draft",
             headers=_headers(),
