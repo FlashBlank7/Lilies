@@ -778,8 +778,7 @@ export default function Home() {
     <main className="home-shell">
       <nav className="topbar"><div className="brand"><span>L</span> Lilies</div><div className="topbar-actions"><button className="lang-toggle" onClick={toggleLocale}>{t.switchLabel}</button><div className={`status-dot runtime-status ${runtimeStatus}`} data-runtime-status={runtimeStatus}><span>{runtimeStatusText}</span><small>{runtimeStatusDetail}</small></div></div></nav>
       <section className="hero">
-        <div className="eyebrow">{t.eyebrow}</div>
-        <h1>{t.heroTitleA}<br/><em>{t.heroTitleB}</em></h1>
+        <h1>{t.heroTitleA}<em>{t.heroTitleB}</em></h1>
         <p>{t.heroCopy}</p>
         <form className="create-card" onSubmit={create}>
           <textarea ref={requirementInputRef} aria-label={t.requirementAria} value={requirement} onChange={event => { setRequirement(event.target.value); setRequirementIntake(null); setRequirementSelections({}); setRequirementAnswerHistory([]); }} />
@@ -787,6 +786,8 @@ export default function Home() {
             <div><span>{t.selectedScenarioSummaryTitle} · {selectedCustomerExample.role}</span><strong>{selectedCustomerExample.title}</strong><p>{selectedCustomerExample.need}</p><small>{selectedCustomerExample.acceptanceSignal}</small></div>
             <button onClick={clearCustomerExample} type="button">{t.clearSelectedScenario}</button>
           </section>}
+          <details className="ai-intake" open={Boolean(requirementIntake) || requirementIntakeBusy}>
+            <summary>{locale === 'zh' ? '不确定怎么写？让 AI 先帮你把需求问清楚（可选）' : 'Not sure what to write? Let AI clarify the requirement first (optional)'}</summary>
           <section className={`requirement-completion-panel ${requirementCompletionReady ? 'ready' : 'needs-input'}`} data-requirement-completion="ai-workflow-intake" data-requirement-intake-status={requirementIntake?.status || 'not_started'}>
             <div className="requirement-completion-head">
               <div><strong>{t.requirementCompletionTitle}</strong><small>{t.requirementCompletionHelp}</small></div>
@@ -852,6 +853,7 @@ export default function Home() {
             </div>
             {requirementQuestions.length > 0 && <small className="requirement-completion-count">{t.requirementCompletionQuestionCount(requirementAnsweredCount, requirementQuestions.length)}</small>}
           </section>
+          </details>
           <div className="create-footer">
             <div className="create-copy"><span>{t.createHint}</span><small>{t.safeDraftHint}</small></div>
             <div className="create-actions">
@@ -860,31 +862,6 @@ export default function Home() {
             </div>
           </div>
         </form>
-        <section className="customer-intake-panel" aria-labelledby="customer-intake-title">
-          <div className="customer-intake-head">
-            <div>
-              <h2 id="customer-intake-title">{t.customerIntakeTitle}</h2>
-              <p>{t.customerIntakeHelp}</p>
-            </div>
-            {selectedCustomerExample && <span>{t.selectedScenarioLabel} · {selectedCustomerExample.role}</span>}
-          </div>
-          <div className="example-grid">
-            {t.customerExamples.map(example => <button
-              className={`example-card ${selectedExampleId === example.id ? 'active' : ''}`}
-              data-customer-example={example.id}
-              key={example.id}
-              onClick={() => applyCustomerExample(example)}
-              type="button"
-            >
-              <span className="scenario-chip">{example.role}</span>
-              <strong>{example.title}</strong>
-              <p>{example.need}</p>
-              <small>{example.expectedOutcome}</small>
-              <em>{example.acceptanceSignal}</em>
-              <b>{t.scenarioUseButton}</b>
-            </button>)}
-          </div>
-        </section>
         {authRequired && <form className="auth-card" onSubmit={saveToken}>
           <div><strong>{t.authTitle}</strong><p>{t.authCopy}</p></div>
           <input type="password" value={tokenInput} placeholder={t.authPlaceholder} onChange={event => setTokenInput(event.target.value)} />
@@ -892,18 +869,6 @@ export default function Home() {
         </form>}
         {notice && <div className="success-banner" role="status">{notice}</div>}
         {error && <div className="error-banner" role="alert">{error}</div>}
-      </section>
-      <section className="customer-section">
-        <div className="section-heading"><h2>{t.customerScenariosTitle}</h2><span>{t.customerScenariosHelp}</span></div>
-        <div className="scenario-grid">{t.customerScenarios.map(item => <article className="scenario-card" key={item.role}>
-          <strong>{item.role}</strong>
-          <p>{item.need}</p>
-          <small>{item.action}</small>
-        </article>)}</div>
-        <div className="product-path">{t.productSteps.map(item => <article className="step-card" key={item.title}>
-          <b>{item.title}</b>
-          <span>{item.text}</span>
-        </article>)}</div>
       </section>
       <section className="apps-section" data-app-list-url-state="synced">
         <div className="section-heading"><h2>{t.applications}</h2><span>{t.appCount(apps.length)}</span></div>
@@ -945,6 +910,31 @@ export default function Home() {
           {apps.length > 0 && !visibleApps.length && <div className="empty-card"><strong>{normalizedAppSearch ? t.appSearchEmpty : t.appFilterEmpty}</strong><span>{normalizedAppSearch ? t.appSearchEmptyHelp : t.appFilterEmptyHelp}</span></div>}
           {!apps.length && <div className="empty-card"><strong>{t.emptyApps}</strong><span>{t.emptyAppsNextAction}</span></div>}
         </div>
+      </section>
+      <section className="customer-intake-panel" aria-labelledby="customer-intake-title">
+          <div className="customer-intake-head">
+            <div>
+              <h2 id="customer-intake-title">{t.customerIntakeTitle}</h2>
+              <p>{t.customerIntakeHelp}</p>
+            </div>
+            {selectedCustomerExample && <span>{t.selectedScenarioLabel} · {selectedCustomerExample.role}</span>}
+          </div>
+          <div className="example-grid">
+            {t.customerExamples.map(example => <button
+              className={`example-card ${selectedExampleId === example.id ? 'active' : ''}`}
+              data-customer-example={example.id}
+              key={example.id}
+              onClick={() => applyCustomerExample(example)}
+              type="button"
+            >
+              <span className="scenario-chip">{example.role}</span>
+              <strong>{example.title}</strong>
+              <p>{example.need}</p>
+              <small>{example.expectedOutcome}</small>
+              <em>{example.acceptanceSignal}</em>
+              <b>{t.scenarioUseButton}</b>
+            </button>)}
+          </div>
       </section>
     </main>
   )

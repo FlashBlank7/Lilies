@@ -149,3 +149,92 @@
 .builder-transcript-tool-head{display:flex;align-items:center;gap:8px;font-size:11px}
 .builder-transcript-tool-head code{color:#7fa4ff}
 .builder-transcript-tool.failed .builder-transcript-tool-head span{color:#ff7a45;font-size:10px;text-transform:uppercase;letter-spacing:.06em}
+
+/* ── Light product theme: home page ─────────────────────────────────────── */
+.home-shell{--hbg:#f6f7f9;--hpanel:#ffffff;--hline:#e4e7ec;--htext:#181b22;--hmuted:#68717f;--haccent:#0e7a5f;--haccent-ink:#0a5c48;background:var(--hbg);color:var(--htext)}
+.home-shell .topbar{border-bottom:1px solid var(--hline);background:rgba(255,255,255,.85);backdrop-filter:blur(8px);position:sticky;top:0;z-index:20}
+.home-shell .brand{color:var(--htext)}
+.home-shell .brand span{background:linear-gradient(135deg,#12b886,#0e7a5f)}
+.home-shell .lang-toggle{border:1px solid var(--hline);background:#fff;color:var(--hmuted);border-radius:8px;padding:6px 12px}
+.home-shell .status-dot{color:var(--hmuted);border-color:var(--hline);background:#fff}
+.home-shell .hero{padding:56px 24px 64px}
+.home-shell .hero h1{font-size:38px;line-height:1.2;letter-spacing:-.03em;margin:0 0 12px;background:none;color:var(--htext)}
+.home-shell .hero h1 em{font-style:normal;background:none;color:var(--haccent);-webkit-background-clip:unset;margin-left:.35em}
+.home-shell .hero>p{font-size:15px;line-height:1.7;color:var(--hmuted);max-width:640px;margin:0 0 26px}
+.home-shell .create-card{background:var(--hpanel);border:1px solid var(--hline);border-radius:16px;box-shadow:0 1px 2px rgba(16,24,40,.04),0 8px 28px rgba(16,24,40,.06);padding:16px}
+.home-shell .create-card textarea{background:#fff;border:1px solid var(--hline);border-radius:12px;color:var(--htext);min-height:120px;padding:14px 16px;font-size:14px;line-height:1.65;width:100%;resize:vertical}
+.home-shell .create-card textarea:focus{outline:2px solid #b7e2d4;border-color:var(--haccent)}
+.home-shell .ai-intake{margin:12px 0 0;border:1px dashed var(--hline);border-radius:12px;background:#fafbfc}
+.home-shell .ai-intake>summary{cursor:pointer;padding:11px 14px;font-size:12.5px;color:var(--hmuted);list-style-position:inside}
+.home-shell .ai-intake[open]>summary{border-bottom:1px solid var(--hline);color:var(--htext)}
+.home-shell .ai-intake .requirement-completion-panel{border:0;background:transparent;margin:0;padding:12px 14px}
+.home-shell .requirement-completion-panel{border:1px solid var(--hline);background:#fafbfc;border-radius:12px}
+.home-shell .requirement-completion-head strong{color:var(--htext)}
+.home-shell .requirement-completion-head small,.home-shell .requirement-completion-head span{color:var(--hmuted)}
+.home-shell .requirement-completion-plan{background:#fff;border:1px solid var(--hline);border-radius:10px}
+.home-shell .requirement-completion-plan pre,.home-shell .requirement-completion-plan p{color:var(--htext)}
+.home-shell .requirement-completion-plan div strong{color:var(--htext)}
+.home-shell .requirement-completion-plan div small{color:var(--hmuted)}
+.home-shell .requirement-question-card{background:#fff;border:1px solid var(--hline);border-radius:10px}
+.home-shell .requirement-option-card{background:#fff;border:1px solid var(--hline);color:var(--htext)}
+.home-shell .requirement-option-card.selected{border-color:var(--haccent);background:#f0faf6}
+.home-shell .requirement-custom-answer textarea{background:#fff;border:1px solid var(--hline);color:var(--htext)}
+.home-shell .requirement-completion-actions button{border:1px solid var(--hline);background:#fff;color:var(--htext);border-radius:9px}
+.home-shell .requirement-completion-actions button:disabled{opacity:.5}
+.home-shell .requirement-completion-missing span{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412}
+.home-shell .selected-scenario-summary{background:#f0faf6;border:1px solid #b7e2d4;border-radius:10px}
+.home-shell .selected-scenario-summary span,.home-shell .selected-scenario-summary small{color:var(--haccent-ink)}
+.home-shell .selected-scenario-summary strong,.home-shell .selected-scenario-summary p{color:var(--htext)}
+.home-shell .create-footer{border-top:1px solid var(--hline);margin-top:14px;padding-top:14px}
+.home-shell .create-copy span{color:var(--htext)}
+.home-shell .create-copy small{color:var(--hmuted)}
+.home-shell .secondary-action{border:1px solid var(--hline);background:#fff;color:var(--htext);border-radius:10px}
+.home-shell .build-action{background:var(--haccent);color:#fff;border:0;border-radius:10px;box-shadow:0 1px 2px rgba(14,122,95,.4)}
+.home-shell .build-action:hover:not(:disabled){background:var(--haccent-ink)}
+.home-shell .build-action:disabled{background:#c3cdd7;color:#fff;box-shadow:none}
+.home-shell .customer-intake-panel{background:transparent;border:0;padding:34px 0 0}
+.home-shell .customer-intake-head h2{color:var(--htext)}
+.home-shell .customer-intake-head p{color:var(--hmuted)}
+.home-shell .example-card{background:var(--hpanel);border:1px solid var(--hline);border-radius:14px;color:var(--htext)}
+.home-shell .example-card:hover{border-color:#9fd8c5;box-shadow:0 6px 20px rgba(16,24,40,.07)}
+.home-shell .example-card.active{border-color:var(--haccent);background:#f0faf6}
+.home-shell .example-card p,.home-shell .example-card small{color:var(--hmuted)}
+.home-shell .example-card em{color:var(--haccent-ink)}
+.home-shell .example-card b{color:var(--haccent)}
+.home-shell .scenario-chip{background:#eef2f6;color:#475467;border:0}
+.home-shell .apps-section,.home-shell .customer-section{border-top:1px solid var(--hline)}
+.home-shell .section-heading h2{color:var(--htext)}
+.home-shell .section-heading p{color:var(--hmuted)}
+.home-shell .app-card{background:var(--hpanel);border:1px solid var(--hline);border-radius:14px}
+.home-shell .app-card:hover{box-shadow:0 6px 20px rgba(16,24,40,.07)}
+.home-shell .app-card h3{color:var(--htext)}
+.home-shell .app-card p{color:var(--hmuted)}
+.home-shell .app-meta,.home-shell .app-readiness span{color:var(--hmuted)}
+.home-shell .app-readiness span b{color:var(--htext)}
+.home-shell .app-readiness span.ready b{color:var(--haccent-ink)}
+.home-shell .app-next-action{color:var(--haccent-ink)}
+.home-shell .app-card-actions a{border:1px solid var(--hline);background:#fff;color:var(--htext);border-radius:8px}
+.home-shell .app-filter-toolbar button{border:1px solid var(--hline);background:#fff;color:var(--hmuted);border-radius:8px}
+.home-shell .app-filter-toolbar button.active{border-color:var(--haccent);color:var(--haccent-ink);background:#f0faf6}
+.home-shell .app-search-sort input,.home-shell .app-search-sort select{border:1px solid var(--hline);background:#fff;color:var(--htext);border-radius:8px}
+.home-shell .empty-card{background:#fff;border:1px dashed var(--hline);color:var(--hmuted)}
+.home-shell .auth-card{background:#fff;border:1px solid var(--hline)}
+.home-shell .auth-card input{background:#fff;border:1px solid var(--hline);color:var(--htext)}
+.home-shell .error-banner{background:#fef3f2;border:1px solid #fecdca;color:#b42318}
+.home-shell .success-banner{background:#f0faf6;border:1px solid #b7e2d4;color:#0a5c48}
+.home-shell .create-actions .build-action{border:0!important;background:var(--haccent)!important;color:#fff!important}
+.home-shell .create-actions .build-action:hover:not(:disabled){background:var(--haccent-ink)!important}
+.home-shell .create-actions .build-action:disabled{background:#c3cdd7!important}
+.home-shell .example-card strong{color:var(--htext)}
+.home-shell .example-card em{color:var(--haccent-ink)}
+.home-shell .customer-intake-head span{border:1px solid #b7e2d4;background:#f0faf6;color:var(--haccent-ink)}
+.home-shell .apps-section{padding-top:34px}
+.home-shell .app-readiness span{background:#f2f4f7;border:1px solid var(--hline);border-radius:8px;color:var(--hmuted)}
+.home-shell .app-readiness span.ready{background:#f0faf6;border-color:#b7e2d4}
+.home-shell .app-readiness span b{color:var(--htext)}
+.home-shell .app-readiness span.ready b{color:var(--haccent-ink)}
+.home-shell .app-filter-toolbar button,.home-shell .app-list-view-actions button{border:1px solid var(--hline)!important;background:#fff!important;color:var(--hmuted)!important;border-radius:8px!important}
+.home-shell .app-filter-toolbar button.active{border-color:var(--haccent)!important;color:var(--haccent-ink)!important;background:#f0faf6!important}
+.home-shell .app-list-view-actions button:disabled{opacity:.45}
+.home-shell .app-icon{background:linear-gradient(135deg,#12b886,#0e7a5f);color:#fff;border-radius:10px}
+.home-shell .app-card-main{color:inherit}

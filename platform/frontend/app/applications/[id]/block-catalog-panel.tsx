@@ -71,7 +71,12 @@ function localizedCategory(block: Block, locale: Locale) {
 }
 
 function groupedBlocks(blocks: Block[], locale: Locale) {
-  return blocks.reduce<Record<string, Block[]>>((groups, block) => {
+  // Business blocks first: most workflows are built from them. Agent
+  // architecture and legacy compatibility are advanced groups at the end.
+  const rank = (block: Block) =>
+    block.block_kind === 'agent_architecture' ? 1 : block.block_kind === 'legacy_compatibility' ? 2 : 0
+  const ordered = [...blocks].sort((a, b) => rank(a) - rank(b))
+  return ordered.reduce<Record<string, Block[]>>((groups, block) => {
     const category = localizedCategory(block, locale)
     groups[category] ||= []
     groups[category].push(block)

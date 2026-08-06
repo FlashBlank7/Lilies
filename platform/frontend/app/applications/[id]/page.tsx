@@ -2038,45 +2038,6 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     nodes: draft?.snapshot.workflow.nodes.length || 0,
     edges: validWorkflowEdges(draft?.snapshot.workflow.nodes || [], draft?.snapshot.workflow.edges || []).length,
   }), [draft])
-  const readinessCards = [
-    {
-      label: t.readinessDraft,
-      ready: Boolean(draft),
-      detail: draft ? `${t.draft} r${draft.revision}` : t.loading,
-    },
-    {
-      label: t.readinessTest,
-      ready: Boolean(tested),
-      detail: tested ? t.verified : t.unverified,
-    },
-    {
-      label: t.readinessPublish,
-      ready: Boolean(activeVersion),
-      detail: activeVersion ? t.activeVersion(activeVersion) : t.noPublishedVersion,
-    },
-    {
-      label: t.readinessRun,
-      ready: Boolean(draft),
-      detail: t.nextActionRunReady,
-    },
-  ]
-  const detailSignals = [
-    {
-      label: t.detailSignalStructure,
-      value: t.detailSignalStructureValue(canvasStats.nodes, canvasStats.edges),
-      ready: canvasStats.nodes > 0,
-    },
-    {
-      label: t.detailSignalAcceptance,
-      value: acceptanceCaseViews.length ? t.acceptanceCases(acceptanceCaseViews.length) : t.noRequirementText,
-      ready: acceptanceCaseViews.length > 0,
-    },
-    {
-      label: t.detailSignalRun,
-      value: t.nextActionRunReady,
-      ready: Boolean(draft),
-    },
-  ]
   const acceptancePassedCount = acceptanceCaseViews.filter(test => test.result?.passed).length
   const acceptanceFailedCount = acceptanceCaseViews.filter(test => test.result && !test.result.passed).length
   const acceptancePrimaryFailure = acceptanceCaseViews
@@ -2139,17 +2100,6 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
       setRuntimeUnavailable(true)
     })
   }
-  const architecture = useMemo(() => {
-    const workflow = draft?.snapshot.workflow
-    if (!workflow) return []
-    return workflow.nodes.map(node => {
-      const next = workflow.edges.filter(edge => edge.source === node.id).map(edge => edge.target).join(', ') || t.terminal
-      const config = node.config && typeof node.config === 'object' && !Array.isArray(node.config) ? node.config as Record<string, unknown> : {}
-      const type = safeWorkflowNodeType(node)
-      const detail = type === 'tool' ? ` · ${safeText(config.tool_name, t.unboundTool)}` : ''
-      return `${node.id}: ${type}${detail} → ${next}`
-    })
-  }, [draft, t.terminal, t.unboundTool])
   const workflowEditReferenceNodes = useMemo(() => {
     const workflow = draft?.snapshot.workflow
     if (!workflow) return []
@@ -2264,12 +2214,6 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
           </section>
           <h3>{t.tasksTitle}</h3>
           <div className="test-list">{build?.team_state.tasks.map((task, index) => <pre key={index}>{JSON.stringify(task, null, 2)}</pre>) || <p className="muted">{t.tasksEmpty}</p>}</div>
-          <section className="bug-triage-panel">
-            <div className="bug-triage-head"><strong>{t.bugTriageTitle}</strong><small>{t.bugTriageHelp}</small></div>
-            <ul>{t.bugTriageItems.map(item => <li key={item}>{item}</li>)}</ul>
-          </section>
-          <h3>{t.architectureTitle}</h3>
-          <div className="architecture-list">{architecture.map(item => <code key={item}>{item}</code>)}</div>
           <section className="builder-transcript" data-builder-transcript={transcript?.summary.available ? 'available' : 'empty'}>
             <header className="builder-transcript-head">
               <div>
@@ -2577,13 +2521,6 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
           <span className="canvas-keyboard-hint" data-canvas-selection-hint="right-drag">{t.canvasRightDragHint}</span>
           <span className="canvas-keyboard-hint" data-canvas-keyboard-hint="wasd-pan" title={t.canvasKeyboardHintDetail}>{t.canvasKeyboardHint}</span>
           <button
-            aria-expanded={studioChrome.guidanceExpanded}
-            className="canvas-toolbar-guidance-toggle"
-            data-studio-chrome-toggle="guidance"
-            onClick={() => toggleStudioChrome('guidanceExpanded')}
-            type="button"
-          >{studioChrome.guidanceExpanded ? (locale === 'zh' ? '收起提示' : 'Hide guidance') : (locale === 'zh' ? '展开提示' : 'Show guidance')}</button>
-          <button
             aria-expanded={studioChrome.toolbarExpanded}
             className="canvas-toolbar-toggle"
             data-studio-chrome-toggle="toolbar"
@@ -2591,25 +2528,6 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
             title={studioChrome.toolbarExpanded ? (locale === 'zh' ? '收起画布工具' : 'Collapse canvas tools') : (locale === 'zh' ? '展开画布工具' : 'Expand canvas tools')}
             type="button"
           >{studioChrome.toolbarExpanded ? '×' : (locale === 'zh' ? '工具' : 'Tools')}</button>
-        </div>
-        <div className="canvas-guidance" data-collapsed={studioChrome.guidanceExpanded ? 'false' : 'true'}>
-          <section className="draft-readiness">
-            <div className="draft-readiness-head"><strong>{t.draftReadinessTitle}</strong><small>{t.draftReadinessHelp}</small></div>
-            <div className="readiness-grid">{readinessCards.map(card => <article className={card.ready ? 'ready' : 'needs-action'} key={card.label}>
-              <span>{card.label}</span>
-              <b>{card.ready ? t.readyLabel : t.needsActionLabel}</b>
-              <small>{card.detail}</small>
-            </article>)}</div>
-          </section>
-          <section className="canvas-guide" data-detail-guidance="first-run-orientation">
-            <div><strong>{t.canvasGuideTitle}</strong><small>{t.canvasStats(canvasStats.nodes, canvasStats.edges)}</small></div>
-            <p>{t.canvasGuideCopy}</p>
-            <div className="detail-signal-grid">{detailSignals.map(signal => <article className={signal.ready ? 'ready' : 'needs-action'} key={signal.label}>
-              <span>{signal.label}</span>
-              <b>{signal.value}</b>
-            </article>)}</div>
-            <ul>{t.canvasGuideSteps.map(item => <li key={item}>{item}</li>)}</ul>
-          </section>
         </div>
         <ReactFlow
           colorMode="dark"
