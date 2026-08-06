@@ -17,7 +17,7 @@
       "id": "T1-procurement-reconciliation",
       "family": "记录接入与结构化交付",
       "legacy_ref": "EXP-LILIES-001",
-      "requirement": "我是采购部的对账员。每个月我会拿到两份数据：供应商发来的发货明细，和我们内部的采购订单清单，都是 JSON 格式。帮我做一个对账工作流：把发货明细和采购订单按订单号逐条核对，数量和单价都一致的算通过；有差异的要列出是哪个字段不一致、差多少；发货明细里找不到对应订单号的单独列出来。最后给我一份汇总，包含三类结果的条数和明细，再生成一份可以下载的 Excel 对账表。 系统对接说明:输入字段名固定为 shipments（发货明细数组）和 purchase_orders（采购订单数组）,每条记录含 order_no、item、qty、unit_price。",
+      "requirement": "我是采购部的对账员。每个月我会拿到两份数据：供应商发来的发货明细，和我们内部的采购订单清单，都是 JSON 格式。帮我做一个对账工作流：把发货明细和采购订单按订单号逐条核对，数量和单价都一致的算通过；有差异的要列出是哪个字段不一致、差多少；发货明细里找不到对应订单号的单独列出来。最后给我一份汇总，包含三类结果的条数和明细，再生成一份可以下载的 Excel 对账表。 系统对接说明:输入字段名固定为 shipments（发货明细数组）和 purchase_orders（采购订单数组）,每条记录含 order_no、item、qty、unit_price。输出字段名固定为:matched（一致清单）、mismatched（差异清单,含差异字段与差额）、unmatched_shipments（无对应订单的发货明细）、summary（汇总文本）。",
       "sample_inputs": {
         "shipments": [
           {
@@ -74,7 +74,7 @@
       "id": "T2-aftersales-knowledge-qa",
       "family": "企业 RAG 知识工作流",
       "legacy_ref": "EXP-LILIES-002",
-      "requirement": "我管售后知识库。我要一个知识问答工作流：运行时我提供一组知识文档（每篇有标题、正文、允许查看的角色），以及一个提问和提问人的角色。回答必须只依据提问人有权限看的文档，并且在答案里注明引用了哪几篇（标题）。如果有权限的文档里找不到答案，就直接说知识库里查不到，不要编。 系统对接说明:输入字段名固定为 documents（文档数组,每篇含 title、body、allowed_roles）、question（提问文本）、asker_role（提问人角色）。",
+      "requirement": "我管售后知识库。我要一个知识问答工作流：运行时我提供一组知识文档（每篇有标题、正文、允许查看的角色），以及一个提问和提问人的角色。回答必须只依据提问人有权限看的文档，并且在答案里注明引用了哪几篇（标题）。如果有权限的文档里找不到答案，就直接说知识库里查不到，不要编。 系统对接说明:输入字段名固定为 documents（文档数组,每篇含 title、body、allowed_roles）、question（提问文本）、asker_role（提问人角色）。输出字段名固定为:answer（回答文本）、citations（引用的文档标题数组,查不到时为空数组）。",
       "sample_inputs": {
         "documents": [
           {
@@ -113,7 +113,7 @@
       "id": "T3-alarm-triage",
       "family": "混合智能流程自动化",
       "legacy_ref": "EXP-LILIES-003",
-      "requirement": "我是设备运维班长。做一个告警分诊工作流：输入一条设备告警（设备编号、指标名、当前值、阈值、持续分钟数）。超过阈值 50% 以上或持续超过 30 分钟算严重告警，必须停下来等值班人确认后才继续；其余算一般告警，自动给出处理建议。不管哪种，最后都要输出一份处置记录：告警级别、判定原因、处理建议、是否经过人工确认。 系统对接说明:输入字段名固定为 alarm,一个对象,含 device_id、metric、value、threshold、duration_minutes。",
+      "requirement": "我是设备运维班长。做一个告警分诊工作流：输入一条设备告警（设备编号、指标名、当前值、阈值、持续分钟数）。超过阈值 50% 以上或持续超过 30 分钟算严重告警，必须停下来等值班人确认后才继续；其余算一般告警，自动给出处理建议。不管哪种，最后都要输出一份处置记录：告警级别、判定原因、处理建议、是否经过人工确认。 系统对接说明:输入字段名固定为 alarm,一个对象,含 device_id、metric、value、threshold、duration_minutes。输出字段名固定为:severity（critical 或 normal）、reason（判定原因）、recommendation（处理建议）、human_confirmed（布尔值）。",
       "sample_inputs": {
         "alarm": {
           "device_id": "PUMP-07",
@@ -143,7 +143,7 @@
       "id": "T4-predictive-maintenance",
       "family": "工业 ML 推理与复核",
       "legacy_ref": "EXP-LILIES-004",
-      "requirement": "我负责一条产线的预测性维护。输入是若干台设备最近的振动读数序列（每台一组数值）。对每台设备算出均值和最大值，最大值超过 8.0 或均值超过 5.0 的判为异常。对异常设备生成一条维护建议（说明依据哪个指标、数值多少），正常设备不用建议。最后输出一份复核清单：每台设备的指标、是否异常、建议内容，让工程师能逐台确认。 系统对接说明:输入字段名固定为 devices,数组,每台设备含 device_id 和 readings（数值数组）。",
+      "requirement": "我负责一条产线的预测性维护。输入是若干台设备最近的振动读数序列（每台一组数值）。对每台设备算出均值和最大值，最大值超过 8.0 或均值超过 5.0 的判为异常。对异常设备生成一条维护建议（说明依据哪个指标、数值多少），正常设备不用建议。最后输出一份复核清单：每台设备的指标、是否异常、建议内容，让工程师能逐台确认。 系统对接说明:输入字段名固定为 devices,数组,每台设备含 device_id 和 readings（数值数组）。输出字段名固定为:review_list,数组,每台设备含 device_id、mean、max、abnormal（布尔）、recommendation（正常设备为空字符串）。",
       "sample_inputs": {
         "devices": [
           {
@@ -183,7 +183,7 @@
       "id": "T5-bank-reconciliation-artifact",
       "family": "结构化数据与工件交付",
       "legacy_ref": "EXP-LILIES-005",
-      "requirement": "我是财务。每天要把银行流水和内部记账核对。输入两份数据：银行流水（金额、日期、摘要）和内部账目（金额、日期、单号、事由）。按金额和日期匹配；匹配上的算已核销；银行有而内部没有的列成待入账；内部有而银行没有的列成待到账，并为每条未匹配项写一句可能原因。输出核对结果 JSON，并生成一份 Excel（三个 sheet：已核销、待入账、待到账）。 系统对接说明:输入字段名固定为 bank（银行流水数组,含 amount、date、memo）和 ledger（内部账目数组,含 amount、date、voucher、note）。",
+      "requirement": "我是财务。每天要把银行流水和内部记账核对。输入两份数据：银行流水（金额、日期、摘要）和内部账目（金额、日期、单号、事由）。按金额和日期匹配；匹配上的算已核销；银行有而内部没有的列成待入账；内部有而银行没有的列成待到账，并为每条未匹配项写一句可能原因。输出核对结果 JSON，并生成一份 Excel（三个 sheet：已核销、待入账、待到账）。 系统对接说明:输入字段名固定为 bank（银行流水数组,含 amount、date、memo）和 ledger（内部账目数组,含 amount、date、voucher、note）。输出字段名固定为:reconciled（已核销数组）、pending_book（待入账数组,每条含 possible_reason）、pending_receipt（待到账数组,每条含 possible_reason）。",
       "sample_inputs": {
         "bank": [
           {
@@ -225,7 +225,7 @@
       "id": "T6-replenishment-planning",
       "family": "预测优化与规划",
       "legacy_ref": "EXP-LILIES-006",
-      "requirement": "我管一个仓库的补货。输入：每个 SKU 最近 8 周的周销量、当前库存、供应商交期（周）、最小起订量。假设未来销量按最近 4 周平均持续，帮我算出每个 SKU 是否需要补货：如果当前库存扛不到交期结束就要补，补货量至少覆盖交期加 2 周的销量，且不低于最小起订量。输出补货建议表：每个 SKU 补不补、补多少、依据是什么；不需要补的也要说明为什么。 系统对接说明:输入字段名固定为 skus,数组,每项含 sku、weekly_sales（8 个数）、stock、lead_time_weeks、moq。",
+      "requirement": "我管一个仓库的补货。输入：每个 SKU 最近 8 周的周销量、当前库存、供应商交期（周）、最小起订量。假设未来销量按最近 4 周平均持续，帮我算出每个 SKU 是否需要补货：如果当前库存扛不到交期结束就要补，补货量至少覆盖交期加 2 周的销量，且不低于最小起订量。输出补货建议表：每个 SKU 补不补、补多少、依据是什么；不需要补的也要说明为什么。 系统对接说明:输入字段名固定为 skus,数组,每项含 sku、weekly_sales（8 个数）、stock、lead_time_weeks、moq。输出字段名固定为:plan,数组,每个 SKU 含 sku、need_replenish（布尔）、quantity（不补为 0）、basis(依据说明)。",
       "sample_inputs": {
         "skus": [
           {

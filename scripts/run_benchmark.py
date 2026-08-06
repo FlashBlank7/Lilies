@@ -55,6 +55,27 @@ def follow_build(base: str, token: str, build_id: str, deadline_seconds: float) 
     return request(base, token, "GET", f"/api/v1/builds/{build_id}")
 
 
+def terminal_outputs(base: str, token: str, application_id: str, run: dict) -> dict:
+    """Collect the workflow's terminal (end/answer) outputs, not every node's."""
+
+    per_node = (run.get("state") or {}).get("outputs") or {}
+    try:
+        draft = request(base, token, "GET", f"/api/v1/applications/{application_id}/draft")
+        terminal_ids = {
+            node["id"]
+            for node in draft["snapshot"]["workflow"]["nodes"]
+            if node["type"] in {"end", "answer"}
+        }
+    except (urllib.error.URLError, urllib.error.HTTPError, KeyError):
+        terminal_ids = set()
+    merged: dict = {}
+    for node_id, value in per_node.items():
+        if not terminal_ids or node_id in terminal_ids:
+            if isinstance(value, dict):
+                merged.update(value)
+    return merged
+
+
 def run_workflow(base: str, token: str, application_id: str, inputs: dict, timeout_s: float = 300) -> dict:
     started = request(
         base, token, "POST",
@@ -146,7 +167,8 @@ def main() -> None:
             try:
                 run = run_workflow(args.base_url, token, app["id"], task["sample_inputs"])
                 report["run_status"] = run.get("status")
-                outputs = (run.get("state") or {}).get("outputs") or run.get("outputs") or {}
+                outputs = terminal_outputs(args.base_url, token, app["id"], run)
+                report["terminal_output_keys"] = sorted(outputs.keys())
                 present = flatten_keys(outputs)
                 required = task["acceptance"]["structural"]
                 report["structural_missing"] = [k for k in required if k not in present]
