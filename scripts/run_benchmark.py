@@ -176,6 +176,18 @@ def main() -> None:
             "failed_tool_calls": summary["failed_tool_call_count"],
         }
 
+        if final["status"] in {"ready", "published"}:
+            try:
+                draft = request(args.base_url, token, "GET", f"/api/v1/applications/{app['id']}/draft")
+                node_types = {node["type"] for node in draft["snapshot"]["workflow"]["nodes"]}
+                required_types = task["acceptance"].get("required_node_types", [])
+                report["node_types"] = sorted(node_types)
+                report["architecture_missing"] = [t for t in required_types if t not in node_types]
+                report["architecture_pass"] = not report["architecture_missing"]
+            except (urllib.error.URLError, urllib.error.HTTPError, KeyError) as error:
+                report["architecture_pass"] = False
+                report["architecture_missing"] = [f"error: {error}"]
+
         if not args.skip_run and final["status"] in {"ready", "published"}:
             try:
                 run = run_workflow(
@@ -201,15 +213,17 @@ def main() -> None:
         print(
             f"  → {report['build_status']} | turns={report['turns']} "
             f"tools={report['tool_calls']} failed={report['failed_tool_calls']}"
+            + (f" | arch={report.get('architecture_pass')}" if "architecture_pass" in report else "")
             + (f" | run={report.get('run_status')} structural_pass={report.get('structural_pass')}"
                if "run_status" in report else "")
         )
 
     print("\n" + "=" * 72)
-    print(f"{'task':<36}{'build':<18}{'turns':<7}{'structural'}")
+    print(f"{'task':<36}{'build':<18}{'turns':<7}{'arch':<7}{'structural'}")
     for row in rows:
         print(
             f"{row['task_id']:<36}{row['build_status']:<18}{row['turns']:<7}"
+            f"{str(row.get('architecture_pass', '—')):<7}"
             f"{row.get('structural_pass', '—')}"
         )
     print(f"\nreports: {out_dir}")

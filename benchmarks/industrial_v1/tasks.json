@@ -5,7 +5,8 @@
     "六个任务一一对应北极星的六个工作流族，取向承接 EXP-LILIES-001..006（docs/archive/experiments/lilies-collaboration/）。",
     "所有任务零外部凭据：数据以运行时输入粘贴进来，不需要任何真实 API key（v4 构建卡在 YouTube key 的教训）。",
     "需求全部用客户口吻书写，不出现平台内部术语。",
-    "验收分两层：structural（字段存在性，可自动判）与 review_notes（人审要点）。"
+    "验收分两层：structural（字段存在性，可自动判）与 review_notes（人审要点）。",
+    "required_node_types 是平台侧审查层的形式化：客户不指定架构，但确定性计算必须落在确定性积木上、知识问答必须走知识链、人工确认必须是真 human_input 节点，否则视为审查不通过。"
   ],
   "defaults": {
     "max_turns": 36,
@@ -61,7 +62,10 @@
           "unmatched_shipments",
           "summary"
         ],
-        "review_notes": "PO-001 应判一致；PO-002 应报 unit_price 差异 0.2；PO-2026-009 应进无对应订单;应产出 xlsx 工件。"
+        "review_notes": "PO-001 应判一致；PO-002 应报 unit_price 差异 0.2；PO-2026-009 应进无对应订单;应产出 xlsx 工件。",
+        "required_node_types": [
+          "record_match"
+        ]
       },
       "exercises": [
         "record_match",
@@ -100,7 +104,10 @@
           "answer",
           "citations"
         ],
-        "review_notes": "答案应引用《冰箱异响排查》；不得引用权限外的《内部退款权限表》；换一个权限外问题时应回答查不到。"
+        "review_notes": "答案应引用《冰箱异响排查》；不得引用权限外的《内部退款权限表》；换一个权限外问题时应回答查不到。",
+        "required_node_types": [
+          "knowledge_retrieval"
+        ]
       },
       "exercises": [
         "knowledge_index_sync",
@@ -130,7 +137,10 @@
           "recommendation",
           "human_confirmed"
         ],
-        "review_notes": "92 超阈值 53%，应判严重并走人工确认（测试用 simulated_human_inputs）；一般告警样例应自动通过且 human_confirmed=false。"
+        "review_notes": "92 超阈值 53%，应判严重并走人工确认（测试用 simulated_human_inputs）；一般告警样例应自动通过且 human_confirmed=false。",
+        "required_node_types": [
+          "human_input"
+        ]
       },
       "exercises": [
         "if_else 数值分支",
@@ -217,7 +227,10 @@
           "pending_book",
           "pending_receipt"
         ],
-        "review_notes": "8600 应核销；1200 应进待入账并有原因说明；应产出 xlsx 与 JSON 两种工件。"
+        "review_notes": "8600 应核销；1200 应进待入账并有原因说明；应产出 xlsx 与 JSON 两种工件。",
+        "required_node_types": [
+          "record_match"
+        ]
       },
       "exercises": [
         "record_collection_normalize",
@@ -271,7 +284,10 @@
         "structural": [
           "plan"
         ],
-        "review_notes": "A-100 周销约 43，库存 60 撑不过 2 周交期，应补且 ≥ max(4周销量≈172, moq=100)；B-200 库存 80 足以覆盖，应判不补并给出理由；数字必须可复算。"
+        "review_notes": "A-100 周销约 43，库存 60 撑不过 2 周交期，应补且 ≥ max(4周销量≈172, moq=100)；B-200 库存 80 足以覆盖，应判不补并给出理由；数字必须可复算。",
+        "required_node_types": [
+          "replenishment_planner"
+        ]
       },
       "exercises": [
         "确定性预测(均值)",

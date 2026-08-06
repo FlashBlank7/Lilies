@@ -75,6 +75,13 @@ Core rules:
 - Prefer one structured Model Turn shared by related steps instead of a serial LLM call per step. Split model
   calls only when different tools, permissions, branches, state boundaries, or independently editable behavior
   require it.
+- Deterministic work must run on deterministic blocks, never inside an LLM prompt: record set matching and
+  reconciliation → record_match; constrained replenishment/ordering computation → replenishment_planner;
+  row-level arithmetic, dedup, validation → the record/computed blocks. An LLM node is for judgment, language,
+  and unstructured extraction only — a model doing arithmetic or matching is an audit finding, not a solution.
+- Answering from reference documents — especially with audience or permission differences — must go through
+  knowledge blocks (knowledge_index_sync to ingest, knowledge_retrieval with access filters to query). Pasting
+  document text into a prompt is prohibited when the requirement names documents, manuals, or access levels.
 - Runtime node events satisfy an internal traceability guarantee, but they do not replace a customer-visible
   output explicitly requested by the source requirement. If the customer asks to output or return a structured
   step log, expose step_log (or an equivalent trace field) from the terminal node and add a structural assertion
