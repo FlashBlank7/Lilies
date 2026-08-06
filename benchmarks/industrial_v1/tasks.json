@@ -7,116 +7,273 @@
     "需求全部用客户口吻书写，不出现平台内部术语。",
     "验收分两层：structural（字段存在性，可自动判）与 review_notes（人审要点）。"
   ],
-  "defaults": { "max_turns": 36, "max_elapsed_seconds": 900, "auto_publish": false },
+  "defaults": {
+    "max_turns": 36,
+    "max_elapsed_seconds": 900,
+    "auto_publish": false
+  },
   "tasks": [
     {
       "id": "T1-procurement-reconciliation",
       "family": "记录接入与结构化交付",
       "legacy_ref": "EXP-LILIES-001",
-      "requirement": "我是采购部的对账员。每个月我会拿到两份数据：供应商发来的发货明细，和我们内部的采购订单清单，都是 JSON 格式。帮我做一个对账工作流：把发货明细和采购订单按订单号逐条核对，数量和单价都一致的算通过；有差异的要列出是哪个字段不一致、差多少；发货明细里找不到对应订单号的单独列出来。最后给我一份汇总，包含三类结果的条数和明细，再生成一份可以下载的 Excel 对账表。",
+      "requirement": "我是采购部的对账员。每个月我会拿到两份数据：供应商发来的发货明细，和我们内部的采购订单清单，都是 JSON 格式。帮我做一个对账工作流：把发货明细和采购订单按订单号逐条核对，数量和单价都一致的算通过；有差异的要列出是哪个字段不一致、差多少；发货明细里找不到对应订单号的单独列出来。最后给我一份汇总，包含三类结果的条数和明细，再生成一份可以下载的 Excel 对账表。 系统对接说明:输入字段名固定为 shipments（发货明细数组）和 purchase_orders（采购订单数组）,每条记录含 order_no、item、qty、unit_price。",
       "sample_inputs": {
         "shipments": [
-          {"order_no": "PO-2026-001", "item": "轴承 6204", "qty": 100, "unit_price": 12.5},
-          {"order_no": "PO-2026-002", "item": "密封圈 FKM", "qty": 500, "unit_price": 2.0},
-          {"order_no": "PO-2026-009", "item": "润滑脂 2kg", "qty": 20, "unit_price": 45.0}
+          {
+            "order_no": "PO-2026-001",
+            "item": "轴承 6204",
+            "qty": 100,
+            "unit_price": 12.5
+          },
+          {
+            "order_no": "PO-2026-002",
+            "item": "密封圈 FKM",
+            "qty": 500,
+            "unit_price": 2.0
+          },
+          {
+            "order_no": "PO-2026-009",
+            "item": "润滑脂 2kg",
+            "qty": 20,
+            "unit_price": 45.0
+          }
         ],
         "purchase_orders": [
-          {"order_no": "PO-2026-001", "item": "轴承 6204", "qty": 100, "unit_price": 12.5},
-          {"order_no": "PO-2026-002", "item": "密封圈 FKM", "qty": 500, "unit_price": 1.8}
+          {
+            "order_no": "PO-2026-001",
+            "item": "轴承 6204",
+            "qty": 100,
+            "unit_price": 12.5
+          },
+          {
+            "order_no": "PO-2026-002",
+            "item": "密封圈 FKM",
+            "qty": 500,
+            "unit_price": 1.8
+          }
         ]
       },
       "acceptance": {
-        "structural": ["matched", "mismatched", "unmatched_shipments", "summary"],
+        "structural": [
+          "matched",
+          "mismatched",
+          "unmatched_shipments",
+          "summary"
+        ],
         "review_notes": "PO-001 应判一致；PO-002 应报 unit_price 差异 0.2；PO-2026-009 应进无对应订单;应产出 xlsx 工件。"
       },
-      "exercises": ["record_match", "if_else/iteration", "typed_workbook", "确定性对账不靠 LLM 猜"]
+      "exercises": [
+        "record_match",
+        "if_else/iteration",
+        "typed_workbook",
+        "确定性对账不靠 LLM 猜"
+      ]
     },
     {
       "id": "T2-aftersales-knowledge-qa",
       "family": "企业 RAG 知识工作流",
       "legacy_ref": "EXP-LILIES-002",
-      "requirement": "我管售后知识库。我要一个知识问答工作流：运行时我提供一组知识文档（每篇有标题、正文、允许查看的角色），以及一个提问和提问人的角色。回答必须只依据提问人有权限看的文档，并且在答案里注明引用了哪几篇（标题）。如果有权限的文档里找不到答案，就直接说知识库里查不到，不要编。",
+      "requirement": "我管售后知识库。我要一个知识问答工作流：运行时我提供一组知识文档（每篇有标题、正文、允许查看的角色），以及一个提问和提问人的角色。回答必须只依据提问人有权限看的文档，并且在答案里注明引用了哪几篇（标题）。如果有权限的文档里找不到答案，就直接说知识库里查不到，不要编。 系统对接说明:输入字段名固定为 documents（文档数组,每篇含 title、body、allowed_roles）、question（提问文本）、asker_role（提问人角色）。",
       "sample_inputs": {
         "documents": [
-          {"title": "冰箱异响排查", "body": "压缩机启动后哒哒声通常为启动继电器老化，更换件号 QD-83。", "allowed_roles": ["service_agent"]},
-          {"title": "内部退款权限表", "body": "300 元以上退款需主管审批。", "allowed_roles": ["supervisor"]}
+          {
+            "title": "冰箱异响排查",
+            "body": "压缩机启动后哒哒声通常为启动继电器老化，更换件号 QD-83。",
+            "allowed_roles": [
+              "service_agent"
+            ]
+          },
+          {
+            "title": "内部退款权限表",
+            "body": "300 元以上退款需主管审批。",
+            "allowed_roles": [
+              "supervisor"
+            ]
+          }
         ],
         "question": "冰箱开机后有哒哒声怎么处理？",
         "asker_role": "service_agent"
       },
       "acceptance": {
-        "structural": ["answer", "citations"],
+        "structural": [
+          "answer",
+          "citations"
+        ],
         "review_notes": "答案应引用《冰箱异响排查》；不得引用权限外的《内部退款权限表》；换一个权限外问题时应回答查不到。"
       },
-      "exercises": ["knowledge_index_sync", "knowledge_retrieval(ACL)", "grounded_answer", "拒答"]
+      "exercises": [
+        "knowledge_index_sync",
+        "knowledge_retrieval(ACL)",
+        "grounded_answer",
+        "拒答"
+      ]
     },
     {
       "id": "T3-alarm-triage",
       "family": "混合智能流程自动化",
       "legacy_ref": "EXP-LILIES-003",
-      "requirement": "我是设备运维班长。做一个告警分诊工作流：输入一条设备告警（设备编号、指标名、当前值、阈值、持续分钟数）。超过阈值 50% 以上或持续超过 30 分钟算严重告警，必须停下来等值班人确认后才继续；其余算一般告警，自动给出处理建议。不管哪种，最后都要输出一份处置记录：告警级别、判定原因、处理建议、是否经过人工确认。",
+      "requirement": "我是设备运维班长。做一个告警分诊工作流：输入一条设备告警（设备编号、指标名、当前值、阈值、持续分钟数）。超过阈值 50% 以上或持续超过 30 分钟算严重告警，必须停下来等值班人确认后才继续；其余算一般告警，自动给出处理建议。不管哪种，最后都要输出一份处置记录：告警级别、判定原因、处理建议、是否经过人工确认。 系统对接说明:输入字段名固定为 alarm,一个对象,含 device_id、metric、value、threshold、duration_minutes。",
       "sample_inputs": {
-        "alarm": {"device_id": "PUMP-07", "metric": "bearing_temp", "value": 92, "threshold": 60, "duration_minutes": 12}
+        "alarm": {
+          "device_id": "PUMP-07",
+          "metric": "bearing_temp",
+          "value": 92,
+          "threshold": 60,
+          "duration_minutes": 12
+        }
       },
       "acceptance": {
-        "structural": ["severity", "reason", "recommendation", "human_confirmed"],
+        "structural": [
+          "severity",
+          "reason",
+          "recommendation",
+          "human_confirmed"
+        ],
         "review_notes": "92 超阈值 53%，应判严重并走人工确认（测试用 simulated_human_inputs）；一般告警样例应自动通过且 human_confirmed=false。"
       },
-      "exercises": ["if_else 数值分支", "human_input 持久暂停", "simulated_human_inputs 测试", "模型建议不虚构已完成动作"]
+      "exercises": [
+        "if_else 数值分支",
+        "human_input 持久暂停",
+        "simulated_human_inputs 测试",
+        "模型建议不虚构已完成动作"
+      ]
     },
     {
       "id": "T4-predictive-maintenance",
       "family": "工业 ML 推理与复核",
       "legacy_ref": "EXP-LILIES-004",
-      "requirement": "我负责一条产线的预测性维护。输入是若干台设备最近的振动读数序列（每台一组数值）。对每台设备算出均值和最大值，最大值超过 8.0 或均值超过 5.0 的判为异常。对异常设备生成一条维护建议（说明依据哪个指标、数值多少），正常设备不用建议。最后输出一份复核清单：每台设备的指标、是否异常、建议内容，让工程师能逐台确认。",
+      "requirement": "我负责一条产线的预测性维护。输入是若干台设备最近的振动读数序列（每台一组数值）。对每台设备算出均值和最大值，最大值超过 8.0 或均值超过 5.0 的判为异常。对异常设备生成一条维护建议（说明依据哪个指标、数值多少），正常设备不用建议。最后输出一份复核清单：每台设备的指标、是否异常、建议内容，让工程师能逐台确认。 系统对接说明:输入字段名固定为 devices,数组,每台设备含 device_id 和 readings（数值数组）。",
       "sample_inputs": {
         "devices": [
-          {"device_id": "CNC-01", "readings": [3.2, 4.1, 3.8, 9.4]},
-          {"device_id": "CNC-02", "readings": [2.1, 2.4, 2.2, 2.6]}
+          {
+            "device_id": "CNC-01",
+            "readings": [
+              3.2,
+              4.1,
+              3.8,
+              9.4
+            ]
+          },
+          {
+            "device_id": "CNC-02",
+            "readings": [
+              2.1,
+              2.4,
+              2.2,
+              2.6
+            ]
+          }
         ]
       },
       "acceptance": {
-        "structural": ["review_list"],
+        "structural": [
+          "review_list"
+        ],
         "review_notes": "CNC-01 应因 max=9.4>8.0 判异常并有建议；CNC-02 正常无建议；指标数值必须来自真实计算，不得编造。"
       },
-      "exercises": ["iteration 逐台处理", "确定性统计+阈值", "LLM 只写建议不做算术", "复核清单交付"]
+      "exercises": [
+        "iteration 逐台处理",
+        "确定性统计+阈值",
+        "LLM 只写建议不做算术",
+        "复核清单交付"
+      ]
     },
     {
       "id": "T5-bank-reconciliation-artifact",
       "family": "结构化数据与工件交付",
       "legacy_ref": "EXP-LILIES-005",
-      "requirement": "我是财务。每天要把银行流水和内部记账核对。输入两份数据：银行流水（金额、日期、摘要）和内部账目（金额、日期、单号、事由）。按金额和日期匹配；匹配上的算已核销；银行有而内部没有的列成待入账；内部有而银行没有的列成待到账，并为每条未匹配项写一句可能原因。输出核对结果 JSON，并生成一份 Excel（三个 sheet：已核销、待入账、待到账）。",
+      "requirement": "我是财务。每天要把银行流水和内部记账核对。输入两份数据：银行流水（金额、日期、摘要）和内部账目（金额、日期、单号、事由）。按金额和日期匹配；匹配上的算已核销；银行有而内部没有的列成待入账；内部有而银行没有的列成待到账，并为每条未匹配项写一句可能原因。输出核对结果 JSON，并生成一份 Excel（三个 sheet：已核销、待入账、待到账）。 系统对接说明:输入字段名固定为 bank（银行流水数组,含 amount、date、memo）和 ledger（内部账目数组,含 amount、date、voucher、note）。",
       "sample_inputs": {
         "bank": [
-          {"amount": 8600.0, "date": "2026-08-01", "memo": "货款 华东经销"},
-          {"amount": 1200.0, "date": "2026-08-02", "memo": "服务费"}
+          {
+            "amount": 8600.0,
+            "date": "2026-08-01",
+            "memo": "货款 华东经销"
+          },
+          {
+            "amount": 1200.0,
+            "date": "2026-08-02",
+            "memo": "服务费"
+          }
         ],
         "ledger": [
-          {"amount": 8600.0, "date": "2026-08-01", "voucher": "SL-901", "note": "华东经销商回款"}
+          {
+            "amount": 8600.0,
+            "date": "2026-08-01",
+            "voucher": "SL-901",
+            "note": "华东经销商回款"
+          }
         ]
       },
       "acceptance": {
-        "structural": ["reconciled", "pending_book", "pending_receipt"],
+        "structural": [
+          "reconciled",
+          "pending_book",
+          "pending_receipt"
+        ],
         "review_notes": "8600 应核销；1200 应进待入账并有原因说明；应产出 xlsx 与 JSON 两种工件。"
       },
-      "exercises": ["record_collection_normalize", "record_match", "typed_json_artifact", "typed_workbook"]
+      "exercises": [
+        "record_collection_normalize",
+        "record_match",
+        "typed_json_artifact",
+        "typed_workbook"
+      ]
     },
     {
       "id": "T6-replenishment-planning",
       "family": "预测优化与规划",
       "legacy_ref": "EXP-LILIES-006",
-      "requirement": "我管一个仓库的补货。输入：每个 SKU 最近 8 周的周销量、当前库存、供应商交期（周）、最小起订量。假设未来销量按最近 4 周平均持续，帮我算出每个 SKU 是否需要补货：如果当前库存扛不到交期结束就要补，补货量至少覆盖交期加 2 周的销量，且不低于最小起订量。输出补货建议表：每个 SKU 补不补、补多少、依据是什么；不需要补的也要说明为什么。",
+      "requirement": "我管一个仓库的补货。输入：每个 SKU 最近 8 周的周销量、当前库存、供应商交期（周）、最小起订量。假设未来销量按最近 4 周平均持续，帮我算出每个 SKU 是否需要补货：如果当前库存扛不到交期结束就要补，补货量至少覆盖交期加 2 周的销量，且不低于最小起订量。输出补货建议表：每个 SKU 补不补、补多少、依据是什么；不需要补的也要说明为什么。 系统对接说明:输入字段名固定为 skus,数组,每项含 sku、weekly_sales（8 个数）、stock、lead_time_weeks、moq。",
       "sample_inputs": {
         "skus": [
-          {"sku": "A-100", "weekly_sales": [40, 44, 38, 42, 45, 41, 43, 44], "stock": 60, "lead_time_weeks": 2, "moq": 100},
-          {"sku": "B-200", "weekly_sales": [5, 4, 6, 5, 4, 5, 5, 6], "stock": 80, "lead_time_weeks": 1, "moq": 50}
+          {
+            "sku": "A-100",
+            "weekly_sales": [
+              40,
+              44,
+              38,
+              42,
+              45,
+              41,
+              43,
+              44
+            ],
+            "stock": 60,
+            "lead_time_weeks": 2,
+            "moq": 100
+          },
+          {
+            "sku": "B-200",
+            "weekly_sales": [
+              5,
+              4,
+              6,
+              5,
+              4,
+              5,
+              5,
+              6
+            ],
+            "stock": 80,
+            "lead_time_weeks": 1,
+            "moq": 50
+          }
         ]
       },
       "acceptance": {
-        "structural": ["plan"],
+        "structural": [
+          "plan"
+        ],
         "review_notes": "A-100 周销约 43，库存 60 撑不过 2 周交期，应补且 ≥ max(4周销量≈172, moq=100)；B-200 库存 80 足以覆盖，应判不补并给出理由；数字必须可复算。"
       },
-      "exercises": ["确定性预测(均值)", "约束计算(交期/MOQ)", "LLM 解释建议", "replenishment_planner 或等价组合"]
+      "exercises": [
+        "确定性预测(均值)",
+        "约束计算(交期/MOQ)",
+        "LLM 解释建议",
+        "replenishment_planner 或等价组合"
+      ]
     }
   ]
 }

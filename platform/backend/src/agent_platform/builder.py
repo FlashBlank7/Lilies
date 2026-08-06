@@ -966,7 +966,11 @@ class WorkflowBuilder:
                     definition = self.core_tools.get(candidate).definition().model_dump(mode="json")
                     definition["canonical_name"] = candidate
                     return definition
-            return self.blocks.get(name).model_dump(mode="json")
+            definition = self.blocks.get(name)
+            # The full definition includes the manual fields, so reading it
+            # satisfies the read-the-manual-first requirement.
+            self._remember_manual_lookup(state, definition.type)
+            return definition.model_dump(mode="json")
         if tool == "manual_search":
             query = str(data.get("query", ""))
             block_kind = data.get("block_kind")
