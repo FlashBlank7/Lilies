@@ -134,3 +134,24 @@
   .studio-header:not([data-collapsed="true"]) .header-center{display:none}
   .studio-header:not([data-collapsed="true"]) .header-actions>:not(.header-toggle):not(.lang-toggle){display:none}
 }
+
+.builder-transcript{margin:18px 0;border:1px solid var(--line);border-radius:12px;background:var(--panel2);overflow:hidden}
+.builder-transcript-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:13px 15px;border-bottom:1px solid var(--line)}
+.builder-transcript-head strong{display:block;font-size:13px}
+.builder-transcript-head small{display:block;margin-top:3px;color:var(--muted);font-size:11px;line-height:1.5}
+.builder-transcript-head button{border:1px solid var(--line);background:transparent;color:var(--muted);border-radius:7px;padding:4px 10px;font-size:11px}
+.builder-transcript-summary{display:flex;flex-wrap:wrap;gap:16px;padding:10px 15px;border-bottom:1px solid var(--line);font-size:11px;color:var(--muted)}
+.builder-transcript-summary b{color:var(--text);margin-left:4px}
+.builder-transcript-summary .failed b{color:#ff7a45}
+.builder-transcript-turns{list-style:none;margin:0;padding:0;max-height:460px;overflow-y:auto}
+.builder-transcript-turns>li{padding:12px 15px;border-bottom:1px solid #1b2230}
+.builder-transcript-turn-head{display:flex;align-items:center;gap:9px;margin-bottom:7px;font-size:11px;color:var(--muted)}
+.builder-transcript-turn-head b{color:var(--text);font-size:12px}
+.builder-transcript-text{margin:6px 0;font-size:12px;line-height:1.65}
+.builder-transcript-thinking summary,.builder-transcript-tool summary{cursor:pointer;font-size:11px;color:var(--muted);padding:3px 0}
+.builder-transcript-thinking pre,.builder-transcript-tool pre{margin:5px 0 9px;padding:9px 11px;background:#0b0f17;border-radius:8px;font-size:11px;line-height:1.6;white-space:pre-wrap;word-break:break-word;max-height:260px;overflow:auto}
+.builder-transcript-tool{margin:7px 0;padding:8px 10px;border-left:2px solid var(--line);background:rgba(0,0,0,.18);border-radius:0 8px 8px 0}
+.builder-transcript-tool.failed{border-left-color:#ff7a45}
+.builder-transcript-tool-head{display:flex;align-items:center;gap:8px;font-size:11px}
+.builder-transcript-tool-head code{color:#7fa4ff}
+.builder-transcript-tool.failed .builder-transcript-tool-head span{color:#ff7a45;font-size:10px;text-transform:uppercase;letter-spacing:.06em}

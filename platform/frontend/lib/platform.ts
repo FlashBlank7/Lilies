@@ -1,4 +1,39 @@
 export type Position = { x: number; y: number }
+export type BuildTranscriptToolCall = {
+  tool: string
+  arguments: Record<string, unknown>
+  result: string
+  truncated: boolean
+  is_error: boolean
+}
+
+export type BuildTranscriptTurn = {
+  recorded_at: string
+  kind: string
+  turn: number
+  actor: string
+  model: string
+  thinking: string
+  text: string
+  tool_calls: BuildTranscriptToolCall[]
+  stop_reason: string | null
+  usage: Record<string, number>
+  draft_revision: number
+}
+
+export type BuildTranscript = {
+  build_id: string
+  summary: {
+    available: boolean
+    turn_count: number
+    tool_call_count: number
+    failed_tool_call_count: number
+    actors: string[]
+    last_stop_reason: string | null
+  }
+  records: BuildTranscriptTurn[]
+}
+
 export type EvidenceState = 'current' | 'stale' | 'missing'
 
 export type DraftEvidence = {

@@ -36,6 +36,7 @@ import {
   type CapabilityModuleInsertResult,
   type Draft,
   type NaturalLanguageWorkflowEditResult,
+  type BuildTranscript,
   type PublicationDecision,
   type WorkflowNode,
   withFrontendToken,
@@ -938,6 +939,8 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
   const [configFieldValues, setConfigFieldValues] = useState<ConfigEditorValues>({})
   const [configEditorBase, setConfigEditorBase] = useState<Record<string, unknown>>({})
   const [build, setBuild] = useState<Build | null>(null)
+  const [transcript, setTranscript] = useState<BuildTranscript | null>(null)
+  const [transcriptOpen, setTranscriptOpen] = useState(true)
   const [events, setEvents] = useState<Array<{ type: string; data: Record<string, unknown> }>>([])
   const [tab, setTab] = useState<StudioTab>('build')
   const [safeDraftLanding, setSafeDraftLanding] = useState(false)
@@ -1986,8 +1989,13 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
         await refresh()
       }
     }))
+    const loadTranscript = () => api<BuildTranscript>(`/api/v1/builds/${buildId}/transcript`)
+      .then(setTranscript)
+      .catch(() => undefined)
+    void loadTranscript()
     buildPoll.current = window.setInterval(() => api<Build>(`/api/v1/builds/${buildId}`).then(value => {
       setBuild(value)
+      void loadTranscript()
       if (['published', 'ready', 'needs_attention', 'cancelled'].includes(value.status) && buildPoll.current) {
         window.clearInterval(buildPoll.current)
         buildPoll.current = null
@@ -2387,6 +2395,62 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
           </section>
           <h3>{t.architectureTitle}</h3>
           <div className="architecture-list">{architecture.map(item => <code key={item}>{item}</code>)}</div>
+          <section className="builder-transcript" data-builder-transcript={transcript?.summary.available ? 'available' : 'empty'}>
+            <header className="builder-transcript-head">
+              <div>
+                <strong>{locale === 'zh' ? '莉莉丝会话' : 'Lilies session'}</strong>
+                <small>{locale === 'zh'
+                  ? '莉莉丝每一轮的思考、工具参数和工具返回。构建卡住时先看这里。'
+                  : "Lilies' reasoning, tool arguments, and tool results for every turn. Start here when a build stalls."}</small>
+              </div>
+              <button type="button" onClick={() => setTranscriptOpen(current => !current)}>
+                {transcriptOpen ? (locale === 'zh' ? '收起' : 'Collapse') : (locale === 'zh' ? '展开' : 'Expand')}
+              </button>
+            </header>
+            {transcript?.summary.available
+              ? <>
+                <div className="builder-transcript-summary">
+                  <span>{locale === 'zh' ? '轮次' : 'Turns'} <b>{transcript.summary.turn_count}</b></span>
+                  <span>{locale === 'zh' ? '工具调用' : 'Tool calls'} <b>{transcript.summary.tool_call_count}</b></span>
+                  <span className={transcript.summary.failed_tool_call_count ? 'failed' : ''}>
+                    {locale === 'zh' ? '失败' : 'Failed'} <b>{transcript.summary.failed_tool_call_count}</b>
+                  </span>
+                  {transcript.summary.last_stop_reason && <span>{locale === 'zh' ? '停止原因' : 'Stop'} <b>{transcript.summary.last_stop_reason}</b></span>}
+                </div>
+                {transcriptOpen && <ol className="builder-transcript-turns">
+                  {transcript.records.map(record => <li key={`${record.actor}-${record.turn}`} data-transcript-turn={record.turn}>
+                    <div className="builder-transcript-turn-head">
+                      <b>{locale === 'zh' ? `第 ${record.turn} 轮` : `Turn ${record.turn}`}</b>
+                      <span>{record.actor}</span>
+                      <small>r{record.draft_revision}</small>
+                    </div>
+                    {record.thinking && <details className="builder-transcript-thinking">
+                      <summary>{locale === 'zh' ? '思考' : 'Reasoning'}</summary>
+                      <pre>{record.thinking}</pre>
+                    </details>}
+                    {record.text && <p className="builder-transcript-text">{record.text}</p>}
+                    {record.tool_calls.map((call, index) => <div
+                      className={`builder-transcript-tool ${call.is_error ? 'failed' : ''}`}
+                      data-transcript-tool={call.tool}
+                      key={`${call.tool}-${index}`}
+                    >
+                      <div className="builder-transcript-tool-head"><code>{call.tool}</code>{call.is_error && <span>{locale === 'zh' ? '失败' : 'failed'}</span>}</div>
+                      <details>
+                        <summary>{locale === 'zh' ? '参数' : 'Arguments'}</summary>
+                        <pre>{JSON.stringify(call.arguments, null, 2)}</pre>
+                      </details>
+                      <details open={call.is_error}>
+                        <summary>{locale === 'zh' ? '返回' : 'Result'}</summary>
+                        <pre>{call.result}{call.truncated ? '\n…' : ''}</pre>
+                      </details>
+                    </div>)}
+                  </li>)}
+                </ol>}
+              </>
+              : <p className="muted">{locale === 'zh'
+                ? '这次构建还没有会话记录。启动一次构建后，莉莉丝的每一轮都会出现在这里。'
+                : 'No session yet. Once a build runs, every Lilies turn appears here.'}</p>}
+          </section>
           <div className="event-log">{events.map((event, index) => <div key={index}><span>{event.type}</span><pre>{JSON.stringify(event.data, null, 2)}</pre></div>)}</div>
         </div>}
         {tab === 'edit' && <div className="panel-body">

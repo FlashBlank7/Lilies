@@ -10,6 +10,11 @@ from uuid import uuid4
 
 from .applications import ApplicationService
 from .blocks import BlockRegistry
+from .build_transcript import (
+    BuildTranscriptStore,
+    tool_call_record,
+    turn_record,
+)
 from .models import ChatMessage, ContentBlock, ToolDefinition
 from .providers import ModelProvider, ProviderError
 from .runtime import AgentRuntime, INVALID_TOOL_INPUT_JSON_KEY
@@ -262,6 +267,7 @@ class WorkflowBuilder:
         harness: PlatformHarness,
         on_build_complete: Callable[[str], Awaitable[None]] | None = None,
         template_store: Any | None = None,
+        transcripts: BuildTranscriptStore | None = None,
     ) -> None:
         self.storage = storage
         self.workflow_store = workflow_store
@@ -275,6 +281,7 @@ class WorkflowBuilder:
         self.harness = harness
         self.on_build_complete = on_build_complete
         self.template_store = template_store
+        self.transcripts = transcripts
         self.active: dict[str, asyncio.Task[Any]] = {}
         self._trackers: dict[str, DecisionTracker] = {}  # build_id → tracker
 
@@ -728,6 +735,7 @@ class WorkflowBuilder:
             messages.append(ChatMessage(role="assistant", content=response.blocks))
             calls = [block for block in response.blocks if block.type == "tool_use"]
             if not calls:
+                self._record_turn(build_id, turn, teammate, response, [], state)
                 final = "".join(block.text or "" for block in response.blocks if block.type == "text")
                 if teammate is None:
                     state.coordinator_messages = [
@@ -735,6 +743,7 @@ class WorkflowBuilder:
                     ]
                 break
             results: list[ContentBlock] = []
+            turn_tool_records: list[dict[str, Any]] = []
             turn_discovery_progress = False
             turn_verification_progress = False
             for call in calls:
@@ -796,6 +805,12 @@ class WorkflowBuilder:
                 results.append(ContentBlock(
                     type="tool_result", tool_use_id=call.id, content=content, is_error=is_error
                 ))
+                turn_tool_records.append(tool_call_record(
+                    name=call.name or "",
+                    arguments=call.input or {},
+                    result=content,
+                    is_error=is_error,
+                ))
                 await self._emit(build_id, "build.operation", {
                     "actor": teammate or "coordinator",
                     "tool": call.name,
@@ -809,6 +824,7 @@ class WorkflowBuilder:
                 state.coordinator_messages = [
                     message.model_dump(mode="json") for message in messages
                 ]
+            self._record_turn(build_id, turn, teammate, response, turn_tool_records, state)
             await self.workflow_store.update_build(build_id, team_state=state)
             next_fingerprint = self._durable_progress_fingerprint(state)
             durable_progress = next_fingerprint != progress_fingerprint
@@ -1724,6 +1740,33 @@ class WorkflowBuilder:
                 "timeout_like": timeout_like,
             }
         return {"failure": failure}
+
+    def _record_turn(
+        self,
+        build_id: str,
+        turn: int,
+        teammate: str | None,
+        response: Any,
+        tool_records: list[dict[str, Any]],
+        state: BuildTeamState,
+    ) -> None:
+        """Persist one model turn so a stalled build can be diagnosed later."""
+
+        if self.transcripts is None:
+            return
+        self.transcripts.append(
+            build_id,
+            turn_record(
+                turn=turn,
+                actor=teammate or "coordinator",
+                model=self.generator_model,
+                blocks=response.blocks,
+                tool_calls=tool_records,
+                stop_reason=response.stop_reason,
+                usage=response.usage,
+                draft_revision=state.revision,
+            ),
+        )
 
     @staticmethod
     def _redact(value: Any) -> Any:

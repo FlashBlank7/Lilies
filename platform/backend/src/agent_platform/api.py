@@ -25,6 +25,7 @@ from .config import Settings, get_settings
 from .applications import ApplicationService
 from .agent_runtime_factory import build_agent_runtime_core
 from .blocks import BlockRegistry, build_block_registry
+from .build_transcript import BuildTranscriptStore
 from .builder import WorkflowBuilder
 from .capability_evidence import (
     ArtifactCategory,
@@ -349,6 +350,7 @@ class Services:
     scheduler: WorkflowScheduler
     templates: TemplateStore
     scenarios: ScenarioCatalog
+    build_transcripts: BuildTranscriptStore
     draft_patcher: DraftPatchPreviewer
     governed_memory: GovernedMemorySurface
     tabular_models: TabularModelService
@@ -1515,6 +1517,7 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
 
 
 
+    build_transcripts = BuildTranscriptStore(settings.data_dir / "build_transcripts")
     builder = WorkflowBuilder(
         storage=storage,
         workflow_store=workflow_store,
@@ -1527,6 +1530,7 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         core_tools=tools,
         harness=harness,
         template_store=templates,
+        transcripts=build_transcripts,
     )
     scheduler = WorkflowScheduler(
         storage=storage,
@@ -1559,6 +1563,7 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         scheduler=scheduler,
         templates=templates,
         scenarios=scenarios,
+        build_transcripts=build_transcripts,
         draft_patcher=draft_patcher,
         governed_memory=governed_memory,
         tabular_models=tabular_models,
@@ -4265,6 +4270,23 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             return annotate_build_deadline(build)
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
+
+    @app.get("/api/v1/builds/{build_id}/transcript", dependencies=[Depends(require_token)])
+    async def get_build_transcript(
+        build_id: str,
+        after_turn: int = Query(default=0, ge=0),
+        limit: int = Query(default=200, ge=1, le=1000),
+    ) -> dict[str, Any]:
+        """Return the Builder's own model turns: reasoning, tool arguments, tool results."""
+
+        records = await asyncio.to_thread(
+            services.build_transcripts.read,
+            build_id,
+            after_turn=after_turn,
+            limit=limit,
+        )
+        summary = await asyncio.to_thread(services.build_transcripts.summary, build_id)
+        return {"build_id": build_id, "summary": summary, "records": records}
 
     @app.post("/api/v1/builds/{build_id}/resume", dependencies=[Depends(require_token)])
     async def resume_build(build_id: str) -> dict[str, Any]:
