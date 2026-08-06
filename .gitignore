@@ -33,3 +33,4 @@ references/
 data.bak-*/
 workspaces.bak-*/
 data/build_transcripts/
+benchmarks/industrial_v1/results/
