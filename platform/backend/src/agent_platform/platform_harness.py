@@ -177,8 +177,11 @@ class PlatformHarness:
             should_emit = False
             async with self._lock:
                 record = self._tasks[task_id]
-                if record.status == "paused":
+                if record.status in {"paused", "failed", "cancelled", "succeeded"}:
+                    # Terminal tasks restart in place: resume-after-failure is a
+                    # first-class flow, and the event history keeps the record.
                     record.status = "running"
+                    record.error = ""
                     record.updated_at = utc_now()
                     record.finished_at = None
                     if effective_lease_seconds > 0:
