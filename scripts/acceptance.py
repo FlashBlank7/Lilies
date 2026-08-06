@@ -178,7 +178,10 @@ def main() -> None:
     node_types = {node["type"] for node in draft["snapshot"]["workflow"]["nodes"]}
     report["node_types"] = sorted(node_types)
     required_types = spec.get("required_node_types", [])
+    any_of = spec.get("required_any_node_types", [])
     report["architecture_missing"] = [t for t in required_types if t not in node_types]
+    if any_of and not node_types.intersection(any_of):
+        report["architecture_missing"].append("any-of:" + "|".join(any_of))
     report["architecture_pass"] = not report["architecture_missing"]
 
     case_rows = []

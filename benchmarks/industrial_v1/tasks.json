@@ -198,7 +198,7 @@
       "id": "T5-bank-reconciliation-artifact",
       "family": "结构化数据与工件交付",
       "legacy_ref": "EXP-LILIES-005",
-      "requirement": "我是财务。每天要把银行流水和内部记账核对。输入两份数据：银行流水（金额、日期、摘要）和内部账目（金额、日期、单号、事由）。按金额和日期匹配；匹配上的算已核销；银行有而内部没有的列成待入账；内部有而银行没有的列成待到账，并为每条未匹配项写一句可能原因。输出核对结果 JSON，并生成一份 Excel（三个 sheet：已核销、待入账、待到账）。 系统对接说明:输入字段名固定为 bank（银行流水数组,含 amount、date、memo）和 ledger（内部账目数组,含 amount、date、voucher、note）。输出字段名固定为:reconciled（已核销数组）、pending_book（待入账数组,每条含 possible_reason）、pending_receipt（待到账数组,每条含 possible_reason）。",
+      "requirement": "我是财务。每天要把银行流水和内部记账核对。输入两份数据：银行流水（金额、日期、摘要）和内部账目（金额、日期、单号、事由）。按金额和日期匹配；匹配上的算已核销；银行有而内部没有的列成待入账；内部有而银行没有的列成待到账，并为每条未匹配项写一句可能原因。输出核对结果 JSON，并生成一份 Excel（三个 sheet：已核销、待入账、待到账）。 系统对接说明:输入字段名固定为 bank（银行流水数组,含 amount、date、memo）和 ledger（内部账目数组,含 amount、date、voucher、note）。输出字段名固定为:reconciled（已核销数组）、pending_book（待入账数组,每条含 possible_reason）、pending_receipt（待到账数组,每条含 possible_reason）。 另外有一条审计要求：同一批数据每次对账的匹配结果必须完全一致、可复算，匹配判定不能有任何随机性。",
       "sample_inputs": {
         "bank": [
           {
@@ -243,7 +243,7 @@
       "id": "T6-replenishment-planning",
       "family": "预测优化与规划",
       "legacy_ref": "EXP-LILIES-006",
-      "requirement": "我管一个仓库的补货。输入：每个 SKU 最近 8 周的周销量、当前库存、供应商交期（周）、最小起订量。假设未来销量按最近 4 周平均持续，帮我算出每个 SKU 是否需要补货：如果当前库存扛不到交期结束就要补，补货量至少覆盖交期加 2 周的销量，且不低于最小起订量。输出补货建议表：每个 SKU 补不补、补多少、依据是什么；不需要补的也要说明为什么。 系统对接说明:输入字段名固定为 skus,数组,每项含 sku、weekly_sales（8 个数）、stock、lead_time_weeks、moq。输出字段名固定为:plan,数组,每个 SKU 含 sku、need_replenish（布尔）、quantity（不补为 0）、basis(依据说明)。",
+      "requirement": "我管一个仓库的补货。输入：每个 SKU 最近 8 周的周销量、当前库存、供应商交期（周）、最小起订量。假设未来销量按最近 4 周平均持续，帮我算出每个 SKU 是否需要补货：如果当前库存扛不到交期结束就要补，补货量至少覆盖交期加 2 周的销量，且不低于最小起订量。输出补货建议表：每个 SKU 补不补、补多少、依据是什么；不需要补的也要说明为什么。 系统对接说明:输入字段名固定为 skus,数组,每项含 sku、weekly_sales（8 个数）、stock、lead_time_weeks、moq。输出字段名固定为:plan,数组,每个 SKU 含 sku、need_replenish（布尔）、quantity（不补为 0）、basis(依据说明)。 另外有一条审计要求：补货公式是固定的，同样的输入必须永远得到完全相同的补货建议，计算过程要可复算，不能有任何随机性。",
       "sample_inputs": {
         "skus": [
           {
@@ -285,8 +285,9 @@
           "plan"
         ],
         "review_notes": "A-100 周销约 43，库存 60 撑不过 2 周交期，应补且 ≥ max(4周销量≈172, moq=100)；B-200 库存 80 足以覆盖，应判不补并给出理由；数字必须可复算。",
-        "required_node_types": [
-          "replenishment_planner"
+        "required_any_node_types": [
+          "replenishment_planner",
+          "computed_variable_assigner"
         ]
       },
       "exercises": [

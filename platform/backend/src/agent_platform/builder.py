@@ -484,7 +484,9 @@ class WorkflowBuilder:
                 if not report["passed"]:
                     raise RuntimeError("builder stopped before mandatory tests passed")
                 if build["auto_publish"]:
-                    published = await self.workflow_store.publish(build["application_id"])
+                    published = await self.workflow_store.publish(
+                        build["application_id"], acknowledge_warnings=True
+                    )
                     state.published_version = published["version"]
                     await self._emit(build_id, "build.published", published)
                     status = "published"
@@ -1381,11 +1383,16 @@ class WorkflowBuilder:
         if tool == "draft_validate":
             return await self._draft_validation_summary(application_id)
         if tool == "test_run":
-            if state.repair_cycles > max_repair_cycles or (
-                state.repair_cycles == max_repair_cycles
+            if (
+                state.repair_cycles >= max_repair_cycles
                 and state.last_failed_test_revision == state.revision
             ):
-                raise RuntimeError(f"maximum repair cycles reached ({max_repair_cycles})")
+                # Block spinning on the same failing revision, but never dead-end
+                # the build: changing the draft (new revision) re-opens test_run.
+                raise RuntimeError(
+                    f"maximum repair cycles reached ({max_repair_cycles}) for this "
+                    "revision — change the draft before running tests again"
+                )
             report = await self.runtime.run_test_suite(application_id)
             if not report["passed"]:
                 if state.last_failed_test_revision != state.revision:
@@ -1394,7 +1401,9 @@ class WorkflowBuilder:
             else:
                 state.last_failed_test_revision = None
                 if auto_publish:
-                    published = await self.workflow_store.publish(application_id)
+                    published = await self.workflow_store.publish(
+                        application_id, acknowledge_warnings=True
+                    )
                     state.published_version = published["version"]
                     report["publication"] = published
                     await self._emit(build_id, "build.published", published)
@@ -1408,7 +1417,11 @@ class WorkflowBuilder:
                 }
             if not auto_publish and not data.get("explicit", False):
                 return {"status": "ready", "message": "auto publish is disabled"}
-            published = await self.workflow_store.publish(application_id)
+            # An explicit Builder publish after green tests acknowledges
+            # remaining warnings; they stay recorded in the publish decision.
+            published = await self.workflow_store.publish(
+                application_id, acknowledge_warnings=True
+            )
             state.published_version = published["version"]
             await self._emit(build_id, "build.published", published)
             return published
