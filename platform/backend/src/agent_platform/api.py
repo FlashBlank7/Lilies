@@ -112,6 +112,7 @@ from .providers import ModelProvider
 from .runtime import AgentRuntime
 from .reference_modules import ensure_codex_reference_module
 from .sandbox import SandboxManager
+from .scenarios import ScenarioCatalog
 from .scheduler import WorkflowScheduler
 from .storage import Storage
 from .tabular_models import (
@@ -138,6 +139,7 @@ from .tools import ToolRegistry
 from .workflow_models import (
     ApplicationCreateRequest,
     ApplicationSnapshot,
+    BuildRequest,
     DraftOperation,
     ResumeRunRequest,
     ManualScheduleTriggerRequest,
@@ -287,79 +289,10 @@ def _resolve_reachable_git_commit(
     return full_commit if reachable.returncode == 0 else None
 
 
-def _git_commit_exists(repo_root: Path | None, commit_sha: str) -> bool:
-    return _resolve_reachable_git_commit(repo_root, commit_sha) is not None
 
 
-def _git_tree_contains_blob(tree_output: bytes, blob_oid: str) -> bool:
-    """Parse `git ls-tree -z` metadata without trusting arbitrary path bytes."""
-
-    expected_oid = blob_oid.encode("ascii")
-    for record in tree_output.split(b"\0"):
-        if not record:
-            continue
-        metadata, separator, _path = record.partition(b"\t")
-        if not separator:
-            return False
-        fields = metadata.split(b" ")
-        if len(fields) != 3:
-            return False
-        _mode, object_type, object_oid = fields
-        if object_type == b"blob" and hmac.compare_digest(object_oid, expected_oid):
-            return True
-    return False
 
 
-def _git_developer_evidence_exists(
-    repo_root: Path | None,
-    commit_sha: str,
-    evidence: Any,
-) -> bool:
-    """Verify immutable evidence bytes in the declared implementation tree."""
-
-    full_commit = _resolve_reachable_git_commit(repo_root, commit_sha)
-    if full_commit is None:
-        return False
-    parts = str(evidence.evidence_id).split(":")
-    if len(parts) != 3 or parts[0] != "gitblob":
-        return False
-    evidence_commit, blob_oid = parts[1:]
-    if not hmac.compare_digest(evidence_commit, full_commit):
-        return False
-    if len(blob_oid) != len(full_commit) or any(
-        character not in "0123456789abcdef" for character in blob_oid
-    ):
-        return False
-    try:
-        tree = subprocess.run(
-            ["git", "-C", str(repo_root), "ls-tree", "-r", "-z", full_commit],
-            check=False,
-            capture_output=True,
-            timeout=5,
-        )
-        if tree.returncode != 0 or not _git_tree_contains_blob(tree.stdout, blob_oid):
-            return False
-        size = subprocess.run(
-            ["git", "-C", str(repo_root), "cat-file", "-s", blob_oid],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=2,
-        )
-        if size.returncode != 0 or int(size.stdout.strip()) > 16 * 1024 * 1024:
-            return False
-        blob = subprocess.run(
-            ["git", "-C", str(repo_root), "cat-file", "blob", blob_oid],
-            check=False,
-            capture_output=True,
-            timeout=5,
-        )
-    except (OSError, subprocess.SubprocessError, ValueError):
-        return False
-    if blob.returncode != 0:
-        return False
-    actual_digest = "sha256:" + hashlib.sha256(blob.stdout).hexdigest()
-    return hmac.compare_digest(str(evidence.digest), actual_digest)
 
 
 @lru_cache(maxsize=1)
@@ -422,6 +355,7 @@ class Services:
     builder: WorkflowBuilder
     scheduler: WorkflowScheduler
     templates: TemplateStore
+    scenarios: ScenarioCatalog
     draft_patcher: DraftPatchPreviewer
     governed_memory: GovernedMemorySurface
     tabular_models: TabularModelService
@@ -2093,26 +2027,6 @@ def annotate_build_deadline(build: dict[str, Any]) -> dict[str, Any]:
     return build
 
 
-def _collaboration_secret_registry(
-    settings: Settings,
-) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    """Expose configured secret names and values only to the redaction boundary."""
-
-    fields: list[str] = []
-    values: list[str] = []
-    for name, field in type(settings).model_fields.items():
-        if field.repr is not False and not name.endswith(
-            ("_api_key", "_password", "_secret", "_token")
-        ):
-            continue
-        fields.append(name)
-        configured = getattr(settings, name)
-        if isinstance(configured, str):
-            if configured:
-                values.append(configured)
-        elif isinstance(configured, dict):
-            values.extend(str(value) for value in configured.values() if str(value))
-    return tuple(fields), tuple(values)
 
 
 
@@ -2198,6 +2112,7 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         workflow_validator=blocks.validate_workflow,
     )
     draft_patcher = DraftPatchPreviewer()
+    scenarios = ScenarioCatalog(blocks, connectors=connectors)
     templates_dir = settings.templates_dir
     if templates_dir and templates_dir.is_dir():
         loaded = templates.load_builtins(templates_dir)
@@ -2207,25 +2122,6 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         f"[api] Reference module {reference_module.module_ref} "
         f"status={reference_module.state.status}"
     )
-    collaboration_secret_fields, collaboration_secret_values = _collaboration_secret_registry(
-        settings
-    )
-    repository_root = _repo_root()
-
-    async def resolve_developer_commit(commit_sha: str) -> bool:
-        return await asyncio.to_thread(
-            _git_commit_exists,
-            repository_root,
-            commit_sha,
-        )
-
-    async def resolve_developer_evidence(commit_sha: str, evidence: Any) -> bool:
-        return await asyncio.to_thread(
-            _git_developer_evidence_exists,
-            repository_root,
-            commit_sha,
-            evidence,
-        )
 
 
 
@@ -2320,6 +2216,7 @@ def build_services(settings: Settings, provider: ModelProvider | None = None) ->
         builder=builder,
         scheduler=scheduler,
         templates=templates,
+        scenarios=scenarios,
         draft_patcher=draft_patcher,
         governed_memory=governed_memory,
         tabular_models=tabular_models,
@@ -2372,7 +2269,6 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         await services.knowledge_indexes.initialize()
         await services.event_automation.initialize()
         await services.workflow_store.initialize()
-        await services.collaborative_development.initialize()
         await services.durable_jobs.initialize()
         await services.connectors.initialize()
         await services.openapi_connectors.initialize()
@@ -2511,6 +2407,25 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
     @app.get("/api/v1/platform/harness/policy-controls", dependencies=[Depends(require_token)])
     async def get_platform_harness_policy_controls() -> dict[str, Any]:
         return services.harness.policy_controls()
+
+    @app.patch("/api/v1/platform/harness/policy-controls", dependencies=[Depends(require_token)])
+    async def patch_platform_harness_policy_controls(
+        body: PlatformPolicyControlsUpdateRequest,
+    ) -> dict[str, Any]:
+        patch_fields = {
+            "network_egress_policy": body.network_egress_policy,
+            "network_egress_allowlist": body.network_egress_allowlist,
+            "cancellation_policy": body.cancellation_policy,
+            "secret_policy_enabled": body.secret_policy_enabled,
+            "worker_lease_seconds": body.worker_lease_seconds,
+            "limits": body.limits,
+        }
+        if all(value is None for value in patch_fields.values()):
+            raise HTTPException(422, "policy controls update requires at least one mutable field")
+        try:
+            return services.harness.update_policy_controls(reason=body.reason, **patch_fields)
+        except PlatformHarnessViolation as error:
+            raise HTTPException(422, str(error)) from error
 
     @app.get(
         "/api/v1/platform/harness/worker-handler-catalog", dependencies=[Depends(require_token)]
@@ -4641,6 +4556,76 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         except DurableJobConflict as error:
             raise HTTPException(409, str(error)) from error
 
+    @app.get("/api/v1/scenarios", dependencies=[Depends(require_token)])
+    async def list_scenarios() -> list[dict[str, Any]]:
+        return services.scenarios.list()
+
+    @app.get("/api/v1/scenarios/{scenario_id}", dependencies=[Depends(require_token)])
+    async def get_scenario(scenario_id: str) -> dict[str, Any]:
+        try:
+            return services.scenarios.get(scenario_id).model_dump(mode="json")
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+
+    @app.post(
+        "/api/v1/applications/{application_id}/scenarios/{scenario_id}/apply",
+        dependencies=[Depends(require_token)],
+    )
+    async def apply_scenario_to_application(
+        application_id: str,
+        scenario_id: str,
+        body: ScenarioApplyRequest,
+    ) -> dict[str, Any]:
+        try:
+            scenario = services.scenarios.get(scenario_id)
+            draft = await services.workflow_store.get_draft(application_id)
+            snapshot = draft["snapshot"]
+            if (
+                snapshot.workflow.nodes or snapshot.workflow.edges or snapshot.tests
+            ) and not body.replace_existing:
+                raise ValueError(
+                    "draft already contains workflow content; set replace_existing=true to replace it atomically"
+                )
+            result = await services.applications.apply_operations_atomically(
+                application_id,
+                expected_revision=body.expected_revision,
+                expected_content_hash=body.expected_content_hash,
+                operations=[
+                    {
+                        "op": "set_capability_build_contract",
+                        "data": {
+                            "contract": scenario.capability_build_contract.model_dump(mode="json")
+                        },
+                    },
+                    {
+                        "op": "replace_workflow",
+                        "data": {"workflow": scenario.workflow.model_dump(mode="json")},
+                    },
+                    {
+                        "op": "replace_tests",
+                        "data": {
+                            "tests": [
+                                test.model_dump(mode="json") for test in scenario.acceptance_cases
+                            ]
+                        },
+                    },
+                ],
+                idempotency_key=body.idempotency_key,
+                change_context_operation="scenario_apply",
+            )
+            validation = await services.applications.validate_draft(application_id)
+            return {
+                **result,
+                "scenario": scenario.summary(),
+                "validation": validation,
+            }
+        except RevisionConflict as error:
+            raise HTTPException(409, str(error)) from error
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from error
+
     @app.post("/api/v1/applications", status_code=201, dependencies=[Depends(require_token)])
     async def create_application(body: ApplicationCreateRequest) -> dict[str, Any]:
         if body.capability_build_contract is not None:
@@ -4942,6 +4927,37 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
             return await services.applications.validate_draft(application_id)
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
+
+    @app.post(
+        "/api/v1/applications/{application_id}/builds",
+        status_code=202,
+        dependencies=[Depends(require_token)],
+    )
+    async def create_build(application_id: str, body: BuildRequest) -> dict[str, Any]:
+        try:
+            await services.workflow_store.get_application(application_id)
+            await services.workflow_store.get_draft(application_id)
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+        build_id = str(uuid4())
+        await services.workflow_store.create_build(
+            build_id,
+            application_id,
+            body.requirement,
+            body.auto_publish,
+            body.max_turns,
+            body.max_repair_cycles,
+            body.max_elapsed_seconds,
+            body.planning_mode,
+        )
+        services.builder.start(build_id)
+        return {
+            "build_id": build_id,
+            "application_id": application_id,
+            "status": "queued",
+            "max_elapsed_seconds": body.max_elapsed_seconds,
+            "deadline": deadline_summary(body.max_elapsed_seconds),
+        }
 
     @app.get(
         "/api/v1/applications/{application_id}/builds",
