@@ -909,31 +909,16 @@ function acceptanceRunErrorReport(draft: Draft | null, error: unknown): Record<s
   }
 }
 
-function detailBuildRequirementReadiness(requirement: string, t: Copy) {
-  const text = requirement.trim()
-  const normalized = text.toLocaleLowerCase()
-  const signals = [
-    { id: 'audience', label: t.requirementSignalAudience, detail: t.requirementSignalAudienceHint, ready: /(客户|用户|负责人|顾问|运营|审阅|学生|学习者|customer|user|owner|operator|consultant|reviewer|learner|student)/i.test(normalized) },
-    { id: 'outcome', label: t.requirementSignalOutcome, detail: t.requirementSignalOutcomeHint, ready: /(输出|生成|给出|判断|分类|摘要|清单|result|output|generate|classify|summary|checklist)/i.test(normalized) },
-    { id: 'acceptance', label: t.requirementSignalAcceptance, detail: t.requirementSignalAcceptanceHint, ready: /(验收|测试|必须|覆盖|acceptance|test|must|cover|verify)/i.test(normalized) },
-    { id: 'detail', label: t.requirementSignalDetail, detail: t.requirementSignalDetailHint, ready: text.length >= 80 },
-  ]
-  const readyCount = signals.filter(signal => signal.ready).length
-  return { signals, readyCount, total: signals.length, ready: readyCount >= 3 }
-}
-
-function detailBuildActionState(requirement: string, readinessReady: boolean, build: Build | null, buildIntentConfirmed: boolean, t: Copy) {
+function detailBuildActionState(requirement: string, build: Build | null, buildIntentConfirmed: boolean, t: Copy) {
   if (build && ['queued', 'building'].includes(build.status)) return { id: 'busy', tone: 'busy', title: t.detailBuildActionBusyTitle, detail: t.detailBuildActionBusyDetail }
   if (requirement.trim().length < 10) return { id: 'add_detail', tone: 'attention', title: t.detailBuildActionAddDetailTitle, detail: t.detailBuildActionAddDetailDetail }
   if (buildIntentConfirmed) return { id: 'confirm_team', tone: 'warning', title: t.detailBuildActionConfirmTitle, detail: t.detailBuildActionConfirmDetail }
-  if (readinessReady) return { id: 'arm_team', tone: 'ready', title: t.detailBuildActionArmTitle, detail: t.detailBuildActionArmDetail }
-  return { id: 'improve_requirement', tone: 'attention', title: t.detailBuildActionImproveTitle, detail: t.detailBuildActionImproveDetail }
+  return { id: 'arm_team', tone: 'ready', title: t.detailBuildActionArmTitle, detail: t.detailBuildActionArmDetail }
 }
 
 function recommendedDetailBuildAction(actionId: string, t: Copy) {
   if (actionId === 'busy') return { target: 'wait', tone: 'busy', label: t.detailBuildRecommendedBusyLabel, detail: t.detailBuildRecommendedBusyDetail, disabled: true }
   if (actionId === 'arm_team' || actionId === 'confirm_team') return { target: 'guarded_build_button', tone: actionId === 'confirm_team' ? 'warning' : 'ready', label: t.detailBuildRecommendedGuardLabel, detail: t.detailBuildRecommendedGuardDetail, disabled: false }
-  if (actionId === 'improve_requirement') return { target: 'requirement_focus', tone: 'attention', label: t.detailBuildRecommendedImproveLabel, detail: t.detailBuildRecommendedImproveDetail, disabled: false }
   return { target: 'requirement_focus', tone: 'attention', label: t.detailBuildRecommendedAddDetailLabel, detail: t.detailBuildRecommendedAddDetailDetail, disabled: false }
 }
 
@@ -2297,8 +2282,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
     { label: t.nodeInspectorConfig, value: t.nodeConfigSummary(selectedConfigKeys.length), detail: selectedConfigKeys.length ? selectedConfigKeys.slice(0, 4).join(', ') : t.nodeInspectorNoConfig },
     { label: t.nodeInspectorSafeNext, value: t.nodeInspectorSafeNextValue, detail: t.nodeInspectorSafeNextDetail },
   ] : []
-  const detailBuildReadiness = detailBuildRequirementReadiness(requirement, t)
-  const detailBuildAction = detailBuildActionState(requirement, detailBuildReadiness.ready, build, buildIntentConfirmed, t)
+  const detailBuildAction = detailBuildActionState(requirement, build, buildIntentConfirmed, t)
   const detailBuildRecommendedAction = recommendedDetailBuildAction(detailBuildAction.id, t)
   const businessDefinitionMissing = Boolean(draft && !(
     draft.snapshot.requirement.trim()
@@ -2360,14 +2344,6 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
         {tab === 'build' && <div className="panel-body">
           <div className="panel-kicker">{locale === 'zh' ? '莉莉丝 Builder' : 'Lilies Builder'}</div><h2>{t.continueBuild}</h2>
           <textarea ref={detailBuildRequirementRef} className="requirement-input" value={requirement} onChange={event => { setRequirement(event.target.value); setBuildIntentConfirmed(false) }} />
-          <section className={`requirement-readiness detail-build-readiness ${detailBuildReadiness.ready ? 'ready' : 'needs-detail'}`} data-detail-build-readiness="summary">
-            <div className="requirement-readiness-head"><strong>{t.requirementReadinessTitle}</strong><span>{t.requirementReadinessScore(detailBuildReadiness.readyCount, detailBuildReadiness.total)}</span></div>
-            <p>{detailBuildReadiness.ready ? t.requirementReadinessReady : t.requirementReadinessNeedsDetail}</p>
-            <div className="requirement-readiness-list">{detailBuildReadiness.signals.map(signal => <article className={signal.ready ? 'ready' : ''} key={signal.id}>
-              <b>{signal.label}</b>
-              <small>{signal.detail}</small>
-            </article>)}</div>
-          </section>
           <section className={`create-action-explainer detail-build-action-explainer ${detailBuildAction.tone}`} data-detail-build-action-state={detailBuildAction.id}>
             <strong>{detailBuildAction.title}</strong>
             <span>{detailBuildAction.detail}</span>

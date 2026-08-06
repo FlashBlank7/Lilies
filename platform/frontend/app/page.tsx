@@ -394,19 +394,6 @@ function isAppSort(value: string | null): value is AppSort {
   return Boolean(value && APP_SORTS.includes(value as AppSort))
 }
 
-function requirementReadiness(requirement: string, t: Copy) {
-  const text = requirement.trim()
-  const normalized = text.toLocaleLowerCase()
-  const signals = [
-    { id: 'audience', label: t.requirementSignalAudience, detail: t.requirementSignalAudienceHint, ready: /(客户|用户|负责人|顾问|运营|审阅|学生|学习者|customer|user|owner|operator|consultant|reviewer|learner|student)/i.test(normalized) },
-    { id: 'outcome', label: t.requirementSignalOutcome, detail: t.requirementSignalOutcomeHint, ready: /(输出|生成|给出|判断|分类|摘要|清单|result|output|generate|classify|summary|checklist)/i.test(normalized) },
-    { id: 'acceptance', label: t.requirementSignalAcceptance, detail: t.requirementSignalAcceptanceHint, ready: /(验收|测试|必须|覆盖|acceptance|test|must|cover|verify)/i.test(normalized) },
-    { id: 'detail', label: t.requirementSignalDetail, detail: t.requirementSignalDetailHint, ready: text.length >= 80 },
-  ]
-  const readyCount = signals.filter(signal => signal.ready).length
-  return { signals, readyCount, total: signals.length, ready: readyCount >= 3 }
-}
-
 function requirementIntakeAnswers(
   questions: RequirementIntakeQuestion[],
   selections: RequirementClarificationSelections,
@@ -451,19 +438,17 @@ function requirementQuestionAnswered(question: RequirementIntakeQuestion, select
   return Boolean(selection?.selectedOptionIds.length || selection?.customAnswer.trim())
 }
 
-function createActionState(requirement: string, readinessReady: boolean, busy: boolean, draftBusy: boolean, buildIntentConfirmed: boolean, t: Copy) {
+function createActionState(requirement: string, busy: boolean, draftBusy: boolean, buildIntentConfirmed: boolean, t: Copy) {
   if (busy || draftBusy) return { id: 'busy', tone: 'busy', title: t.createActionBusyTitle, detail: t.createActionBusyDetail }
   if (requirement.trim().length < 10) return { id: 'add_detail', tone: 'attention', title: t.createActionAddDetailTitle, detail: t.createActionAddDetailDetail }
   if (buildIntentConfirmed) return { id: 'confirm_team', tone: 'warning', title: t.createActionConfirmTeamTitle, detail: t.createActionConfirmTeamDetail }
-  if (readinessReady) return { id: 'save_draft', tone: 'ready', title: t.createActionSaveDraftTitle, detail: t.createActionSaveDraftDetail }
-  return { id: 'improve_requirement', tone: 'attention', title: t.createActionImproveTitle, detail: t.createActionImproveDetail }
+  return { id: 'save_draft', tone: 'ready', title: t.createActionSaveDraftTitle, detail: t.createActionSaveDraftDetail }
 }
 
 function recommendedCreateAction(actionId: string, t: Copy) {
   if (actionId === 'busy') return { target: 'wait', tone: 'busy', label: t.recommendedActionBusyLabel, detail: t.recommendedActionBusyDetail, disabled: true }
   if (actionId === 'save_draft') return { target: 'safe_draft', tone: 'ready', label: t.recommendedActionSaveDraftLabel, detail: t.recommendedActionSaveDraftDetail, disabled: false }
   if (actionId === 'confirm_team') return { target: 'guarded_build_button', tone: 'warning', label: t.recommendedActionTeamGuardLabel, detail: t.recommendedActionTeamGuardDetail, disabled: false }
-  if (actionId === 'improve_requirement') return { target: 'requirement_focus', tone: 'attention', label: t.recommendedActionImproveLabel, detail: t.recommendedActionImproveDetail, disabled: false }
   return { target: 'requirement_focus', tone: 'attention', label: t.recommendedActionAddDetailLabel, detail: t.recommendedActionAddDetailDetail, disabled: false }
 }
 
@@ -558,17 +543,14 @@ export default function Home() {
     setAppSearch(query.get('q') || '')
   }, [])
   const selectedCustomerExample = t.customerExamples.find(item => item.id === selectedExampleId)
-  const createReadiness = requirementReadiness(requirement, t)
   const requirementQuestions = requirementIntake?.questions || []
   const requirementAnsweredCount = requirementQuestions.filter(question => requirementQuestionAnswered(question, requirementSelections)).length
   const requirementChoicesComplete = requirementQuestions.every(question => requirementQuestionAnswered(question, requirementSelections))
   const hasRequirementSelections = Object.values(requirementSelections).some(selection => selection.selectedOptionIds.length > 0 || selection.customAnswer.trim())
-  const requirementMissingLabels = requirementIntake?.missing?.length
-    ? requirementIntake.missing
-    : createReadiness.signals.filter(signal => !signal.ready).map(signal => signal.label)
+  const requirementMissingLabels = requirementIntake?.missing || []
   const requirementCompletionReady = requirementIntake?.status === 'ready' && Boolean(requirementIntake.completed_requirement?.trim())
   const displayedCapabilityContract = requirementIntake?.capability_build_contract || capabilityBuildContract
-  const createAction = createActionState(requirement, createReadiness.ready || requirementCompletionReady, busy || requirementIntakeBusy, draftBusy, buildIntentConfirmed, t)
+  const createAction = createActionState(requirement, busy || requirementIntakeBusy, draftBusy, buildIntentConfirmed, t)
   const recommendedAction = recommendedCreateAction(createAction.id, t)
   const runtimeStatus = classifyRuntimeStatus(runtimeHealth, { authRequired, unavailable: runtimeUnavailable })
   const runtimeStatusText = runtimeStatus === 'connected'
@@ -862,14 +844,6 @@ export default function Home() {
             <div><span>{t.selectedScenarioSummaryTitle} · {selectedCustomerExample.role}</span><strong>{selectedCustomerExample.title}</strong><p>{selectedCustomerExample.need}</p><small>{selectedCustomerExample.acceptanceSignal}</small></div>
             <button onClick={clearCustomerExample} type="button">{t.clearSelectedScenario}</button>
           </section>}
-          <section className={`requirement-readiness ${createReadiness.ready ? 'ready' : 'needs-detail'}`} data-requirement-readiness="summary">
-            <div className="requirement-readiness-head"><strong>{t.requirementReadinessTitle}</strong><span>{t.requirementReadinessScore(createReadiness.readyCount, createReadiness.total)}</span></div>
-            <p>{createReadiness.ready ? t.requirementReadinessReady : t.requirementReadinessNeedsDetail}</p>
-            <div className="requirement-readiness-list">{createReadiness.signals.map(signal => <article className={signal.ready ? 'ready' : ''} key={signal.id}>
-              <b>{signal.label}</b>
-              <small>{signal.detail}</small>
-            </article>)}</div>
-          </section>
           <section className={`requirement-completion-panel ${requirementCompletionReady ? 'ready' : 'needs-input'}`} data-requirement-completion="ai-workflow-intake" data-requirement-intake-status={requirementIntake?.status || 'not_started'}>
             <div className="requirement-completion-head">
               <div><strong>{t.requirementCompletionTitle}</strong><small>{t.requirementCompletionHelp}</small></div>
