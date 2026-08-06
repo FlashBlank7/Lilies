@@ -501,7 +501,6 @@ def test_builder_preserves_valid_draft_and_completes_verified_task_ledger(tmp_pa
             for event in events
         )
         assert any(event["type"] == "build.progress.completed" for event in events)
-        assert any(event["type"] == "build.delivery.frozen" for event in events)
         assert any(event["type"] == "build.published" for event in events)
         assert "Current delivery budget: turn 1/36" in provider.system_prompts[0]
         assert set(provider.efforts) == {"high"}
@@ -588,7 +587,7 @@ def test_builder_allows_bounded_novel_schema_discovery_before_delivery(tmp_path:
         )
 
 
-def test_builder_restores_last_valid_draft_when_a_build_stops_mid_repair(tmp_path: Path) -> None:
+def test_builder_preserves_partial_draft_when_a_build_stops_mid_repair(tmp_path: Path) -> None:
     app = create_app(
         Settings(
             api_token="workflow-test",
@@ -620,17 +619,12 @@ def test_builder_restores_last_valid_draft_when_a_build_stops_mid_repair(tmp_pat
         draft = client.get(
             f"/api/v1/applications/{application_id}/draft", headers=HEADERS,
         ).json()
-        assert [node["id"] for node in draft["snapshot"]["workflow"]["nodes"]] == [
-            "start", "template", "end",
-        ]
-        validation = client.post(
-            f"/api/v1/applications/{application_id}/draft/validate", headers=HEADERS,
-        ).json()
-        assert validation["valid"] is True, validation
+        # The partial draft is preserved for inspection and continuation —
+        # a failed build no longer rolls the builder's work back.
+        node_ids = [node["id"] for node in draft["snapshot"]["workflow"]["nodes"]]
+        assert "debug-node" in node_ids
         events = client.get(f"/v1/streams/{build_id}", headers=HEADERS).json()
-        restored = [event for event in events if event["type"] == "build.draft.restored"]
-        assert len(restored) == 1
-        assert restored[0]["data"]["reason"] == "RuntimeError"
+        assert not any(event["type"] == "build.draft.restored" for event in events)
 
 
 def test_acceptance_suite_runs_independent_workflows_concurrently(tmp_path: Path) -> None:

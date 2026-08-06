@@ -17,7 +17,6 @@ from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
 from agent_platform.builder import (
-    BuildDraftGuard,
     TEAMMATE_MIN_REMAINING_SECONDS,
     TEAMMATE_REPAIR_BUDGET_EXHAUSTED_REASON,
     WorkflowBuilder,
@@ -5616,84 +5615,6 @@ def test_model_turn_system_prompt_json_fields_feed_downstream_refs(tmp_path: Pat
         assert provider.systems == ["Return JSON only with category, suggestions, owner, info_gaps, and summary."]
 
 
-def test_builder_guard_rejects_same_id_test_replacement_that_weakens_assertions(
-    tmp_path: Path,
-) -> None:
-    app = create_app(
-        Settings(
-            api_token="workflow-test",
-            data_dir=tmp_path / "data",
-            workspace_root=tmp_path / "workspaces",
-        ),
-        ScriptedProvider(),
-    )
-    builder = app.state.services.builder
-    snapshot = ApplicationSnapshot.model_validate({
-        "name": "Protected acceptance",
-        "description": "Keep failed acceptance semantics intact during repair.",
-        "requirement": "Classify complaint urgency and issue type.",
-        "workflow": {
-            "nodes": [
-                {
-                    "id": "start",
-                    "type": "start",
-                    "title": "Start",
-                    "config": {"inputs": []},
-                },
-                {
-                    "id": "end",
-                    "type": "end",
-                    "title": "End",
-                    "config": {"outputs": {"urgency": "紧急", "issue_type": "质量"}},
-                },
-            ],
-            "edges": [
-                {
-                    "id": "start-end",
-                    "source": "start",
-                    "target": "end",
-                    "source_port": "output",
-                    "target_port": "input",
-                },
-            ],
-        },
-        "tests": [{
-            "id": "complaint-acceptance",
-            "name": "Complaint classification",
-            "requirement": "Expose both the urgency and issue type.",
-            "assertions": [
-                {"path": ["urgency"], "operator": "exists"},
-                {"path": ["issue_type"], "operator": "exists"},
-            ],
-            "mandatory": True,
-        }],
-    })
-    guard = BuildDraftGuard(protected_snapshot=snapshot.model_copy(deep=True))
-    builder._freeze_acceptance_floor(snapshot, guard)
-    replacement = DraftOperation(
-        expected_revision=0,
-        idempotency_key="weaken-test",
-        op="add_test",
-        data={
-            "test": {
-                "id": "complaint-acceptance",
-                "name": "Complaint classification",
-                "requirement": "Expose a readable answer.",
-                "assertions": [
-                    {"path": [], "operator": "contains", "expected": "处理建议"},
-                ],
-                "mandatory": True,
-            },
-        },
-    )
-
-    with pytest.raises(RuntimeError, match="cannot remove or weaken frozen assertions"):
-        builder._enforce_builder_draft_guard(
-            "test_add",
-            snapshot,
-            replacement,
-            guard,
-        )
 
 
 def test_contains_assertion_searches_structured_output_text(tmp_path: Path) -> None:

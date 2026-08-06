@@ -176,8 +176,8 @@ def ensure_codex_reference_module(
                         ),
                         EvidenceArtifact(
                             category="test",
-                            path="tests/test_v04_04_codex_feedback_loop.py",
-                            description="Deterministic Codex feedback-loop component tests.",
+                            path="tests/test_workflow.py",
+                            description="Deterministic workflow and template component tests.",
                         ),
                     ],
                 ),

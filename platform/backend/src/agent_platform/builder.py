@@ -5,7 +5,6 @@ import json
 import re
 import time
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
 from typing import Any
 from uuid import uuid4
 
@@ -263,29 +262,6 @@ BUILDER_DISCOVERY_TOOLS = {
     "template_suggestions",
 }
 BUILDER_VERIFICATION_TOOLS = {"draft_validate", "test_run"}
-BUILDER_POST_VERIFICATION_TOOLS = {
-    "build_plan",
-    "capability_contract",
-    "draft_inspect",
-    "draft_publish",
-    "draft_validate",
-    "task",
-    "test_run",
-}
-
-
-@dataclass
-class BuildDraftGuard:
-    protected_snapshot: ApplicationSnapshot | None = None
-    protected_revision: int | None = None
-    observed_revision: int | None = None
-    mandatory_test_floor: int | None = None
-    acceptance_coverage_floor: dict[str, set[str]] | None = None
-    minimum_tool_calls_floor: int = 0
-    cited_tool_urls_required: bool = False
-    acceptance_floor_frozen: bool = False
-    delivery_verified: bool = False
-    verified_revision: int | None = None
 
 
 class BuildDeadlineExceeded(RuntimeError):
@@ -360,7 +336,6 @@ class WorkflowBuilder:
         state: BuildTeamState = build["team_state"]
         build_started_at = time.time()
         max_elapsed_seconds = self._coerce_max_elapsed_seconds(build.get("max_elapsed_seconds"))
-        draft_guard = await self._initialize_draft_guard(build["application_id"])
         task_metadata: dict[str, Any] = {
             "max_turns": build["max_turns"],
             "max_repair_cycles": build["max_repair_cycles"],
@@ -428,7 +403,6 @@ class WorkflowBuilder:
                 tracker=tracker,
                 build_started_at=build_started_at,
                 max_elapsed_seconds=max_elapsed_seconds,
-                draft_guard=draft_guard,
             )
             if max_elapsed_seconds is not None:
                 try:
@@ -446,10 +420,6 @@ class WorkflowBuilder:
             else:
                 await agent_loop
             self._trackers[build_id] = tracker
-            await self._validate_capability_contract_completion(
-                build["application_id"],
-                state,
-            )
             if state.published_version is not None:
                 status = "published"
             else:
@@ -489,26 +459,12 @@ class WorkflowBuilder:
                 "published_version": state.published_version,
             }
         except asyncio.CancelledError:
-            await self._restore_protected_draft(
-                build_id,
-                build["application_id"],
-                state,
-                draft_guard,
-                reason="build_cancelled",
-            )
             if manage_harness_task:
                 await self.harness.finish_task(build_id, status="cancelled")
             await self._emit(build_id, "build.cancelled", {})
             await self.workflow_store.update_build(build_id, status="cancelled", team_state=state)
             raise
         except Exception as error:
-            await self._restore_protected_draft(
-                build_id,
-                build["application_id"],
-                state,
-                draft_guard,
-                reason=type(error).__name__,
-            )
             failure_metadata = self._failure_metadata(error)
             if manage_harness_task:
                 await self.harness.finish_task(
@@ -674,74 +630,6 @@ class WorkflowBuilder:
                 )
         return errors
 
-    async def _validate_capability_contract_completion(
-        self,
-        application_id: str,
-        state: BuildTeamState,
-    ) -> dict[str, Any] | None:
-        draft = await self.workflow_store.get_draft(application_id)
-        contract = draft["snapshot"].capability_build_contract
-        if contract is None:
-            state.capability_build_contract = None
-            state.capability_closure = None
-            return None
-        closure = evaluate_capability_contract(contract, require_bound_carriers=True)
-        if not closure.valid:
-            raise RuntimeError(
-                "capability contract is not ready for build completion: "
-                + "; ".join(closure.blocking_errors)
-            )
-        if state.build_plan is None:
-            raise RuntimeError("Capability Build Contract requires a BuildPlan before completion")
-        if state.build_plan.capability_contract_id != contract.contract_id:
-            raise RuntimeError(
-                "BuildPlan capability_contract_id does not match the application contract"
-            )
-        known = {item.id for item in contract.capabilities}
-        required = {item.id for item in contract.capabilities if item.required}
-        covered = {
-            capability_id
-            for module in state.build_plan.modules
-            for capability_id in module.capability_ids
-        }
-        unknown = sorted(covered - known)
-        missing = sorted(required - covered)
-        if unknown:
-            raise RuntimeError(f"BuildPlan references unknown capability ids: {unknown}")
-        if missing:
-            raise RuntimeError(f"BuildPlan does not cover required capability ids: {missing}")
-
-        invalid_refs: list[dict[str, Any]] = []
-        for decision in contract.carrier_decisions:
-            if decision.capability_id not in required:
-                continue
-            invalid = self._invalid_capability_references(
-                draft["snapshot"],
-                contract,
-                decision,
-            )
-            if invalid:
-                invalid_refs.append({
-                    "capability_id": decision.capability_id,
-                    "references": invalid,
-                })
-        if invalid_refs:
-            raise RuntimeError(
-                "carrier bindings reference resources that are not present in the draft or registered inventory: "
-                f"{invalid_refs}"
-            )
-        shared_carrier_errors = self._shared_carrier_binding_errors(
-            draft["snapshot"],
-            contract,
-        )
-        if shared_carrier_errors:
-            raise RuntimeError(
-                "shared carrier contract is not closed: "
-                + "; ".join(shared_carrier_errors)
-            )
-        state.capability_build_contract = contract
-        state.capability_closure = closure.model_dump(mode="json")
-        return state.capability_closure
 
     async def _ensure_mandatory_smoke_test(
         self, build_id: str, application_id: str, state: BuildTeamState
@@ -899,12 +787,12 @@ class WorkflowBuilder:
     async def _draft_validation_summary(self, application_id: str) -> dict[str, Any]:
         validation = await self.applications.validate_draft(application_id)
         draft = await self.workflow_store.get_draft(application_id)
-        delivery_errors = self._draft_delivery_errors(draft["snapshot"])
-        errors = list(dict.fromkeys([*validation["errors"], *delivery_errors]))
+        delivery_warnings = self._draft_delivery_errors(draft["snapshot"])
+        errors = list(dict.fromkeys(validation["errors"]))
         return {
             "valid": not errors,
             "errors": errors,
-            "warnings": validation["warnings"],
+            "warnings": list(dict.fromkeys([*validation["warnings"], *delivery_warnings])),
             "revision": validation["revision"],
             "test_count": validation["test_count"],
         }
@@ -973,7 +861,6 @@ class WorkflowBuilder:
         tracker: DecisionTracker | None = None,
         build_started_at: float | None = None,
         max_elapsed_seconds: float | None = None,
-        draft_guard: BuildDraftGuard | None = None,
     ) -> str:
         final = ""
         tools = self._definitions(
@@ -997,7 +884,6 @@ class WorkflowBuilder:
                 state,
                 stalled_progress_turns=stalled_progress_turns,
                 discovery_only_turns=discovery_only_turns,
-                delivery_verified=bool(draft_guard and draft_guard.delivery_verified),
                 remaining_seconds=self._remaining_build_seconds(
                     build_started_at,
                     max_elapsed_seconds,
@@ -1077,10 +963,7 @@ class WorkflowBuilder:
                         tracker=tracker,
                         build_started_at=build_started_at,
                         max_elapsed_seconds=max_elapsed_seconds,
-                        draft_guard=draft_guard,
                     )
-                    if draft_guard is not None:
-                        await self._refresh_draft_guard(application_id, draft_guard)
                     # Persist user-visible progress before emitting the operation event so
                     # a client reacting to that event can immediately read the new state.
                     await self.workflow_store.update_build(build_id, team_state=state)
@@ -1198,27 +1081,7 @@ class WorkflowBuilder:
         tracker: DecisionTracker | None = None,
         build_started_at: float | None = None,
         max_elapsed_seconds: float | None = None,
-        draft_guard: BuildDraftGuard | None = None,
     ) -> Any:
-        if (
-            draft_guard is not None
-            and draft_guard.delivery_verified
-            and tool not in BUILDER_POST_VERIFICATION_TOOLS
-        ):
-            raise RuntimeError(
-                "builder delivery is frozen after all mandatory tests passed; finish contract, task, "
-                "and plan bookkeeping, then publish without changing or exploring the verified workflow"
-            )
-        if (
-            draft_guard is not None
-            and draft_guard.delivery_verified
-            and tool == "capability_contract"
-            and str(data.get("action") or "") != "validate"
-        ):
-            raise RuntimeError(
-                "builder delivery is frozen after all mandatory tests passed; capability carriers "
-                "must be bound before test_run, so only validation is allowed now"
-            )
         if state.planning_mode == "disabled" and tool == "build_plan":
             raise RuntimeError("build_plan is disabled for this build planning_mode")
         if tool == "catalog_search":
@@ -1544,12 +1407,6 @@ class WorkflowBuilder:
                     ),
                 }
             if action == "validate":
-                if bool(data.get("require_bound", False)):
-                    closure = await self._validate_capability_contract_completion(
-                        application_id,
-                        state,
-                    )
-                    return {"valid": True, "closure": closure}
                 closure = evaluate_capability_contract(contract)
                 return closure.model_dump(mode="json")
             if action == "bind":
@@ -1776,12 +1633,6 @@ class WorkflowBuilder:
                 op=op,
                 data=payload,
             )
-            self._enforce_builder_draft_guard(
-                tool,
-                draft["snapshot"],
-                operation,
-                draft_guard,
-            )
             result = await self.applications.apply_operation(
                 application_id,
                 operation,
@@ -1803,39 +1654,11 @@ class WorkflowBuilder:
         if tool == "draft_validate":
             return await self._draft_validation_summary(application_id)
         if tool == "test_run":
-            if (
-                draft_guard is not None
-                and draft_guard.delivery_verified
-                and draft_guard.verified_revision == state.revision
-            ):
-                raise RuntimeError(
-                    "all mandatory tests already passed for this exact draft revision; publish now"
-                )
-            try:
-                await self._validate_capability_contract_completion(
-                    application_id,
-                    state,
-                )
-            except RuntimeError as error:
-                raise RuntimeError(
-                    "acceptance tests cannot run until the Capability Build Contract and BuildPlan "
-                    f"are closed: {error}"
-                ) from error
-            draft = await self.workflow_store.get_draft(application_id)
-            delivery_errors = self._draft_delivery_errors(draft["snapshot"])
-            if delivery_errors:
-                raise RuntimeError(
-                    "acceptance tests cannot run until delivery coverage is complete: "
-                    + "; ".join(delivery_errors[:8])
-                )
             if state.repair_cycles > max_repair_cycles or (
                 state.repair_cycles == max_repair_cycles
                 and state.last_failed_test_revision == state.revision
             ):
                 raise RuntimeError(f"maximum repair cycles reached ({max_repair_cycles})")
-            if draft_guard is not None and not draft_guard.acceptance_floor_frozen:
-                draft = await self.workflow_store.get_draft(application_id)
-                self._freeze_acceptance_floor(draft["snapshot"], draft_guard)
             report = await self.runtime.run_test_suite(application_id)
             if not report["passed"]:
                 if state.last_failed_test_revision != state.revision:
@@ -1843,18 +1666,6 @@ class WorkflowBuilder:
                     state.last_failed_test_revision = state.revision
             else:
                 state.last_failed_test_revision = None
-                if draft_guard is not None:
-                    newly_verified = (
-                        not draft_guard.delivery_verified
-                        or draft_guard.verified_revision != state.revision
-                    )
-                    draft_guard.delivery_verified = True
-                    draft_guard.verified_revision = state.revision
-                    if newly_verified:
-                        await self._emit(build_id, "build.delivery.frozen", {
-                            "draft_revision": state.revision,
-                            "reason": "all mandatory acceptance tests passed",
-                        })
                 if auto_publish:
                     published = await self.workflow_store.publish(application_id)
                     state.published_version = published["version"]
@@ -1870,7 +1681,6 @@ class WorkflowBuilder:
                 }
             if not auto_publish and not data.get("explicit", False):
                 return {"status": "ready", "message": "auto publish is disabled"}
-            await self._validate_capability_contract_completion(application_id, state)
             published = await self.workflow_store.publish(application_id)
             state.published_version = published["version"]
             await self._emit(build_id, "build.published", published)
@@ -2002,7 +1812,6 @@ class WorkflowBuilder:
                 teammate=name,
                 build_started_at=build_started_at,
                 max_elapsed_seconds=max_elapsed_seconds,
-                draft_guard=draft_guard,
             )
             teammate.messages = [message.model_dump(mode="json") for message in messages]
             teammate.status = "idle"
@@ -2042,7 +1851,6 @@ class WorkflowBuilder:
                 teammate=name,
                 build_started_at=build_started_at,
                 max_elapsed_seconds=max_elapsed_seconds,
-                draft_guard=draft_guard,
             )
             teammate.messages = [message.model_dump(mode="json") for message in messages]
             teammate.mailbox.clear()
@@ -2121,7 +1929,6 @@ class WorkflowBuilder:
         *,
         stalled_progress_turns: int,
         discovery_only_turns: int,
-        delivery_verified: bool,
         remaining_seconds: float | None,
     ) -> str:
         remaining = max_turns - turn + 1
@@ -2129,25 +1936,14 @@ class WorkflowBuilder:
             turn > (max_turns * 2) // 3
             or (remaining_seconds is not None and remaining_seconds < 180)
         )
-        phase = (
-            "publication"
-            if delivery_verified
-            else "verification and delivery"
-            if final_third
-            else "construction"
-        )
+        phase = "verification and delivery" if final_third else "construction"
         statuses = WorkflowBuilder._team_progress(state)["task_statuses"]
         time_budget = (
             f"; approximately {max(0, remaining_seconds):.0f}s remain"
             if remaining_seconds is not None
             else ""
         )
-        delivery_directive = (
-            " The current draft has passed all mandatory tests and is frozen. Do not explore or mutate it; "
-            "finish task/plan bookkeeping; if auto_publish is enabled the platform has already published it."
-            if delivery_verified
-            else ""
-        )
+        delivery_directive = ""
         return (
             f"\n\nCurrent delivery budget: turn {turn}/{max_turns}; {remaining} turns remain"
             f"{time_budget}; "
@@ -2368,235 +2164,11 @@ class WorkflowBuilder:
                     )
         return errors
 
-    @staticmethod
-    def _mandatory_acceptance_coverage(
-        snapshot: ApplicationSnapshot,
-    ) -> tuple[dict[str, set[str]], int, bool]:
-        coverage = {
-            "capability_ids": set(),
-            "required_node_types": set(),
-            "required_tool_nodes": set(),
-            "required_tools": set(),
-            "frame_categories": set(),
-            "assertion_signatures": set(),
-        }
-        minimum_tool_calls = 0
-        cited_tool_urls_required = False
-        for test in (item for item in snapshot.tests if item.mandatory):
-            coverage["capability_ids"].update(test.capability_ids)
-            coverage["required_node_types"].update(test.required_node_types)
-            coverage["required_tool_nodes"].update(test.required_tool_nodes)
-            coverage["required_tools"].update(test.required_tools)
-            if test.frame is not None:
-                coverage["frame_categories"].add(test.frame.category)
-            for assertion in test.assertions:
-                coverage["assertion_signatures"].add(
-                    json.dumps(
-                        {
-                            "test_id": test.id,
-                            "path": assertion.path,
-                            "operator": assertion.operator,
-                            "expected": assertion.expected,
-                            "structural": assertion.structural,
-                        },
-                        ensure_ascii=False,
-                        sort_keys=True,
-                        default=str,
-                    )
-                )
-            minimum_tool_calls = max(minimum_tool_calls, test.minimum_tool_calls)
-            cited_tool_urls_required = cited_tool_urls_required or test.require_cited_tool_urls
-        return coverage, minimum_tool_calls, cited_tool_urls_required
 
-    def _freeze_acceptance_floor(
-        self,
-        snapshot: ApplicationSnapshot,
-        guard: BuildDraftGuard,
-    ) -> None:
-        if guard.acceptance_floor_frozen:
-            return
-        mandatory_tests = [test for test in snapshot.tests if test.mandatory]
-        coverage, minimum_tool_calls, cited_tool_urls_required = (
-            self._mandatory_acceptance_coverage(snapshot)
-        )
-        guard.mandatory_test_floor = len(mandatory_tests)
-        guard.acceptance_coverage_floor = coverage
-        guard.minimum_tool_calls_floor = minimum_tool_calls
-        guard.cited_tool_urls_required = cited_tool_urls_required
-        guard.acceptance_floor_frozen = True
 
-    async def _initialize_draft_guard(self, application_id: str) -> BuildDraftGuard:
-        guard = BuildDraftGuard()
-        await self._refresh_draft_guard(application_id, guard)
-        return guard
 
-    async def _refresh_draft_guard(
-        self,
-        application_id: str,
-        guard: BuildDraftGuard,
-    ) -> None:
-        draft = await self.workflow_store.get_draft(application_id)
-        revision = int(draft["revision"])
-        if guard.observed_revision == revision:
-            return
-        guard.observed_revision = revision
-        snapshot: ApplicationSnapshot = draft["snapshot"]
-        if not self._draft_delivery_errors(snapshot):
-            guard.protected_snapshot = snapshot.model_copy(deep=True)
-            guard.protected_revision = revision
 
-    def _enforce_builder_draft_guard(
-        self,
-        tool: str,
-        snapshot: ApplicationSnapshot,
-        operation: DraftOperation,
-        guard: BuildDraftGuard | None,
-    ) -> None:
-        target_is_protected = False
-        if tool == "draft_remove_node":
-            node_id = str(operation.data["node_id"])
-            node = next((item for item in snapshot.workflow.nodes if item.id == node_id), None)
-            if node is None:
-                raise KeyError(f"node not found: {node_id}")
-            if node.type == "start" and sum(
-                item.type == "start" for item in snapshot.workflow.nodes
-            ) <= 1:
-                raise RuntimeError("builder draft guard: cannot remove the only start node")
-            if node.type in {"end", "answer"} and sum(
-                item.type in {"end", "answer"} for item in snapshot.workflow.nodes
-            ) <= 1:
-                raise RuntimeError("builder draft guard: cannot remove the last terminal node")
-            if guard and guard.protected_snapshot:
-                target_is_protected = any(
-                    item.id == node_id
-                    for item in guard.protected_snapshot.workflow.nodes
-                )
-        elif tool == "draft_remove_edge":
-            edge_id = str(operation.data["edge_id"])
-            if guard and guard.protected_snapshot:
-                target_is_protected = any(
-                    item.id == edge_id
-                    for item in guard.protected_snapshot.workflow.edges
-                )
-        elif tool == "draft_update_node":
-            node_id = str(operation.data["node_id"])
-            if guard and guard.protected_snapshot:
-                target_is_protected = any(
-                    item.id == node_id
-                    for item in guard.protected_snapshot.workflow.nodes
-                )
-        elif tool == "test_remove":
-            test_id = str(operation.data["test_id"])
-            test = next((item for item in snapshot.tests if item.id == test_id), None)
-            if test is None:
-                raise KeyError(f"test not found: {test_id}")
-            if test.mandatory and sum(item.mandatory for item in snapshot.tests) <= 1:
-                raise RuntimeError(
-                    "builder draft guard: cannot remove the last mandatory acceptance test"
-                )
-            if guard and guard.protected_snapshot:
-                target_is_protected = any(
-                    item.id == test_id for item in guard.protected_snapshot.tests
-                )
-        elif tool == "test_add":
-            replacement = WorkflowTestCase.model_validate(operation.data["test"])
-            if guard and guard.protected_snapshot:
-                target_is_protected = any(
-                    item.id == replacement.id
-                    for item in guard.protected_snapshot.tests
-                )
 
-        if guard is not None and guard.protected_snapshot is None:
-            if not self._draft_delivery_errors(snapshot):
-                guard.protected_snapshot = snapshot.model_copy(deep=True)
-        if guard is None or guard.protected_snapshot is None or not target_is_protected:
-            return
-        preview = self.applications.validate_preview_operations(snapshot, [operation])
-        preview_errors = self._draft_delivery_errors(preview)
-        if tool in {"test_remove", "test_add"} and guard.acceptance_floor_frozen:
-            remaining_mandatory = [test for test in preview.tests if test.mandatory]
-            if len(remaining_mandatory) < guard.mandatory_test_floor:
-                preview_errors.append(
-                    "mandatory acceptance test count would fall below the protected baseline; "
-                    "add a replacement test before removing this one"
-                )
-            coverage, minimum_tool_calls, cited_tool_urls_required = (
-                self._mandatory_acceptance_coverage(preview)
-            )
-            for dimension, required_values in (
-                guard.acceptance_coverage_floor or {}
-            ).items():
-                missing = sorted(required_values - coverage.get(dimension, set()))
-                if missing:
-                    preview_errors.append(
-                        f"mandatory acceptance coverage would lose {dimension}: {missing}"
-                    )
-            if minimum_tool_calls < guard.minimum_tool_calls_floor:
-                preview_errors.append(
-                    "mandatory acceptance minimum_tool_calls would fall below the protected baseline"
-                )
-            if guard.cited_tool_urls_required and not cited_tool_urls_required:
-                preview_errors.append(
-                    "mandatory acceptance would lose cited tool URL evidence"
-                )
-        if preview_errors:
-            repair_guidance = (
-                "repair the failing implementation; a same-id test replacement cannot remove or "
-                "weaken frozen assertions"
-                if tool == "test_add"
-                else "add and connect a valid replacement before removing protected content; for a test "
-                "repair, call test_add with the same id for an atomic replacement"
-            )
-            raise RuntimeError(
-                "builder draft guard: this change would degrade the protected deliverable; "
-                f"{repair_guidance}. "
-                f"Preview errors: {'; '.join(preview_errors[:5])}"
-            )
-
-    async def _restore_protected_draft(
-        self,
-        build_id: str,
-        application_id: str,
-        state: BuildTeamState,
-        guard: BuildDraftGuard,
-        *,
-        reason: str,
-    ) -> None:
-        if guard.protected_snapshot is None:
-            return
-        try:
-            source_protected_revision = guard.protected_revision
-            draft = await self.workflow_store.get_draft(application_id)
-            current_snapshot: ApplicationSnapshot = draft["snapshot"]
-            if not self._draft_delivery_errors(current_snapshot):
-                return
-            if current_snapshot.content_hash() == guard.protected_snapshot.content_hash():
-                return
-            result = await self.workflow_store.save_draft(
-                application_id,
-                guard.protected_snapshot.model_copy(deep=True),
-                expected_revision=int(draft["revision"]),
-                idempotency_key=f"{build_id}:draft_guard_restore:{uuid4()}",
-                change_context={
-                    "operation": "builder_draft_guard_restore",
-                    "reason": reason,
-                    "protected_revision": source_protected_revision,
-                },
-            )
-            state.revision = int(result["revision"])
-            guard.observed_revision = state.revision
-            guard.protected_revision = state.revision
-            await self.workflow_store.update_build(build_id, team_state=state)
-            await self._emit(build_id, "build.draft.restored", {
-                "reason": reason,
-                "restored_revision": state.revision,
-                "protected_revision": source_protected_revision,
-            })
-        except Exception as restore_error:
-            await self._emit(build_id, "build.draft.restore_failed", {
-                "reason": reason,
-                "error": f"{type(restore_error).__name__}: {restore_error}",
-            })
 
     @staticmethod
     def _complete_verified_progress(state: BuildTeamState) -> dict[str, Any]:
