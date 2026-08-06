@@ -56,10 +56,8 @@ import {
   type WorkflowEditSelection,
 } from '@/lib/workflow-edit-selection'
 import surfaceStyles from '@/app/surface-boundaries.module.css'
-import { EvaluationHarnessPanel } from './evaluation-harness-panel'
 import { ScheduleOperationsPanel } from '@/app/schedule-operations-panel'
 import { ConnectorOperationsPanel } from '@/app/connector-operations-panel'
-import { LocalLiliesBuildPanel } from './local-lilies-build-panel'
 import {
   BlockCatalogPanel,
   BlockInstanceDetails,
@@ -2389,12 +2387,7 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
         ><span aria-hidden="true">{studioChrome.leftPanelExpanded ? '‹' : '›'}</span><b>{locale === 'zh' ? '工作区' : 'Workspace'}</b></button>
         <div className={`panel-tabs ${surfaceStyles.threeTabs}`} data-detail-tab-url-state="synced">{VISIBLE_STUDIO_TABS.map(item => <button aria-pressed={tab === item} className={tab === item ? 'active' : ''} data-studio-tab={item} onClick={() => setStudioTab(item)} key={item} type="button">{item === 'build' ? t.buildTab : item === 'edit' ? t.editTab : item === 'test' ? t.testTab : item === 'automation' ? locale === 'zh' ? '自动化' : 'Automation' : locale === 'zh' ? '集成' : 'Integrations'}</button>)}</div>
         {tab === 'build' && <div className="panel-body">
-          <LocalLiliesBuildPanel applicationId={id} requirement={requirement} locale={locale} requestedAssignmentId={requestedAssignmentId} capabilityContext={draft?.snapshot.capability_build_contract} onApplicationChanged={refresh} />
-          <section className="legacy-builder-boundary" data-builder-route="legacy_builder">
-            <strong>{locale === 'zh' ? '旧 Builder（开发兼容路线）' : 'Legacy Builder (developer compatibility route)'}</strong>
-            <span>{locale === 'zh' ? '此路线必须单独启动；Local Lilies 失败时不会进入这里。' : 'This route is started separately and is never used as a Local Lilies fallback.'}</span>
-          </section>
-          <div className="panel-kicker">{locale === 'zh' ? '旧 Builder 团队' : 'Legacy Builder team'}</div><h2>{t.continueBuild}</h2>
+          <div className="panel-kicker">{locale === 'zh' ? '莉莉丝 Builder' : 'Lilies Builder'}</div><h2>{t.continueBuild}</h2>
           <textarea ref={detailBuildRequirementRef} className="requirement-input" value={requirement} onChange={event => { setRequirement(event.target.value); setBuildIntentConfirmed(false) }} />
           <section className="delivery-mode-picker studio-delivery-mode" data-delivery-mode={currentDeliveryMode}>
             <div className="delivery-mode-heading"><strong>{t.deliveryModeTitle}</strong><small>{t.deliveryModeHelp}</small></div>
@@ -2544,20 +2537,6 @@ export default function Studio({ params }: { params: Promise<{ id: string }> }) 
           </> : <p className="muted">{selectedEdge ? t.edgeSelectedHint : t.nodeHelp}</p>}
         </div>}
         {tab === 'test' && <div className="panel-body">
-          <EvaluationHarnessPanel
-            applicationId={id}
-            draft={draft}
-            locale={locale}
-            onAuthRequired={() => setAuthRequired(true)}
-            onDraftTestsChanged={() => {
-              setTestReport(null)
-              setAcceptanceRepairPreview(null)
-              setAcceptanceRepairInstruction('')
-              setAcceptanceRepairTestId(null)
-            }}
-            onNotice={setNotice}
-            onRefreshDraft={refresh}
-          />
           <section className={`draft-evidence-panel ${evidenceState}`} data-draft-evidence={evidenceState}>
             <div><strong>{t.evidenceStateTitle}: {evidenceStateLabel}</strong><small>{evidenceState === 'current' ? t.evidenceCurrentDetail : evidenceState === 'stale' ? t.evidenceStaleDetail : t.evidenceMissingDetail}</small></div>
             {draft?.evidence?.change_summary?.length ? <ul>{draft.evidence.change_summary.slice(-3).map((item, index) => <li key={`${String(item.revision || '')}-${index}`}>{String(item.operation || t.evidenceChanged)} · r{String(item.revision || '?')}</li>)}</ul> : null}
