@@ -403,6 +403,9 @@ class WorkflowBuilder:
             answered_question = state.pending_question
         if resume_note:
             state.pending_question = None
+            # An owner instruction reopens delivery: the next publish must mint
+            # a new version instead of short-circuiting on the existing one.
+            state.published_version = None
         if state.coordinator_messages:
             messages = [ChatMessage.model_validate(item) for item in state.coordinator_messages]
             if answered_question:
@@ -1421,6 +1424,11 @@ class WorkflowBuilder:
                     )
                     state.published_version = published["version"]
                     report["publication"] = published
+                    report["next"] = (
+                        "Published. End your next turn with the delivery note in the "
+                        "owner's language: what it does, required inputs, outputs, key "
+                        "assumptions, and anything it cannot do."
+                    )
                     await self._emit(build_id, "build.published", published)
             return report
         if tool == "draft_publish":
@@ -1439,7 +1447,14 @@ class WorkflowBuilder:
             )
             state.published_version = published["version"]
             await self._emit(build_id, "build.published", published)
-            return published
+            return {
+                **published,
+                "next": (
+                    "Published. End your next turn with the delivery note in the "
+                    "owner's language: what it does, required inputs, outputs, key "
+                    "assumptions, and anything it cannot do."
+                ),
+            }
         if tool == "build_plan":
             action = str(data["action"])
             if action == "set":
