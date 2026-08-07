@@ -182,6 +182,7 @@ export default function Session({ params }: { params: Promise<{ id: string }> })
         {draft && <small>草稿 r{draft.revision}</small>}
       </div>
       <nav className={styles.links}>
+        <Link href={`/applications/${id}/pm`}>请监理</Link>
         <Link href={`/applications/${id}`}>画布编辑</Link>
         <Link href={`/runtime/${id}`}>试运行</Link>
       </nav>

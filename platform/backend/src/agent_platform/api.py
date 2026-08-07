@@ -25,6 +25,7 @@ from .config import Settings, get_settings
 from .applications import ApplicationService
 from .agent_runtime_factory import build_agent_runtime_core
 from .blocks import BlockRegistry, build_block_registry
+from . import acceptance_pm
 from .build_transcript import BuildTranscriptStore, owner_record
 from .builder import WorkflowBuilder
 from .capability_evidence import (
@@ -368,6 +369,14 @@ class ResumeBuildRequest(BaseModel):
 
 class BuildMessageRequest(BaseModel):
     message: str = Field(min_length=1, max_length=8_000)
+
+
+class AcceptanceInterviewRequest(BaseModel):
+    examples: str = Field(min_length=5, max_length=20_000)
+
+
+class OwnerExplainRequest(BaseModel):
+    question: str = Field(default="", max_length=2_000)
 
 
 class PlatformTaskLeaseRequest(BaseModel):
@@ -4301,6 +4310,83 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         )
         summary = await asyncio.to_thread(services.build_transcripts.summary, build_id)
         return {"build_id": build_id, "summary": summary, "records": records}
+
+    # ── 监理（按需受邀的第二个智能体）：出卷 / 监考 / 解释 / 巡查 ──
+
+    @app.post(
+        "/api/v1/applications/{application_id}/acceptance/spec",
+        dependencies=[Depends(require_token)],
+    )
+    async def create_acceptance_spec(
+        application_id: str, body: AcceptanceInterviewRequest
+    ) -> dict[str, Any]:
+        try:
+            application = await services.workflow_store.get_application(application_id)
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+        try:
+            spec = await acceptance_pm.generate_spec(services, application, body.examples)
+        except (ValueError, RuntimeError) as error:
+            raise HTTPException(422, f"监理出卷失败：{error}") from error
+        acceptance_pm.save_spec(services.settings.data_dir, application_id, spec)
+        return spec.model_dump(mode="json")
+
+    @app.get(
+        "/api/v1/applications/{application_id}/acceptance/spec",
+        dependencies=[Depends(require_token)],
+    )
+    async def get_acceptance_spec(application_id: str) -> dict[str, Any]:
+        spec = acceptance_pm.load_spec(services.settings.data_dir, application_id)
+        if spec is None:
+            raise HTTPException(404, "还没有验收方案")
+        return spec.model_dump(mode="json")
+
+    @app.post(
+        "/api/v1/applications/{application_id}/acceptance/run",
+        dependencies=[Depends(require_token)],
+    )
+    async def run_application_acceptance(application_id: str) -> dict[str, Any]:
+        try:
+            return await acceptance_pm.run_acceptance(services, application_id)
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+        except RuntimeError as error:
+            raise HTTPException(409, str(error)) from error
+
+    @app.get(
+        "/api/v1/applications/{application_id}/acceptance/report",
+        dependencies=[Depends(require_token)],
+    )
+    async def get_acceptance_report(application_id: str) -> dict[str, Any]:
+        report = acceptance_pm.load_report(services.settings.data_dir, application_id)
+        if report is None:
+            raise HTTPException(404, "还没有验收单")
+        report["markdown"] = acceptance_pm.render_report_markdown(report)
+        return report
+
+    @app.post(
+        "/api/v1/applications/{application_id}/pm/explain",
+        dependencies=[Depends(require_token)],
+    )
+    async def pm_explain(application_id: str, body: OwnerExplainRequest) -> dict[str, Any]:
+        try:
+            text = await acceptance_pm.explain_for_owner(
+                services, application_id, body.question
+            )
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+        return {"application_id": application_id, "explanation": text}
+
+    @app.post(
+        "/api/v1/applications/{application_id}/pm/review",
+        dependencies=[Depends(require_token)],
+    )
+    async def pm_review(application_id: str) -> dict[str, Any]:
+        try:
+            notes = await acceptance_pm.review_progress(services, application_id)
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+        return {"application_id": application_id, "notes": notes}
 
     @app.post("/api/v1/builds/{build_id}/messages", dependencies=[Depends(require_token)])
     async def post_build_message(build_id: str, body: BuildMessageRequest) -> dict[str, Any]:

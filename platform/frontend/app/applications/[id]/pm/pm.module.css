@@ -1,0 +1,31 @@
+.shell{min-height:100vh;background:#f6f7f9;color:#181b22;padding-bottom:60px}
+.topbar{display:flex;align-items:center;gap:14px;padding:10px 18px;background:#fff;border-bottom:1px solid #e4e7ec}
+.back{color:#68717f;text-decoration:none;font-size:13px}
+.back:hover{color:#181b22}
+.title{font-size:14px;font-weight:600}
+.badge{border-radius:999px;padding:3px 10px;font-size:11px;background:#fff7e6;color:#8a5a00;border:1px solid #f2d492}
+.wrap{max-width:860px;margin:0 auto;padding:22px 18px;display:flex;flex-direction:column;gap:18px}
+.card{background:#fff;border:1px solid #e4e7ec;border-radius:14px;padding:18px 20px}
+.card h2{margin:0 0 4px;font-size:15px}
+.card>p{margin:4px 0 12px;font-size:12.5px;color:#68717f;line-height:1.7}
+.row{display:flex;gap:10px;align-items:flex-start}
+.row textarea,.row input{flex:1;border:1px solid #e4e7ec;border-radius:10px;padding:10px 12px;font:inherit;font-size:13px;background:#fff;color:#181b22}
+.row textarea{min-height:96px;resize:vertical;line-height:1.6}
+.row button,.card>button{border:0;border-radius:10px;background:#8a5a00;color:#fff;padding:10px 16px;font-size:13px;cursor:pointer;white-space:nowrap}
+.row button:hover:not(:disabled),.card>button:hover:not(:disabled){background:#6d4700}
+.row button:disabled,.card>button:disabled{background:#c3cdd7;cursor:default}
+.answer{margin-top:12px;border-left:3px solid #f2d492;background:#fffaf0;border-radius:0 10px 10px 0;padding:12px 14px;font-size:13px;line-height:1.75;white-space:pre-wrap}
+.specBox{margin-top:12px;border:1px solid #eceff3;border-radius:10px;padding:12px 14px;background:#fafbfc}
+.specBox b{font-size:13px}
+.specBox ul{margin:8px 0 0;padding-left:1.4em;font-size:12.5px;line-height:1.8;color:#475467}
+.verdict{border-radius:10px;padding:10px 14px;font-size:13.5px;font-weight:600;margin-top:12px}
+.verdictOk{background:#f0faf6;color:#0a5c48;border:1px solid #b7e2d4}
+.verdictBad{background:#fef3f2;color:#b42318;border:1px solid #f6c6c2}
+.caseBlock{margin-top:12px}
+.caseBlock h3{margin:0 0 6px;font-size:13px}
+.tableBox{overflow-x:auto}
+.tableBox table{border-collapse:collapse;width:100%;font-size:12px;background:#fff}
+.tableBox th,.tableBox td{border:1px solid #eceff3;padding:6px 9px;text-align:left;line-height:1.6;vertical-align:top}
+.tableBox th{color:#68717f;font-weight:600;font-size:11px}
+.muted{color:#68717f;font-size:12.5px}
+.err{color:#b42318;font-size:12.5px;margin-top:8px}

@@ -29,6 +29,7 @@ TaskKind = Literal[
     "draft_patch_preview",
     "requirement_intake",
     "evaluation_run",
+    "acceptance_pm",
 ]
 TaskStatus = Literal["queued", "running", "paused", "succeeded", "failed", "cancelled"]
 WorkerHeartbeatStatus = Literal["idle", "running", "stopping", "failed"]
