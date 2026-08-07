@@ -50,7 +50,7 @@ class LabeledObservation(BaseModel):
 
 class ModelObservation(BaseModel):
     features: dict[str, float]
-    units: dict[str, str]
+    units: dict[str, str] = Field(default_factory=dict)
 
 
 class TrainTabularModelRequest(BaseModel):
@@ -127,7 +127,7 @@ class RollbackTabularDeploymentRequest(BaseModel):
 
 class TabularInferenceRequest(BaseModel):
     features: dict[str, float]
-    units: dict[str, str]
+    units: dict[str, str] = Field(default_factory=dict)
 
 
 class TabularDriftRequest(BaseModel):
@@ -821,7 +821,10 @@ class TabularModelService:
         names = [str(contract["name"]) for contract in raw_contracts]
         if set(observation.features) != set(names):
             raise ValueError("inference features must exactly match the deployed contract")
-        if set(observation.units) != set(names):
+        # The deployed contract already records each feature's unit. Callers may
+        # omit units entirely (the contract is authoritative); when provided
+        # they are cross-checked.
+        if observation.units and set(observation.units) != set(names):
             raise ValueError("inference units must exactly match the deployed contract")
         values: dict[str, float] = {}
         for contract in raw_contracts:
@@ -829,7 +832,7 @@ class TabularModelService:
             value = float(observation.features[name])
             if not math.isfinite(value):
                 raise ValueError(f"feature {name} is not finite")
-            if observation.units[name] != contract["unit"]:
+            if observation.units and observation.units[name] != contract["unit"]:
                 raise ValueError(
                     f"feature {name} expected unit {contract['unit']}, "
                     f"got {observation.units[name]}"

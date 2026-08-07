@@ -1752,11 +1752,14 @@ class WorkflowRuntime:
         if isinstance(config, DeployedModelInferenceConfig):
             if self.tabular_models is None:
                 raise RuntimeError("tabular model service is not configured")
+            resolved_units = (
+                self._resolve(config.units, context) if config.units is not None else {}
+            )
             result = await self.tabular_models.predict(
                 config.deployment_name,
                 TabularInferenceRequest(
                     features=self._resolve(config.features, context),
-                    units=self._resolve(config.units, context),
+                    units=resolved_units or {},
                 ),
             )
             return {"output": result, **result}

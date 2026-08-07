@@ -177,7 +177,9 @@ class CollectionDigestConfig(BaseModel):
 class DeployedModelInferenceConfig(BaseModel):
     deployment_name: str = Field(min_length=2, max_length=120)
     features: Any
-    units: Any
+    # Optional: the deployed contract's units are authoritative; provide only
+    # to cross-check.
+    units: Any = None
 
 
 class ModelDriftMonitorConfig(BaseModel):
