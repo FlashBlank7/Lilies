@@ -1,0 +1,84 @@
+{
+  "project_id": "elevator-fault-diagnosis",
+  "name": "电梯日常故障诊断（试题1 运营化）",
+  "stamp": "20260807-033325",
+  "application_id": "6b422f03-dfae-42dd-9a25-fc47022bfeb1",
+  "node_types": [
+    "deployed_model_inference",
+    "end",
+    "llm",
+    "start",
+    "template_transform"
+  ],
+  "architecture_missing": [],
+  "architecture_pass": true,
+  "cases": [
+    {
+      "name": "故障过程样本（真实测试段）",
+      "run_status": "failed",
+      "outputs": {},
+      "checks": [
+        {
+          "check": "输出包含字段 is_fault",
+          "passed": false,
+          "actual": "缺失（实际字段：[]）"
+        },
+        {
+          "check": "输出包含字段 confidence",
+          "passed": false,
+          "actual": "缺失（实际字段：[]）"
+        },
+        {
+          "check": "输出包含字段 advice",
+          "passed": false,
+          "actual": "缺失（实际字段：[]）"
+        },
+        {
+          "check": "输出包含字段 model_version",
+          "passed": false,
+          "actual": "缺失（实际字段：[]）"
+        },
+        {
+          "check": "is_fault = True",
+          "passed": false,
+          "actual": "null"
+        }
+      ],
+      "passed": false
+    },
+    {
+      "name": "正常过程样本（真实测试段）",
+      "run_status": "failed",
+      "outputs": {},
+      "checks": [
+        {
+          "check": "输出包含字段 is_fault",
+          "passed": false,
+          "actual": "缺失（实际字段：[]）"
+        },
+        {
+          "check": "输出包含字段 confidence",
+          "passed": false,
+          "actual": "缺失（实际字段：[]）"
+        },
+        {
+          "check": "输出包含字段 advice",
+          "passed": false,
+          "actual": "缺失（实际字段：[]）"
+        },
+        {
+          "check": "输出包含字段 model_version",
+          "passed": false,
+          "actual": "缺失（实际字段：[]）"
+        },
+        {
+          "check": "is_fault = False",
+          "passed": false,
+          "actual": "null"
+        }
+      ],
+      "passed": false
+    }
+  ],
+  "accepted": false
+}

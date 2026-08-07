@@ -1,0 +1,93 @@
+{
+  "project_id": "elevator-fault-diagnosis",
+  "name": "电梯日常故障诊断（试题1 运营化）",
+  "stamp": "20260807-020249",
+  "application_id": "6b422f03-dfae-42dd-9a25-fc47022bfeb1",
+  "build_id": "11f5da34-9b37-403e-ab4d-915fb01195db",
+  "conversation": [
+    {
+      "question": "在开始搭建流程之前，有两个技术对接细节需要确认：\n\n1. 网关送来的 features 对象里具体包含哪些指标名称（比如振动幅度、电流、开关门时间等），以及各自对应的计量单位是什么？模型调用时需要按指标名称配好单位。\n\n2. 模型 elevator-fault-v1 的输出结果中，哪个值代表故障——是 1 代表故障、0 代表正常吗？还是反过来？",
+      "reply": "指标都是网关算好直接送来的，我们这边只管转发，不懂里面的数字含义；模型你们平台上早就部署好了，服务名 elevator-fault-v1，具体怎么接是你们的事；判定为故障就给值班员明确建议（先停梯、联系维保这类），正常就写正常记录。其它都按系统对接说明来，别的我们没有要求。"
+    }
+  ],
+  "build_status": "needs_attention",
+  "build_error": "DeepSeek network error: ",
+  "node_types": [
+    "deployed_model_inference",
+    "end",
+    "model_turn",
+    "start",
+    "template_transform"
+  ],
+  "architecture_missing": [],
+  "architecture_pass": true,
+  "cases": [
+    {
+      "name": "故障过程样本（真实测试段）",
+      "run_status": "failed",
+      "outputs": {},
+      "checks": [
+        {
+          "check": "输出包含字段 is_fault",
+          "passed": false,
+          "actual": "缺失（实际字段：[]）"
+        },
+        {
+          "check": "输出包含字段 confidence",
+          "passed": false,
+          "actual": "缺失（实际字段：[]）"
+        },
+        {
+          "check": "输出包含字段 advice",
+          "passed": false,
+          "actual": "缺失（实际字段：[]）"
+        },
+        {
+          "check": "输出包含字段 model_version",
+          "passed": false,
+          "actual": "缺失（实际字段：[]）"
+        },
+        {
+          "check": "is_fault = True",
+          "passed": false,
+          "actual": "null"
+        }
+      ],
+      "passed": false
+    },
+    {
+      "name": "正常过程样本（真实测试段）",
+      "run_status": "failed",
+      "outputs": {},
+      "checks": [
+        {
+          "check": "输出包含字段 is_fault",
+          "passed": false,
+          "actual": "缺失（实际字段：[]）"
+        },
+        {
+          "check": "输出包含字段 confidence",
+          "passed": false,
+          "actual": "缺失（实际字段：[]）"
+        },
+        {
+          "check": "输出包含字段 advice",
+          "passed": false,
+          "actual": "缺失（实际字段：[]）"
+        },
+        {
+          "check": "输出包含字段 model_version",
+          "passed": false,
+          "actual": "缺失（实际字段：[]）"
+        },
+        {
+          "check": "is_fault = False",
+          "passed": false,
+          "actual": "null"
+        }
+      ],
+      "passed": false
+    }
+  ],
+  "accepted": false
+}
