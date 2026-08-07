@@ -287,7 +287,7 @@
         "review_notes": "A-100 周销约 43，库存 60 撑不过 2 周交期，应补且 ≥ max(4周销量≈172, moq=100)；B-200 库存 80 足以覆盖，应判不补并给出理由；数字必须可复算。",
         "required_any_node_types": [
           "replenishment_planner",
-          "computed_variable_assigner"
+          "variable_assigner"
         ]
       },
       "exercises": [

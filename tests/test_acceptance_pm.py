@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from agent_platform.acceptance_pm import (
+    AcceptanceCase,
     AcceptanceExpect,
     AcceptanceSpec,
     evaluate_case,
@@ -156,6 +157,7 @@ def test_owner_language_gate_flags_machine_tokens() -> None:
 
 def test_spec_suggestions_channel_and_lessons(tmp_path: Path) -> None:
     from agent_platform.acceptance_pm import (
+    AcceptanceCase,
         append_lesson,
         load_lessons,
         normalize_spec_payload,
@@ -175,3 +177,60 @@ def test_spec_suggestions_channel_and_lessons(tmp_path: Path) -> None:
     assert "十有八九" in updated
     # 幂等：重复追加不重复记录
     assert updated == append_lesson(tmp_path, "解释里的概率数字要换算成'十有八九'式说法")
+
+
+def test_terminal_lineage_traces_refs_to_required_nodes() -> None:
+    from agent_platform.acceptance_pm import terminal_lineage_types
+
+    nodes = [
+        {"id": "start", "type": "start", "config": {}},
+        {"id": "model", "type": "deployed_model_inference", "config": {
+            "features": {"$ref": {"node_id": "$inputs", "path": ["features"]}},
+        }},
+        {"id": "advice", "type": "llm", "config": {
+            "prompt": "写建议", "context": {"$ref": {"node_id": "model", "path": ["predicted_label"]}},
+        }},
+        {"id": "end", "type": "end", "config": {
+            "outputs": {
+                "is_fault": {"$ref": {"node_id": "model", "path": ["predicted_label"]}},
+                "advice": {"$ref": {"node_id": "advice", "path": ["text"]}},
+            },
+        }},
+        {"id": "orphan", "type": "record_match", "config": {
+            "sources": {"$ref": {"node_id": "$inputs", "path": ["rows"]}},
+        }},
+    ]
+    types = terminal_lineage_types(nodes)
+    assert "deployed_model_inference" in types      # 被终端引用
+    assert "llm" in types
+    assert "record_match" not in types              # 跑不跑无所谓，结果没人用
+
+    # 作弊形态：模型在图里、甚至可能执行，但结果链路完全绕开它——
+    # llm 不看模型输出，终端字段全接 llm 自己的判断
+    cheat = [dict(n) for n in nodes]
+    cheat[2] = {"id": "advice", "type": "llm", "config": {
+        "prompt": "自己看特征猜一个", "context": {"$ref": {"node_id": "$inputs", "path": ["features"]}},
+    }}
+    cheat[3] = {"id": "end", "type": "end", "config": {
+        "outputs": {"is_fault": {"$ref": {"node_id": "advice", "path": ["verdict"]}}},
+    }}
+    assert "deployed_model_inference" not in terminal_lineage_types(cheat)
+
+
+def test_expect_run_failed_case_semantics() -> None:
+    payload = {
+        "summary": "缺字段应报错",
+        "cases": [{
+            "name": "缺输入",
+            "inputs": {},
+            "expect_run": "failed",
+            "expect": {},
+        }],
+    }
+    from agent_platform.acceptance_pm import normalize_spec_payload
+    spec = AcceptanceSpec.model_validate(normalize_spec_payload(payload))
+    assert spec.cases[0].expect_run == "failed"
+    with pytest.raises(ValueError):
+        AcceptanceCase.model_validate({
+            "name": "x", "inputs": {}, "expect_run": "exploded", "expect": {},
+        })

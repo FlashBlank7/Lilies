@@ -240,3 +240,27 @@
 .home-shell .app-card-main{color:inherit}
 .builder-transcript-actions{display:flex;align-items:center;gap:10px}
 .builder-transcript-actions a{font-size:11px;color:#7fa4ff;text-decoration:none}
+
+/* ── Lilies 共享设计令牌（浅色产品面）。模块样式一律引用变量，杜绝色值漂移。 ── */
+:root {
+  --lil-paper: #f6f7f9;
+  --lil-panel: #ffffff;
+  --lil-panel-soft: #fafbfc;
+  --lil-ink: #181b22;
+  --lil-muted: #68717f;
+  --lil-line: #e4e7ec;
+  --lil-line-soft: #eceff3;
+  --lil-code: #f2f4f7;
+  --lil-accent: #0e7a5f;
+  --lil-accent-strong: #0a5c48;
+  --lil-accent-line: #b7e2d4;
+  --lil-ok-soft: #f0faf6;
+  --lil-warn: #b54708;
+  --lil-warn-soft: #fffaeb;
+  --lil-danger: #b42318;
+  --lil-danger-soft: #fef3f2;
+  --lil-pm: #8a5a00;          /* 监理角色色（琥珀），与莉莉丝的松绿区分 */
+  --lil-pm-strong: #6d4700;
+  --lil-pm-line: #f2d492;
+  --lil-pm-soft: #fff7e6;
+}

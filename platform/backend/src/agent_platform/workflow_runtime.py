@@ -4709,8 +4709,26 @@ class WorkflowRuntime:
             "$concat",
             "$coalesce",
             "$json_encode",
+            "$formula",
         }:
             return cls._resolve(value, context)
+        if operator == "$formula":
+            from .formula import evaluate_formula
+
+            if isinstance(operand, str):
+                expression, raw_vars = operand, {}
+            elif isinstance(operand, dict):
+                expression = str(operand.get("expression") or "")
+                raw_vars = operand.get("vars") or {}
+            else:
+                raise TypeError("$formula 需要字符串或 {expression, vars} 对象")
+            if not isinstance(raw_vars, dict):
+                raise TypeError("$formula.vars 必须是对象")
+            bound = {
+                str(name): cls._resolve_assignment(item, context)
+                for name, item in raw_vars.items()
+            }
+            return evaluate_formula(expression, bound)
         if operator in {"$add", "$subtract", "$equals", "$concat", "$coalesce"}:
             if not isinstance(operand, list):
                 raise TypeError(f"{operator} requires an array")

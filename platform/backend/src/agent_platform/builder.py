@@ -82,9 +82,12 @@ Core rules:
   calls only when different tools, permissions, branches, state boundaries, or independently editable behavior
   require it.
 - Deterministic work must run on deterministic blocks, never inside an LLM prompt: record set matching and
-  reconciliation → record_match; constrained replenishment/ordering computation → replenishment_planner;
-  row-level arithmetic, dedup, validation → the record/computed blocks. An LLM node is for judgment, language,
-  and unstructured extraction only — a model doing arithmetic or matching is an audit finding, not a solution.
+  reconciliation → record_match (batch mode: sources list); business arithmetic (forecast averages, coverage,
+  thresholds, MOQ floors) → variable_assigner in $formula mode — one readable infix line like
+  "when(stock < avg(sales[-4:]) * lead, max(ceil(avg(sales[-4:]) * (lead + 2) - stock), moq), 0)" with vars
+  bound to references; constrained replenishment/ordering → replenishment_planner. An LLM node is for
+  judgment, language, and unstructured extraction only — a model doing arithmetic or matching is an audit
+  finding, not a solution.
 - Answering from reference documents — especially with audience or permission differences — must go through
   knowledge blocks (knowledge_index_sync to ingest, knowledge_retrieval with access filters to query). Pasting
   document text into a prompt is prohibited when the requirement names documents, manuals, or access levels.
@@ -174,8 +177,10 @@ Core rules:
   require_cited_tool_urls so a model cannot pass by inventing plausible output without tool evidence.
 - test_add is an atomic add-or-replace operation: calling it with an existing test id replaces that test in one
   revision. Repair a failed test with the same id; do not delete it first or temporarily reduce acceptance coverage.
-- If a test fails, inspect its frame.failure_target and runtime events, then repair the implementation before
-  changing the test. Once acceptance is first executed, its assertion semantics are frozen: do not remove,
+- If a test fails, work like a careful engineer: call run_inspect with the failing test's run_id and read the
+  execution ledger (which nodes actually ran, which one failed, with what error) BEFORE editing anything.
+  Fix the diagnosed cause; never blind-retry, never switch approach just because one attempt failed twice.
+  Then inspect frame.failure_target and repair the implementation before changing the test. Once acceptance is first executed, its assertion semantics are frozen: do not remove,
   replace, or weaken assertions merely to make the build green.
 - Once test_run passes all mandatory tests, the delivery is frozen. Do not inspect more catalogs, change nodes,
   edges, agents, templates, or tests, or delegate more work. Finish task and plan bookkeeping; after a passing
@@ -1064,6 +1069,36 @@ class WorkflowBuilder:
                     "End your turn now with a short status message; do not call more tools."
                 ),
             }
+        if tool == "run_inspect":
+            run_id = str(data.get("run_id") or "").strip()
+            if not run_id:
+                raise RuntimeError("run_inspect requires run_id (test_run failures include one per test)")
+            events = await self.storage.list_events(run_id, 0)
+            trail: list[dict[str, Any]] = []
+            for event in events:
+                if event.type not in (
+                    "node.started", "node.completed", "node.failed",
+                    "workflow.failed", "workflow.completed",
+                ):
+                    continue
+                payload = event.data or {}
+                item: dict[str, Any] = {"event": event.type}
+                for key in ("node_id", "type"):
+                    if payload.get(key):
+                        item[key] = payload[key]
+                if event.type == "node.completed" and isinstance(payload.get("outputs"), dict):
+                    item["output_keys"] = sorted(payload["outputs"].keys())[:12]
+                if payload.get("error"):
+                    item["error"] = str(payload["error"])[:400]
+                trail.append(item)
+            return {
+                "run_id": run_id,
+                "executed_node_types": sorted({
+                    str(item.get("type")) for item in trail if item.get("type")
+                }),
+                "events": trail[:120],
+                "note": "This ledger is what actually executed. Diagnose from it before editing.",
+            }
         if tool == "catalog_search":
             query = str(data.get("query", "")).casefold()
             normalized_query = " ".join(query.split())
@@ -1642,6 +1677,7 @@ class WorkflowBuilder:
             ToolDefinition(name="test_add", description="Atomically add or replace one traceable workflow acceptance test. Reuse the same test id when repairing it; never delete first. Include a readable frame plus required_node_types and required_tool_nodes for visible architecture gates.", input_schema={"type": "object", "properties": {"test": WorkflowTestCase.model_json_schema()}, "required": ["test"]}),
             ToolDefinition(name="test_remove", description="Remove an incorrect test, never to hide a real failure.", input_schema={"type": "object", "properties": {"test_id": {"type": "string"}}, "required": ["test_id"]}),
             ToolDefinition(name="test_run", description="Run all mandatory tests against the exact current draft using real providers and tools.", input_schema={"type": "object", "properties": {}}),
+            ToolDefinition(name="run_inspect", description="Read the execution ledger of one run (node-level started/completed/failed events with errors). Call it with the run_id from a failing test before editing anything — diagnose from evidence, not guesses.", input_schema={"type": "object", "properties": {"run_id": {"type": "string"}}, "required": ["run_id"]}),
             ToolDefinition(name="draft_publish", description="Publish an immutable version; fails unless current hash passed all mandatory tests.", input_schema={"type": "object", "properties": {"explicit": {"type": "boolean"}}}),
             ToolDefinition(name="task", description="Create/list/update shared requirement tasks with owners and dependencies.", input_schema={"type": "object", "properties": {"action": {"enum": ["create", "list", "update"]}, "id": {"type": "integer"}, "subject": {"type": "string"}, "description": {"type": "string"}, "status": {"enum": ["pending", "in_progress", "completed", "blocked"]}, "owner": {"type": "string"}, "blocked_by": {"type": "array", "items": {"type": "integer"}}, "acceptance": {"type": "array", "items": {"type": "string"}}}, "required": ["action"]}),
         ]

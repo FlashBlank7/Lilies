@@ -1,0 +1,384 @@
+"""中缀公式引擎——确定性计算的"人能写"入口。
+
+T6 三次失守的根因不是纪律，是表达式树（$subtract 嵌套）比一段提示词难写十倍。
+这里给 variable_assigner 补上公式模式：
+
+    avg(weekly_sales[-4:]) * (lead_time + 2) - stock
+    when(stock < avg(weekly_sales[-4:]) * lead_time, max(ceil(gap), moq), 0)
+
+- 纯手写递归下降解析，无 eval，无属性访问，无调用面。
+- 支持：+ - * / %、比较（< <= > >= == !=）、and/or/not、括号、一元负号；
+  标识符来自显式绑定的 vars；列表索引与切片 xs[-4:]；
+  函数 avg/sum/min/max/len/abs/round/floor/ceil/when。
+- 结果与中间值必须有限；除零、未绑定变量、类型不符都给出可读错误。
+"""
+
+from __future__ import annotations
+
+import math
+from typing import Any
+
+MAX_EXPRESSION_CHARS = 500
+MAX_TOKENS = 200
+MAX_DEPTH = 24
+
+_FUNCTIONS = {
+    "avg", "sum", "min", "max", "len", "abs", "round", "floor", "ceil", "when",
+}
+_KEYWORDS = {"and", "or", "not", "true", "false"}
+
+
+class FormulaError(ValueError):
+    """公式解析或求值失败（消息面向排错，含位置提示）。"""
+
+
+# ---------------- 词法 ----------------
+
+
+def _tokenize(text: str) -> list[tuple[str, Any]]:
+    if len(text) > MAX_EXPRESSION_CHARS:
+        raise FormulaError(f"公式过长（>{MAX_EXPRESSION_CHARS} 字符）")
+    tokens: list[tuple[str, Any]] = []
+    i = 0
+    while i < len(text):
+        ch = text[i]
+        if ch.isspace():
+            i += 1
+            continue
+        if ch.isdigit() or (ch == "." and i + 1 < len(text) and text[i + 1].isdigit()):
+            j = i
+            seen_dot = False
+            while j < len(text) and (text[j].isdigit() or (text[j] == "." and not seen_dot)):
+                seen_dot = seen_dot or text[j] == "."
+                j += 1
+            literal = text[i:j]
+            tokens.append(("num", float(literal) if "." in literal else int(literal)))
+            i = j
+            continue
+        if ch.isalpha() or ch == "_":
+            j = i
+            while j < len(text) and (text[j].isalnum() or text[j] == "_"):
+                j += 1
+            word = text[i:j]
+            lowered = word.lower()
+            if lowered in _KEYWORDS:
+                tokens.append(("kw", lowered))
+            else:
+                tokens.append(("name", word))
+            i = j
+            continue
+        two = text[i:i + 2]
+        if two in ("<=", ">=", "==", "!="):
+            tokens.append(("op", two))
+            i += 2
+            continue
+        if ch in "+-*/%()[]:,<>":
+            tokens.append(("op", ch))
+            i += 1
+            continue
+        raise FormulaError(f"公式包含不支持的字符 {ch!r}（位置 {i}）")
+    if len(tokens) > MAX_TOKENS:
+        raise FormulaError(f"公式过于复杂（>{MAX_TOKENS} 个记号）")
+    return tokens
+
+
+# ---------------- 语法（递归下降）----------------
+
+
+class _Parser:
+    def __init__(self, tokens: list[tuple[str, Any]]) -> None:
+        self.tokens = tokens
+        self.pos = 0
+        self.depth = 0
+
+    def peek(self) -> tuple[str, Any] | None:
+        return self.tokens[self.pos] if self.pos < len(self.tokens) else None
+
+    def take(self, kind: str | None = None, value: Any = None) -> tuple[str, Any]:
+        token = self.peek()
+        if token is None:
+            raise FormulaError("公式意外结束")
+        if kind is not None and token[0] != kind:
+            raise FormulaError(f"位置 {self.pos}：期待 {kind}，实际 {token}")
+        if value is not None and token[1] != value:
+            raise FormulaError(f"位置 {self.pos}：期待 {value!r}，实际 {token[1]!r}")
+        self.pos += 1
+        return token
+
+    def _enter(self) -> None:
+        self.depth += 1
+        if self.depth > MAX_DEPTH:
+            raise FormulaError("公式嵌套过深")
+
+    def _exit(self) -> None:
+        self.depth -= 1
+
+    def parse(self) -> Any:
+        node = self.parse_or()
+        if self.peek() is not None:
+            raise FormulaError(f"位置 {self.pos}：公式在 {self.peek()!r} 处有多余内容")
+        return node
+
+    def parse_or(self) -> Any:
+        self._enter()
+        node = self.parse_and()
+        while (token := self.peek()) and token == ("kw", "or"):
+            self.take()
+            node = ("or", node, self.parse_and())
+        self._exit()
+        return node
+
+    def parse_and(self) -> Any:
+        node = self.parse_not()
+        while (token := self.peek()) and token == ("kw", "and"):
+            self.take()
+            node = ("and", node, self.parse_not())
+        return node
+
+    def parse_not(self) -> Any:
+        if (token := self.peek()) and token == ("kw", "not"):
+            self.take()
+            return ("not", self.parse_not())
+        return self.parse_comparison()
+
+    def parse_comparison(self) -> Any:
+        node = self.parse_additive()
+        token = self.peek()
+        if token and token[0] == "op" and token[1] in ("<", "<=", ">", ">=", "==", "!="):
+            operator = self.take()[1]
+            node = ("cmp", operator, node, self.parse_additive())
+        return node
+
+    def parse_additive(self) -> Any:
+        node = self.parse_multiplicative()
+        while (token := self.peek()) and token[0] == "op" and token[1] in ("+", "-"):
+            operator = self.take()[1]
+            node = ("bin", operator, node, self.parse_multiplicative())
+        return node
+
+    def parse_multiplicative(self) -> Any:
+        node = self.parse_unary()
+        while (token := self.peek()) and token[0] == "op" and token[1] in ("*", "/", "%"):
+            operator = self.take()[1]
+            node = ("bin", operator, node, self.parse_unary())
+        return node
+
+    def parse_unary(self) -> Any:
+        if (token := self.peek()) and token == ("op", "-"):
+            self.take()
+            return ("neg", self.parse_unary())
+        return self.parse_postfix()
+
+    def parse_postfix(self) -> Any:
+        node = self.parse_primary()
+        while (token := self.peek()) and token == ("op", "["):
+            self.take()
+            node = self._parse_index_or_slice(node)
+        return node
+
+    def _parse_index_or_slice(self, target: Any) -> Any:
+        def maybe_int() -> int | None:
+            token = self.peek()
+            if token and token == ("op", "-"):
+                self.take()
+                value = self.take("num")[1]
+                if not isinstance(value, int):
+                    raise FormulaError("索引必须是整数")
+                return -value
+            if token and token[0] == "num":
+                value = self.take()[1]
+                if not isinstance(value, int):
+                    raise FormulaError("索引必须是整数")
+                return value
+            return None
+
+        start = maybe_int()
+        token = self.peek()
+        if token and token == ("op", ":"):
+            self.take()
+            stop = maybe_int()
+            self.take("op", "]")
+            return ("slice", target, start, stop)
+        self.take("op", "]")
+        if start is None:
+            raise FormulaError("索引缺少数值")
+        return ("index", target, start)
+
+    def parse_primary(self) -> Any:
+        token = self.peek()
+        if token is None:
+            raise FormulaError("公式意外结束")
+        if token[0] == "num":
+            self.take()
+            return ("num", token[1])
+        if token[0] == "kw" and token[1] in ("true", "false"):
+            self.take()
+            return ("bool", token[1] == "true")
+        if token[0] == "name":
+            name = self.take()[1]
+            if (nxt := self.peek()) and nxt == ("op", "("):
+                lowered = name.lower()
+                if lowered not in _FUNCTIONS:
+                    raise FormulaError(f"不支持的函数 {name}（可用：{'、'.join(sorted(_FUNCTIONS))}）")
+                self.take()
+                args: list[Any] = []
+                if self.peek() != ("op", ")"):
+                    args.append(self.parse_or())
+                    while self.peek() == ("op", ","):
+                        self.take()
+                        args.append(self.parse_or())
+                self.take("op", ")")
+                return ("call", lowered, args)
+            return ("var", name)
+        if token == ("op", "("):
+            self.take()
+            node = self.parse_or()
+            self.take("op", ")")
+            return node
+        raise FormulaError(f"位置 {self.pos}：无法理解 {token[1]!r}")
+
+
+# ---------------- 求值 ----------------
+
+
+def _as_number(value: Any, label: str) -> float | int:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise FormulaError(f"{label} 需要数字，得到 {type(value).__name__}")
+    if isinstance(value, float) and not math.isfinite(value):
+        raise FormulaError(f"{label} 不是有限数")
+    return value
+
+def _as_number_list(value: Any, label: str) -> list[float | int]:
+    if not isinstance(value, list):
+        raise FormulaError(f"{label} 需要数字列表，得到 {type(value).__name__}")
+    return [_as_number(item, f"{label} 的元素") for item in value]
+
+
+def _evaluate(node: Any, vars_: dict[str, Any]) -> Any:
+    kind = node[0]
+    if kind == "num" or kind == "bool":
+        return node[1]
+    if kind == "var":
+        name = node[1]
+        if name not in vars_:
+            raise FormulaError(f"变量 {name} 未绑定（vars 里没有它）")
+        return vars_[name]
+    if kind == "neg":
+        return -_as_number(_evaluate(node[1], vars_), "负号")
+    if kind == "not":
+        return not _truthy(_evaluate(node[1], vars_))
+    if kind == "and":
+        return _truthy(_evaluate(node[1], vars_)) and _truthy(_evaluate(node[2], vars_))
+    if kind == "or":
+        return _truthy(_evaluate(node[1], vars_)) or _truthy(_evaluate(node[2], vars_))
+    if kind == "cmp":
+        _, operator, left_node, right_node = node
+        left = _evaluate(left_node, vars_)
+        right = _evaluate(right_node, vars_)
+        if operator in ("==", "!="):
+            equal = left == right
+            return equal if operator == "==" else not equal
+        left_num = _as_number(left, "比较左侧")
+        right_num = _as_number(right, "比较右侧")
+        return {
+            "<": left_num < right_num,
+            "<=": left_num <= right_num,
+            ">": left_num > right_num,
+            ">=": left_num >= right_num,
+        }[operator]
+    if kind == "bin":
+        _, operator, left_node, right_node = node
+        left = _as_number(_evaluate(left_node, vars_), f"{operator} 左侧")
+        right = _as_number(_evaluate(right_node, vars_), f"{operator} 右侧")
+        if operator == "+":
+            result: float | int = left + right
+        elif operator == "-":
+            result = left - right
+        elif operator == "*":
+            result = left * right
+        elif operator == "/":
+            if right == 0:
+                raise FormulaError("除数为零")
+            result = left / right
+        else:
+            if right == 0:
+                raise FormulaError("取模的除数为零")
+            result = left % right
+        _as_number(result, "运算结果")
+        return result
+    if kind == "index":
+        _, target_node, index = node
+        target = _as_number_list(_evaluate(target_node, vars_), "索引对象")
+        try:
+            return target[index]
+        except IndexError as error:
+            raise FormulaError(f"索引 {index} 超出范围（长度 {len(target)}）") from error
+    if kind == "slice":
+        _, target_node, start, stop = node
+        target = _as_number_list(_evaluate(target_node, vars_), "切片对象")
+        return target[start:stop]
+    if kind == "call":
+        _, name, arg_nodes = node
+        args = [_evaluate(arg, vars_) for arg in arg_nodes]
+        return _call(name, args)
+    raise FormulaError(f"未知节点 {kind}")
+
+
+def _truthy(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    raise FormulaError("and/or/not 只作用于比较结果（布尔值）")
+
+
+def _numbers_from(args: list[Any], name: str) -> list[float | int]:
+    if len(args) == 1 and isinstance(args[0], list):
+        values = _as_number_list(args[0], f"{name} 的参数")
+    else:
+        values = [_as_number(item, f"{name} 的参数") for item in args]
+    if not values:
+        raise FormulaError(f"{name} 需要至少一个数")
+    return values
+
+
+def _call(name: str, args: list[Any]) -> Any:
+    if name == "when":
+        if len(args) != 3:
+            raise FormulaError("when(条件, 成立值, 不成立值) 需要三个参数")
+        return args[1] if _truthy(args[0]) else args[2]
+    if name == "len":
+        if len(args) != 1 or not isinstance(args[0], list):
+            raise FormulaError("len 需要一个列表参数")
+        return len(args[0])
+    if name == "abs":
+        if len(args) != 1:
+            raise FormulaError("abs 需要一个数字参数")
+        return abs(_as_number(args[0], "abs 的参数"))
+    if name in ("round", "floor", "ceil"):
+        if len(args) != 1:
+            raise FormulaError(f"{name} 需要一个数字参数")
+        value = _as_number(args[0], f"{name} 的参数")
+        if name == "round":
+            return round(value)
+        return math.floor(value) if name == "floor" else math.ceil(value)
+    values = _numbers_from(args, name)
+    if name == "sum":
+        return sum(values)
+    if name == "avg":
+        return sum(values) / len(values)
+    if name == "min":
+        return min(values)
+    if name == "max":
+        return max(values)
+    raise FormulaError(f"不支持的函数 {name}")
+
+
+def evaluate_formula(expression: str, vars_: dict[str, Any] | None = None) -> Any:
+    """解析并求值一条中缀公式。vars_ 里的值必须已解析为数字/数字列表/布尔。"""
+
+    if not isinstance(expression, str) or not expression.strip():
+        raise FormulaError("公式为空")
+    tree = _Parser(_tokenize(expression)).parse()
+    result = _evaluate(tree, vars_ or {})
+    if isinstance(result, float) and not math.isfinite(result):
+        raise FormulaError("结果不是有限数")
+    return result

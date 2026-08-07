@@ -49,6 +49,8 @@ class AcceptanceCase(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     inputs: dict[str, Any]
     human_input: dict[str, Any] | None = None
+    # "failed"：这条用例的正确行为就是运行失败（如缺必填输入应报错）
+    expect_run: str = Field(default="succeeded", pattern=r"^(succeeded|failed)$")
     expect: AcceptanceExpect
 
 
@@ -81,6 +83,7 @@ PM_SYSTEM = """你是一位独立的工作流监理。你不参与搭建，也�
   - inputs: 完整可运行的输入对象（字段名必须严格用系统对接说明里的；业主例子里给了数据就原样用，
     没给的合理补全）
   - human_input: 若流程需要人工确认，模拟值班员的应答对象；否则省略
+  - expect_run: 默认 "succeeded"；业主明确说"这种输入就该报错/拒绝"时写 "failed"
   - expect:
     - required_fields: 输出里必须出现的字段名（来自对接说明）
     - equals: 输出字段必须相等的值（只写业主明确说了"该出什么"的；布尔/数字/短文本）
@@ -225,6 +228,8 @@ def normalize_spec_payload(payload: dict[str, Any]) -> dict[str, Any]:
         case["expect"] = expect
         if case.get("human_input") is None:
             case.pop("human_input", None)
+        if case.get("expect_run") not in ("succeeded", "failed"):
+            case.pop("expect_run", None)
         cases.append(case)
     payload["cases"] = cases
     return payload
@@ -332,6 +337,50 @@ def _loose_equal(actual: Any, expected: Any) -> bool:
     return actual == expected
 
 
+def _collect_ref_node_ids(value: Any, into: set[str]) -> None:
+    if isinstance(value, dict):
+        ref = value.get("$ref")
+        if isinstance(ref, dict) and ref.get("node_id"):
+            into.add(str(ref["node_id"]))
+        for item in value.values():
+            _collect_ref_node_ids(item, into)
+    elif isinstance(value, list):
+        for item in value:
+            _collect_ref_node_ids(item, into)
+
+
+def terminal_lineage_types(nodes: list[dict[str, Any]]) -> set[str]:
+    """终端输出（end/answer）经 $ref 链可回溯到的节点类型集合。
+
+    "跑了 ≠ 用了"的第三级防线：must_execute 证明节点执行过，这里证明
+    终端结果真的引用了它的输出，而不是跑完被丢弃、字段接了别人。
+    """
+
+    by_id = {str(node.get("id")): node for node in nodes}
+    frontier = [
+        str(node.get("id"))
+        for node in nodes
+        if node.get("type") in ("end", "answer")
+    ]
+    reachable: set[str] = set(frontier)
+    while frontier:
+        node = by_id.get(frontier.pop())
+        if node is None:
+            continue
+        refs: set[str] = set()
+        _collect_ref_node_ids(node.get("config") or {}, refs)
+        for node_id in refs:
+            if node_id.startswith("$") or node_id in reachable:
+                continue
+            reachable.add(node_id)
+            frontier.append(node_id)
+    return {
+        str(by_id[node_id].get("type"))
+        for node_id in reachable
+        if node_id in by_id
+    }
+
+
 def _flatten_keys(value: Any) -> set[str]:
     keys: set[str] = set()
     if isinstance(value, dict):
@@ -420,6 +469,11 @@ async def run_acceptance(services: Any, application_id: str) -> dict[str, Any]:
     architecture_missing = [t for t in spec.required_node_types if t not in graph_types]
     if spec.required_any_node_types and not graph_types.intersection(spec.required_any_node_types):
         architecture_missing.append("any-of:" + "|".join(spec.required_any_node_types))
+    # 血缘：必需环节的输出必须被终端结果真实引用（跑了还得被用了）
+    lineage_types = terminal_lineage_types([
+        node.model_dump(mode="json") for node in snapshot.workflow.nodes
+    ])
+    lineage_missing = [t for t in spec.required_node_types if t not in lineage_types]
 
     case_rows: list[dict[str, Any]] = []
     for case in spec.cases:
@@ -465,8 +519,10 @@ async def run_acceptance(services: Any, application_id: str) -> dict[str, Any]:
             row["run_status"] = f"error: {error}"
             row["checks"] = [{"check": "运行成功", "passed": False, "actual": str(error)[:300]}]
             row["executed_node_types"] = []
+        expected_status = case.expect_run
+        row["expected_run"] = expected_status
         row["passed"] = (
-            row["run_status"] == "succeeded"
+            row["run_status"] == expected_status
             and all(check["passed"] for check in row["checks"])
         )
         case_rows.append(row)
@@ -482,9 +538,15 @@ async def run_acceptance(services: Any, application_id: str) -> dict[str, Any]:
         "required_any_node_types": spec.required_any_node_types,
         "architecture_missing": architecture_missing,
         "architecture_pass": not architecture_missing,
+        "lineage_missing": lineage_missing,
+        "lineage_pass": not lineage_missing,
         "cases": case_rows,
         "passed_cases": passed_cases,
-        "accepted": not architecture_missing and passed_cases == len(case_rows),
+        "accepted": (
+            not architecture_missing
+            and not lineage_missing
+            and passed_cases == len(case_rows)
+        ),
     }
     save_report(services.settings.data_dir, application_id, report)
     return report
@@ -612,6 +674,13 @@ def render_report_markdown(report: dict[str, Any]) -> str:
             else "不通过，缺 " + "、".join(report["architecture_missing"])
         )
         lines.append(f"- 结构核验：{arch}")
+    if "lineage_pass" in report and (report.get("required_node_types") or []):
+        lineage = (
+            "通过（必需环节的结果被终端输出真实引用）"
+            if report["lineage_pass"]
+            else "不通过：" + "、".join(report["lineage_missing"]) + " 的输出未被终端结果引用"
+        )
+        lines.append(f"- 血缘核验：{lineage}")
     lines += ["", f"## 用例（{report['passed_cases']}/{len(report['cases'])} 通过）", ""]
     for row in report["cases"]:
         lines.append(f"### {'✅' if row['passed'] else '❌'} {row['name']}（运行：{row['run_status']}）")

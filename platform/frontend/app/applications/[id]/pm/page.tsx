@@ -13,9 +13,12 @@ type Report = {
   summary: string
   architecture_pass: boolean
   architecture_missing: string[]
+  lineage_pass?: boolean
+  lineage_missing?: string[]
   cases: CaseRow[]
   passed_cases: number
   accepted: boolean
+  markdown?: string
 }
 type Spec = {
   summary: string
@@ -144,8 +147,25 @@ export default function PmPage({ params }: { params: Promise<{ id: string }> }) 
         {report && <div>
           <div className={report.accepted ? `${styles.verdict} ${styles.verdictOk}` : `${styles.verdict} ${styles.verdictBad}`}>
             {report.accepted ? '✅ 验收通过' : '❌ 需要整改'}（{report.passed_cases}/{report.cases.length} 用例通过 · 发布版 v{report.version} · {report.stamp}）
+            <button
+              className={styles.download}
+              onClick={() => {
+                const blob = new Blob(
+                  [report.markdown || ''],
+                  { type: 'text/markdown;charset=utf-8' },
+                )
+                const url = URL.createObjectURL(blob)
+                const anchor = document.createElement('a')
+                anchor.href = url
+                anchor.download = `验收单-${app?.name || id}.md`
+                anchor.click()
+                URL.revokeObjectURL(url)
+              }}
+              type="button"
+            >下载验收单</button>
           </div>
           {!report.architecture_pass && <p className={styles.err}>结构核验不通过：缺 {report.architecture_missing.join('、')}</p>}
+          {report.lineage_pass === false && <p className={styles.err}>血缘核验不通过：{(report.lineage_missing || []).join('、')} 的结果没有被最终输出使用</p>}
           {report.cases.map(row => <div className={styles.caseBlock} key={row.name}>
             <h3>{row.passed ? '✅' : '❌'} {row.name}（运行：{row.run_status}）</h3>
             <div className={styles.tableBox}>

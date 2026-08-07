@@ -1717,14 +1717,65 @@ def _computed_assignment_manual() -> dict[str, Any]:
     return {
         "summary": (
             "Create named workflow values by copying references or evaluating bounded "
-            "deterministic arithmetic, comparison, string, JSON, and collection expressions."
+            "deterministic expressions. PREFER the $formula mode: write plain infix "
+            "arithmetic ('avg(sales[-4:]) * (lead + 2) - stock') with named vars bound "
+            "to references — one readable line replaces a nested operator tree. "
+            "Supports + - * / %, comparisons, and/or/not, list slicing, and "
+            "avg/sum/min/max/len/abs/round/floor/ceil/when. Deterministic and audit-safe: "
+            "the same inputs always produce the same numbers, unlike an LLM doing math."
         ),
         "when_to_use": [
+            "Use $formula whenever the requirement contains business arithmetic: forecasts "
+            "from averages, coverage/gap computations, thresholds, MOQ floors, percentages. "
+            "An LLM computing these is an audit finding; this block is the compliant path.",
             "Use it to build a typed result object from upstream workflow evidence.",
             "Use its safe expressions for balances, counts, sums, equality, and stable identifiers.",
             "Use $json_encode to pass one bounded structured value to an official CLI argument.",
         ],
         "examples": [
+            {
+                "description": (
+                    "Replenishment arithmetic in $formula mode: forecast from the last "
+                    "4 weeks, decide need, quantity covers lead+2 weeks with an MOQ floor."
+                ),
+                "connection": "start -> variable_assigner -> end (or inside iteration per SKU)",
+                "config": {
+                    "assignments": {
+                        "forecast": {
+                            "$formula": {
+                                "expression": "avg(sales[-4:])",
+                                "vars": {
+                                    "sales": {"$ref": {"node_id": "$inputs", "path": ["weekly_sales"]}}
+                                },
+                            }
+                        },
+                        "need_replenish": {
+                            "$formula": {
+                                "expression": "stock < avg(sales[-4:]) * lead",
+                                "vars": {
+                                    "sales": {"$ref": {"node_id": "$inputs", "path": ["weekly_sales"]}},
+                                    "stock": {"$ref": {"node_id": "$inputs", "path": ["stock"]}},
+                                    "lead": {"$ref": {"node_id": "$inputs", "path": ["lead_time_weeks"]}},
+                                },
+                            }
+                        },
+                        "quantity": {
+                            "$formula": {
+                                "expression": (
+                                    "when(stock < avg(sales[-4:]) * lead, "
+                                    "max(ceil(avg(sales[-4:]) * (lead + 2) - stock), moq), 0)"
+                                ),
+                                "vars": {
+                                    "sales": {"$ref": {"node_id": "$inputs", "path": ["weekly_sales"]}},
+                                    "stock": {"$ref": {"node_id": "$inputs", "path": ["stock"]}},
+                                    "lead": {"$ref": {"node_id": "$inputs", "path": ["lead_time_weeks"]}},
+                                    "moq": {"$ref": {"node_id": "$inputs", "path": ["moq"]}},
+                                },
+                            }
+                        },
+                    }
+                },
+            },
             {
                 "description": "Calculate and verify a balance invariant.",
                 "connection": "host readback -> variable_assigner -> typed artifacts",
@@ -2111,7 +2162,7 @@ def build_block_registry() -> BlockRegistry:
         (_definition("question_classifier", "Question Classifier", "Route free text into a named class.", "logic", ClassifierConfig, inputs=[("input", ValueType.any)], outputs=[("branch", ValueType.string), ("text", ValueType.string)], retry=True, error_branch=True), ClassifierConfig),
         (_definition("parameter_extractor", "Parameter Extractor", "Extract typed JSON fields from text.", "transform", ParameterExtractorConfig, inputs=[("input", ValueType.any)], outputs=[("structured", ValueType.object)], retry=True, error_branch=True), ParameterExtractorConfig),
         (_definition("template_transform", "Template Transform", "Render a template from variables.", "transform", TemplateConfig, inputs=[("input", ValueType.any)], outputs=[("text", ValueType.string)]), TemplateConfig),
-        (_definition("variable_assigner", "Variable Assigner", "Create named workflow values.", "transform", VariableAssignerConfig, inputs=[("input", ValueType.any)], outputs=[("output", ValueType.object)], manual=_computed_assignment_manual()), VariableAssignerConfig),
+        (_definition("variable_assigner", "Variable Assigner", "Create named values; $formula does business arithmetic in one readable line — the audit-safe alternative to LLM math.", "transform", VariableAssignerConfig, inputs=[("input", ValueType.any)], outputs=[("output", ValueType.object)], manual=_computed_assignment_manual()), VariableAssignerConfig),
         (_definition("variable_aggregator", "Variable Aggregator", "Join branch values.", "transform", VariableAggregatorConfig, inputs=[("input", ValueType.any)], outputs=[("output", ValueType.any)]), VariableAggregatorConfig),
         (_definition("http_request", "HTTP Request", "Call an external HTTP endpoint.", "integration", HTTPConfig, inputs=[("input", ValueType.any)], outputs=[("output", ValueType.object)], retry=True, error_branch=True), HTTPConfig),
         (

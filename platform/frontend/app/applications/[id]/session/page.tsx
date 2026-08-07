@@ -9,6 +9,7 @@ import {
   type BuildTranscript,
   type Draft,
 } from '@/lib/platform'
+import OutputView from '@/app/components/OutputView'
 import styles from './session.module.css'
 
 type Build = {
@@ -173,6 +174,20 @@ export default function Session({ params }: { params: Promise<{ id: string }> })
     ? '等你回复'
     : build ? STATUS_LABEL[build.status] || build.status : '未开始'
 
+  // 交付说明：搭建完成后莉莉丝的最后一段发言，置顶备查。
+  const deliveryNote = useMemo(() => {
+    if (!build || ACTIVE.has(build.status)) return ''
+    if (build.status !== 'ready' && build.status !== 'published') return ''
+    const records = transcript?.records || []
+    for (let index = records.length - 1; index >= 0; index -= 1) {
+      const record = records[index]
+      if (record.kind !== 'owner' && (record.text || '').trim().length > 40) {
+        return record.text.trim()
+      }
+    }
+    return ''
+  }, [build, transcript])
+
   return <main className={styles.shell}>
     <header className={styles.topbar}>
       <Link href="/" className={styles.back}>← 工作台</Link>
@@ -198,6 +213,10 @@ export default function Session({ params }: { params: Promise<{ id: string }> })
               : '还没有会话记录'}
           </small>
         </div>
+        {deliveryNote && <details className={styles.delivery}>
+          <summary>交付说明（莉莉丝）</summary>
+          <p>{deliveryNote}</p>
+        </details>}
         <div className={styles.stream} ref={streamRef}>
           {!transcript?.summary.available && <div className={styles.empty}>
             <p>发一句话，莉莉丝就开始搭建；她的每一轮思考、每次工具调用都会出现在这里。</p>
@@ -297,7 +316,7 @@ export default function Session({ params }: { params: Promise<{ id: string }> })
           <div className={styles.outputBody}>
             {latestRun
               ? Object.keys(terminalOutputs).length
-                ? <pre>{JSON.stringify(terminalOutputs, null, 2)}</pre>
+                ? <OutputView outputs={terminalOutputs} />
                 : <p className={styles.muted}>这次运行没有终端输出{latestRun.state.error ? `：${latestRun.state.error}` : '。'}</p>
               : <p className={styles.muted}>发布或有草稿后，去<Link href={`/runtime/${id}`}>试运行</Link>跑一次，结果会显示在这里。</p>}
           </div>

@@ -4347,11 +4347,13 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
     )
     async def run_application_acceptance(application_id: str) -> dict[str, Any]:
         try:
-            return await acceptance_pm.run_acceptance(services, application_id)
+            report = await acceptance_pm.run_acceptance(services, application_id)
         except KeyError as error:
             raise HTTPException(404, str(error)) from error
         except RuntimeError as error:
             raise HTTPException(409, str(error)) from error
+        report["markdown"] = acceptance_pm.render_report_markdown(report)
+        return report
 
     @app.get(
         "/api/v1/applications/{application_id}/acceptance/report",
