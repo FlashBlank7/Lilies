@@ -1,0 +1,128 @@
+{
+  "project_id": "legal-provision-review",
+  "name": "法律条文审查应用（试题4 原味需求）",
+  "stamp": "20260807-005004",
+  "application_id": "42a05263-349d-4566-a004-ba83471fce29",
+  "node_types": [
+    "end",
+    "knowledge_index_sync",
+    "knowledge_retrieval",
+    "model_turn",
+    "start",
+    "template_transform"
+  ],
+  "architecture_missing": [],
+  "architecture_pass": true,
+  "cases": [
+    {
+      "name": "条文审查：试用期违法条款",
+      "run_status": "succeeded",
+      "outputs": {
+        "recommendations": [],
+        "findings": [
+          {
+            "clause": "第三条 乙方劳动合同期限为一年，试用期为六个月。",
+            "issue": "根据《中华人民共和国劳动合同法》第十九条，劳动合同期限一年以上不满三年的，试用期不得超过二个月。本合同期限为一年，试用期六个月，明显超过法定上限。",
+            "suggestion": "将试用期修改为不超过二个月，建议约定为一个月或二个月。",
+            "provision_title": "《中华人民共和国劳动合同法》第十九条"
+          },
+          {
+            "clause": "第四条 乙方试用期工资为转正工资的百分之六十。",
+            "issue": "根据《中华人民共和国劳动合同法》第二十条，试用期工资不得低于本单位相同岗位最低档工资或者劳动合同约定工资的百分之八十。本合同约定试用期工资为转正工资的百分之六十，低于法定下限。",
+            "suggestion": "将试用期工资提高至不低于转正工资的百分之八十，且不得低于用人单位所在地的最低工资标准。",
+            "provision_title": "《中华人民共和国劳动合同法》第二十条"
+          }
+        ],
+        "answer": "",
+        "citations": []
+      },
+      "checks": [
+        {
+          "check": "输出包含字段 findings",
+          "passed": true,
+          "actual": "存在"
+        },
+        {
+          "check": "findings 包含「试用期」",
+          "passed": true,
+          "actual": "[{\"clause\": \"第三条 乙方劳动合同期限为一年，试用期为六个月。\", \"issue\": \"根据《中华人民共和国劳动合同法》第十九条，劳动合同期限一年以上不满三年的，试用期不得超过二个月。本合同期限为一年，试用期六个月，明显超过法定上限。\", \"suggestion\": \"将试用期修改为不超过二个月，建议约定为"
+        },
+        {
+          "check": "findings 包含「第十九条」",
+          "passed": true,
+          "actual": "[{\"clause\": \"第三条 乙方劳动合同期限为一年，试用期为六个月。\", \"issue\": \"根据《中华人民共和国劳动合同法》第十九条，劳动合同期限一年以上不满三年的，试用期不得超过二个月。本合同期限为一年，试用期六个月，明显超过法定上限。\", \"suggestion\": \"将试用期修改为不超过二个月，建议约定为"
+        },
+        {
+          "check": "findings 包含「第二十条」",
+          "passed": true,
+          "actual": "[{\"clause\": \"第三条 乙方劳动合同期限为一年，试用期为六个月。\", \"issue\": \"根据《中华人民共和国劳动合同法》第十九条，劳动合同期限一年以上不满三年的，试用期不得超过二个月。本合同期限为一年，试用期六个月，明显超过法定上限。\", \"suggestion\": \"将试用期修改为不超过二个月，建议约定为"
+        }
+      ],
+      "passed": true
+    },
+    {
+      "name": "法律问答：两年合同试用期上限",
+      "run_status": "succeeded",
+      "outputs": {
+        "recommendations": [],
+        "findings": [],
+        "answer": "根据《中华人民共和国劳动合同法》第十九条，劳动合同期限一年以上不满三年的，试用期不得超过二个月。劳动合同期限为两年的，属于‘一年以上不满三年’的情形，因此试用期最长可以约定二个月。",
+        "citations": [
+          "《中华人民共和国劳动合同法》第十九条"
+        ]
+      },
+      "checks": [
+        {
+          "check": "输出包含字段 answer",
+          "passed": true,
+          "actual": "存在"
+        },
+        {
+          "check": "输出包含字段 citations",
+          "passed": true,
+          "actual": "存在"
+        },
+        {
+          "check": "answer 包含「个月」",
+          "passed": true,
+          "actual": "根据《中华人民共和国劳动合同法》第十九条，劳动合同期限一年以上不满三年的，试用期不得超过二个月。劳动合同期限为两年的，属于‘一年以上不满三年’的情形，因此试用期最长可以约定二个月。"
+        },
+        {
+          "check": "citations 包含「第十九条」",
+          "passed": true,
+          "actual": "[\"《中华人民共和国劳动合同法》第十九条\"]"
+        }
+      ],
+      "passed": true
+    },
+    {
+      "name": "条文推荐：违约金纠纷文本",
+      "run_status": "succeeded",
+      "outputs": {
+        "recommendations": [
+          {
+            "title": "《中华人民共和国民法典》第五百八十五条",
+            "reason": "该条文规定了违约金的约定及调整规则，即当事人可以约定违约金，但约定的违约金过分高于造成的损失的，人民法院或仲裁机构可以根据当事人的请求予以适当减少。本案中合同约定违约金为合同总价的百分之五十，供应商认为过高而拒绝支付，该条文是判断违约金是否过高以及如何处理的核心法律依据。"
+          }
+        ],
+        "findings": [],
+        "answer": "",
+        "citations": []
+      },
+      "checks": [
+        {
+          "check": "输出包含字段 recommendations",
+          "passed": true,
+          "actual": "存在"
+        },
+        {
+          "check": "recommendations 包含「第五百八十五条」",
+          "passed": true,
+          "actual": "[{\"title\": \"《中华人民共和国民法典》第五百八十五条\", \"reason\": \"该条文规定了违约金的约定及调整规则，即当事人可以约定违约金，但约定的违约金过分高于造成的损失的，人民法院或仲裁机构可以根据当事人的请求予以适当减少。本案中合同约定违约金为合同总价的百分之五十，供应商认为过高而拒绝支付，该条文是判断"
+        }
+      ],
+      "passed": true
+    }
+  ],
+  "accepted": true
+}

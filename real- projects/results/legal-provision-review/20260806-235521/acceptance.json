@@ -1,0 +1,97 @@
+{
+  "project_id": "legal-provision-review",
+  "name": "法律条文审查应用（试题4 原味需求）",
+  "stamp": "20260806-235521",
+  "application_id": "42a05263-349d-4566-a004-ba83471fce29",
+  "build_id": "89a33a06-1d6f-4197-b817-6b7a2579af80",
+  "build_status": "published",
+  "build_error": null,
+  "node_types": [
+    "end",
+    "knowledge_index_sync",
+    "knowledge_retrieval",
+    "model_turn",
+    "question_classifier",
+    "start",
+    "template_transform"
+  ],
+  "architecture_missing": [],
+  "architecture_pass": true,
+  "cases": [
+    {
+      "name": "条文审查：试用期违法条款",
+      "run_status": "failed",
+      "outputs": {},
+      "checks": [
+        {
+          "check": "输出包含字段 findings",
+          "passed": false,
+          "actual": "缺失（实际字段：[]）"
+        },
+        {
+          "check": "findings 包含「试用期」",
+          "passed": false,
+          "actual": "null"
+        },
+        {
+          "check": "findings 包含「第十九条」",
+          "passed": false,
+          "actual": "null"
+        },
+        {
+          "check": "findings 包含「第二十条」",
+          "passed": false,
+          "actual": "null"
+        }
+      ],
+      "passed": false
+    },
+    {
+      "name": "法律问答：两年合同试用期上限",
+      "run_status": "failed",
+      "outputs": {},
+      "checks": [
+        {
+          "check": "输出包含字段 answer",
+          "passed": false,
+          "actual": "缺失（实际字段：[]）"
+        },
+        {
+          "check": "输出包含字段 citations",
+          "passed": false,
+          "actual": "缺失（实际字段：[]）"
+        },
+        {
+          "check": "answer 包含「个月」",
+          "passed": false,
+          "actual": "null"
+        },
+        {
+          "check": "citations 包含「第十九条」",
+          "passed": false,
+          "actual": "null"
+        }
+      ],
+      "passed": false
+    },
+    {
+      "name": "条文推荐：违约金纠纷文本",
+      "run_status": "failed",
+      "outputs": {},
+      "checks": [
+        {
+          "check": "输出包含字段 recommendations",
+          "passed": false,
+          "actual": "缺失（实际字段：[]）"
+        },
+        {
+          "check": "recommendations 包含「第五百八十五条」",
+          "passed": false,
+          "actual": "null"
+        }
+      ],
+      "passed": false
+    }
+  ],
+  "accepted": false
+}
