@@ -179,7 +179,14 @@ def main() -> None:
         if final["status"] in {"ready", "published"}:
             try:
                 draft = request(args.base_url, token, "GET", f"/api/v1/applications/{app['id']}/draft")
-                node_types = {node["type"] for node in draft["snapshot"]["workflow"]["nodes"]}
+                node_types = set()
+                frontier = list(draft["snapshot"]["workflow"]["nodes"])
+                while frontier:
+                    node = frontier.pop()
+                    node_types.add(node.get("type"))
+                    nested = ((node.get("config") or {}).get("workflow") or {}).get("nodes")
+                    if isinstance(nested, list):
+                        frontier.extend(nested)
                 required_types = task["acceptance"].get("required_node_types", [])
                 any_of = task["acceptance"].get("required_any_node_types", [])
                 report["node_types"] = sorted(node_types)

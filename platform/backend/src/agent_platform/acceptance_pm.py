@@ -337,6 +337,23 @@ def _loose_equal(actual: Any, expected: Any) -> bool:
     return actual == expected
 
 
+def collect_node_types(nodes: list[dict[str, Any]]) -> set[str]:
+    """节点类型集合——递归进入 iteration 等嵌套子流程（顶层≠全部）。"""
+
+    types: set[str] = set()
+    frontier = list(nodes)
+    while frontier:
+        node = frontier.pop()
+        if not isinstance(node, dict):
+            continue
+        if node.get("type"):
+            types.add(str(node["type"]))
+        nested = ((node.get("config") or {}).get("workflow") or {}).get("nodes")
+        if isinstance(nested, list):
+            frontier.extend(nested)
+    return types
+
+
 def _collect_ref_node_ids(value: Any, into: set[str]) -> None:
     if isinstance(value, dict):
         ref = value.get("$ref")
@@ -462,7 +479,9 @@ async def run_acceptance(services: Any, application_id: str) -> dict[str, Any]:
 
     version_row = await services.workflow_store.get_version(application_id)
     snapshot = version_row["snapshot"]
-    graph_types = {node.type for node in snapshot.workflow.nodes}
+    graph_types = collect_node_types([
+        node.model_dump(mode="json") for node in snapshot.workflow.nodes
+    ])
     terminal_ids = {
         node.id for node in snapshot.workflow.nodes if node.type in ("end", "answer")
     }

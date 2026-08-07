@@ -234,3 +234,20 @@ def test_expect_run_failed_case_semantics() -> None:
         AcceptanceCase.model_validate({
             "name": "x", "inputs": {}, "expect_run": "exploded", "expect": {},
         })
+
+
+def test_collect_node_types_recurses_into_iteration() -> None:
+    from agent_platform.acceptance_pm import collect_node_types
+
+    nodes = [
+        {"id": "start", "type": "start", "config": {}},
+        {"id": "loop", "type": "iteration", "config": {"workflow": {"nodes": [
+            {"id": "inner_start", "type": "start", "config": {}},
+            {"id": "calc", "type": "variable_assigner", "config": {}},
+            {"id": "inner_end", "type": "end", "config": {}},
+        ]}}},
+        {"id": "end", "type": "end", "config": {}},
+    ]
+    types = collect_node_types(nodes)
+    assert "variable_assigner" in types
+    assert "iteration" in types
