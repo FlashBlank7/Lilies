@@ -21,6 +21,7 @@ type Spec = {
   summary: string
   required_node_types: string[]
   cases: Array<{ name: string; expect: Record<string, unknown> }>
+  suggestions?: string[]
 }
 type Application = { id: string; name: string }
 
@@ -122,6 +123,10 @@ export default function PmPage({ params }: { params: Promise<{ id: string }> }) 
             {spec.required_node_types.length > 0 && <li>过程要求：必须包含 {spec.required_node_types.join('、')}</li>}
             {spec.cases.map(item => <li key={item.name}>用例：{item.name}</li>)}
           </ul>
+          {(spec.suggestions?.length ?? 0) > 0 && <div style={{ marginTop: 10 }}>
+            <b>监理的建议（未采纳不生效）：</b>
+            <ul>{spec.suggestions!.map(item => <li key={item}>{item}</li>)}</ul>
+          </div>}
         </div>}
       </section>
 

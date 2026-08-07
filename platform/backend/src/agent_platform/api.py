@@ -4364,6 +4364,18 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         report["markdown"] = acceptance_pm.render_report_markdown(report)
         return report
 
+    @app.get("/api/v1/pm/lessons", dependencies=[Depends(require_token)])
+    async def get_pm_lessons() -> dict[str, Any]:
+        return {"lessons": acceptance_pm.load_lessons(services.settings.data_dir)}
+
+    @app.post("/api/v1/pm/lessons", dependencies=[Depends(require_token)])
+    async def add_pm_lesson(body: BuildMessageRequest) -> dict[str, Any]:
+        try:
+            lessons = acceptance_pm.append_lesson(services.settings.data_dir, body.message)
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from error
+        return {"lessons": lessons}
+
     @app.post(
         "/api/v1/applications/{application_id}/pm/explain",
         dependencies=[Depends(require_token)],

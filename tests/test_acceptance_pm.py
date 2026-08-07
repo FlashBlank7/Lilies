@@ -135,3 +135,43 @@ def test_normalize_tolerates_model_slips() -> None:
     assert spec.cases[0].expect.contains == {}
     assert spec.cases[0].expect.not_contains == {"report": []}
     assert spec.cases[0].human_input is None
+
+
+def test_owner_language_gate_flags_machine_tokens() -> None:
+    from agent_platform.acceptance_pm import owner_language_violations, redact_machine_tokens
+
+    text = "模型吃下了 AX_std 和 GY_jerk_max，判定环节 deployed_model_inference 已跑通，maxSpeed 正常。"
+    violations = owner_language_violations(text, ["deployed_model_inference", "llm", "end"])
+    assert "AX_std" in violations
+    assert "GY_jerk_max" in violations
+    assert "deployed_model_inference" in violations
+    assert "maxSpeed" in violations
+
+    clean = "这趟被判定为正常，置信度较高，用的是双方约定的 elevator-fault-v1 模型。"
+    assert owner_language_violations(clean, ["deployed_model_inference"]) == []
+
+    redacted = redact_machine_tokens(text, violations)
+    assert "AX_std" not in redacted and "（技术指标）" in redacted
+
+
+def test_spec_suggestions_channel_and_lessons(tmp_path: Path) -> None:
+    from agent_platform.acceptance_pm import (
+        append_lesson,
+        load_lessons,
+        normalize_spec_payload,
+    )
+
+    payload = {
+        "summary": "查两条",
+        "suggestions": ["建议补一条缺字段的容错用例", "", None],
+        "cases": [{"name": "样例", "inputs": {"a": 1}, "expect": {}}],
+    }
+    spec = AcceptanceSpec.model_validate(normalize_spec_payload(payload))
+    assert spec.suggestions == ["建议补一条缺字段的容错用例"]
+
+    lessons = load_lessons(tmp_path)
+    assert "卷面主权" in lessons and "语言纪律" in lessons
+    updated = append_lesson(tmp_path, "解释里的概率数字要换算成'十有八九'式说法")
+    assert "十有八九" in updated
+    # 幂等：重复追加不重复记录
+    assert updated == append_lesson(tmp_path, "解释里的概率数字要换算成'十有八九'式说法")

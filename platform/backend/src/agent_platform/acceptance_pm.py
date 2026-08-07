@@ -60,6 +60,8 @@ class AcceptanceSpec(BaseModel):
     required_node_types: list[str] = Field(default_factory=list, max_length=16)
     required_any_node_types: list[str] = Field(default_factory=list, max_length=16)
     cases: list[AcceptanceCase] = Field(min_length=1, max_length=PM_MAX_CASES)
+    # 监理的主动性只许进建议栏：业主不采纳就不生效，绝不混进 cases。
+    suggestions: list[str] = Field(default_factory=list, max_length=8)
 
 
 PM_SYSTEM = """你是一位独立的工作流监理。你不参与搭建，也永远不指导搭建方；
@@ -87,7 +89,12 @@ PM_SYSTEM = """你是一位独立的工作流监理。你不参与搭建，也�
     - must_execute: 这条用例运行时必须真实执行到的节点类型（有过程要求才写）
     - must_not_execute: 不许执行的节点类型（少用）
 
+- suggestions: 字符串数组。你认为还值得验、但业主没有明说的点，全部写在这里
+  （每条一句业务语言），供业主决定要不要采纳。
+
 规则：
+- 【卷面主权】cases 只许来自业主明说的例子与要求：业主给了几个例子就出几条用例，
+  一个不多、一个不少。你多想到的任何检查点一律进 suggestions，绝不自行加入 cases。
 - 一切判定必须可机械核验；写不出机械判定的期望就不要写（宁缺毋滥）。
 - 用例输入必须自洽完整，能直接跑。
 - 绝不发明对接说明之外的字段名。
@@ -97,7 +104,9 @@ PM_SYSTEM = """你是一位独立的工作流监理。你不参与搭建，也�
 EXPLAIN_SYSTEM = """你是业主请的独立监理。业主看不懂搭建方（莉莉丝）正在做什么，请你解释。
 你只依据业主自己也能看到的材料：需求原文、会话记录、当前工作流的节点清单、最近的运行输出。
 用纯业务语言回答（两三段以内）：她现在在干什么、进展到哪一步、有没有值得业主留意的风险。
-禁止出现任何技术内部词汇（节点类型名、配置、字段路径这类词一律翻译成业务说法）。
+【硬性语言纪律】禁止出现任何机器词汇：节点类型名、配置项、字段名（凡是英文加下划线或
+驼峰拼写的代码样词，如 some_field、camelCase）一律换成业务称呼（例如"某项振动指标"、
+"判定结果"）。材料里出现过也不许照抄。
 如果材料里看不出来，就直说看不出来，不要编。"""
 
 REVIEW_SYSTEM = """你是业主请的独立监理，正在旁听一次工作流搭建。你不指导搭建方，只替业主把关。
@@ -105,7 +114,71 @@ REVIEW_SYSTEM = """你是业主请的独立监理，正在旁听一次工作流�
 请用业务语言输出至多三条"监理笔记"，每条一句话：指出可能的逻辑问题、与需求的偏差、
 或输出上的风险（例如：需求要的某个结果目前的流程里看不到来源；某个环节看起来没有被用到）。
 没有值得说的就输出一条："目前没有发现值得业主留意的问题。"
-禁止技术内部词汇；禁止给搭建方的操作建议——你的读者是业主。"""
+【硬性语言纪律】禁止任何机器词汇：节点类型名、配置项、代码样的字段名（英文下划线/驼峰）
+一律换成业务称呼，材料里出现过也不许照抄。禁止给搭建方的操作建议——你的读者是业主。"""
+
+
+_MACHINE_TOKEN = re.compile(
+    r"\b(?:[A-Za-z]+_[A-Za-z0-9_]+|[a-z]+[A-Z][A-Za-z0-9]*)\b"
+)
+_MACHINE_ALLOWLIST = {"elevator-fault-v1"}  # 部署名等业主契约里的正式名称不算泄漏
+
+
+def owner_language_violations(text: str, block_types: list[str]) -> list[str]:
+    """面向业主的文本里不许出现的机器词汇：代码样标识符与积木类型名。"""
+
+    hits = {
+        token
+        for token in _MACHINE_TOKEN.findall(text)
+        if token not in _MACHINE_ALLOWLIST
+    }
+    lowered = text.lower()
+    hits |= {
+        block_type
+        for block_type in block_types
+        if ("_" in block_type or len(block_type) >= 8) and block_type in lowered
+    }
+    return sorted(hits)
+
+
+def redact_machine_tokens(text: str, violations: list[str]) -> str:
+    for token in violations:
+        text = text.replace(token, "（技术指标）")
+    return text
+
+
+DEFAULT_LESSONS = """- 卷面主权：用例只来自业主明说的例子，一个不多一个不少；监理多想到的检查点只进建议栏。
+- 语言纪律：面向业主的一切文字不出现机器词汇（字段名、节点名、配置项），材料里出现过也不照抄。
+"""
+
+
+def lessons_path(data_dir: Path) -> Path:
+    return Path(data_dir) / "acceptance" / "pm_lessons.md"
+
+
+def load_lessons(data_dir: Path) -> str:
+    path = lessons_path(data_dir)
+    if not path.is_file():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(DEFAULT_LESSONS)
+    return path.read_text().strip()
+
+
+def append_lesson(data_dir: Path, lesson: str) -> str:
+    text = lesson.strip()
+    if not text:
+        raise ValueError("教训不能为空")
+    path = lessons_path(data_dir)
+    existing = load_lessons(data_dir)
+    if text in existing:
+        return existing
+    path.write_text(existing + f"\n- {text}\n")
+    return load_lessons(data_dir)
+
+
+def _with_lessons(system: str, data_dir: Path) -> str:
+    lessons = load_lessons(data_dir)
+    return f"{system}\n\n【历届项目沉淀的监理纪律——逐条遵守】\n{lessons}"
 
 
 def _json_object_from_text(text: str) -> dict[str, Any]:
@@ -127,6 +200,11 @@ def normalize_spec_payload(payload: dict[str, Any]) -> dict[str, Any]:
     payload = dict(payload)
     payload["required_node_types"] = clean_list(payload.get("required_node_types"))
     payload["required_any_node_types"] = clean_list(payload.get("required_any_node_types"))
+    payload["suggestions"] = [
+        str(item).strip()
+        for item in clean_list(payload.get("suggestions"))
+        if item is not None and str(item).strip()
+    ][:8]
     cases = []
     for case in clean_list(payload.get("cases")):
         if not isinstance(case, dict):
@@ -221,7 +299,12 @@ async def generate_spec(
         "请输出验收规格 JSON。"
     )
     text = await _pm_chat(
-        services, application["id"], PM_SYSTEM, prompt, "spec", max_output_tokens=8_000
+        services,
+        application["id"],
+        _with_lessons(PM_SYSTEM, services.settings.data_dir),
+        prompt,
+        "spec",
+        max_output_tokens=8_000,
     )
     return AcceptanceSpec.model_validate(
         normalize_spec_payload(_json_object_from_text(text))
@@ -468,16 +551,47 @@ def _owner_view_prompt(
     return "\n\n".join(parts)
 
 
+async def _owner_facing_chat(
+    services: Any, application_id: str, system: str, prompt: str, phase: str
+) -> str:
+    """经验注入 + 语言硬门：违规重写一次，仍违规则机械涂抹。"""
+
+    data_dir = services.settings.data_dir
+    block_types = [block.type for block in services.blocks.list()]
+    text = await _pm_chat(
+        services, application_id, _with_lessons(system, data_dir), prompt, phase
+    )
+    violations = owner_language_violations(text, block_types)
+    if violations:
+        correction = (
+            prompt
+            + "\n\n【重写要求】你上一稿出现了机器词汇："
+            + "、".join(violations[:10])
+            + "。全部换成业务称呼后重写，其余内容与判断保持不变。"
+        )
+        text = await _pm_chat(
+            services,
+            application_id,
+            _with_lessons(system, data_dir),
+            correction,
+            f"{phase}_rewrite",
+        )
+        violations = owner_language_violations(text, block_types)
+        if violations:
+            text = redact_machine_tokens(text, violations)
+    return text
+
+
 async def explain_for_owner(services: Any, application_id: str, question: str) -> str:
     application, records, snapshot, outputs = await _owner_materials(services, application_id)
     prompt = _owner_view_prompt(application, records, snapshot, outputs, question)
-    return await _pm_chat(services, application_id, EXPLAIN_SYSTEM, prompt, "explain")
+    return await _owner_facing_chat(services, application_id, EXPLAIN_SYSTEM, prompt, "explain")
 
 
 async def review_progress(services: Any, application_id: str) -> str:
     application, records, snapshot, outputs = await _owner_materials(services, application_id)
     prompt = _owner_view_prompt(application, records, snapshot, outputs, "")
-    return await _pm_chat(services, application_id, REVIEW_SYSTEM, prompt, "review")
+    return await _owner_facing_chat(services, application_id, REVIEW_SYSTEM, prompt, "review")
 
 
 # ---------------- 存取与验收单 ----------------
