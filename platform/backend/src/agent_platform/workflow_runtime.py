@@ -1494,7 +1494,7 @@ class WorkflowRuntime:
         state: WorkflowRunState | None,
     ) -> dict[str, Any]:
         config = self.blocks.validate_node(node)
-        context = {"inputs": inputs, "nodes": outputs}
+        context = {"inputs": inputs, "nodes": outputs, "run": {"run_id": run_id}}
         if isinstance(config, StartConfig):
             result: dict[str, Any] = {}
             for field in config.inputs:
@@ -4656,6 +4656,10 @@ class WorkflowRuntime:
             try:
                 if node_id == "$inputs":
                     current: Any = context["inputs"]
+                elif node_id == "$run":
+                    # Builtin run metadata, e.g. a per-run unique event id:
+                    # {"$ref": {"node_id": "$run", "path": ["run_id"]}}
+                    current = context.get("run", {})
                 else:
                     if node_id not in context["nodes"] and reference.get("optional"):
                         return None
