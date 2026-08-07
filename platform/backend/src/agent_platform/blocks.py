@@ -37,6 +37,8 @@ class InputField(BaseModel):
     type: ValueType = ValueType.string
     required: bool = True
     default: Any = None
+    # 给普通使用者看的示例值：使用页拿它当占位提示（"长这样就对了"）。
+    example: Any = None
 
 
 class StartConfig(BaseModel):

@@ -1,0 +1,50 @@
+.shell{min-height:100vh;background:var(--lil-paper);color:var(--lil-ink)}
+.wrap{max-width:820px;margin:0 auto;padding:28px 18px 80px;display:flex;flex-direction:column;gap:16px}
+.head{display:flex;flex-direction:column;gap:6px;padding-bottom:14px;border-bottom:2px solid var(--lil-ink)}
+.head h1{margin:0;font-size:22px;line-height:1.4}
+.head p{margin:0;color:var(--lil-muted);font-size:13px;line-height:1.7;max-width:64ch}
+.badges{display:flex;gap:8px;flex-wrap:wrap;margin-top:4px}
+.badge{border-radius:999px;padding:3px 11px;font-size:11.5px;font-weight:600;background:var(--lil-ok-soft);color:var(--lil-accent-strong);border:1px solid var(--lil-accent-line)}
+.badgeMuted{background:var(--lil-panel);color:var(--lil-muted);border:1px solid var(--lil-line)}
+.card{background:var(--lil-panel);border:1px solid var(--lil-line);border-radius:14px;padding:18px 20px}
+.card h2{margin:0 0 10px;font-size:15px}
+.field{display:flex;flex-direction:column;gap:6px;margin-bottom:16px}
+.field label{font-size:13px;font-weight:600}
+.field label small{font-weight:400;color:var(--lil-muted);margin-left:8px}
+.field input[type=text],.field input[type=number],.field textarea{border:1px solid var(--lil-line);border-radius:10px;padding:10px 12px;font:inherit;font-size:13px;background:var(--lil-panel);color:var(--lil-ink)}
+.field textarea{min-height:76px;resize:vertical;line-height:1.6}
+.field input:focus,.field textarea:focus{outline:2px solid var(--lil-accent-line);border-color:var(--lil-accent)}
+.hint{font-size:11.5px;color:var(--lil-muted)}
+.tableTools{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.tableTools button,.tableTools label{border:1px solid var(--lil-line);background:var(--lil-panel-soft);color:var(--lil-ink);border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer}
+.tableTools button:hover,.tableTools label:hover{border-color:var(--lil-accent-line)}
+.tableTools input[type=file]{display:none}
+.pasteBox{width:100%;min-height:96px;border:1px dashed var(--lil-line);border-radius:10px;padding:10px 12px;font:12px/1.6 ui-monospace,Menlo,monospace;background:var(--lil-panel-soft)}
+.grid{overflow-x:auto;border:1px solid var(--lil-line-soft);border-radius:10px}
+.grid table{border-collapse:collapse;width:100%;font-size:12.5px}
+.grid th{background:var(--lil-panel-soft);color:var(--lil-muted);font-size:11px;font-weight:600;padding:6px 8px;border-bottom:1px solid var(--lil-line-soft);text-align:left;white-space:nowrap}
+.grid td{border-bottom:1px solid var(--lil-line-soft);padding:0}
+.grid td input{width:100%;border:0;padding:6px 8px;font:inherit;font-size:12.5px;background:transparent;color:var(--lil-ink)}
+.grid td input:focus{outline:2px solid var(--lil-accent-line);background:var(--lil-panel)}
+.rowOps{display:flex;gap:8px;margin-top:8px}
+.rowOps button{border:1px solid var(--lil-line);background:transparent;border-radius:8px;padding:4px 10px;font-size:12px;cursor:pointer;color:var(--lil-muted)}
+.runRow{display:flex;align-items:center;gap:14px}
+.runRow button{border:0;border-radius:12px;background:var(--lil-accent);color:#fff;padding:13px 34px;font-size:15px;font-weight:600;cursor:pointer}
+.runRow button:hover:not(:disabled){background:var(--lil-accent-strong)}
+.runRow button:disabled{background:#c3cdd7;cursor:default}
+.runNote{font-size:12.5px;color:var(--lil-muted)}
+.status{display:flex;align-items:center;gap:9px;font-size:13px}
+.status i{width:9px;height:9px;border-radius:50%;background:#f79009;animation:usePulse 1.2s ease-in-out infinite;font-style:normal}
+@keyframes usePulse{0%,100%{opacity:.35}50%{opacity:1}}
+.error{color:var(--lil-danger);background:var(--lil-danger-soft);border:1px solid #f6c6c2;border-radius:10px;padding:10px 13px;font-size:13px;line-height:1.7}
+.artifacts{display:flex;flex-direction:column;gap:6px}
+.artifacts a{color:var(--lil-accent-strong);font-size:13px;text-decoration:none}
+.artifacts a:hover{text-decoration:underline}
+.history{display:flex;flex-direction:column;gap:8px}
+.historyItem{display:flex;align-items:center;gap:10px;font-size:12.5px;border:1px solid var(--lil-line-soft);border-radius:10px;padding:8px 12px;background:var(--lil-panel-soft)}
+.historyItem b{font-size:12px}
+.historyItem button{margin-left:auto;border:1px solid var(--lil-line);background:var(--lil-panel);border-radius:8px;padding:4px 10px;font-size:11.5px;cursor:pointer}
+.codeCard{max-width:420px;margin:14vh auto 0;display:flex;flex-direction:column;gap:12px}
+.codeCard input{border:1px solid var(--lil-line);border-radius:10px;padding:12px 14px;font:inherit;font-size:14px}
+.codeCard button{border:0;border-radius:10px;background:var(--lil-accent);color:#fff;padding:12px;font-size:14px;cursor:pointer}
+.foot{color:var(--lil-muted);font-size:11.5px;line-height:1.8;border-top:1px solid var(--lil-line);padding-top:12px}

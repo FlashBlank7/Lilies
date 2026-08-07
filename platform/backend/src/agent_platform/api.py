@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
 import hmac
 import json
@@ -373,6 +374,12 @@ class BuildMessageRequest(BaseModel):
 
 class AcceptanceInterviewRequest(BaseModel):
     examples: str = Field(min_length=5, max_length=20_000)
+
+
+class UseTableRequest(BaseModel):
+    filename: str = Field(default="paste.txt", max_length=200)
+    text: str | None = Field(default=None, max_length=2_000_000)
+    content_base64: str | None = Field(default=None, max_length=12_000_000)
 
 
 class OwnerExplainRequest(BaseModel):
@@ -4310,6 +4317,147 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
         )
         summary = await asyncio.to_thread(services.build_transcripts.summary, build_id)
         return {"build_id": build_id, "summary": summary, "records": records}
+
+    # ── 使用者通道：一应用一码，链接即交付（永不出示总钥匙） ──
+
+    async def _require_use_access(application_id: str, code: str) -> None:
+        if not await services.workflow_store.verify_access_code(application_id, code):
+            raise HTTPException(403, "访问码不对或已更换——找给你链接的人要新链接")
+
+    @app.post(
+        "/api/v1/applications/{application_id}/access-code",
+        dependencies=[Depends(require_token)],
+    )
+    async def rotate_application_access_code(application_id: str) -> dict[str, Any]:
+        try:
+            code = await services.workflow_store.rotate_access_code(application_id)
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+        return {
+            "application_id": application_id,
+            "code": code,
+            "use_path": f"/use/{application_id}?code={code}",
+        }
+
+    @app.get("/api/v1/use/{application_id}/definition")
+    async def use_definition(application_id: str, code: str = "") -> dict[str, Any]:
+        await _require_use_access(application_id, code)
+        try:
+            definition = await customer_runtime_definition(application_id)
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+        application = await services.workflow_store.get_application(application_id)
+        definition["application_name"] = application.get("name", "")
+        report = acceptance_pm.load_report(services.settings.data_dir, application_id)
+        if report:
+            definition["acceptance"] = {
+                "accepted": bool(report.get("accepted")),
+                "stamp": report.get("stamp"),
+                "passed_cases": report.get("passed_cases"),
+                "total_cases": len(report.get("cases") or []),
+            }
+        return definition
+
+    @app.post("/api/v1/use/{application_id}/runs", status_code=202)
+    async def use_create_run(
+        application_id: str, body: WorkflowRunRequest, code: str = ""
+    ) -> dict[str, Any]:
+        await _require_use_access(application_id, code)
+        try:
+            body.use_draft = False
+            return await services.workflow_runtime.create_run(application_id, body)
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+        except (ValueError, RuntimeError) as error:
+            raise HTTPException(422, str(error)) from error
+
+    async def _use_run(application_id: str, run_id: str) -> dict[str, Any]:
+        try:
+            run = await services.workflow_store.get_run(run_id)
+        except KeyError as error:
+            raise HTTPException(404, str(error)) from error
+        if str(run.get("application_id")) != application_id:
+            raise HTTPException(404, "这个运行不属于该应用")
+        return run
+
+    @app.get("/api/v1/use/{application_id}/runs/{run_id}")
+    async def use_get_run(application_id: str, run_id: str, code: str = "") -> dict[str, Any]:
+        await _require_use_access(application_id, code)
+        run = await _use_run(application_id, run_id)
+        return project_runtime_run(run)
+
+    @app.post("/api/v1/use/{application_id}/runs/{run_id}/resume")
+    async def use_resume_run(
+        application_id: str, run_id: str, body: ResumeRunRequest, code: str = ""
+    ) -> dict[str, Any]:
+        await _require_use_access(application_id, code)
+        await _use_run(application_id, run_id)
+        try:
+            return project_runtime_run(
+                await services.workflow_runtime.resume(run_id, body.values)
+            )
+        except (KeyError, ValueError, RuntimeError) as error:
+            raise HTTPException(422, str(error)) from error
+
+    @app.post("/api/v1/use/{application_id}/parse-table")
+    async def use_parse_table(
+        application_id: str, body: UseTableRequest, code: str = ""
+    ) -> dict[str, Any]:
+        await _require_use_access(application_id, code)
+        from .table_intake import TableIntakeError, parse_table
+
+        try:
+            data = base64.b64decode(body.content_base64) if body.content_base64 else None
+            return parse_table(body.filename, data=data, text=body.text)
+        except TableIntakeError as error:
+            raise HTTPException(422, str(error)) from error
+
+    def _use_artifact_dir(run_id: str) -> Path:
+        # 运行结束后工作区边界已释放，这里做无状态解析：
+        # 运行期的产物落在 workspace_root 下（沙盒边界），旧数据可能在进程 CWD。
+        candidates = [
+            Path(services.settings.workspace_root) / ".workflow-run-artifacts" / run_id,
+            Path.cwd() / ".workflow-run-artifacts" / run_id,
+        ]
+        for candidate in candidates:
+            if candidate.is_dir():
+                return candidate
+        raise FileNotFoundError(run_id)
+
+    @app.get("/api/v1/use/{application_id}/runs/{run_id}/artifacts")
+    async def use_list_artifacts(
+        application_id: str, run_id: str, code: str = ""
+    ) -> list[dict[str, Any]]:
+        await _require_use_access(application_id, code)
+        await _use_run(application_id, run_id)
+        try:
+            folder = await asyncio.to_thread(_use_artifact_dir, run_id)
+        except Exception:
+            return []
+        items: list[dict[str, Any]] = []
+        for path in sorted(folder.rglob("*")):
+            if path.is_file():
+                items.append({
+                    "name": str(path.relative_to(folder)),
+                    "size": path.stat().st_size,
+                })
+        return items
+
+    @app.get("/api/v1/use/{application_id}/runs/{run_id}/artifacts/{artifact_path:path}")
+    async def use_download_artifact(
+        application_id: str, run_id: str, artifact_path: str, code: str = ""
+    ) -> Any:
+        from fastapi.responses import FileResponse
+
+        await _require_use_access(application_id, code)
+        await _use_run(application_id, run_id)
+        folder = await asyncio.to_thread(_use_artifact_dir, run_id)
+        target = (folder / artifact_path).resolve()
+        if folder.resolve() not in target.parents and target != folder.resolve():
+            raise HTTPException(404, "文件不存在")
+        if not target.is_file():
+            raise HTTPException(404, "文件不存在")
+        return FileResponse(target, filename=target.name)
 
     # ── 监理（按需受邀的第二个智能体）：出卷 / 监考 / 解释 / 巡查 ──
 

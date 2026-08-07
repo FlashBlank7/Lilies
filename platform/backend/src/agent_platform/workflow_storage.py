@@ -212,6 +212,12 @@ class WorkflowStorage:
                   updated_at TEXT NOT NULL,
                   FOREIGN KEY(application_id) REFERENCES applications(id) ON DELETE CASCADE
                 );
+                CREATE TABLE IF NOT EXISTS application_access_codes (
+                  application_id TEXT PRIMARY KEY,
+                  code TEXT NOT NULL,
+                  created_at TEXT NOT NULL,
+                  FOREIGN KEY(application_id) REFERENCES applications(id) ON DELETE CASCADE
+                );
                 CREATE TABLE IF NOT EXISTS workflow_runs (
                   id TEXT PRIMARY KEY,
                   application_id TEXT NOT NULL,
@@ -1386,6 +1392,50 @@ class WorkflowStorage:
                     now,
                 ),
             )
+
+    # ── 使用者访问码：一应用一码，链接即交付 ──
+
+    async def rotate_access_code(self, application_id: str) -> str:
+        import secrets
+
+        code = secrets.token_urlsafe(9).replace("_", "a").replace("-", "b")[:12]
+        await asyncio.to_thread(self._set_access_code_sync, application_id, code)
+        return code
+
+    def _set_access_code_sync(self, application_id: str, code: str) -> None:
+        with self.storage._connect() as conn:
+            row = conn.execute(
+                "SELECT id FROM applications WHERE id=?", (application_id,)
+            ).fetchone()
+            if not row:
+                raise KeyError(f"application not found: {application_id}")
+            conn.execute(
+                """INSERT INTO application_access_codes(application_id, code, created_at)
+                   VALUES(?,?,?)
+                   ON CONFLICT(application_id) DO UPDATE SET code=excluded.code,
+                     created_at=excluded.created_at""",
+                (application_id, code, utc_now()),
+            )
+
+    async def get_access_code(self, application_id: str) -> str | None:
+        row = await asyncio.to_thread(
+            self.storage._get_one_or_none,
+            "SELECT code FROM application_access_codes WHERE application_id=?",
+            (application_id,),
+        ) if hasattr(self.storage, "_get_one_or_none") else None
+        if row is None:
+            def _fetch() -> Any:
+                with self.storage._connect() as conn:
+                    return conn.execute(
+                        "SELECT code FROM application_access_codes WHERE application_id=?",
+                        (application_id,),
+                    ).fetchone()
+            row = await asyncio.to_thread(_fetch)
+        return row["code"] if row else None
+
+    async def verify_access_code(self, application_id: str, code: str) -> bool:
+        stored = await self.get_access_code(application_id)
+        return bool(stored) and bool(code) and stored == code
 
     async def fail_interrupted_runs(self) -> None:
         async with self._lock:

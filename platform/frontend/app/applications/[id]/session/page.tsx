@@ -197,6 +197,19 @@ export default function Session({ params }: { params: Promise<{ id: string }> })
         {draft && <small>草稿 r{draft.revision}</small>}
       </div>
       <nav className={styles.links}>
+        <button
+          className={styles.share}
+          onClick={() => {
+            void api<{ code: string; use_path: string }>(`/api/v1/applications/${id}/access-code`, { method: 'POST', body: '{}' })
+              .then(result => {
+                const url = `${window.location.origin}/use/${id}?code=${result.code}`
+                void navigator.clipboard?.writeText(url)
+                setNotice(`使用链接已复制（旧链接同时失效）：${url}`)
+              })
+              .catch(error => setNotice(String(error)))
+          }}
+          type="button"
+        >分享给使用者</button>
         <Link href={`/applications/${id}/pm`}>请监理</Link>
         <Link href={`/applications/${id}`}>画布编辑</Link>
         <Link href={`/runtime/${id}`}>试运行</Link>

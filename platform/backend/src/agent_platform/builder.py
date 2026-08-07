@@ -163,6 +163,10 @@ Core rules:
 - If you declare Start inputs, at least one downstream business-critical node must actually use them
   via "$inputs" or the Start node output. Search queries, prompts, HTTP params, and Agent tasks must
   incorporate user-provided inputs instead of ignoring them behind hard-coded text.
+- Every Start input must carry a Chinese business label AND an example value the end user can imitate
+  (e.g. {"name": "bank_lines", "label": "银行流水", "type": "array", "example": [{"日期": "2026-08-01",
+  "单号": "PO-1", "金额": 1200}]}). Ordinary users see only labels and examples — an unlabeled input
+  is an unusable input.
 - For mutually exclusive branch outputs consumed by Variable Aggregator, set "optional": true inside the
   reference so a skipped branch resolves to null instead of failing.
 - A valid graph has exactly one start, at least one end/answer, no implicit cycles, and no unreachable nodes.

@@ -79,6 +79,7 @@ _INPUT_KEYS = frozenset(
     {
         "default",
         "description",
+        "example",
         "label",
         "name",
         "required",
