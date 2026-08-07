@@ -47,7 +47,10 @@ class Settings(BaseSettings):
     scheduler_worker_offload_enabled: bool = False
     templates_dir: Path | None = None
     platform_harness_max_active_tasks: int = 100
-    platform_harness_max_model_calls_per_task: int = 100
+    # Lifetime runaway guard per build/task. Conversational delivery means many
+    # owner-driven resume rounds on one build, so this must fit a long
+    # collaboration, not just one build segment.
+    platform_harness_max_model_calls_per_task: int = 400
     platform_harness_max_tool_calls_per_task: int = 200
     platform_harness_max_node_executions_per_task: int = 1000
     platform_harness_max_model_calls_per_owner: int = 0
