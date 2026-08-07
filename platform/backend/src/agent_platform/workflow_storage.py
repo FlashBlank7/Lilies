@@ -1014,6 +1014,51 @@ class WorkflowStorage:
             "evidence": evidence,
         }
 
+    MAX_MODULE_REFERENCE_DEPTH = 3
+    _WORKFLOW_REF_PATTERN = re.compile(r"workflow:([0-9a-fA-F-]{8,64})")
+
+    @classmethod
+    def referenced_workflow_ids(cls, snapshot: Any) -> set[str]:
+        """本快照通过 workflow:<id> 工具引用的其它应用。"""
+
+        try:
+            blob = snapshot.model_dump_json() if hasattr(snapshot, "model_dump_json") else json.dumps(snapshot, default=str)
+        except Exception:
+            blob = str(snapshot)
+        return set(cls._WORKFLOW_REF_PATTERN.findall(blob))
+
+    def _assert_no_module_cycle_sync(self, application_id: str, snapshot: Any) -> None:
+        """发布护栏：模块引用不许成环、链深不许超限（A 用 B 用 A 会互相等死）。"""
+
+        start_refs = self.referenced_workflow_ids(snapshot)
+        if not start_refs:
+            return
+        stack: list[tuple[str, tuple[str, ...]]] = [
+            (ref, (application_id, ref)) for ref in start_refs
+        ]
+        seen: set[str] = set()
+        while stack:
+            current, path = stack.pop()
+            if current == application_id:
+                raise PublishGateError(
+                    "模块引用成环：" + " → ".join(path)
+                    + "。请断开其中一环（引用只能指向不依赖自己的已发布工作流）。"
+                )
+            if len(path) - 1 >= self.MAX_MODULE_REFERENCE_DEPTH:
+                raise PublishGateError(
+                    f"模块引用链超过 {self.MAX_MODULE_REFERENCE_DEPTH} 层：" + " → ".join(path)
+                    + "。层层转包会让运行不可预算，请扁平化。"
+                )
+            if current in seen:
+                continue
+            seen.add(current)
+            try:
+                version = self._get_version_sync(current, None)
+            except KeyError:
+                continue  # 引用了未发布/不存在的应用：运行时自会报错，这里只管环
+            for ref in self.referenced_workflow_ids(version["snapshot"]):
+                stack.append((ref, path + (ref,)))
+
     async def publish(
         self,
         application_id: str,
@@ -1022,6 +1067,10 @@ class WorkflowStorage:
         execution_policy_snapshot: ExecutionPolicySnapshot | None = None,
     ) -> dict[str, Any]:
         async with self._lock:
+            draft = await asyncio.to_thread(self._get_draft_sync, application_id)
+            await asyncio.to_thread(
+                self._assert_no_module_cycle_sync, application_id, draft["snapshot"]
+            )
             return await asyncio.to_thread(
                 self._publish_sync,
                 application_id,

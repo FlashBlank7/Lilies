@@ -103,6 +103,8 @@ class BlockDefinition(BaseModel):
     claude_architecture_mapping: str | None = None
     composability_constraints: list[str] = Field(default_factory=list)
     editor: dict[str, Any] = Field(default_factory=dict)
+    # 拖到画布上的出生配置：保证能通过校验的最小合法骨架（后端单一事实源）。
+    default_config: dict[str, Any] = Field(default_factory=dict)
 
 
 class Position(BaseModel):

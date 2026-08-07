@@ -4,7 +4,7 @@ from collections import defaultdict, deque
 from typing import Any, Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
 from .event_automation import DurableEventTimerConfig
 from .knowledge_rag import (
@@ -1927,6 +1927,52 @@ class BlockRegistry:
             return _customer_system_embedding_template(prefix=prefix, x=x, y=y)
         raise KeyError(f"unknown workflow template: {template_name}")
 
+    MAX_CONTAINER_DEPTH = 2
+
+    def _human_config_error(self, node: NodeSpec, error: ValidationError) -> ValueError:
+        """把 Pydantic 校验错误翻成业主能读的中文（字段名→编辑器标签）。"""
+
+        definition = self.get(node.type)
+        i18n = definition.editor.get("i18n", {}).get("zh", {})
+        zh_title = i18n.get("title") or definition.title
+        labels = {
+            str(field.get("path")): str(field.get("label_zh") or field.get("label") or field.get("path"))
+            for field in definition.editor.get("fields", [])
+        }
+        missing: list[str] = []
+        invalid: list[str] = []
+        for item in error.errors():
+            loc = item.get("loc") or ()
+            top = str(loc[0]) if loc else "config"
+            label = labels.get(top, top)
+            pretty = label if label == top else f"{label}（{top}）"
+            if item.get("type") == "missing":
+                missing.append(pretty)
+            else:
+                invalid.append(f"{pretty}：{item.get('msg', 'invalid')}")
+        parts: list[str] = []
+        if missing:
+            parts.append("还差这些没填：" + "、".join(dict.fromkeys(missing)))
+        if invalid:
+            parts.append("这些填得不对：" + "；".join(list(dict.fromkeys(invalid))[:4]))
+        detail = "；".join(parts) or "配置未通过校验"
+        return ValueError(f"积木「{zh_title}」{detail}")
+
+    @classmethod
+    def _container_depth(cls, config: Any, depth: int = 1) -> int:
+        nested = (
+            ((config or {}).get("workflow") or {}).get("nodes")
+            if isinstance(config, dict)
+            else None
+        )
+        deepest = depth
+        for child in nested or []:
+            if isinstance(child, dict) and child.get("type") in ("iteration", "loop"):
+                deepest = max(
+                    deepest, cls._container_depth(child.get("config") or {}, depth + 1)
+                )
+        return deepest
+
     def validate_node(self, node: NodeSpec) -> BaseModel:
         definition = self.get(node.type)
         if not definition.available:
@@ -1935,7 +1981,19 @@ class BlockRegistry:
             raise ValueError(
                 f"unsupported block version for {node.type}: {node.block_version}, expected {definition.version}"
             )
-        return self._config_models[node.type].model_validate(node.config)
+        if node.type in ("iteration", "loop"):
+            depth = self._container_depth(
+                node.config if isinstance(node.config, dict) else {}
+            )
+            if depth > self.MAX_CONTAINER_DEPTH:
+                raise ValueError(
+                    f"容器嵌套超过 {self.MAX_CONTAINER_DEPTH} 层（当前 {depth} 层）。"
+                    "循环里再套循环通常说明该拆成两步或改用批量积木；请重构而不是加深。"
+                )
+        try:
+            return self._config_models[node.type].model_validate(node.config)
+        except ValidationError as error:
+            raise self._human_config_error(node, error) from error
 
     def validate_workflow(self, workflow: WorkflowSpec, *, nested: bool = False) -> list[str]:
         errors: list[str] = []
@@ -2050,6 +2108,202 @@ class BlockRegistry:
         return source == ValueType.any or target == ValueType.any or source == target
 
 
+def _resolve_schema_ref(schema: dict[str, Any], defs: dict[str, Any]) -> dict[str, Any]:
+    ref = schema.get("$ref")
+    if isinstance(ref, str) and ref.startswith("#/$defs/"):
+        return defs.get(ref.split("/")[-1], {})
+    return schema
+
+
+def _skeleton_from_schema(
+    schema: dict[str, Any], defs: dict[str, Any], depth: int = 0
+) -> Any:
+    """从 JSON Schema 生成"必填项齐全"的最小骨架值。
+
+    目标是通过强类型校验（可以是占位语义），让"拖到画布"永远合法出生；
+    语义完善交给编辑器引导。生成器覆盖不了的（跨字段校验等）走覆盖表。
+    """
+
+    if depth > 8:
+        return {}
+    schema = _resolve_schema_ref(schema, defs)
+    if "const" in schema:
+        return schema["const"]
+    if isinstance(schema.get("enum"), list) and schema["enum"]:
+        return schema["enum"][0]
+    for key in ("anyOf", "oneOf"):
+        options = schema.get(key)
+        if isinstance(options, list) and options:
+            non_null = [
+                item for item in options
+                if _resolve_schema_ref(item, defs).get("type") != "null"
+            ]
+            return _skeleton_from_schema(non_null[0] if non_null else options[0], defs, depth + 1)
+    if "default" in schema and schema["default"] is not None:
+        return schema["default"]
+    schema_type = schema.get("type")
+    if schema_type == "object" or "properties" in schema:
+        result: dict[str, Any] = {}
+        properties = schema.get("properties", {})
+        for name in schema.get("required", []):
+            result[name] = _skeleton_from_schema(properties.get(name, {}), defs, depth + 1)
+        return result
+    if schema_type == "array":
+        minimum_items = int(schema.get("minItems", 0) or 0)
+        if minimum_items <= 0:
+            return []
+        item_schema = schema.get("items", {})
+        return [
+            _skeleton_from_schema(item_schema, defs, depth + 1)
+            for _ in range(min(minimum_items, 4))
+        ]
+    if schema_type == "string":
+        placeholder = "placeholder"
+        minimum_length = int(schema.get("minLength", 0) or 0)
+        if minimum_length > len(placeholder):
+            placeholder = placeholder + "x" * (minimum_length - len(placeholder))
+        max_length = schema.get("maxLength")
+        if isinstance(max_length, int) and len(placeholder) > max_length:
+            placeholder = placeholder[:max_length]
+        return placeholder
+    if schema_type in ("integer", "number"):
+        low = schema.get("minimum")
+        if low is None and schema.get("exclusiveMinimum") is not None:
+            low = schema["exclusiveMinimum"] + (1 if schema_type == "integer" else 0.001)
+        value = low if low is not None else (0 if schema_type == "integer" else 0.0)
+        high = schema.get("maximum")
+        if high is not None and value > high:
+            value = high
+        return int(value) if schema_type == "integer" else float(value)
+    if schema_type == "boolean":
+        return False
+    if schema_type == "null":
+        return None
+    return {}
+
+
+def build_default_config(config_model: type[BaseModel]) -> dict[str, Any]:
+    schema = config_model.model_json_schema()
+    skeleton = _skeleton_from_schema(schema, schema.get("$defs", {}))
+    return skeleton if isinstance(skeleton, dict) else {}
+
+
+def _input_ref(*path: str) -> dict[str, Any]:
+    return {"$ref": {"node_id": "$inputs", "path": list(path)}}
+
+
+# 跨字段校验、语义化骨架等生成器覆盖不了的出生配置（原前端手抄表迁入，单一事实源）。
+_DEFAULT_CONFIG_OVERRIDES: dict[str, dict[str, Any]] = {
+    "start": {"inputs": []},
+    "schedule_trigger": {"timezone": "Asia/Tokyo", "hour": 8, "minute": 0, "inputs": {}},
+    "llm": {"system": "You are a helpful assistant.", "prompt": _input_ref("query")},
+    "claude_agent": {"agent_id": "", "task": _input_ref("query")},
+    "tool": {"tool_name": "Read", "input": {}},
+    "if_else": {
+        "cases": [{"id": "true", "conditions": [{"value": True, "operator": "equals", "expected": True}]}],
+        "default_branch": "else",
+    },
+    "question_classifier": {"input": _input_ref("query"), "classes": ["class_a", "class_b"]},
+    "parameter_extractor": {"input": _input_ref("query"), "fields": [{"name": "value", "type": "string"}]},
+    "template_transform": {"template": "{{ value }}", "variables": {"value": ""}},
+    "variable_assigner": {"assignments": {}},
+    "variable_aggregator": {"variables": [None], "mode": "first_non_null"},
+    "http_request": {"method": "GET", "url": "https://example.com", "headers": {}, "query": {}},
+    "web_collection": {
+        "sources": [],
+        "allowed_hosts": ["configure.invalid"],
+        "permission_basis": "Configure approved sources and permission basis before running.",
+        "respect_robots": True,
+        "robots_failure_policy": "deny",
+        "timeout_seconds": 20,
+        "max_content_bytes": 1_000_000,
+        "max_sources": 20,
+        "fail_on_source_error": False,
+    },
+    "collection_digest": {"collection": [], "topic": "Daily collection", "include_unchanged": False, "max_items": 20},
+    "json_schema_validate": {"value": {}, "schema": {"type": "object"}, "max_errors": 25},
+    "regex_extract": {
+        "text": "",
+        "fields": [{"name": "value", "pattern": "^(.{1,1000})$", "group": 1, "type": "string", "required": True, "flags": []}],
+    },
+    "record_deduplicate": {"records": [], "key_paths": [["id"]], "missing_key_policy": "error"},
+    "record_match": {
+        "source": {},
+        "candidates": [],
+        "conditions": [{"name": "id", "source_path": ["id"], "candidate_path": ["id"], "comparator": "exact", "weight": 1, "required": True}],
+        "conflict_checks": [],
+        "min_score": 1,
+        "ambiguity_threshold": 0,
+        "result_limit": 20,
+    },
+    "typed_json_artifact": {"value": {}, "filename": "records.json", "lineage": []},
+    "typed_workbook": {
+        "spec": {"sheets": [{"name": "Results", "columns": [{"key": "value", "header": "Value", "type": "string", "nullable": False}], "rows": []}]},
+        "filename": "results.xlsx",
+        "formula_policy": "reject",
+        "lineage": [],
+    },
+    "connector_action": {
+        "connector_id": "placeholder-connector", "connector_version": 1,
+        "operation_id": "placeholder-operation", "tenant_id": "placeholder-tenant",
+        "actor_id": "placeholder-actor", "actor_roles": [], "profile_id": "placeholder-profile",
+        "payload": {}, "idempotency_key": "placeholder-key-0001",
+        "authorization_id": "", "execution_mode": "dry_run",
+    },
+    "iteration": {
+        "items": [],
+        "workflow": {
+            "nodes": [
+                {"id": "nested-start", "type": "start", "title": "Nested input", "config": {"inputs": []}, "position": {"x": 40, "y": 80}},
+                {"id": "nested-end", "type": "end", "title": "Nested result", "config": {"outputs": {"item": {"$ref": {"node_id": "$inputs", "path": ["item"], "optional": True}}}}, "position": {"x": 300, "y": 80}},
+            ],
+            "edges": [{"id": "nested-start-end", "source": "nested-start", "target": "nested-end", "source_port": "output", "target_port": "input"}],
+            "viewport": {"x": 0, "y": 0, "zoom": 0.8},
+        },
+        "variables": {},
+        "item_name": "item",
+        "output_node_id": "nested-end",
+        "output_path": [],
+        "parallelism": 4,
+    },
+    "loop": {
+        "workflow": {
+            "nodes": [
+                {"id": "loop-start", "type": "start", "title": "Loop input", "config": {"inputs": []}, "position": {"x": 40, "y": 80}},
+                {"id": "loop-end", "type": "end", "title": "Loop result", "config": {"outputs": {"state": {"$ref": {"node_id": "$inputs", "path": ["loop_state"], "optional": True}}}}, "position": {"x": 300, "y": 80}},
+            ],
+            "edges": [{"id": "loop-start-end", "source": "loop-start", "target": "loop-end", "source_port": "output", "target_port": "input"}],
+            "viewport": {"x": 0, "y": 0, "zoom": 0.8},
+        },
+        "variables": {},
+        "initial_state": None,
+        "state_input_name": "loop_state",
+        "state_update": {"$ref": {"node_id": "loop-end", "path": ["state"], "optional": True}},
+        "feedback_input_name": "tool_feedback",
+        "feedback_value": None,
+        "break_condition": {"value": False, "operator": "equals", "expected": True},
+        "break_value": False,
+        "max_iterations": 10,
+        "output_node_id": "loop-end",
+        "checkpoint_each_iteration": False,
+    },
+    "human_input": {"title": "需要你的输入", "fields": [{"name": "value", "label": "Value", "type": "string"}]},
+    "end": {"outputs": {}},
+    "answer": {"answer": ""},
+}
+
+
+def default_config_for(block_type: str, config_model: type[BaseModel]) -> dict[str, Any]:
+    override = _DEFAULT_CONFIG_OVERRIDES.get(block_type)
+    candidate = override if override is not None else build_default_config(config_model)
+    try:
+        config_model.model_validate(candidate)
+    except Exception:
+        # 出生配置必须尽量合法；测试逼所有积木全过，这里保持容错不炸注册。
+        pass
+    return candidate
+
+
 def _definition(
     block_type: str,
     title: str,
@@ -2075,6 +2329,7 @@ def _definition(
         category=category,
         block_kind=block_kind,
         config_schema=config.model_json_schema(),
+        default_config=default_config_for(block_type, config),
         input_ports=[PortDefinition(name=name, value_type=value_type) for name, value_type in inputs],
         output_ports=[
             PortDefinition(

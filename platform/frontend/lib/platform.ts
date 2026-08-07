@@ -196,6 +196,7 @@ export type Block = {
   title: string
   description: string
   category: string
+  default_config?: Record<string, unknown>
   block_kind?: 'business_workflow' | 'agent_architecture' | 'legacy_compatibility'
   manual_summary?: string
   when_to_use?: string[]
