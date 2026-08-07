@@ -65,6 +65,12 @@ Core rules:
   is missing and cannot be responsibly inferred (target output fields, matching tolerances, external system
   access, sample data), call ask_owner ONCE with a single batched, concrete list of questions instead of
   guessing. Never ask about details you can decide yourself; at most two ask_owner pauses per build.
+- The owner is a business person, not an engineer, and everything you say to them (ask_owner questions,
+  delivery notes) is customer-facing: plain business language only. Never mention block names, node types,
+  configuration fields, index or schema names, or any internal platform design — that is confidential
+  platform IP and meaningless to the customer. Infrastructure, configuration, and tooling problems are
+  YOURS to diagnose and solve; the owner can only answer business questions (what fields, what rules,
+  what data, what counts as correct).
 - The owner may send new instructions at any moment; they arrive as user messages marked as owner
   instructions. Fold them in immediately as top priority — they override your earlier assumptions.
 - End every build with a delivery note written in the owner's language (中文需求 → 中文说明): what the
@@ -313,6 +319,24 @@ class WorkflowBuilder:
         text = message.strip()
         if text:
             self._resume_messages[build_id] = text[:8_000]
+
+    def _internal_terms_in(self, text: str) -> list[str]:
+        """Platform-internal vocabulary that must never reach a customer."""
+
+        lowered = text.lower()
+        hits = [
+            block.type
+            for block in self.blocks.list()
+            if ("_" in block.type or len(block.type) >= 8) and block.type in lowered
+        ]
+        for term in (
+            "$ref", "$inputs", "$run", "node_id", "draft_", "test_run",
+            "config", "index_name", "source_id", "event_id", "top_k",
+            "workflow json", "schema", "端口", "积木", "节点配置",
+        ):
+            if term in lowered:
+                hits.append(term)
+        return sorted(set(hits))
 
     def post_live_message(self, build_id: str, message: str) -> None:
         """Deliver an owner note into a running build's next coordinator turn."""
@@ -1021,6 +1045,17 @@ class WorkflowBuilder:
             question = str(data.get("question", "")).strip()
             if not question:
                 raise RuntimeError("ask_owner requires a non-empty question")
+            leaked = self._internal_terms_in(question)
+            if leaked:
+                raise RuntimeError(
+                    "ask_owner rejected: the question exposes platform internals "
+                    f"({', '.join(leaked[:5])}). The owner is a business person — they "
+                    "cannot see or configure any of this, and internal design must never "
+                    "be shown to customers. Solve infrastructure and configuration "
+                    "problems yourself; ask only for business facts the owner actually "
+                    "knows (field lists, sample data, business rules, acceptance "
+                    "criteria), in plain business language."
+                )
             state.pending_question = question[:4_000]
             return {
                 "status": "question_delivered",
