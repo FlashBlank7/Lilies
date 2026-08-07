@@ -542,3 +542,25 @@ async def test_sync_auto_creates_missing_index_so_workflows_are_self_contained(
         ),
     )
     assert result["results"], "auto-created index must serve retrieval after sync"
+
+
+@pytest.mark.asyncio
+async def test_list_source_ids_supports_replace_semantics(tmp_path: Path) -> None:
+    service = KnowledgeIndexService(tmp_path / "knowledge.db")
+    await service.initialize()
+    await service.sync(
+        "runtime-kb",
+        KnowledgeSyncRequest(documents=_documents(), event_id="seed-001"),
+    )
+    existing = await service.list_source_ids("runtime-kb")
+    assert sorted(existing) == ["finance", "holidays", "safety"]
+
+    keep = [item for item in _documents() if item.source_id == "safety"]
+    stale = sorted(set(existing) - {"safety"})
+    await service.sync(
+        "runtime-kb",
+        KnowledgeSyncRequest(
+            documents=keep, deleted_source_ids=stale, event_id="replace-002"
+        ),
+    )
+    assert await service.list_source_ids("runtime-kb") == ["safety"]

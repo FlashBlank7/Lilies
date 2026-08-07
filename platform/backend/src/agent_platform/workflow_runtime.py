@@ -1811,6 +1811,16 @@ class WorkflowRuntime:
             documents = self._resolve(config.documents, context)
             deleted_source_ids = self._resolve(config.deleted_source_ids, context)
             event_id = self._resolve(config.event_id, context)
+            if config.replace:
+                incoming = {
+                    str(item.get("source_id") or item.get("title") or "")
+                    for item in (documents if isinstance(documents, list) else [])
+                    if isinstance(item, dict)
+                }
+                existing = await self.knowledge_indexes.list_source_ids(config.index_name)
+                stale = sorted(set(existing) - incoming)
+                combined = {str(item) for item in (deleted_source_ids or [])} | set(stale)
+                deleted_source_ids = sorted(combined - incoming)
             result = await self.knowledge_indexes.sync(
                 config.index_name,
                 KnowledgeSyncRequest.model_validate(

@@ -243,6 +243,10 @@ class KnowledgeIndexSyncConfig(BaseModel):
     documents: Any
     deleted_source_ids: Any = Field(default_factory=list)
     event_id: Any
+    # replace=True: this sync's documents ARE the whole corpus — anything else
+    # in the index is deleted first. The right mode when the workflow input
+    # provides the documents each run (stale runs must not pollute retrieval).
+    replace: bool = False
 
 
 class KnowledgeRetrievalConfig(BaseModel):
@@ -492,6 +496,21 @@ class KnowledgeIndexService:
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }
+
+    async def list_source_ids(self, name: str) -> list[str]:
+        async with self._lock:
+            return await asyncio.to_thread(self._list_source_ids_sync, name)
+
+    def _list_source_ids_sync(self, name: str) -> list[str]:
+        connection = self._connect()
+        try:
+            rows = connection.execute(
+                "SELECT source_id FROM knowledge_documents WHERE index_name = ?",
+                (name,),
+            ).fetchall()
+            return [row["source_id"] for row in rows]
+        finally:
+            connection.close()
 
     async def sync(self, name: str, request: KnowledgeSyncRequest) -> dict[str, Any]:
         async with self._lock:

@@ -556,7 +556,7 @@ _EDITOR_FIELDS: dict[str, list[dict[str, Any]]] = {
             "label": "Knowledge index",
             "label_zh": "知识索引",
             "control": "text",
-            "description": "A pre-created versioned knowledge index.",
+            "description": "Index name; created automatically on first sync.",
             "required": True,
         },
         {
@@ -566,6 +566,17 @@ _EDITOR_FIELDS: dict[str, list[dict[str, Any]]] = {
             "control": "json",
             "description": "Documents or a workflow reference with source, revision, ACL, and content.",
             "required": True,
+        },
+        {
+            "path": "replace",
+            "label": "Replace whole corpus",
+            "label_zh": "整体替换",
+            "control": "boolean",
+            "description": (
+                "This sync's documents become the entire corpus; stale documents "
+                "from earlier runs are removed. Use when workflow inputs provide "
+                "the documents each run."
+            ),
         },
         {
             "path": "deleted_source_ids",
