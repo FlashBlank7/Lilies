@@ -26,6 +26,7 @@ type Application = {
   content_hash: string
   tested_hash?: string | null
   evidence?: DraftEvidence
+  acceptance?: { accepted: boolean; stamp?: string; passed_cases?: number; total_cases?: number }
   created_at?: string
   updated_at?: string
 }
@@ -548,7 +549,11 @@ export default function Home() {
           : t.runtimeStatusDetailChecking
   const appCardReadiness = (item: Application) => [
     { label: t.appCardDraftState, value: `r${item.draft_revision}`, ready: true },
-    { label: t.appCardAcceptanceState, value: item.evidence?.state === 'current' ? t.evidenceStateCurrent : item.evidence?.state === 'stale' ? t.evidenceStateStale : t.evidenceStateMissing, ready: item.evidence?.state === 'current' },
+    // 业主视角：正式版通过了独立验收，就是"已验收"——构建期草稿证据只在
+    // 没有验收单时兜底展示，且用人话（"发布后有改动"而不是"证据已过期"）。
+    item.acceptance?.accepted
+      ? { label: t.appCardAcceptanceState, value: t.acceptancePassed(item.acceptance.passed_cases ?? 0, item.acceptance.total_cases ?? 0), ready: true }
+      : { label: t.appCardAcceptanceState, value: item.evidence?.state === 'current' ? t.evidenceStateCurrent : item.evidence?.state === 'stale' ? t.evidenceStateStale : t.evidenceStateMissing, ready: item.evidence?.state === 'current' },
     { label: t.appCardPublishState, value: item.active_version ? t.published(item.active_version) : t.draft, ready: Boolean(item.active_version) },
   ]
   const appCardNextAction = (item: Application) => item.active_version

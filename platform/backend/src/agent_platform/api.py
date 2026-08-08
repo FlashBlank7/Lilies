@@ -174,10 +174,6 @@ RUNTIME_ROUTE_CHECKS: dict[str, tuple[str, str]] = {
     ),
     "capability_modules": ("GET", "/api/v1/capability-modules"),
     "capability_evidence": ("GET", "/api/v1/capability-evidence"),
-    "governance_overview": ("GET", "/api/v1/governance/overview"),
-    "governance_usage": ("GET", "/api/v1/governance/usage"),
-    "evaluation_profiles": ("GET", "/api/v1/evaluation/profiles"),
-    "evaluation_plan": ("POST", "/api/v1/applications/{application_id}/evaluation/plan"),
     "durable_jobs": ("GET", "/api/v1/applications/{application_id}/durable-jobs"),
     "connector_manifests": ("GET", "/api/v1/connectors/manifests"),
     "connector_generations": ("GET", "/api/v1/connectors/generations"),
@@ -190,7 +186,6 @@ RUNTIME_ROUTE_CHECKS: dict[str, tuple[str, str]] = {
     ),
     "event_subscriptions": ("GET", "/api/v1/event-subscriptions"),
     "event_timers": ("GET", "/api/v1/event-timers"),
-    "governance_connectors": ("GET", "/api/v1/governance/connectors"),
 }
 
 
@@ -4038,7 +4033,21 @@ def create_app(settings: Settings | None = None, provider: ModelProvider | None 
 
     @app.get("/api/v1/applications", dependencies=[Depends(require_token)])
     async def list_applications() -> list[dict[str, Any]]:
-        return await services.workflow_store.list_applications()
+        applications = await services.workflow_store.list_applications()
+        # 业主关心的是"正式版验收过没有"（监理验收单），不是构建期草稿证据。
+        # 首页卡片用它替换刺眼且工程向的"证据已过期"。
+        for application in applications:
+            report = acceptance_pm.load_report(
+                services.settings.data_dir, str(application.get("id"))
+            )
+            if report:
+                application["acceptance"] = {
+                    "accepted": bool(report.get("accepted")),
+                    "stamp": report.get("stamp"),
+                    "passed_cases": report.get("passed_cases"),
+                    "total_cases": len(report.get("cases") or []),
+                }
+        return applications
 
     @app.get("/api/v1/applications/{application_id}", dependencies=[Depends(require_token)])
     async def get_application(application_id: str) -> dict[str, Any]:
