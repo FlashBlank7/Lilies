@@ -201,6 +201,10 @@ Core rules:
 - Treat draft_validate warnings about disconnected inputs as issues to repair before publishing.
 - Publish only after draft_validate and all mandatory tests pass for the exact current content hash.
 - Do not claim completion before draft_publish returns a version (unless auto-publish is disabled).
+- After publishing, shape what end users see: if the workflow has data-plumbing intermediates, call
+  define_view to hide them (keep business-meaningful stages visible); pick layout "chat" for Q&A-style
+  workflows. A minimal operator profile plus an audit profile is a good default for review-heavy flows.
+  Mention in the delivery note, in owner language, which interface suits which audience.
 """
 
 
@@ -1559,6 +1563,33 @@ class WorkflowBuilder:
                     "assumptions, and anything it cannot do."
                 ),
             }
+        if tool == "define_view":
+            view_id = str(data.get("view_id") or "").strip().lower()
+            if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,39}", view_id):
+                raise RuntimeError(
+                    "view_id must be lowercase letters/digits/dash/underscore, max 40 chars"
+                )
+            name = str(data.get("name") or view_id).strip()[:80]
+            layout = str(data.get("layout") or "auto")
+            if layout not in ("auto", "form", "chat"):
+                raise RuntimeError("layout must be one of: auto, form, chat")
+            requested = [str(item) for item in (data.get("hidden_nodes") or [])][:200]
+            draft = await self.workflow_store.get_draft(application_id)
+            known = {node.id for node in draft["snapshot"].workflow.nodes}
+            hidden = [item for item in requested if item in known]
+            ignored = [item for item in requested if item not in known]
+            saved = await self.workflow_store.upsert_view(
+                application_id, view_id, name=name, layout=layout, hidden_nodes=hidden
+            )
+            return {
+                **saved,
+                "unknown_nodes_ignored": ignored,
+                "use_path_hint": f"/use/{application_id}?code=<访问码>&view={view_id}",
+                "note": (
+                    "Interface profile saved. In the delivery note, tell the owner in "
+                    "business language which interface suits which audience."
+                ),
+            }
         if tool == "build_plan":
             action = str(data["action"])
             if action == "set":
@@ -1713,6 +1744,7 @@ class WorkflowBuilder:
             ToolDefinition(name="test_run", description="Run all mandatory tests against the exact current draft using real providers and tools.", input_schema={"type": "object", "properties": {}}),
             ToolDefinition(name="run_inspect", description="Read the execution ledger of one run (node-level started/completed/failed events with errors). Call it with the run_id from a failing test before editing anything — diagnose from evidence, not guesses.", input_schema={"type": "object", "properties": {"run_id": {"type": "string"}}, "required": ["run_id"]}),
             ToolDefinition(name="draft_publish", description="Publish an immutable version; fails unless current hash passed all mandatory tests.", input_schema={"type": "object", "properties": {"explicit": {"type": "boolean"}}}),
+            ToolDefinition(name="define_view", description="Define a usage-interface profile for end users: which intermediate nodes stay hidden, and the layout (auto/form/chat). The same workflow can carry several profiles (e.g. a minimal operator view and an audit view that exposes business stages). Hidden nodes' outputs never leave the backend.", input_schema={"type": "object", "properties": {"view_id": {"type": "string", "description": "lowercase slug, e.g. operator"}, "name": {"type": "string", "description": "owner-facing Chinese name"}, "layout": {"type": "string", "enum": ["auto", "form", "chat"]}, "hidden_nodes": {"type": "array", "items": {"type": "string"}}}, "required": ["view_id", "name"]}),
             ToolDefinition(name="task", description="Create/list/update shared requirement tasks with owners and dependencies.", input_schema={"type": "object", "properties": {"action": {"enum": ["create", "list", "update"]}, "id": {"type": "integer"}, "subject": {"type": "string"}, "description": {"type": "string"}, "status": {"enum": ["pending", "in_progress", "completed", "blocked"]}, "owner": {"type": "string"}, "blocked_by": {"type": "array", "items": {"type": "integer"}}, "acceptance": {"type": "array", "items": {"type": "string"}}}, "required": ["action"]}),
         ]
         if planning_mode != "disabled":

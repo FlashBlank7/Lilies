@@ -43,6 +43,7 @@ function describeToolCall(tool: string, args: Record<string, unknown>): string {
     case 'draft_remove_edge': return '断开了一条流向'
     case 'draft_inspect': case 'draft_validate': return '核对了当前草稿'
     case 'draft_publish': return '发布了正式版'
+    case 'define_view': return `定义了使用界面方案${quoted}`
     case 'test_add': return '准备了测试用例'
     case 'test_remove': return '清理了测试用例'
     case 'test_run': return '跑了一遍测试'

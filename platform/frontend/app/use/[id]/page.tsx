@@ -62,6 +62,12 @@ function primaryAnswerText(outputs: Record<string, unknown>): string {
   return ''
 }
 
+// 对话记忆：工作流若声明了历史类输入字段，发送时自动带上最近几轮内容。
+const MEMORY_FIELD_NAMES = new Set([
+  'history', 'chat_history', 'conversation', 'conversation_history', 'context',
+  '对话历史', '历史', '上下文',
+])
+
 type TableValue = { columns: string[]; rows: Array<Record<string, unknown>> }
 type HistoryEntry = { run_id: string; at: string; inputs: Record<string, unknown> }
 
@@ -216,13 +222,33 @@ export default function UsePage({ params }: { params: Promise<{ id: string }> })
           throw new Error(`请先填写「${input.label || input.name}」`)
         }
       }
+      if (definition?.view?.layout === 'chat' && memoryField) {
+        const filled = payload[memoryField.name]
+        if (filled === undefined || filled === '') {
+          const recent = chat.slice(-6)
+            .map(message => `${message.role === 'user' ? '用户' : '助手'}：${message.text}`)
+            .join('\n')
+          if (recent) payload[memoryField.name] = recent
+        }
+      }
       const started = await call<{ run_id: string }>('/runs', { method: 'POST', body: JSON.stringify({ inputs: payload }) })
       if (definition?.view?.layout === 'chat') {
         const spoken = Object.entries(payload)
-          .filter(([, value]) => typeof value === 'string' || typeof value === 'number')
+          .filter(([key, value]) => key !== memoryField?.name
+            && (typeof value === 'string' || typeof value === 'number'))
           .map(([key, value]) => inputs.length > 1 ? `${key}: ${String(value)}` : String(value))
           .join('\n') || '（开始处理）'
         setChat(current => [...current, { role: 'user', text: spoken }])
+        // 发送后清空文本输入，像聊天一样
+        setValues(current => {
+          const next = { ...current }
+          for (const input of inputs) {
+            if (!isTableInput(input) && (input.type || 'string') === 'string' && input.name !== memoryField?.name) {
+              delete next[input.name]
+            }
+          }
+          return next
+        })
       }
       const entry: HistoryEntry = { run_id: started.run_id, at: new Date().toLocaleString(), inputs: payload }
       const nextHistory = [entry, ...history].slice(0, 20)
@@ -264,6 +290,10 @@ export default function UsePage({ params }: { params: Promise<{ id: string }> })
 
   const view = definition?.view
   const isChat = view?.layout === 'chat'
+  const memoryField = useMemo(
+    () => isChat ? inputs.find(input => MEMORY_FIELD_NAMES.has(input.name.toLowerCase())) : undefined,
+    [inputs, isChat],
+  )
 
   // 对话布局：运行到达终态时，把结果作为"她的回答"追加进消息流（每次运行只追加一次）。
   useEffect(() => {
@@ -373,8 +403,9 @@ export default function UsePage({ params }: { params: Promise<{ id: string }> })
 
       <section className={styles.card}>
         <h2>{isChat ? '输入' : '填写本次要处理的内容'}</h2>
+        {isChat && memoryField && <p className={styles.hint}>这个对话会自动带上最近几轮的内容，不用重复背景。</p>}
         {inputs.length === 0 && <p className={styles.hint}>这个流程不需要输入，直接开始即可。</p>}
-        {inputs.map(input => {
+        {inputs.filter(input => !(isChat && input.name === memoryField?.name)).map(input => {
           const label = input.label || input.name
           const exampleText = input.example !== undefined && input.example !== null
             ? (typeof input.example === 'string' ? input.example : JSON.stringify(input.example))

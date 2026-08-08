@@ -264,3 +264,66 @@ def test_event_record_lands_in_transcript_as_system_badge(tmp_path: Path) -> Non
     # 事件也计入默认读取窗口（turn=1 > after_turn=0），且不冒充模型轮
     summary = store.summary("b-1")
     assert summary["turn_count"] == 0
+
+
+class DefineViewProvider(ModelProvider):
+    """第 1 轮就定义界面方案（含一个不存在的节点 id），第 2 轮收工。"""
+
+    name = "define-view-provider"
+
+    def __init__(self) -> None:
+        self.calls = 0
+        self.view_result = ""
+
+    def capabilities(self, model: str) -> ProviderCapabilities:
+        return ProviderCapabilities(True, True, True, False, False, 100_000, 8_000)
+
+    async def stream(
+        self, *, model: str, system: str, messages: list[ChatMessage],
+        tools: list[ToolDefinition], max_output_tokens: int, thinking_enabled: bool,
+        effort: str, tool_choice: dict[str, str] | None = None, user_id: str | None = None,
+    ) -> AsyncIterator[StreamEvent]:
+        self.calls += 1
+        yield StreamEvent(type="message_start", data={"message": {"usage": {"input_tokens": 1}}})
+        if self.calls == 1:
+            for event in _tool_use(0, "view-1", "define_view", {
+                "view_id": "operator",
+                "name": "一线极简",
+                "layout": "form",
+                "hidden_nodes": ["ghost-node"],
+            }):
+                yield event
+            yield StreamEvent(type="message_delta", data={
+                "delta": {"stop_reason": "tool_use"}, "usage": {"output_tokens": 1},
+            })
+            return
+        self.view_result = json.dumps([
+            getattr(block, "content", None) or getattr(block, "text", "")
+            for message in messages for block in message.content
+            if getattr(block, "type", "") in ("tool_result", "text")
+        ], ensure_ascii=False, default=str)
+        for event in _text(0, "界面已定义。"):
+            yield event
+        yield StreamEvent(type="message_delta", data={
+            "delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 1},
+        })
+
+
+def test_builder_define_view_lands_in_storage(tmp_path: Path) -> None:
+    provider = DefineViewProvider()
+    app = create_app(_settings(tmp_path), provider)
+    with TestClient(app) as client:
+        build_id = _start_build(client, "给一线操作员一个只看结论的界面。")
+        _wait_status(client, build_id, {"succeeded", "needs_attention", "failed", "ready", "published"})
+
+        application_id = client.get(f"/api/v1/builds/{build_id}", headers=HEADERS).json()["application_id"]
+        views = client.get(
+            f"/api/v1/applications/{application_id}/views", headers=HEADERS
+        ).json()["views"]
+        assert len(views) == 1
+        view = views[0]
+        assert view["view_id"] == "operator"
+        assert view["name"] == "一线极简"
+        # 不存在的节点 id 被过滤，不进方案，也不让调用失败
+        assert view["hidden_nodes"] == []
+        assert "unknown_nodes_ignored" in provider.view_result
