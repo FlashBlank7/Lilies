@@ -113,7 +113,7 @@ export default function UsePage({ params }: { params: Promise<{ id: string }> })
       throw new Error(typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail))
     }
     return response.json() as Promise<T>
-  }, [id, code])
+  }, [id, code, viewId])
 
   // 访问码：URL ?code= 优先，其次本地记忆；?view= 决定界面方案
   useEffect(() => {
